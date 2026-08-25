@@ -216,3 +216,37 @@ from the one that had actually been typed. And describing *why* a control was ha
 own disclosure risk: an explanation precise enough to be useful ("it collides with a
 common term in this domain") can narrow the value to a single candidate. Write the
 mechanism, not the specimen.
+
+## 2026-08-25 — A pull request body is a public surface no hook can gate
+
+A personal identifier was published in a pull request body. Every check in this project
+passed, because a pull request body is written outside git: the pre-commit hook cannot
+see it, and no file or commit-message scan covers it. The identifier had been correctly
+kept out of the code, the tests and the commit messages, and went out through the one
+door nobody had thought to watch.
+
+Two consequences, and the second is the one that cost something.
+
+CI now scans the title and body from the Actions event payload. That is a backstop, not a
+gate: it runs after publication, so the text is already public for however long the run
+takes. Nothing can gate this surface before the fact, which is why the rule in CLAUDE.md
+matters more than the check -- **write the mechanism, never the specimen**. A worked
+example with a real value is the leak; a description of the shape is not.
+
+Editing the body does not undo it. GitHub retains edit history for pull request
+descriptions, visible to anyone who can read the repository, and users cannot delete a
+pull request. The remedy was to delete the repository and push the same commits to a
+fresh one, which was cheap only because the repository was a day old and its reasoning
+lives in DECISIONS, JOURNAL and CHANGELOG rather than in pull request threads. It would
+not have been cheap a month later.
+
+One artefact of that: squash-merge subjects carry `(#1)` through `(#5)`, referring to
+pull requests in a repository that no longer exists. Numbering restarted at 1, so those
+suffixes now point at nothing, and a future `(#1)` will be a different change entirely.
+Left as-is deliberately -- rewriting the subjects would change every hash, and PLAN.md
+cites hashes.
+
+Also worth recording, because it is the same failure this project keeps finding: a script
+in this session echoed "deleted" after a delete that had returned 403. It reported success
+without checking the exit code. A check that cannot fail is worse than no check, and that
+applies to the throwaway line in a shell script as much as to the gate.
