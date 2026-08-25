@@ -34,14 +34,14 @@
 
 ## Repository
 
-- Branch `main`, 11 commit(s)
+- Branch `docs/repo-recreated`, 13 commit(s)
 - 48 tracked files, 6 test file(s), 22 decision record(s)
 - Working tree: has uncommitted changes
 
 ## Recent commits
 
+- `cdff819` docs: record the public-surface leak and the repository recreate
+- `2a28636` fix: permit GitHub as a squash-merge committer, never as an author
 - `a7a3ae9` feat: scan the pull request title and body
 - `93de4d0` feat: match word-boundary literals, so a common-word fragment can be listed
 - `b96d505` fix: scan every text file type and the commit message itself (#4)
-- `6ba40aa` fix: close a secret-path gap and replace the audit schedule with evidence (#3)
-- `a17eb46` docs: record how fast a hand-maintained invariant failed (#2)

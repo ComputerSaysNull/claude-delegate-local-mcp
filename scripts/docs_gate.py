@@ -469,8 +469,10 @@ def check_pr_text(event_path: str | None) -> list[Finding]:
     out = []
     out += scan_text("the pull request title", pr.get("title") or "")
     out += scan_text("the pull request body", pr.get("body") or "")
-    if not out:
-        out.append(Finding(SKIP, "public-text", "pull request title and body are clean."))
+    # A clean result reports nothing, as every other check does. Reporting it as SKIP
+    # would collapse the one distinction SKIP exists to preserve: "checked and found
+    # nothing" against "could not check". That ambiguity is how a no-op check comes to
+    # be trusted.
     return out
 
 
