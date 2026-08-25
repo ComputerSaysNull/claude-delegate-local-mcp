@@ -177,7 +177,11 @@ def check_commit_identity(mode: str, diff_range: str | None) -> list[Finding]:
                 continue
             ae, ce, sha = line.split("\x00")
             pairs.append((ae, sha))
-            if ce != ae:
+            # GitHub is the committer on every squash merge it performs. That
+            # is its machinery, not an identity claim, so it is permitted as a
+            # committer and still refused as an author -- the author field is
+            # the claim that matters.
+            if ce != ae and ce != "noreply" + "@github.com":
                 pairs.append((ce, f"{sha} (committer)"))
     out = []
     for addr, where in pairs:

@@ -34,14 +34,14 @@
 
 ## Repository
 
-- Branch `feat/word-boundary-literals`, 10 commit(s)
+- Branch `main`, 11 commit(s)
 - 48 tracked files, 6 test file(s), 22 decision record(s)
 - Working tree: has uncommitted changes
 
 ## Recent commits
 
+- `a7a3ae9` feat: scan the pull request title and body
 - `93de4d0` feat: match word-boundary literals, so a common-word fragment can be listed
 - `b96d505` fix: scan every text file type and the commit message itself (#4)
 - `6ba40aa` fix: close a secret-path gap and replace the audit schedule with evidence (#3)
 - `a17eb46` docs: record how fast a hand-maintained invariant failed (#2)
-- `9a9fe64` docs: check in the branch-protection ruleset and document it (#1)
