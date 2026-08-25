@@ -66,10 +66,19 @@ HOSTPORT_ALLOWED = {
     "your-head-node", "head", "host", "hostname", "some-host", "127.0.0.1",
 }
 
-TEXT_SUFFIXES = {
-    ".py", ".md", ".toml", ".txt", ".yaml", ".yml", ".json", ".cfg", ".ini",
-    ".sh", ".ps1", ".example", "", ".gitignore", ".gitattributes",
+# Extensions that are certainly binary. Everything else is scanned, including file types
+# nobody thought of. This used to be an allowlist of "text" suffixes, which was fail-OPEN:
+# a host literal in a .rst, .ts or .sql file passed silently because the extension was not
+# on the list. An unknown extension must be scanned, not skipped.
+BINARY_SUFFIXES = {
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svgz",
+    ".pdf", ".zip", ".gz", ".bz2", ".xz", ".tar", ".7z", ".whl", ".jar",
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".a", ".class", ".pyc", ".pyd",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".mp3", ".mp4", ".wav", ".avi", ".mov", ".webm",
+    ".db", ".sqlite", ".sqlite3", ".mo",
 }
+MAX_SCAN_BYTES = 2_000_000
 
 
 @dataclass
@@ -99,12 +108,27 @@ def changed_files(mode: str, diff_range: str | None) -> list[str]:
     return [line for line in out.splitlines() if line]
 
 
-def tracked_text_files() -> list[Path]:
+def scannable_files() -> list[Path]:
+    """Every tracked file that is not provably binary.
+
+    Binary detection is by content, not just extension: a NUL byte in the first 8 KiB.
+    Extension alone is a guess, and guessing wrong here means skipping a file that holds
+    the thing being looked for.
+    """
     files = []
-    for rel in run("git", "ls-files").splitlines():
-        p = ROOT / rel
-        if p.exists() and p.suffix.lower() in TEXT_SUFFIXES and p.stat().st_size < 2_000_000:
-            files.append(p)
+    for r in run("git", "ls-files").splitlines():
+        p = ROOT / r
+        if not p.exists() or p.suffix.lower() in BINARY_SUFFIXES:
+            continue
+        try:
+            if p.stat().st_size > MAX_SCAN_BYTES:
+                continue
+            with open(p, "rb") as fh:
+                if b"\x00" in fh.read(8192):
+                    continue
+        except OSError:
+            continue
+        files.append(p)
     return files
 
 
@@ -192,7 +216,7 @@ def content_safe_emails() -> set[str]:
 def check_emails_in_files() -> list[Finding]:
     allowed = set(load_lines(AUTHOR_ALLOWLIST_FILE)) | content_safe_emails()
     out = []
-    for p in tracked_text_files():
+    for p in scannable_files():
         r = rel(p)
         if any(fnmatch.fnmatch(r, g) for g in EMAIL_EXEMPT_GLOBS):
             continue
@@ -211,7 +235,7 @@ def check_emails_in_files() -> list[Finding]:
 def check_host_identifiers() -> list[Finding]:
     literals = load_lines(ROOT / "security" / "forbidden_strings.txt")
     out = []
-    for p in tracked_text_files():
+    for p in scannable_files():
         r = rel(p)
         text = p.read_text(encoding="utf-8", errors="replace")
         for i, line in enumerate(text.splitlines(), 1):
@@ -228,11 +252,36 @@ def check_host_identifiers() -> list[Finding]:
                         BLOCK, "host-identifier",
                         f"{r}:{i} contains {m.group(0)!r}. A hostname is as identifying "
                         f"as an address. Use a placeholder in examples."))
+            # Compare with whitespace normalised, so "Ada  Lovelace" matches
+            # "Ada Lovelace". Harmless for single-word entries, which contain no
+            # whitespace to collapse. Without this the line pass missed the case and the
+            # whole-file pass then suppressed it as an apparent duplicate -- a dedup
+            # guard hiding a genuine finding.
+            flat_line = " ".join(line.split()).lower()
             for lit in literals:
-                if lit.lower() in line.lower():
+                if " ".join(lit.split()).lower() in flat_line:
                     out.append(Finding(BLOCK, "host-identifier",
                                        f"{r}:{i} matches an entry in the local "
                                        f"forbidden_strings list."))
+    # Multi-word literals need a second pass. A name is written across a line break,
+    # or with a double space, far more often than a hostname is -- and the line-by-line
+    # pass above cannot see either. Normalising all whitespace to single spaces catches
+    # both. Single-token literals are already handled and are skipped here.
+    multiword = [lit for lit in literals if len(lit.split()) > 1]
+    if multiword:
+        for p2 in scannable_files():
+            r2 = rel(p2)
+            flat = " ".join(p2.read_text(encoding="utf-8", errors="replace").split()).lower()
+            for lit in multiword:
+                norm = " ".join(lit.split()).lower()
+                if norm in flat and not any(
+                    norm in " ".join(ln.split()).lower()
+                    for ln in p2.read_text(encoding="utf-8", errors="replace").splitlines()
+                ):
+                    out.append(Finding(
+                        BLOCK, "host-identifier",
+                        f"{r2} contains a multi-word entry from the local "
+                        f"forbidden_strings list, split across lines or spacing."))
     if not literals:
         out.append(Finding(SKIP, "host-identifier",
                            "security/forbidden_strings.txt absent, so only the committed "
@@ -274,6 +323,54 @@ def check_never_tracked() -> list[Finding]:
             BLOCK, "never-track",
             f"{path} is tracked or staged and must never be. It holds machine-specific "
             f"values that identify you. Run: git rm --cached {path}"))
+    return out
+
+
+def check_commit_message(mode: str, diff_range: str | None) -> list[Finding]:
+    """Scan the commit message itself.
+
+    CLAUDE.md stated the gate blocked host literals in "code, docs, tests or a commit
+    message". It did not: the only place the message was read was to parse waiver
+    trailers. A document promising protection that does not exist is worse than no
+    promise, because it is relied upon. A message is also the easiest place to leak a
+    hostname -- you are describing the thing you were just debugging.
+    """
+    if mode == "pre-commit":
+        f = ROOT / ".git" / "COMMIT_EDITMSG"
+        texts = [("pending commit", f.read_text(encoding="utf-8", errors="replace"))] if f.exists() else []
+    else:
+        rng = diff_range or "origin/main...HEAD"
+        raw = run("git", "log", "--no-merges", "--format=%h%x1f%B%x1e", rng)
+        texts = []
+        for chunk in raw.split(chr(30)):
+            if chr(31) in chunk:
+                sha, body = chunk.split(chr(31), 1)
+                texts.append((sha.strip(), body))
+
+    literals = load_lines(ROOT / "security" / "forbidden_strings.txt")
+    allowed = set(load_lines(AUTHOR_ALLOWLIST_FILE))
+    out = []
+    for where, text in texts:
+        # A comment line in a commit template is not part of the message.
+        body = chr(10).join(ln for ln in text.splitlines() if not ln.startswith("#"))
+        flat = " ".join(body.split()).lower()
+        for lit in literals:
+            if " ".join(lit.split()).lower() in flat:
+                out.append(Finding(BLOCK, "commit-message",
+                                   f"{where}: the message contains an entry from the "
+                                   f"local forbidden_strings list."))
+                break
+        for pat, label in HOST_PATTERNS:
+            m = re.search(pat, body, re.I)
+            if m:
+                out.append(Finding(BLOCK, "commit-message",
+                                   f"{where}: the message contains what looks like a "
+                                   f"{label}: {m.group(0)!r}."))
+        for m in EMAIL_RE.finditer(body):
+            if m.group(0) not in allowed and not is_content_safe(m.group(0)):
+                out.append(Finding(BLOCK, "commit-message",
+                                   f"{where}: the message contains {m.group(0)!r}, "
+                                   f"which is not an allowlisted address."))
     return out
 
 
@@ -656,6 +753,7 @@ CHECKS = {
     "host-identifier": check_host_identifiers,
     "secret-path": check_secret_paths,
     "never-track": check_never_tracked,
+    "commit-message": check_commit_message,
     "generated-doc": check_generated_docs,
     "budget": check_budgets,
     "adr": check_adr_format,
@@ -717,7 +815,7 @@ def main() -> int:
 
     findings: list[Finding] = []
     for name, fn in CHECKS.items():
-        if name == "identity":
+        if name in ("identity", "commit-message"):
             findings += fn(args.mode, args.diff_range)
         elif name in ("owning-doc", "split-dodge"):
             findings += fn(changed)

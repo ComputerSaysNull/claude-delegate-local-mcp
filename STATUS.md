@@ -34,14 +34,14 @@
 
 ## Repository
 
-- Branch `fix/audit-trigger-and-secret-gap`, 7 commit(s)
+- Branch `fix/scan-coverage`, 8 commit(s)
 - 47 tracked files, 5 test file(s), 22 decision record(s)
 - Working tree: has uncommitted changes
 
 ## Recent commits
 
+- `6ba40aa` fix: close a secret-path gap and replace the audit schedule with evidence (#3)
 - `a17eb46` docs: record how fast a hand-maintained invariant failed (#2)
 - `9a9fe64` docs: check in the branch-protection ruleset and document it (#1)
 - `173375b` feat: add build-time agents and CI
 - `dd32ce2` docs: write both documentation planes and enforce ownership
-- `58f543c` feat: add the roadmap and derive status from it

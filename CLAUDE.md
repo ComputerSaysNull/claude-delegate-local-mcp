@@ -88,7 +88,12 @@ Rules a machine cannot check, so they land here:
 - `bwrap` needs `--symlink usr/lib64 /lib64`; without it nothing dynamically linked runs
   and the error blames the executable rather than the missing loader. (ADR-0021)
 - The head node is configuration. Never a literal in code, docs, tests or a commit
-  message — the gate blocks addresses, private-network hostnames and `host:port` shapes.
+  message — the gate blocks addresses, private-network hostnames and `host:port` shapes
+  in every tracked non-binary file **and in the commit message itself**.
+- Local literals in `security/forbidden_strings.txt` match case-insensitively and as
+  substrings. A multi-word entry matches only the contiguous phrase, so **list the
+  distinctive parts separately too** — a full name alone will not catch a surname
+  written on its own. Never write a real name into an example; use a fictional one.
 
 ## Conventions
 
