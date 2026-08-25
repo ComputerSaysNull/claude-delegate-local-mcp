@@ -163,3 +163,31 @@ The wider lesson, and the third instance of this shape today: a check whose fals
 positives are annoying gets weakened, and a weakened check is how the hole arrives. When
 a check fires on something legitimate, ask whether it is asking the right question before
 adjusting its answer.
+
+## 2026-08-25 — A hand-maintained invariant drifted within the hour of being written
+
+CONTRIBUTING said the gate's email allowlist and gitleaks' "must stay in step -- the gate
+reads one file, gitleaks reads the other". Two hours later the gate was fixed for a false
+positive, gitleaks was not, and CI failed on exactly that divergence.
+
+An hour is about as fast as an invariant can fail, and it failed while the person
+maintaining it was actively thinking about it. That is the argument against this whole
+category of rule: "remember to keep X and Y in step" is not a policy, it is a bet on
+attention, and attention is the resource under most pressure precisely when the invariant
+matters.
+
+The lists are now data files, and `scripts/gen_gitleaks_config.py` renders one from the
+other with the freshness check covering it. Same shape as the configuration reference:
+the fact lives in one place and every consumer is generated from it.
+
+Worth noticing that this project's own documentation contained the anti-pattern it was
+written to prevent, in a section explaining how to prevent it. Rules are easier to write
+than to follow, including for the person who wrote them.
+
+The substantive design point underneath: one list was serving two different policies.
+Commit authorship must be strict, because an address that can sign commits is an identity
+claim. File content must tolerate documentation placeholders and service accounts, because
+refusing to let a comment name the address it is explaining buys nothing. Conflated, they
+forced a choice between a false positive on prose and a hole in the identity check --
+and the tempting fix, rewording the comment, would have preserved the flaw while hiding
+the symptom.
