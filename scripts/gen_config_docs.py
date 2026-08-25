@@ -89,8 +89,10 @@ def render() -> str:
         "     default or a description, edit the dataclass field. -->",
         "",
         f"All settings are environment variables. Prefix `{config.env_name('')}`. "
-        f"Tuple-valued settings split on `os.pathsep` "
-        "(`;` on Windows, `:` elsewhere).",
+        "List-valued settings are shown comma-separated for readability, but are "
+        "**parsed on `os.pathsep`** — `;` on Windows, `:` elsewhere. The rendering is "
+        "deliberately platform-independent so this file is byte-identical wherever it "
+        "is generated.",
         "",
     ]
     for title, names in SECTIONS:

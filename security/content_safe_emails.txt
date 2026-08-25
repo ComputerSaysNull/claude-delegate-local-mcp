@@ -1,0 +1,15 @@
+# Addresses that identify nobody: documentation placeholders and service accounts.
+#
+# Allowed to appear in file CONTENT, and deliberately NOT allowed to author commits --
+# those are different policies and conflating them broke both. A service address that
+# could sign commits would defeat the identity check; one that cannot be named inside a
+# comment explaining that check is friction for nothing.
+#
+# Read by scripts/docs_gate.py, and rendered into .gitleaks.toml by
+# scripts/gen_gitleaks_config.py so the two scanners cannot disagree.
+
+noreply@github.com
+user@example.com
+you@example.com
+someone@example.com
+user@example.org

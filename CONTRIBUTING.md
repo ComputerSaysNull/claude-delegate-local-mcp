@@ -1,4 +1,4 @@
-<!-- BUDGET: 175 -->
+<!-- BUDGET: 190 -->
 # Contributing
 
 ## Setup
@@ -103,23 +103,46 @@ Security-sensitive work — `sandbox.py`, `paths.py`, `wsl.py` — gets a short 
 
 ## CI
 
-`.github/workflows/ci.yml` runs three jobs on every pull request:
+`.github/workflows/ci.yml` runs three jobs on every pull request — **gate**, **tests**
+(3.11 and 3.12), and **gitleaks**. The workflow comments explain why each is shaped as it
+is; they are not repeated here.
 
-- **gate** — the same `scripts/docs_gate.py` the hook runs. It checks out full history
-  because the commit-authorship check walks a range; a shallow clone would check nothing
-  and report success. No dependencies are installed, deliberately: the gate uses only the
-  standard library, so a broken install cannot disable it.
-- **tests** — Python 3.11 and 3.12, `bubblewrap` installed, integration tests excluded
-  because CI cannot reach the private cluster. Also verifies the generated documents are
-  current, so a stale one fails the build rather than merely the hook.
-- **gitleaks** — over full history, configured by `.gitleaks.toml`.
+Two things that live outside it and are easy to miss:
 
-The email rule in `.gitleaks.toml` is an **allowlist**, and must stay in step with
-`security/allowed_emails.txt`: the gate reads one, gitleaks reads the other. A denylist
-would mean writing the addresses you want caught into a public file.
+- The email rule in `.gitleaks.toml` is an **allowlist** — a denylist would mean writing
+  the addresses you want caught into a public file. Its entries are **generated** from
+  `security/allowed_emails.txt` and `security/content_safe_emails.txt` by
+  `scripts/gen_gitleaks_config.py`, so the gate and gitleaks cannot disagree. This used to
+  read "keep them in step", which drifted within the hour.
+- Those two lists are separate policies. Authors must be strict; file **content** also
+  tolerates documentation placeholders and service accounts. A service address able to
+  author commits would defeat the identity check.
+- Host literals reach CI through a `FORBIDDEN_STRINGS` repository secret, never the repo.
 
-Host literals reach CI through a `FORBIDDEN_STRINGS` repository secret, never the repo.
-Without it the gate still runs its committed patterns and says which mode it used.
+## Branch protection
+
+`main` is protected by a ruleset, checked in as `.github/ruleset.json` so the configuration
+is reproducible rather than a thing someone once clicked:
+
+```bash
+gh api -X POST repos/OWNER/REPO/rulesets --input .github/ruleset.json
+```
+
+- Pull request required. **Direct pushes to `main` are refused for everyone, including the
+  owner** — `bypass_actors` is empty, which rulesets allow and classic branch protection
+  did not.
+- Four required checks: the gate, tests on 3.11 and 3.12, and the secret scan.
+- Force-push and deletion blocked. Squash is the only merge method.
+- `required_approving_review_count` is **0**, deliberately. GitHub will not let you
+  approve your own pull request, so requiring one review would lock a solo maintainer out
+  of their own repository entirely. The checks carry the weight instead. Raise it to 1 the
+  day a second person joins.
+
+Secret scanning and push protection are enabled at the repository level, which is free on
+public repositories and catches what reaches GitHub even if the local hook was skipped.
+
+The `upstream` remote is configured with a disabled push URL. It exists for reading, and a
+working push URL to someone else's repository is an accident waiting to happen.
 
 ## Build-time agents
 
@@ -149,6 +172,16 @@ The host is configuration, never a literal. The gate blocks addresses, tailnet n
 `security/allowed_emails.txt`, and refuses email addresses not on that list. Put your
 host's literal names in `security/forbidden_strings.txt`, which is untracked on purpose —
 a committed file listing what must not be committed is itself the leak.
+
+## When this document splits
+
+Its budget has been raised twice. One more raise and it splits: the operational half —
+CI, branch protection and the agent roster — moves to its own document owning `.github/**`
+and `.claude/agents/**`, leaving the conventions here.
+
+That is a valid split under this project's own rules (reference material separated from
+narrative, and distinct owned code), and it is written down so the next person does not
+have to re-derive it under pressure.
 
 ## Upstream
 

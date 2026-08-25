@@ -20,7 +20,7 @@ Nothing else in this repository states a config default. Not the README, not
      regenerates this block and fails the build if it differs. To change a
      default or a description, edit the dataclass field. -->
 
-All settings are environment variables. Prefix `DELEGATE_`. Tuple-valued settings split on `os.pathsep` (`;` on Windows, `:` elsewhere).
+All settings are environment variables. Prefix `DELEGATE_`. List-valued settings are shown comma-separated for readability, but are **parsed on `os.pathsep`** — `;` on Windows, `:` elsewhere. The rendering is deliberately platform-independent so this file is byte-identical wherever it is generated.
 
 ### Backend selection
 
@@ -35,7 +35,7 @@ All settings are environment variables. Prefix `DELEGATE_`. Tuple-valued setting
 | --- | --- | --- |
 | `DELEGATE_WORKSPACE_ROOTS` | **required** | REQUIRED. Layer 1: directories a delegated model may read from, separated by os.pathsep. Any path whose real location falls outside every root is refused, which is what closes symlink escapes. Written in native host form. |
 | `DELEGATE_WORKDIR_ROOTS` | *(empty)* | Layer 1 applied to the `workdir` argument itself, which is a separate surface from the files read within it. Empty means reuse workspace_roots. |
-| `DELEGATE_EXT_ALLOWLIST` | .py;.pyi;.md;.rst;.txt;.toml;.yaml;.yml;.json;.ts;.tsx;.js;.jsx;.mjs;.css;.html;.sql;.sh;.rs;.go;.java;.kt;.c;.h;.cpp;.hpp;.cs;.rb;.php;.swift;.lua;.ini;.cfg;.env-example;.gitignore;.dockerfile;.makefile | Layer 2: the practical allowlist. A pure allowlist cannot work for file contents -- you cannot enumerate every source file you will ever delegate -- so extension is the axis that can be allowlisted. Anything not listed is refused. |
+| `DELEGATE_EXT_ALLOWLIST` | .py, .pyi, .md, .rst, .txt, .toml, .yaml, .yml, .json, .ts, .tsx, .js, .jsx, .mjs, .css, .html, .sql, .sh, .rs, .go, .java, .kt, .c, .h, .cpp, .hpp, .cs, .rb, .php, .swift, .lua, .ini, .cfg, .env-example, .gitignore, .dockerfile, .makefile | Layer 2: the practical allowlist. A pure allowlist cannot work for file contents -- you cannot enumerate every source file you will ever delegate -- so extension is the axis that can be allowlisted. Anything not listed is refused. |
 | `DELEGATE_SECRET_GLOBS_FILE` | ./security/secret_globs.txt | Layer 3: globs a model must never receive, shared with the git secrets gate so there is one list and not two that drift. |
 | `DELEGATE_RESPECT_GITIGNORE` | True | Layer 4: refuse paths git ignores. Cheap, and catches build output and local environment files that pass the extension allowlist. |
 

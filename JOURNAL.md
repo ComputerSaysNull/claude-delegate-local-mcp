@@ -129,3 +129,37 @@ UNC path as a process working directory.** `CreateProcess` refuses it outright. 
 "keep Claude Code on Windows but move the repo onto ext4" does not work as stated —
 Windows-side tools that need a cwd, including any shell command Claude runs, cannot
 operate there without mapping a drive letter first.
+
+## 2026-08-25 — CI found two bugs that a local run structurally could not
+
+The first pull request failed three of four checks, and both root causes were invisible
+to any amount of local testing.
+
+**A generated document embedded a platform-specific separator.** Tuple-valued defaults
+were rendered with `os.pathsep`, which is `;` on Windows and `:` on Linux. So the file
+generated on the development machine could never match one generated in CI: not merely
+failing, but *unsatisfiable*. A reproducibility bug inside the mechanism whose entire job
+is guaranteeing reproducibility.
+
+Local runs could not find it because they are all one platform. The generated file now
+renders lists with a fixed separator and the header states how they are actually parsed.
+
+**The commit-identity check flagged GitHub's own merge commit.** For a `pull_request`
+event, Actions checks out a synthetic merge commit authored by `noreply@github.com`. That
+is not a contribution, and refusing it would have blocked every pull request forever — a
+gate that blocks everything is exactly as useless as one that blocks nothing, and rather
+more annoying. Fixed with `--no-merges`; safe here because the repository squash-merges,
+so real merge commits never appear.
+
+**Then the fix tripped the gate**, because the comments explaining it contained the
+literal address. The dodge was to reword the comment. The actual problem was that one
+list was serving two different policies: commit authorship, which must be strict, and
+addresses appearing in file content, which must tolerate documentation placeholders and
+service accounts. Allowing a service address to author commits would defeat the identity
+check; refusing it inside a comment explaining that check is pointless friction. Two
+lists now.
+
+The wider lesson, and the third instance of this shape today: a check whose false
+positives are annoying gets weakened, and a weakened check is how the hole arrives. When
+a check fires on something legitimate, ask whether it is asking the right question before
+adjusting its answer.

@@ -144,3 +144,106 @@ def test_the_secret_glob_list_does_not_flag_itself():
         if "BLOCK" in ln and "secret-path" in ln and "security/" in ln
     ]
     assert not offending, offending
+
+
+# ---------------------------------------------------------------------------
+# Bug 3: the generated document embedded a platform-specific separator, so the
+# freshness check could never pass on two platforms at once. Found by CI, which
+# is the only place it could be found -- local runs are all one platform.
+# ---------------------------------------------------------------------------
+
+def test_generated_defaults_do_not_embed_os_pathsep():
+    """`os.pathsep` is ';' on Windows and ':' elsewhere.
+
+    Rendering it into the generated table meant a file generated locally could never
+    match one generated in CI, making the "generated document is current" check
+    unsatisfiable rather than merely failing. A reproducibility bug in the mechanism that
+    exists to guarantee reproducibility.
+    """
+    import os
+    import sys
+
+    sys.path.insert(0, str(ROOT / "src"))
+    from claude_delegate_local import config
+
+    other = ";" if os.pathsep == ":" else ":"
+    for row in config.describe():
+        rendered = str(row["default"])
+        assert os.pathsep not in rendered, (
+            f"{row['env']} renders the local os.pathsep {os.pathsep!r}; it would differ "
+            f"on the other platform"
+        )
+        assert other not in rendered, (
+            f"{row['env']} renders the other platform's separator {other!r}"
+        )
+
+
+def test_committed_config_doc_contains_no_platform_separator():
+    text = (ROOT / "docs" / "CONFIGURATION.md").read_text(encoding="utf-8")
+    body = text.split("GEN:CONFIG:START")[1] if "GEN:CONFIG:START" in text else text
+    for line in body.splitlines():
+        if line.startswith("| `DELEGATE_") and (";" in line or ":" in line):
+            # A colon is fine in prose; what must not appear is a separator-joined list.
+            assert ".py;" not in line and ".py:" not in line, line[:120]
+
+
+# ---------------------------------------------------------------------------
+# Bug 4: the commit-identity check flagged GitHub's own synthetic merge commit,
+# which would have blocked every pull request permanently.
+# ---------------------------------------------------------------------------
+
+def test_identity_check_ignores_merge_commits():
+    """For a pull_request event, Actions checks out a merge commit that GitHub authors
+    itself as noreply@github.com. It is not a contribution, and checking it would refuse
+    every pull request forever -- a gate that blocks everything is as useless as one that
+    blocks nothing."""
+    src = GATE.read_text(encoding="utf-8")
+    ident = src[src.index("def check_commit_identity"):src.index("def check_emails_in_files")]
+    assert '"--no-merges"' in ident, (
+        "the identity check must exclude merge commits; see the CI failure on PR #1"
+    )
+
+
+def test_author_allowlist_and_content_allowlist_are_not_the_same_policy():
+    """Conflating them broke both directions.
+
+    A service address must never be able to author a commit, but must be mentionable in a
+    comment. Merging the lists forced a choice between a false positive on prose and a
+    hole in the identity check.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("dg", GATE)
+    dg = importlib.util.module_from_spec(spec)
+    # Register before executing: the @dataclass decorator resolves its own module via
+    # sys.modules, and fails opaquely on a module that is not there yet.
+    sys.modules[spec.name] = dg
+    try:
+        spec.loader.exec_module(dg)
+    finally:
+        sys.modules.pop(spec.name, None)
+
+    authors = set(dg.load_lines(ROOT / "security" / "allowed_emails.txt"))
+    assert "noreply@github.com" not in authors, (
+        "a service address must not be allowed to author commits"
+    )
+    assert "noreply@github.com" in dg.content_safe_emails(), (
+        "a service address must be mentionable in file content"
+    )
+    assert authors, "the author allowlist must not be empty"
+
+
+def test_gitleaks_allowlist_is_generated_not_hand_maintained():
+    """CONTRIBUTING once said the gate's list and gitleaks' list "must stay in step".
+
+    They drifted within an hour: the gate was fixed for a false positive and gitleaks was
+    not, and CI caught it. A hand-maintained invariant between two files is the thing this
+    project replaces with a generator, so it now is one.
+    """
+    proc = _run(ROOT / "scripts" / "gen_gitleaks_config.py", "--check")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    text = (ROOT / ".gitleaks.toml").read_text(encoding="utf-8")
+    assert "GEN:EMAILS:START" in text and "GEN:EMAILS:END" in text
+    for addr in ("noreply@github", "ComputerSaysNull"):
+        assert addr in text, f"{addr} missing from the generated allowlist"

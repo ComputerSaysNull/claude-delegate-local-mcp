@@ -1,6 +1,10 @@
-# Commit author/committer allowlist AND the email-content allowlist.
-# Any email-shaped string in a tracked file, and any commit author or committer
-# address, must appear here or the gate blocks.
+# Commit author/committer allowlist. Strict: an address here can sign commits.
+#
+# The email-CONTENT check reads this list too, but adds a small set of known-generic
+# addresses (documentation placeholders, GitHub's service account) defined in
+# scripts/docs_gate.py. Those two policies are deliberately not the same list: allowing a
+# service address to author commits would defeat the identity check, while refusing it
+# inside a comment that explains that check is pointless friction.
 #
 # Note the default posture: this repo is PUBLIC, and the global git identity on
 # this machine belongs to an employer. Listing only the intended address means

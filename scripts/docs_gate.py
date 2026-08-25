@@ -129,7 +129,7 @@ def check_commit_identity(mode: str, diff_range: str | None) -> list[Finding]:
     machine is usually the work address. This is ~15 lines and it is the difference
     between a private address staying private and it being on every commit forever.
     """
-    allowed = set(load_lines(ROOT / "security" / "allowed_emails.txt"))
+    allowed = set(load_lines(AUTHOR_ALLOWLIST_FILE))
     if not allowed:
         return [Finding(BLOCK, "identity",
                         "security/allowed_emails.txt lists no addresses, so no commit "
@@ -138,7 +138,11 @@ def check_commit_identity(mode: str, diff_range: str | None) -> list[Finding]:
         pairs = [(run("git", "config", "user.email"), "pending commit")]
     else:
         rng = diff_range or "origin/main...HEAD"
-        raw = run("git", "log", "--format=%ae%x00%ce%x00%h", rng)
+        # --no-merges: for a pull_request event, Actions checks out a synthetic merge
+        # commit authored by GitHub itself (noreply@github.com). That is not a
+        # contribution, and flagging it would block every pull request forever. This
+        # project squash-merges, so real merge commits do not appear in history either.
+        raw = run("git", "log", "--no-merges", "--format=%ae%x00%ce%x00%h", rng)
         pairs = []
         for line in raw.splitlines():
             if not line:
@@ -158,8 +162,19 @@ def check_commit_identity(mode: str, diff_range: str | None) -> list[Finding]:
     return out
 
 
+# Addresses that identify nobody live in a data file, not here: gitleaks needs the same
+# set, and a second hand-maintained copy is the drift this project exists to prevent.
+# scripts/gen_gitleaks_config.py renders .gitleaks.toml from these same lists.
+CONTENT_SAFE_FILE = ROOT / "security" / "content_safe_emails.txt"
+AUTHOR_ALLOWLIST_FILE = ROOT / "security" / "allowed_emails.txt"
+
+
+def content_safe_emails() -> set[str]:
+    return set(load_lines(CONTENT_SAFE_FILE))
+
+
 def check_emails_in_files() -> list[Finding]:
-    allowed = set(load_lines(ROOT / "security" / "allowed_emails.txt"))
+    allowed = set(load_lines(AUTHOR_ALLOWLIST_FILE)) | content_safe_emails()
     out = []
     for p in tracked_text_files():
         r = rel(p)
@@ -170,9 +185,10 @@ def check_emails_in_files() -> list[Finding]:
                 if m.group(0) not in allowed:
                     out.append(Finding(
                         BLOCK, "email-content",
-                        f"{r}:{i} contains {m.group(0)!r}, which is not in "
-                        f"security/allowed_emails.txt. Allowlisted, not denylisted, so "
-                        f"an address nobody thought to list is still caught."))
+                        f"{r}:{i} contains {m.group(0)!r}, which is neither in "
+                        f"security/allowed_emails.txt nor a known-generic address. "
+                        f"Allowlisted, not denylisted, so an address nobody thought to "
+                        f"list is still caught."))
     return out
 
 
@@ -238,6 +254,7 @@ def check_generated_docs() -> list[Finding]:
     generators = [
         ("scripts/gen_config_docs.py", "docs/CONFIGURATION.md"),
         ("scripts/gen_status.py", "STATUS.md"),
+        ("scripts/gen_gitleaks_config.py", ".gitleaks.toml"),
     ]
     for script, target in generators:
         if not (ROOT / script).exists():

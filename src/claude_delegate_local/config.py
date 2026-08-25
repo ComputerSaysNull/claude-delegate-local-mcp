@@ -406,7 +406,12 @@ def describe() -> list[dict[str, Any]]:
                 "env": env_name(f.name),
                 "field": f.name,
                 "type": type(default).__name__,
-                "default": os.pathsep.join(default) if isinstance(default, tuple) else default,
+                # Rendered with a FIXED separator, never os.pathsep. The doc generator
+                # runs on Windows locally and Linux in CI, and os.pathsep differs between
+                # them -- so embedding it here made the generated file impossible to match
+                # across platforms, and the freshness check unsatisfiable. The real
+                # separator is documented once in the generated header instead.
+                "default": ", ".join(default) if isinstance(default, tuple) else default,
                 "unit": f.metadata.get("unit", ""),
                 "description": " ".join(f.metadata.get("description", "").split()),
                 "required": f.name == "workspace_roots",

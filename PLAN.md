@@ -52,7 +52,7 @@ Throwaway scripts, deliberately not shipped.
 - ✅ 2026-08-25 CI: gate, tests on 3.11 and 3.12, gitleaks with an allowlist-based email rule
 - ⬜ Scheduled `/docs-audit` workflow — deferred until an Anthropic API key secret exists;
   a workflow that cannot run is worse than none, because the schedule implies coverage
-- ⬜ Create the public repo and apply the ruleset to `main`
+- ✅ 2026-08-25 Public repo created, ruleset applied to `main`, secret scanning and push protection enabled. Direct push to `main` verified as refused
 
 ## M1 — One real backend call
 
