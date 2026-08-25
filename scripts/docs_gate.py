@@ -26,6 +26,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -368,13 +369,146 @@ def check_adr_format() -> list[Finding]:
     return out
 
 
+MANIFEST = ROOT / "scripts" / "docs_ownership.toml"
+
+
+def load_manifest() -> dict | None:
+    if not MANIFEST.exists():
+        return None
+    return tomllib.loads(MANIFEST.read_text(encoding="utf-8"))
+
+
+def _matches(path: str, globs: list[str]) -> bool:
+    """Glob match that treats ** as spanning directories, which fnmatch does not."""
+    for g in globs:
+        if fnmatch.fnmatch(path, g):
+            return True
+        if g.endswith("/**") and (path == g[:-3] or path.startswith(g[:-2])):
+            return True
+    return False
+
+
+def owners_of(path: str, manifest: dict) -> list[str]:
+    return [doc for doc, meta in manifest["docs"].items()
+            if _matches(path, meta.get("owns", []))]
+
+
 def check_ownership(changed: list[str]) -> list[Finding]:
-    manifest = ROOT / "scripts" / "docs_ownership.yaml"
-    if not manifest.exists():
-        return [Finding(SKIP, "owning-doc",
-                        "scripts/docs_ownership.yaml not written yet, so code changes "
-                        "are not yet matched to an owning document.")]
-    return []
+    """Changed code must be accompanied by its owning document, in the same commit.
+
+    This is what makes the one-feature-per-commit rule mean something: without it there
+    is nothing for the check to compare against.
+    """
+    manifest = load_manifest()
+    if manifest is None:
+        return [Finding(SKIP, "owning-doc", f"{MANIFEST.name} not present.")]
+
+    unowned = manifest.get("unowned", {}).get("paths", [])
+    changed_set = set(changed)
+    out = []
+    stale_pairs: dict[str, list[str]] = {}
+
+    for path in changed:
+        if not path.startswith(("src/", "scripts/", ".github/")):
+            continue
+        if _matches(path, unowned):
+            continue
+        docs = owners_of(path, manifest)
+        if not docs:
+            out.append(Finding(
+                WARN, "owning-doc",
+                f"{path} has no owning document and is not listed as unowned in "
+                f"{MANIFEST.name}. Assign it or declare it unowned -- an unassigned file "
+                f"is a documentation gap nobody can see."))
+            continue
+        # A generated document is satisfied by regeneration, which the generated-doc
+        # check polices separately. Requiring a manual edit there would be theatre.
+        if all(manifest["docs"][d].get("generated") for d in docs):
+            continue
+        if not any(d in changed_set for d in docs):
+            stale_pairs.setdefault(", ".join(docs), []).append(path)
+
+    for docs, paths in stale_pairs.items():
+        shown = ", ".join(paths[:3]) + (f" (+{len(paths)-3} more)" if len(paths) > 3 else "")
+        out.append(Finding(
+            BLOCK, "owning-doc",
+            f"{shown} changed but {docs} was not updated in the same commit. Update it, "
+            f"or add a trailer: 'Docs-Gate-Skip: owning-doc -- <reason>'."))
+    return out
+
+
+def check_orphan_docs() -> list[Finding]:
+    manifest = load_manifest()
+    if manifest is None:
+        return [Finding(SKIP, "orphan-doc", f"{MANIFEST.name} not present.")]
+    tracked = set(run("git", "ls-files").splitlines())
+    out = []
+    for doc, meta in manifest["docs"].items():
+        owns = meta.get("owns", [])
+        if not owns:
+            continue
+        if not any(_matches(f, owns) for f in tracked):
+            out.append(Finding(
+                WARN, "orphan-doc",
+                f"{doc} claims ownership of {owns} but none of those paths exist. Either "
+                f"the code has not been written yet, or the document should be deleted "
+                f"and its manifest entry removed."))
+    return out
+
+
+def check_manifest_docs_exist() -> list[Finding]:
+    """A manifest entry must name a document that exists.
+
+    Catches both directions: an entry added before its document is written, and a document
+    deleted without removing its entry. Either leaves the ownership map describing a repo
+    that is not this one.
+    """
+    manifest = load_manifest()
+    if manifest is None:
+        return [Finding(SKIP, "manifest", f"{MANIFEST.name} not present.")]
+    out = []
+    for doc, meta in manifest["docs"].items():
+        if not (ROOT / doc).exists():
+            kind = "generated" if meta.get("generated") else "hand-written"
+            out.append(Finding(
+                WARN, "manifest",
+                f"{MANIFEST.name} lists {doc} ({kind}) but the file does not exist. Write "
+                f"it, or remove the entry -- an ownership map that names absent documents "
+                f"describes a repository other than this one."))
+    return out
+
+
+def check_split_dodge(changed: list[str]) -> list[Finding]:
+    """A new document must earn its existence, or it is a budget being evaded.
+
+    Valid reasons to split: a different audience, different owned code, or reference
+    material separated from narrative. "It got long" is a reason to raise a budget, not
+    to create a file. See ADR-0003.
+    """
+    manifest = load_manifest()
+    if manifest is None:
+        return [Finding(SKIP, "split-dodge", f"{MANIFEST.name} not present.")]
+    added = set(run("git", "diff", "--cached", "--name-only",
+                    "--diff-filter=A").splitlines())
+    out = []
+    for doc in added:
+        meta = manifest["docs"].get(doc)
+        if meta is None:
+            continue
+        aud, owns = set(meta.get("audience", [])), set(meta.get("owns", []))
+        for other, om in manifest["docs"].items():
+            if other == doc or om.get("plane") != meta.get("plane"):
+                continue
+            o_aud, o_owns = set(om.get("audience", [])), set(om.get("owns", []))
+            if aud and aud <= o_aud and owns and owns <= o_owns:
+                out.append(Finding(
+                    BLOCK, "split-dodge",
+                    f"new document {doc} has the same audience and a subset of the code "
+                    f"owned by {other}, so it is not a split -- it is a size budget "
+                    f"being evaded. Raise {other}'s budget with a reason instead, or give "
+                    f"{doc} a distinct audience or distinct owned code."))
+                break
+    return out
 
 
 CHECKS = {
@@ -386,6 +520,9 @@ CHECKS = {
     "budget": check_budgets,
     "adr": check_adr_format,
     "owning-doc": check_ownership,
+    "orphan-doc": check_orphan_docs,
+    "split-dodge": check_split_dodge,
+    "manifest": check_manifest_docs_exist,
 }
 
 
@@ -410,7 +547,29 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=("pre-commit", "ci"), default="pre-commit")
     ap.add_argument("--diff", dest="diff_range", default=None)
+    ap.add_argument("--owner", metavar="PATH",
+                    help="print which document owns PATH, then exit. Exists so CLAUDE.md "
+                         "can state the ownership rule without restating the manifest.")
     args = ap.parse_args()
+
+    if args.owner:
+        manifest = load_manifest()
+        if manifest is None:
+            print(f"no manifest at {MANIFEST}")
+            return 1
+        path = args.owner.replace("\\", "/")
+        docs = owners_of(path, manifest)
+        if docs:
+            for d in docs:
+                gen = " (generated -- run its generator, do not hand-edit)"                       if manifest["docs"][d].get("generated") else ""
+                print(f"{d}{gen}")
+            return 0
+        if _matches(path, manifest.get("unowned", {}).get("paths", [])):
+            print(f"{path} is declared unowned in {MANIFEST.name}")
+            return 0
+        print(f"{path} has no owning document and is not declared unowned -- "
+              f"assign it in {MANIFEST.name}")
+        return 1
 
     changed = changed_files(args.mode, args.diff_range)
     waived = waivers(args.mode)
@@ -419,7 +578,7 @@ def main() -> int:
     for name, fn in CHECKS.items():
         if name == "identity":
             findings += fn(args.mode, args.diff_range)
-        elif name == "owning-doc":
+        elif name in ("owning-doc", "split-dodge"):
             findings += fn(changed)
         else:
             findings += fn()

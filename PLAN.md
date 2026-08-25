@@ -37,17 +37,17 @@ Throwaway scripts, deliberately not shipped.
 - ✅ 2026-08-25 Pre-commit hook sharing the gate's single implementation — `7650b5d`
 - ✅ 2026-08-25 WSL2 Ubuntu 24.04 provisioned; bwrap verified; cluster resolves — `fb9b5a7`
 - ✅ 2026-08-25 Budget rules split by document class — ADR-0022 — `fb9b5a7`
-- 🔄 `PLAN.md` and generated `STATUS.md`
-- ⬜ `README.md` — install, quickstart, what this is and is not
-- ⬜ `CLAUDE.md` — terse invariants and traps for an agent editing this repo
-- ⬜ `CONTRIBUTING.md` — dev setup, the one-feature-per-commit rule
-- ⬜ `docs/ARCHITECTURE.md` — how the pieces fit, and why
-- ⬜ `docs/MODELS.md` — registry format, adding a model
-- ⬜ `docs/AGENTS.md` — agent frontmatter, the path policy in plain terms
-- ⬜ `docs/TROUBLESHOOTING.md` — symptom to cause to fix; WSL paths get a section
+- ✅ 2026-08-25 `PLAN.md` and generated `STATUS.md` — `58f543c`
+- ✅ 2026-08-25 `README.md` — install, quickstart, what this is and is not
+- ✅ 2026-08-25 `CLAUDE.md` — terse invariants and traps for an agent editing this repo
+- ✅ 2026-08-25 `CONTRIBUTING.md` — dev setup, the one-feature-per-commit rule
+- ✅ 2026-08-25 `docs/ARCHITECTURE.md` — how the pieces fit, and why
+- ✅ 2026-08-25 `docs/MODELS.md` — registry format, adding a model
+- ✅ 2026-08-25 `docs/AGENTS.md` — agent frontmatter, the path policy in plain terms
+- ✅ 2026-08-25 `docs/TROUBLESHOOTING.md` — symptom to cause to fix; WSL paths get a section
 - ⬜ `docs/TOOLS.md` generator — tool descriptions rendered from the registered tools
-- ⬜ `scripts/docs_ownership.yaml` — activates the owning-doc and split-dodge checks
-- ⬜ `scripts/gen_status.py` — STATUS from this file plus git
+- ✅ 2026-08-25 `scripts/docs_ownership.toml` — activates the owning-doc, orphan and split-dodge checks. TOML, not YAML: tomllib is stdlib, so the gate runs from a bare clone
+- ✅ 2026-08-25 `scripts/gen_status.py` — STATUS from this file plus git — `58f543c`
 - ⬜ Four build-time agents in `.claude/agents/`, models and effort set per task cost
 - ⬜ CI: gate, tests, gitleaks, as required checks
 - ⬜ Create the public repo and apply the ruleset to `main`

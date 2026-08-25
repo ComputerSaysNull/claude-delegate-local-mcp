@@ -1,0 +1,157 @@
+# Which document owns which code. The authority, and the only copy.
+#
+# Nothing else may restate this mapping -- not CLAUDE.md, not a README, not a comment.
+# A second copy is the drift this whole strategy exists to prevent, so CLAUDE.md names
+# the rule and points here, and `docs_gate.py --owner <path>` answers the question
+# without anyone having to read this file.
+#
+# TOML rather than YAML on purpose: tomllib is in the standard library, so the gate runs
+# from a bare clone with nothing installed. A policy check that needs `pip install`
+# before it works is a policy check people skip.
+#
+# Read by scripts/docs_gate.py for three checks:
+#   owning-doc   changed code whose owning document was not updated in the same commit
+#   orphan-doc   a document claiming code that no longer exists
+#   split-dodge  a new document whose audience AND owned globs are both subsets of its
+#                parent's -- a size budget being evaded, not a real split
+#
+# Fields per document:
+#   audience    user | contributor | agent
+#   plane       project (repo root: where are we, why) | product (docs/: how it works)
+#   generated   true if rendered from code; the owning-doc check is then satisfied by
+#               regeneration, and the generated-doc check guards it instead
+#   owns        globs whose change requires this document to change
+#   covers_not  the anti-duplication contract, in prose, for humans and reviewers
+
+[docs."README.md"]
+audience = ["user"]
+plane = "project"
+owns = []            # entry point only; owns no code, so it cannot go stale by proxy
+covers_not = """
+Configuration values, internals, or troubleshooting detail. It links out. If a fact
+lives in another document, the README may name it but never restate it."""
+
+[docs."CLAUDE.md"]
+audience = ["agent"]
+plane = "project"
+owns = []            # cross-cutting invariants, deliberately owning no single area
+covers_not = """
+Rationale, tutorials, or anything already enforced by a check. It records traps an
+editing agent falls into, and rules a machine cannot check."""
+
+[docs."CONTRIBUTING.md"]
+audience = ["contributor"]
+plane = "project"
+owns = ["scripts/install_hooks.py", ".github/**"]
+covers_not = """
+Architecture, configuration values, or the documentation strategy itself. Those live in
+ARCHITECTURE.md, CONFIGURATION.md and CLAUDE.md respectively."""
+
+[docs."PLAN.md"]
+audience = ["contributor", "agent"]
+plane = "project"
+owns = []
+covers_not = """
+Why a decision was taken -- that is DECISIONS.md. PLAN records what is intended, done or
+dropped, and points at the decision that explains it."""
+
+[docs."DECISIONS.md"]
+audience = ["contributor", "agent"]
+plane = "project"
+owns = []
+covers_not = """
+Current behaviour. An ADR records a decision at a point in time and is never edited
+afterwards, so it will eventually describe code that has moved on. ARCHITECTURE.md is
+what is true now."""
+
+[docs."JOURNAL.md"]
+audience = ["contributor", "agent"]
+plane = "project"
+owns = []
+covers_not = "Decisions, and anything routine. Only what cost real time to work out."
+
+[docs."CHANGELOG.md"]
+audience = ["contributor", "agent"]
+plane = "project"
+owns = []
+covers_not = """
+Why the design is as it is. Entries carry the why of a *change* and cite the ADR for the
+why of a decision."""
+
+[docs."docs/ARCHITECTURE.md"]
+audience = ["contributor"]
+plane = "product"
+owns = [
+  "src/claude_delegate_local/server.py",
+  "src/claude_delegate_local/loop.py",
+  "src/claude_delegate_local/backends/**",
+  "src/claude_delegate_local/context.py",
+  "src/claude_delegate_local/wsl.py",
+  "src/claude_delegate_local/sandbox.py",
+  "src/claude_delegate_local/main.py",
+]
+covers_not = """
+Environment variable values (CONFIGURATION.md), tool schemas (TOOLS.md), registry file
+format (MODELS.md), or step-by-step setup (README.md)."""
+
+[docs."docs/CONFIGURATION.md"]
+audience = ["user", "contributor"]
+plane = "product"
+generated = true
+owns = ["src/claude_delegate_local/config.py"]
+covers_not = """
+Rationale for a default beyond its one-line description. It is a generated table;
+argument belongs in an ADR."""
+
+[docs."docs/TOOLS.md"]
+audience = ["user", "contributor"]
+plane = "product"
+generated = true
+owns = ["src/claude_delegate_local/tools.py"]
+covers_not = """
+How to write an agent (AGENTS.md), or how the loop calls these tools (ARCHITECTURE.md)."""
+
+[docs."docs/MODELS.md"]
+audience = ["user", "contributor"]
+plane = "product"
+owns = ["src/claude_delegate_local/registry.py"]
+covers_not = """
+Server-wide settings (CONFIGURATION.md). This covers the registry file format and what
+adding a model requires."""
+
+[docs."docs/AGENTS.md"]
+audience = ["user", "contributor"]
+plane = "product"
+owns = [
+  "src/claude_delegate_local/agents.py",
+  "src/claude_delegate_local/paths.py",
+]
+covers_not = """
+Tool internals (TOOLS.md) or sandbox mechanics (ARCHITECTURE.md). This covers the
+frontmatter format and the path policy as a user experiences it."""
+
+[docs."docs/TROUBLESHOOTING.md"]
+audience = ["user"]
+plane = "product"
+owns = []
+covers_not = """
+Everything. This document owns ZERO facts by design -- it is a symptom index that links
+to whichever document owns the answer. Restating a default here is exactly how the
+ancestor project ended up documenting one setting three different ways."""
+
+# Code that intentionally has no owning document. Anything under src/ absent from both
+# this list and an `owns` block is reported as uncovered, so the gap is visible rather
+# than assumed.
+[unowned]
+paths = [
+  # The manifest cannot own itself; second self-reference found by the gate, after
+  # security/secret_globs.txt matching its own '*secret*' pattern.
+  "scripts/docs_ownership.toml",
+  "src/claude_delegate_local/__init__.py",
+  "src/claude_delegate_local/backends/__init__.py",
+  "tests/**",
+  "scripts/gen_*.py",
+  "scripts/docs_gate.py",
+  "scripts/release.py",
+  "security/**",
+]
