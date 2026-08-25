@@ -234,7 +234,10 @@ def check_secret_paths() -> list[Finding]:
 
 def check_generated_docs() -> list[Finding]:
     out = []
-    generators = [("scripts/gen_config_docs.py", "docs/CONFIGURATION.md")]
+    generators = [
+        ("scripts/gen_config_docs.py", "docs/CONFIGURATION.md"),
+        ("scripts/gen_status.py", "STATUS.md"),
+    ]
     for script, target in generators:
         if not (ROOT / script).exists():
             out.append(Finding(SKIP, "generated-doc", f"{script} not written yet."))
