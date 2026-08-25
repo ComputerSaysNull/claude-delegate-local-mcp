@@ -44,6 +44,9 @@ def render() -> str:
     ]
     for a in addrs:
         lines.append(f"  '''{re.escape(a)}''',")
+    # RFC 2606 reserved domains, by rule rather than by enumeration -- matching the gate.
+    lines.append("  # RFC 2606 reserved domains: these identify nobody by construction.")
+    lines.append("  '''[A-Za-z0-9._%+-]+@example[.](com|org|net|edu)''',")
     lines.append(f"  {END}")
     return "\n".join(lines)
 

@@ -1,7 +1,7 @@
 ---
 name: test-writer
 description: Writes and extends pytest tests for this repository. Use after a bug fix, when adding a module, or when a check needs proving it can actually fail.
-model: claude-sonnet-5
+model: sonnet
 effort: medium
 tools: Read, Grep, Glob, Bash, Write
 ---

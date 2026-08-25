@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Reviews a diff for correctness and for regressions in this project's security invariants. Use on every pull request, and before landing anything touching paths, the sandbox, or the boundary translation.
-model: claude-sonnet-5
+model: sonnet
 effort: high
 tools: Read, Grep, Glob, Bash
 ---
@@ -57,7 +57,7 @@ currently agree.
 stall every concurrent delegation. Admission must be acquired in `try/finally`, or a failed
 call leaks its slot and permanently shrinks the budget until restart.
 
-**Secrets.** No host address, hostname, tailnet name or personal address in code,
+**Secrets.** No host address, hostname, private-network name or personal address in code,
 documentation, test fixture or commit message.
 
 ## Also review, at normal weight

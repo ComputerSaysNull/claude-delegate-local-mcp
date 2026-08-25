@@ -88,7 +88,7 @@ Rules a machine cannot check, so they land here:
 - `bwrap` needs `--symlink usr/lib64 /lib64`; without it nothing dynamically linked runs
   and the error blames the executable rather than the missing loader. (ADR-0021)
 - The head node is configuration. Never a literal in code, docs, tests or a commit
-  message — the gate blocks addresses, tailnet names and `host:port` shapes.
+  message — the gate blocks addresses, private-network hostnames and `host:port` shapes.
 
 ## Conventions
 

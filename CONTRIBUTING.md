@@ -1,4 +1,4 @@
-<!-- BUDGET: 190 -->
+<!-- BUDGET: 215 -->
 # Contributing
 
 ## Setup
@@ -165,9 +165,28 @@ in silence and quietly bills the default tier.
 Run at most five agents concurrently. Enforced in CI via `max-parallel`; elsewhere it is a
 working rule.
 
+### When to run docs-audit
+
+Not on a schedule, and not "when it feels off". The gate raises `audit-due` on two
+signals it computes from git:
+
+- a document has not changed across **12+ commits that touched the code it owns**, and
+- **60+ commits** have passed since the last file in `docs/audits/`.
+
+Both are evidence rather than a calendar: a quiet month needs no audit, and a busy week
+needs one whatever the date. Both warn rather than block, because blocking would force a
+documentation edit to land unrelated work, which turns a signal into a rubber stamp.
+
+Write findings to `docs/audits/YYYY-MM-DD-audit.md` and commit them — that file is what
+resets the counter, so recording the audit and clearing the warning are the same act.
+
+There is deliberately **no scheduled workflow**. It would need an API key, and a key sitting
+in CI is standing billing exposure for a job that fires whether or not anything changed.
+Running the agent locally uses the Claude Code subscription instead.
+
 ## Secrets
 
-The host is configuration, never a literal. The gate blocks addresses, tailnet names and
+The host is configuration, never a literal. The gate blocks addresses, private-network hostnames and
 `host:port` shapes in tracked files, checks every commit's author against
 `security/allowed_emails.txt`, and refuses email addresses not on that list. Put your
 host's literal names in `security/forbidden_strings.txt`, which is untracked on purpose —

@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: Read-only exploration of this repository. Answers "where is X", "how does Y work", "what already exists for Z". Use before writing code, and before reading files in the main conversation.
-model: claude-haiku-4-5-20251001
+model: haiku
 effort: low
 tools: Read, Grep, Glob
 ---

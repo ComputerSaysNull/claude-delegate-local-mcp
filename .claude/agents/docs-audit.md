@@ -1,7 +1,7 @@
 ---
 name: docs-audit
-description: Audits documentation for staleness, verbosity, misplaced facts and gate-escape abuse. Run monthly, before a release, or when documentation feels off. Produces findings, never edits.
-model: claude-haiku-4-5-20251001
+description: Audits documentation for staleness, verbosity, misplaced facts and gate-escape abuse. Run when the gate reports audit-due pressure, or before a release. Produces findings, never edits.
+model: haiku
 effort: medium
 tools: Read, Grep, Glob, Bash
 ---
@@ -63,8 +63,16 @@ Do not editorialise beyond the proposed fix. Do not congratulate. If the documen
 in good shape, say so in one line and list nothing — an audit that always finds something
 teaches people to ignore audits.
 
-## Cadence
+## When you run
 
-Monthly, and before tagging a release. Findings at BLOCKER or MAJOR become one issue each,
-deduplicated by document and line so repeat runs do not spam; MINOR items batch into one.
-A finding that is read once and forgotten was not worth generating.
+Not on a schedule. The gate raises `audit-due` when a document has not changed across
+enough commits that touched the code it owns, and when enough commits have passed since
+the last recorded audit. That is evidence rather than a calendar: a quiet month needs no
+audit, and a busy week needs one whatever the date.
+
+Write your findings to `docs/audits/YYYY-MM-DD-audit.md` and commit them. That file is
+what resets the counter, so the record and the reset are the same act -- an audit whose
+findings were never written down did not happen.
+
+Findings at BLOCKER or MAJOR should become one tracked item each; MINOR items batch into
+one. A finding read once and forgotten was not worth generating.

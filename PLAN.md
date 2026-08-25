@@ -50,8 +50,9 @@ Throwaway scripts, deliberately not shipped.
 - ✅ 2026-08-25 `scripts/gen_status.py` — STATUS from this file plus git — `58f543c`
 - ✅ 2026-08-25 Four build-time agents in `.claude/agents/`, models and effort set per task cost
 - ✅ 2026-08-25 CI: gate, tests on 3.11 and 3.12, gitleaks with an allowlist-based email rule
-- ⬜ Scheduled `/docs-audit` workflow — deferred until an Anthropic API key secret exists;
-  a workflow that cannot run is worse than none, because the schedule implies coverage
+- ✅ 2026-08-25 Audit trigger — the gate raises `audit-due` from git evidence: a document
+  unchanged across 12+ commits touching its owned code, or 60+ commits since the last
+  recorded audit. Warns, never blocks
 - ✅ 2026-08-25 Public repo created, ruleset applied to `main`, secret scanning and push protection enabled. Direct push to `main` verified as refused
 
 ## M1 — One real backend call
@@ -120,6 +121,9 @@ Throwaway scripts, deliberately not shipped.
 - ❌ 2026-08-25 Dedicated Linux box beside the cluster — cancelled. Solves sandboxing but
   the workspace would reach it only over a share, a sync tool, or a clone, each worse
   than the local bridge and each adding a failure the bridge does not have. ADR-0020
+- ❌ 2026-08-25 Scheduled docs-audit workflow — cancelled. It needs an API key, which is
+  standing billing exposure for a job that fires whether or not anything changed, and a
+  calendar measures the wrong thing. Replaced by the gate's `audit-due` signal
 - ❌ 2026-08-25 Collapse reasoning effort to three levels — cancelled. Saves one enum
   value, does not shrink the state machine, and would make our API disagree with the
   backend's documented values. ADR-0013

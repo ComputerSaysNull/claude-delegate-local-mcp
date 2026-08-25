@@ -52,7 +52,10 @@ HOST_PATTERNS: list[tuple[str, str]] = [
     (r"\b172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}\b", "RFC1918 172.16-31.x address"),
     (r"\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])(?:\.\d{1,3}){2}\b",
      "CGNAT 100.64/10 address (Tailscale range)"),
-    (r"\b[a-z0-9-]+\.ts\.net\b", "tailnet hostname"),
+    # Private-DNS suffixes generally, not one vendor: wider protection, and
+    # it does not advertise which kind of network sits behind it.
+    (r"\b[a-z0-9-]+\.(ts\.net|internal|lan|home\.arpa|localdomain)\b",
+     "private-network hostname"),
 ]
 
 # `host:port` is only a leak when the host is a real name. Placeholders and loopback are
@@ -169,6 +172,19 @@ CONTENT_SAFE_FILE = ROOT / "security" / "content_safe_emails.txt"
 AUTHOR_ALLOWLIST_FILE = ROOT / "security" / "allowed_emails.txt"
 
 
+# RFC 2606 reserves these domains for documentation and examples. An address there
+# identifies nobody by construction, so this is a rule rather than a list -- listing
+# individual example addresses invites an endless queue of one-line additions, each of
+# which is a chance to add a real one by mistake.
+RESERVED_EMAIL_DOMAINS = ("example.com", "example.org", "example.net", "example.edu")
+
+
+def is_content_safe(addr: str) -> bool:
+    if addr in content_safe_emails():
+        return True
+    return addr.lower().rsplit("@", 1)[-1] in RESERVED_EMAIL_DOMAINS
+
+
 def content_safe_emails() -> set[str]:
     return set(load_lines(CONTENT_SAFE_FILE))
 
@@ -182,7 +198,7 @@ def check_emails_in_files() -> list[Finding]:
             continue
         for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
             for m in EMAIL_RE.finditer(line):
-                if m.group(0) not in allowed:
+                if m.group(0) not in allowed and not is_content_safe(m.group(0)):
                     out.append(Finding(
                         BLOCK, "email-content",
                         f"{r}:{i} contains {m.group(0)!r}, which is neither in "
@@ -225,6 +241,42 @@ def check_host_identifiers() -> list[Finding]:
     return out
 
 
+# Files in security/ that ARE the policy, and so cannot be judged by it.
+POLICY_FILES = {
+    "security/secret_globs.txt",
+    "security/allowed_emails.txt",
+    "security/content_safe_emails.txt",
+    "security/README.md",
+}
+
+# Files that must never be tracked under any circumstances, whatever .gitignore says.
+# Belt and braces on purpose: .gitignore is one edit away from not covering something,
+# and `git add -f` ignores it entirely.
+NEVER_TRACK = {
+    "security/forbidden_strings.txt",
+    ".env",
+    "models.toml",
+}
+
+
+def check_never_tracked() -> list[Finding]:
+    """A second, independent layer under .gitignore.
+
+    The file listing host literals must not enter the repository even if .gitignore is
+    edited, even if someone uses `git add -f`, and even when it is empty -- an empty one
+    committed today gets populated tomorrow in a commit nobody looks at twice.
+    """
+    tracked = set(run("git", "ls-files").splitlines())
+    staged = set(run("git", "diff", "--cached", "--name-only").splitlines())
+    out = []
+    for path in sorted(NEVER_TRACK & (tracked | staged)):
+        out.append(Finding(
+            BLOCK, "never-track",
+            f"{path} is tracked or staged and must never be. It holds machine-specific "
+            f"values that identify you. Run: git rm --cached {path}"))
+    return out
+
+
 def check_secret_paths() -> list[Finding]:
     globs = load_lines(ROOT / "security" / "secret_globs.txt")
     if not globs:
@@ -232,12 +284,13 @@ def check_secret_paths() -> list[Finding]:
     out = []
     for r in run("git", "ls-files").splitlines():
         name = Path(r).name
-        # The policy files are not the thing the policy is about. secret_globs.txt
-        # matches its own '*secret*' pattern, which is the gate's first self-inflicted
-        # false positive and a fair warning about pattern lists that describe themselves.
-        # Safe to exempt: forbidden_strings.txt is gitignored so it can never be tracked,
-        # and the rest of security/ is patterns and prose.
-        if r.startswith("security/"):
+        # Exempt the policy files BY NAME, not the whole directory. secret_globs.txt
+        # matches its own '*secret*' pattern -- the gate's first self-inflicted false
+        # positive -- but exempting all of security/ also exempted the one file in there
+        # that must never be tracked, on the reasoning that .gitignore already covered it.
+        # Relying on a single layer is exactly what this project does not do elsewhere,
+        # and the gap was demonstrated: an empty forbidden_strings.txt committed cleanly.
+        if r in POLICY_FILES:
             continue
         for g in globs:
             if fnmatch.fnmatch(r, g) or fnmatch.fnmatch(name, g):
@@ -473,6 +526,75 @@ def check_orphan_docs() -> list[Finding]:
     return out
 
 
+# How many commits may touch a document's owned code before the document itself is
+# suspect. Not a calendar: a repository nobody touched for six months needs no audit,
+# and one that changed forty times last week needs one regardless of the date.
+AUDIT_PRESSURE_THRESHOLD = 12
+AUDIT_STALE_COMMITS = 60
+
+
+def _pathspec(globs: list[str]) -> list[str]:
+    """Manifest globs to git pathspecs.
+
+    `a/b/**` means "everything under a/b", which git expresses as the directory itself.
+    Passing the literal `**` would match nothing and the check would silently measure
+    zero pressure -- another check that reports success while looking at nothing.
+    """
+    out = []
+    for g in globs:
+        out.append(g[:-2] if g.endswith("/**") else g)
+    return out
+
+
+def check_audit_pressure() -> list[Finding]:
+    """Tell you when a documentation audit is due, from evidence rather than a schedule.
+
+    A scheduled audit fires whether or not anything changed, needs an API key, and gets
+    ignored once it has cried wolf twice. This measures the thing that actually makes
+    documentation wrong: its owned code moving while it did not.
+
+    Warns only. The judgement it prompts -- is this still true, is it in the right
+    document -- is what the docs-audit agent is for, run locally on demand.
+    """
+    manifest = load_manifest()
+    if manifest is None:
+        return [Finding(SKIP, "audit-due", f"{MANIFEST.name} not present.")]
+    if not run("git", "rev-parse", "--verify", "HEAD"):
+        return [Finding(SKIP, "audit-due", "no commits yet.")]
+
+    out = []
+    for doc, meta in manifest["docs"].items():
+        owns = meta.get("owns", [])
+        # Generated documents cannot drift: their freshness check already covers them.
+        if not owns or meta.get("generated") or not (ROOT / doc).exists():
+            continue
+        doc_last = run("git", "log", "-1", "--format=%H", "--", doc)
+        if not doc_last:
+            continue
+        since = run("git", "log", "--format=%H", f"{doc_last}..HEAD", "--",
+                    *_pathspec(owns))
+        n = len([x for x in since.splitlines() if x])
+        if n >= AUDIT_PRESSURE_THRESHOLD:
+            out.append(Finding(
+                WARN, "audit-due",
+                f"{doc} has not changed in {n} commits that touched the code it owns. "
+                f"Not necessarily wrong, but worth a look: run the docs-audit agent."))
+
+    audits = sorted((ROOT / "docs" / "audits").glob("*.md")) if (ROOT / "docs" / "audits").is_dir() else []
+    total = len(run("git", "log", "--format=%H").splitlines())
+    if audits:
+        last = run("git", "log", "-1", "--format=%H", "--", f"docs/audits/{audits[-1].name}")
+        n = len(run("git", "log", "--format=%H", f"{last}..HEAD").splitlines()) if last else total
+    else:
+        n = total
+    if n >= AUDIT_STALE_COMMITS:
+        out.append(Finding(
+            WARN, "audit-due",
+            f"{n} commits since the last recorded audit in docs/audits/. Run the "
+            f"docs-audit agent and commit its findings there, which resets this."))
+    return out
+
+
 def check_manifest_docs_exist() -> list[Finding]:
     """A manifest entry must name a document that exists.
 
@@ -533,6 +655,7 @@ CHECKS = {
     "email-content": check_emails_in_files,
     "host-identifier": check_host_identifiers,
     "secret-path": check_secret_paths,
+    "never-track": check_never_tracked,
     "generated-doc": check_generated_docs,
     "budget": check_budgets,
     "adr": check_adr_format,
@@ -540,6 +663,7 @@ CHECKS = {
     "orphan-doc": check_orphan_docs,
     "split-dodge": check_split_dodge,
     "manifest": check_manifest_docs_exist,
+    "audit-due": check_audit_pressure,
 }
 
 

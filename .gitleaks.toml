@@ -28,6 +28,8 @@ regexes = [
   '''you@example\.com''',
   '''someone@example\.com''',
   '''user@example\.org''',
+  # RFC 2606 reserved domains: these identify nobody by construction.
+  '''[A-Za-z0-9._%+-]+@example[.](com|org|net|edu)''',
   # GEN:EMAILS:END
 ]
 paths = [
@@ -49,7 +51,7 @@ regexes = [
 ]
 
 [[rules]]
-id = "tailnet-hostname"
-description = "Tailnet hostname identifies a specific machine"
-regex = '''\b[a-z0-9-]+\.ts\.net\b'''
+id = "private-network-hostname"
+description = "A private-network hostname identifies a specific machine"
+regex = '''\b[a-z0-9-]+\.(ts\.net|internal|lan|home\.arpa|localdomain)\b'''
 tags = ["host"]
