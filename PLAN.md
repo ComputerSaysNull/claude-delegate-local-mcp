@@ -48,8 +48,10 @@ Throwaway scripts, deliberately not shipped.
 - ⬜ `docs/TOOLS.md` generator — tool descriptions rendered from the registered tools
 - ✅ 2026-08-25 `scripts/docs_ownership.toml` — activates the owning-doc, orphan and split-dodge checks. TOML, not YAML: tomllib is stdlib, so the gate runs from a bare clone
 - ✅ 2026-08-25 `scripts/gen_status.py` — STATUS from this file plus git — `58f543c`
-- ⬜ Four build-time agents in `.claude/agents/`, models and effort set per task cost
-- ⬜ CI: gate, tests, gitleaks, as required checks
+- ✅ 2026-08-25 Four build-time agents in `.claude/agents/`, models and effort set per task cost
+- ✅ 2026-08-25 CI: gate, tests on 3.11 and 3.12, gitleaks with an allowlist-based email rule
+- ⬜ Scheduled `/docs-audit` workflow — deferred until an Anthropic API key secret exists;
+  a workflow that cannot run is worse than none, because the schedule implies coverage
 - ⬜ Create the public repo and apply the ruleset to `main`
 
 ## M1 — One real backend call

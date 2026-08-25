@@ -1,0 +1,49 @@
+# Secret scanning rules, layered on top of the defaults.
+#
+# The interesting rule here is the email one, and it is an ALLOWLIST. A denylist would
+# mean writing the addresses we want to catch into a public file, which defeats the
+# purpose; allowlisting the one permitted address catches every other -- including ones
+# nobody thought to list.
+
+title = "claude-delegate-local-mcp"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "non-allowlisted-email"
+description = "Email address that is not in security/allowed_emails.txt"
+regex = '''[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'''
+tags = ["email", "pii"]
+
+[rules.allowlist]
+regexes = [
+  # The project's own commit identity. Keep in step with security/allowed_emails.txt --
+  # the gate reads that file, gitleaks reads this one, and they must agree.
+  '''81183633\+ComputerSaysNull@users\.noreply\.github\.com''',
+  # Placeholders that appear in examples and templates.
+  '''(you|user|someone|example)@example\.(com|org)''',
+]
+paths = [
+  '''LICENSE''',
+  '''NOTICE''',
+  '''docs/audits/.*''',
+  '''\.gitleaks\.toml''',
+]
+
+[[rules]]
+id = "private-network-address"
+description = "Private or CGNAT address; hosts are configuration, never literals"
+regex = '''\b(10(\.\d{1,3}){3}|192\.168(\.\d{1,3}){2}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])(\.\d{1,3}){2})\b'''
+tags = ["host"]
+
+[rules.allowlist]
+regexes = [
+  '''10\.255\.255\.254''',   # the WSL NAT resolver, named in troubleshooting docs
+]
+
+[[rules]]
+id = "tailnet-hostname"
+description = "Tailnet hostname identifies a specific machine"
+regex = '''\b[a-z0-9-]+\.ts\.net\b'''
+tags = ["host"]

@@ -42,7 +42,7 @@ editing agent falls into, and rules a machine cannot check."""
 [docs."CONTRIBUTING.md"]
 audience = ["contributor"]
 plane = "project"
-owns = ["scripts/install_hooks.py", ".github/**"]
+owns = ["scripts/install_hooks.py", ".github/**", ".claude/agents/**"]
 covers_not = """
 Architecture, configuration values, or the documentation strategy itself. Those live in
 ARCHITECTURE.md, CONFIGURATION.md and CLAUDE.md respectively."""

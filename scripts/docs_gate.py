@@ -409,7 +409,7 @@ def check_ownership(changed: list[str]) -> list[Finding]:
     stale_pairs: dict[str, list[str]] = {}
 
     for path in changed:
-        if not path.startswith(("src/", "scripts/", ".github/")):
+        if not path.startswith(("src/", "scripts/", ".github/", ".claude/")):
             continue
         if _matches(path, unowned):
             continue

@@ -1,0 +1,105 @@
+name: ci
+
+# The gate runs here as well as in the pre-commit hook, from the same script. The hook is
+# fast feedback; this is the authority that `--no-verify` cannot walk past.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: docs and secrets gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit-authorship check walks a range, so it needs real history. A
+          # shallow clone would check nothing and still report success.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Host literals are never committed -- a file listing what must not be committed is
+      # itself the leak -- so CI reads them from a repository secret. Without the secret
+      # the gate still runs its committed patterns and says which mode it used.
+      - name: Materialise local forbidden strings
+        env:
+          FORBIDDEN: ${{ secrets.FORBIDDEN_STRINGS }}
+        # Guarded inside the script, not with a step-level `if`: a step's own `env` block
+        # is not available to its own `if` expression, so that form would have tested an
+        # always-empty value and silently never run. Another check that reports success
+        # while doing nothing.
+        run: |
+          if [ -n "$FORBIDDEN" ]; then
+            echo "$FORBIDDEN" > security/forbidden_strings.txt
+            echo "forbidden strings loaded from repository secret"
+          else
+            echo "no FORBIDDEN_STRINGS secret set; committed patterns only"
+          fi
+
+      # No dependencies installed, deliberately: the gate uses only the standard library,
+      # so a broken install cannot disable it. That is also why the ownership manifest is
+      # TOML -- tomllib is stdlib, PyYAML is not.
+      - name: Run the gate
+        run: python scripts/docs_gate.py --mode ci --diff origin/${{ github.base_ref || 'main' }}...HEAD
+
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    strategy:
+      # Five is this project's standing concurrency rule, applied wherever it can be
+      # machine-enforced rather than merely written down.
+      max-parallel: 5
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # What the sandbox tests need. Present now so integration tests can be enabled
+      # later without touching this file.
+      - name: Install bubblewrap
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # Integration tests need the private cluster, which CI cannot reach. Excluded by
+      # marker so the exclusion is explicit rather than a silently absent test.
+      - name: Run tests
+        run: python -m pytest -q -m "not integration"
+
+      # A stale generated document fails the build, not merely the hook.
+      - name: Verify generated documents are current
+        run: |
+          python scripts/gen_config_docs.py --check
+          python scripts/gen_status.py --check
+
+  gitleaks:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # scan history, not just the tip
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

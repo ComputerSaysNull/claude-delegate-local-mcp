@@ -1,4 +1,4 @@
-<!-- BUDGET: 130 -->
+<!-- BUDGET: 175 -->
 # Contributing
 
 ## Setup
@@ -100,6 +100,47 @@ thing you would have got wrong again in six months. Not a diary.
 
 Security-sensitive work — `sandbox.py`, `paths.py`, `wsl.py` — gets a short design note in
 `docs/specs/YYYY-MM-DD-<slug>.md` before the code. Nothing else needs one.
+
+## CI
+
+`.github/workflows/ci.yml` runs three jobs on every pull request:
+
+- **gate** — the same `scripts/docs_gate.py` the hook runs. It checks out full history
+  because the commit-authorship check walks a range; a shallow clone would check nothing
+  and report success. No dependencies are installed, deliberately: the gate uses only the
+  standard library, so a broken install cannot disable it.
+- **tests** — Python 3.11 and 3.12, `bubblewrap` installed, integration tests excluded
+  because CI cannot reach the private cluster. Also verifies the generated documents are
+  current, so a stale one fails the build rather than merely the hook.
+- **gitleaks** — over full history, configured by `.gitleaks.toml`.
+
+The email rule in `.gitleaks.toml` is an **allowlist**, and must stay in step with
+`security/allowed_emails.txt`: the gate reads one, gitleaks reads the other. A denylist
+would mean writing the addresses you want caught into a public file.
+
+Host literals reach CI through a `FORBIDDEN_STRINGS` repository secret, never the repo.
+Without it the gate still runs its committed patterns and says which mode it used.
+
+## Build-time agents
+
+`.claude/agents/` holds four subagents used while working *on* this repository. They are
+not shipped, and they are not the delegation agents described in
+[docs/AGENTS.md](docs/AGENTS.md) — different thing, same file format.
+
+| Agent | Model | Effort | For |
+|---|---|---|---|
+| `researcher` | haiku | low | Read-only exploration. Retrieval, no judgement |
+| `docs-audit` | haiku | medium | Staleness and misplaced facts the gate cannot judge |
+| `test-writer` | sonnet | medium | Tests, especially negative cases |
+| `code-reviewer` | sonnet | high | Diffs, against this project's security invariants |
+
+Model and effort are set per task cost: the cheapest tier that can do the job. Retrieval
+and comparison get haiku; anything where being wrong is expensive gets sonnet and higher
+effort. The frontmatter key is `effort`, not `reasoning_effort` — a misspelling is ignored
+in silence and quietly bills the default tier.
+
+Run at most five agents concurrently. Enforced in CI via `max-parallel`; elsewhere it is a
+working rule.
 
 ## Secrets
 
