@@ -1,0 +1,9 @@
+# Commit author/committer allowlist AND the email-content allowlist.
+# Any email-shaped string in a tracked file, and any commit author or committer
+# address, must appear here or the gate blocks.
+#
+# Note the default posture: this repo is PUBLIC, and the global git identity on
+# this machine belongs to an employer. Listing only the intended address means
+# any other identity -- including that one -- is refused without ever being
+# named here.
+81183633+ComputerSaysNull@users.noreply.github.com

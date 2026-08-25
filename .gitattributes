@@ -1,0 +1,6 @@
+# The docs gate compares generated text against committed text. Line-ending drift
+# would make that comparison fail for reasons that have nothing to do with content.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary

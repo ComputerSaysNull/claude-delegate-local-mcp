@@ -1,0 +1,54 @@
+claude-delegate-local-mcp
+Copyright (c) 2026 ComputerSaysNull
+
+This product is a derivative work. It is NOT an independent reimplementation:
+the source repositories below were read closely and code was ported from them,
+so their MIT notices are retained in LICENSE and apply to those portions.
+
+--------------------------------------------------------------------------------
+1. fegone/claude-code-delegate-local  -- MIT, Copyright (c) 2026 Felix Gonzalez
+   https://github.com/fegone/claude-code-delegate-local
+
+   The primary ancestor. Ported from it, in adapted and re-authored form:
+     - the agentic turn loop and its turn/nudge accounting
+     - three-tier agent lookup and frontmatter parsing
+     - workdir-confined path resolution
+     - the subprocess environment allowlist
+     - tool-result eviction (context pruning)
+     - duplicate-tool-call de-duplication
+     - read_file pagination and run_bash output truncation markers
+     - retry/backoff with Retry-After handling
+     - turn-countdown injection and the final-turn short-circuit
+     - real-exit-code capture, and the test that polices it
+     - the Anthropic-shaped canonical message representation
+
+   All model-facing strings (tool descriptions, error messages returned to the
+   delegated model) were re-authored in English; upstream's are Spanish. This is
+   a functional change, not a translation of comments.
+
+2. mixicz/claude-code-delegate-local  -- MIT, Copyright (c) 2026 Felix Gonzalez
+   https://github.com/mixicz/claude-code-delegate-local
+   (a fork of 1; its LICENSE is unchanged from upstream, so its additions carry
+   the same notice)
+
+   Ported from it, in adapted form:
+     - agent frontmatter actually binding the dispatch
+     - per-agent reasoning-effort resolution with fail-loud validation
+     - per-agent tool restriction enforced at both declaration and execution
+     - the workdir-root allowlist
+     - the bubblewrap run_bash sandbox: empty-root design, bind-order rules,
+       HOME literal-vs-realpath handling, and the network toggle
+
+3. fjgbue/claude-delegator-deepseek-mcp  -- see that repository for its terms
+   https://github.com/fjgbue/claude-delegator-deepseek-mcp
+
+   No code was taken. The `files[]` server-side context-prefetch *idea* comes
+   from here; this implementation was written independently and differs
+   materially (total-byte budget, binary detection, secret denylist,
+   skip-whole-files-rather-than-truncate).
+
+--------------------------------------------------------------------------------
+Files that are close ports carry a provenance comment naming their origin.
+Upstream fixes are read and reimplemented rather than cherry-picked; see
+DECISIONS.md for why, and for the review point at which watching upstream stops
+earning its keep.

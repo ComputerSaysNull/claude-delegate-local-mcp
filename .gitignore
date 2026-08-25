@@ -1,0 +1,25 @@
+# --- secrets and machine-specific config (see security/secret_globs.txt) ---
+.env
+.env.*
+!.env.example
+models.toml
+!models.toml.example
+*.pem
+*.key
+id_*
+security/forbidden_strings.txt
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# --- local scratch ---
+.spike/
+*.local.md

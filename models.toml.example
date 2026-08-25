@@ -1,0 +1,36 @@
+# Model registry -- copy to models.toml and fill in your endpoint.
+#
+# models.toml is gitignored on purpose: it names a host, and a hostname is exactly as
+# identifying as an address. Keep this .example file free of real values.
+#
+# One entry per servable model. The serving stack runs one model per inference
+# instance, so a second model means a second base_url -- which is why this is an
+# explicit registry rather than pattern-matching on model names (ADR-0009).
+
+[models.deepseek-v4-flash]
+# No /v1 suffix -- the server appends the API path itself.
+base_url        = "http://YOUR-HEAD-NODE:8888"
+# Exactly as the server reports it at GET {base_url}/v1/models.
+served_model_id = "deepseek-v4-flash-0731"
+api_format      = "openai"
+# Name of the env var holding a bearer token. Omit or leave empty when the endpoint
+# needs no auth. The key itself never appears here.
+api_key_env     = ""
+context_window  = 1048576
+# off | low | high | max. Low is right for the bulk mechanical work this tool exists
+# for; the high settings burn the reply budget on reasoning (ADR-0013, ADR-0014).
+default_effort  = "low"
+max_tokens_cap  = 131072
+# This endpoint's own concurrent-sequence limit, checked alongside the global
+# DELEGATE_MAX_INFLIGHT_SEQS.
+concurrency     = 5
+default         = true
+
+# A second model is a second container on a second port. Uncomment and adjust:
+#
+# [models.qwen3-vl]
+# base_url        = "http://YOUR-HEAD-NODE:8889"
+# served_model_id = "qwen3-vl-4b"
+# context_window  = 131072
+# default_effort  = "off"
+# concurrency     = 2
