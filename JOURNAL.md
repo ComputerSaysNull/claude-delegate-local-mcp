@@ -191,3 +191,28 @@ refusing to let a comment name the address it is explaining buys nothing. Confla
 forced a choice between a false positive on prose and a hole in the identity check --
 and the tempting fix, rewording the comment, would have preserved the flaw while hiding
 the symptom.
+
+## 2026-08-25 — Measuring the wrong population made a real protection look impossible
+
+A personal identifier was written into a test file as an illustrative example. The
+forbidden-strings list held only its full form, and single words of a multi-word entry do
+not match, so nothing caught it. Review did.
+
+The first response was to declare the fragment unlistable: it appeared roughly two
+hundred times, so listing it would fire constantly and the check would end up ignored.
+That reasoning was wrong, and the error generalises. **Every one of those occurrences was
+inside a virtualenv, which is not tracked and which the gate never reads.** Measured over
+the files actually scanned, the case-sensitive whole word appeared *zero* times.
+
+Counting the wrong population turned a cheap fix into an apparent impossibility. Before
+rejecting a control as too noisy, measure the noise on the set the control actually sees.
+
+The fix is a `word:` prefix selecting case-sensitive whole-word matching, so a fragment
+that is also ordinary vocabulary can be listed without firing on ordinary usage.
+
+Two further lessons, both about claims rather than code. The statement that "the system
+would now catch it" was false when written -- the control covered a different fragment
+from the one that had actually been typed. And describing *why* a control was hard is its
+own disclosure risk: an explanation precise enough to be useful ("it collides with a
+common term in this domain") can narrow the value to a single candidate. Write the
+mechanism, not the specimen.

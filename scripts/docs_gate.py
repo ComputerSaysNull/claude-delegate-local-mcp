@@ -232,8 +232,34 @@ def check_emails_in_files() -> list[Finding]:
     return out
 
 
+# A literal prefixed with "word:" is matched case-sensitively on word boundaries
+# instead of case-insensitively as a substring. It exists for the case the plain form
+# cannot serve: a name that is also an ordinary programming word.
+#
+# The reasoning that first rejected this was wrong, and wrong in an instructive way. A
+# common surname looked unusably noisy because it appeared hundreds of times -- but every
+# one of those was inside a virtualenv, which is not tracked and is never scanned. Over
+# the files the gate actually reads, the capitalised whole word appeared zero times. The
+# measurement was of the wrong population.
+WORD_PREFIX = "word:"
+
+
+def _word_pattern(literal: str) -> str:
+    return r"(?<![A-Za-z0-9_])" + re.escape(literal) + r"(?![A-Za-z0-9_])"
+
+
+def split_literals(literals: list[str]) -> tuple[list[str], list[str]]:
+    """Into (loose, word-boundary). Loose is the default and covers hostnames."""
+    loose, words = [], []
+    for lit in literals:
+        (words if lit.startswith(WORD_PREFIX) else loose).append(
+            lit[len(WORD_PREFIX):].strip() if lit.startswith(WORD_PREFIX) else lit)
+    return loose, words
+
+
 def check_host_identifiers() -> list[Finding]:
-    literals = load_lines(ROOT / "security" / "forbidden_strings.txt")
+    all_literals = load_lines(ROOT / "security" / "forbidden_strings.txt")
+    literals, word_literals = split_literals(all_literals)
     out = []
     for p in scannable_files():
         r = rel(p)
@@ -263,6 +289,11 @@ def check_host_identifiers() -> list[Finding]:
                     out.append(Finding(BLOCK, "host-identifier",
                                        f"{r}:{i} matches an entry in the local "
                                        f"forbidden_strings list."))
+            for lit in word_literals:
+                if re.search(_word_pattern(lit), line):
+                    out.append(Finding(BLOCK, "host-identifier",
+                                       f"{r}:{i} matches a word-boundary entry in the "
+                                       f"local forbidden_strings list."))
     # Multi-word literals need a second pass. A name is written across a line break,
     # or with a double space, far more often than a hostname is -- and the line-by-line
     # pass above cannot see either. Normalising all whitespace to single spaces catches
@@ -347,7 +378,8 @@ def check_commit_message(mode: str, diff_range: str | None) -> list[Finding]:
                 sha, body = chunk.split(chr(31), 1)
                 texts.append((sha.strip(), body))
 
-    literals = load_lines(ROOT / "security" / "forbidden_strings.txt")
+    literals, word_literals = split_literals(
+        load_lines(ROOT / "security" / "forbidden_strings.txt"))
     allowed = set(load_lines(AUTHOR_ALLOWLIST_FILE))
     out = []
     for where, text in texts:
@@ -359,6 +391,12 @@ def check_commit_message(mode: str, diff_range: str | None) -> list[Finding]:
                 out.append(Finding(BLOCK, "commit-message",
                                    f"{where}: the message contains an entry from the "
                                    f"local forbidden_strings list."))
+                break
+        for lit in word_literals:
+            if re.search(_word_pattern(lit), body):
+                out.append(Finding(BLOCK, "commit-message",
+                                   f"{where}: the message contains a word-boundary "
+                                   f"entry from the local forbidden_strings list."))
                 break
         for pat, label in HOST_PATTERNS:
             m = re.search(pat, body, re.I)

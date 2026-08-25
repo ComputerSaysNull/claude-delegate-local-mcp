@@ -179,3 +179,65 @@ def test_comment_lines_in_the_template_are_ignored(repo: Path):
     content would fire on branch names and file lists the user never wrote."""
     assert not message_blocked(
         repo, "fix: restart\n\n# On branch host-alpha\n# Changes to be committed:\n")
+
+
+# ------------------------------------------------- word-boundary entries ("word:")
+
+WORD_LITERALS = ["host-alpha", "word:Bell"]
+
+
+@pytest.fixture
+def word_repo(tmp_path: Path) -> Path:
+    """A repo whose list uses a word-boundary entry for a name that is also a
+    common word, which the default loose matching cannot serve."""
+    r = tmp_path / "w"
+    (r / "scripts").mkdir(parents=True)
+    (r / "security").mkdir()
+    (r / "docs").mkdir()
+    shutil.copy(GATE, r / "scripts" / "docs_gate.py")
+    shutil.copy(ROOT / "scripts" / "docs_ownership.toml", r / "scripts" / "docs_ownership.toml")
+    for name, body in (
+        ("allowed_emails.txt", "t@example.com\n"),
+        ("secret_globs.txt", ".env\n"),
+        ("content_safe_emails.txt", "t@example.com\n"),
+        ("forbidden_strings.txt", "# local\n" + "\n".join(WORD_LITERALS) + "\n"),
+    ):
+        (r / "security" / name).write_text(body, encoding="utf-8")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=r, capture_output=True)
+    return r
+
+
+def test_word_entry_catches_the_capitalised_standalone_word(word_repo: Path):
+    """The case that motivated this.
+
+    A surname written on its own slipped past a list holding only the full name,
+    because single words of a multi-word entry do not match. A loose entry could not
+    fix it either, since the lowercase word is ordinary vocabulary."""
+    assert probe(word_repo, "rung by Bell in the morning")
+
+
+def test_word_entry_ignores_other_casings(word_repo: Path):
+    assert not probe(word_repo, "ring the bell twice")
+    assert not probe(word_repo, "the BELL character is 0x07")
+
+
+def test_word_entry_ignores_the_word_inside_a_larger_token(word_repo: Path):
+    """This is the whole point of word boundaries: the loose form would fire on all
+    of these, and a check that fires on ordinary code gets switched off."""
+    for text in ("Bellwether strategy", "doorBell handler", "Bell_Labs constant",
+                 "the Bell-shaped curve is Bell-like"):
+        blocked = probe(word_repo, text)
+        if "Bell-" in text or "-Bell" in text:
+            continue  # hyphen is a boundary; that form is correctly caught
+        assert not blocked, text
+
+
+def test_loose_entries_still_match_case_insensitively(word_repo: Path):
+    """Adding the word: form must not change the default behaviour hostnames rely on."""
+    assert probe(word_repo, "the box is HOST-ALPHA")
+    assert probe(word_repo, "the box is host-alpha.example" + ".internal")
+
+
+def test_word_entry_applies_to_commit_messages_too(word_repo: Path):
+    assert message_blocked(word_repo, "fix: thing\n\nreported by Bell today\n")
+    assert not message_blocked(word_repo, "fix: thing\n\nring the bell\n")

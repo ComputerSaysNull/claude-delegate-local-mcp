@@ -93,7 +93,10 @@ Rules a machine cannot check, so they land here:
 - Local literals in `security/forbidden_strings.txt` match case-insensitively and as
   substrings. A multi-word entry matches only the contiguous phrase, so **list the
   distinctive parts separately too** — a full name alone will not catch a surname
-  written on its own. Never write a real name into an example; use a fictional one.
+  written on its own. For a part that is also ordinary vocabulary, prefix it
+  `word:` for case-sensitive whole-word matching. Never write a real personal
+  identifier into an example, a commit message, or a pull request body — use a
+  fictional one, and describe the mechanism rather than the specimen.
 
 ## Conventions
 
