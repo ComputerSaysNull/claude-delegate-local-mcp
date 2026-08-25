@@ -51,8 +51,10 @@ jobs:
       # No dependencies installed, deliberately: the gate uses only the standard library,
       # so a broken install cannot disable it. That is also why the ownership manifest is
       # TOML -- tomllib is stdlib, PyYAML is not.
+      # GITHUB_EVENT_PATH carries the pull request title and body, which are a
+      # public surface written outside git -- no hook or file check can see them.
       - name: Run the gate
-        run: python scripts/docs_gate.py --mode ci --diff origin/${{ github.base_ref || 'main' }}...HEAD
+        run: python scripts/docs_gate.py --mode ci --diff origin/${{ github.base_ref || 'main' }}...HEAD --pr-event "$GITHUB_EVENT_PATH"
 
   tests:
     name: tests

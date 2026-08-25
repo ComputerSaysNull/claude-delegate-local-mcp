@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import json
 import re
 import subprocess
 import sys
@@ -409,6 +410,63 @@ def check_commit_message(mode: str, diff_range: str | None) -> list[Finding]:
                 out.append(Finding(BLOCK, "commit-message",
                                    f"{where}: the message contains {m.group(0)!r}, "
                                    f"which is not an allowlisted address."))
+    return out
+
+
+def scan_text(label: str, text: str) -> list[Finding]:
+    """Run the identifier checks over arbitrary text.
+
+    Used for the commit message and for a pull request title and body. A pull request
+    body is a public surface written outside git entirely, so no hook and no file check
+    can see it -- which is exactly how a specimen got published once despite every other
+    check passing.
+    """
+    loose, words = split_literals(
+        load_lines(ROOT / "security" / "forbidden_strings.txt"))
+    allowed = set(load_lines(AUTHOR_ALLOWLIST_FILE))
+    flat = " ".join(text.split()).lower()
+    out = []
+    for lit in loose:
+        if " ".join(lit.split()).lower() in flat:
+            out.append(Finding(BLOCK, "public-text",
+                               f"{label} contains an entry from the local "
+                               f"forbidden_strings list."))
+            break
+    for lit in words:
+        if re.search(_word_pattern(lit), text):
+            out.append(Finding(BLOCK, "public-text",
+                               f"{label} contains a word-boundary entry from the local "
+                               f"forbidden_strings list."))
+            break
+    for pat, lbl in HOST_PATTERNS:
+        m = re.search(pat, text, re.I)
+        if m:
+            out.append(Finding(BLOCK, "public-text",
+                               f"{label} contains what looks like a {lbl}: "
+                               f"{m.group(0)!r}."))
+    for m in EMAIL_RE.finditer(text):
+        if m.group(0) not in allowed and not is_content_safe(m.group(0)):
+            out.append(Finding(BLOCK, "public-text",
+                               f"{label} contains {m.group(0)!r}, which is not an "
+                               f"allowlisted address."))
+    return out
+
+
+def check_pr_text(event_path: str | None) -> list[Finding]:
+    """Scan a pull request title and body from the Actions event payload."""
+    if not event_path or not Path(event_path).exists():
+        return [Finding(SKIP, "public-text",
+                        "no pull request event payload; title and body not scanned.")]
+    try:
+        payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return [Finding(WARN, "public-text", f"could not read the event payload: {e}")]
+    pr = payload.get("pull_request") or {}
+    out = []
+    out += scan_text("the pull request title", pr.get("title") or "")
+    out += scan_text("the pull request body", pr.get("body") or "")
+    if not out:
+        out.append(Finding(SKIP, "public-text", "pull request title and body are clean."))
     return out
 
 
@@ -800,6 +858,7 @@ CHECKS = {
     "split-dodge": check_split_dodge,
     "manifest": check_manifest_docs_exist,
     "audit-due": check_audit_pressure,
+    "public-text": check_pr_text,
 }
 
 
@@ -824,6 +883,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=("pre-commit", "ci"), default="pre-commit")
     ap.add_argument("--diff", dest="diff_range", default=None)
+    ap.add_argument("--pr-event", metavar="PATH", default=None,
+                    help="Actions event payload; scans the pull request title and body, a public surface no hook can see.")
     ap.add_argument("--owner", metavar="PATH",
                     help="print which document owns PATH, then exit. Exists so CLAUDE.md "
                          "can state the ownership rule without restating the manifest.")
@@ -855,6 +916,8 @@ def main() -> int:
     for name, fn in CHECKS.items():
         if name in ("identity", "commit-message"):
             findings += fn(args.mode, args.diff_range)
+        elif name == "public-text":
+            findings += fn(args.pr_event)
         elif name in ("owning-doc", "split-dodge"):
             findings += fn(changed)
         else:

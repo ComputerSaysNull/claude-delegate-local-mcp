@@ -1,4 +1,4 @@
-<!-- BUDGET: 110 -->
+<!-- BUDGET: 135 -->
 # CLAUDE.md
 
 Traps and invariants for anyone — human or agent — editing this repository. Terse on
@@ -97,6 +97,12 @@ Rules a machine cannot check, so they land here:
   `word:` for case-sensitive whole-word matching. Never write a real personal
   identifier into an example, a commit message, or a pull request body — use a
   fictional one, and describe the mechanism rather than the specimen.
+
+- **A pull request title and body are a public surface that no hook can gate.** They are
+  written outside git, so the pre-commit hook cannot see them and CI only sees them after
+  they are already published. CI scans them anyway, but the check is a backstop, not a
+  gate. Write the **mechanism, never the specimen** — "a fragment that collides with
+  ordinary vocabulary", not the fragment itself. The same applies to issue comments.
 
 ## Conventions
 

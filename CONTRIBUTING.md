@@ -118,6 +118,12 @@ Two things that live outside it and are easy to miss:
   tolerates documentation placeholders and service accounts. A service address able to
   author commits would defeat the identity check.
 - Host literals reach CI through a `FORBIDDEN_STRINGS` repository secret, never the repo.
+- The gate job also scans the **pull request title and body**, via the Actions event
+  payload. Those are written outside git, so no hook and no file check can see them — a
+  specimen once reached a public pull request body while every other check passed. The
+  scan runs after publication, so it is a backstop, not a gate: write the mechanism,
+  never the specimen. GitHub retains edit history for pull request bodies, so an edited
+  mistake is not an erased one.
 
 ## Branch protection
 

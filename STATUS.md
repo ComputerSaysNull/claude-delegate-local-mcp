@@ -40,7 +40,7 @@
 
 ## Recent commits
 
-- `7105cf2` feat: match word-boundary literals, so a common-word name can be listed
+- `93de4d0` feat: match word-boundary literals, so a common-word fragment can be listed
 - `b96d505` fix: scan every text file type and the commit message itself (#4)
 - `6ba40aa` fix: close a secret-path gap and replace the audit schedule with evidence (#3)
 - `a17eb46` docs: record how fast a hand-maintained invariant failed (#2)
