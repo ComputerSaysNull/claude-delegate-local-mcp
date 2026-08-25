@@ -1,4 +1,5 @@
-<!-- BUDGET: 300 -->
+<!-- BUDGET-PER-ENTRY: 55 -->
+<!-- ARCHIVE-AT: 600 -->
 # Journal
 
 Things that took real work to figure out, so the next person does not pay for them
@@ -67,3 +68,64 @@ measurement, fixes both. See ADR-0019.
 
 The general lesson: when rationing a resource, denominate the budget in the unit the
 resource is actually consumed in, even when a cheaper proxy is right there.
+
+## 2026-08-25 — bwrap in WSL2: two traps, and an error message that lies
+
+Provisioning Ubuntu 24.04 under WSL2 and standing up the sandbox turned up two failures
+that would each have cost an afternoon at M5.
+
+**The lib64 symlink is mandatory, not optional, and the error blames the wrong thing.**
+An empty-root sandbox with `--ro-bind /usr /usr` and `--symlink usr/bin /bin` fails with:
+
+    bwrap: execvp /usr/bin/echo: No such file or directory
+
+The binary is present and readable. What is missing is `/lib64/ld-linux-x86-64.so.2`, the
+ELF interpreter — and when the kernel cannot find a binary's interpreter it returns ENOENT,
+which surfaces as "No such file or directory" against the *executable*. Every diagnostic
+instinct points at the wrong file.
+
+So `--symlink usr/lib64 /lib64` is required on x86-64. The planning notes had it as
+"if present on the distro", which is wrong: without it nothing dynamically linked runs at
+all. Add `--symlink usr/sbin /sbin` for the same reason.
+
+**DNS inside the sandbox needs a WSL-specific bind.** With the network deliberately
+re-shared for an agent that opted in, connections by IP succeeded and connections by
+hostname failed. The cause: under WSL, `/etc/resolv.conf` is a symlink to
+`/mnt/wsl/resolv.conf`. Binding `/etc` therefore binds a *dangling* symlink, and name
+resolution fails while connectivity is fine. The fix is to bind `readlink -f
+/etc/resolv.conf` at its own real path as well.
+
+**A test worth keeping: verify network denial by IP, not by hostname.** With resolv.conf
+unbound, a hostname request fails whether or not the network namespace is actually
+isolated. Testing by hostname alone would have reported the sandbox as network-tight when
+it might merely have had broken DNS. Only a by-IP attempt distinguishes the two, and only
+the by-IP result is evidence.
+
+Verified working after the fixes: commands run, python3 resolves, network denied by
+default (000 by IP), the real HOME absent rather than read-only, `~/.ssh` absent, a bound
+workdir writable, and network available when explicitly re-shared.
+
+## 2026-08-25 — The 9p bridge, measured: the penalty is real but it is not uniform
+
+The plan flagged `/mnt/c` performance as an open risk. Measured, same tree, same machine,
+warm caches, WSL2 Ubuntu 24.04:
+
+    operation                       /mnt/c (9p)      ext4     penalty
+    git status                            0.43s     0.00s      ~100x
+    read every tracked file               0.16s     0.02s         8x
+    write 300 small files                 1.96s     0.01s      ~200x
+    create a venv                        68.92s     2.51s        27x
+    pytest, full suite (avg of 3)          7.11s     0.59s        12x
+    pytest, one file                       0.56s     0.20s        2.8x
+
+The shape matters more than the headline. Ratios look alarming; absolute numbers are
+mostly survivable. A 12x penalty on the full suite is 7 seconds, not 70, and the
+self-verification loop still costs zero Claude tokens. Metadata-heavy work is where 9p
+genuinely hurts: venv creation at 69 seconds is the one number that stings, and it is
+rare.
+
+Also learned, and it constrains the obvious workaround: **Windows cannot use a `\wsl$\`
+UNC path as a process working directory.** `CreateProcess` refuses it outright. So
+"keep Claude Code on Windows but move the repo onto ext4" does not work as stated —
+Windows-side tools that need a cwd, including any shell command Claude runs, cannot
+operate there without mapping a drive letter first.

@@ -1,4 +1,4 @@
-<!-- BUDGET: 400 -->
+<!-- ARCHIVE-AT: 700 -->
 # Changelog
 
 Newest first. Entries carry the **why**, not just the what: the symptom that prompted the

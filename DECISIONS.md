@@ -1,4 +1,5 @@
-<!-- BUDGET: 400 -->
+<!-- BUDGET-PER-ENTRY: 60 -->
+<!-- ARCHIVE-AT: 900 -->
 # Decisions
 
 Numbered ADRs, newest first. **Append-only**: the body of a decision is never edited,
@@ -18,6 +19,89 @@ decision is actually in play. There is deliberately no index table — a table w
 be a second copy of the same facts, and second copies drift.
 
 ---
+
+## ADR-0022 — 2026-08-25 — Size budgets differ by document class: total lines for mutable, per-entry for append-only — Accepted
+
+Found by hitting the limit. `DECISIONS.md` reached 372 lines against a 400 budget after a
+day's work, and the only available response would have been to raise the number — again
+next week, and the week after.
+
+That reveals the rule was wrong for the file, not the file wrong for the rule. ADR-0003
+justified budgets as a prompt to ask whether content still earns its place. For an
+append-only record, it always does: history does not become less true. A total cap on such
+a file generates friction and never once produces a useful decision.
+
+So budgets now come in two kinds:
+
+- `BUDGET: n` — total lines, for **mutable** documents. Unchanged, and still blocking with
+  the same three resolutions.
+- `BUDGET-PER-ENTRY: n` — longest `## ` section, for **append-only** documents. Keeps each
+  entry terse, which is the quality actually at risk, while letting the file grow.
+- `ARCHIVE-AT: n` — optional, warns rather than blocks, suggesting older entries be split
+  into a dated file. Splitting history is fine; trimming it is not.
+
+`CHANGELOG.md` gets an archive threshold and no per-entry cap, because its `## ` sections
+are releases that legitimately accumulate entries across a cycle. Its discipline — every
+entry carries the why — is a review matter that no line count can enforce.
+
+The mechanism worked as designed, which is the point worth recording: the budget forced a
+review, and the review concluded the budget itself was misapplied. A rule that can be
+found wrong by its own enforcement is a good rule.
+
+## ADR-0021 — 2026-08-25 — The sandbox argv, corrected against a running kernel — Accepted
+
+Two corrections to the planned bubblewrap invocation, both found by running it rather
+than reading it. Recorded as a decision because both are easy to reintroduce and one
+produces a false sense of security.
+
+`--symlink usr/lib64 /lib64` is **mandatory** on x86-64, not "if present on the distro"
+as planned. Without it the ELF interpreter is absent and nothing dynamically linked runs.
+The failure is actively misleading: the kernel returns ENOENT for a missing interpreter,
+so bwrap reports "No such file or directory" against the *executable*, which is present
+and readable. `--symlink usr/sbin /sbin` for the same reason.
+
+DNS inside the sandbox requires binding the real path of `/etc/resolv.conf`. Under WSL
+that file is a symlink to `/mnt/wsl/resolv.conf`, so binding `/etc` binds a dangling
+symlink: connections by address succeed while connections by name fail. The sandbox
+builder resolves the link and binds its target at its own path whenever network access is
+granted.
+
+The consequence for testing is the part worth keeping: **network denial must be verified
+by address, never by hostname.** With resolv.conf unbound, a hostname request fails
+whether or not the network namespace is genuinely isolated, so a hostname-only test would
+report a tight sandbox that might merely have broken name resolution. Only an
+address-based attempt is evidence. This is the same shape as the self-defeating checks
+already recorded: a test that cannot fail for the reason it claims to test.
+
+Verified on Ubuntu 24.04 under WSL2, bubblewrap 0.9.0: commands run, python3 resolves,
+network denied by default with 000 by address, the real HOME absent rather than
+read-only, `~/.ssh` absent, a bound workdir writable, and network reachable when
+explicitly re-shared.
+
+## ADR-0020 — 2026-08-25 — Topology A confirmed: server in WSL2, workspace on the Windows drive — Accepted
+
+Spike C measured the 9p bridge instead of speculating about it. Same tree, warm caches:
+git status ~100x slower, small writes ~200x, venv creation 27x (69s against 2.5s), and
+the number that actually matters, a full pytest run, 12x — 7.11s against 0.59s.
+
+The ratios read as alarming and the absolute numbers mostly do not. Five iterations of
+the self-verification loop is about 35 seconds of wall clock and **zero** Claude tokens,
+against roughly 10-25k tokens for the same work under the no-shell alternative. Cost was
+the stated priority for this project, so the trade is clearly worth 7-second test runs.
+Venv creation at 69s is the one genuinely poor number, and it is a one-off.
+
+Two alternatives were measured and rejected rather than assumed:
+
+Moving only the *workspace* onto ext4 while keeping Claude Code on Windows does not work.
+Windows `CreateProcess` refuses a `\wsl$\` UNC path as a working directory, so any shell
+command Claude runs in the repository fails outright without first mapping a drive letter.
+
+Moving development entirely into WSL removes every penalty at once — native test speed
+*and* free self-verification, with no path translation — and the measurements make it
+materially stronger than it looked during planning. It remains rejected only because it
+is a workflow change the user does not want, not because the engineering disfavours it.
+That keeps ADR-0002's trigger live: if development moves onto Linux for independent
+reasons, this becomes strictly best, and the server code is identical either way.
 
 ## ADR-0019 — 2026-08-25 — Denominate the prefetch budget in tokens, not bytes, with measured per-extension ratios — Accepted
 

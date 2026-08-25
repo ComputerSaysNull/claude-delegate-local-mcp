@@ -250,28 +250,69 @@ def check_generated_docs() -> list[Finding]:
 
 
 def check_budgets() -> list[Finding]:
-    """Budgets block, but the block never means delete. See ADR-0003."""
+    """Budgets block, but the block never means delete. See ADR-0003.
+
+    Two kinds, because one rule does not fit both document classes (ADR-0022):
+
+    `BUDGET: n`           total lines. For MUTABLE documents, where exceeding the cap is a
+                          real prompt to ask whether everything still earns its place.
+    `BUDGET-PER-ENTRY: n` longest `## ` section. For APPEND-ONLY documents, where history
+                          does not stop earning its place, so a total cap could only ever
+                          be raised. Capping each entry keeps them terse instead.
+    `ARCHIVE-AT: n`       optional, append-only only. Warns when the file has grown enough
+                          to split by year, rather than blocking.
+    """
     out = []
     seen = 0
     for p in sorted(ROOT.rglob("*.md")):
-        if ".git" in p.parts or "docs/audits" in rel(p) or "archive" in p.parts:
+        r = rel(p)
+        if ".git" in p.parts or "docs/audits" in r or "archive" in p.parts:
             continue
         text = p.read_text(encoding="utf-8", errors="replace")
+        total = len(text.splitlines())
+
+        archive_at = re.search(r"<!--\s*ARCHIVE-AT:\s*(\d+)\s*-->", text)
+        if archive_at and total > int(archive_at.group(1)):
+            out.append(Finding(
+                WARN, "budget",
+                f"{r} is {total} lines, past its archive threshold of "
+                f"{archive_at.group(1)}. Consider splitting the older entries into a "
+                f"dated file; do not trim them."))
+
+        per_entry = re.search(r"<!--\s*BUDGET-PER-ENTRY:\s*(\d+)\s*-->", text)
+        if per_entry:
+            seen += 1
+            cap = int(per_entry.group(1))
+            sections = re.split(r"^## ", text, flags=re.M)[1:]
+            for sec in sections:
+                title = sec.splitlines()[0].strip()[:70] if sec.strip() else "(untitled)"
+                n = len(sec.splitlines())
+                if n > cap:
+                    out.append(Finding(
+                        BLOCK, "budget",
+                        f"{r}: entry {title!r} is {n} lines against a per-entry budget of "
+                        f"{cap}. Append-only files cap each entry, not the total -- trim "
+                        f"this one, or raise the per-entry budget with a reason in this "
+                        f"same commit."))
+            continue
+
         m = re.search(r"<!--\s*BUDGET:\s*(\d+)\s*-->", text)
         if not m:
+            if archive_at:
+                seen += 1
             continue
         seen += 1
-        budget, actual = int(m.group(1)), len(text.splitlines())
-        if actual > budget:
+        budget = int(m.group(1))
+        if total > budget:
             out.append(Finding(
                 BLOCK, "budget",
-                f"{rel(p)} is {actual} lines against a budget of {budget}. Three ways "
-                f"out, and none of them is deleting something valuable: trim real "
-                f"redundancy; split it (only for a different audience, different owned "
-                f"code, or reference-vs-narrative); or raise the budget with a one-line "
-                f"reason in this same commit."))
+                f"{r} is {total} lines against a budget of {budget}. Three ways out, and "
+                f"none of them is deleting something valuable: trim real redundancy; "
+                f"split it (only for a different audience, different owned code, or "
+                f"reference-vs-narrative); or raise the budget with a one-line reason in "
+                f"this same commit."))
     if not seen:
-        out.append(Finding(SKIP, "budget", "no document declares a BUDGET header yet."))
+        out.append(Finding(SKIP, "budget", "no document declares a budget header yet."))
     return out
 
 

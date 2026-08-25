@@ -21,5 +21,9 @@ dist/
 build/
 
 # --- local scratch ---
+# Benchmark probes: a WSL-created venv under /mnt/c contains symlinks that
+# Git Bash cannot even index, so an accidental `git add -A` fails outright.
+.bench/
+.bench-venv/
 .spike/
 *.local.md
