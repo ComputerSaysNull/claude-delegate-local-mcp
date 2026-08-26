@@ -40,6 +40,14 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 STATUS.md recorded where the repository happened to be when it was generated:
+  a branch deleted on merge and a hash the squash rewrote, both naming something that did
+  not exist, in a generated file whose whole appeal is that it can be trusted. The cause is
+  that `--check` compares only the text above `## Repository`, correctly, because counts
+  move with every commit -- which leaves everything below it verified by nothing. Rather
+  than regenerate more often, the volatile facts are gone: counts stay, VCS position and the
+  recent-commits list do not. A count that drifts is off by one; a branch name that drifts
+  points at nothing. The fourth check found here that could not fail.
 - 2026-08-26 The `docs/TOOLS.md` generator sat in M0b, which could never close: the
   document renders from a tool registry that M4 has not written yet, so the manifest named
   a phantom and warned about it on every run -- and a permanent warning is one nobody reads.

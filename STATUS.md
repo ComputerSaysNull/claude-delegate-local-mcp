@@ -36,14 +36,5 @@
 
 ## Repository
 
-- Branch `docs/upstream-review-and-cleanup`, 15 commit(s)
-- 49 tracked files, 6 test file(s), 24 decision record(s)
-- Working tree: has uncommitted changes
-
-## Recent commits
-
-- `f4c2584` docs: review upstream, and give the review something to live in
-- `d08038e` chore: ignore chunked scratch in the repo root
-- `ad6f2b4` docs: record the public-surface leak and the repository recreate (#1)
-- `2a28636` fix: permit GitHub as a squash-merge committer, never as an author
-- `a7a3ae9` feat: scan the pull request title and body
+- 16 commit(s), 50 tracked files
+- 7 test file(s), 24 decision record(s)

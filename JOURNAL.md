@@ -282,3 +282,33 @@ level up, where the check was never written because the prose sounded like one.
 
 The fix that matters is not the audit file. It is that the artefact is now *inside* the
 repository, where deleting it is a diff someone has to approve.
+
+## 2026-08-26 — The unverified region of a generated file is where the wrong facts live
+
+STATUS.md named branch `docs/repo-recreated` and commit `cdff819`. Both had stopped
+existing: the branch was deleted on merge, the hash rewritten by the squash. A generated
+file, wrong for a day, and generated files are precisely the ones you stop checking.
+
+The interesting part is why nothing caught it. `gen_status.py --check` compares only the
+text above `## Repository`:
+
+    def stable(text): return text.split("## Repository")[0]
+
+That cut is *correct*. Commit counts move with every commit, so a byte comparison would
+fail constantly and teach everyone to pass `--no-verify`. But the consequence had never
+been stated: everything below that heading is verified by nothing, forever, and that is
+exactly where the generator was writing a branch name and a hash.
+
+So the rule is not "regenerate more often" — that is a manual step, and generated documents
+exist to remove manual steps. The rule is about what may live in an unverifiable region:
+
+**Only facts whose staleness is harmless.** A count that drifts is off by one and nobody is
+misled. A branch name or a commit hash that drifts names something that does not exist, and
+is read as authoritative because the file says GENERATED at the top. The recent-commits
+list went too: it duplicated `git log`, cited hashes the squash rewrites, and contradicted
+the generator's own docstring, which says a status file that accumulates is a second
+changelog with none of the discipline.
+
+Fourth check found in this repository that could not fail, and the first where the gap was
+in the *comparison's scope* rather than in the comparison. Worth looking for elsewhere: any
+check that excludes a region for a good reason, and never says what is now unguarded.
