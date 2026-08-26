@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** M1 — One real backend call — 2 of 5 items done
+**Current phase:** M1 — One real backend call — 3 of 6 items done
 
 ## In progress
 
@@ -23,7 +23,7 @@
 | --- | --- | --- | --- | --- |
 | M0a — Spikes | 4 | 0 | 0 | 0 |
 | M0b — Foundation | 23 | 0 | 0 | 0 |
-| M1 — One real backend call | 2 | 0 | 3 | 0 |
+| M1 — One real backend call | 3 | 0 | 3 | 0 |
 | M2 — files[] prefetch | 0 | 0 | 3 | 0 |
 | M3 — Response state machine | 0 | 0 | 8 | 0 |
 | M4 — Agentic loop and model tools | 0 | 0 | 6 | 0 |
@@ -32,9 +32,9 @@
 | M7 — Admission control and polish | 0 | 0 | 4 | 0 |
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
 
-**Overall:** 29 done, 35 open, 5 cancelled.
+**Overall:** 30 done, 35 open, 5 cancelled.
 
 ## Repository
 
-- 16 commit(s), 55 tracked files
-- 10 test file(s), 25 decision record(s)
+- 16 commit(s), 56 tracked files
+- 11 test file(s), 25 decision record(s)

@@ -90,6 +90,23 @@ def test_a_turn_cannot_outlive_the_delegation_containing_it():
                      "DELEGATE_DISPATCH_TIMEOUT": "3600"})
 
 
+def test_the_connect_phase_cannot_outlast_the_call_it_belongs_to():
+    with pytest.raises(config.ConfigError, match="outlast"):
+        config.load({**ROOTS,
+                     "DELEGATE_CONNECT_TIMEOUT": "600",
+                     "DELEGATE_TURN_TIMEOUT": "300"})
+
+
+def test_connect_timeout_must_be_positive():
+    with pytest.raises(config.ConfigError, match="DELEGATE_CONNECT_TIMEOUT must be positive"):
+        config.load({**ROOTS, "DELEGATE_CONNECT_TIMEOUT": "0"})
+
+
+def test_connect_timeout_reads_its_environment_variable():
+    cfg = config.load({**ROOTS, "DELEGATE_CONNECT_TIMEOUT": "5"})
+    assert cfg.connect_timeout == 5
+
+
 def test_total_prefetch_below_per_file_would_admit_nothing():
     with pytest.raises(config.ConfigError, match="could ever be prefetched"):
         config.load({**ROOTS,

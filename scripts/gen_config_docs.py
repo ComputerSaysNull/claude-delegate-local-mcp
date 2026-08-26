@@ -58,7 +58,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                             "tool_call_temperature")),
     ("Agentic loop", ("max_turns_default", "max_turns_hard_cap",
                       "keep_tool_results", "max_batch_size")),
-    ("Timeouts and retries", ("turn_timeout", "dispatch_timeout",
+    ("Timeouts and retries", ("turn_timeout", "connect_timeout", "dispatch_timeout",
                               "retry_max_attempts", "retry_base_delay")),
     ("Admission control", ("max_inflight_seqs", "kv_token_budget",
                            "large_prefill_tokens", "max_inflight_large_prefills")),

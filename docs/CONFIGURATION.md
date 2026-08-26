@@ -79,6 +79,7 @@ All settings are environment variables. Prefix `DELEGATE_`. List-valued settings
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DELEGATE_TURN_TIMEOUT` | 1800 seconds | Per-turn backend call timeout. |
+| `DELEGATE_CONNECT_TIMEOUT` | 30 seconds | Bound on the TCP-connect phase alone, separate from turn_timeout. A refused connection sends RST and fails in milliseconds without this, but a dropped or blackholed route sends nothing and would otherwise stall for the whole of turn_timeout before httpx gives up. |
 | `DELEGATE_DISPATCH_TIMEOUT` | 3600 seconds | Whole-delegation timeout. Claude Code's own wall-clock MCP timeout defaults to about 28 hours so it is not the binding limit, but its stdio IDLE timeout is 30 minutes -- which is why a progress notification is emitted every turn. ADR-0018. |
 | `DELEGATE_RETRY_MAX_ATTEMPTS` | 3 | Attempts on a retryable backend status. |
 | `DELEGATE_RETRY_BASE_DELAY` | 1.0 seconds | Exponential backoff base. |
@@ -115,6 +116,6 @@ All settings are environment variables. Prefix `DELEGATE_`. List-valued settings
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
 
-*38 settings.*
+*39 settings.*
 
 <!-- GEN:CONFIG:END -->

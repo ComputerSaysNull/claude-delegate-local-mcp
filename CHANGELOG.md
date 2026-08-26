@@ -48,6 +48,26 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 A dropped route stalled for the whole turn timeout. The OpenAI adapter built
+  one `httpx.Timeout(turn_timeout)`, which bounds connect, read, write and pool identically
+  — 1800s by default. The comment defending that construction argued no separate connect
+  bound was needed because a refused connection already fails immediately. That is true and
+  it is beside the point: a refused connection sends RST and fails in milliseconds, while a
+  dropped or blackholed route sends nothing at all, so nothing bounded the connect phase.
+  Measured against the unfixed code: refused 0.02s, dropped still connecting after 40s. The
+  symptom was a test suite that went from 22s to 294s whenever the route was unavailable.
+  Connect is now bound by its own setting, `DELEGATE_CONNECT_TIMEOUT`, defaulting to 30s,
+  and validated to be positive and no longer than the call it belongs to. Deriving it from
+  `turn_timeout` was rejected: that puts a number outside `config.py`, where the reference
+  table is generated from and checked against the dataclass.
+
+  The regression test needed a second look. Its first threshold was 30s, which *passed*
+  against the bug: an operating system abandons a dropped SYN on its own — near 21s on
+  Windows, near 130s on Linux — so the observed failure never reached `turn_timeout` and
+  slipped under a loose ceiling. The threshold now sits below both floors, and a companion
+  test asserts the connect bound is installed on the client rather than inferring it from
+  timing, so neither can pass for the wrong reason. Both were confirmed failing against the
+  unfixed code before being trusted.
 - 2026-08-26 A rationale had been copied into four error messages and a test. The claim was
   that the backend silently ignores an unrecognised reasoning-effort value; measured against
   the live server it does the opposite, validating the field and answering a bad value with a

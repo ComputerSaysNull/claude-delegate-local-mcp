@@ -215,6 +215,14 @@ class Config:
 
     # ---- timeouts ----------------------------------------------------------------
     turn_timeout: int = _f(1800, "Per-turn backend call timeout.", unit="seconds")
+    connect_timeout: int = _f(
+        30,
+        "Bound on the TCP-connect phase alone, separate from turn_timeout. A refused "
+        "connection sends RST and fails in milliseconds without this, but a dropped or "
+        "blackholed route sends nothing and would otherwise stall for the whole of "
+        "turn_timeout before httpx gives up.",
+        unit="seconds",
+    )
     dispatch_timeout: int = _f(
         3600,
         "Whole-delegation timeout. Claude Code's own wall-clock MCP timeout defaults to "
@@ -320,9 +328,15 @@ class Config:
                 f"is below DELEGATE_MAX_FILE_TOKENS ({self.max_file_tokens}), so no file "
                 "could ever be prefetched."
             )
-        for name in ("turn_timeout", "dispatch_timeout", "run_bash_timeout"):
+        for name in ("turn_timeout", "connect_timeout", "dispatch_timeout", "run_bash_timeout"):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"DELEGATE_{name.upper()} must be positive.")
+        if self.connect_timeout > self.turn_timeout:
+            raise ConfigError(
+                f"DELEGATE_CONNECT_TIMEOUT ({self.connect_timeout}) exceeds "
+                f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}): the connect phase cannot "
+                "be allowed to outlast the whole call it is part of."
+            )
         if self.turn_timeout > self.dispatch_timeout:
             raise ConfigError(
                 f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}) exceeds "
