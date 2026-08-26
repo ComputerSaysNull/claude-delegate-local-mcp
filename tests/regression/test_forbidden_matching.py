@@ -151,8 +151,18 @@ def test_binary_files_are_skipped_without_error(repo: Path):
 # ------------------------------------------------------------------- commit messages
 
 def message_blocked(repo: Path, message: str) -> bool:
-    (repo / ".git" / "COMMIT_EDITMSG").write_text(message, encoding="utf-8")
-    proc = subprocess.run([sys.executable, "scripts/docs_gate.py", "--mode", "pre-commit"],
+    """Drive the message scan the way git actually drives it.
+
+    This used to write `.git/COMMIT_EDITMSG` and run `--mode pre-commit`, which is exactly
+    the path that never sees the message being written: git writes that file after the
+    pre-commit hook returns. These tests passed because the helper planted the message
+    itself, so the check found what the test had just put there -- while a real commit's
+    message went unscanned. The gate now runs at commit-msg, handed the real file.
+    """
+    msg = repo / ".git" / "COMMIT_MSG_UNDER_TEST"
+    msg.write_text(message, encoding="utf-8")
+    proc = subprocess.run([sys.executable, "scripts/docs_gate.py",
+                           "--mode", "commit-msg", "--message-file", str(msg)],
                           cwd=repo, capture_output=True, text=True)
     return any("commit-message" in ln and "BLOCK" in ln for ln in proc.stdout.splitlines())
 

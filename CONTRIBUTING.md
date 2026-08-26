@@ -21,10 +21,11 @@ also run from a bare clone with nothing but `pytest` -- `tests/conftest.py` puts
 path, so a first `pytest` works before reading anything.
 
 The commit hook is the exception: install it on Windows with `python
-scripts/install_hooks.py`, because that is where git runs. It imports only the standard
-library, so the system interpreter is enough. It runs `scripts/docs_gate.py`, which is also
-what CI runs -- one implementation, two callers, because a hook that reimplemented the
-checks would be a second copy destined to disagree with the first.
+scripts/install_hooks.py`, because that is where git runs. It needs only the standard
+library, and runs `scripts/docs_gate.py` -- one implementation, two callers, because a hook
+reimplementing the checks would be a second copy destined to disagree. It installs a
+**commit-msg** hook: git writes the message file only after a pre-commit hook returns, so a
+gate there scans the *previous* commit's message and carries its waiver into this one.
 
 ## Commits
 

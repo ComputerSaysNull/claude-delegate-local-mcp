@@ -10,7 +10,8 @@ This lists what will bite you.
 
 ## Commands
 
-    python scripts/docs_gate.py --mode pre-commit   # everything the hook runs
+    python scripts/docs_gate.py --mode pre-commit   # structural checks, by hand
+    python scripts/install_hooks.py                 # installs the commit-msg hook
     python scripts/docs_gate.py --owner <path>      # which document owns this file
     python scripts/gen_config_docs.py               # after touching config.py
     python scripts/gen_status.py                    # after touching PLAN.md
@@ -99,7 +100,7 @@ Rules a machine cannot check, so they land here:
   fictional one, and describe the mechanism rather than the specimen.
 
 - **A pull request title and body are a public surface that no hook can gate.** They are
-  written outside git, so the pre-commit hook cannot see them and CI only sees them after
+  written outside git, so no commit hook can see them and CI only sees them after
   they are already published. CI scans them anyway, but the check is a backstop, not a
   gate. Write the **mechanism, never the specimen** — "a fragment that collides with
   ordinary vocabulary", not the fragment itself. The same applies to issue comments.

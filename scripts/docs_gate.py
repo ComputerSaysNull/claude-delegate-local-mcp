@@ -100,7 +100,11 @@ def run(*args: str) -> str:
 
 
 def changed_files(mode: str, diff_range: str | None) -> list[str]:
-    if mode == "pre-commit":
+    # commit-msg sees the same staged index as pre-commit: the hook runs before the commit
+    # object exists, so the index still is the change under consideration. Falling through
+    # to the CI branch here would diff against origin/main and, with no upstream, scan
+    # every tracked file -- a whole-repo audit wearing the costume of a per-commit check.
+    if mode in ("pre-commit", "commit-msg"):
         out = run("git", "diff", "--cached", "--name-only", "--diff-filter=ACMR")
     else:
         rng = diff_range or "origin/main...HEAD"
@@ -363,7 +367,8 @@ def check_never_tracked() -> list[Finding]:
     return out
 
 
-def check_commit_message(mode: str, diff_range: str | None) -> list[Finding]:
+def check_commit_message(mode: str, diff_range: str | None,
+                         message_file: str | None = None) -> list[Finding]:
     """Scan the commit message itself.
 
     CLAUDE.md stated the gate blocked host literals in "code, docs, tests or a commit
@@ -372,9 +377,19 @@ def check_commit_message(mode: str, diff_range: str | None) -> list[Finding]:
     promise, because it is relied upon. A message is also the easiest place to leak a
     hostname -- you are describing the thing you were just debugging.
     """
-    if mode == "pre-commit":
-        f = ROOT / ".git" / "COMMIT_EDITMSG"
+    if mode == "commit-msg":
+        if not message_file:
+            return [Finding(BLOCK, "commit-message",
+                            "commit-msg mode requires --message-file.")]
+        f = Path(message_file)
         texts = [("pending commit", f.read_text(encoding="utf-8", errors="replace"))] if f.exists() else []
+    elif mode == "pre-commit":
+        # Nothing to read. git writes .git/COMMIT_EDITMSG *after* the pre-commit hook
+        # returns, so reading it here inspects the PREVIOUS commit's message -- the check
+        # passed on text nobody was proposing to commit. The real scan runs at commit-msg.
+        return [Finding(SKIP, "commit-message",
+                        "the message does not exist yet at pre-commit; scanned by the "
+                        "commit-msg hook, which is handed the real file.")]
     else:
         rng = diff_range or "origin/main...HEAD"
         raw = run("git", "log", "--no-merges", "--format=%h%x1f%B%x1e", rng)
@@ -875,15 +890,20 @@ CHECKS = {
 }
 
 
-def waivers(mode: str) -> dict[str, str]:
+def waivers(mode: str, message_file: str | None = None) -> dict[str, str]:
     """Parse `Docs-Gate-Skip: <check> -- <reason>` trailers.
 
     Waivers are echoed in the output on purpose. An escape hatch nobody can see becomes
     the default route; one that leaves a visible trail in every run does not.
     """
-    if mode == "pre-commit":
-        msg_file = ROOT / ".git" / "COMMIT_EDITMSG"
-        text = msg_file.read_text(encoding="utf-8", errors="replace") if msg_file.exists() else ""
+    if mode == "commit-msg":
+        f = Path(message_file) if message_file else None
+        text = f.read_text(encoding="utf-8", errors="replace") if f and f.exists() else ""
+    elif mode == "pre-commit":
+        # See check_commit_message: the message is not written yet. Reading COMMIT_EDITMSG
+        # here would apply the PREVIOUS commit's waiver to this one -- an escape hatch
+        # firing on a commit that never asked for it.
+        text = ""
     else:
         text = run("git", "log", "--format=%B", "origin/main...HEAD")
     out = {}
@@ -894,7 +914,11 @@ def waivers(mode: str) -> dict[str, str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=("pre-commit", "ci"), default="pre-commit")
+    ap.add_argument("--mode", choices=("pre-commit", "commit-msg", "ci"),
+                    default="pre-commit")
+    ap.add_argument("--message-file", metavar="PATH", default=None,
+                    help="the commit message file, as git hands it to a commit-msg "
+                         "hook. The only stage where the real message exists.")
     ap.add_argument("--diff", dest="diff_range", default=None)
     ap.add_argument("--pr-event", metavar="PATH", default=None,
                     help="Actions event payload; scans the pull request title and body, a public surface no hook can see.")
@@ -923,11 +947,13 @@ def main() -> int:
         return 1
 
     changed = changed_files(args.mode, args.diff_range)
-    waived = waivers(args.mode)
+    waived = waivers(args.mode, args.message_file)
 
     findings: list[Finding] = []
     for name, fn in CHECKS.items():
-        if name in ("identity", "commit-message"):
+        if name == "commit-message":
+            findings += fn(args.mode, args.diff_range, args.message_file)
+        elif name == "identity":
             findings += fn(args.mode, args.diff_range)
         elif name == "public-text":
             findings += fn(args.pr_event)

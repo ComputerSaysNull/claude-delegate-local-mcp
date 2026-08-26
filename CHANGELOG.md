@@ -48,6 +48,30 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 The documentation gate judged the commit it was not making. In pre-commit
+  mode both message-dependent checks read `.git/COMMIT_EDITMSG`, which git writes *after*
+  the pre-commit hook returns — so both read the previous commit's message. The
+  host-literal scan therefore passed on text nobody was proposing to commit while the
+  message actually being written went unscanned, and the `Docs-Gate-Skip` waiver parser
+  applied one commit's waiver to the next, an escape hatch firing on a commit that never
+  asked for it. Confirmed on this repository: the first line of the stale file was byte
+  for byte the subject of the commit already made.
+
+  The gate now runs as a **commit-msg** hook, which git hands the real message file — the
+  first stage at which the staged index and the message both exist. `--mode pre-commit`
+  remains for running the structural checks by hand and reports the message check as
+  skipped rather than guessing. Installing removes a superseded pre-commit hook so the two
+  cannot disagree. `changed_files` had to learn the new mode too: without that it fell
+  through to the CI branch, diffed against a non-existent upstream and scanned every
+  tracked file — a whole-repo audit wearing the costume of a per-commit check.
+
+  Two of the six regression tests initially passed against the unfixed gate, and were
+  rewritten. One asserted `"SKIP" in output and "commit-message" in output`, which an
+  unrelated skip elsewhere plus a block on this check satisfied independently; it now
+  reads the levels reported for that specific check. The other asserted no waiver was
+  applied while staging nothing for a waiver to suppress, so it held vacuously; it now
+  stages a real owning-doc violation first. All six were confirmed failing against the
+  unfixed gate before being trusted.
 - 2026-08-26 A dropped route stalled for the whole turn timeout. The OpenAI adapter built
   one `httpx.Timeout(turn_timeout)`, which bounds connect, read, write and pool identically
   — 1800s by default. The comment defending that construction argued no separate connect
