@@ -12,6 +12,17 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-26 The upstream review has an artefact: a dated file under `docs/audits/`
+  recording every upstream change considered and its verdict, rejections included. ADR-0001
+  required the review and named nothing to hold it; CONTRIBUTING filled that gap with a
+  pinned issue, which was destroyed along with the repository on 2026-08-25 and took the
+  policy's only mechanism with it. The rejections are the point -- without them a later
+  review cannot tell what was examined and dismissed from what was never opened. ADR-0023.
+- 2026-08-26 First review under it, covering 2026-08-21 to 2026-08-25. Six items adopted as
+  planned work, two rejected as already covered, and one negative result recorded: upstream
+  established that in-flight synchronous tool calls cannot be cancelled and progress
+  notifications are not surfaced to the calling session, which confirms ADR-0018's narrow
+  claim and closes a question this project would otherwise have paid to reopen. ADR-0024.
 - 2026-08-25 Project scaffold: configuration, model registry, generated configuration
   reference, and the docs/secrets gate. Configuration is a single frozen dataclass and is
   the only place a default exists anywhere in the repository; the reference document is
@@ -29,6 +40,21 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 STATUS.md recorded where the repository happened to be when it was generated:
+  a branch deleted on merge and a hash the squash rewrote, both naming something that did
+  not exist, in a generated file whose whole appeal is that it can be trusted. The cause is
+  that `--check` compares only the text above `## Repository`, correctly, because counts
+  move with every commit -- which leaves everything below it verified by nothing. Rather
+  than regenerate more often, the volatile facts are gone: counts stay, VCS position and the
+  recent-commits list do not. A count that drifts is off by one; a branch name that drifts
+  points at nothing. The fourth check found here that could not fail.
+- 2026-08-26 The `docs/TOOLS.md` generator sat in M0b, which could never close: the
+  document renders from a tool registry that M4 has not written yet, so the manifest named
+  a phantom and warned about it on every run -- and a permanent warning is one nobody reads.
+  Moved to M4, beside `tools.py`, and its manifest entry parked with the milestone that
+  restores it. Deliberately not done to `docs/AGENTS.md`, which warns for the same reason:
+  that document exists, and its claim on the unwritten code is the only thing that will
+  force it to be updated when the code lands.
 - 2026-08-25 The documentation gate could validate a generated file against code that no
   longer existed. Python validates a `.pyc` on `(mtime, size)`, so changing a default
   from `6` to `9` -- identical byte length -- inside one filesystem timestamp tick left a
@@ -48,6 +74,11 @@ because an entry lives in the commit it describes and cannot know its own hash.
   never tracked.
 
 ### Changed
+- 2026-08-26 Context-overflow handling promoted out of Deferred into M3. The upstream fork
+  shipped it, and this project's parked wording had independently converged on the same
+  detection signal, which is the reason to trust the design rather than re-derive it. It
+  arrives with the five bugs it cost upstream attached as required negative tests; three of
+  them are one bug -- a threshold computed against the wrong denominator. ADR-0024.
 - 2026-08-25 The context prefetch budget is denominated in estimated tokens rather than
   bytes, with per-extension ratios measured against the model's own tokenizer. Bytes were
   the wrong unit and the error was not small: measured bytes-per-token ranges from 1.78

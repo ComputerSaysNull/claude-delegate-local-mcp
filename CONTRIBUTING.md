@@ -147,9 +147,6 @@ gh api -X POST repos/OWNER/REPO/rulesets --input .github/ruleset.json
 Secret scanning and push protection are enabled at the repository level, which is free on
 public repositories and catches what reaches GitHub even if the local hook was skipped.
 
-The `upstream` remote is configured with a disabled push URL. It exists for reading, and a
-working push URL to someone else's repository is an accident waiting to happen.
-
 ## Build-time agents
 
 `.claude/agents/` holds four subagents used while working *on* this repository. They are
@@ -210,6 +207,9 @@ have to re-derive it under pressure.
 
 ## Upstream
 
-`git remote add upstream https://github.com/fegone/claude-code-delegate-local` — for
-*reading*. This is a rewrite, so their fixes are read and reimplemented rather than
-cherry-picked, and candidates are tracked in a pinned issue. See ADR-0001.
+`fegone/claude-code-delegate-local` is the primary ancestor and what the `upstream` remote
+points at; dormant since 2026-08-21. Its `mixicz/claude-code-delegate-local` fork is where
+new work now appears. Fixes are read and reimplemented, never cherry-picked — ADR-0001 for
+why and how often, ADR-0023 for the mechanism. Review through the API rather than fetching:
+no upstream object lands here, so there is no cherry-pick to reach for, and the push URL is
+disabled likewise. Findings go in a dated `docs/audits/` file, rejections included.

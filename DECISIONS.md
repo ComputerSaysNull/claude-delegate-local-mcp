@@ -20,6 +20,81 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0024 — 2026-08-26 — The upstream review of 2026-08-26: adopt six, reject two as already covered — Accepted
+
+First review under ADR-0023. The primary ancestor had nothing new — its turn countdown and
+real-exit-code capture are already credited in NOTICE. Everything below comes from the
+fork, covering 2026-08-21 to 2026-08-25. Full evidence, per item, in
+`docs/audits/upstream-review-2026-08-26.md`.
+
+Adopted as planned work, not as code:
+
+- **Context-overflow handling.** Promoted out of Deferred into M3. They shipped what this
+  project parked, and our deferred wording had already converged on the same detection
+  signal independently. The design transfers; so do five bugs it cost them, now carried as
+  constraints on the item.
+- **Diagnostics on success, not only on failure**, with an evicted-then-reread correlation.
+  This is ADR-0007 extended from exit codes to context economics: the same argument that
+  server-captured truth beats the model's account of it.
+- **A steer at the risky call.** Shell text-patching gets an advisory note appended to that
+  tool call's own result, gated on the write tool actually being available to the agent.
+  Their evidence is that a prompt instruction alone did not stop the pattern on retry.
+- **An operator-level dispatch transcript**, independent of any caller-facing flag.
+- Two smaller constraints: negative caches expire, and a nudge reply concatenates rather
+  than overwrites what the model already said.
+
+Rejected, both because this project already went further:
+
+- An env var for the generation ceiling — `config.py` has that field, at the same value.
+  Only the precedence ordering transfers, as an M4 constraint: an operator lowering the
+  ceiling must not suppress the per-model bump that exists to stop heavy-reasoning models
+  returning empty output.
+- An explicit override for the wire-format guess, added upstream after a model name matched
+  no recognised prefix and sent every dispatch to the wrong endpoint shape. ADR-0009 removed
+  prefix matching entirely, so the override has nothing to override. Recorded because a
+  rejection that names its reason is what stops the next review re-litigating it.
+
+Also recorded, and worth more than most adoptions: their early-cancellation investigation
+closed with no action possible. The client does not surface progress notifications to the
+session, and an in-flight synchronous tool call cannot be cancelled. That independently
+confirms ADR-0018's narrow claim — those notifications buy an idle-timeout reset and
+nothing else — and closes a question this project would otherwise have paid to reopen.
+
+---
+
+## ADR-0023 — 2026-08-26 — The upstream review is a dated file in this repository, not an issue in someone's tracker — Accepted
+
+ADR-0001 requires upstream fixes to be read and reimplemented, and sets a six-to-twelve
+month half-life on the exercise. It named no artefact. CONTRIBUTING filled that gap with
+"candidates are tracked in a pinned issue", which was true until the repository was
+deleted and recreated on 2026-08-25 to unpublish a leaked identifier. The issue went with
+it. A policy whose only named artefact lives outside the repository can be destroyed
+without a diff, and nobody notices, because there is nothing to notice.
+
+Two further holes were open the whole time. The `upstream` remote had never been fetched
+once, so no local ref existed to review against. And it points at the primary ancestor,
+which has been dormant since 2026-08-21, rather than at the fork that is actually moving.
+The review this ADR mandates had, in practice, no implementation at all.
+
+So: findings land in a dated file under `docs/audits/`, one per review, recording every
+upstream change considered and its verdict. The value is not the adopted items — those
+become PLAN entries and leave anyway. It is the rejected ones. Without them, the next
+review cannot distinguish what was examined and dismissed from what was never looked at,
+and re-examines everything or nothing.
+
+Reviewing read-only through the API rather than by fetching is deliberate, and stronger
+than the disabled push URL: with no upstream object in the repository there is no
+cherry-pick to reach for under time pressure. `docs/audits/*` is already exempt from the
+email-content scan, so a review may quote upstream verbatim where that is the evidence.
+
+Not chosen: watching the fork with a scheduled job. It would produce a feed nobody reads
+between reviews, and the half-life in ADR-0001 says the correct cadence is occasional and
+deliberate. Also not chosen: repointing `upstream` at the fork. The remote records
+ancestry, which NOTICE ties licence obligations to; liveness is a property of the review,
+not of the remote.
+
+---
+
 ## ADR-0022 — 2026-08-25 — Size budgets differ by document class: total lines for mutable, per-entry for append-only — Accepted
 
 Found by hitting the limit. `DECISIONS.md` reached 372 lines against a 400 budget after a

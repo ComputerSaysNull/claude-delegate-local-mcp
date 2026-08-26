@@ -111,19 +111,17 @@ def render() -> str:
     out += ["", f"**Overall:** {total_done} done, {total_open} open, "
                 f"{len(by_mark[CANCELLED])} cancelled.", ""]
 
+    # Counts only, and deliberately no VCS position. See the note in main(): everything
+    # below this heading is excluded from --check, so nothing can verify it. A count that
+    # drifts is off by one and harmless; a branch name or a commit hash that drifts names
+    # something that does not exist, which is worse than saying nothing. Two were wrong
+    # here for a day -- a branch deleted after merge, and a hash the squash rewrote --
+    # and no check could have caught either.
     out += ["## Repository", "",
-            f"- Branch `{git('rev-parse', '--abbrev-ref', 'HEAD') or 'unknown'}`, "
-            f"{len(git('log', '--oneline').splitlines())} commit(s)",
-            f"- {len(git('ls-files').splitlines())} tracked files, "
-            f"{ntests} test file(s), {adrs} decision record(s)",
-            f"- Working tree: {'clean' if not git('status', '--porcelain') else 'has uncommitted changes'}",
+            f"- {len(git('log', '--oneline').splitlines())} commit(s), "
+            f"{len(git('ls-files').splitlines())} tracked files",
+            f"- {ntests} test file(s), {adrs} decision record(s)",
             ""]
-
-    recent = git("log", "--format=%h %s", "-5").splitlines()
-    if recent:
-        out += ["## Recent commits", ""]
-        out += [f"- `{c.split(' ', 1)[0]}` {c.split(' ', 1)[1]}" for c in recent if " " in c]
-        out.append("")
 
     blocked = [i["text"] for i in items
                if i["mark"] == TODO and re.search(r"\bblocked\b", i["text"], re.I)]
@@ -142,9 +140,13 @@ def main() -> int:
     old = TARGET.read_text(encoding="utf-8") if TARGET.exists() else ""
 
     if args.check:
-        # Commit counts and tree cleanliness move with every commit, so a byte comparison
-        # would fail constantly and teach everyone to ignore this check. Compare only the
-        # parts derived from PLAN.md, which is the drift that actually matters.
+        # Counts move with every commit, so a byte comparison would fail constantly and
+        # teach everyone to ignore this check. Compare only the parts derived from PLAN.md,
+        # which is the drift that actually matters.
+        #
+        # The cost of that cut is that NOTHING verifies the text below the heading, so only
+        # facts whose staleness is harmless may go there. render() is what keeps that true;
+        # tests/regression/test_status_no_vcs_position.py is what stops it drifting back.
         def stable(text: str) -> str:
             cut = text.split("## Repository")[0]
             return "\n".join(l.rstrip() for l in cut.splitlines()).strip()

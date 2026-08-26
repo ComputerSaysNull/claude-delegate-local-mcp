@@ -45,7 +45,6 @@ Throwaway scripts, deliberately not shipped.
 - ✅ 2026-08-25 `docs/MODELS.md` — registry format, adding a model
 - ✅ 2026-08-25 `docs/AGENTS.md` — agent frontmatter, the path policy in plain terms
 - ✅ 2026-08-25 `docs/TROUBLESHOOTING.md` — symptom to cause to fix; WSL paths get a section
-- ⬜ `docs/TOOLS.md` generator — tool descriptions rendered from the registered tools
 - ✅ 2026-08-25 `scripts/docs_ownership.toml` — activates the owning-doc, orphan and split-dodge checks. TOML, not YAML: tomllib is stdlib, so the gate runs from a bare clone
 - ✅ 2026-08-25 `scripts/gen_status.py` — STATUS from this file plus git — `58f543c`
 - ✅ 2026-08-25 Four build-time agents in `.claude/agents/`, models and effort set per task cost
@@ -75,13 +74,37 @@ Throwaway scripts, deliberately not shipped.
 - ⬜ Empty-answer detection, retry at the floor, effort step-down
 - ⬜ Feature-detect the `thinking_token_budget` rejection and degrade
 - ⬜ Integration test reproducing the empty answer against the live cluster
+- ⬜ Context-overflow handling, off by default. Promoted from Deferred 2026-08-26: the
+  upstream fork shipped it and our parked wording had already converged on the same
+  detection signal (ADR-0024). Retroactive abort when prompt size plateaus while history
+  grows *and* this server evicted nothing to explain it; preventive graduated response at
+  70/85/95% of projected usage — tighten retention, wrap-up nudge, hard abort. On abort, a
+  state report reconciling the model's ledger against `git status` ground truth
+- ⬜ Negative tests for the five bugs that cost upstream, three of one shape — a threshold
+  computed against the wrong denominator: firing on this server's own evictions; a band
+  firing on ordinary growth; a flat reserve alone exceeding 95% of a small window; a probe
+  reading the architecture maximum instead of the configured window; a local-only gate also
+  blocking the explicit override on cloud backends. The denominator is the thing to test
+- ⬜ Diagnostics opt-in per call — action ledger on success as well as failure, per-turn
+  token and eviction breakdown, and an evicted-then-reread correlation, which is what
+  separates a genuinely expensive dispatch from one re-reading what it lost. ADR-0007
+  extended from exit codes to context economics, and a prerequisite for sizing eviction
+- ⬜ Two constraints from upstream's bugs: a negative cache expires, or one transient
+  backend outage disables overflow handling until restart; a nudge reply concatenates and
+  never overwrites what the model already said
 
 ## M4 — Agentic loop and model tools
 
 - ⬜ `tools.py` — read_file, write_file, run_bash; `allowed_tools` enforced at execution
+- ⬜ `docs/TOOLS.md` generator — descriptions rendered from the registered tools. Moved
+  here from M0b 2026-08-26: it cannot render a registry that does not exist yet, and the
+  descriptions are the model-facing contract, so they arrive with `tools.py` or not at all
 - ⬜ `loop.py` — turns, eviction, dedup, countdown, final-turn short-circuit
 - ⬜ Real exit codes captured by the server, reported apart from the model's claims
 - ⬜ Progress notification per turn — required, not cosmetic (ADR-0018)
+- ⬜ `max_tokens` precedence: call argument, then frontmatter, then the per-model bump,
+  then the configured default *last*. An operator lowering the ceiling must not suppress
+  the bump that stops heavy-reasoning models returning empty output (ADR-0024)
 
 ## M5 — Sandbox
 
@@ -91,6 +114,11 @@ Throwaway scripts, deliberately not shipped.
 - ⬜ Secret denylist enforced at the mount level
 - ⬜ Tests: bind order for all three HOME/workdir cases; denial verified **by address**
 - ⬜ Test that the sandbox dies with its parent
+- ⬜ Steer shell text-patching toward `write_file` — a note appended to that `run_bash`
+  call's own result, not the system prompt, because upstream found a prompt instruction did
+  not stop the pattern on retry. Advisory, never blocking, and only when the resolved tool
+  set actually includes `write_file` — the resolved set the executor enforces, not the
+  declared list (ADR-0024)
 
 ## M6 — Agents, batching, discovery
 
@@ -102,13 +130,15 @@ Throwaway scripts, deliberately not shipped.
 
 - ⬜ Token-budget admission, three rules, high-water marks and wait totals
 - ⬜ Cross-process slots
+- ⬜ Operator-level dispatch transcript to disk, independent of any caller-facing flag and
+  stripped from the response. Upstream shipped two bugs here: failure paths losing the
+  agent name, so the very dispatches it exists to explain logged as unknown; and the
+  success path leaking its whole diagnostic payload into ordinary responses once the
+  directory was set. Off by default is not the same as inert when on (ADR-0024)
 - ⬜ README launcher documentation, `scripts/release.py`
 
 ## Deferred and cancelled
 
-- ⬜ Context-overflow handling — detection is nearly free (warn when prompt tokens stop
-  growing while history does); graduated deterministic eviction, never summarisation; on
-  abort, a state report reconciling the model's ledger against `git status` ground truth
 - ⬜ Anthropic-compatible adapter — the seam and canonical shape are kept so this is
   additive, roughly 150 to 220 lines in one new file (ADR-0008)
 - ❌ 2026-08-25 Streaming in v1 — cancelled. MCP tool calls are request/response, so
