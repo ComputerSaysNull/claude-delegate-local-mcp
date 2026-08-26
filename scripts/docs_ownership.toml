@@ -169,4 +169,5 @@ paths = [
   # manifest edit per review and would subject a frozen record to the generated-doc
   # and split-dodge checks for no gain. See ADR-0023.
   "docs/audits/**",
+  "docs/reviews/**",
 ]

@@ -42,7 +42,8 @@ BLOCK, WARN, SKIP = "BLOCK", "WARN", "SKIP"
 EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 
 # Paths where a third party's address is legitimate and expected.
-EMAIL_EXEMPT_GLOBS = ("LICENSE", "NOTICE", "docs/audits/*", "docs/specs/archive/*")
+EMAIL_EXEMPT_GLOBS = ("LICENSE", "NOTICE", "docs/audits/*", "docs/reviews/*",
+                      "docs/specs/archive/*")
 
 # Host-identifier shapes. These are patterns, never literals: a committed file listing
 # the strings you do not want committed is itself the leak. The literals live in an
@@ -539,7 +540,8 @@ def check_budgets() -> list[Finding]:
     seen = 0
     for p in sorted(ROOT.rglob("*.md")):
         r = rel(p)
-        if ".git" in p.parts or "docs/audits" in r or "archive" in p.parts:
+        if (".git" in p.parts or "docs/audits" in r or "docs/reviews" in r
+                or "archive" in p.parts):
             continue
         text = p.read_text(encoding="utf-8", errors="replace")
         total = len(text.splitlines())
@@ -779,13 +781,18 @@ def check_audit_pressure() -> list[Finding]:
                 f"{doc} has not changed in {n} commits that touched the code it owns. "
                 f"Not necessarily wrong, but worth a look: run the docs-audit agent."))
 
-    audits = sorted((ROOT / "docs" / "audits").glob("*.md")) if (ROOT / "docs" / "audits").is_dir() else []
+    # Ask git for the most recent commit touching docs/audits/, rather than picking a
+    # filename and dating that. The previous version took the alphabetically last *.md,
+    # which is only ever right while every file in the directory shares one naming scheme.
+    # It did not: an upstream review landed here, sorted after every `YYYY-MM-DD-audit.md`
+    # by virtue of starting with a letter, and reset this counter to zero -- silently, and
+    # for a record that is not a documentation audit at all. Upstream reviews now live in
+    # docs/reviews/. Asking git removes the dependency on naming entirely. (ADR-0025)
+    audit_dir = ROOT / "docs" / "audits"
+    has_audit = audit_dir.is_dir() and any(audit_dir.glob("*.md"))
     total = len(run("git", "log", "--format=%H").splitlines())
-    if audits:
-        last = run("git", "log", "-1", "--format=%H", "--", f"docs/audits/{audits[-1].name}")
-        n = len(run("git", "log", "--format=%H", f"{last}..HEAD").splitlines()) if last else total
-    else:
-        n = total
+    last = run("git", "log", "-1", "--format=%H", "--", "docs/audits") if has_audit else ""
+    n = len(run("git", "log", "--format=%H", f"{last}..HEAD").splitlines()) if last else total
     if n >= AUDIT_STALE_COMMITS:
         out.append(Finding(
             WARN, "audit-due",

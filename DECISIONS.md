@@ -20,6 +20,43 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0025 — 2026-08-26 — Upstream reviews live in docs/reviews/; only a documentation audit resets the audit clock — Accepted
+
+ADR-0023 put upstream reviews in `docs/audits/` without checking what already read that
+directory. The audit-due check did: it took the alphabetically last `*.md` there as the last
+recorded documentation audit and counted commits since. Audits are named
+`YYYY-MM-DD-audit.md`, so a filename beginning with a letter sorts after every one of them
+and wins permanently.
+
+Effect, measured: the counter went from 14 -- the whole history, correct, because no
+documentation audit has ever run here -- to 0. A warning due at commit 60 would not have
+appeared until 74, and each further review would have pushed it out again. The check was
+disarmed, silently, by a record that is not an audit at all, in the same change that removed
+two other checks which could not fail.
+
+Two faults, and it needed both. The directory mixed two kinds of record, and the check dated
+a filename instead of asking git. Fixing either alone leaves the other armed, so both change:
+
+- Upstream reviews move to `docs/reviews/`. `docs/audits/` holds documentation audits and
+  nothing else, which is what the counter has always claimed to measure.
+- The check asks git for the most recent commit touching `docs/audits/`. Filename order is
+  only ever correct while a single naming scheme is in use, and nothing enforced that.
+
+Only the location in ADR-0023 changes. Its substance -- that the review mechanism must be an
+artefact inside the repository rather than an issue in a tracker that can be deleted -- is
+untouched, and is why this is a partial supersede rather than a replacement.
+
+The general lesson is worth more than the fix: adding a file to a directory is a write to
+every check that reads that directory. Nothing here treats a directory as an interface, and
+this is the second time a policy file has collided with a check that scanned it -- after the
+secret-glob list matching its own `*secret*` pattern.
+
+Not chosen: making the counter ignore filenames it does not recognise. That is a denylist,
+and it fails open -- the next unrecognised name resets the clock again. Asking git for
+recency cannot be fooled by naming at all.
+
+---
+
 ## ADR-0024 — 2026-08-26 — The upstream review of 2026-08-26: adopt six, reject two as already covered — Accepted
 
 First review under ADR-0023. The primary ancestor had nothing new — its turn countdown and
@@ -62,7 +99,7 @@ nothing else — and closes a question this project would otherwise have paid to
 
 ---
 
-## ADR-0023 — 2026-08-26 — The upstream review is a dated file in this repository, not an issue in someone's tracker — Accepted
+## ADR-0023 — 2026-08-26 — The upstream review is a dated file in this repository, not an issue in someone's tracker — Partially superseded by ADR-0025
 
 ADR-0001 requires upstream fixes to be read and reimplemented, and sets a six-to-twelve
 month half-life on the exercise. It named no artefact. CONTRIBUTING filled that gap with

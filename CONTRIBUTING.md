@@ -210,6 +210,6 @@ have to re-derive it under pressure.
 `fegone/claude-code-delegate-local` is the primary ancestor and what the `upstream` remote
 points at; dormant since 2026-08-21. Its `mixicz/claude-code-delegate-local` fork is where
 new work now appears. Fixes are read and reimplemented, never cherry-picked — ADR-0001 for
-why and how often, ADR-0023 for the mechanism. Review through the API rather than fetching:
-no upstream object lands here, so there is no cherry-pick to reach for, and the push URL is
-disabled likewise. Findings go in a dated `docs/audits/` file, rejections included.
+why and how often, ADR-0023 and ADR-0025 for the mechanism. Review through the API, not by
+fetching: no upstream object lands here, and the push URL is disabled likewise. Findings go
+in a dated `docs/reviews/` file, rejections included; `docs/audits/` is for audits only.
