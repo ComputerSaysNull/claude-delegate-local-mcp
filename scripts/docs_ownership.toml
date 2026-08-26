@@ -154,4 +154,9 @@ paths = [
   "scripts/docs_gate.py",
   "scripts/release.py",
   "security/**",
+  # Point-in-time evidence, like an ADR body: dated, written once, never edited, and
+  # owning no current behaviour. Registering each review as a document would mean a
+  # manifest edit per review and would subject a frozen record to the generated-doc
+  # and split-dodge checks for no gain. See ADR-0023.
+  "docs/audits/**",
 ]

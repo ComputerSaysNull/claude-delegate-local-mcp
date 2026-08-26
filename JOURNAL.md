@@ -250,3 +250,35 @@ Also worth recording, because it is the same failure this project keeps finding:
 in this session echoed "deleted" after a delete that had returned 403. It reported success
 without checking the exit code. A check that cannot fail is worse than no check, and that
 applies to the throwaway line in a shell script as much as to the gate.
+
+## 2026-08-26 — A policy required a review that had no implementation at all
+
+ADR-0001 says upstream fixes are read and reimplemented rather than cherry-picked, and sets
+a six-to-twelve-month half-life on watching upstream. Sound reasoning, written down, cited
+from three documents. It had never once run.
+
+Three things were wrong at the same time, and each hid the others:
+
+- The tracking mechanism was "candidates are tracked in a pinned issue" — no number, no
+  link. The repository was deleted and recreated on 2026-08-25 to unpublish a leaked
+  identifier, and the issue went with it. The prose survived, because prose does not have
+  a foreign key.
+- The `upstream` remote had never been fetched. Not stale — empty. There were no
+  `refs/remotes/upstream/*` at all, so there was nothing to review against, and no error
+  either: nobody had asked.
+- The remote pointed at the primary ancestor, dormant since 2026-08-21. The fork that had
+  been shipping steadily for a week was not configured anywhere, and is not mentioned in
+  any tracked file except NOTICE, where it appears as a licence attribution.
+
+What made this hard to see is that every individual artefact looked healthy. The ADR is
+well argued. CONTRIBUTING names the remote and warns about the push URL. NOTICE credits
+the fork feature by feature. Nothing was missing; nothing was connected.
+
+The lesson generalises past upstream: **a rule whose only artefact lives outside the
+repository can be deleted without a diff.** No hook fires, no check fails, no review
+notices, because the thing that vanished was never in the tree. The repository already
+knows that a check which cannot fail is worse than no check — this is the same failure one
+level up, where the check was never written because the prose sounded like one.
+
+The fix that matters is not the audit file. It is that the artefact is now *inside* the
+repository, where deleting it is a diff someone has to approve.

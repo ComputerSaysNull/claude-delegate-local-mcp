@@ -23,25 +23,25 @@
 | M0b — Foundation | 23 | 0 | 1 | 0 |
 | M1 — One real backend call | 0 | 0 | 5 | 0 |
 | M2 — files[] prefetch | 0 | 0 | 3 | 0 |
-| M3 — Response state machine | 0 | 0 | 4 | 0 |
-| M4 — Agentic loop and model tools | 0 | 0 | 4 | 0 |
-| M5 — Sandbox | 0 | 0 | 6 | 0 |
+| M3 — Response state machine | 0 | 0 | 8 | 0 |
+| M4 — Agentic loop and model tools | 0 | 0 | 5 | 0 |
+| M5 — Sandbox | 0 | 0 | 7 | 0 |
 | M6 — Agents, batching, discovery | 0 | 0 | 3 | 0 |
-| M7 — Admission control and polish | 0 | 0 | 3 | 0 |
-| Deferred and cancelled | 0 | 0 | 2 | 5 |
+| M7 — Admission control and polish | 0 | 0 | 4 | 0 |
+| Deferred and cancelled | 0 | 0 | 1 | 5 |
 
-**Overall:** 27 done, 31 open, 5 cancelled.
+**Overall:** 27 done, 37 open, 5 cancelled.
 
 ## Repository
 
-- Branch `docs/repo-recreated`, 13 commit(s)
-- 48 tracked files, 6 test file(s), 22 decision record(s)
+- Branch `docs/upstream-review-and-cleanup`, 14 commit(s)
+- 50 tracked files, 7 test file(s), 24 decision record(s)
 - Working tree: has uncommitted changes
 
 ## Recent commits
 
-- `cdff819` docs: record the public-surface leak and the repository recreate
+- `d08038e` chore: ignore chunked scratch in the repo root
+- `ad6f2b4` docs: record the public-surface leak and the repository recreate (#1)
 - `2a28636` fix: permit GitHub as a squash-merge committer, never as an author
 - `a7a3ae9` feat: scan the pull request title and body
 - `93de4d0` feat: match word-boundary literals, so a common-word fragment can be listed
-- `b96d505` fix: scan every text file type and the commit message itself (#4)

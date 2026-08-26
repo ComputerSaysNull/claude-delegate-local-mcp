@@ -12,6 +12,17 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-26 The upstream review has an artefact: a dated file under `docs/audits/`
+  recording every upstream change considered and its verdict, rejections included. ADR-0001
+  required the review and named nothing to hold it; CONTRIBUTING filled that gap with a
+  pinned issue, which was destroyed along with the repository on 2026-08-25 and took the
+  policy's only mechanism with it. The rejections are the point -- without them a later
+  review cannot tell what was examined and dismissed from what was never opened. ADR-0023.
+- 2026-08-26 First review under it, covering 2026-08-21 to 2026-08-25. Six items adopted as
+  planned work, two rejected as already covered, and one negative result recorded: upstream
+  established that in-flight synchronous tool calls cannot be cancelled and progress
+  notifications are not surfaced to the calling session, which confirms ADR-0018's narrow
+  claim and closes a question this project would otherwise have paid to reopen. ADR-0024.
 - 2026-08-25 Project scaffold: configuration, model registry, generated configuration
   reference, and the docs/secrets gate. Configuration is a single frozen dataclass and is
   the only place a default exists anywhere in the repository; the reference document is
@@ -48,6 +59,11 @@ because an entry lives in the commit it describes and cannot know its own hash.
   never tracked.
 
 ### Changed
+- 2026-08-26 Context-overflow handling promoted out of Deferred into M3. The upstream fork
+  shipped it, and this project's parked wording had independently converged on the same
+  detection signal, which is the reason to trust the design rather than re-derive it. It
+  arrives with the five bugs it cost upstream attached as required negative tests; three of
+  them are one bug -- a threshold computed against the wrong denominator. ADR-0024.
 - 2026-08-25 The context prefetch budget is denominated in estimated tokens rather than
   bytes, with per-extension ratios measured against the model's own tokenizer. Bytes were
   the wrong unit and the error was not small: measured bytes-per-token ranges from 1.78
