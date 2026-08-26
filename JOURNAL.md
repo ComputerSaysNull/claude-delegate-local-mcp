@@ -312,3 +312,43 @@ changelog with none of the discipline.
 Fourth check found in this repository that could not fail, and the first where the gap was
 in the *comparison's scope* rather than in the comparison. Worth looking for elsewhere: any
 check that excludes a region for a good reason, and never says what is now unguarded.
+
+## 2026-08-26 — A directory is an interface, and writing to it is a write to every check that reads it
+
+The upstream review had to be stored somewhere. `docs/audits/` existed, was empty, and the
+name fitted. Nothing checked what already read that directory, and something did: the
+audit-due check took the alphabetically last `*.md` there as the last recorded documentation
+audit and counted commits since.
+
+Documentation audits are named `YYYY-MM-DD-audit.md`. `upstream-review-2026-08-26.md` begins
+with a letter, so it sorts after every one of them, for good. The counter went from 14 — the
+whole history, correct, because no documentation audit has ever run here — to 0. A warning
+due at commit 60 would not have arrived until 74, and every future review would have pushed
+it further out.
+
+Three things make this worth writing down.
+
+**It was invisible by construction.** No check failed. The gate passed, CI passed, 104 tests
+passed, and the counter read zero, which is what a healthy counter also reads. The only
+symptom was the absence of a warning that was never going to appear. It surfaced because
+someone asked whether the docs-audit agent had run — a question, not a test.
+
+**It shipped in the same change that removed two checks that could not fail.** Reading
+carefully about that failure mode all afternoon provided no protection against committing a
+fresh instance of it. Knowing the pattern is not the same as checking for it, and the check
+that would have caught this did not exist because the directory looked inert.
+
+**Two faults were needed, and only one was mine.** Selecting by `sorted(...)[-1]` was already
+wrong — it dates a filename rather than asking git, which is right only while one naming
+scheme is in use, with nothing enforcing that. It had simply never been exercised, because
+the directory was empty from the day it was created. Fixing only my half would have left the
+trap armed for whoever wrote the next file there.
+
+The rule that generalises: **treat a directory as an interface.** Before putting a file in
+one, grep for what reads it. Here the readers were an email-scan exemption, a size-budget
+exclusion, a gitleaks path rule, and the staleness counter — four consumers of a path that
+looked like nothing more than a place to keep files.
+
+Second time this project has found a policy artefact colliding with a check that scanned it,
+after the secret-glob list matched its own `*secret*` pattern. That is a pattern now, not a
+coincidence.

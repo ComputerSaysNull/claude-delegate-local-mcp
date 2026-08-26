@@ -40,6 +40,16 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 The audit-due counter was disarmed by the upstream review committed alongside
+  it. The staleness check took the alphabetically last file in `docs/audits/` as the last
+  recorded documentation audit; audits are named `YYYY-MM-DD-audit.md`, so a name beginning
+  with a letter sorts after all of them and wins permanently. The counter read 0 when the
+  true figure was 14, the whole history, because no documentation audit has ever run here --
+  deferring a warning due at commit 60 to 74, and further with every future review. Two
+  faults, both now closed: reviews move to `docs/reviews/` so one directory holds one kind of
+  record, and the check asks git for the most recent commit touching `docs/audits/` instead
+  of dating a filename. Caught by asking whether the docs-audit agent had run, not by any
+  check -- adding a file to a directory is a write to every check that reads it. ADR-0025.
 - 2026-08-26 STATUS.md recorded where the repository happened to be when it was generated:
   a branch deleted on merge and a hash the squash rewrote, both naming something that did
   not exist, in a generated file whose whole appeal is that it can be trusted. The cause is

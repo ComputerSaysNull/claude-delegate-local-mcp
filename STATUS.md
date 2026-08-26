@@ -36,5 +36,5 @@
 
 ## Repository
 
-- 16 commit(s), 50 tracked files
-- 7 test file(s), 24 decision record(s)
+- 14 commit(s), 50 tracked files
+- 7 test file(s), 25 decision record(s)
