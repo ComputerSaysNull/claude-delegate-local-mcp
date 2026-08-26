@@ -156,6 +156,15 @@ because an entry lives in the commit it describes and cannot know its own hash.
   never tracked.
 
 ### Changed
+- 2026-08-26 The build-time agent roster in CONTRIBUTING.md is generated from
+  `.claude/agents/*.md` rather than typed a second time. Model and effort for four agents
+  existed in the frontmatter and were described again in a hand-written table; every value
+  agreed, which is not the same as being kept in agreement. `scripts/gen_agents_docs.py`
+  renders it between GEN markers and the gate runs its `--check`, the same anti-drift
+  mechanism as the configuration reference (ADR-0004). A missing `effort` key renders as a
+  visible `-- missing --` rather than a plausible default, because the runner ignores a
+  misspelling in silence and bills the default tier. Four tests assert the check fires: on
+  a changed effort, on a new agent file, and on a key renamed to `reasoning_effort`.
 - 2026-08-26 CONTRIBUTING.md trimmed to its audience, and its budget lowered 215 -> 190
   by removing content rather than raising a ceiling. The manifest already said this
   document does not cover the documentation strategy — that lives in CLAUDE.md — yet it

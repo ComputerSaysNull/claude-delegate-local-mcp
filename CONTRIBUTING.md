@@ -117,24 +117,26 @@ catching what reaches GitHub even if a local hook was skipped.
 
 ## Build-time agents
 
-`.claude/agents/` holds four subagents used while working *on* this repository. They are
-not shipped, and they are not the delegation agents described in
-[docs/AGENTS.md](docs/AGENTS.md) — different thing, same file format.
+`.claude/agents/` holds the subagents used while working *on* this repository. Not shipped,
+and not the delegation agents in [docs/AGENTS.md](docs/AGENTS.md) — different thing, same
+file format.
+
+<!-- GEN:AGENTS:START -->
+<!-- Generated from .claude/agents/*.md by scripts/gen_agents_docs.py. Change the frontmatter, not this. -->
 
 | Agent | Model | Effort | For |
 |---|---|---|---|
-| `researcher` | haiku | low | Read-only exploration. Retrieval, no judgement |
-| `docs-audit` | haiku | medium | Staleness and misplaced facts the gate cannot judge |
-| `test-writer` | sonnet | medium | Tests, especially negative cases |
-| `code-reviewer` | sonnet | high | Diffs, against this project's security invariants |
+| `code-reviewer` | sonnet | high | Reviews a diff for correctness and for regressions in this pr… |
+| `docs-audit` | haiku | medium | Audits documentation for staleness, verbosity, misplaced fact… |
+| `researcher` | haiku | low | Read-only exploration of this repository |
+| `test-writer` | sonnet | medium | Writes and extends pytest tests for this repository |
 
-Model and effort are set per task cost: the cheapest tier that can do the job. Retrieval
-and comparison get haiku; anything where being wrong is expensive gets sonnet and higher
-effort. The frontmatter key is `effort`, not `reasoning_effort` — a misspelling is ignored
-in silence and quietly bills the default tier.
+<!-- GEN:AGENTS:END -->
 
-Run at most five agents concurrently. Enforced in CI via `max-parallel`; elsewhere it is a
-working rule.
+Model and effort follow task cost: the cheapest tier that can do the job. The frontmatter
+key is `effort`, not `reasoning_effort` — a misspelling is ignored in silence and bills the
+default tier, so the table renders a missing key rather than guessing one. Run at most five
+agents concurrently; CI enforces it via `max-parallel`.
 
 ### When to run docs-audit
 

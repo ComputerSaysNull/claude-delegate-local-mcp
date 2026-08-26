@@ -523,6 +523,7 @@ def check_generated_docs() -> list[Finding]:
         ("scripts/gen_config_docs.py", "docs/CONFIGURATION.md"),
         ("scripts/gen_status.py", "STATUS.md"),
         ("scripts/gen_gitleaks_config.py", ".gitleaks.toml"),
+        ("scripts/gen_agents_docs.py", "CONTRIBUTING.md"),
     ]
     for script, target in generators:
         if not (ROOT / script).exists():

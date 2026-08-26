@@ -14,6 +14,7 @@ This lists what will bite you.
     python scripts/install_hooks.py                 # installs the commit-msg hook
     python scripts/docs_gate.py --owner <path>      # which document owns this file
     python scripts/gen_config_docs.py               # after touching config.py
+    python scripts/gen_agents_docs.py               # after touching .claude/agents/
     python scripts/gen_status.py                    # after touching PLAN.md
     .venv/Scripts/python.exe -m pytest -q           # Windows
     wsl -d Ubuntu-24.04 -e bash -lc '...'           # anything needing bwrap or ext4
