@@ -12,6 +12,14 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-26 The backend seam, and the one adapter behind it. `registry.py` has been
+  refusing `api_format = "anthropic"` since M0b with an error naming a `Backend` protocol
+  that did not exist -- a promise made in shipped code and payable by nothing. It now
+  exists: a canonical, Anthropic-shaped request and response of content blocks, and an
+  OpenAI-compatible adapter that is the only place a wire format is known. Failures arrive
+  as four kinds the caller can tell apart, and `finish_reason` and the token counts come
+  back uninterpreted, because the response state machine in M3 needs the raw values to
+  decide anything and would be built on sand otherwise. ADR-0008, ADR-0013, ADR-0014.
 - 2026-08-26 The upstream review has an artefact: a dated file under `docs/audits/`
   recording every upstream change considered and its verdict, rejections included. ADR-0001
   required the review and named nothing to hold it; CONTRIBUTING filled that gap with a
@@ -40,6 +48,26 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 A rationale had been copied into four error messages and a test. The claim was
+  that the backend silently ignores an unrecognised reasoning-effort value; measured against
+  the live server it does the opposite, validating the field and answering a bad value with a
+  400 naming the accepted set. Falsity is not the defect though, only what made it visible.
+  Of the six places stating it, exactly one was supposed to -- `ARCHITECTURE.md`, which owns
+  the backend layer. Three were error messages, whose job is to name the variable, the bad
+  value and the accepted set rather than explain a remote system, and the sixth was a test
+  requiring the rationale to appear in the message, which turns prose into a tested
+  requirement: correcting the message made a test go red instead of a bug go away. The fix is
+  one copy in the document that owns the subject, and a local fact everywhere else. No new
+  check guards it: "do not put a justification in an error message" is not mechanically
+  checkable, and a scanner for the one sentence would guard the specimen rather than the
+  class. The ownership rule is the defence. JOURNAL 2026-08-26, ADR-0013.
+- 2026-08-26 `MODELS.md` said no level is silently remapped, which the translation of `off`
+  to the server's `none` had just made untrue as written. Qualified: nothing is remapped
+  downward, one level is renamed, and the strength never changes.
+- 2026-08-26 `ARCHITECTURE.md`'s prefix-caching section named only the system prompt as a
+  way to break byte-identity. The reasoning level breaks it too -- setting it rewrites the
+  rendered prompt, so `prompt_tokens` moves with the level and the cache is per level, not
+  per session. ADR-0011, JOURNAL 2026-08-26.
 - 2026-08-26 The audit-due counter was disarmed by the upstream review committed alongside
   it. The staleness check took the alphabetically last file in `docs/audits/` as the last
   recorded documentation audit; audits are named `YYYY-MM-DD-audit.md`, so a name beginning

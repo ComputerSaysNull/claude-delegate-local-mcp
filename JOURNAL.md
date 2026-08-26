@@ -352,3 +352,51 @@ looked like nothing more than a place to keep files.
 Second time this project has found a policy artefact colliding with a check that scanned it,
 after the secret-glob list matched its own `*secret*` pattern. That is a pattern now, not a
 coincidence.
+
+## 2026-08-26 — The reasoning-effort field, measured, and a comment that had the reason backwards
+
+Nothing in this repository recorded how the `off/low/high/max` enum reaches the wire: the
+M0a spike scripts were deliberately not shipped, and no sample request body survived. So
+it was measured.
+
+`reasoning_effort` is the field, it is real, and the server validates it. Its own 400 names
+the accepted set: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Our vocabulary
+differs from it in exactly one word — we say `off`, it says `none` — so the adapter's
+translation table has one row and every other level goes out verbatim. ADR-0013's refusal
+to remap the top level down therefore costs nothing: `max` is a value this server really
+takes.
+
+`none` does what it says: zero characters of reasoning, against roughly 25,000 for the same
+prompt with the field absent, finishing in 32 completion tokens instead of exhausting the
+budget.
+
+The surprise was in our own tree. `config.py` justified validating the enum by asserting
+that vLLM silently ignores an unrecognised value, so a typo would cost you the setting with
+no error. It does not: `reasoning_effort: "banana"` comes back as a 400 with a pydantic
+literal error. The conclusion — validate rather than pass through — survives, because our
+vocabulary is not the server's and an untranslated level would be refused after the prefill
+was already paid for. The stated reason did not survive, and has been corrected in place.
+A comment that is confidently wrong about a mechanism is worse than no comment, because the
+next person builds on it.
+
+Two things nearly went unnoticed:
+
+- **The first measurement was worthless, and looked like a result.** With `max_tokens=2048`
+  every case returned `finish_reason: "length"` with null content, so `completion_tokens`
+  was 2048 in all seven — identical across control and every candidate, which reads exactly
+  like "the field is ignored". Only raising the budget to 6144 separated them. A saturated
+  experiment is indistinguishable from a negative one, and this stack's reasoning is long
+  enough to saturate a budget that looks generous.
+- **Effort is part of the cached prefix.** `prompt_tokens` moves with the level — 62 at
+  `none` and `low`, 141 at `high`, 154 with the field absent — so the value rewrites the
+  rendered prompt rather than only steering generation. ADR-0011's bit-identical prefix
+  therefore holds *within* one effort level and not across them, and switching level
+  mid-session discards the cache. Worth knowing before anything starts varying effort per
+  turn.
+
+`chat_template_kwargs.enable_thinking` was the other plausible candidate and does nothing
+here: both polarities gave `prompt_tokens` identical to the control, with reasoning
+unchanged. It is not sent.
+
+ADR-0017's 400 was re-confirmed unchanged along the way, still naming
+`VLLM_USE_V2_MODEL_RUNNER=0` rather than the boot flag its own documentation advertises.

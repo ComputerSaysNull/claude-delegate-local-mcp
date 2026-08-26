@@ -65,10 +65,16 @@ def test_malformed_values_are_refused_at_load_time(key, value, expect):
         config.load({**ROOTS, key: value})
 
 
-def test_bad_effort_fails_loudly_because_the_backend_ignores_it_silently():
-    """vLLM accepts an unrecognised reasoning_effort and quietly does something else, so
-    a typo would cost you the setting with no error anywhere. We refuse instead."""
-    with pytest.raises(config.ConfigError, match="silence|silently"):
+def test_bad_effort_is_refused_at_load_naming_the_accepted_set():
+    """Refused early and cheaply, with the allowed values in the message.
+
+    This test asserts nothing about what the server would do with a value it does not
+    recognise. Its previous name and body did, and the claim they encoded was false --
+    which is why correcting that error message broke this test rather than a real one.
+    A test should pin behaviour, never the prose explaining it; the explanation lives in
+    docs/ARCHITECTURE.md, which owns the backend layer.
+    """
+    with pytest.raises(config.ConfigError, match=r"not one of.*Refused at load"):
         config.load({**ROOTS, "DELEGATE_THINKING_DEFAULT": "maxx"})
 
 

@@ -3,29 +3,28 @@
 
 ## Setup
 
-```bash
-python -m venv .venv
-.venv/bin/pip install -e ".[dev]"        # .venv/Scripts/pip on Windows
-python scripts/install_hooks.py
-```
-
-The hook runs `scripts/docs_gate.py`, which is also what CI runs — one implementation, two
-callers. A hook that reimplemented the checks would be a second copy destined to disagree
-with the first.
-
-Tests run from a bare clone with nothing installed but `pytest`; `tests/conftest.py` puts
-`src/` on the path so a first `pytest` works before you have read anything.
+One interpreter, and it is one CI runs: **Python 3.12, in WSL2**. A green run on a version
+CI never tests proves less than it appears to, and WSL2 is where the server runs anyway
+(ADR-0002) -- the only place `bubblewrap` and realistic filesystem speed exist. The venv sits
+in the WSL home, not the repository: creating one on `/mnt/c` is far slower (ADR-0020).
 
 ```bash
-.venv/bin/python -m pytest -q
-.venv/bin/python -m pytest -q -m "not integration"   # skip anything needing the cluster
+wsl -d Ubuntu-24.04 -e bash -lc '
+  python3 -m venv ~/.venvs/cdl
+  ~/.venvs/cdl/bin/pip install -e "/mnt/c/path/to/repo[dev]"'
+
+wsl -d Ubuntu-24.04 -e bash -lc 'cd /mnt/c/path/to/repo && ~/.venvs/cdl/bin/python -m pytest -q'
 ```
 
-Work that needs `bubblewrap` or realistic filesystem speed runs in WSL2 on Windows:
+Add `-m "not integration"` to skip anything needing the cluster; that is what CI runs. Tests
+also run from a bare clone with nothing but `pytest` -- `tests/conftest.py` puts `src/` on the
+path, so a first `pytest` works before reading anything.
 
-```bash
-wsl -d Ubuntu-24.04 -e bash -lc 'cd /mnt/c/path/to/repo && python3 -m pytest -q'
-```
+The commit hook is the exception: install it on Windows with `python
+scripts/install_hooks.py`, because that is where git runs. It imports only the standard
+library, so the system interpreter is enough. It runs `scripts/docs_gate.py`, which is also
+what CI runs -- one implementation, two callers, because a hook that reimplemented the
+checks would be a second copy destined to disagree with the first.
 
 ## Commits
 

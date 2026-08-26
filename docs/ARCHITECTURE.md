@@ -60,8 +60,8 @@ Prefetching removes several such turns from the front of every delegation.
 | `wsl.py` | The single path-translation boundary *(not built)* |
 | `paths.py` | The four-layer path policy *(not built)* |
 | `context.py` | Prefetch, token budgeting, prompt ordering, history eviction *(not built)* |
-| `backends/base.py` | `Backend` protocol and the canonical message shape *(not built)* |
-| `backends/openai_compat.py` | The only adapter shipped *(not built)* |
+| `backends/base.py` | `Backend` protocol and the canonical message shape |
+| `backends/openai_compat.py` | The only adapter shipped |
 | `loop.py` | The turn loop, one-shot path, response state machine *(not built)* |
 | `tools.py` | Model-facing tools and their enforcement *(not built)* |
 | `sandbox.py` | bubblewrap invocation *(not built)* |
@@ -95,6 +95,16 @@ Three conditions keep that true, and breaking any turns it back into a refactor:
 canonical shape stays block-structured and is never flattened to strings; SSE accumulation
 lives per adapter behind one contract; model selection is a registry lookup and never a
 reintroduced prefix function. (ADR-0008)
+
+Built. The seam holds three things the layer above depends on. Flattening lives in the
+adapter and nowhere else, so the canonical side stays block-structured. Failures arrive as
+four distinguishable kinds — unreachable, refused with its status *and body* intact so a
+specific 400 stays feature-detectable (ADR-0017), a 2xx that is not the promised shape, and
+a malformed canonical request, which is our own bug and must never be retried — because
+retry is only buildable on that distinction. And `finish_reason` and the token counts come
+back **uninterpreted**: null content with `finish_reason: "length"` is a valid response
+carrying no text, not an error. Deciding what that means belongs to the response state
+machine in M3, which needs the raw value to decide it.
 
 ### Four path layers, allowlist first
 
@@ -148,8 +158,12 @@ run against ships one value in its example environment while two of its own docu
 recommend another. So every request states its reasoning level explicitly. Resolution:
 agent frontmatter, then the registry row, then the global default.
 
-An unrecognised value is refused rather than passed through, because the backend ignores a
-bad one in silence — a typo would cost you the setting with no error anywhere. (ADR-0013)
+An unrecognised value is refused rather than passed through — but not because the backend
+would ignore it. It does not: it validates `reasoning_effort` and answers a bad one with a
+400, measured rather than assumed (JOURNAL 2026-08-26). The refusal here is simply earlier
+and cheaper. These are *this project's* levels, not the server's, so the adapter translates
+them — `off` is our word for the server's `none` — and a level with no translation would be
+refused only after its prefill had been paid for. (ADR-0013)
 
 There is a real failure mode here, reproduced rather than assumed: at high effort with a
 small reply budget, reasoning consumes the whole allowance and the response comes back
@@ -167,6 +181,11 @@ This only pays if the leading tokens are **byte-identical**, which makes the sys
 static by construction: no timestamp, no session id, no turn counter. One dynamic byte
 disables the cache with no error and no symptom beyond slower prefill. Dynamic content
 goes in the tail, inside tool results. (ADR-0011)
+
+The reasoning level is part of that prefix, which is not obvious: setting it rewrites the
+rendered prompt, so `prompt_tokens` moves with the level. Byte-identity therefore holds
+*within* one effort level and not across them, and varying effort per turn discards the
+cache. (JOURNAL 2026-08-26)
 
 ### Admission by token budget, not a request count
 

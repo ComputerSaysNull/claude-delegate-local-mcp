@@ -25,9 +25,9 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Literal
 
-# Values accepted by the backend for reasoning effort. Validated rather than passed
-# through, because vLLM silently ignores an unrecognised value -- a typo would cost you
-# the setting with no error. See ADR-0013.
+# Values accepted by *this project* for reasoning effort -- deliberately not the server's
+# set, which has its own vocabulary. `backends/openai_compat.py` owns the translation, and
+# docs/ARCHITECTURE.md says why validating here is not redundant. See ADR-0013.
 EFFORT_LEVELS = ("off", "low", "high", "max")
 TRANSPORTS = ("stdio", "streamable-http")
 
@@ -301,8 +301,9 @@ class Config:
         if self.thinking_default not in EFFORT_LEVELS:
             raise ConfigError(
                 f"DELEGATE_THINKING_DEFAULT={self.thinking_default!r} is not one of "
-                f"{EFFORT_LEVELS}. Failing loudly on purpose: the backend silently ignores "
-                "an unrecognised effort value, so a typo would cost you the setting."
+                f"{EFFORT_LEVELS}. Refused at load: these are this project's levels, "
+                "which the backend adapter translates to the server's own vocabulary. An "
+                "unlisted one has no translation."
             )
         if self.transport not in TRANSPORTS:
             raise ConfigError(
