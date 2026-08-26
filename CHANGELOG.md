@@ -156,6 +156,21 @@ because an entry lives in the commit it describes and cannot know its own hash.
   never tracked.
 
 ### Changed
+- 2026-08-26 CONTRIBUTING.md trimmed to its audience, and its budget lowered 215 -> 190
+  by removing content rather than raising a ceiling. The manifest already said this
+  document does not cover the documentation strategy — that lives in CLAUDE.md — yet it
+  carried a "short version" of those rules under a link to CLAUDE.md saying so. A second
+  copy under a pointer to the first is the drift the ownership scheme exists to prevent.
+  The negative-testing rule was likewise restated with the same three examples CLAUDE.md
+  already holds; it is now one sentence and a link. An audit also found the document
+  miscounting its own history: it claimed its budget had been raised twice when the real
+  sequence was 130, 175, 190, 215 — three raises, so the split it promised was already
+  overdue. That sentence is corrected and the trip-wire re-armed against the real number.
+
+  CLAUDE.md's "a check that cannot fail" invariant now records four instances rather than
+  three. The fourth is the gate scanning the previous commit's message, and the note adds
+  that two tests written for that fix passed against the bug before being rewritten — the
+  rule applies to the tests as much as to the checks.
 - 2026-08-26 The branch-protection rationale moved from CONTRIBUTING.md to ADR-0026.
   Two ruleset values are not self-explanatory and JSON carries no comments: `bypass_actors`
   is empty so direct pushes are refused for the owner too, and

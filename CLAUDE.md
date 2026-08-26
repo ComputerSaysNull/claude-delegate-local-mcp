@@ -72,10 +72,13 @@ Rules a machine cannot check, so they land here:
   Python validates a `.pyc` on `(mtime, size)`, so a same-length edit inside one timestamp
   tick is invisible. Set `sys.pycache_prefix` to a fresh temp directory. `-B` does *not*
   help — it stops writing bytecode, not reading a stale cache. (JOURNAL 2026-08-25)
-- **A check that cannot fail is worse than no check**, because it is trusted. Three have
+- **A check that cannot fail is worse than no check**, because it is trusted. Four have
   been found here already: one searching a file for the reference it was validating, one
-  reading stale bytecode, one flagging the pattern list that defined it. Negative-test
-  every check — assert that it fires on a real violation, not merely that it passes.
+  reading stale bytecode, one flagging the pattern list that defined it, and one scanning
+  the previous commit's message because git had not written the new one yet. Negative-test
+  every check — assert that it fires on a real violation, not merely that it passes. Two
+  tests written *for* that fourth one passed against the bug before they were rewritten,
+  so the rule applies to the tests as much as to the checks.
 - **Verify network isolation by address, never by hostname.** A hostname request fails
   whether or not the network namespace is isolated, so a hostname-only test reports a
   tight sandbox that may just have broken DNS. (ADR-0021)

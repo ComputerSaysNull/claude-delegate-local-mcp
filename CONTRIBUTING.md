@@ -1,4 +1,4 @@
-<!-- BUDGET: 215 -->
+<!-- BUDGET: 190 -->
 # Contributing
 
 ## Setup
@@ -51,42 +51,24 @@ python scripts/docs_gate.py --owner src/claude_delegate_local/paths.py
 → docs/AGENTS.md
 ```
 
-`scripts/docs_ownership.toml` is the only copy of that mapping.
-[CLAUDE.md](CLAUDE.md) has the full set of rules; the short version:
+`scripts/docs_ownership.toml` is the only copy of that mapping, and
+[CLAUDE.md](CLAUDE.md) states the rules it enforces. Do not keep a second copy of either
+here or in your head.
 
-- A fact belongs to one document, in one plane. Project plane is the repo root; product
-  plane is `docs/`.
-- Generated documents are never hand-edited. Change the source, run the generator.
-- `docs/TROUBLESHOOTING.md` owns no facts. It links.
-- Blocked but right anyway? `Docs-Gate-Skip: owning-doc -- <reason>` in the commit
-  message. Visible in every run, and audited.
-
-### Size budgets
-
-Documents declare a budget. Exceeding it blocks, and the block **never means delete** —
-three ways out: trim real redundancy, split for a valid reason, or raise the budget with a
-one-line reason in the same commit.
-
-A split is valid only for a *different audience*, *different owned code*, or *reference
-separated from narrative*. "It got long" is a reason to raise a budget. The gate refuses a
-new document whose audience and owned code are both subsets of its parent's.
-
-Append-only documents cap each **entry** instead of the total, because their history never
-stops earning its place. See ADR-0022.
+Documents also declare a size budget. Exceeding it blocks, and the block **never means
+delete**: trim redundancy, split for a valid reason, or raise the budget with a one-line
+reason in the same commit. ADR-0022 for what makes a split valid.
 
 ## Tests
 
 Regression tests are named after the bug and live in `tests/regression/`. If you fix
 something subtle, the test goes in the same commit.
 
-**Negative-test every check.** Assert that it fires on a real violation, not merely that
-it passes on clean input. Three checks here have already been found unable to fail:
-one searched a file for the reference it was validating, one read stale bytecode, one
-flagged the pattern list that defined it. A check that cannot fail is worse than no check,
-because it is believed.
+**Negative-test every check**: assert it fires on a real violation, not merely that it
+passes on clean input. Four checks here have already been found unable to fail — CLAUDE.md
+lists them.
 
-Mark anything needing the live cluster or a real `bwrap` as
-`@pytest.mark.integration`; it is skipped by default.
+Mark anything needing the live cluster or a real `bwrap` as `@pytest.mark.integration`.
 
 ## Decisions
 
@@ -183,13 +165,17 @@ a committed file listing what must not be committed is itself the leak.
 
 ## When this document splits
 
-Its budget has been raised twice. One more raise and it splits: the operational half —
-CI, branch protection and the agent roster — moves to its own document owning `.github/**`
-and `.claude/agents/**`, leaving the conventions here.
+The budget has been raised three times — 130, 175, 190, 215 — and the sentence here
+claiming twice was itself stale, which is the failure it was meant to warn about. It is
+now back down to 190 by trimming rather than raising: the branch-protection reasoning went
+to ADR-0026, and the documentation-strategy rules were dropped in favour of the link to
+CLAUDE.md that was already there.
 
-That is a valid split under this project's own rules (reference material separated from
-narrative, and distinct owned code), and it is written down so the next person does not
-have to re-derive it under pressure.
+If it needs raising again, split instead: the operational half — CI and the agent
+roster — moves to its own document owning `.github/**` and `.claude/agents/**`, leaving
+the conventions here. That is a valid split under this project's own rules (distinct owned
+code, reference separated from narrative), written down so nobody has to re-derive it
+under pressure.
 
 ## Upstream
 
