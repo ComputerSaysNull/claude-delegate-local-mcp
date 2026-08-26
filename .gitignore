@@ -27,3 +27,9 @@ build/
 .bench-venv/
 .spike/
 *.local.md
+
+# Chunked scratch from ad hoc investigations. Twelve such files, ~1.35 MB of
+# fragments of a proprietary compiled binary, were found untracked in the repo
+# root with nothing in the repository referencing them. Root-anchored, so a
+# legitimately tracked tmp_* elsewhere is unaffected.
+/tmp_*
