@@ -52,7 +52,6 @@ Throwaway scripts, deliberately not shipped.
 - ✅ 2026-08-25 Audit trigger — the gate raises `audit-due` from git evidence: a document
   unchanged across 12+ commits touching its owned code, or 60+ commits since the last
   recorded audit. Warns, never blocks
-- ⬜ `docs/TOOLS.md` generator — tool descriptions rendered from the registered tools
 - ✅ 2026-08-25 Public repo created, ruleset applied to `main`, secret scanning and push protection enabled. Direct push to `main` verified as refused
 
 ## M1 — One real backend call
@@ -97,6 +96,9 @@ Throwaway scripts, deliberately not shipped.
 ## M4 — Agentic loop and model tools
 
 - ⬜ `tools.py` — read_file, write_file, run_bash; `allowed_tools` enforced at execution
+- ⬜ `docs/TOOLS.md` generator — descriptions rendered from the registered tools. Moved
+  here from M0b 2026-08-26: it cannot render a registry that does not exist yet, and the
+  descriptions are the model-facing contract, so they arrive with `tools.py` or not at all
 - ⬜ `loop.py` — turns, eviction, dedup, countdown, final-turn short-circuit
 - ⬜ Real exit codes captured by the server, reported apart from the model's claims
 - ⬜ Progress notification per turn — required, not cosmetic (ADR-0018)

@@ -40,6 +40,13 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 The `docs/TOOLS.md` generator sat in M0b, which could never close: the
+  document renders from a tool registry that M4 has not written yet, so the manifest named
+  a phantom and warned about it on every run -- and a permanent warning is one nobody reads.
+  Moved to M4, beside `tools.py`, and its manifest entry parked with the milestone that
+  restores it. Deliberately not done to `docs/AGENTS.md`, which warns for the same reason:
+  that document exists, and its claim on the unwritten code is the only thing that will
+  force it to be updated when the code lands.
 - 2026-08-25 The documentation gate could validate a generated file against code that no
   longer existed. Python validates a `.pyc` on `(mtime, size)`, so changing a default
   from `6` to `9` -- identical byte length -- inside one filesystem timestamp tick left a

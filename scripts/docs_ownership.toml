@@ -103,13 +103,23 @@ covers_not = """
 Rationale for a default beyond its one-line description. It is a generated table;
 argument belongs in an ADR."""
 
-[docs."docs/TOOLS.md"]
-audience = ["user", "contributor"]
-plane = "product"
-generated = true
-owns = ["src/claude_delegate_local/tools.py"]
-covers_not = """
-How to write an agent (AGENTS.md), or how the loop calls these tools (ARCHITECTURE.md)."""
+# Parked 2026-08-26 until M4 writes src/claude_delegate_local/tools.py. The document is
+# generated from the tool registry, so while the registry does not exist the manifest was
+# naming a phantom -- and the resulting warning was permanent, which is how a warning stops
+# being read. Restore this block in the same commit as tools.py.
+#
+# Deliberately NOT done to docs/AGENTS.md, whose claim on agents.py and paths.py also warns:
+# that document exists and is hand-written, and the claim is the only thing that will force
+# it to be updated when the code lands. Dropping a claim to silence a warning would throw
+# away the mechanism; dropping a claim to a document that was never written removes a lie.
+#
+# [docs."docs/TOOLS.md"]
+# audience = ["user", "contributor"]
+# plane = "product"
+# generated = true
+# owns = ["src/claude_delegate_local/tools.py"]
+# covers_not = """
+# How to write an agent (AGENTS.md), or how the loop calls these tools (ARCHITECTURE.md)."""
 
 [docs."docs/MODELS.md"]
 audience = ["user", "contributor"]
