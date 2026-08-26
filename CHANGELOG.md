@@ -156,6 +156,15 @@ because an entry lives in the commit it describes and cannot know its own hash.
   never tracked.
 
 ### Changed
+- 2026-08-26 The branch-protection rationale moved from CONTRIBUTING.md to ADR-0026.
+  Two ruleset values are not self-explanatory and JSON carries no comments: `bypass_actors`
+  is empty so direct pushes are refused for the owner too, and
+  `required_approving_review_count` is 0 because GitHub forbids approving your own pull
+  request — requiring one review would lock a single maintainer out of their own repository
+  rather than raise the bar. That is the value most likely to be "corrected" as an
+  oversight, and CONTRIBUTING.md is written for contributors doing work, not for explaining
+  why the repository is configured as it is. The section there is now a pointer, 24 lines
+  down to 8.
 - 2026-08-26 Context-overflow handling promoted out of Deferred into M3. The upstream fork
   shipped it, and this project's parked wording had independently converged on the same
   detection signal, which is the reason to trust the design rather than re-derive it. It

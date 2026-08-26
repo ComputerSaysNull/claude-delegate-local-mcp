@@ -127,25 +127,11 @@ Two things that live outside it and are easy to miss:
 
 ## Branch protection
 
-`main` is protected by a ruleset, checked in as `.github/ruleset.json` so the configuration
-is reproducible rather than a thing someone once clicked:
-
-```bash
-gh api -X POST repos/OWNER/REPO/rulesets --input .github/ruleset.json
-```
-
-- Pull request required. **Direct pushes to `main` are refused for everyone, including the
-  owner** — `bypass_actors` is empty, which rulesets allow and classic branch protection
-  did not.
-- Four required checks: the gate, tests on 3.11 and 3.12, and the secret scan.
-- Force-push and deletion blocked. Squash is the only merge method.
-- `required_approving_review_count` is **0**, deliberately. GitHub will not let you
-  approve your own pull request, so requiring one review would lock a solo maintainer out
-  of their own repository entirely. The checks carry the weight instead. Raise it to 1 the
-  day a second person joins.
-
-Secret scanning and push protection are enabled at the repository level, which is free on
-public repositories and catches what reaches GitHub even if the local hook was skipped.
+`main` is protected by a ruleset checked in as `.github/ruleset.json` — read it for the
+rules, ADR-0026 for why the bypass list and the review count are set the way they are. In
+practice: open a pull request, because direct pushes are refused for everyone, and expect
+four required checks. Repository-level secret scanning and push protection are on as well,
+catching what reaches GitHub even if a local hook was skipped.
 
 ## Build-time agents
 

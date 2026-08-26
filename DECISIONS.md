@@ -20,6 +20,32 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0026 — 2026-08-26 — main is protected by a checked-in ruleset, with no bypass and zero required reviews — Accepted
+
+`main` is protected by a ruleset checked in as `.github/ruleset.json`, applied with
+`gh api -X POST repos/OWNER/REPO/rulesets --input .github/ruleset.json`. Checking it in
+makes the configuration reproducible rather than a thing someone once clicked, and a
+review of it a diff rather than a tour of a settings page.
+
+Two of its values are not self-explanatory, and JSON carries no comments, so they are
+recorded here rather than in the file or in CONTRIBUTING.md — which describes what
+contributors must do, not why the repository is configured as it is.
+
+**`bypass_actors` is empty.** Direct pushes to `main` are refused for everyone including
+the owner. Rulesets permit this; classic branch protection did not, which is part of why
+a ruleset was chosen at all. A protection the owner can step over protects against
+accidents only, and the accidents are the owner's.
+
+**`required_approving_review_count` is 0, deliberately.** GitHub will not let anyone
+approve their own pull request, so on a single-maintainer repository requiring one review
+does not raise the bar — it locks the only maintainer out of their own repository
+permanently, with no self-service way back. The four required checks carry the weight
+instead: the gate, tests on 3.11 and 3.12, and the secret scan. None of those can be
+satisfied by asserting that the change is fine.
+
+This is the value most likely to be "corrected" by someone reading it as an oversight.
+It is not. Raise it to 1 on the day a second person can approve, and not before.
+
 ## ADR-0025 — 2026-08-26 — Upstream reviews live in docs/reviews/; only a documentation audit resets the audit clock — Accepted
 
 ADR-0023 put upstream reviews in `docs/audits/` without checking what already read that
