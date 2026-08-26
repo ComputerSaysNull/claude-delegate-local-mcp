@@ -70,9 +70,10 @@ The server guards this — one retry at a larger budget, then a step down, then 
 failure rather than an empty answer — but the guard costs time. Set `low` and raise it per
 agent where a task genuinely needs it. (ADR-0013, ADR-0014)
 
-All four levels are supported and none is silently remapped: a caller asking for `max` gets
-`max`, because an API that disagrees with the backend's own documented values is worse than
-one extra enum entry.
+All four levels are supported and none is remapped *downward*: a caller asking for `max`
+gets `max`, because an API that disagrees with the backend's own documented values is worse
+than one extra enum entry. One level is renamed rather than remapped — `off` is our word for
+what the server calls `none` — which changes the spelling and never the strength.
 
 ## Adding a second model
 

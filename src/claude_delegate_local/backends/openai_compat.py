@@ -237,17 +237,18 @@ def _resolve_api_key(entry: ModelEntry) -> str:
 
 
 def _effort_fields(effort: str) -> dict[str, Any]:
-    """Reasoning effort, in the shape the live server actually accepts.
+    """Reasoning effort, in the shape the live server accepts.
 
-    Measured, not assumed (JOURNAL 2026-08-26). `reasoning_effort` is a real, validated
-    field on this stack, and three things about it are worth knowing here. "none" genuinely
-    switches reasoning off -- zero characters of it, against roughly 25,000 for the same
-    prompt with the field absent. An unrecognised value is *refused* with a 400 rather than
-    ignored. And `chat_template_kwargs.enable_thinking`, the other plausible candidate, was
-    tested at both polarities and changed nothing measurable, so it is not sent.
-
-    The top level is never remapped down: "max" is a value this server really accepts, so
+    One row of translation: our "off" is the server's "none". The other three levels are
+    the server's own words and go out verbatim, so the top level is never remapped down and
     a caller asking for maximum effort gets it (ADR-0013).
+
+    `chat_template_kwargs.enable_thinking` is not sent. It was the other plausible
+    candidate and changed nothing measurable.
+
+    How any of this is known, and why validating our own enum is not redundant:
+    docs/ARCHITECTURE.md owns that explanation, and JOURNAL 2026-08-26 has the
+    measurements. Not restated here -- one copy of a reason is the whole point.
     """
     return {"reasoning_effort": _EFFORT_TRANSLATION.get(effort, effort)}
 

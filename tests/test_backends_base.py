@@ -11,8 +11,8 @@ import dataclasses
 
 import pytest
 
-from claude_delegate_local.config import EFFORT_LEVELS
 from claude_delegate_local.backends import base
+from claude_delegate_local.config import EFFORT_LEVELS
 
 
 def msg(text: str = "hello") -> base.Message:
@@ -204,7 +204,7 @@ def test_every_error_kind_is_distinguishable_from_the_others():
 
 def test_protocol_accepts_a_complete_implementation():
     class Stub:
-        async def complete(self, request):  # noqa: ANN001, ARG002
+        async def complete(self, request):
             ...
 
         async def probe(self):
@@ -218,7 +218,7 @@ def test_protocol_accepts_a_complete_implementation():
 
 def test_protocol_rejects_an_incomplete_implementation():
     class Partial:
-        async def complete(self, request):  # noqa: ANN001, ARG002
+        async def complete(self, request):
             ...
 
     assert not isinstance(Partial(), base.Backend)

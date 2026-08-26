@@ -461,7 +461,7 @@ async def test_reasoning_is_resent_when_configured():
 
 
 async def test_probe_reads_the_served_ids_from_v1_models():
-    handler, seen = capture()
+    seen: dict = {}
 
     def models(req: httpx.Request) -> httpx.Response:
         seen["url"] = str(req.url)
@@ -528,7 +528,12 @@ async def test_reasoning_under_the_key_this_stack_actually_uses():
                 }
             ]
         )
-        r = await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+        # body bound as a default argument, not captured: a lambda in a loop closes over
+        # the *variable*, so this happens to work only because it is called in the same
+        # iteration. That is a trap for whoever restructures the loop.
+        r = await backend(
+            lambda req, b=body: httpx.Response(200, json=b)
+        ).complete(request())
         assert r.thinking == "the thinking", key
 
 

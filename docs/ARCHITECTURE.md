@@ -158,8 +158,12 @@ run against ships one value in its example environment while two of its own docu
 recommend another. So every request states its reasoning level explicitly. Resolution:
 agent frontmatter, then the registry row, then the global default.
 
-An unrecognised value is refused rather than passed through, because the backend ignores a
-bad one in silence — a typo would cost you the setting with no error anywhere. (ADR-0013)
+An unrecognised value is refused rather than passed through — but not because the backend
+would ignore it. It does not: it validates `reasoning_effort` and answers a bad one with a
+400, measured rather than assumed (JOURNAL 2026-08-26). The refusal here is simply earlier
+and cheaper. These are *this project's* levels, not the server's, so the adapter translates
+them — `off` is our word for the server's `none` — and a level with no translation would be
+refused only after its prefill had been paid for. (ADR-0013)
 
 There is a real failure mode here, reproduced rather than assumed: at high effort with a
 small reply budget, reasoning consumes the whole allowance and the response comes back
@@ -177,6 +181,11 @@ This only pays if the leading tokens are **byte-identical**, which makes the sys
 static by construction: no timestamp, no session id, no turn counter. One dynamic byte
 disables the cache with no error and no symptom beyond slower prefill. Dynamic content
 goes in the tail, inside tool results. (ADR-0011)
+
+The reasoning level is part of that prefix, which is not obvious: setting it rewrites the
+rendered prompt, so `prompt_tokens` moves with the level. Byte-identity therefore holds
+*within* one effort level and not across them, and varying effort per turn discards the
+cache. (JOURNAL 2026-08-26)
 
 ### Admission by token budget, not a request count
 

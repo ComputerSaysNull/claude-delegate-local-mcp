@@ -202,9 +202,9 @@ class CanonicalRequest:
     def __post_init__(self) -> None:
         if self.effort not in EFFORT_LEVELS:
             raise CanonicalShapeError(
-                f"effort={self.effort!r} is not one of {EFFORT_LEVELS}. Validated rather "
-                "than passed through because the backend ignores an unrecognised value "
-                "in silence -- a typo would cost you the setting with no error."
+                f"effort={self.effort!r} is not one of {EFFORT_LEVELS}. These are this "
+                "project's levels; the adapter translates them to the server's own "
+                "vocabulary, and an unlisted one has no translation."
             )
         if not isinstance(self.messages, tuple):
             raise CanonicalShapeError(

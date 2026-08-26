@@ -107,8 +107,10 @@ def _validate(key: str, raw: dict, path: Path) -> ModelEntry:
     effort = raw.get("default_effort", "")
     if effort and effort not in EFFORT_LEVELS:
         raise RegistryError(
-            f"{where} default_effort={effort!r} is not one of {EFFORT_LEVELS}. Failing "
-            "loudly because the backend ignores an unrecognised value in silence."
+            f"{where} default_effort={effort!r} is not one of {EFFORT_LEVELS}. Refused "
+            "at load: these are this project's levels, which the backend adapter "
+            "translates to the server's own vocabulary. An unlisted one has no "
+            "translation."
         )
 
     base_url = str(raw["base_url"]).rstrip("/")
