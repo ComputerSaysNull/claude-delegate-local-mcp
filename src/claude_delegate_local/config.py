@@ -25,9 +25,12 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Literal
 
-# Values accepted by the backend for reasoning effort. Validated rather than passed
-# through, because vLLM silently ignores an unrecognised value -- a typo would cost you
-# the setting with no error. See ADR-0013.
+# Values accepted by *this project* for reasoning effort -- not the server's set, which
+# differs; `backends/openai_compat.py` owns the translation. Validated here because the
+# server validates too: it refuses an unrecognised value with a 400 rather than ignoring
+# one (measured -- JOURNAL 2026-08-26, correcting what this comment used to claim), and a
+# request refused after its prefill is paid for is the expensive way to find a typo.
+# See ADR-0013.
 EFFORT_LEVELS = ("off", "low", "high", "max")
 TRANSPORTS = ("stdio", "streamable-http")
 

@@ -12,6 +12,14 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-26 The backend seam, and the one adapter behind it. `registry.py` has been
+  refusing `api_format = "anthropic"` since M0b with an error naming a `Backend` protocol
+  that did not exist -- a promise made in shipped code and payable by nothing. It now
+  exists: a canonical, Anthropic-shaped request and response of content blocks, and an
+  OpenAI-compatible adapter that is the only place a wire format is known. Failures arrive
+  as four kinds the caller can tell apart, and `finish_reason` and the token counts come
+  back uninterpreted, because the response state machine in M3 needs the raw values to
+  decide anything and would be built on sand otherwise. ADR-0008, ADR-0013, ADR-0014.
 - 2026-08-26 The upstream review has an artefact: a dated file under `docs/audits/`
   recording every upstream change considered and its verdict, rejections included. ADR-0001
   required the review and named nothing to hold it; CONTRIBUTING filled that gap with a
@@ -40,6 +48,13 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 `config.py` justified validating the reasoning-effort enum by claiming vLLM
+  silently ignores an unrecognised value, so a typo would cost the setting with no error.
+  Measured against the live server, it does the opposite: an unknown value is refused with
+  a 400 listing the accepted set. The behaviour was right and its stated reason was wrong,
+  which is the worse of the two failures -- the next person builds on the reason. Corrected
+  to the real one: our vocabulary is not the server's, and an untranslated level is refused
+  only after its prefill has been paid for. JOURNAL 2026-08-26, ADR-0013.
 - 2026-08-26 The audit-due counter was disarmed by the upstream review committed alongside
   it. The staleness check took the alphabetically last file in `docs/audits/` as the last
   recorded documentation audit; audits are named `YYYY-MM-DD-audit.md`, so a name beginning
