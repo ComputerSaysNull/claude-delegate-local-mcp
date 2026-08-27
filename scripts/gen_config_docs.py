@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -69,6 +70,31 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
+def _unread_fields() -> set[str]:
+    """Field names no module outside config.py reads.
+
+    Computed, never hand-maintained. Eighteen settings for unbuilt subsystems -- the
+    sandbox, the model-facing tools, admission control -- were rendered identically to
+    settings that work, so the reference read as a list of live knobs when a third of it
+    was inert (second audit, 2026-08-27). A hand-kept list of "not built yet" would be a
+    second copy of PLAN.md and would rot the day a subsystem landed; a scan of the source
+    clears itself in the same commit that starts using the setting.
+
+    Deliberately conservative: a plain word-boundary match, so anything reached by
+    `getattr` counts as unread and is marked. Over-marking is visible and gets fixed;
+    under-marking restores the bug.
+    """
+    src = ROOT / "src" / "claude_delegate_local"
+    blob = "".join(
+        p.read_text(encoding="utf-8")
+        for p in sorted(src.rglob("*.py"))
+        if p.name != "config.py"
+    )
+    # Identifier tokens, so a field name is matched whole and never as a substring.
+    used = set(re.findall("[A-Za-z_][A-Za-z0-9_]*", blob))
+    return {r["field"] for r in config.describe() if r["field"] not in used}
+
+
 def _cell(text: object) -> str:
     """Table-safe: escape pipes, collapse whitespace, render empties visibly."""
     s = str(text)
@@ -79,6 +105,7 @@ def _cell(text: object) -> str:
 
 def render() -> str:
     rows = {r["field"]: r for r in config.describe()}
+    unread = _unread_fields()
     placed: set[str] = set()
     out: list[str] = [
         START,
@@ -93,6 +120,12 @@ def render() -> str:
          "**parsed on `os.pathsep`** — `;` on Windows, `:` elsewhere. The rendering is "
          "deliberately platform-independent so this file is byte-identical wherever it "
          "is generated."),
+        "",
+        ("A description marked **Inert** means no code outside `config.py` reads that "
+         "setting yet: it is validated at startup and otherwise does nothing, because the "
+         "subsystem it controls is not built. See [PLAN.md](../PLAN.md) for what is where. "
+         "The marker is computed by the generator from the source, not maintained by hand, "
+         "so it disappears in the commit that starts using the setting."),
         "",
     ]
     for title, names in SECTIONS:
@@ -109,7 +142,10 @@ def render() -> str:
                 default = f"{default} {r['unit']}"
             if r["required"]:
                 default = "**required**"
-            out.append(f"| `{r['env']}` | {default} | {_cell(r['description'])} |")
+            desc = _cell(r["description"])
+            if name in unread:
+                desc = f"**Inert.** {desc}"
+            out.append(f"| `{r['env']}` | {default} | {desc} |")
         out.append("")
 
     leftover = [n for n in rows if n not in placed]
@@ -123,7 +159,10 @@ def render() -> str:
             out.append(f"| `{r['env']}` | {_cell(r['default'])} | {_cell(r['description'])} |")
         out.append("")
 
-    out += [f"*{len(rows)} settings.*", "", END]
+    n_inert = len(unread & set(rows))
+    tail = f"*{len(rows)} settings"
+    tail += f", {n_inert} of them inert.*" if n_inert else ".*"
+    out += [tail, "", END]
     return "\n".join(out)
 
 

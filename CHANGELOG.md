@@ -142,7 +142,17 @@ worth citing.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
-- 2026-08-27 (#16) The second documentation audit of the day, and the eighteen findings it
+- 2026-08-27 (#17) The generated configuration reference now marks settings that nothing reads.
+  Nineteen of forty-two -- the sandbox, the model-facing tools, admission control -- were
+  rendered identically to settings that work, so a third of the reference read as live
+  knobs. Worse than a documentation fault, because those settings are still validated at
+  load: the server can refuse to boot over a value for a subsystem that does not exist.
+  The marker is computed by `gen_config_docs.py` scanning the source for readers, not kept
+  by hand: a hand-kept list would be a second copy of `PLAN.md` and would rot the day a
+  subsystem landed, where a scan clears itself in the commit that starts using the setting.
+  Negative-tested in both directions, including a test that the marker can actually vanish,
+  because a marker that cannot clear is a stale list wearing a generator's costume.
+- 2026-08-27 The second documentation audit of the day, and the eighteen findings it
   landed. Two fault classes account for most of them, and the first audit had found one
   instance of each without seeing either as a class. Facts restated outside their owning
   document: the bytes/token measurement existed in six places in copies that had already
