@@ -137,6 +137,32 @@ because an entry lives in the commit it describes and cannot know its own hash.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-27 M3 is scoped down and its four context-economics items move to M4, because
+  they read conversation history, evictions and an action ledger that only the turn loop and
+  `tools.py` produce. Building them here would have been four commits whose only caller was
+  a test, with an `off by default` flag controlling nothing -- and "off by default" buys
+  safety for an operator upgrading, not for code with no call site. The design work is
+  recorded under M4 rather than deferred blank, including the finding that the denominator
+  must be `ModelEntry.context_window` and never the dataclass's own 131072 fallback that an
+  entry omitting the field inherits silently, and that the reserve has to be a fraction of
+  the window rather than a flat count.
+  One of upstream's five negative tests was evaluated and dropped: it needs a local-only
+  gate that also blocks an explicit override on a cloud backend, and ADR-0008 ships no cloud
+  backends while `context_window` is always operator-set, so there is no two-branch gate to
+  break. A synthetic two-tier fixture would have passed whether or not the code had the
+  flaw, which is the kind of check this repository already knows is worse than none. Named
+  and dismissed in PLAN.md rather than left as a silent gap.
+- 2026-08-27 Feature-detecting the `thinking_token_budget` rejection is cancelled, not
+  deferred, and PLAN.md keeps the item with the reason. There is nothing to detect: the
+  adapter never sends the field, which is the strongest available form of ADR-0017's "never
+  rely on it", so no 400 ever arrives. A detector for a request we do not make is machinery
+  guarding nothing.
+  Re-probed before deciding, per ADR-0017's own lesson that this stack's docs and its
+  behaviour disagree. Still refused, still naming `VLLM_USE_V2_MODEL_RUNNER=0`. The probe
+  earned its keep anyway: the error body carries `param: null`, so the structural check the
+  item was going to key on (`error.param == "thinking_token_budget"`) would have matched
+  nothing on every call, with the text fallback silently carrying the whole feature while
+  looking like a safety net. ADR-0017 stands unedited; JOURNAL 2026-08-27 has the body.
 - 2026-08-27 `delegate()`'s tool description again, and again as a behaviour change rather
   than a wording one (CLAUDE.md's invariant). It used to tell the caller to retry an empty
   answer at a lower effort. The server now does exactly that itself, so the instruction

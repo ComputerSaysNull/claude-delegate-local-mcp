@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** M3 — Response state machine — 0 of 8 items done
+**Current phase:** M4 — Agentic loop and model tools — 0 of 11 items done
 
 ## In progress
 
@@ -13,9 +13,9 @@
 
 ## Next up
 
-- Retry and backoff, honouring `Retry-After`
-- Empty-answer detection, retry at the floor, effort step-down
-- Feature-detect the `thinking_token_budget` rejection and degrade
+- `tools.py` — read_file, write_file, run_bash; `allowed_tools` enforced at execution
+- `docs/TOOLS.md` generator — descriptions rendered from the registered tools. Moved
+- `loop.py` — turns, eviction, dedup, countdown, final-turn short-circuit
 
 ## Progress by phase
 
@@ -25,17 +25,17 @@
 | M0b — Foundation | 23 | 0 | 0 | 0 |
 | M1 — One real backend call | 5 | 0 | 0 | 0 |
 | M2 — files[] prefetch | 4 | 0 | 0 | 0 |
-| M3 — Response state machine | 0 | 0 | 8 | 0 |
-| M4 — Agentic loop and model tools | 0 | 0 | 6 | 0 |
+| M3 — Response state machine | 3 | 0 | 0 | 1 |
+| M4 — Agentic loop and model tools | 0 | 0 | 11 | 0 |
 | M5 — Sandbox | 0 | 0 | 7 | 0 |
 | M6 — Agents, batching, discovery | 0 | 0 | 3 | 0 |
 | M7 — Admission control and polish | 0 | 0 | 4 | 0 |
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
 | Extra — work outside the milestone plan | 6 | 0 | 0 | 0 |
 
-**Overall:** 42 done, 29 open, 5 cancelled.
+**Overall:** 45 done, 26 open, 6 cancelled.
 
 ## Repository
 
-- 24 commit(s), 72 tracked files
-- 21 test file(s), 30 decision record(s)
+- 28 commit(s), 75 tracked files
+- 23 test file(s), 30 decision record(s)
