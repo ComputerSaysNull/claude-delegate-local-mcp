@@ -784,7 +784,14 @@ def check_orphan_docs() -> list[Finding]:
 # suspect. Not a calendar: a repository nobody touched for six months needs no audit,
 # and one that changed forty times last week needs one regardless of the date.
 AUDIT_PRESSURE_THRESHOLD = 12
-AUDIT_STALE_COMMITS = 60
+
+# Lowered from 60 on 2026-08-27. Sixty was set when the repository had fourteen commits and
+# read as "a long while"; at the rate this one actually moves it is months, and a whole
+# milestone can land and go stale inside one interval. The first real audit found two wrong
+# entries in the one document a milestone had just changed, at 26 commits -- less than half
+# the old threshold, so the counter would not have asked. A number that only fires after the
+# damage is a number that never fires.
+AUDIT_STALE_COMMITS = 15
 
 
 def _pathspec(globs: list[str]) -> list[str]:

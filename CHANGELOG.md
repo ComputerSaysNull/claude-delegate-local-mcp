@@ -137,6 +137,29 @@ because an entry lives in the commit it describes and cannot know its own hash.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-27 The audit-due counter now fires at 15 commits rather than 60, and the first
+  recorded audit lives in `docs/audits/`. Sixty was chosen when the repository had fourteen
+  commits, where it read as "a long while"; at the rate this one actually moves it is months,
+  and a whole milestone can land and go stale inside one interval. The evidence is the audit
+  itself: run at 26 commits — well under half the old threshold, so the counter had not asked
+  — it found two wrong entries in `docs/TROUBLESHOOTING.md`, one of which had been wrong since
+  the day it was written. A threshold that only fires after the damage is one that never fires.
+  The test for this check had its own copy of the number, written as a literal 60. Every case
+  in it churns threshold-plus-one commits, so lowering the gate's value would have left the
+  tests green while testing a boundary that had moved, and raising it would have left them
+  green while testing nothing near a boundary at all — a check that cannot fail, in the file
+  whose whole subject is a check that could not fail. It now reads the constant from the gate,
+  verified by temporarily changing the gate and watching the test follow it.
+- 2026-08-27 Two stale entries fixed in `docs/TROUBLESHOOTING.md`, found by the audit above.
+  A symptom entry claimed an `HTTP 400 ... thinking_token_budget` was "feature-detected and
+  dropped automatically" — nothing ever detected it, because the adapter has never sent the
+  field, so the symptom cannot arise through this server. Deleted rather than reworded: this
+  document owns no facts, and PLAN.md and ADR-0017 carry why the field is untouched. It was
+  wrong on the day it was written, and M3's probe is what exposed it.
+  The other indexed a symptom as `reasoning_exhausted_budget`, which is ADR-0014's name for
+  the decision and not the field a caller sees. A symptom index keyed on a string that appears
+  in no output cannot be searched by the person who needs it. It is now `reasoning_exhausted`,
+  split into the two cases M3 created, because they have opposite fixes.
 - 2026-08-27 M3 is scoped down and its four context-economics items move to M4, because
   they read conversation history, evictions and an action ledger that only the turn loop and
   `tools.py` produce. Building them here would have been four commits whose only caller was

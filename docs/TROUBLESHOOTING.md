@@ -1,7 +1,9 @@
-<!-- BUDGET: 265 -->
+<!-- BUDGET: 270 -->
 <!-- Raised from 240 on 2026-08-27: M1 shipped the first server that can fail at
      startup and the first tool that can report a backend, so two symptom classes
-     exist that had nowhere to be indexed before. -->
+     exist that had nowhere to be indexed before.
+     Raised again from 265 on 2026-08-27: M3 split the empty answer into two symptoms
+     with opposite fixes, and one stale entry was deleted to help pay for it. -->
 # Troubleshooting
 
 Symptom, cause, fix.
@@ -101,6 +103,7 @@ curl -s http://YOUR-HEAD-NODE:8888/v1/models | python3 -m json.tool
 `backend_status()` reports this as `id_confirmed: false` with `status: "ok"` — the endpoint
 is healthy; the registry names something it does not serve. Check it first when a
 delegation is refused by a cluster that is plainly up.
+
 ### The health check fails against a server that is plainly healthy
 
 Bare vLLM does **not** serve `/health/liveliness` — that belongs to a proxy, and probing it
@@ -118,21 +121,21 @@ paste into a bug report.
 
 ### The answer is empty, with a length stop
 
-Reasoning consumed the entire reply budget. The server retries at a larger budget, then
-steps effort down, then fails explicitly. Persistent cases mean the effort level is too
-high for the task — set `effort: low`. See
-[MODELS.md](MODELS.md#choosing-default_effort).
+Reasoning consumed the entire reply budget. Seeing this means the server already tried to
+recover and failed too ([the stages](ARCHITECTURE.md#an-empty-answer-is-recovered-from-before-it-is-reported)),
+so do not retry the call yourself. Measured: at the top effort level this deployment never
+answered at any budget, so set `effort: low` ([MODELS.md](MODELS.md#choosing-default_effort)).
 
-### `HTTP 400 ... thinking_token_budget`
+### `reasoning_exhausted: true`
 
-Feature-detected and dropped automatically; you should only see it in logs. Note the
-serving stack's own documentation names the wrong gate for this field — the server's error
-message names the real one. ADR-0017.
+Both mitigations were spent and it still returned nothing: the task needs more reasoning than
+this model finishes inside its budget. Split it, or send it elsewhere — asking again will not
+help.
 
-### `reasoning_exhausted_budget`
+### `empty_response: true` with `reasoning_exhausted: false`
 
-Every mitigation was tried and the model still returned nothing. Reframe the task, or lower
-effort further.
+A different fault, and a different fix: effort was already lowest, so nothing could step down
+and the budget ran out rather than the reasoning. Shorten the task, or raise the model's cap.
 
 ### The model insists tests pass when they do not
 
