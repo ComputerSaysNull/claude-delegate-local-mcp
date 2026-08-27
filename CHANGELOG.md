@@ -12,6 +12,45 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-27 `delegate(files=[...])`: the server reads the files itself and gives them to
+  the local model, so their contents never enter Claude's context. This is the thing the
+  repository is for -- until now the only way to have a file reviewed was to read it into
+  Claude's context first and paste it into the task, which spends exactly what delegating
+  was meant to save.
+  Per file, in this order, because the point is never to read a file only to find out it
+  was unusable: `stat` against the byte ceiling, then a token estimate computed from the
+  stat size and the extension (ADR-0019), then the per-file cap, then the running total,
+  and only then the read. A file over any cap is left out **whole** -- source cut
+  mid-function is worse than absent, because the model will confidently repair code it
+  never saw -- and the total budget stops the list at the first file that does not fit
+  rather than packing in whatever happens to be small enough, which would make the result
+  depend on a size mix nobody can predict from the request.
+  Files are sorted by resolved path *before* anything is accumulated, so the same set in a
+  different order produces byte-identical output; the cluster's prefix cache is the whole
+  reason (ADR-0011), and it fails silently, costing prefill with no error to attribute it
+  to. The prompt shows the resolved path rather than the caller's spelling for the same
+  reason: a symlink and its target would otherwise render as two prompts for one file.
+  Everything skipped is named in the prompt *and* in the result. The model needs it or it
+  answers about a file it never saw; the caller needs it because an answer covering five
+  of six files reads exactly like one covering six.
+- 2026-08-27 Binary detection: a NUL byte in the first 8 KiB, plus a strict UTF-8 decode.
+  Extension cannot answer this -- the allowlist admits `.json` and `.md`, and nothing stops
+  either being UTF-16. The decode is strict on purpose: `errors="replace"` would hand the
+  model a page of replacement characters and present it as source. ADR-0030.
+
+### Changed
+- 2026-08-27 `delegate()`'s tool description, which is the model-facing contract and so is
+  a behaviour change rather than a wording one. It previously told the model it could not
+  read any file and to paste code into the task; both halves are now false. It says to name
+  files instead of pasting them, that a refused path fails the whole call before anything is
+  dispatched, and that a skipped one does not -- and it tells the caller to read
+  `files_skipped` before trusting an answer, because the model cannot report what it never
+  saw.
+- 2026-08-27 The one-shot system prompt, for the same reason: it asserted "you have no tools
+  and no access to any file", which stopped being true. One constant now covers both the
+  files and no-files shapes rather than one for each -- two prompts would be two cached
+  prefixes, so a caller alternating between the shapes would miss the cache on every other
+  call, over wording that has nothing to do with the difference. ADR-0011.
 - 2026-08-27 `paths.py` and `wsl.py`: the four-layer path policy, and the one place a
   Windows path becomes a POSIX one. Nothing calls them yet -- `files[]` is the next
   commit -- but they land first and separately, because a policy reviewed on its own is

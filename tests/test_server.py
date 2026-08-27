@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 
 import httpx
 import pytest
@@ -526,3 +527,158 @@ def test_no_refusal_from_delegate_ever_names_the_endpoint():
         message = refusal(handler, task="x")
         assert "example.com" not in message
         assert "8000" not in message
+
+
+# --- files[] prefetch, as the client sees it -------------------------------------------
+
+# paths.py resolves and checks real POSIX paths, so these need the filesystem the server
+# actually runs on. Skipped elsewhere with a reason, rather than quietly inflating a pass.
+FILES_UNPROVEN = (
+    "files[] PREFETCH UNPROVEN BY THIS RUN -- this is not a pass. It needs a POSIX "
+    "filesystem; the server runs in WSL. See CONTRIBUTING.md for the invocation."
+)
+files_posix_only = pytest.mark.skipif(os.name != "posix", reason=FILES_UNPROVEN)
+
+
+def files_cfg(tmp_path, **over) -> Config:
+    globs = tmp_path / "globs.txt"
+    globs.write_text(".env\n*secret*\n", encoding="utf-8")
+    kw = {
+        "workspace_roots": (os.path.realpath(tmp_path),),
+        "secret_globs_file": str(globs),
+        "respect_gitignore": False,
+    }
+    kw.update(over)
+    return Config(**kw)  # type: ignore[arg-type]
+
+
+def recording_handler(sent: list):
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply())
+
+    return handler
+
+
+@files_posix_only
+def test_a_named_file_reaches_the_model_without_the_caller_pasting_it(tmp_path):
+    """The whole point of the tool: the bytes go to the model, never through Claude."""
+    target = tmp_path / "refund.py"
+    target.write_text("def refund():\n    return 'SENTINEL'\n", encoding="utf-8")
+
+    sent: list = []
+    result = delegated(
+        recording_handler(sent),
+        config=files_cfg(tmp_path),
+        task="review this",
+        files=[str(target)],
+    )
+
+    body = json.dumps(sent[0])
+    assert "SENTINEL" in body, "the file contents never reached the request"
+    assert result["files_read"][0]["path"] == os.path.realpath(target)
+
+
+@files_posix_only
+def test_the_task_still_comes_last_in_the_message(tmp_path):
+    """ADR-0011's ordering, asserted where it is actually assembled."""
+    target = tmp_path / "a.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+
+    sent: list = []
+    delegated(
+        recording_handler(sent),
+        config=files_cfg(tmp_path),
+        task="THE-TASK-TEXT",
+        files=[str(target)],
+    )
+    content = sent[0]["messages"][-1]["content"]
+    assert content.index("x = 1") < content.index("THE-TASK-TEXT")
+
+
+@files_posix_only
+def test_a_refused_path_fails_the_call_and_nothing_is_dispatched(tmp_path):
+    """A refusal must cost nothing.
+
+    Dispatching first and refusing after would burn a delegation on a call that was never
+    going to be allowed -- and would make the refusal depend on the cluster being up.
+    """
+    outside = tmp_path.parent / "elsewhere.py"
+    outside.write_text("x = 1\n", encoding="utf-8")
+
+    sent: list = []
+    with pytest.raises(Exception) as e:  # fastmcp re-raises its own error type
+        delegated(
+            recording_handler(sent),
+            config=files_cfg(tmp_path),
+            task="review this",
+            files=[str(outside)],
+        )
+
+    assert sent == [], "the backend was called despite a refused path"
+    assert "workspace root" in str(e.value)
+
+
+@files_posix_only
+def test_every_refused_path_is_named_in_one_error(tmp_path):
+    """One round trip has to be enough to fix all of them."""
+    secret = tmp_path / "client_secret.json"
+    secret.write_text("{}", encoding="utf-8")
+    missing = tmp_path / "gone.py"
+
+    sent: list = []
+    with pytest.raises(Exception) as e:
+        delegated(
+            recording_handler(sent),
+            config=files_cfg(tmp_path),
+            task="review this",
+            files=[str(secret), str(missing)],
+        )
+
+    message = str(e.value)
+    assert "client_secret.json" in message
+    assert "gone.py" in message
+    assert sent == []
+
+
+@files_posix_only
+def test_a_skipped_file_lets_the_call_proceed_and_is_reported(tmp_path):
+    """The other half of the refusal/skip split: a skip is not a failure."""
+    good = tmp_path / "a.py"
+    good.write_text("x = 1\n", encoding="utf-8")
+    blob = tmp_path / "b.py"
+    blob.write_bytes(b"\x00\x01binary")
+
+    result = delegated(
+        chat_handler(),
+        config=files_cfg(tmp_path),
+        task="review this",
+        files=[str(good), str(blob)],
+    )
+
+    assert result["answer"] == "ok"
+    assert [f["path"] for f in result["files_read"]] == [os.path.realpath(good)]
+    assert result["files_skipped"][0]["kind"] == "binary"
+
+
+def test_the_tool_description_tells_the_model_not_to_paste_files():
+    """The description is the model-facing contract, and this is the behaviour it buys.
+
+    A model that reads a file itself in order to paste it into `task` has spent exactly
+    the context this tool exists to save, and the call still succeeds -- so nothing but
+    the wording prevents it.
+    """
+    config = cfg()
+    mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
+
+    async def go():
+        async with Client(mcp) as client:
+            return next(t for t in await client.list_tools() if t.name == "delegate")
+
+    tool = asyncio.run(go())
+    # Collapsed, because the docstring is hard-wrapped and a phrase can straddle a line
+    # break. The contract is the words, not where they happen to sit.
+    description = " ".join((tool.description or "").split())
+    assert "files[]" in description
+    assert "never enter your context" in description
+    assert "files_skipped" in description

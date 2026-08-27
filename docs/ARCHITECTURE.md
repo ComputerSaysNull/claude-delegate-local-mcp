@@ -1,8 +1,8 @@
-<!-- BUDGET: 320 -->
-<!-- Raised from 300 in M2: this document owns wsl.py and paths.py, and both went from
-     a table row saying "not built" to real behaviour needing a section. Paid for in the
-     same commit by cutting the bytes-per-token measurements, which AGENTS.md already
-     carried in full. -->
+<!-- BUDGET: 340 -->
+<!-- Raised from 300 across M2. This document owns wsl.py, paths.py and context.py, and
+     all three went from a table row reading "not built" to behaviour that has to be
+     explained. Partly paid for by cutting the bytes-per-token measurements, which
+     AGENTS.md already carried in full. -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -33,9 +33,10 @@ Windows                              WSL2 Ubuntu                    your hardwar
       C:\...\your-repo  ◄────── /mnt/c/... ──────┘
 ```
 
-One boundary crossing, in one place. `wsl.py` converts paths at the MCP argument edge and
-converts them back on the way out; everything inside is POSIX-only and never sees a
-Windows path.
+One boundary crossing, in one place. `wsl.py` converts paths at the MCP argument edge;
+everything inside is POSIX-only and never sees a Windows path. There is no reverse
+translator, and no need of one — results carry the caller's own spelling of a path beside
+the resolved one, rather than converting back and hoping the two agree.
 
 ## Two paradigms, composed
 
@@ -63,7 +64,7 @@ Prefetching removes several such turns from the front of every delegation.
 | `registry.py` | One explicit row per model: URL, format, window, defaults, concurrency |
 | `wsl.py` | The single path-translation boundary |
 | `paths.py` | The four-layer path policy |
-| `context.py` | Prefetch, token budgeting, prompt ordering, history eviction *(not built)* |
+| `context.py` | Prefetch, token budgeting, prompt ordering; history eviction *(not built)* |
 | `backends/base.py` | `Backend` protocol and the canonical message shape |
 | `backends/openai_compat.py` | The only adapter shipped |
 | `loop.py` | The one-shot path; the turn loop and response state machine *(not built)* |
@@ -98,9 +99,11 @@ every delegation, and would give `backend_status()` a second pool alongside `del
 for the same endpoint. The cache is injectable, for the reason the adapter takes a
 `client`: otherwise a test of the tool surface opens a real socket and waits a real timeout.
 
-### The one-shot path resolves, sends, and interprets nothing
+### The one-shot path prefetches, resolves, sends, and interprets nothing
 
-`delegate()` builds one request from one task and returns what came back. Effort resolves
+`delegate()` builds one request from one task and the files named with it, and returns
+what came back. Paths are checked before the backend is even looked up, so a refusal costs
+nothing and does not depend on the cluster being reachable that day. Effort resolves
 explicit argument → registry row → global default and is always sent, never inherited from
 whatever the cluster was booted with (ADR-0013). The reply budget takes the reasoning floor
 at high or max effort, then the per-model cap last, because the cap is what the wire will
@@ -273,7 +276,21 @@ reason rather than an empty answer. (ADR-0014)
 
 The cluster caches prompt prefixes, so identical leading tokens are served from cache —
 saving prefill time *and* leaving more KV pool free. Order is therefore fixed: system
-prompt, agent body, files block, task last, with the file list sorted deterministically.
+prompt, agent body, files block, task last, with the file list sorted deterministically by
+resolved path.
+
+Sorted *before* the total budget is accumulated, not after, or the same six files listed
+in a different order would return a different five. The budget also stops at the first
+file that does not fit rather than continuing to pack in whatever is small enough: a
+coherent prefix of what was asked for beats an arbitrary subset of it, and it is the only
+version a caller can predict. A file over a cap is left out **whole** — source cut
+mid-function is worse than absent, because the model will repair code it never saw — and
+what was left out is named in the prompt as well as the result, since the model cannot
+otherwise tell an omitted file from one that does not exist.
+
+One system prompt covers the files and no-files shapes rather than one for each. Two would
+be two prefixes, so a caller alternating between the shapes would miss the cache on every
+other call, for wording unrelated to the difference.
 
 This only pays if the leading tokens are **byte-identical**, which makes the system prompt
 static by construction: no timestamp, no session id, no turn counter. One dynamic byte
