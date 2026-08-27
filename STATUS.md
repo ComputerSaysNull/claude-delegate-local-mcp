@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** M1 — One real backend call — 2 of 5 items done
+**Current phase:** M2 — files[] prefetch — 0 of 3 items done
 
 ## In progress
 
@@ -13,9 +13,9 @@
 
 ## Next up
 
-- `delegate()` one-shot, no `files[]` yet
-- `backend_status()` probing `/v1/models` per registry entry
-- Launched through `wsl.exe` from a real Claude Code config, end to end
+- `paths.py` — the four policy layers, each refusal actionable
+- `context.py` — prefetch, token budgeting, stable prompt ordering for prefix caching
+- Binary detection, whole-file skip, per-type token accounting
 
 ## Progress by phase
 
@@ -23,7 +23,7 @@
 | --- | --- | --- | --- | --- |
 | M0a — Spikes | 4 | 0 | 0 | 0 |
 | M0b — Foundation | 23 | 0 | 0 | 0 |
-| M1 — One real backend call | 2 | 0 | 3 | 0 |
+| M1 — One real backend call | 5 | 0 | 0 | 0 |
 | M2 — files[] prefetch | 0 | 0 | 3 | 0 |
 | M3 — Response state machine | 0 | 0 | 8 | 0 |
 | M4 — Agentic loop and model tools | 0 | 0 | 6 | 0 |
@@ -33,9 +33,9 @@
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
 | Extra — work outside the milestone plan | 6 | 0 | 0 | 0 |
 
-**Overall:** 35 done, 35 open, 5 cancelled.
+**Overall:** 38 done, 32 open, 5 cancelled.
 
 ## Repository
 
-- 21 commit(s), 62 tracked files
-- 16 test file(s), 28 decision record(s)
+- 24 commit(s), 68 tracked files
+- 19 test file(s), 29 decision record(s)

@@ -68,7 +68,7 @@ All settings are environment variables. Prefix `DELEGATE_`. List-valued settings
 | `DELEGATE_THINKING_DEFAULT` | low | Reasoning effort when neither the agent nor the registry entry specifies one. One of ('off', 'low', 'high', 'max'). Sent explicitly on every request rather than inherited, because the cluster's own default is set at boot and is not ours to assume. |
 | `DELEGATE_THINKING_MAX_TOKENS_FLOOR` | 131072 tokens | Floor applied to max_tokens when effort is high or max, and the size retried after an empty answer. Admission accounting must use the retry's size. |
 | `DELEGATE_RESEND_REASONING` | False | Send the model's prior reasoning back as history. Off: it costs input tokens and prefill on every turn, the conclusions already survive in the visible answer, and a growing prefix defeats prefix caching. |
-| `DELEGATE_TOOL_CALL_TEMPERATURE` | 0.2 | Temperature for every turn of the agentic loop. Low because tool-call syntax tokens are sampled at the request temperature, so malformed calls grow likelier as it rises. The one-shot path uses the model default instead. |
+| `DELEGATE_TOOL_CALL_TEMPERATURE` | 0.2 | Temperature for every turn of the agentic loop. Low because tool-call syntax tokens are sampled at the request temperature, so malformed calls grow likelier as it rises. The one-shot path uses one_shot_temperature instead. |
 
 ### Agentic loop
 
@@ -121,6 +121,15 @@ All settings are environment variables. Prefix `DELEGATE_`. List-valued settings
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
 
-*39 settings.*
+### Other
+
+<!-- These fields matched no section in gen_config_docs.py SECTIONS. Add them to a group. -->
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DELEGATE_ONE_SHOT_TEMPERATURE` | 1.0 | Temperature for the one-shot delegate() path. Separate from tool_call_temperature because that value is low to protect tool-call syntax, and the one-shot path emits no tool calls -- there is no syntax to protect and nothing to gain from suppressing the model's own default sampling. |
+| `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, turn_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
+
+*41 settings.*
 
 <!-- GEN:CONFIG:END -->

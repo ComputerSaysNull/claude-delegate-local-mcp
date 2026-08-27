@@ -8,8 +8,8 @@ refactors, first-pass review — costs cloud tokens even when the reasoning requ
 modest. This moves that class of work onto your own hardware, where it is effectively
 free, and keeps Claude for the parts that need it.
 
-**Status: early.** Configuration, the model registry and the documentation tooling are in
-place and tested. The delegation tools themselves are not built yet. See
+**Status: early.** `delegate()` and `backend_status()` work end to end against a real
+endpoint. `files[]`, the agentic loop, the sandbox and the agent roster do not. See
 [STATUS.md](STATUS.md) for where things actually stand and [PLAN.md](PLAN.md) for the
 route.
 
@@ -64,6 +64,12 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 python scripts/install_hooks.py       # optional, gives the gate at commit time
 ```
 
+On Windows plus WSL2 the two interpreters cannot share `.venv`: a Linux `python -m venv
+.venv` overwrites a Windows one in place, and it reads as a corrupted install rather than a
+collision. Put the WSL one elsewhere, on the native filesystem rather than `/mnt/c` where
+creating it is ~27x slower (ADR-0020) — `python3 -m venv ~/.venvs/delegate`, then
+`~/.venvs/delegate/bin/pip install -e /mnt/c/path/to/the/repo`.
+
 `.env` is read by `config.load()` as a fallback: anything already set in the environment
 wins, so an explicit override still works. Point `DELEGATE_ENV_FILE` at another file to use
 one elsewhere — if it names a file that does not exist, that is an error rather than a
@@ -108,15 +114,21 @@ Windows, server in WSL2:
 ```json
 { "mcpServers": { "delegate-local": {
     "command": "wsl.exe",
-    "args": ["-d", "Ubuntu-24.04", "-e", "claude-delegate-local-mcp"],
+    "args": ["-d", "Ubuntu-24.04",
+             "--cd", "C:\path\to\claude-delegate-local-mcp",
+             "-e", "/home/YOU/.venvs/delegate/bin/claude-delegate-local-mcp"],
     "timeout": 900000
 } } }
 ```
 
-`timeout` is milliseconds. The wall-clock default is generous, but a long delegation can
-trip the separate 30-minute stdio *idle* timeout — the server emits progress notifications
-each turn to keep that from firing. See
-[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+`--cd` and the script's absolute path are both load-bearing: without them the server starts
+in the wrong directory or is not found at all, and neither failure names its own cause —
+[TROUBLESHOOTING](docs/TROUBLESHOOTING.md#startup) has both symptoms. Give `--cd` the
+Windows form of the path; `/mnt/c/...` is rejected.
+
+`timeout` is milliseconds, and the wall-clock default is generous. A long delegation can
+still trip the separate 30-minute stdio *idle* timeout; the per-turn progress notification
+that answers that is M4, so until then keep one-shot tasks well inside it.
 
 ## Documentation
 

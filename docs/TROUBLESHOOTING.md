@@ -1,4 +1,7 @@
-<!-- BUDGET: 240 -->
+<!-- BUDGET: 265 -->
+<!-- Raised from 240 on 2026-08-27: M1 shipped the first server that can fail at
+     startup and the first tool that can report a backend, so two symptom classes
+     exist that had nowhere to be indexed before. -->
 # Troubleshooting
 
 Symptom, cause, fix.
@@ -18,6 +21,24 @@ link instead.
 Intended. Every setting is validated at load, never at first use — a bad timeout discovered
 thirty minutes into a delegation is far worse than a refusal to boot. The message names the
 variable and what was wrong with it. See [CONFIGURATION.md](CONFIGURATION.md).
+
+### Claude Code shows the server failed, and says nothing else
+
+There is nowhere for it to say more: stdout carries the MCP protocol, so a startup failure
+goes to stderr, which a launcher discards. Run the registered command yourself to read it.
+A configuration problem prints one line and exits non-zero; a healthy server prints nothing
+and waits, which looks like a hang and is not one.
+
+### `Model registry not found`, but the file is plainly there
+
+`wsl.exe -e` inherits the Windows working directory, so the server starts inside whichever
+project Claude Code was launched from and looks for `models.toml` there. Pin `--cd` in the
+registration ([README](../README.md#register-with-claude-code)), in its Windows form — a
+`/mnt/c/...` argument is rejected with `ERROR_PATH_NOT_FOUND`.
+
+### `No such file or directory` naming the console script
+
+A venv's `bin/` is not on the PATH `wsl.exe -e` uses; register the script's absolute path.
 
 ### `DELEGATE_WORKSPACE_ROOTS is required`
 
@@ -69,12 +90,6 @@ narrows it to routing. Either way the fix is the same: put the **address** in `m
 rather than a short name — which is what ADR-0021 asks for, verify by address, never by
 hostname.
 
-### Health check fails against a healthy server
-
-The server probes `GET {base_url}/v1/models`. If you have configured something else, note
-that bare vLLM does **not** serve `/health/liveliness` — that belongs to a proxy, and
-probing it makes a healthy cluster look down.
-
 ### `served_model_id` mismatch
 
 It must match the `id` field exactly:
@@ -82,6 +97,20 @@ It must match the `id` field exactly:
 ```bash
 curl -s http://YOUR-HEAD-NODE:8888/v1/models | python3 -m json.tool
 ```
+
+`backend_status()` reports this as `id_confirmed: false` with `status: "ok"` — the endpoint
+is healthy; the registry names something it does not serve. Check it first when a
+delegation is refused by a cluster that is plainly up.
+### The health check fails against a server that is plainly healthy
+
+Bare vLLM does **not** serve `/health/liveliness` — that belongs to a proxy, and probing it
+makes a healthy cluster look down. What is probed, and the six words `backend_status()` can
+report with what each implies, are in
+[ARCHITECTURE.md](ARCHITECTURE.md#backend_status-answers-a-question-a-stack-trace-cannot):
+a wrong key is a `.env` edit, an unreachable endpoint is somebody else's hardware.
+
+The result never contains the endpoint address (ADR-0029), which is what makes it safe to
+paste into a bug report.
 
 ---
 

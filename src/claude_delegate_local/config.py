@@ -192,7 +192,14 @@ class Config:
         0.2,
         "Temperature for every turn of the agentic loop. Low because tool-call syntax "
         "tokens are sampled at the request temperature, so malformed calls grow likelier "
-        "as it rises. The one-shot path uses the model default instead.",
+        "as it rises. The one-shot path uses one_shot_temperature instead.",
+    )
+    one_shot_temperature: float = _f(
+        1.0,
+        "Temperature for the one-shot delegate() path. Separate from "
+        "tool_call_temperature because that value is low to protect tool-call syntax, and "
+        "the one-shot path emits no tool calls -- there is no syntax to protect and "
+        "nothing to gain from suppressing the model's own default sampling.",
     )
 
     # ---- the agentic loop --------------------------------------------------------
@@ -221,6 +228,14 @@ class Config:
         "connection sends RST and fails in milliseconds without this, but a dropped or "
         "blackholed route sends nothing and would otherwise stall for the whole of "
         "turn_timeout before httpx gives up.",
+        unit="seconds",
+    )
+    status_probe_timeout: int = _f(
+        10,
+        "Deadline for one backend_status() probe of /v1/models. Separate from, and far "
+        "below, turn_timeout: a status check is answered from memory and returns in "
+        "milliseconds, so waiting a generation-sized budget on it only means one "
+        "blackholed endpoint stalls the report on every other one.",
         unit="seconds",
     )
     dispatch_timeout: int = _f(
@@ -328,7 +343,13 @@ class Config:
                 f"is below DELEGATE_MAX_FILE_TOKENS ({self.max_file_tokens}), so no file "
                 "could ever be prefetched."
             )
-        for name in ("turn_timeout", "connect_timeout", "dispatch_timeout", "run_bash_timeout"):
+        for name in (
+            "turn_timeout",
+            "connect_timeout",
+            "dispatch_timeout",
+            "run_bash_timeout",
+            "status_probe_timeout",
+        ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"DELEGATE_{name.upper()} must be positive.")
         if self.connect_timeout > self.turn_timeout:
@@ -337,6 +358,12 @@ class Config:
                 f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}): the connect phase cannot "
                 "be allowed to outlast the whole call it is part of."
             )
+        for name in ("tool_call_temperature", "one_shot_temperature"):
+            if not 0.0 <= getattr(self, name) <= 2.0:
+                raise ConfigError(
+                    f"DELEGATE_{name.upper()} must be between 0.0 and 2.0; the canonical "
+                    "request refuses anything else."
+                )
         if self.turn_timeout > self.dispatch_timeout:
             raise ConfigError(
                 f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}) exceeds "

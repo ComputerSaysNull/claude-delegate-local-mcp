@@ -12,6 +12,45 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-27 `delegate()`: one task in, one answer back, from a model running on your own
+  hardware. The first thing in this repository that does the job the repository is for.
+  Effort resolves explicit argument, then registry row, then global default, and is always
+  sent rather than inherited from whatever the cluster was booted with; an unlisted level
+  is refused before dispatch, because it has no translation into the server's vocabulary
+  and finding that out mid-call wastes the call. The reply budget takes the reasoning floor
+  at high effort and the per-model cap last, the cap being what the wire will actually
+  accept. `finish_reason` and the token counts come back raw: M3's state machine needs the
+  unread values to decide anything, so M1 declines to decide for it.
+  The one hazard M1 cannot duck is the reply that is valid, empty, and stopped on length --
+  the budget spent on reasoning with nothing left to answer with. Returned bare, that reads
+  as a model with nothing to say and the caller reports a false result, so the result
+  carries `empty_response` as a mechanical fact and the tool description says what an empty
+  answer at a length stop means. It is not called `reasoning_exhausted_budget`: that word
+  means every mitigation was tried, and in M1 none of them exist yet. ADR-0011, ADR-0013,
+  ADR-0014.
+- 2026-08-27 The MCP server, and the first tool on it. Until now nothing called the backend
+  adapter: the whole package was configuration and a seam. `server.py` declares the tools
+  and owns one backend -- and so one connection pool -- per registry entry for the life of
+  the process; `main.py` fills the console-script entrypoint `pyproject.toml` has pointed at
+  since M0b and which, until this commit, failed on import. Startup failures go to stderr
+  and exit non-zero, because on stdio stdout is the wire protocol and a traceback written
+  there corrupts every message after it with no symptom beyond a client reporting a dead
+  server. The FastMCP banner is suppressed: it is drawn to stderr, but drawing it calls PyPI
+  for a version check, and an outbound request on every launch is the wrong default for a
+  tool whose point is that inference stays on hardware you control.
+- 2026-08-27 `backend_status()`, which answers what a stack trace cannot: is the model I was
+  told to use actually there. It probes `/v1/models` for every registry entry at once,
+  bounded by the new `status_probe_timeout` rather than the generation-sized `turn_timeout`,
+  so one blackholed endpoint cannot stall the report on the others, and each probe returns
+  its failure as data so a dead model does not take the report down for the healthy ones.
+  Reachability is the easy half. The half worth having is `id_confirmed`: an endpoint that
+  is up and serving a *different* model than the registry names is invisible to every other
+  check, and either refuses the delegation or answers it with a model nobody chose. That
+  case reports `status: "ok"` with `id_confirmed: false`, because the endpoint is healthy
+  and the configuration is not. Six status words, chosen so that each sends the reader
+  somewhere different -- `auth_failed` is a `.env` edit, `backend_unreachable` is somebody
+  else's hardware. The result never names the endpoint: a health report is what gets pasted
+  into a bug report, which is exactly why it must be safe to paste. ADR-0029.
 - 2026-08-26 The backend seam, and the one adapter behind it. `registry.py` has been
   refusing `api_format = "anthropic"` since M0b with an error naming a `Backend` protocol
   that did not exist -- a promise made in shipped code and payable by nothing. It now
@@ -48,6 +87,24 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-27 The documented MCP registration could not start the server from anywhere but
+  this repository, and the failure named the wrong thing. `wsl.exe -e` carries the *Windows*
+  working directory across the boundary, so the server looked for `models.toml` inside
+  whichever project Claude Code was open on and refused to boot with `Model registry not
+  found` — naming a file that exists and is correct. The registration now pins `--cd`, which
+  has a trap of its own: the Windows form of the path is accepted and the `/mnt/c/...` form
+  is rejected with `ERROR_PATH_NOT_FOUND`. It also now names the console script by absolute
+  path, because a venv's `bin/` is not on the PATH `wsl.exe -e` resolves against and the
+  bare name fails with `No such file or directory` — which reads as "not installed" when it
+  is installed. Both measured, not reasoned about. JOURNAL 2026-08-27.
+- 2026-08-27 The install instructions told Windows users to create `.venv`, which on the
+  WSL2 topology overwrites the Windows virtualenv of the same name in place; the result
+  looks like a corrupted install rather than a collision. README now puts the WSL
+  environment elsewhere, and on the native filesystem rather than `/mnt/c` (ADR-0020).
+- 2026-08-27 README claimed the server emits a progress notification every turn to hold off
+  the 30-minute stdio idle timeout. It does not: that is M4. A document describing unbuilt
+  behaviour in the present tense is worse than one that omits it, because it stops anyone
+  from looking for the cause when the timeout fires.
 - 2026-08-26 `git commit --amend` was judged against the wrong parent. The owning-doc
   check compared the staged index against HEAD, which is right for a normal commit and wrong
   for an amend: the amend's parent is HEAD~1, and the files already inside the commit being
