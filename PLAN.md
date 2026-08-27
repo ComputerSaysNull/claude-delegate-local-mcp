@@ -19,8 +19,8 @@ Throwaway scripts, deliberately not shipped.
 - ✅ 2026-08-25 Spike A — tool calling against the live cluster. Valid `tool_calls`,
   schema respected, four-turn loop consuming its own tool results, temperature honoured.
   ADR-0016 — `7650b5d`
-- ✅ 2026-08-25 Spike B — tokenizer ratio measured, 1.78 to 4.16 bytes/token across file
-  types. Changed the prefetch budget from bytes to tokens. ADR-0019 — `7650b5d`
+- ✅ 2026-08-25 Spike B — tokenizer ratio measured across file types (the numbers live in
+  JOURNAL 2026-08-25). Changed the prefetch budget from bytes to tokens. ADR-0019 — `7650b5d`
 - ✅ 2026-08-25 Spike C — 9p versus ext4. 12x on a full test run. Topology A confirmed.
   ADR-0020 — `fb9b5a7`
 - ✅ 2026-08-25 Spike D — client-side MCP timeouts. Wall clock is ~28h and irrelevant;
@@ -50,8 +50,9 @@ Throwaway scripts, deliberately not shipped.
 - ✅ 2026-08-25 Four build-time agents in `.claude/agents/`, models and effort set per task cost
 - ✅ 2026-08-25 CI: gate, tests on 3.11 and 3.12, gitleaks with an allowlist-based email rule
 - ✅ 2026-08-25 Audit trigger — the gate raises `audit-due` from git evidence: a document
-  unchanged across 12+ commits touching its owned code, or 60+ commits since the last
-  recorded audit. Warns, never blocks
+  unchanged across enough commits touching its owned code, or enough commits since the last
+  recorded audit. Both thresholds are constants in `scripts/docs_gate.py`; no document
+  restates them. Warns, never blocks
 - ✅ 2026-08-25 Public repo created, ruleset applied to `main`, secret scanning and push protection enabled. Direct push to `main` verified as refused
 
 ## M1 — One real backend call

@@ -6,6 +6,8 @@ change, the cause, and the fix. A terse one-liner is not enough -- in six months
 reason is the only part still worth having.
 
 Format: `- YYYY-MM-DD (#PR) what changed, and why.` Both written by hand at merge time.
+The `(#PR)` half starts with entries written after 2026-08-27; every entry above predates
+the convention and carries no number, which is why none of them shows one.
 
 No commit hash, deliberately. An entry lives in the commit it describes and so cannot know
 its own hash, and `main` is squash-merged, so a branch hash written here names an object
@@ -140,6 +142,20 @@ worth citing.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-27 The second documentation audit of the day, and the eighteen findings it
+  landed. Two fault classes account for most of them, and the first audit had found one
+  instance of each without seeing either as a class. Facts restated outside their owning
+  document: the bytes/token measurement existed in six places in copies that had already
+  diverged, and now lives only in JOURNAL 2026-08-25 with everything mutable linking to it.
+  Machinery described in the present tense before it exists: nine impossible symptoms in
+  `docs/TROUBLESHOOTING.md`, two `CLAUDE.md` invariants about unwritten modules, and a
+  format line in this file promising a `(#PR)` citation that no entry carries -- written,
+  as it happens, by the commit that fixed the same fault in the entry above it.
+  Two gate constants were being restated as prose and one had already gone stale; they are
+  now described rather than copied, because making three copies agree is not a fix.
+  ADR-0031 corrects ADR-0005's claim that agent files are portable to Claude Code -- they
+  are not, and this repository's own `.claude/agents/` were the counter-example all along.
+  Findings and the three rejected on verification are in `docs/audits/2026-08-27-audit-2.md`.
 - 2026-08-27 `scripts/release.py` is cancelled before being written, and the CHANGELOG format
   no longer promises a commit hash. The script's only job was to backfill each entry's sha at
   tag time -- and the sha is the wrong thing to cite here, because `main` is squash-merged, so

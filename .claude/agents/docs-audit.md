@@ -48,11 +48,14 @@ already catches. Your value is entirely in the judgements a script cannot make.
 A numbered list. One finding per item, nothing else:
 
 ```
-[BLOCKER] docs/AGENTS.md:88 — src/claude_delegate_local/agents.py:41 —
+[BLOCKER] docs/EXAMPLE.md:88 — src/example/thing.py:41 —
           Documented precedence is frontmatter-then-registry; code checks registry first.
-[MAJOR]   docs/ARCHITECTURE.md:150 — no longer true since ADR-0019 changed the unit.
-[MINOR]   docs/MODELS.md:60-74 — three paragraphs restating one table. Trim to the table
+[MAJOR]   docs/EXAMPLE.md:150 — no longer true since ADR-0000 changed the unit.
+[MINOR]   docs/EXAMPLE.md:60-74 — three paragraphs restating one table. Trim to the table
           plus one sentence.
+
+(Coordinates above are fictional. Real paths in a format sample get chased as if they
+were findings, and one of these pointed at a file that does not exist.)
 ```
 
 - **BLOCKER** — factually wrong and will mislead someone into a mistake.

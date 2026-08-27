@@ -55,8 +55,17 @@ built to prevent, observed in the wild, in the stack we depend on.
 
 The prefetch budget started in bytes because that is what a filesystem hands you. Bytes
 per token turn out to vary by more than 2x across the file types a delegation actually
-sees: 1.78 for punctuation-heavy JSON, 2.08 for a TOML lockfile, 3.89 for Python source,
-4.16 for Python with dense docstrings.
+sees. **These numbers live here and nowhere else** — every other document links to this
+entry, because a measurement copied is a measurement that drifts:
+
+| file type | bytes/token |
+|---|---|
+| JSON, punctuation-heavy | 1.78 |
+| TOML lockfile | 2.08 |
+| markdown prose | 3.42 |
+| minified python | 3.55 |
+| python source | 3.89 |
+| python, dense docstrings | 4.16 |
 
 Two consequences, both missed until measured. A `bytes / 3` estimator that was described
 as conservative under-counts JSON by 41%. And a per-file cap in bytes silently allows

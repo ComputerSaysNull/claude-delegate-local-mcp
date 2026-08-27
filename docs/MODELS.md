@@ -61,10 +61,9 @@ you the setting in silence, which is the class of bug this file exists to remove
 benefit from extended reasoning, and the high settings spend the reply budget on it.
 
 Reproduced against a live cluster: at `max` with a small reply budget, a hard prompt
-returned **null content** and a length stop, having spent its whole allowance reasoning. At
-a larger budget it answered but still truncated, after roughly 15,600 characters of
-reasoning. Even `low` truncated at a small budget — the hazard is not exclusive to the top
-setting.
+returned **null content** and a length stop, having spent its whole allowance reasoning.
+Even `low` truncated at a small budget — the hazard is not exclusive to the top setting.
+ADR-0014 records the measurement.
 
 The server guards this — one retry at a larger budget, then a step down, then an explicit
 failure rather than an empty answer — but the guard costs time. Set `low` and raise it per
