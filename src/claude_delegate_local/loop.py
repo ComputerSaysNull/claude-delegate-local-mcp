@@ -1,14 +1,15 @@
 """The delegation itself: build a request, send it, hand back what came back.
 
 Still the one-shot path only -- there is no turn loop here yet (M4). What M3 adds is the
-transport half of the response state machine: a dispatch that survives a dropped route,
-a refusal the endpoint says is temporary, and a `Retry-After` it asks us to honour. This
-is the first code in the project to *interpret* what a backend handed back, which is why
-the adapter below it goes on passing `finish_reason`, the token counts and the raw
-`Retry-After` string through untouched. Interpretation happens here, in exactly one place.
+response state machine, in two halves that compose. Below, a dispatch that survives a
+dropped route, a refusal the endpoint calls temporary, and a `Retry-After` it asks us to
+honour. Above that, recovery from a reply that arrived intact and empty because reasoning
+consumed the whole budget (ADR-0014): retry once at a larger budget, then step effort down,
+then say plainly that everything was tried.
 
-Empty-answer recovery -- retry at the floor, then step effort down -- is the other half
-and lands next; nothing here decides yet what an empty answer means.
+This is the only place in the project that *interprets* what a backend handed back, which
+is why the adapter below goes on passing `finish_reason`, the token counts and the raw
+`Retry-After` string through untouched. One layer decides; the other translates.
 
 What this module already owned, and still does, is resolution -- which model, which
 effort, which budget -- because that has to happen exactly once and be sent explicitly,
@@ -24,7 +25,7 @@ import asyncio
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from email.utils import parsedate_to_datetime
 
 from .backends.base import (
@@ -38,6 +39,15 @@ from .backends.base import (
 )
 from .config import EFFORT_LEVELS, Config
 from .registry import ModelEntry
+
+# One level down, DERIVED from the vocabulary rather than written out again. A hand-written
+# table is a second copy of EFFORT_LEVELS that stops agreeing with it the moment a level is
+# added -- and it would fail silently, by stepping down to a level that no longer exists or
+# by skipping one that does. Same reasoning as BYTES_PER_TOKEN_DEFAULT in config.py.
+#
+# Gives max -> high -> low -> off, and nothing below off, which is the point: there is no
+# level beneath "do not reason", so an empty answer there is not reasoning exhaustion.
+_STEP_DOWN = dict(zip(EFFORT_LEVELS[1:], EFFORT_LEVELS[:-1], strict=True))
 
 # Statuses worth sending again. A module constant and deliberately not a config field:
 # which HTTP codes mean "temporary" is a fact about the protocol, not a preference, and
@@ -175,8 +185,8 @@ def parse_retry_after(value: str | None, *, now: datetime | None = None) -> floa
         return None
     if when.tzinfo is None:
         # An HTTP-date is GMT by definition; a naive one is not a different instant.
-        when = when.replace(tzinfo=timezone.utc)
-    reference = now or datetime.now(timezone.utc)
+        when = when.replace(tzinfo=UTC)
+    reference = now or datetime.now(UTC)
     return max(0.0, (when - reference).total_seconds())
 
 
@@ -259,17 +269,37 @@ class Dispatch:
     """What one delegation actually did, as opposed to what it was asked to do.
 
     A value object rather than a widening tuple. `effort` was already not always the level
-    the caller asked for; `attempts` is now not always one, and the next commit adds a
-    third fact of the same kind. Returning a shape lets each of those be named at the call
-    site instead of positioned.
+    the caller asked for, `attempts` is not always one, and `reasoning_exhausted` is a
+    verdict only this module is in a position to reach. Returning a shape lets each of
+    those be named at the call site instead of positioned.
+
+    `reasoning_exhausted` is deliberately narrow. It is true only when the answer was still
+    empty at a length stop *after* a larger budget and a lower effort had both been tried --
+    ADR-0014's `reasoning_exhausted_budget`, and the only case where the phrase is earned.
+    An empty answer that nothing was tried on is a mechanical fact, not this verdict.
     """
 
     response: CanonicalResponse
     effort: str
     attempts: int
+    reasoning_exhausted: bool = False
 
 
-async def run_one_shot(
+def is_empty_at_length(response: CanonicalResponse) -> bool:
+    """The reasoning-exhaustion signature, and nothing broader.
+
+    Empty text *and* a length stop, together. Either alone means something else entirely:
+    an empty answer at `finish_reason == "stop"` is a model that genuinely had nothing to
+    say, and retrying it buys the same non-answer at full price; a length stop with text in
+    it is ordinary truncation, where an answer exists and is merely cut short.
+
+    ADR-0014 draws exactly this line, and widening it is the expensive mistake -- the
+    mitigations below cost two extra dispatches at the largest budget the model allows.
+    """
+    return response.text == "" and response.finish_reason == "length"
+
+
+async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     cfg: Config,
     entry: ModelEntry,
     backend: Backend,
@@ -278,13 +308,70 @@ async def run_one_shot(
     effort: str | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> Dispatch:
-    """Resolve, send with retry, and report what it took as well as what came back."""
+    """Resolve, send, and recover from an answer that is empty because it ran out of room.
+
+    Three stages, following ADR-0014: send; on the exhaustion signature retry once at a
+    larger budget; if that is still empty, step effort down one level and send once more.
+    Deliberately not a cascade through every level -- each stage is a real dispatch at the
+    largest budget the model permits, and a four-stage climb down would cost more than the
+    answer is worth while the caller waits.
+
+    Stepping effort down is not the cheap fallback it looks like. The level is part of the
+    rendered prompt, so `prompt_tokens` moves with it (measured, JOURNAL 2026-08-26): a
+    stepped-down dispatch misses the cluster's prefix cache entirely and pays a fresh
+    prefill on top of the generation. That is why it is the last resort rather than the
+    first, and why the budget retry -- which keeps the level, and the prefix -- comes first.
+
+    Attempts accumulate across all three stages and every transport retry inside them, so
+    the number reported is what this delegation really cost. What is *not* summed is the
+    token counts: those come from the attempt that answered. ADR-0014 says the retry must
+    not charge the turn budget, and with no turn accounting yet (M4) that is what the rule
+    means here -- report the successful attempt, and let `attempts` carry the cost.
+    """
     resolved = resolve_effort(cfg, entry, effort)
-    request = build_one_shot_request(
-        delegation=delegation,
-        effort=resolved,
-        max_tokens=resolve_max_tokens(cfg, entry, resolved),
-        temperature=cfg.one_shot_temperature,
+    asked_budget = resolve_max_tokens(cfg, entry, resolved)
+    attempts = 0
+
+    def request_at(level: str, budget: int) -> CanonicalRequest:
+        return build_one_shot_request(
+            delegation=delegation,
+            effort=level,
+            max_tokens=budget,
+            temperature=cfg.one_shot_temperature,
+        )
+
+    response, spent = await complete_with_retry(
+        cfg, backend, request_at(resolved, asked_budget), sleep=sleep
     )
-    response, attempts = await complete_with_retry(cfg, backend, request, sleep=sleep)
-    return Dispatch(response=response, effort=resolved, attempts=attempts)
+    attempts += spent
+    if not is_empty_at_length(response):
+        return Dispatch(response, resolved, attempts)
+
+    # Stage 2: the same level, more room. `thinking_max_tokens_floor` documents itself as
+    # the size retried after an empty answer, so there is no second setting for it.
+    floor = entry.cap_tokens(max(2 * asked_budget, cfg.thinking_max_tokens_floor))
+    if floor > asked_budget:
+        response, spent = await complete_with_retry(
+            cfg, backend, request_at(resolved, floor), sleep=sleep
+        )
+        attempts += spent
+        if not is_empty_at_length(response):
+            return Dispatch(response, resolved, attempts)
+    # Otherwise the model's own cap already pinned the first budget, and "retry at a larger
+    # budget" would send a byte-identical request. Skipped rather than spent: an identical
+    # dispatch cannot produce a different outcome at temperature zero, and even where it
+    # might, paying a full generation for the chance is not a mitigation.
+
+    stepped = _STEP_DOWN.get(resolved)
+    if stepped is None:
+        # Effort is already off. There is nothing left to disable, so this is a budget too
+        # small for the answer -- NOT reasoning exhaustion. Reporting it as exhaustion
+        # would be a diagnosis the caller could act on wrongly, sending them to lower the
+        # effort that is already lowest instead of raising the budget or shortening the task.
+        return Dispatch(response, resolved, attempts)
+
+    response, spent = await complete_with_retry(
+        cfg, backend, request_at(stepped, resolve_max_tokens(cfg, entry, stepped)), sleep=sleep
+    )
+    attempts += spent
+    return Dispatch(response, stepped, attempts, is_empty_at_length(response))

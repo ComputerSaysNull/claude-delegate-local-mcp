@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from email.utils import format_datetime
 
 import pytest
@@ -419,7 +419,7 @@ def test_full_jitter_never_waits_longer_than_the_computed_delay():
             )
         )
     assert len(sleep.waits) == 3
-    for waited, ceiling in zip(sleep.waits, [2.0, 4.0, 8.0]):
+    for waited, ceiling in zip(sleep.waits, [2.0, 4.0, 8.0], strict=True):
         assert 0.0 <= waited <= ceiling
 
 
@@ -453,11 +453,13 @@ def test_retry_after_in_seconds_is_honoured_exactly_and_not_jittered():
 def test_retry_after_as_an_http_date_is_honoured_too():
     """Both spellings are legal (RFC 7231), and which one arrives is the server's choice.
     Honouring only the integer form is honouring the header by luck."""
-    when = datetime.now(timezone.utc) + timedelta(seconds=30)
+    when = datetime.now(UTC) + timedelta(seconds=30)
     sleep = SleepSpy()
     backend = ScriptedBackend(
         [
-            BackendRefused(503, "later", "/v1/chat/completions", format_datetime(when, usegmt=True)),
+            BackendRefused(
+                503, "later", "/v1/chat/completions", format_datetime(when, usegmt=True)
+            ),
             ok_response(),
         ]
     )
@@ -514,7 +516,7 @@ def test_parse_retry_after_reads_the_seconds_form():
 
 
 def test_parse_retry_after_reads_the_date_form_against_a_fixed_now():
-    now = datetime(2026, 8, 27, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 27, 12, 0, 0, tzinfo=UTC)
     header = format_datetime(now + timedelta(seconds=45), usegmt=True)
     assert loop.parse_retry_after(header, now=now) == 45.0
 
@@ -522,7 +524,7 @@ def test_parse_retry_after_reads_the_date_form_against_a_fixed_now():
 def test_a_retry_after_date_in_the_past_means_now_and_not_a_negative_wait():
     """A negative sleep is not a short wait; it raises inside asyncio.sleep, a long way
     from the header that caused it."""
-    now = datetime(2026, 8, 27, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 27, 12, 0, 0, tzinfo=UTC)
     header = format_datetime(now - timedelta(hours=2), usegmt=True)
     assert loop.parse_retry_after(header, now=now) == 0.0
 
@@ -553,3 +555,285 @@ def test_run_one_shot_reports_the_attempts_it_took():
     assert result.response.text == "recovered"
     assert result.attempts == 2
     assert result.effort in EFFORT_LEVELS
+
+
+# --- empty-answer recovery (ADR-0014) --------------------------------------------------
+#
+# The failure being recovered from is real and measured, not hypothetical: at max effort
+# with a small budget the model reasons until the budget is gone and returns null content
+# with a length stop. What makes it worth testing this closely is that every mitigation
+# costs a full generation at the largest budget the model allows, so both over-firing and
+# under-firing are expensive -- and the two terminal states are different diagnoses that
+# send the caller to different fixes.
+
+
+def empty_at_length() -> CanonicalResponse:
+    """The exhaustion signature: no text, stopped on length."""
+    return CanonicalResponse(
+        content=(), finish_reason="length", input_tokens=1, output_tokens=1, model="served-id-1"
+    )
+
+
+def recover(config, backend, entry_over=None, **kw):
+    return asyncio.run(
+        loop.run_one_shot(
+            config,
+            entry(**(entry_over or {})),
+            backend,
+            loop.Delegation("hello"),
+            sleep=SleepSpy(),
+            **kw,
+        )
+    )
+
+
+def budgets(backend) -> list[int]:
+    """The max_tokens of every request the backend actually received."""
+    return [r.max_tokens for r in backend.seen]
+
+
+def efforts(backend) -> list[str]:
+    return [r.effort for r in backend.seen]
+
+
+class RecordingBackend(ScriptedBackend):
+    """A ScriptedBackend that also keeps the requests, so a test can assert what was sent.
+
+    The stages are only distinguishable by the request they produce -- same task, different
+    budget and level -- so a test that checks only the outcome cannot tell a floor retry
+    from a step-down, or either from a loop that sent the same thing twice.
+    """
+
+    def __init__(self, script) -> None:
+        super().__init__(script)
+        self.seen: list = []
+
+    async def complete(self, request):
+        self.seen.append(request)
+        return await super().complete(request)
+
+
+def test_an_answer_that_arrives_is_not_retried_at_all():
+    backend = RecordingBackend([ok_response("done")])
+    result = recover(cfg(), backend)
+    assert result.response.text == "done"
+    assert backend.calls == 1
+    assert result.reasoning_exhausted is False
+
+
+def test_an_empty_answer_at_a_length_stop_is_retried_at_a_larger_budget():
+    """Stage two keeps the effort level and raises the room. Keeping the level is the
+    point: the level is part of the rendered prompt, so changing it would also throw away
+    the prefix cache, and this stage is the one that does not have to."""
+    backend = RecordingBackend([empty_at_length(), ok_response("answered on the retry")])
+    config = cfg(max_tokens=1000, thinking_max_tokens_floor=50000, thinking_default="low")
+    result = recover(config, backend)
+    assert result.response.text == "answered on the retry"
+    assert backend.calls == 2
+    assert budgets(backend) == [1000, 50000]
+    assert efforts(backend) == ["low", "low"]
+    assert result.effort == "low"
+    assert result.reasoning_exhausted is False
+
+
+def test_the_retry_budget_is_the_larger_of_double_and_the_floor():
+    """ADR-0014 says the larger of the two, and doubling matters when the first budget was
+    already above the floor -- otherwise the "retry at a larger budget" would be a retry at
+    a smaller one."""
+    backend = RecordingBackend([empty_at_length(), ok_response()])
+    config = cfg(max_tokens=80000, thinking_max_tokens_floor=50000, thinking_default="low")
+    recover(config, backend, {"max_tokens_cap": 500000})
+    assert budgets(backend) == [80000, 160000]
+
+
+def test_the_model_cap_still_wins_over_the_retry_budget():
+    """The cap is what the wire will accept. A retry above it is refused, which would turn
+    a recoverable empty answer into a hard failure."""
+    backend = RecordingBackend([empty_at_length(), ok_response()])
+    config = cfg(max_tokens=1000, thinking_max_tokens_floor=50000, thinking_default="low")
+    recover(config, backend, {"max_tokens_cap": 4096})
+    assert budgets(backend) == [1000, 4096]
+
+
+def test_a_retry_that_could_only_send_an_identical_request_is_skipped():
+    """When the model's cap already pinned the first budget there is no larger budget to
+    retry at, and stage two would send a byte-identical request -- a full generation bought
+    for a result that cannot differ. It must step down instead of spending that call."""
+    backend = RecordingBackend([empty_at_length(), ok_response("stepped")])
+    config = cfg(max_tokens=100000, thinking_max_tokens_floor=50000, thinking_default="high")
+    result = recover(config, backend, {"max_tokens_cap": 4096})
+    assert budgets(backend) == [4096, 4096], "same budget, because the cap pins both"
+    assert efforts(backend) == ["high", "low"], "so the second call must be the step-down"
+    assert result.effort == "low"
+    assert backend.calls == 2
+
+
+def test_a_still_empty_answer_steps_the_effort_down_one_level():
+    backend = RecordingBackend(
+        [empty_at_length(), empty_at_length(), ok_response("answered at low")]
+    )
+    config = cfg(max_tokens=1000, thinking_max_tokens_floor=50000, thinking_default="high")
+    result = recover(config, backend, {"max_tokens_cap": 500000})
+    assert result.response.text == "answered at low"
+    assert efforts(backend) == ["high", "high", "low"]
+    assert result.effort == "low", "the level actually used, not the one asked for"
+    assert result.reasoning_exhausted is False
+    assert result.attempts == 3
+
+
+def test_the_stepped_down_budget_is_recomputed_and_not_inherited():
+    """A lower level no longer needs the floor the higher one forced up, so the budget is
+    resolved again for it. Reusing stage two's inflated budget would keep paying for
+    headroom the level does not want, on the dispatch that is already the most expensive
+    because it misses the prefix cache."""
+    backend = RecordingBackend([empty_at_length(), empty_at_length(), ok_response()])
+    config = cfg(max_tokens=1000, thinking_max_tokens_floor=50000, thinking_default="high")
+    recover(config, backend, {"max_tokens_cap": 500000})
+    assert budgets(backend) == [50000, 100000, 1000]
+    stepped = loop.resolve_max_tokens(config, entry(max_tokens_cap=500000), "low")
+    assert budgets(backend)[2] == stepped
+
+
+def test_the_step_down_table_is_derived_from_the_vocabulary():
+    """Not hand-written. A second copy of EFFORT_LEVELS stops agreeing with it silently --
+    by stepping to a level that no longer exists, or skipping one that does."""
+    assert loop._STEP_DOWN == {"low": "off", "high": "low", "max": "high"}
+    for level in EFFORT_LEVELS[1:]:
+        assert loop._STEP_DOWN[level] in EFFORT_LEVELS
+    assert "off" not in loop._STEP_DOWN, "there is no level below not reasoning"
+
+
+def test_exhausting_every_mitigation_reports_reasoning_exhausted():
+    """ADR-0014's reasoning_exhausted_budget: the word is earned only here, after a larger
+    budget and a lower level have both been spent and the answer is still empty."""
+    backend = RecordingBackend([empty_at_length(), empty_at_length(), empty_at_length()])
+    config = cfg(max_tokens=1000, thinking_max_tokens_floor=50000, thinking_default="max")
+    result = recover(config, backend, {"max_tokens_cap": 500000})
+    assert result.reasoning_exhausted is True
+    assert result.response.text == ""
+    assert result.effort == "high", "the level it ended on"
+    assert backend.calls == 3
+
+
+def test_an_empty_answer_at_the_lowest_effort_is_not_called_reasoning_exhausted():
+    """The wrong-diagnosis trap. With effort already off there is nothing left to disable,
+    so the budget was too small for the answer -- not reasoning that would not fit. Calling
+    it exhaustion sends the caller to lower an effort that is already lowest, instead of to
+    shorten the task or raise the cap."""
+    backend = RecordingBackend([empty_at_length(), empty_at_length()])
+    config = cfg(max_tokens=1000, thinking_max_tokens_floor=50000, thinking_default="off")
+    result = recover(config, backend, {"max_tokens_cap": 500000})
+    assert result.response.text == ""
+    assert result.reasoning_exhausted is False, "off has no level below it to step down to"
+    assert efforts(backend) == ["off", "off"], "and no third call was made looking for one"
+    assert backend.calls == 2
+
+
+def test_an_empty_answer_that_stopped_normally_is_not_retried():
+    """The over-firing trap, and the boundary ADR-0014 draws. A model that stopped on its
+    own and said nothing will say nothing again; retrying buys the same non-answer twice,
+    at the largest budget the model allows."""
+    backend = RecordingBackend(
+        [
+            CanonicalResponse(
+                content=(), finish_reason="stop", input_tokens=1, output_tokens=1, model="m"
+            ),
+            ok_response("would have answered"),
+        ]
+    )
+    result = recover(cfg(), backend)
+    assert backend.calls == 1, "no mitigation is owed to a model that simply had nothing to say"
+    assert result.response.text == ""
+    assert result.reasoning_exhausted is False
+
+
+def test_a_truncated_answer_with_text_in_it_is_not_treated_as_exhaustion():
+    """The other half of the boundary: a length stop with text is ordinary truncation. An
+    answer exists and is merely cut short, and re-sending discards it."""
+    backend = RecordingBackend(
+        [ok_response("a partial answer that runs ou", finish="length"), ok_response("second")]
+    )
+    result = recover(cfg(), backend)
+    assert backend.calls == 1
+    assert result.response.text == "a partial answer that runs ou"
+    assert result.reasoning_exhausted is False
+
+
+@pytest.mark.parametrize(
+    "response,expected",
+    [
+        (empty_at_length(), True),
+        (ok_response("text", finish="length"), False),
+        (
+            CanonicalResponse(
+                content=(), finish_reason="stop", input_tokens=0, output_tokens=0, model="m"
+            ),
+            False,
+        ),
+        (ok_response("text", finish="stop"), False),
+    ],
+)
+def test_the_signature_needs_both_halves(response, expected):
+    """Empty text AND a length stop. Either alone is a different thing entirely, and the
+    parametrised negative rows are the point -- a predicate reading only one half would
+    pass the positive case and fire on two cases it must not."""
+    assert loop.is_empty_at_length(response) is expected
+
+
+def test_transport_retries_inside_a_stage_are_counted_with_the_stages():
+    """attempts is what the delegation really cost, so both loops feed the same counter. A
+    count that only saw the stages would report 2 for a call that dispatched four times."""
+    backend = RecordingBackend(
+        [
+            BackendUnavailable("dropped"),
+            empty_at_length(),
+            BackendUnavailable("dropped again"),
+            ok_response("finally"),
+        ]
+    )
+    config = cfg(
+        max_tokens=1000,
+        thinking_max_tokens_floor=50000,
+        thinking_default="low",
+        retry_max_attempts=3,
+    )
+    result = recover(config, backend, {"max_tokens_cap": 500000})
+    assert result.response.text == "finally"
+    assert backend.calls == 4
+    assert result.attempts == 4
+
+
+def test_a_hard_failure_during_recovery_still_propagates():
+    """Recovery is for an empty answer, not for a broken endpoint. A refusal that is not
+    worth retrying must not be swallowed by the stage machinery and reported as an empty
+    result -- the caller needs to know the endpoint said no."""
+    backend = RecordingBackend(
+        [empty_at_length(), BackendRefused(400, "bad request", "/v1/chat/completions")]
+    )
+    config = cfg(max_tokens=1000, thinking_max_tokens_floor=50000, thinking_default="low")
+    with pytest.raises(BackendRefused):
+        recover(config, backend, {"max_tokens_cap": 500000})
+
+
+def test_at_max_effort_the_budget_retry_is_skipped_and_it_steps_down_immediately():
+    """Measured, 2026-08-27, and the reason the guard above earns its keep.
+
+    At max effort against the live cluster the model never answered at any budget tried --
+    512, 6144, 16384, 32768 and 65536 all came back null at a length stop, with reasoning
+    growing to fill whatever it was given (48k characters at 16384 tokens, 232k at 65536).
+    The same prompt at low effort answered in 7033 tokens. So raising the budget is not the
+    mitigation for this failure; lowering the effort is.
+
+    With production-shaped numbers -- the floor at or above the model cap, which is what
+    high and max effort already resolve to -- there is no larger budget to retry at, so the
+    guard skips a dispatch that would have spent the model's entire cap to fail again, and
+    the level steps down on the second call instead. This asserts that arithmetic holds,
+    because if the floor ever drops below the cap the wasted call comes back silently.
+    """
+    backend = RecordingBackend([empty_at_length(), ok_response("answered a level down")])
+    config = cfg(max_tokens=65536, thinking_max_tokens_floor=131072, thinking_default="max")
+    result = recover(config, backend, {"max_tokens_cap": 131072})
+    assert budgets(backend) == [131072, 131072]
+    assert efforts(backend) == ["max", "high"], "the second call steps down, it does not re-budget"
+    assert backend.calls == 2
+    assert result.effort == "high"

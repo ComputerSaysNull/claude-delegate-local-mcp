@@ -436,11 +436,29 @@ def test_the_reported_effort_is_the_one_actually_resolved():
 # --- the empty answer that is not an answer -------------------------------------------
 
 
+def scripted_handler(replies):
+    """Answer each call with the next item, so a test can span the recovery stages.
+
+    An endpoint that returns the same thing forever cannot distinguish "tried the
+    mitigations and they did not help" from "never tried them", and those are the two
+    states these tests exist to keep apart.
+    """
+    remaining = list(replies)
+
+    def handle(request):
+        item = remaining.pop(0) if remaining else replies[-1]
+        return httpx.Response(200, json=chat_reply(**item))
+
+    return handle
+
+
+EXHAUSTED = {"content": None, "finish_reason": "length"}
+
+
 def test_an_empty_answer_at_a_length_stop_is_flagged_rather_than_returned_bare():
     """The reply budget went entirely on reasoning and left nothing to answer with.
     Returning {"answer": ""} alone reads as a model with nothing to say, which is a
-    different thing and leads the caller to report a false result. ADR-0014; deciding
-    what to *do* about it is M3's."""
+    different thing and leads the caller to report a false result. ADR-0014."""
     result = delegated(chat_handler(content=None, finish_reason="length"), task="x")
     assert result["answer"] == ""
     assert result["empty_response"] is True
@@ -454,12 +472,43 @@ def test_an_ordinary_answer_is_not_flagged_as_empty():
     assert result["empty_response"] is False
 
 
-def test_an_empty_answer_is_not_reported_as_reasoning_exhausted():
-    """M1 runs no mitigation, and TROUBLESHOOTING defines reasoning_exhausted_budget as
-    the state after every mitigation was tried. Claiming it here would be a lie about
-    work that did not happen."""
-    result = delegated(chat_handler(content=None, finish_reason="length"), task="x")
-    assert "reasoning_exhausted" not in json.dumps(result)
+def test_the_server_recovers_an_empty_answer_before_reporting_one():
+    """The endpoint answers on the second call, so the mitigation is what produced the
+    answer. Without this the caller would have been handed "" and told to retry -- which
+    was the old contract, and cost cloud tokens to do what the server can do here."""
+    handler = scripted_handler([EXHAUSTED, {"content": "recovered on the retry"}])
+    result = delegated(handler, task="x")
+    assert result["answer"] == "recovered on the retry"
+    assert result["empty_response"] is False
+    assert result["reasoning_exhausted"] is False
+    assert result["attempts"] == 2, "the count is real calls, not an estimate"
+
+
+def test_reasoning_exhausted_is_only_claimed_after_the_mitigations_were_really_spent():
+    """TROUBLESHOOTING defines reasoning_exhausted_budget as the state after every
+    mitigation was tried, so the claim has to be backed by attempts that happened. Here
+    the endpoint returns the signature every time, and exhaustion is the honest verdict."""
+    result = delegated(scripted_handler([EXHAUSTED]), task="x", effort="max")
+    assert result["empty_response"] is True
+    assert result["reasoning_exhausted"] is True
+    assert result["attempts"] > 1, "the verdict is worthless if nothing was tried"
+
+
+def test_reasoning_exhausted_is_false_when_there_was_no_effort_left_to_step_down():
+    """The wrong-diagnosis case, at the tool surface rather than inside loop.py. With the
+    effort already off, an empty answer means the budget was too small -- not reasoning
+    that would not fit. The two send a caller to opposite fixes, which is the whole reason
+    this is a second field rather than a wording change to the first."""
+    result = delegated(scripted_handler([EXHAUSTED]), task="x", effort="off")
+    assert result["empty_response"] is True
+    assert result["reasoning_exhausted"] is False
+
+
+def test_a_successful_answer_is_never_marked_exhausted():
+    """The negative control for the two above: a hardwired True would satisfy them and
+    condemn every healthy delegation."""
+    result = delegated(chat_handler(content="fine"), task="x")
+    assert result["reasoning_exhausted"] is False
 
 
 # --- delegate() error mapping ---------------------------------------------------------

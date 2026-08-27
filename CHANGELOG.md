@@ -12,6 +12,45 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-27 An answer that comes back empty because reasoning ate the whole budget is now
+  recovered from instead of merely labelled. The failure is measured, not hypothetical
+  (ADR-0014), and until now the server named it and handed it back, with the tool
+  description asking *Claude* to retry at a lower effort -- which spends cloud tokens and a
+  round trip on a decision the server is better placed to make, having the budget, the level
+  and the finish reason in front of it.
+  Three stages: send; on the signature retry once at the larger of double the budget and
+  `thinking_max_tokens_floor`, keeping the effort level; if still empty, step the level down
+  once and send again. Not a cascade through every level -- each stage is a real generation
+  at the largest budget the model allows, so a four-step climb down would cost more than the
+  answer while the caller waits.
+  The order is deliberate and is the opposite of obvious. Raising the budget keeps the
+  rendered prompt identical apart from one number, so the prefix cache survives it; stepping
+  the level down changes the prompt itself, because effort is part of it (measured, JOURNAL
+  2026-08-26), so that dispatch misses the cache and pays a fresh prefill on top of its
+  generation. The cheap mitigation goes first. The stepped budget is resolved again for the
+  new level rather than inherited, since a lower level no longer needs headroom the higher
+  one forced up. The step table is derived from `EFFORT_LEVELS` rather than written out: a
+  second copy would stop agreeing with it silently, by stepping to a level that no longer
+  exists or skipping one that does.
+  The trigger is narrow on purpose -- empty text **and** a length stop. An empty answer at
+  `finish_reason: "stop"` is a model that genuinely had nothing to say, and a length stop
+  with text in it is ordinary truncation where an answer exists and is merely cut short.
+  Firing on either would buy a full generation, twice, for nothing; both have their own
+  regression test, because over-firing here is as expensive as under-firing.
+  One stage is skipped rather than spent: where the model's own cap already pinned the first
+  budget there is no larger budget to retry at, and re-sending the request unchanged pays a
+  generation for a result that cannot differ.
+- 2026-08-27 `delegate()` now returns `reasoning_exhausted` beside `empty_response`, because
+  they are different claims and only the second was ever being made. `empty_response` stays
+  the mechanical fact. `reasoning_exhausted` is the diagnosis, true only after a larger
+  budget and a lower level have both been spent -- ADR-0014's `reasoning_exhausted_budget`,
+  and the point at which the phrase is earned.
+  The distinction is not cosmetic; the two states send a caller to opposite fixes. Empty
+  after both mitigations means the task needs more reasoning than this model finishes inside
+  its budget, so split it or send it elsewhere. Empty with the level *already* at its lowest
+  means there was nothing to step down and the budget was simply too small -- and reporting
+  that as exhaustion would tell the caller to lower an effort that is already lowest, which
+  is a wrong instruction rather than a vague one. It has its own regression test.
 - 2026-08-27 A dispatch now survives a failure that was never about the request. Until now
   a single dropped route, a restarting endpoint or a 503 during a model reload ended the
   delegation, and the caller's only recourse was to ask Claude to try again -- which spends
@@ -80,6 +119,14 @@ because an entry lives in the commit it describes and cannot know its own hash.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-27 `delegate()`'s tool description again, and again as a behaviour change rather
+  than a wording one (CLAUDE.md's invariant). It used to tell the caller to retry an empty
+  answer at a lower effort. The server now does exactly that itself, so the instruction
+  became false *and* wasteful -- a caller following it would repeat, at cloud-token cost,
+  work that had already been done. It now says plainly not to retry, that a dropped route
+  and an empty answer are both handled below it, and how to read `empty_response` and
+  `reasoning_exhausted` together, since those two point at different fixes. It also
+  documents `attempts`.
 - 2026-08-27 `delegate()`'s tool description, which is the model-facing contract and so is
   a behaviour change rather than a wording one. It previously told the model it could not
   read any file and to paste code into the task; both halves are now false. It says to name

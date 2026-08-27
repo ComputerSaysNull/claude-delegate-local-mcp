@@ -374,6 +374,23 @@ class Config:
                     f"DELEGATE_{name.upper()} must be between 0.0 and 2.0; the canonical "
                     "request refuses anything else."
                 )
+        if self.turn_timeout > self.dispatch_timeout:
+            raise ConfigError(
+                f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}) exceeds "
+                f"DELEGATE_DISPATCH_TIMEOUT ({self.dispatch_timeout}): a single turn "
+                "could outlive the delegation containing it."
+            )
+        self._validate_retry()
+
+    def _validate_retry(self) -> None:
+        """The retry settings, checked here rather than inline above.
+
+        Split out because `__post_init__` was one branch over the lint threshold, and of
+        the two ways past that this is the honest one: these three checks are a single
+        concern with a name, so moving them reads better than suppressing a count. The
+        remaining checks stay where they are -- scattering the rest to chase a number
+        would spread one policy across several functions for no reader's benefit.
+        """
         if self.retry_max_attempts < 1:
             raise ConfigError(
                 f"DELEGATE_RETRY_MAX_ATTEMPTS ({self.retry_max_attempts}) must be at "
@@ -389,12 +406,6 @@ class Config:
                 f"DELEGATE_RETRY_MAX_DELAY ({self.retry_max_delay}): the first backoff "
                 "would already be above the cap, so the cap would be the only delay ever "
                 "used and the base would silently mean nothing."
-            )
-        if self.turn_timeout > self.dispatch_timeout:
-            raise ConfigError(
-                f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}) exceeds "
-                f"DELEGATE_DISPATCH_TIMEOUT ({self.dispatch_timeout}): a single turn "
-                "could outlive the delegation containing it."
             )
 
     # ---- derived helpers ---------------------------------------------------------
