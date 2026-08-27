@@ -142,7 +142,7 @@ worth citing.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
-- 2026-08-27 The generated configuration reference now marks settings that nothing reads.
+- 2026-08-27 (#17) The generated configuration reference now marks settings that nothing reads.
   Nineteen of forty-two -- the sandbox, the model-facing tools, admission control -- were
   rendered identically to settings that work, so a third of the reference read as live
   knobs. Worse than a documentation fault, because those settings are still validated at
