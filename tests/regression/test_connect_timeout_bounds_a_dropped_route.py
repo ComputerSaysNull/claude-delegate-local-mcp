@@ -70,7 +70,7 @@ async def test_a_dropped_route_fails_within_connect_timeout():
     try:
         with pytest.raises(base.BackendUnavailable):
             await asyncio.wait_for(backend.complete(_request()), timeout=CEILING)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         timed_out = True
     finally:
         elapsed = time.monotonic() - started

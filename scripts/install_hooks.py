@@ -66,7 +66,8 @@ def main() -> int:
     verify_installed()
     print(f"installed {HOOK.relative_to(ROOT)} (verified: runs --mode commit-msg)")
     proc = subprocess.run([sys.executable, str(ROOT / "scripts" / "docs_gate.py"),
-                           "--mode", "pre-commit"], cwd=ROOT)  # structural self-check only
+                           "--mode", "pre-commit"], cwd=ROOT,
+                          check=False)  # structural self-check only
     print(f"gate self-check exited {proc.returncode}")
     return 0
 

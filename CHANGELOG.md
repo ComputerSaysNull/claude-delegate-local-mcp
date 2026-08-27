@@ -48,6 +48,23 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 Two checks in the gate and the suite could not fail for the reason they
+  claimed. `HOSTPORT_ALLOWED` in `scripts/docs_gate.py` listed `127.0.0.1` twice and
+  `0.0.0.0` once, all three unreachable: `HOSTPORT_RE` begins `[a-z]`, so a numeric host
+  never matches and the allowlist is never consulted for one. Loopback in an example was
+  passing because the pattern cannot see it, not because it was permitted — three entries
+  that looked load-bearing and governed nothing. Removed, with the reason recorded where
+  they were.
+
+  `test_config_is_frozen_so_nothing_mutates_it_mid_delegation` asserted
+  `pytest.raises(Exception)`, which accepts any failure whatever, including ones unrelated
+  to frozenness. It now names `FrozenInstanceError`. Worth recording what the check
+  disproved: assigning a *misspelled* field also raises `FrozenInstanceError`, not
+  `AttributeError`, so the obvious escape route was never open — the assertion should still
+  name the thing it proves.
+
+  Both were surfaced by ruff, which is configured in `pyproject.toml` and has never run in
+  CI.
 - 2026-08-26 `.env` was never read. The README has said `cp .env.example .env` since the
   first commit, but `config.load()` consulted `os.environ` and nothing else — no dotenv
   dependency, and no `env` key in the README's `mcpServers` block either. Creating the file
@@ -177,6 +194,51 @@ because an entry lives in the commit it describes and cannot know its own hash.
   never tracked.
 
 ### Changed
+- 2026-08-26 ruff runs in CI, on a rule set that is written down rather than inherited.
+  It was configured in `pyproject.toml` and had never run anywhere — believed to be
+  enforcing something while enforcing nothing. Wiring it up as it stood would have been
+  worse: `[tool.ruff]` declared no `select` and the dependency was `ruff>=0.6` unbounded,
+  so the enforced set was whatever the installed version happened to default to. Measured
+  on this repository at ruff 0.16.4: **3 findings under ruff's classic defaults, 45 under
+  the installed version's**, with no line of the repository having changed between them. A
+  lint job on a moving rule set fails a build nobody broke.
+
+  So the set is pinned explicitly and the dependency bounded to `>=0.16,<0.17`. Each
+  `ignore` carries its reason: literal comparisons stay (`PLR2004`) because naming `200`
+  moves the number without explaining it; `PLW1510` and `PLC0415` are ignored under
+  `tests/**` because those tests run a subprocess *expecting* failure and assert on the
+  exit code themselves; `PLR0912` is ignored for `docs_gate.py`, whose check functions
+  branch once per rule they enforce.
+
+  The remaining findings are fixed. Two were worth more than tidiness: a `match=` pattern
+  in `test_registry.py` had unescaped dots, so it matched more than its author intended,
+  and a `for` variable in the new `.env` parser was being overwritten by its own strip.
+  Parenthesising an implicit string concatenation went wrong once on the way and turned two
+  list items into a tuple inside `gen_config_docs.py`; caught by reading the result, and
+  every generator was then checked to produce byte-identical output.
+
+  `lint` is added to the ruleset's required checks, so it gates rather than advises.
+- 2026-08-26 A skipped live test no longer reads as a passing one. The two tests that
+  touch the backend skipped with "endpoint unreachable" and nothing else, so a run that
+  exercised none of the real path was indistinguishable at a glance from one that exercised
+  all of it — `2 skipped` at the end of a green run. The skip reason now states that the
+  backend is UNPROVEN BY THIS RUN and names the layer that stopped it, and reachability is
+  established **by address**: resolution and connection are attempted separately and
+  reported apart, because a combined failure cannot tell broken DNS from a missing route
+  (ADR-0021). `BackendUnavailable` after reachability reports ok is now a failure rather
+  than a skip; it means the guard and the client disagree. The address never appears in the
+  reason — a skip reason reaches CI logs, and the layer is the useful part anyway.
+
+  The connectivity entry in `docs/TROUBLESHOOTING.md` was wrong in a way that would have
+  walked a reader past this project's own recent outage: it told you to check that the name
+  resolves inside the guest, when the failure was resolution *succeeding* through a search
+  domain and returning a different host entirely. It now asks whether both sides resolve to
+  the **same** address. `docs/MODELS.md` carried the same advice and is corrected too.
+
+  One vendor's product name appeared in three tracked files, including a gate finding
+  message that prints into CI logs. All three now say "overlay VPN". `docs_gate.py` already
+  stated the principle two lines below the offending label: not one vendor, because it
+  should not advertise which kind of network sits behind it.
 - 2026-08-26 The build-time agent roster in CONTRIBUTING.md is generated from
   `.claude/agents/*.md` rather than typed a second time. Model and effort for four agents
   existed in the frontmatter and were described again in a hand-written table; every value

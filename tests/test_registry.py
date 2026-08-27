@@ -183,7 +183,7 @@ def test_missing_registry_file_explains_where_to_get_one(tmp_path):
         "DELEGATE_WORKSPACE_ROOTS": str(tmp_path),
         "DELEGATE_MODELS_FILE": str(tmp_path / "absent.toml"),
     })
-    with pytest.raises(registry.RegistryError, match="models.toml.example"):
+    with pytest.raises(registry.RegistryError, match=r"models.toml.example"):
         registry.load(cfg)
 
 

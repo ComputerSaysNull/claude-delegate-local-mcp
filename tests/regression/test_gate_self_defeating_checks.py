@@ -12,7 +12,6 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
-import tempfile
 import textwrap
 from pathlib import Path
 
@@ -40,7 +39,7 @@ def _adr_check(text: str) -> list[str]:
     hermetic -- a test that edits a tracked file in place will eventually lose a race
     with something else and leave the repo dirty.
     """
-    heads = re.findall(r"^## (.+)$", text, re.M)
+    heads = re.findall(r"^## (.+)$", text, re.MULTILINE)
     declared = {
         int(m.group(1))
         for h in heads
@@ -116,7 +115,7 @@ def test_generator_does_not_read_a_cached_compile_of_its_source():
     # Match an ASSIGNMENT, not a mention: the generator's own comment explains why the
     # flag is inadequate, and a naive substring search flagged that explanation. A test
     # that cannot tell code from prose about code will fire on the documentation.
-    assert not re.search(r"^\s*sys\.dont_write_bytecode\s*=", src, re.M), (
+    assert not re.search(r"^\s*sys\.dont_write_bytecode\s*=", src, re.MULTILINE), (
         "dont_write_bytecode does not prevent READING a stale cache -- use pycache_prefix"
     )
 

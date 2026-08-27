@@ -20,7 +20,7 @@ claude-delegate-local-mcp = "claude_delegate_local.main:run"
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
-    "ruff>=0.6",
+    "ruff>=0.16,<0.17",
 ]
 
 [build-system]
@@ -41,3 +41,28 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+# The rule set is written out rather than inherited. Ruff's default selection widens
+# between releases: with no `select` and an unbounded `ruff>=0.6`, this repository went
+# from 3 findings to 45 without a line of it changing. A lint set that moves on its own
+# fails a build nobody broke, so it is pinned here and the dependency is bounded.
+[tool.ruff.lint]
+select = ["E", "F", "B", "UP", "ISC", "PL", "RUF", "FURB"]
+
+# Each ignore is a decision with a reason, not a way to reach zero. A blanket suppression
+# would make the whole set advisory again, which is the state this is replacing.
+ignore = [
+    # Comparing against a literal is the clearest form for an HTTP status range and for a
+    # test's expected value. Naming `200` HTTP_OK_MIN moves the number without explaining it.
+    "PLR2004",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# These tests run a subprocess *expecting* it to fail and assert on the exit code
+# themselves. check=True would break them; check=False on every call is noise that hides
+# the two places in scripts/ where the argument is a real decision.
+"tests/**" = ["PLW1510", "PLC0415"]
+# The gate's check functions branch once per rule they enforce. Splitting them to satisfy
+# a branch count would scatter one policy across several functions, which is the opposite
+# of what this file is for.
+"scripts/docs_gate.py" = ["PLR0912"]

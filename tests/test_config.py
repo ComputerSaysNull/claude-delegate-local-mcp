@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 
+import dataclasses
+
 import pytest
 
 from claude_delegate_local import config
@@ -45,8 +47,16 @@ def test_workdir_roots_can_be_narrower_than_workspace_roots():
 
 
 def test_config_is_frozen_so_nothing_mutates_it_mid_delegation():
+    """Asserts FrozenInstanceError, not Exception.
+
+    `pytest.raises(Exception)` accepted any failure, including ones that say nothing about
+    frozenness -- a TypeError from a changed signature, for instance. Checked while
+    narrowing it: assigning a *misspelled* field also raises FrozenInstanceError rather
+    than AttributeError, so that particular escape does not exist here. The point stands
+    anyway; the assertion should name the thing being proved.
+    """
     cfg = config.load(ROOTS)
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         cfg.max_tokens = 1  # type: ignore[misc]
 
 

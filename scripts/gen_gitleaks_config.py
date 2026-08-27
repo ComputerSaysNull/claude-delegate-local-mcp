@@ -52,7 +52,7 @@ def render() -> str:
 
 
 def splice(text: str, block: str) -> str:
-    pattern = re.compile(re.escape(START) + r".*?" + re.escape(END), re.S)
+    pattern = re.compile(re.escape(START) + r".*?" + re.escape(END), re.DOTALL)
     if pattern.search(text):
         return pattern.sub(block.rstrip().removesuffix(END).rstrip() + "\n  " + END, text)
     raise SystemExit(f"{TARGET.name} has no {START} / {END} markers")
