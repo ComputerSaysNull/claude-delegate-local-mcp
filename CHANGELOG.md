@@ -5,9 +5,12 @@ Newest first. Entries carry the **why**, not just the what: the symptom that pro
 change, the cause, and the fix. A terse one-liner is not enough -- in six months the
 reason is the only part still worth having.
 
-Format: `- YYYY-MM-DD (#PR) [sha] what changed, and why.` The date and PR are written by
-hand at merge time; `scripts/release.py` backfills the squash-merge sha at tag time,
-because an entry lives in the commit it describes and cannot know its own hash.
+Format: `- YYYY-MM-DD (#PR) what changed, and why.` Both written by hand at merge time.
+
+No commit hash, deliberately. An entry lives in the commit it describes and so cannot know
+its own hash, and `main` is squash-merged, so a branch hash written here names an object
+that never reaches anyone else's clone. The PR number survives the squash and is the thing
+worth citing.
 
 ## [Unreleased]
 
@@ -137,6 +140,23 @@ because an entry lives in the commit it describes and cannot know its own hash.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-27 `scripts/release.py` is cancelled before being written, and the CHANGELOG format
+  no longer promises a commit hash. The script's only job was to backfill each entry's sha at
+  tag time -- and the sha is the wrong thing to cite here, because `main` is squash-merged, so
+  a branch hash names an object that never leaves the clone it was made in. The PR number
+  survives the squash and is written by hand in the same edit as the entry, so there was
+  nothing left for a script to do. Removed from `docs_ownership.toml`, which had pre-registered
+  a path that will now never exist.
+  This surfaced from a question about why the project squash-merges at all, and it was the same
+  fault as the entry above: the format line described the script in the present tense while it
+  did not exist. The 2026-08-27 audit missed it, and the audit record now says so, along with
+  the reason the gate could not have caught it -- `check_manifest_docs_exist` verifies that
+  owning *documents* exist, and nothing verifies the code paths beside them.
+  PLAN.md's five unreachable hashes now cite their pull requests instead. Mapped by content
+  against the squashes on `main` rather than assumed: `9e03113` is PR #4 by identical title and
+  file set, `be4abc7` and `d4a4fad` are the two halves of PR #11. The M0 hashes are left alone
+  because those commits really are reachable on `main`; only the ones a squash discarded were
+  changed.
 - 2026-08-27 The audit-due counter now fires at 15 commits rather than 60, and the first
   recorded audit lives in `docs/audits/`. Sixty was chosen when the repository had fourteen
   commits, where it read as "a long while"; at the rate this one actually moves it is months,

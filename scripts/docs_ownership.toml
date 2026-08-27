@@ -162,7 +162,6 @@ paths = [
   "tests/**",
   "scripts/gen_*.py",
   "scripts/docs_gate.py",
-  "scripts/release.py",
   "security/**",
   # Point-in-time evidence, like an ADR body: dated, written once, never edited, and
   # owning no current behaviour. Registering each review as a document would mean a

@@ -29,13 +29,13 @@
 | M4 — Agentic loop and model tools | 0 | 0 | 11 | 0 |
 | M5 — Sandbox | 0 | 0 | 7 | 0 |
 | M6 — Agents, batching, discovery | 0 | 0 | 3 | 0 |
-| M7 — Admission control and polish | 0 | 0 | 4 | 0 |
+| M7 — Admission control and polish | 0 | 0 | 4 | 1 |
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
 | Extra — work outside the milestone plan | 6 | 0 | 0 | 0 |
 
-**Overall:** 45 done, 26 open, 6 cancelled.
+**Overall:** 45 done, 26 open, 7 cancelled.
 
 ## Repository
 
-- 28 commit(s), 75 tracked files
+- 27 commit(s), 76 tracked files
 - 23 test file(s), 30 decision record(s)
