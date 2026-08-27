@@ -62,6 +62,8 @@ Throwaway scripts, deliberately not shipped.
   whole turn timeout; connect is bound separately
 - ✅ 2026-08-26 The docs gate reads the real commit message — commit-msg hook,
   stale waivers no longer carry between commits
+- ✅ 2026-08-26 `.env` is read by `config.load()` — the README's setup step was a
+  no-op (ADR-0027)
 - ⬜ `delegate()` one-shot, no `files[]` yet
 - ⬜ `backend_status()` probing `/v1/models` per registry entry
 - ⬜ Launched through `wsl.exe` from a real Claude Code config, end to end

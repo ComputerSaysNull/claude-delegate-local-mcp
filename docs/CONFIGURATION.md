@@ -12,6 +12,11 @@ To change a default or a description, change the dataclass field and run
 Nothing else in this repository states a config default. Not the README, not
 `TROUBLESHOOTING.md`, not a docstring. They link here. See ADR-0004 for why.
 
+One variable is **not** in the table and cannot be: `DELEGATE_ENV_FILE` chooses which
+`.env` file supplies the values below, so it is read before a `Config` exists. Unset, a
+`.env` beside the repository root is used if present; set to a path that does not exist,
+loading fails rather than quietly falling back to defaults. ADR-0027.
+
 
 <!-- GEN:CONFIG:START -->
 

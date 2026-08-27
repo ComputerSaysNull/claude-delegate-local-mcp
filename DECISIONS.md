@@ -20,6 +20,44 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0027 — 2026-08-26 — config.load() reads .env; an MCP client's env key cannot reach the server — Accepted
+
+The README has said `cp .env.example .env` since the first commit. Nothing read it.
+`config.load()` consulted `os.environ` and nothing else, there is no dotenv dependency,
+and the `mcpServers` block in the README carries no `env` key. Creating the file did
+nothing, reported nothing, and left every setting at its default — a documented setup step
+that was a no-op, which is worse than an undocumented one because it is believed.
+
+**The alternative does not work here.** Putting an `env` key in the MCP client's
+configuration looks like the idiomatic fix, and on a native-Linux install it is. This
+project's documented topology is not that: the client runs on Windows and launches
+`wsl.exe -d Ubuntu-24.04 -e claude-delegate-local-mcp` (ADR-0002, ADR-0020). An `env` key
+sets variables for **wsl.exe, on the Windows side** — one hop short of the Linux process
+that reads them. Carrying a variable across that boundary additionally requires `WSLENV` to
+name it, set in the Windows environment before launch. Forgetting that produces no error
+and no symptom beyond the setting being ignored, which is the same failure this decision
+exists to remove.
+
+So `config.load()` reads the file itself, in about fifteen lines, with no new dependency:
+`pyproject.toml` pins fastmcp and httpx deliberately, and a dotenv package to read
+`KEY=VALUE` would cost more than it explains.
+
+Three choices inside it are deliberate:
+
+- **The real environment wins over the file.** Standard convention, and it keeps an
+  explicit one-off override working. The file fills what the environment omits.
+- **A file named explicitly and missing is an error**, while a discovered `<repo>/.env`
+  that is absent is not. Not having one is normal; asking for a specific one is a promise,
+  and silently substituting defaults for a named file is precisely the bug above.
+- **Passing `environ` suppresses discovery.** Otherwise the test suite reads whatever
+  `.env` happens to sit in the working tree, and passes or fails according to a file
+  nobody in the test wrote.
+
+There is no escape processing. `DELEGATE_WORKSPACE_ROOTS` on Windows is a path full of
+backslashes, and unescaping it would corrupt it without saying so. A leading `export ` is
+stripped and a name that cannot be an environment variable raises, because both otherwise
+parse to a key no setting matches — read, accepted, ignored.
+
 ## ADR-0026 — 2026-08-26 — main is protected by a checked-in ruleset, with no bypass and zero required reviews — Accepted
 
 `main` is protected by a ruleset checked in as `.github/ruleset.json`, applied with

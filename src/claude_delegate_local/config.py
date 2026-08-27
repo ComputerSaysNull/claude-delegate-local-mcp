@@ -387,13 +387,97 @@ def _coerce(raw: str, current: Any, field_name: str) -> Any:
     return raw
 
 
-def load(environ: dict[str, str] | None = None) -> Config:
+ENV_FILE_VAR = "DELEGATE_ENV_FILE"
+
+# config.py lives at <root>/src/claude_delegate_local/config.py.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def parse_env_file(text: str) -> dict[str, str]:
+    """`KEY=VALUE` lines. Blank lines and `#` comments are skipped.
+
+    Deliberately not dotenv, and the differences matter more than the similarities: no
+    variable interpolation, no multi-line values, and **no escape processing at all**. A
+    value is taken literally, because `DELEGATE_WORKSPACE_ROOTS` on Windows is a path full
+    of backslashes and unescaping it would corrupt it silently.
+
+    One pair of matching surrounding quotes is stripped: someone who quotes a value
+    containing spaces means the spaces, not the quotes.
+
+    A leading `export ` is stripped rather than rejected. Not for shell compatibility --
+    without it the line parses to a key named `export FOO`, which no setting matches, so
+    the value is dropped while the file still looks like it was read. A name that cannot be
+    an environment variable raises instead, for the same reason: a typo that silently
+    changes nothing is the worst of the three outcomes.
+    """
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export "):].strip()
+        if key and not key.replace("_", "").isalnum():
+            raise ConfigError(
+                f".env line {line!r} has {key!r} on the left of the '=', which cannot be "
+                f"an environment variable name. Nothing would have read it."
+            )
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key:
+            out[key] = value
+    return out
+
+
+def _env_file_values(explicit: str | Path | None) -> dict[str, str]:
+    """Values from a .env file, or an empty mapping if there is none to read.
+
+    An explicitly requested file that does not exist is an error rather than an empty
+    result. Asking for a specific file and silently getting the defaults is the failure
+    mode this project keeps finding: no error, no symptom, wrong behaviour.
+    A discovered `<repo>/.env` is optional, because not having one is normal.
+    """
+    if explicit is not None:
+        path = Path(explicit)
+        if not path.is_file():
+            raise ConfigError(
+                f"{ENV_FILE_VAR} names {path}, which does not exist. Point it at a real "
+                f"file or unset it; it is not ignored when wrong."
+            )
+        return parse_env_file(path.read_text(encoding="utf-8"))
+    found = REPO_ROOT / ".env"
+    return parse_env_file(found.read_text(encoding="utf-8")) if found.is_file() else {}
+
+
+def load(environ: dict[str, str] | None = None,
+         env_file: str | Path | None = None) -> Config:
     """Build a Config from the environment, validating as we go.
 
     Tuple-valued settings split on os.pathsep, so they read naturally on either host:
     semicolons on Windows, colons elsewhere.
+
+    A `.env` file beside the repository root is read as a **fallback**: a value already
+    present in the real environment wins, so an explicit override still works. The file is
+    read at all because the README has always told you to create one, and until now nothing
+    did -- the launch path is `wsl.exe -e claude-delegate-local-mcp`, and an `env` key in an
+    MCP client's config sets variables for `wsl.exe` on the Windows side, one hop short of
+    the Linux process that reads them. Crossing that boundary needs WSLENV as well, which
+    fails silently when forgotten. (ADR-0027)
+
+    Passing `environ` explicitly suppresses discovery, so a test never picks up whatever
+    .env happens to sit in the working tree. `env_file` overrides both.
     """
-    src = os.environ if environ is None else environ
+    discovered: dict[str, str] = {}
+    if env_file is not None:
+        discovered = _env_file_values(env_file)
+    elif environ is None:
+        discovered = _env_file_values(os.environ.get(ENV_FILE_VAR))
+
+    live = os.environ if environ is None else environ
+    src: dict[str, str] = {**discovered, **{k: v for k, v in live.items() if v != ""}}
     defaults = Config.__dataclass_fields__  # noqa: SLF001 - documented dataclass API
     kwargs: dict[str, Any] = {}
     for f in fields(Config):
