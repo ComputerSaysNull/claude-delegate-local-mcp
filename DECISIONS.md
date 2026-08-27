@@ -20,6 +20,34 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0032 — 2026-08-27 — ARCHITECTURE.md splits along module ownership, not along the prose seam — Accepted
+
+At 423 of 425 lines, with M4's turn loop about to land in exactly its territory. Both
+audits of 2026-08-27 recommended splitting first, the second calling it overdue: splitting
+under pressure mid-milestone is worse than splitting deliberately before.
+
+The obvious cut was the prose seam -- narrative about the shape of a delegation, reference
+about the response state machine. `check_split_dodge` blocks it. A document holding only
+the empty-answer section has the same audience as its parent and a subset of the parent's
+owned code, which is the definition of a size budget being evaded rather than a split. The
+check was right, and it reframes the question: not "where does the prose divide" but
+"which module does the new document own".
+
+That has one answer. `loop.py` and `backends/` leave ARCHITECTURE.md for DISPATCH.md, and
+the four sections describing them go with the code: the wire format seam, retry above the
+adapter, per-request reasoning control, and empty-answer recovery. ARCHITECTURE.md keeps
+`server.py`, `context.py`, `wsl.py`, `sandbox.py` and `main.py` -- the orchestration around
+a dispatch. Moving the prose without moving the ownership would have left the parent
+describing code it no longer explained, and the child explaining code it did not own.
+
+The turn loop is `loop.py`, so it now lands in DISPATCH.md rather than back in the file
+this relieved. That is the test of whether the seam was real, and it is why the split had
+to happen before M4 rather than during it.
+
+ARCHITECTURE.md's budget drops 425 → 330 in the same commit. Leaving it at 425 over 309
+lines of content would re-create the headroom that produced the problem; a budget that is
+not lowered after a split has not been paid, only deferred.
+
 ## ADR-0031 — 2026-08-27 — The agent file format is borrowed from Claude Code, not compatible with it — Accepted
 
 ADR-0005 said the files "use the same format Claude Code already uses for its own

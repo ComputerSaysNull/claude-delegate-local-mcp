@@ -135,6 +135,7 @@ that answers that is M4, so until then keep one-shot tasks well inside it.
 | | |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the pieces fit, and why |
+| [docs/DISPATCH.md](docs/DISPATCH.md) | What is sent to a model, and what comes back |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Every setting *(generated)* |
 | [docs/MODELS.md](docs/MODELS.md) | The registry, and adding a model |
 | [docs/AGENTS.md](docs/AGENTS.md) | Agent files, and the path policy |
