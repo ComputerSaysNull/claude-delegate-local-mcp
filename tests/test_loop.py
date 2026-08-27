@@ -33,6 +33,13 @@ def entry(**over) -> ModelEntry:
     return ModelEntry(**kw)  # type: ignore[arg-type]
 
 
+def one_shot(task: str, **over):
+    """A request with the boring arguments filled in, so a test line says what it means."""
+    kw = {"effort": "low", "max_tokens": 100, "temperature": 1.0}
+    kw.update(over)
+    return loop.build_one_shot_request(delegation=loop.Delegation(task), **kw)
+
+
 class SpyBackend:
     """Records the request it was given. Never opens a socket."""
 
@@ -79,7 +86,7 @@ def test_an_unlisted_effort_is_refused_before_anything_is_sent():
     backend = SpyBackend()
 
     async def go():
-        await loop.run_one_shot(cfg(), entry(), backend, "hello", effort="ultra")
+        await loop.run_one_shot(cfg(), entry(), backend, loop.Delegation("hello"), effort="ultra")
 
     with pytest.raises(loop.InvalidDelegation, match="ultra"):
         asyncio.run(go())
@@ -133,17 +140,17 @@ def test_two_requests_a_real_second_apart_have_byte_identical_system_prompts():
     """The invariant that has no symptom. A timestamp, session id or turn counter in
     the prompt still answers correctly and silently disables the cluster's prefix
     cache. Only comparing two prompts built at different wall-clock times catches it."""
-    first = loop.build_one_shot_request(task="x", effort="low", max_tokens=100, temperature=1.0)
+    first = one_shot("x")
     time.sleep(1.1)  # crosses a wall-clock second boundary
-    second = loop.build_one_shot_request(task="x", effort="low", max_tokens=100, temperature=1.0)
+    second = one_shot("x")
     assert first.system.encode() == second.system.encode()
 
 
 def test_the_system_prompt_does_not_vary_with_the_task():
     """The task goes in the message, not the prefix. Interpolating it into the system
     prompt would give every delegation a different prefix and cache nothing."""
-    a = loop.build_one_shot_request(task="alpha", effort="low", max_tokens=100, temperature=1.0)
-    b = loop.build_one_shot_request(task="beta", effort="low", max_tokens=100, temperature=1.0)
+    a = one_shot("alpha")
+    b = one_shot("beta")
     assert a.system == b.system
     assert "alpha" not in a.system
 
@@ -175,9 +182,7 @@ def test_the_prompt_tells_the_model_it_has_no_file_access():
 
 
 def test_the_task_is_sent_as_the_only_user_message():
-    request = loop.build_one_shot_request(
-        task="review this", effort="low", max_tokens=100, temperature=1.0
-    )
+    request = one_shot("review this")
     assert len(request.messages) == 1
     assert request.messages[0].role == "user"
     assert request.messages[0].content[0].text == "review this"
@@ -186,22 +191,18 @@ def test_the_task_is_sent_as_the_only_user_message():
 def test_no_tools_are_offered_on_the_one_shot_path():
     """M1 has no tool surface for the local model. Offering one it cannot run would
     produce tool calls nothing answers."""
-    request = loop.build_one_shot_request(
-        task="x", effort="low", max_tokens=100, temperature=1.0
-    )
+    request = one_shot("x")
     assert request.tools == ()
 
 
 def test_an_empty_task_is_refused():
     with pytest.raises(loop.InvalidDelegation):
-        loop.build_one_shot_request(task="   ", effort="low", max_tokens=100, temperature=1.0)
+        one_shot("   ")
 
 
 def test_a_real_task_is_not_refused():
     """The negative control for the check above."""
-    assert loop.build_one_shot_request(
-        task="x", effort="low", max_tokens=100, temperature=1.0
-    ).messages
+    assert one_shot("x").messages
 
 
 def test_the_one_shot_temperature_is_the_one_that_is_sent():
@@ -212,7 +213,7 @@ def test_the_one_shot_temperature_is_the_one_that_is_sent():
 
     async def go():
         try:
-            await loop.run_one_shot(config, entry(), backend, "hello")
+            await loop.run_one_shot(config, entry(), backend, loop.Delegation("hello"))
         except AttributeError:
             pass  # SpyBackend returns None; the request is what matters here
 
@@ -225,7 +226,9 @@ def test_the_resolved_effort_reaches_the_request():
 
     async def go():
         try:
-            await loop.run_one_shot(cfg(), entry(default_effort="max"), backend, "hello")
+            await loop.run_one_shot(
+                cfg(), entry(default_effort="max"), backend, loop.Delegation("hello")
+            )
         except AttributeError:
             pass
 

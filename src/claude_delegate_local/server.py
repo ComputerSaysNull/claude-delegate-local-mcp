@@ -33,7 +33,9 @@ from .backends.base import (
 )
 from .backends.openai_compat import OpenAICompatBackend
 from .config import Config, ConfigError
-from .loop import InvalidDelegation, run_one_shot
+from .context import prefetch
+from .loop import Delegation, InvalidDelegation, run_one_shot
+from .paths import PathPolicyError, PathRefused, resolve_all
 from .registry import ModelEntry, Registry, RegistryError
 
 SERVER_NAME = "delegate-local"
@@ -185,32 +187,60 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
 
     @mcp.tool
     async def delegate(
-        task: str, model: str | None = None, effort: str | None = None
+        task: str,
+        files: list[str] | None = None,
+        model: str | None = None,
+        effort: str | None = None,
     ) -> dict[str, Any]:
         """Hand one self-contained task to a local model and get its answer back.
 
         For bulk, mechanical or read-heavy work whose reasoning is modest: drafting,
-        first-pass review of code you paste into the task, mechanical rewrites,
-        explaining something. It runs on hardware the user hosts, so it costs no cloud
-        tokens -- prefer it whenever the work does not need your own judgement.
+        first-pass review, mechanical rewrites, explaining something. It runs on hardware
+        the user hosts, so it costs no cloud tokens -- prefer it whenever the work does
+        not need your own judgement.
 
-        The model gets exactly the text in `task` and nothing else. It has no tools and
-        cannot read any file, so include the code you want it to look at in the task
-        itself. `model` names a registered model, defaulting to the configured one;
-        `effort` sets reasoning effort explicitly, one of "off", "low", "high", "max".
+        **Name files in `files[]` rather than pasting them into `task`.** The server
+        reads them itself and gives them to the model directly, so their contents never
+        enter your context and cost you nothing. Reading a file yourself in order to
+        paste it here defeats the entire point of this tool. Give absolute paths, in
+        whatever form you already have them -- Windows paths are translated for you.
+
+        The model has no tools and cannot open anything you did not name, so `task` plus
+        `files[]` must contain everything it needs. `model` names a registered model,
+        defaulting to the configured one; `effort` sets reasoning effort explicitly, one
+        of "off", "low", "high", "max".
+
+        A path that is not allowed fails the whole call before anything is sent, and the
+        error names every rejected path, the layer that rejected it, and what to do --
+        one correction fixes all of them. A file that is allowed but too large or not
+        text is **skipped**: the call proceeds without it, and `files_skipped` says which
+        and why. Read that field before trusting an answer; the model was told the file
+        was unavailable, but it cannot tell you what it never saw.
 
         Returns `answer` plus what actually happened: the model that served it, the raw
-        `finish_reason`, and token counts. Check `empty_response`. An empty answer with
-        `finish_reason: "length"` is not a model with nothing to say -- it is one that
-        spent the whole reply budget on reasoning and had none left to answer with.
-        Retry that at a lower effort, or with a smaller task; do not report it as an
-        empty result. If the call fails outright, `backend_status()` will say whether
-        the model is down, misconfigured, or serving something other than it should.
+        `finish_reason`, token counts, and the prefetch accounting. Check
+        `empty_response`. An empty answer with `finish_reason: "length"` is not a model
+        with nothing to say -- it is one that spent the whole reply budget on reasoning
+        and had none left to answer with. Retry that at a lower effort, or with a smaller
+        task; do not report it as an empty result. If the call fails outright,
+        `backend_status()` will say whether the model is down, misconfigured, or serving
+        something other than it should.
         """
         try:
             entry = registry.resolve(model)
         except RegistryError as e:
             raise ToolError(str(e)) from e  # already names the registered keys
+
+        # Before the backend is even looked up: a refused path must cost nothing, and
+        # must not depend on whether the cluster happens to be reachable today.
+        try:
+            resolved = resolve_all(cfg, files or [])
+        except PathRefused as e:
+            raise ToolError(str(e)) from e
+        except PathPolicyError as e:
+            raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
+
+        prefetched = prefetch(cfg, resolved)
 
         try:
             backend = cache.get(entry)
@@ -218,7 +248,13 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
             raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
         try:
-            response, used_effort = await run_one_shot(cfg, entry, backend, task, effort=effort)
+            response, used_effort = await run_one_shot(
+                cfg,
+                entry,
+                backend,
+                Delegation(task=task, files_block=prefetched.block()),
+                effort=effort,
+            )
         except InvalidDelegation as e:
             raise ToolError(str(e)) from e
         except (BackendUnavailable, BackendRefused, BackendProtocolError) as e:
@@ -226,6 +262,7 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
 
         answer = response.text
         return {
+            **prefetched.accounting(),
             "answer": answer,
             # The model as the backend reported it, not as the caller asked for it.
             # Server-captured ground truth is the only kind worth reporting. ADR-0007.

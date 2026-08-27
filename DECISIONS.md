@@ -20,6 +20,34 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0030 — 2026-08-27 — A file is text if it has no NUL in 8 KiB and decodes as strict UTF-8 — Accepted
+
+Prefetch has to decide whether a file is text before inlining it, and the obvious answer —
+trust the extension — cannot work. The extension allowlist is layer 2 of the path policy
+and admits `.json` and `.md`; nothing about either forbids UTF-16, a BOM, or a minified
+blob. A `.py` full of NUL bytes passes every check upstream of this one.
+
+Two tests, because neither alone covers the ground. A NUL byte in the first 8 KiB catches
+UTF-16 and most compiled output for the price of a substring search. A strict UTF-8 decode
+catches what is left: latin-1 text, a truncated multi-byte sequence, anything mislabelled.
+The decode must be strict. `errors="replace"` would hand the model a page of U+FFFD and
+present it as source, which is the same failure as truncation — a plausible-looking input
+the model will reason confidently about — with none of the visible symptoms.
+
+8 KiB rather than the whole file because a binary that hides its first NUL past that point
+is rarer than the cost of scanning every file to the end, and the UTF-8 decode covers the
+tail anyway. A UTF-8 BOM decodes fine and is stripped rather than treated as content: it
+is invisible, and left in place it sits at the top of the first line of a source file for
+no reason anyone can see.
+
+The alternative considered was `git diff --numstat`-style heuristics, or libmagic. Both
+add a dependency or a subprocess to answer a question two lines of Python answer, and
+neither is more correct for the file types this actually sees.
+
+A binary file is a **skip**, not a refusal: the call proceeds without it and the accounting
+says why. It is a fact about the file, not a permission decision, and the permission
+decisions all belong to `paths.py`.
+
 ## ADR-0029 — 2026-08-27 — Tool results never carry the endpoint address — Accepted
 
 The adapter already keeps the host out of its exception strings, on the reasoning that an
