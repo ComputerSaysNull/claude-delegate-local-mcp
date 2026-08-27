@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** M2 — files[] prefetch — 0 of 3 items done
+**Current phase:** M2 — files[] prefetch — 2 of 4 items done
 
 ## In progress
 
@@ -13,7 +13,6 @@
 
 ## Next up
 
-- `paths.py` — the four policy layers, each refusal actionable
 - `context.py` — prefetch, token budgeting, stable prompt ordering for prefix caching
 - Binary detection, whole-file skip, per-type token accounting
 
@@ -24,7 +23,7 @@
 | M0a — Spikes | 4 | 0 | 0 | 0 |
 | M0b — Foundation | 23 | 0 | 0 | 0 |
 | M1 — One real backend call | 5 | 0 | 0 | 0 |
-| M2 — files[] prefetch | 0 | 0 | 3 | 0 |
+| M2 — files[] prefetch | 2 | 0 | 2 | 0 |
 | M3 — Response state machine | 0 | 0 | 8 | 0 |
 | M4 — Agentic loop and model tools | 0 | 0 | 6 | 0 |
 | M5 — Sandbox | 0 | 0 | 7 | 0 |
@@ -33,9 +32,9 @@
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
 | Extra — work outside the milestone plan | 6 | 0 | 0 | 0 |
 
-**Overall:** 38 done, 32 open, 5 cancelled.
+**Overall:** 40 done, 31 open, 5 cancelled.
 
 ## Repository
 
-- 24 commit(s), 68 tracked files
+- 23 commit(s), 68 tracked files
 - 19 test file(s), 29 decision record(s)

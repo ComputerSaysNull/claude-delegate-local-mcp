@@ -8,8 +8,9 @@ Tool internals are in [TOOLS.md](TOOLS.md) *(generated, once the tools exist)*; 
 mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md). Settings are in
 [CONFIGURATION.md](CONFIGURATION.md).
 
-**Status: not built.** `agents.py` and `paths.py` are M6 and M2. This describes the design
-as decided; the roadmap is [../PLAN.md](../PLAN.md).
+**Status: the path policy is built and enforced; agents are not.** `paths.py` landed in M2;
+`agents.py` is M6, so everything above [The path policy](#the-path-policy) describes a
+design rather than behaviour. The roadmap is [../PLAN.md](../PLAN.md).
 
 ## Why agents are files
 
@@ -121,17 +122,49 @@ extensionless key, a `.env.local`, a committed config full of tokens.
 The reference implementation of server-side prefetch had **no validation whatsoever** and
 would read a private SSH key on request. (ADR-0006)
 
-### Refusals are actionable
+Order decides which message you get, not just whether the file is refused. A `.pem` is
+stopped by layer 2, never reaching the denylist, because its extension is not allowlisted;
+layer 3 fires only for files the allowlist was happy with — `client_secret.json`,
+`.docker/config.json`, anything matching `*secret*` or `*credential*` with a source
+extension.
 
-Every refusal tells the caller enough to correct itself without another round trip:
+Two shapes of entry share the allowlist, and the second is easy to lose. `.py` is a
+suffix; `.gitignore`, `.makefile` and `.dockerfile` are whole filenames written with a
+leading dot. A file with no suffix is therefore matched by *name*, which is what makes
+`Makefile` and `.gitignore` readable at all — matching suffixes alone would refuse exactly
+the entries somebody added on purpose.
+
+### Windows paths are accepted, and translated for you
+
+`files[]` comes from Claude Code on Windows; the server runs in WSL. Drive-letter paths
+(`C:\proj\src\foo.py`, in either separator style) and `\\wsl$\...` paths are translated
+before any layer runs. A UNC network share is refused outright rather than translated into
+something that resolves to nothing, and a relative path is refused because it would
+resolve against the server's working directory rather than yours.
+
+### Refusals are actionable, and they fail the whole call
+
+A **refusal** means the file was not allowed. Nothing is dispatched — not the other files,
+not the task — and *every* refusal is reported, so one correction fixes all of them rather
+than costing a round trip each:
 
 ```
-### C:\proj\.env — SKIPPED: matched secret denylist pattern '.env*'.
-    Delegated models never receive credential files.
+2 of 3 path(s) in files[] were refused, so nothing was sent to the model. Every
+refusal is listed, not just the first, so one correction fixes all of them:
 
-### C:\proj\vendor\bundle.min.js — SKIPPED: 210K estimated tokens exceeds the
-    40K per-file limit. Ask the agent to read_file() it in ranges instead.
+  C:\proj\.env
+      layer 2, extension allowlist: the filename '.env' is not on the extension
+      allowlist.
+      Extension is the one axis that can be allowlisted for file contents [...]
+
+  C:\proj\client_secret.json
+      layer 3, secret denylist: it matches the secret denylist pattern '*secret*'.
+      Delegated models never receive credential material. [...]
 ```
+
+A **skip** is the other category and behaves oppositely: the call proceeds, the file is
+left out, and the accounting says so. Size and binary content are skips, not refusals —
+they are facts about a file that was allowed.
 
 ### Files are skipped whole, never truncated
 

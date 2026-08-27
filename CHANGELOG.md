@@ -12,6 +12,27 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-27 `paths.py` and `wsl.py`: the four-layer path policy, and the one place a
+  Windows path becomes a POSIX one. Nothing calls them yet -- `files[]` is the next
+  commit -- but they land first and separately, because a policy reviewed on its own is
+  reviewed, and one that arrives inside the feature it guards is skimmed. Layer 1
+  `realpath`s the candidate *and* the roots before comparing them, which is the whole of
+  the symlink defence rather than an optimisation of it: a link inside a root pointing out
+  of it passes a check on the path as written. Layer 2 matches a suffix, then -- for a file
+  that has none -- the whole filename, because `Path(".gitignore").suffix` is empty and
+  suffix matching alone silently refused the four allowlist entries that are filenames
+  rather than extensions. Layer 3 matches every trailing run of path components, not the
+  basename and the absolute path: `.git/**` is a suffix match and neither of those, so the
+  obvious reading left five shipped patterns unable to fire at all. Layer 4 batches one
+  `git check-ignore --stdin -z` per work tree instead of a subprocess per file, and treats
+  git's exit 128 outside a repository as not-ignored rather than as an error.
+  Two of the layers read something outside the process, so both can be absent: a missing
+  denylist file and a git that is not installed both raise rather than returning "nothing
+  matched", because that result is indistinguishable from a clean pass in every log and
+  every test. Every refusal names its layer and a remedy, and *all* of them are reported
+  together -- a first-failure-wins policy makes a five-file review cost five dispatches to
+  discover. A refused path fails the whole call; skips, which proceed, arrive with
+  `files[]`. ADR-0006, ADR-0010.
 - 2026-08-27 `delegate()`: one task in, one answer back, from a model running on your own
   hardware. The first thing in this repository that does the job the repository is for.
   Effort resolves explicit argument, then registry row, then global default, and is always
