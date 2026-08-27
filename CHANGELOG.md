@@ -12,6 +12,24 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-27 The empty answer is now reproduced against the live cluster and recovered from
+  there, not only against a backend that was told to return the signature. Every other test
+  of this path scripts the failure, which proves the state machine reads its own inputs and
+  nothing about whether a real model still produces those inputs -- and ADR-0014's recorded
+  numbers had in fact already drifted (JOURNAL 2026-08-27). Two cases: the budget retry
+  answering after a first dispatch too small to finish in, and the terminal verdict after a
+  step-down, each asserting the mitigation was really spent rather than just the outcome.
+  Both are deliberately cheap, because reproducing exhaustion needs a *small* budget: they
+  run in under three minutes together, where one full-cap max-effort exhaustion takes tens
+  of minutes.
+  Writing it surfaced a trap worth recording, since it is the same shape as the bug the
+  suite exists to prevent. The first version capped the model at the same number as the
+  first budget, which -- the cap being applied last, and to everything -- also pinned the
+  retry, so the stage skipped and the recovery fell through to the step-down. The test still
+  passed. Then the floor was set to 4096, below the 7033 tokens this prompt actually needs at
+  low effort, and it fell through again. Both times a green test was exercising a different
+  stage than its name claimed, and only asserting the *level* the dispatch ended on caught
+  it. The numbers now come from the measurement instead of from plausibility.
 - 2026-08-27 An answer that comes back empty because reasoning ate the whole budget is now
   recovered from instead of merely labelled. The failure is measured, not hypothetical
   (ADR-0014), and until now the server named it and handed it back, with the tool
