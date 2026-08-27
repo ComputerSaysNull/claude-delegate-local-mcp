@@ -20,6 +20,41 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0028 — 2026-08-26 — An amend is judged against HEAD~1, and a pass that relied on it says so — Accepted
+
+The owning-doc check compared the staged index against HEAD. Correct for a normal commit;
+wrong for `git commit --amend`, whose parent is HEAD~1. The files already inside the commit
+being amended are part of what lands but are absent from the index, so a complete commit was
+reported as incomplete. The documented workaround was `git reset --soft HEAD~1` and recommit
+— considerable ceremony to answer a question the tool had got wrong. It fired twice while
+this session's own commits were being prepared.
+
+**It cannot be detected outright, and that is the whole difficulty.** `prepare-commit-msg`
+receives the message source and the commit it came from, and `git commit --amend` arrives as
+`source=commit, sha=HEAD`. So does `git commit -C HEAD`, which is *not* an amend and whose
+parent is HEAD. `GIT_REFLOG_ACTION` is unset for both. All of this was measured in a
+throwaway repository rather than assumed, because the first design depended on the two being
+distinguishable and they are not.
+
+Rejected: treating `source=commit` as an amend outright. It would silently misjudge
+`-C HEAD`, and the failure would be a *pass* — the previous commit's document counted toward
+this commit's code. A check that wrongly blocks is annoying; one that wrongly passes is the
+thing this repository keeps finding.
+
+Rejected: unioning HEAD's files into the changed set unconditionally. Same false pass, on
+every commit rather than a rare one.
+
+So both readings are evaluated. Strict first — index against HEAD. If that passes, nothing
+else happens. If it blocks and the message came from HEAD, the amend reading is tried, and a
+pass there is reported with a WARN naming the files it counted from the previous commit and
+saying plainly what it assumed. The escape is real but never quiet, which is the same
+bargain as the `Docs-Gate-Skip` trailer: an escape hatch nobody can see becomes the default
+route; one that leaves a line in every run does not.
+
+The marker is consumed when read, and the hook rewrites it on every commit, so a commit
+abandoned between the two hooks cannot leave state behind that changes how the next one is
+judged.
+
 ## ADR-0027 — 2026-08-26 — config.load() reads .env; an MCP client's env key cannot reach the server — Accepted
 
 The README has said `cp .env.example .env` since the first commit. Nothing read it.
