@@ -10,9 +10,11 @@ This lists what will bite you.
 
 ## Commands
 
-    python scripts/docs_gate.py --mode pre-commit   # everything the hook runs
+    python scripts/docs_gate.py --mode pre-commit   # structural checks, by hand
+    python scripts/install_hooks.py                 # installs the commit-msg hook
     python scripts/docs_gate.py --owner <path>      # which document owns this file
     python scripts/gen_config_docs.py               # after touching config.py
+    python scripts/gen_agents_docs.py               # after touching .claude/agents/
     python scripts/gen_status.py                    # after touching PLAN.md
     .venv/Scripts/python.exe -m pytest -q           # Windows
     wsl -d Ubuntu-24.04 -e bash -lc '...'           # anything needing bwrap or ext4
@@ -71,10 +73,13 @@ Rules a machine cannot check, so they land here:
   Python validates a `.pyc` on `(mtime, size)`, so a same-length edit inside one timestamp
   tick is invisible. Set `sys.pycache_prefix` to a fresh temp directory. `-B` does *not*
   help — it stops writing bytecode, not reading a stale cache. (JOURNAL 2026-08-25)
-- **A check that cannot fail is worse than no check**, because it is trusted. Three have
+- **A check that cannot fail is worse than no check**, because it is trusted. Four have
   been found here already: one searching a file for the reference it was validating, one
-  reading stale bytecode, one flagging the pattern list that defined it. Negative-test
-  every check — assert that it fires on a real violation, not merely that it passes.
+  reading stale bytecode, one flagging the pattern list that defined it, and one scanning
+  the previous commit's message because git had not written the new one yet. Negative-test
+  every check — assert that it fires on a real violation, not merely that it passes. Two
+  tests written *for* that fourth one passed against the bug before they were rewritten,
+  so the rule applies to the tests as much as to the checks.
 - **Verify network isolation by address, never by hostname.** A hostname request fails
   whether or not the network namespace is isolated, so a hostname-only test reports a
   tight sandbox that may just have broken DNS. (ADR-0021)
@@ -99,7 +104,7 @@ Rules a machine cannot check, so they land here:
   fictional one, and describe the mechanism rather than the specimen.
 
 - **A pull request title and body are a public surface that no hook can gate.** They are
-  written outside git, so the pre-commit hook cannot see them and CI only sees them after
+  written outside git, so no commit hook can see them and CI only sees them after
   they are already published. CI scans them anyway, but the check is a backstop, not a
   gate. Write the **mechanism, never the specimen** — "a fragment that collides with
   ordinary vocabulary", not the fragment itself. The same applies to issue comments.

@@ -48,6 +48,30 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 The documentation gate judged the commit it was not making. In pre-commit
+  mode both message-dependent checks read `.git/COMMIT_EDITMSG`, which git writes *after*
+  the pre-commit hook returns — so both read the previous commit's message. The
+  host-literal scan therefore passed on text nobody was proposing to commit while the
+  message actually being written went unscanned, and the `Docs-Gate-Skip` waiver parser
+  applied one commit's waiver to the next, an escape hatch firing on a commit that never
+  asked for it. Confirmed on this repository: the first line of the stale file was byte
+  for byte the subject of the commit already made.
+
+  The gate now runs as a **commit-msg** hook, which git hands the real message file — the
+  first stage at which the staged index and the message both exist. `--mode pre-commit`
+  remains for running the structural checks by hand and reports the message check as
+  skipped rather than guessing. Installing removes a superseded pre-commit hook so the two
+  cannot disagree. `changed_files` had to learn the new mode too: without that it fell
+  through to the CI branch, diffed against a non-existent upstream and scanned every
+  tracked file — a whole-repo audit wearing the costume of a per-commit check.
+
+  Two of the six regression tests initially passed against the unfixed gate, and were
+  rewritten. One asserted `"SKIP" in output and "commit-message" in output`, which an
+  unrelated skip elsewhere plus a block on this check satisfied independently; it now
+  reads the levels reported for that specific check. The other asserted no waiver was
+  applied while staging nothing for a waiver to suppress, so it held vacuously; it now
+  stages a real owning-doc violation first. All six were confirmed failing against the
+  unfixed gate before being trusted.
 - 2026-08-26 A dropped route stalled for the whole turn timeout. The OpenAI adapter built
   one `httpx.Timeout(turn_timeout)`, which bounds connect, read, write and pool identically
   — 1800s by default. The comment defending that construction argued no separate connect
@@ -132,6 +156,39 @@ because an entry lives in the commit it describes and cannot know its own hash.
   never tracked.
 
 ### Changed
+- 2026-08-26 The build-time agent roster in CONTRIBUTING.md is generated from
+  `.claude/agents/*.md` rather than typed a second time. Model and effort for four agents
+  existed in the frontmatter and were described again in a hand-written table; every value
+  agreed, which is not the same as being kept in agreement. `scripts/gen_agents_docs.py`
+  renders it between GEN markers and the gate runs its `--check`, the same anti-drift
+  mechanism as the configuration reference (ADR-0004). A missing `effort` key renders as a
+  visible `-- missing --` rather than a plausible default, because the runner ignores a
+  misspelling in silence and bills the default tier. Four tests assert the check fires: on
+  a changed effort, on a new agent file, and on a key renamed to `reasoning_effort`.
+- 2026-08-26 CONTRIBUTING.md trimmed to its audience, and its budget lowered 215 -> 190
+  by removing content rather than raising a ceiling. The manifest already said this
+  document does not cover the documentation strategy — that lives in CLAUDE.md — yet it
+  carried a "short version" of those rules under a link to CLAUDE.md saying so. A second
+  copy under a pointer to the first is the drift the ownership scheme exists to prevent.
+  The negative-testing rule was likewise restated with the same three examples CLAUDE.md
+  already holds; it is now one sentence and a link. An audit also found the document
+  miscounting its own history: it claimed its budget had been raised twice when the real
+  sequence was 130, 175, 190, 215 — three raises, so the split it promised was already
+  overdue. That sentence is corrected and the trip-wire re-armed against the real number.
+
+  CLAUDE.md's "a check that cannot fail" invariant now records four instances rather than
+  three. The fourth is the gate scanning the previous commit's message, and the note adds
+  that two tests written for that fix passed against the bug before being rewritten — the
+  rule applies to the tests as much as to the checks.
+- 2026-08-26 The branch-protection rationale moved from CONTRIBUTING.md to ADR-0026.
+  Two ruleset values are not self-explanatory and JSON carries no comments: `bypass_actors`
+  is empty so direct pushes are refused for the owner too, and
+  `required_approving_review_count` is 0 because GitHub forbids approving your own pull
+  request — requiring one review would lock a single maintainer out of their own repository
+  rather than raise the bar. That is the value most likely to be "corrected" as an
+  oversight, and CONTRIBUTING.md is written for contributors doing work, not for explaining
+  why the repository is configured as it is. The section there is now a pointer, 24 lines
+  down to 8.
 - 2026-08-26 Context-overflow handling promoted out of Deferred into M3. The upstream fork
   shipped it, and this project's parked wording had independently converged on the same
   detection signal, which is the reason to trust the design rather than re-derive it. It

@@ -60,6 +60,8 @@ Throwaway scripts, deliberately not shipped.
 - ✅ 2026-08-26 `backends/openai_compat.py` — the only adapter shipped — `9e03113`
 - ✅ 2026-08-26 `DELEGATE_CONNECT_TIMEOUT` — a dropped route no longer stalls for the
   whole turn timeout; connect is bound separately
+- ✅ 2026-08-26 The docs gate reads the real commit message — commit-msg hook,
+  stale waivers no longer carry between commits
 - ⬜ `delegate()` one-shot, no `files[]` yet
 - ⬜ `backend_status()` probing `/v1/models` per registry entry
 - ⬜ Launched through `wsl.exe` from a real Claude Code config, end to end

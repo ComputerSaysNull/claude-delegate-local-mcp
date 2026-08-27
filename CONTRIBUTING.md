@@ -1,4 +1,4 @@
-<!-- BUDGET: 215 -->
+<!-- BUDGET: 190 -->
 # Contributing
 
 ## Setup
@@ -21,10 +21,11 @@ also run from a bare clone with nothing but `pytest` -- `tests/conftest.py` puts
 path, so a first `pytest` works before reading anything.
 
 The commit hook is the exception: install it on Windows with `python
-scripts/install_hooks.py`, because that is where git runs. It imports only the standard
-library, so the system interpreter is enough. It runs `scripts/docs_gate.py`, which is also
-what CI runs -- one implementation, two callers, because a hook that reimplemented the
-checks would be a second copy destined to disagree with the first.
+scripts/install_hooks.py`, because that is where git runs. It needs only the standard
+library, and runs `scripts/docs_gate.py` -- one implementation, two callers, because a hook
+reimplementing the checks would be a second copy destined to disagree. It installs a
+**commit-msg** hook: git writes the message file only after a pre-commit hook returns, so a
+gate there scans the *previous* commit's message and carries its waiver into this one.
 
 ## Commits
 
@@ -50,42 +51,24 @@ python scripts/docs_gate.py --owner src/claude_delegate_local/paths.py
 → docs/AGENTS.md
 ```
 
-`scripts/docs_ownership.toml` is the only copy of that mapping.
-[CLAUDE.md](CLAUDE.md) has the full set of rules; the short version:
+`scripts/docs_ownership.toml` is the only copy of that mapping, and
+[CLAUDE.md](CLAUDE.md) states the rules it enforces. Do not keep a second copy of either
+here or in your head.
 
-- A fact belongs to one document, in one plane. Project plane is the repo root; product
-  plane is `docs/`.
-- Generated documents are never hand-edited. Change the source, run the generator.
-- `docs/TROUBLESHOOTING.md` owns no facts. It links.
-- Blocked but right anyway? `Docs-Gate-Skip: owning-doc -- <reason>` in the commit
-  message. Visible in every run, and audited.
-
-### Size budgets
-
-Documents declare a budget. Exceeding it blocks, and the block **never means delete** —
-three ways out: trim real redundancy, split for a valid reason, or raise the budget with a
-one-line reason in the same commit.
-
-A split is valid only for a *different audience*, *different owned code*, or *reference
-separated from narrative*. "It got long" is a reason to raise a budget. The gate refuses a
-new document whose audience and owned code are both subsets of its parent's.
-
-Append-only documents cap each **entry** instead of the total, because their history never
-stops earning its place. See ADR-0022.
+Documents also declare a size budget. Exceeding it blocks, and the block **never means
+delete**: trim redundancy, split for a valid reason, or raise the budget with a one-line
+reason in the same commit. ADR-0022 for what makes a split valid.
 
 ## Tests
 
 Regression tests are named after the bug and live in `tests/regression/`. If you fix
 something subtle, the test goes in the same commit.
 
-**Negative-test every check.** Assert that it fires on a real violation, not merely that
-it passes on clean input. Three checks here have already been found unable to fail:
-one searched a file for the reference it was validating, one read stale bytecode, one
-flagged the pattern list that defined it. A check that cannot fail is worse than no check,
-because it is believed.
+**Negative-test every check**: assert it fires on a real violation, not merely that it
+passes on clean input. Four checks here have already been found unable to fail — CLAUDE.md
+lists them.
 
-Mark anything needing the live cluster or a real `bwrap` as
-`@pytest.mark.integration`; it is skipped by default.
+Mark anything needing the live cluster or a real `bwrap` as `@pytest.mark.integration`.
 
 ## Decisions
 
@@ -126,46 +109,34 @@ Two things that live outside it and are easy to miss:
 
 ## Branch protection
 
-`main` is protected by a ruleset, checked in as `.github/ruleset.json` so the configuration
-is reproducible rather than a thing someone once clicked:
-
-```bash
-gh api -X POST repos/OWNER/REPO/rulesets --input .github/ruleset.json
-```
-
-- Pull request required. **Direct pushes to `main` are refused for everyone, including the
-  owner** — `bypass_actors` is empty, which rulesets allow and classic branch protection
-  did not.
-- Four required checks: the gate, tests on 3.11 and 3.12, and the secret scan.
-- Force-push and deletion blocked. Squash is the only merge method.
-- `required_approving_review_count` is **0**, deliberately. GitHub will not let you
-  approve your own pull request, so requiring one review would lock a solo maintainer out
-  of their own repository entirely. The checks carry the weight instead. Raise it to 1 the
-  day a second person joins.
-
-Secret scanning and push protection are enabled at the repository level, which is free on
-public repositories and catches what reaches GitHub even if the local hook was skipped.
+`main` is protected by a ruleset checked in as `.github/ruleset.json` — read it for the
+rules, ADR-0026 for why the bypass list and the review count are set the way they are. In
+practice: open a pull request, because direct pushes are refused for everyone, and expect
+four required checks. Repository-level secret scanning and push protection are on as well,
+catching what reaches GitHub even if a local hook was skipped.
 
 ## Build-time agents
 
-`.claude/agents/` holds four subagents used while working *on* this repository. They are
-not shipped, and they are not the delegation agents described in
-[docs/AGENTS.md](docs/AGENTS.md) — different thing, same file format.
+`.claude/agents/` holds the subagents used while working *on* this repository. Not shipped,
+and not the delegation agents in [docs/AGENTS.md](docs/AGENTS.md) — different thing, same
+file format.
+
+<!-- GEN:AGENTS:START -->
+<!-- Generated from .claude/agents/*.md by scripts/gen_agents_docs.py. Change the frontmatter, not this. -->
 
 | Agent | Model | Effort | For |
 |---|---|---|---|
-| `researcher` | haiku | low | Read-only exploration. Retrieval, no judgement |
-| `docs-audit` | haiku | medium | Staleness and misplaced facts the gate cannot judge |
-| `test-writer` | sonnet | medium | Tests, especially negative cases |
-| `code-reviewer` | sonnet | high | Diffs, against this project's security invariants |
+| `code-reviewer` | sonnet | high | Reviews a diff for correctness and for regressions in this pr… |
+| `docs-audit` | haiku | medium | Audits documentation for staleness, verbosity, misplaced fact… |
+| `researcher` | haiku | low | Read-only exploration of this repository |
+| `test-writer` | sonnet | medium | Writes and extends pytest tests for this repository |
 
-Model and effort are set per task cost: the cheapest tier that can do the job. Retrieval
-and comparison get haiku; anything where being wrong is expensive gets sonnet and higher
-effort. The frontmatter key is `effort`, not `reasoning_effort` — a misspelling is ignored
-in silence and quietly bills the default tier.
+<!-- GEN:AGENTS:END -->
 
-Run at most five agents concurrently. Enforced in CI via `max-parallel`; elsewhere it is a
-working rule.
+Model and effort follow task cost: the cheapest tier that can do the job. The frontmatter
+key is `effort`, not `reasoning_effort` — a misspelling is ignored in silence and bills the
+default tier, so the table renders a missing key rather than guessing one. Run at most five
+agents concurrently; CI enforces it via `max-parallel`.
 
 ### When to run docs-audit
 
@@ -196,13 +167,17 @@ a committed file listing what must not be committed is itself the leak.
 
 ## When this document splits
 
-Its budget has been raised twice. One more raise and it splits: the operational half —
-CI, branch protection and the agent roster — moves to its own document owning `.github/**`
-and `.claude/agents/**`, leaving the conventions here.
+The budget has been raised three times — 130, 175, 190, 215 — and the sentence here
+claiming twice was itself stale, which is the failure it was meant to warn about. It is
+now back down to 190 by trimming rather than raising: the branch-protection reasoning went
+to ADR-0026, and the documentation-strategy rules were dropped in favour of the link to
+CLAUDE.md that was already there.
 
-That is a valid split under this project's own rules (reference material separated from
-narrative, and distinct owned code), and it is written down so the next person does not
-have to re-derive it under pressure.
+If it needs raising again, split instead: the operational half — CI and the agent
+roster — moves to its own document owning `.github/**` and `.claude/agents/**`, leaving
+the conventions here. That is a valid split under this project's own rules (distinct owned
+code, reference separated from narrative), written down so nobody has to re-derive it
+under pressure.
 
 ## Upstream
 
