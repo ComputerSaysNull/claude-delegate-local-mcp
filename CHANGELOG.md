@@ -48,6 +48,23 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 Two checks in the gate and the suite could not fail for the reason they
+  claimed. `HOSTPORT_ALLOWED` in `scripts/docs_gate.py` listed `127.0.0.1` twice and
+  `0.0.0.0` once, all three unreachable: `HOSTPORT_RE` begins `[a-z]`, so a numeric host
+  never matches and the allowlist is never consulted for one. Loopback in an example was
+  passing because the pattern cannot see it, not because it was permitted — three entries
+  that looked load-bearing and governed nothing. Removed, with the reason recorded where
+  they were.
+
+  `test_config_is_frozen_so_nothing_mutates_it_mid_delegation` asserted
+  `pytest.raises(Exception)`, which accepts any failure whatever, including ones unrelated
+  to frozenness. It now names `FrozenInstanceError`. Worth recording what the check
+  disproved: assigning a *misspelled* field also raises `FrozenInstanceError`, not
+  `AttributeError`, so the obvious escape route was never open — the assertion should still
+  name the thing it proves.
+
+  Both were surfaced by ruff, which is configured in `pyproject.toml` and has never run in
+  CI.
 - 2026-08-26 `.env` was never read. The README has said `cp .env.example .env` since the
   first commit, but `config.load()` consulted `os.environ` and nothing else — no dotenv
   dependency, and no `env` key in the README's `mcpServers` block either. Creating the file

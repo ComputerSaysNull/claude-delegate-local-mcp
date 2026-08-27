@@ -63,9 +63,13 @@ HOST_PATTERNS: list[tuple[str, str]] = [
 # `host:port` is only a leak when the host is a real name. Placeholders and loopback are
 # how the examples are supposed to read.
 HOSTPORT_RE = re.compile(r"\b([a-z][a-z0-9][a-z0-9.-]{1,40}):(\d{4,5})\b", re.I)
+# Names only. HOSTPORT_RE starts with [a-z], so a numeric host never reaches this set --
+# entries like "127.0.0.1" sat here looking load-bearing and were unreachable, one of them
+# written twice. Loopback in an example is allowed because the pattern cannot match it,
+# not because it is listed.
 HOSTPORT_ALLOWED = {
-    "localhost", "127.0.0.1", "0.0.0.0", "example.com", "example.org",
-    "your-head-node", "head", "host", "hostname", "some-host", "127.0.0.1",
+    "localhost", "example.com", "example.org",
+    "your-head-node", "head", "host", "hostname", "some-host",
 }
 
 # Extensions that are certainly binary. Everything else is scanned, including file types
