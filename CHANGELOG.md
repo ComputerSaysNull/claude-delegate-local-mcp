@@ -213,6 +213,24 @@ because an entry lives in the commit it describes and cannot know its own hash.
   never tracked.
 
 ### Changed
+- 2026-08-26 PLAN.md gained an `## Extra` section, and M1 stopped overstating itself.
+  Six repository-tooling fixes made in passing had been filed under M1 because that is
+  where the cursor was, so STATUS.md reported "M1 — 5 of 8 items done" while only two of
+  the five were backend-call work. STATUS.md is the first thing read to decide where the
+  project is, and it was reading further along than the truth. M1 now shows 2 of 5.
+
+  Moving them introduced a quieter hazard, fixed in the same change: `gen_status` picks the
+  current phase as the first section holding anything unfinished, and a new top-level
+  section is a candidate like any other. Every Extra item is done today, so nothing would
+  have gone wrong today — the pointer would have moved to Extra silently, the first time
+  anyone recorded unfinished work there. `NOT_A_PHASE` now excludes it, alongside the
+  existing exclusion for the deferred backlog.
+
+  One of the seven tests written for this passed against the unguarded code and was
+  rewritten: it appended an unfinished Extra item to a plan that already had open
+  milestones, and `render()` returns the *first* unfinished item it meets, so the milestones
+  masked it. It now makes Extra the only unfinished work. Third instance this session of a
+  test that could not fail.
 - 2026-08-26 ruff runs in CI, on a rule set that is written down rather than inherited.
   It was configured in `pyproject.toml` and had never run anywhere — believed to be
   enforcing something while enforcing nothing. Wiring it up as it stood would have been
