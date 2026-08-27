@@ -103,6 +103,38 @@ def run(*args: str) -> str:
     ).stdout.strip()
 
 
+# Written by the prepare-commit-msg hook when git says the message was reused from HEAD.
+# That covers `git commit --amend` and `git commit -C HEAD`, which are indistinguishable
+# from a hook's arguments -- both arrive as source="commit", sha="HEAD", and neither sets
+# GIT_REFLOG_ACTION. Measured, not assumed.
+REUSED_MSG_MARKER = ROOT / ".git" / "docs-gate-reused-message"
+
+
+def message_reused_from_head() -> bool:
+    """True if this commit's message came from HEAD. Consumes the marker.
+
+    Consumed rather than merely read: a marker surviving an aborted commit would change
+    how the *next* one is judged. The hook rewrites it on every commit anyway, so this is
+    belt and braces on a check whose failure mode is a wrong verdict.
+    """
+    if not REUSED_MSG_MARKER.exists():
+        return False
+    REUSED_MSG_MARKER.unlink()
+    return True
+
+
+def files_against_previous_commit() -> list[str] | None:
+    """The staged set diffed against HEAD~1, which is an amend's real parent.
+
+    None when HEAD has no parent: amending a root commit has nothing to compare against,
+    and inventing an empty tree here would quietly widen the set instead of saying so.
+    """
+    if not run("git", "rev-parse", "--verify", "--quiet", "HEAD~1"):
+        return None
+    out = run("git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "HEAD~1")
+    return [line for line in out.splitlines() if line]
+
+
 def changed_files(mode: str, diff_range: str | None) -> list[str]:
     # commit-msg sees the same staged index as pre-commit: the hook runs before the commit
     # object exists, so the index still is the change under consideration. Falling through
@@ -918,6 +950,48 @@ def waivers(mode: str, message_file: str | None = None) -> dict[str, str]:
     return out
 
 
+def ownership_findings(changed: list[str], reused_message: bool, mode: str) -> list[Finding]:
+    """Ownership, judged against the parent the resulting commit will actually have.
+
+    A normal commit is the index against HEAD. An amend is the index against HEAD~1: the
+    files already inside the commit being amended are part of what lands, but they are not
+    in the index, so judging an amend against HEAD reports a complete commit as incomplete.
+    That blocked real work and the documented workaround was to undo the commit and remake
+    it, which is a lot of ceremony to answer a question the tool got wrong.
+
+    It cannot be detected outright. `git commit --amend` and `git commit -C HEAD` reach a
+    hook identically -- source="commit", sha="HEAD", GIT_REFLOG_ACTION unset -- and only
+    the first has HEAD~1 as its parent. So both readings are evaluated, the strict one
+    first, and a pass that depended on the amend reading is *announced* rather than taken
+    quietly. An escape hatch nobody can see becomes the default route; this one leaves a
+    line in every run that used it.
+    """
+    strict = check_ownership(changed)
+    if not reused_message or not any(f.level == BLOCK for f in strict):
+        return strict
+
+    widened = files_against_previous_commit()
+    if widened is None:
+        return [*strict, Finding(
+            WARN, "owning-doc",
+            "this commit reuses HEAD's message but HEAD has no parent, so there is no "
+            "amend reading to check. Judged against HEAD alone.")]
+
+    relaxed = check_ownership(widened)
+    if any(f.level == BLOCK for f in relaxed):
+        return relaxed
+
+    extra = sorted(set(widened) - set(changed))
+    return [*relaxed, Finding(
+        WARN, "owning-doc",
+        "passed only when read as an amend. This commit reuses HEAD's message, so its "
+        f"parent is HEAD~1 rather than HEAD, and {len(extra)} file(s) already inside the "
+        f"commit being amended were counted: {', '.join(extra[:6])}"
+        f"{' ...' if len(extra) > 6 else ''}. If this was `git commit -C HEAD` and not an "
+        "amend, the owning document for the changed code is in the PREVIOUS commit, not "
+        "this one.")]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=("pre-commit", "commit-msg", "ci"),
@@ -955,6 +1029,7 @@ def main() -> int:
         return 1
 
     changed = changed_files(args.mode, args.diff_range)
+    reused_message = message_reused_from_head() if args.mode == "commit-msg" else False
     waived = waivers(args.mode, args.message_file)
 
     findings: list[Finding] = []
@@ -965,7 +1040,9 @@ def main() -> int:
             findings += fn(args.mode, args.diff_range)
         elif name == "public-text":
             findings += fn(args.pr_event)
-        elif name in ("owning-doc", "split-dodge"):
+        elif name == "owning-doc":
+            findings += ownership_findings(changed, reused_message, args.mode)
+        elif name == "split-dodge":
             findings += fn(changed)
         else:
             findings += fn()

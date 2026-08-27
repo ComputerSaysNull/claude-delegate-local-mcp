@@ -25,7 +25,10 @@ scripts/install_hooks.py`, because that is where git runs. It needs only the sta
 library, and runs `scripts/docs_gate.py` -- one implementation, two callers, because a hook
 reimplementing the checks would be a second copy destined to disagree. It installs a
 **commit-msg** hook: git writes the message file only after a pre-commit hook returns, so a
-gate there scans the *previous* commit's message and carries its waiver into this one.
+gate there scans the *previous* commit's message and carries its waiver into this one. A
+**prepare-commit-msg** hook records whether the message came from HEAD, which is how an
+amend gets judged against its real parent -- see ADR-0028 for why that cannot simply be
+detected, and why a pass relying on it announces itself.
 
 ## Commits
 
@@ -168,17 +171,14 @@ a committed file listing what must not be committed is itself the leak.
 
 ## When this document splits
 
-The budget has been raised three times — 130, 175, 190, 215 — and the sentence here
-claiming twice was itself stale, which is the failure it was meant to warn about. It is
-now back down to 190 by trimming rather than raising: the branch-protection reasoning went
-to ADR-0026, and the documentation-strategy rules were dropped in favour of the link to
-CLAUDE.md that was already there.
+Raised three times — 130, 175, 190, 215 — and the sentence here claiming *twice* was
+itself stale, which is the failure it existed to warn about. Back down to 190 by trimming:
+the branch-protection reasoning went to ADR-0026 and the documentation-strategy rules to
+the CLAUDE.md link that was already there.
 
-If it needs raising again, split instead: the operational half — CI and the agent
-roster — moves to its own document owning `.github/**` and `.claude/agents/**`, leaving
-the conventions here. That is a valid split under this project's own rules (distinct owned
-code, reference separated from narrative), written down so nobody has to re-derive it
-under pressure.
+If it needs raising again, split instead: the operational half — CI and the agent roster —
+moves to its own document owning `.github/**` and `.claude/agents/**`, leaving the
+conventions here. Valid under this project's rules, and written down so nobody re-derives it.
 
 ## Upstream
 

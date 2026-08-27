@@ -48,6 +48,25 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 `git commit --amend` was judged against the wrong parent. The owning-doc
+  check compared the staged index against HEAD, which is right for a normal commit and wrong
+  for an amend: the amend's parent is HEAD~1, and the files already inside the commit being
+  amended are part of what lands while being absent from the index. A complete commit was
+  reported as incomplete, and the workaround was to undo the commit and remake it. It fired
+  twice while preparing this session's own commits.
+
+  It cannot be detected outright — `git commit --amend` and `git commit -C HEAD` reach a
+  hook identically as `source=commit, sha=HEAD`, with `GIT_REFLOG_ACTION` unset for both,
+  measured in a throwaway repository rather than assumed. Treating that signal as "amend"
+  would misjudge `-C HEAD`, and the failure would be a *pass*. So both readings are
+  evaluated, strict first, and a pass that depended on the amend reading emits a warning
+  naming the files it counted from the previous commit. ADR-0028.
+
+  A `prepare-commit-msg` hook records the signal; the marker is consumed when read and
+  rewritten on every commit, so an abandoned commit cannot leave state that changes the
+  verdict on the next one. Five tests: three fail against the unfixed gate, and two assert
+  the block still fires — an amend missing its document, and an ordinary commit — because a
+  change that merely stopped blocking amends would have disarmed the check.
 - 2026-08-26 Two checks in the gate and the suite could not fail for the reason they
   claimed. `HOSTPORT_ALLOWED` in `scripts/docs_gate.py` listed `127.0.0.1` twice and
   `0.0.0.0` once, all three unreachable: `HOSTPORT_RE` begins `[a-z]`, so a numeric host
