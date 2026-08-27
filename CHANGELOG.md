@@ -12,6 +12,47 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-27 A dispatch now survives a failure that was never about the request. Until now
+  a single dropped route, a restarting endpoint or a 503 during a model reload ended the
+  delegation, and the caller's only recourse was to ask Claude to try again -- which spends
+  Claude tokens to work around someone else's transient hardware. `loop.py` retries above
+  the adapter, so the adapter stays a translator and there is exactly one place that
+  decides what a failure means.
+  Selective, not blanket: unreachable is always retried, a refusal only for 429, 500, 502,
+  503 and 504, and a protocol error never. Those statuses are a module constant rather than
+  a setting, because which HTTP codes mean *temporary* is a fact rather than a preference,
+  and the set is exact -- 400, 401, 403 and 404 describe the request, and sending the same
+  request again cannot change the answer. base.py always said a refusal was "usually" not
+  worth retrying; this is the code that makes that word mean something. On exhaustion the
+  last real exception propagates unchanged, because the four error kinds are distinguishable
+  precisely so the layer above can act on them and a "gave up after N" wrapper would throw
+  that away.
+  `Retry-After` is honoured in both spellings RFC 7231 allows -- a count of seconds and an
+  HTTP-date. Reading only one would honour the header by luck, since which arrives is the
+  server's choice. An unparseable or absent header falls back to exponential backoff rather
+  than failing the call; it is a hint from someone else's machine, not a contract. An
+  honoured delay is used as sent and deliberately not jittered: jitter decorrelates clients
+  that are guessing, and a server that named a time has removed the guess. Ordinary backoff
+  is jittered across the full range.
+  New `retry_max_delay`, capping any single wait including an honoured one. Not decoration:
+  the wait sits between requests, where no HTTP timeout reaches it, so an uncapped header
+  stalls the delegation for as long as it likes. It is deliberately small because two
+  bounds that would otherwise cover this do not exist yet -- `dispatch_timeout` is declared
+  and enforced nowhere, and the per-turn progress notification that holds off the client's
+  30-minute stdio idle timeout is ADR-0018 and lands with the turn loop. Both gaps are
+  written down in ARCHITECTURE.md rather than left for a reader to assume are covered.
+  `BackendRefused` carries the `Retry-After` header verbatim and unparsed, for the same
+  reason it already carried the body and `finish_reason` is still raw: the adapter
+  translates and does not interpret. The response object does not survive the exception, so
+  a retry that could not see the header could not honour it.
+  The result gains `attempts` -- real calls made, counted by the server rather than inferred
+  (ADR-0007). The token counts beside it describe the attempt that answered, not the sum, so
+  a quiet success that actually took three tries is visible instead of invisible.
+  One of the six checks written for this could not fail when first written: the test
+  asserting an honoured `Retry-After` is *not* jittered used a jitter stand-in returning the
+  top of its range, so a wrongly-jittered 7 was still 7 and the assertion held either way.
+  Found by mutating the implementation and watching the suite stay green, not by reading it.
+  The stand-in now returns a value that could never be mistaken for an honoured one.
 - 2026-08-27 `delegate(files=[...])`: the server reads the files itself and gives them to
   the local model, so their contents never enter Claude's context. This is the thing the
   repository is for -- until now the only way to have a file reviewed was to read it into

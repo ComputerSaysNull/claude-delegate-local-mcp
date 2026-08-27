@@ -248,7 +248,7 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
             raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
         try:
-            response, used_effort = await run_one_shot(
+            dispatched = await run_one_shot(
                 cfg,
                 entry,
                 backend,
@@ -260,6 +260,7 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
         except (BackendUnavailable, BackendRefused, BackendProtocolError) as e:
             raise _refuse(e) from e
 
+        response = dispatched.response
         answer = response.text
         return {
             **prefetched.accounting(),
@@ -270,7 +271,11 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
             "finish_reason": response.finish_reason,
             "input_tokens": response.input_tokens,
             "output_tokens": response.output_tokens,
-            "effort": used_effort,
+            "effort": dispatched.effort,
+            # Real backend calls made, counted by the server rather than inferred. More
+            # than one means something failed and was retried without the caller having to
+            # care; the token counts above describe the attempt that answered, not the sum.
+            "attempts": dispatched.attempts,
             # A mechanical fact, not a diagnosis. Deciding what an empty answer *means*
             # is the M3 state machine's job; saying plainly that it is empty is this
             # commit's, because otherwise "" reads as a successful reply.

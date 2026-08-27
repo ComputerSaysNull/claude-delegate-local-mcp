@@ -72,12 +72,22 @@ class BackendRefused(BackendError):
     specific 400 to stay feature-detectable: the serving stack's own docs named the wrong
     boot flag for `thinking_token_budget`, and only the live response body says which
     switch actually gates it. A caller that cannot read the body cannot feature-detect.
+
+    `retry_after` is the header verbatim and unparsed -- the string the endpoint sent, or
+    None. Parsing it is interpretation, and this layer does not interpret: the same rule
+    that keeps `finish_reason` raw keeps this raw, and `loop.py` owns both. It is carried
+    here rather than re-read from the response because the response object does not
+    survive the exception, and a retry that ignores what the server asked for is not
+    honouring it.
     """
 
-    def __init__(self, status: int, body: str, url_path: str = "") -> None:
+    def __init__(
+        self, status: int, body: str, url_path: str = "", retry_after: str | None = None
+    ) -> None:
         self.status = status
         self.body = body
         self.url_path = url_path
+        self.retry_after = retry_after
         where = f" from {url_path}" if url_path else ""
         super().__init__(f"backend refused with HTTP {status}{where}: {body[:600]}")
 

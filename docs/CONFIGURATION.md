@@ -129,7 +129,8 @@ All settings are environment variables. Prefix `DELEGATE_`. List-valued settings
 | --- | --- | --- |
 | `DELEGATE_ONE_SHOT_TEMPERATURE` | 1.0 | Temperature for the one-shot delegate() path. Separate from tool_call_temperature because that value is low to protect tool-call syntax, and the one-shot path emits no tool calls -- there is no syntax to protect and nothing to gain from suppressing the model's own default sampling. |
 | `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, turn_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
+| `DELEGATE_RETRY_MAX_DELAY` | 20.0 | Cap on a single wait between attempts, including one the endpoint asked for via Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past anything turn_timeout was meant to bound, and the wait happens between requests where no HTTP timeout applies to it. Kept well under the 30-minute stdio idle timeout because nothing yet emits a progress notification to hold that off -- that is ADR-0018 and lands with the turn loop. |
 
-*41 settings.*
+*42 settings.*
 
 <!-- GEN:CONFIG:END -->

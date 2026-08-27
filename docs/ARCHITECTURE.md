@@ -1,8 +1,13 @@
-<!-- BUDGET: 340 -->
+<!-- BUDGET: 375 -->
 <!-- Raised from 300 across M2. This document owns wsl.py, paths.py and context.py, and
      all three went from a table row reading "not built" to behaviour that has to be
      explained. Partly paid for by cutting the bytes-per-token measurements, which
-     AGENTS.md already carried in full. -->
+     AGENTS.md already carried in full.
+     Raised again from 340 in M3: loop.py stopped being a straight-through dispatch, and
+     retry selectivity is a set of decisions whose reasons do not survive being compressed
+     into a sentence. The two bounds that do NOT yet exist are documented on purpose --
+     an unenforced dispatch_timeout is exactly the kind of gap a reader assumes is
+     covered. -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -99,7 +104,7 @@ every delegation, and would give `backend_status()` a second pool alongside `del
 for the same endpoint. The cache is injectable, for the reason the adapter takes a
 `client`: otherwise a test of the tool surface opens a real socket and waits a real timeout.
 
-### The one-shot path prefetches, resolves, sends, and interprets nothing
+### The one-shot path prefetches, resolves, sends, and retries
 
 `delegate()` builds one request from one task and the files named with it, and returns
 what came back. Paths are checked before the backend is even looked up, so a refusal costs
@@ -110,8 +115,11 @@ at high or max effort, then the per-model cap last, because the cap is what the 
 actually accept. An unlisted effort is refused before dispatch: it has no translation into
 the server's vocabulary, and discovering that mid-call wastes the call.
 
-What it does not do is decide anything: `finish_reason` and the token counts come back raw,
-because M3's state machine needs the unread values and would be built on sand otherwise.
+A dispatch that fails on the way out is retried here rather than surfaced — the rules are
+below, under [retry](#retry-sits-above-the-adapter-and-honours-what-the-endpoint-asks-for).
+What is still not decided here is anything about a reply that *arrived*: `finish_reason` and
+the token counts come back raw, because the half of the state machine that reads them needs
+the unread values and would be built on sand otherwise.
 
 That leaves one hazard M1 must face without M3's machinery. A reply can be valid, empty and
 stopped on length — the budget spent on reasoning, nothing left to answer with (ADR-0014).
@@ -190,6 +198,35 @@ nothing, so a shared bound leaves the connect phase held open for the entire req
 timeout. The operating system's own SYN-retransmission limit is the only thing underneath,
 and it varies by platform, so the stall is long and its length is not ours to predict.
 Connect is therefore bound by its own, much shorter setting.
+
+### Retry sits above the adapter, and honours what the endpoint asks for
+
+The four error kinds exist so retry can be selective, and `loop.py` is where that selection
+happens — never in the adapter, which stays a translator. Unreachable is always worth
+another attempt; a refusal only for an exact set of statuses, 429 and 500/502/503/504.
+Everything else — 400, 401, 403, 404 — describes the request, and sending it again cannot
+change the answer. The set is a module constant, not a setting: which codes mean *temporary*
+is a fact rather than a preference. A protocol error is never retried. On exhaustion the
+last real exception propagates unchanged, because a "gave up after N" wrapper would discard
+the very distinction this layer exists to keep.
+
+`Retry-After` is honoured in both spellings RFC 7231 allows — a count of seconds and an
+HTTP-date — since which one arrives is the server's choice and reading one honours the
+header by luck. An unparseable or absent header falls back to exponential backoff rather
+than failing the call: it is a hint from someone else's machine. An honoured delay is used
+as sent and deliberately *not* jittered, jitter being for clients that are guessing;
+ordinary backoff is jittered across the full range.
+
+Both are capped by [`retry_max_delay`](CONFIGURATION.md), which is not decoration: the wait
+sits outside every HTTP call, so no request timeout reaches it and an uncapped header stalls
+the delegation as long as it likes. It is deliberately small because two bounds that would
+otherwise cover this **do not exist yet** — `dispatch_timeout` is declared and enforced
+nowhere, and the per-turn progress notification holding off the client's 30-minute stdio
+idle timeout is ADR-0018, arriving with the turn loop. Worst case for one delegation is
+`retry_max_attempts` attempts plus the capped waits between them.
+
+The result reports `attempts`: real calls made, counted by the server, while the token
+counts beside it describe the attempt that answered rather than the sum. (ADR-0007)
 
 ### Four path layers, allowlist first
 

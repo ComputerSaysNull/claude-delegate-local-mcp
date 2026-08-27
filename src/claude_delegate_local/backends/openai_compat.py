@@ -352,7 +352,10 @@ def _tool_use_from_wire(call: Any) -> ToolUseBlock:
 
 def _decode(r: httpx.Response, path: str) -> dict[str, Any]:
     if r.status_code < 200 or r.status_code >= 300:
-        raise BackendRefused(r.status_code, r.text, path)
+        # The header goes up verbatim. Both RFC 7231 forms are legal and either may
+        # arrive; deciding what the string means -- and what to do if it means nothing --
+        # is loop.py's, for the same reason finish_reason is not mapped here.
+        raise BackendRefused(r.status_code, r.text, path, r.headers.get("Retry-After"))
     try:
         payload = r.json()
     except ValueError as e:

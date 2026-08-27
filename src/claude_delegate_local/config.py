@@ -247,6 +247,16 @@ class Config:
     )
     retry_max_attempts: int = _f(3, "Attempts on a retryable backend status.")
     retry_base_delay: float = _f(1.0, "Exponential backoff base.", unit="seconds")
+    retry_max_delay: float = _f(
+        20.0,
+        "Cap on a single wait between attempts, including one the endpoint asked for via "
+        "Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past "
+        "anything turn_timeout was meant to bound, and the wait happens between requests "
+        "where no HTTP timeout applies to it. Kept well under the 30-minute stdio idle "
+        "timeout because nothing yet emits a progress notification to hold that off -- "
+        "that is ADR-0018 and lands with the turn loop.",
+        unit="seconds",
+    )
 
     # ---- admission control (ADR-0012) -------------------------------------------
     max_inflight_seqs: int = _f(
@@ -364,6 +374,22 @@ class Config:
                     f"DELEGATE_{name.upper()} must be between 0.0 and 2.0; the canonical "
                     "request refuses anything else."
                 )
+        if self.retry_max_attempts < 1:
+            raise ConfigError(
+                f"DELEGATE_RETRY_MAX_ATTEMPTS ({self.retry_max_attempts}) must be at "
+                "least 1. It counts attempts, not retries, so 1 means send once and do "
+                "not retry; 0 would mean never send at all."
+            )
+        for name in ("retry_base_delay", "retry_max_delay"):
+            if getattr(self, name) < 0:
+                raise ConfigError(f"DELEGATE_{name.upper()} must not be negative.")
+        if self.retry_base_delay > self.retry_max_delay:
+            raise ConfigError(
+                f"DELEGATE_RETRY_BASE_DELAY ({self.retry_base_delay}) exceeds "
+                f"DELEGATE_RETRY_MAX_DELAY ({self.retry_max_delay}): the first backoff "
+                "would already be above the cap, so the cap would be the only delay ever "
+                "used and the base would silently mean nothing."
+            )
         if self.turn_timeout > self.dispatch_timeout:
             raise ConfigError(
                 f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}) exceeds "
