@@ -487,23 +487,74 @@ async def test_probe_on_a_dead_endpoint_is_unavailable():
 # --- the live cluster ------------------------------------------------------------------
 
 
-@pytest.mark.integration
-async def test_probe_against_the_live_endpoint():
-    """Skipped unless a real registry is configured. `-m "not integration"` is the default."""
+# --------------------------------------------------------------- live-endpoint guard
+
+UNPROVEN = ("BACKEND UNPROVEN BY THIS RUN -- this is not a pass. "
+            "The live path was not exercised because ")
+
+
+def _endpoint_layer(base_url: str) -> tuple[str, str]:
+    """Which layer stopped us, without ever naming the host.
+
+    Reachability is established **by address**: resolution and connection are separated
+    and reported apart. ADR-0021 is about exactly this -- a single combined failure cannot
+    distinguish broken DNS from a missing route, and a run that cannot tell them apart has
+    no business claiming either. A hostname resolving to the *wrong* address looks
+    identical to success here, which is how this endpoint was misconfigured for a week.
+
+    The address is never returned: it is a forbidden literal, and a skip reason reaches CI
+    logs. The layer is the useful part anyway.
+    """
+    import socket
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(base_url)
+    host, port = parts.hostname, parts.port or (443 if parts.scheme == "https" else 80)
+    if not host:
+        return "config", "the configured base_url has no host"
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return "dns", "the endpoint name does not resolve from this interpreter"
+    family, socktype, proto, _, sockaddr = infos[0]
+    sock = socket.socket(family, socktype, proto)
+    sock.settimeout(5)
+    try:
+        sock.connect(sockaddr)          # by address, never by name
+    except OSError:
+        return "route", ("the endpoint resolves but refuses or drops a connection -- "
+                         "no route, or nothing listening")
+    finally:
+        sock.close()
+    return "ok", ""
+
+
+def live_model():
+    """A registry entry for the live endpoint, or a loud skip saying what is unproven."""
     from claude_delegate_local import registry
 
     try:
         real_cfg = Config(workspace_roots=(".",), models_file="./models.toml")
         reg = registry.load(real_cfg)
     except ConfigError as e:
-        pytest.skip(f"no usable registry: {type(e).__name__}")
+        pytest.skip(UNPROVEN + f"no usable registry is configured ({type(e).__name__}).")
 
     model = reg.resolve(None)
+    layer, detail = _endpoint_layer(model.base_url)
+    if layer != "ok":
+        pytest.skip(UNPROVEN + f"{detail} [layer: {layer}].")
+    return real_cfg, model
+
+
+@pytest.mark.integration
+async def test_probe_against_the_live_endpoint():
+    """Skipped unless the live endpoint is genuinely reachable, and says so if not."""
+    real_cfg, model = live_model()
     live = oc.OpenAICompatBackend(real_cfg, model)
     try:
         served = await live.probe()
     except base.BackendUnavailable as e:
-        pytest.skip(f"endpoint unreachable: {e}")
+        pytest.fail(f"reachability said ok but the probe failed: {e}")
     finally:
         await live.aclose()
 
@@ -606,15 +657,7 @@ async def test_one_real_completion_against_the_live_endpoint():
     one level whose value has to be translated, so a translation regression fails here
     against the real validator rather than only against a double.
     """
-    from claude_delegate_local import registry
-
-    try:
-        real_cfg = Config(workspace_roots=(".",), models_file="./models.toml")
-        reg = registry.load(real_cfg)
-    except ConfigError as e:
-        pytest.skip(f"no usable registry: {type(e).__name__}")
-
-    model = reg.resolve(None)
+    real_cfg, model = live_model()
     live = oc.OpenAICompatBackend(real_cfg, model)
     req = base.CanonicalRequest(
         system="You answer in one short sentence.",
@@ -626,7 +669,7 @@ async def test_one_real_completion_against_the_live_endpoint():
     try:
         r = await live.complete(req)
     except base.BackendUnavailable as e:
-        pytest.skip(f"endpoint unreachable: {e}")
+        pytest.fail(f"reachability said ok but the call failed: {e}")
     finally:
         await live.aclose()
 

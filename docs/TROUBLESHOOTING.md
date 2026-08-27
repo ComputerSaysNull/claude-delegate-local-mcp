@@ -51,18 +51,23 @@ one `default = true` or set the global default. See [MODELS.md](MODELS.md).
 ### `backend_unreachable`, but the endpoint works from a terminal
 
 **If the server runs in WSL2, this is the usual cause.** WSL2 has its own network stack, so
-name resolution working on Windows says nothing about whether it works inside the guest —
-this bites particularly with Tailscale or mDNS-style short names.
+name resolution working on Windows says nothing about what happens inside the guest — this
+bites particularly with an overlay VPN, or with mDNS-style short names.
 
-Check from inside the guest, not the host:
+**Check that both sides resolve the name to the *same* address, not merely that both
+resolve it.** A short name can resolve inside the guest through a search domain and land on
+an entirely different host, which then refuses or drops the connection. That looks like a
+network fault and is not one, and a check asking only "did it resolve?" reports success:
 
 ```bash
-wsl -d Ubuntu-24.04 -e bash -lc 'getent hosts YOUR-HEAD-NODE; \
-  curl -s -m 8 http://YOUR-HEAD-NODE:8888/v1/models | head -c 80'
+powershell -c "(Resolve-DnsName YOUR-HEAD-NODE -Type A).IPAddress"
+wsl -d Ubuntu-24.04 -e bash -lc 'getent hosts YOUR-HEAD-NODE'
 ```
 
-If `getent` fails but the address works, add an entry to `/etc/hosts` inside the guest, or
-use the address in `models.toml`.
+Different answers mean the guest is talking to something else entirely; the same answer
+narrows it to routing. Either way the fix is the same: put the **address** in `models.toml`
+rather than a short name — which is what ADR-0021 asks for, verify by address, never by
+hostname.
 
 ### Health check fails against a healthy server
 

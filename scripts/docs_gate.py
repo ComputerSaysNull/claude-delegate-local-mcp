@@ -53,7 +53,7 @@ HOST_PATTERNS: list[tuple[str, str]] = [
     (r"\b192\.168(?:\.\d{1,3}){2}\b", "RFC1918 192.168.x address"),
     (r"\b172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}\b", "RFC1918 172.16-31.x address"),
     (r"\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])(?:\.\d{1,3}){2}\b",
-     "CGNAT 100.64/10 address (Tailscale range)"),
+     "CGNAT 100.64/10 address (overlay VPN range)"),
     # Private-DNS suffixes generally, not one vendor: wider protection, and
     # it does not advertise which kind of network sits behind it.
     (r"\b[a-z0-9-]+\.(ts\.net|internal|lan|home\.arpa|localdomain)\b",

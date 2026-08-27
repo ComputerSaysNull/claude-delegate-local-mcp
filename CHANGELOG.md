@@ -177,6 +177,27 @@ because an entry lives in the commit it describes and cannot know its own hash.
   never tracked.
 
 ### Changed
+- 2026-08-26 A skipped live test no longer reads as a passing one. The two tests that
+  touch the backend skipped with "endpoint unreachable" and nothing else, so a run that
+  exercised none of the real path was indistinguishable at a glance from one that exercised
+  all of it — `2 skipped` at the end of a green run. The skip reason now states that the
+  backend is UNPROVEN BY THIS RUN and names the layer that stopped it, and reachability is
+  established **by address**: resolution and connection are attempted separately and
+  reported apart, because a combined failure cannot tell broken DNS from a missing route
+  (ADR-0021). `BackendUnavailable` after reachability reports ok is now a failure rather
+  than a skip; it means the guard and the client disagree. The address never appears in the
+  reason — a skip reason reaches CI logs, and the layer is the useful part anyway.
+
+  The connectivity entry in `docs/TROUBLESHOOTING.md` was wrong in a way that would have
+  walked a reader past this project's own recent outage: it told you to check that the name
+  resolves inside the guest, when the failure was resolution *succeeding* through a search
+  domain and returning a different host entirely. It now asks whether both sides resolve to
+  the **same** address. `docs/MODELS.md` carried the same advice and is corrected too.
+
+  One vendor's product name appeared in three tracked files, including a gate finding
+  message that prints into CI logs. All three now say "overlay VPN". `docs_gate.py` already
+  stated the principle two lines below the offending label: not one vendor, because it
+  should not advertise which kind of network sits behind it.
 - 2026-08-26 The build-time agent roster in CONTRIBUTING.md is generated from
   `.claude/agents/*.md` rather than typed a second time. Model and effort for four agents
   existed in the frontmatter and were described again in a hand-written table; every value

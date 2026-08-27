@@ -107,9 +107,9 @@ health — deliberately, because bare vLLM does **not** serve the `/health/livel
 ancestor probed, which belongs to a proxy it used to sit behind. Probing the wrong path
 made a healthy cluster look unreachable.
 
-If the endpoint is behind Tailscale or similar, check that it resolves from **inside** the
-environment running the server. Name resolution working on the host says nothing about a
-WSL2 guest, which has its own network stack. See
+If the endpoint is behind an overlay VPN or similar, check that it resolves from **inside**
+the environment running the server, *and to the same address the host resolves it to*.
+Resolution succeeding in the guest is not the same as resolving correctly. See
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ## Failure messages
