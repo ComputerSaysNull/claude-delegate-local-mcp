@@ -27,6 +27,8 @@ loading fails rather than quietly falling back to defaults. ADR-0027.
 
 All settings are environment variables. Prefix `DELEGATE_`. List-valued settings are shown comma-separated for readability, but are **parsed on `os.pathsep`** — `;` on Windows, `:` elsewhere. The rendering is deliberately platform-independent so this file is byte-identical wherever it is generated.
 
+A description marked **Inert** means no code outside `config.py` reads that setting yet: it is validated at startup and otherwise does nothing, because the subsystem it controls is not built. See [PLAN.md](../PLAN.md) for what is where. The marker is computed by the generator from the source, not maintained by hand, so it disappears in the commit that starts using the setting.
+
 ### Backend selection
 
 | Variable | Default | Description |
@@ -39,7 +41,7 @@ All settings are environment variables. Prefix `DELEGATE_`. List-valued settings
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DELEGATE_WORKSPACE_ROOTS` | **required** | REQUIRED. Layer 1: directories a delegated model may read from, separated by os.pathsep. Any path whose real location falls outside every root is refused, which is what closes symlink escapes. Written in native host form. |
-| `DELEGATE_WORKDIR_ROOTS` | *(empty)* | Layer 1 applied to the `workdir` argument itself, which is a separate surface from the files read within it. Empty means reuse workspace_roots. |
+| `DELEGATE_WORKDIR_ROOTS` | *(empty)* | **Inert.** Layer 1 applied to the `workdir` argument itself, which is a separate surface from the files read within it. Empty means reuse workspace_roots. |
 | `DELEGATE_EXT_ALLOWLIST` | .py, .pyi, .md, .rst, .txt, .toml, .yaml, .yml, .json, .ts, .tsx, .js, .jsx, .mjs, .css, .html, .sql, .sh, .rs, .go, .java, .kt, .c, .h, .cpp, .hpp, .cs, .rb, .php, .swift, .lua, .ini, .cfg, .env-example, .gitignore, .dockerfile, .makefile | Layer 2: the practical allowlist. A pure allowlist cannot work for file contents -- you cannot enumerate every source file you will ever delegate -- so extension is the axis that can be allowlisted. Anything not listed is refused. |
 | `DELEGATE_SECRET_GLOBS_FILE` | ./security/secret_globs.txt | Layer 3: globs a model must never receive, shared with the git secrets gate so there is one list and not two that drift. |
 | `DELEGATE_RESPECT_GITIGNORE` | True | Layer 4: refuse paths git ignores. Cheap, and catches build output and local environment files that pass the extension allowlist. |
@@ -56,9 +58,9 @@ All settings are environment variables. Prefix `DELEGATE_`. List-valued settings
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_MAX_READ_CHARS` | 50000 chars | Cap on one read_file response. The model is told the true total and how to page, so it continues by range rather than re-reading. |
-| `DELEGATE_MAX_WRITE_BYTES` | 8388608 bytes | Cap on one write_file call. |
-| `DELEGATE_RUN_BASH_TIMEOUT` | 120 seconds | Per-command timeout for run_bash. |
+| `DELEGATE_MAX_READ_CHARS` | 50000 chars | **Inert.** Cap on one read_file response. The model is told the true total and how to page, so it continues by range rather than re-reading. |
+| `DELEGATE_MAX_WRITE_BYTES` | 8388608 bytes | **Inert.** Cap on one write_file call. |
+| `DELEGATE_RUN_BASH_TIMEOUT` | 120 seconds | **Inert.** Per-command timeout for run_bash. |
 
 ### Generation budgets
 
@@ -68,16 +70,16 @@ All settings are environment variables. Prefix `DELEGATE_`. List-valued settings
 | `DELEGATE_THINKING_DEFAULT` | low | Reasoning effort when neither the agent nor the registry entry specifies one. One of ('off', 'low', 'high', 'max'). Sent explicitly on every request rather than inherited, because the cluster's own default is set at boot and is not ours to assume. |
 | `DELEGATE_THINKING_MAX_TOKENS_FLOOR` | 131072 tokens | Floor applied to max_tokens when effort is high or max, and the size retried after an empty answer. Admission accounting must use the retry's size. |
 | `DELEGATE_RESEND_REASONING` | False | Send the model's prior reasoning back as history. Off: it costs input tokens and prefill on every turn, the conclusions already survive in the visible answer, and a growing prefix defeats prefix caching. |
-| `DELEGATE_TOOL_CALL_TEMPERATURE` | 0.2 | Temperature for every turn of the agentic loop. Low because tool-call syntax tokens are sampled at the request temperature, so malformed calls grow likelier as it rises. The one-shot path uses one_shot_temperature instead. |
+| `DELEGATE_TOOL_CALL_TEMPERATURE` | 0.2 | **Inert.** Temperature for every turn of the agentic loop. Low because tool-call syntax tokens are sampled at the request temperature, so malformed calls grow likelier as it rises. The one-shot path uses one_shot_temperature instead. |
 
 ### Agentic loop
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_MAX_TURNS_DEFAULT` | 25 | Round trips a delegation gets before the server stops it. One turn is one model reply plus any tool it ran. |
-| `DELEGATE_MAX_TURNS_HARD_CAP` | 40 | Ceiling no agent file or caller may exceed. Stops an agent definition asking for 500 turns and occupying the cluster for hours. |
-| `DELEGATE_KEEP_TOOL_RESULTS` | 6 | Most recent tool results kept intact; older ones collapse to a one-line stub. Every turn resends the whole history, so this is what stops quadratic growth. |
-| `DELEGATE_MAX_BATCH_SIZE` | 12 | Largest accepted delegate_batch request. |
+| `DELEGATE_MAX_TURNS_DEFAULT` | 25 | **Inert.** Round trips a delegation gets before the server stops it. One turn is one model reply plus any tool it ran. |
+| `DELEGATE_MAX_TURNS_HARD_CAP` | 40 | **Inert.** Ceiling no agent file or caller may exceed. Stops an agent definition asking for 500 turns and occupying the cluster for hours. |
+| `DELEGATE_KEEP_TOOL_RESULTS` | 6 | **Inert.** Most recent tool results kept intact; older ones collapse to a one-line stub. Every turn resends the whole history, so this is what stops quadratic growth. |
+| `DELEGATE_MAX_BATCH_SIZE` | 12 | **Inert.** Largest accepted delegate_batch request. |
 
 ### Timeouts and retries
 
@@ -93,26 +95,26 @@ All settings are environment variables. Prefix `DELEGATE_`. List-valued settings
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_MAX_INFLIGHT_SEQS` | 5 | Total concurrent backend requests across all models. Distinct from a registry entry's own `concurrency`, which caps one endpoint; both are checked. |
-| `DELEGATE_KV_TOKEN_BUDGET` | 2400000 tokens | Summed estimated live tokens permitted in flight. Sits just under the measured KV pool. Exceeding the pool queues rather than failing, so this protects latency rather than correctness. |
-| `DELEGATE_LARGE_PREFILL_TOKENS` | 32768 tokens | A request estimated above this counts as a large cold prefill. |
-| `DELEGATE_MAX_INFLIGHT_LARGE_PREFILLS` | 2 | Concurrent large prefills. The engine admits one long prefill at a time, so this is one running plus one staged -- pipelining, not throttling. Raising it makes every large request slower rather than any of them faster. |
+| `DELEGATE_MAX_INFLIGHT_SEQS` | 5 | **Inert.** Total concurrent backend requests across all models. Distinct from a registry entry's own `concurrency`, which caps one endpoint; both are checked. |
+| `DELEGATE_KV_TOKEN_BUDGET` | 2400000 tokens | **Inert.** Summed estimated live tokens permitted in flight. Sits just under the measured KV pool. Exceeding the pool queues rather than failing, so this protects latency rather than correctness. |
+| `DELEGATE_LARGE_PREFILL_TOKENS` | 32768 tokens | **Inert.** A request estimated above this counts as a large cold prefill. |
+| `DELEGATE_MAX_INFLIGHT_LARGE_PREFILLS` | 2 | **Inert.** Concurrent large prefills. The engine admits one long prefill at a time, so this is one running plus one staged -- pipelining, not throttling. Raising it makes every large request slower rather than any of them faster. |
 
 ### Sandbox
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_SANDBOX_ENABLED` | True | Confine run_bash with bubblewrap. When enabled and bwrap is absent, run_bash REFUSES rather than running unconfined. Setting this to 0 is an explicit, logged choice to run shell commands with no confinement. |
-| `DELEGATE_BWRAP_BIN` | bwrap | bubblewrap binary name or path. |
-| `DELEGATE_SANDBOX_HOME` | ~/.cache/claude-delegate-local/sandbox-home | Persistent HOME inside the sandbox. The real HOME is never bound, so credential directories are absent rather than merely unwritable. |
-| `DELEGATE_TOOLCHAIN_BINDS` | *(empty)* | Extra read-only binds so tools resolve inside an empty root. Empty means probe for `uv` and bind it: it lives outside the sandbox HOME, so `uv run pytest` fails with 'not found' without this. The single most likely first-run sandbox failure. |
-| `DELEGATE_ENV_PASSTHROUGH` | *(empty)* | Extra environment names allowed through to a sandboxed command, on top of the built-in allowlist. |
+| `DELEGATE_SANDBOX_ENABLED` | True | **Inert.** Confine run_bash with bubblewrap. When enabled and bwrap is absent, run_bash REFUSES rather than running unconfined. Setting this to 0 is an explicit, logged choice to run shell commands with no confinement. |
+| `DELEGATE_BWRAP_BIN` | bwrap | **Inert.** bubblewrap binary name or path. |
+| `DELEGATE_SANDBOX_HOME` | ~/.cache/claude-delegate-local/sandbox-home | **Inert.** Persistent HOME inside the sandbox. The real HOME is never bound, so credential directories are absent rather than merely unwritable. |
+| `DELEGATE_TOOLCHAIN_BINDS` | *(empty)* | **Inert.** Extra read-only binds so tools resolve inside an empty root. Empty means probe for `uv` and bind it: it lives outside the sandbox HOME, so `uv run pytest` fails with 'not found' without this. The single most likely first-run sandbox failure. |
+| `DELEGATE_ENV_PASSTHROUGH` | *(empty)* | **Inert.** Extra environment names allowed through to a sandboxed command, on top of the built-in allowlist. |
 
 ### Agents
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_AGENTS_DIR` | ~/.claude/agents | Third and last place an agent definition is looked for, after the workspace's own agents and skills directories. |
+| `DELEGATE_AGENTS_DIR` | ~/.claude/agents | **Inert.** Third and last place an agent definition is looked for, after the workspace's own agents and skills directories. |
 
 ### Transport
 
@@ -131,6 +133,6 @@ All settings are environment variables. Prefix `DELEGATE_`. List-valued settings
 | `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, turn_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
 | `DELEGATE_RETRY_MAX_DELAY` | 20.0 | Cap on a single wait between attempts, including one the endpoint asked for via Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past anything turn_timeout was meant to bound, and the wait happens between requests where no HTTP timeout applies to it. Kept well under the 30-minute stdio idle timeout because nothing yet emits a progress notification to hold that off -- that is ADR-0018 and lands with the turn loop. |
 
-*42 settings.*
+*42 settings, 19 of them inert.*
 
 <!-- GEN:CONFIG:END -->
