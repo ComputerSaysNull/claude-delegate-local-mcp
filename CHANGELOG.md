@@ -142,7 +142,7 @@ worth citing.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
-- 2026-08-27 `docs/ARCHITECTURE.md` splits, and `docs/DISPATCH.md` takes `loop.py` and
+- 2026-08-27 (#19) `docs/ARCHITECTURE.md` splits, and `docs/DISPATCH.md` takes `loop.py` and
   `backends/` with the four sections that describe them. It sat at 423 of 425 lines with
   M4's turn loop -- also `loop.py` -- about to land on top of it, which both audits of the
   day flagged and the second called overdue.
