@@ -1,4 +1,8 @@
-<!-- BUDGET: 300 -->
+<!-- BUDGET: 320 -->
+<!-- Raised from 300 in M2: this document owns wsl.py and paths.py, and both went from
+     a table row saying "not built" to real behaviour needing a section. Paid for in the
+     same commit by cutting the bytes-per-token measurements, which AGENTS.md already
+     carried in full. -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -57,8 +61,8 @@ Prefetching removes several such turns from the front of every delegation.
 |---|---|
 | `config.py` | Every setting, one frozen dataclass. The only place a default exists |
 | `registry.py` | One explicit row per model: URL, format, window, defaults, concurrency |
-| `wsl.py` | The single path-translation boundary *(not built)* |
-| `paths.py` | The four-layer path policy *(not built)* |
+| `wsl.py` | The single path-translation boundary |
+| `paths.py` | The four-layer path policy |
 | `context.py` | Prefetch, token budgeting, prompt ordering, history eviction *(not built)* |
 | `backends/base.py` | `Backend` protocol and the canonical message shape |
 | `backends/openai_compat.py` | The only adapter shipped |
@@ -190,12 +194,28 @@ Workspace roots, then an extension allowlist, then a secret denylist, then gitig
 
 A *pure* allowlist cannot work for file contents — you cannot enumerate every source file
 you might ever delegate — so extension is the axis that can be allowlisted, and the
-denylist and gitignore are second and third nets for what slips through: an extensionless
-key, a local environment file, a committed config full of tokens.
+denylist and gitignore are second and third nets for what slips through. Every refusal is
+actionable and the whole call fails on any one of them; the layers as a user meets them
+are in [AGENTS.md](AGENTS.md). The reference implementation had no validation at all and
+would read a private SSH key on request. (ADR-0006)
 
-Every refusal returns an actionable message, so the caller can correct itself without a
-round trip. The reference implementation of this feature had no validation at all and
-would read a private SSH key on request. (ADR-0006, [AGENTS.md](AGENTS.md))
+Layers 3 and 4 read something outside the process — a globs file, `git check-ignore` — so
+both can be absent, and both raise rather than defaulting to "nothing matched". A layer
+that cannot fire is trusted exactly as much as one that works, and a missing denylist and
+a clean pass are the same empty result in every log.
+
+### One place crosses the boundary
+
+Claude Code runs on Windows, the server runs in WSL, and `files[]` arrives in a form
+nothing downstream understands. `wsl.py` is the only module that knows this; everything
+below it is POSIX-only.
+
+Translating at the edge, rather than requiring POSIX paths from the caller, keeps the
+translation away from the least reliable participant in it. Both failure modes here are
+silent ones: a model's guessed `/c/Users/...` is a path that does not exist rather than an
+error saying so, and rewriting separators on a path that was already POSIX corrupts it,
+since a backslash is a legal filename character. So a path in no recognised Windows form
+is passed through untouched, and an untranslatable one is refused by name.
 
 ### Why bubblewrap, and what it does not cover
 
@@ -284,11 +304,10 @@ evidence instead of guesswork. (ADR-0012)
 
 ### Token estimates are per file type
 
-Bytes are the wrong unit for rationing context. Measured against this model's tokenizer,
-bytes-per-token ranges from 1.78 for punctuation-heavy JSON to 4.16 for densely commented
-Python — so a byte cap allows twice the *context* for a data file as for a source file,
-which is backwards. Budgets are denominated in estimated tokens, with per-extension ratios
-rounded down from measurement. (ADR-0019)
+Bytes are the wrong unit for rationing context: a byte cap allows twice the *context* for
+a data file as for a source file, which is backwards. Budgets are denominated in estimated
+tokens instead, from ratios measured per extension. The measurements and what they buy are
+in [AGENTS.md](AGENTS.md). (ADR-0019)
 
 ## Non-goals
 
