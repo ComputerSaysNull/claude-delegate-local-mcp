@@ -1,4 +1,7 @@
-<!-- BUDGET: 240 -->
+<!-- BUDGET: 265 -->
+<!-- Raised from 240 on 2026-08-27: M1 shipped the first server that can fail at
+     startup and the first tool that can report a backend, so two symptom classes
+     exist that had nowhere to be indexed before. -->
 # Troubleshooting
 
 Symptom, cause, fix.
@@ -18,6 +21,19 @@ link instead.
 Intended. Every setting is validated at load, never at first use — a bad timeout discovered
 thirty minutes into a delegation is far worse than a refusal to boot. The message names the
 variable and what was wrong with it. See [CONFIGURATION.md](CONFIGURATION.md).
+
+### Claude Code shows the server failed, and says nothing else
+
+There is nowhere for it to say more. The server speaks MCP over stdio, so stdout carries
+the protocol and a startup failure cannot be written there without corrupting it — the
+message goes to stderr, which a launcher discards. Run the command yourself to read it:
+
+```bash
+wsl.exe -d Ubuntu-24.04 -e claude-delegate-local-mcp
+```
+
+A configuration problem prints one line and exits non-zero. A healthy server prints
+nothing and waits for input, which looks like a hang and is not one — Ctrl-C it.
 
 ### `DELEGATE_WORKSPACE_ROOTS is required`
 
@@ -82,6 +98,19 @@ It must match the `id` field exactly:
 ```bash
 curl -s http://YOUR-HEAD-NODE:8888/v1/models | python3 -m json.tool
 ```
+
+`backend_status()` reports this as `id_confirmed: false` while leaving `status: "ok"` — the
+endpoint is genuinely healthy, and it is the registry that names something it does not
+serve. Worth checking first when a delegation is refused by a cluster that is plainly up.
+
+### `backend_status()` reports a word I do not recognise
+
+Six of them, each meant to send you somewhere different — a wrong key is a `.env` edit, an
+unreachable endpoint is somebody else's hardware. They are listed with what each implies in
+[ARCHITECTURE.md](ARCHITECTURE.md#backend_status-answers-a-question-a-stack-trace-cannot).
+
+The result never contains the endpoint address (ADR-0029), which is what makes it safe to
+paste into a bug report.
 
 ---
 

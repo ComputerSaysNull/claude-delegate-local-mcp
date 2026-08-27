@@ -65,11 +65,62 @@ Prefetching removes several such turns from the front of every delegation.
 | `loop.py` | The turn loop, one-shot path, response state machine *(not built)* |
 | `tools.py` | Model-facing tools and their enforcement *(not built)* |
 | `sandbox.py` | bubblewrap invocation *(not built)* |
-| `server.py` | MCP wiring, five tools, admission control *(not built)* |
+| `server.py` | MCP wiring, the tool declarations, the backend cache |
+| `main.py` | The console-script entrypoint: load, build, run one transport |
 
 The ancestor put all of this in one 2588-line file. We add two concerns it never had —
 path translation and sandboxing — so the split follows concerns, not line count.
 `server.py` stays thin wiring; the logic lives in `loop.py`, `backends/` and `context.py`.
+
+### stdout belongs to the protocol
+
+The server speaks MCP over stdio, so **stdout is the wire**. A `print`, a traceback, or a
+logging handler left on its default stream corrupts every message after it, and the only
+symptom is the client reporting a server that failed without saying why. Diagnostics go to
+stderr; `main.py` writes startup failures there and exits non-zero, because a non-zero exit
+is the one thing a launcher can report. Reading that message means running the command by
+hand — [TROUBLESHOOTING](TROUBLESHOOTING.md) says so, since there is nowhere else it shows.
+
+The FastMCP banner is suppressed for the same reason it would otherwise be harmless: it is
+drawn to stderr, but drawing it first calls PyPI for a version check. An outbound request
+on every launch is the wrong default for a tool whose point is that inference stays on
+hardware you control.
+
+### One backend per registry entry, for the life of the server
+
+`server.py` caches a backend — and so an `httpx` connection pool — per registry key, and
+closes them in the lifespan teardown. Building per call would discard connection warmup on
+every delegation, and would give `backend_status()` a second pool alongside `delegate()`'s
+for the same endpoint. The cache is injectable, for the reason the adapter takes a
+`client`: otherwise a test of the tool surface opens a real socket and waits a real timeout.
+
+### `backend_status()` answers a question a stack trace cannot
+
+It probes `GET {base_url}/v1/models` for every registry entry at once, bounded by
+[`status_probe_timeout`](CONFIGURATION.md) rather than the generation-sized `turn_timeout`,
+so one blackholed endpoint cannot stall the report on the others. Each probe returns its
+failure as data rather than raising: a dead model is a finding, and must not take down the
+report for every healthy one.
+
+Reachability is the easy half. The half worth having is `id_confirmed`: whether the
+endpoint actually serves the `served_model_id` the registry names, compared exactly, the
+way `Registry.resolve()` compares it. An endpoint that is up and serving *something else*
+is invisible to every other check — the delegation either gets refused, or gets answered by
+a model nobody chose. That case reports `status: "ok"` with `id_confirmed: false`, because
+the endpoint really is healthy; it is the configuration that is wrong.
+
+Six status words, chosen so that each sends the reader somewhere different:
+
+| | |
+|---|---|
+| `ok` | Reachable. Read `id_confirmed` as well |
+| `backend_unreachable` | Nothing answered: route, DNS, or the endpoint is down |
+| `auth_failed` | 401 or 403. The key is wrong, not the cluster |
+| `backend_refused` | Answered with some other error. Often the wrong path behind a proxy |
+| `backend_protocol_error` | Answered 200 with something that is not a model list — a proxy, or a different API |
+| `misconfigured` | Never reached the network. The named API-key variable is unset |
+
+What it never reports is the address. ADR-0029.
 
 ## Design decisions worth understanding
 

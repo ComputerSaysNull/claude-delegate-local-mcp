@@ -12,6 +12,29 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-27 The MCP server, and the first tool on it. Until now nothing called the backend
+  adapter: the whole package was configuration and a seam. `server.py` declares the tools
+  and owns one backend -- and so one connection pool -- per registry entry for the life of
+  the process; `main.py` fills the console-script entrypoint `pyproject.toml` has pointed at
+  since M0b and which, until this commit, failed on import. Startup failures go to stderr
+  and exit non-zero, because on stdio stdout is the wire protocol and a traceback written
+  there corrupts every message after it with no symptom beyond a client reporting a dead
+  server. The FastMCP banner is suppressed: it is drawn to stderr, but drawing it calls PyPI
+  for a version check, and an outbound request on every launch is the wrong default for a
+  tool whose point is that inference stays on hardware you control.
+- 2026-08-27 `backend_status()`, which answers what a stack trace cannot: is the model I was
+  told to use actually there. It probes `/v1/models` for every registry entry at once,
+  bounded by the new `status_probe_timeout` rather than the generation-sized `turn_timeout`,
+  so one blackholed endpoint cannot stall the report on the others, and each probe returns
+  its failure as data so a dead model does not take the report down for the healthy ones.
+  Reachability is the easy half. The half worth having is `id_confirmed`: an endpoint that
+  is up and serving a *different* model than the registry names is invisible to every other
+  check, and either refuses the delegation or answers it with a model nobody chose. That
+  case reports `status: "ok"` with `id_confirmed: false`, because the endpoint is healthy
+  and the configuration is not. Six status words, chosen so that each sends the reader
+  somewhere different -- `auth_failed` is a `.env` edit, `backend_unreachable` is somebody
+  else's hardware. The result never names the endpoint: a health report is what gets pasted
+  into a bug report, which is exactly why it must be safe to paste. ADR-0029.
 - 2026-08-26 The backend seam, and the one adapter behind it. `registry.py` has been
   refusing `api_format = "anthropic"` since M0b with an error naming a `Backend` protocol
   that did not exist -- a promise made in shipped code and payable by nothing. It now

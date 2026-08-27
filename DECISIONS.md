@@ -20,6 +20,29 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0029 — 2026-08-27 — Tool results never carry the endpoint address — Accepted
+
+The adapter already keeps the host out of its exception strings, on the reasoning that an
+exception reaches a log and from there a pasted issue comment. `backend_status()` is the
+first tool whose **return value** could carry it, and a health report is more likely to be
+pasted somewhere public than a stack trace is — that is what a health report is for.
+
+So the rule extends from exceptions to results: nothing a tool returns names the endpoint.
+`backend_status()` reports the registry key, the failure layer and the HTTP status, which
+is what the reader acts on anyway; the address is in `models.toml`, which is gitignored
+precisely because it names a host. The probe's model list is withheld for the same reason,
+a count standing in for it — a list of served ids is somewhere an internal name leaks
+without anyone choosing to disclose it.
+
+This costs something real. Diagnosing which of several endpoints failed now means reading
+the registry key and looking it up, rather than seeing the URL. Accepted, because the
+alternative leaks by default and is discovered only after it has been published, at which
+point it cannot be withdrawn.
+
+The rule binds future tool output too — the operator dispatch transcript in M7 most
+obviously. A tool that genuinely cannot be diagnosed without the address should say so and
+be argued on its own terms, rather than each author re-deriving this from first principles.
+
 ## ADR-0028 — 2026-08-26 — An amend is judged against HEAD~1, and a pass that relied on it says so — Accepted
 
 The owning-doc check compared the staged index against HEAD. Correct for a normal commit;
