@@ -6,8 +6,8 @@ change, the cause, and the fix. A terse one-liner is not enough -- in six months
 reason is the only part still worth having.
 
 Format: `- YYYY-MM-DD (#PR) what changed, and why.` Both written by hand at merge time.
-The `(#PR)` half starts with entries written after 2026-08-27; every entry above predates
-the convention and carries no number, which is why none of them shows one.
+The `(#PR)` half starts with PR #16, the one that wrote this line; every entry below it
+predates the convention and carries no number, which is why none of them shows one.
 
 No commit hash, deliberately. An entry lives in the commit it describes and so cannot know
 its own hash, and `main` is squash-merged, so a branch hash written here names an object
@@ -142,7 +142,7 @@ worth citing.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
-- 2026-08-27 The second documentation audit of the day, and the eighteen findings it
+- 2026-08-27 (#16) The second documentation audit of the day, and the eighteen findings it
   landed. Two fault classes account for most of them, and the first audit had found one
   instance of each without seeing either as a class. Facts restated outside their owning
   document: the bytes/token measurement existed in six places in copies that had already
@@ -156,7 +156,7 @@ worth citing.
   ADR-0031 corrects ADR-0005's claim that agent files are portable to Claude Code -- they
   are not, and this repository's own `.claude/agents/` were the counter-example all along.
   Findings and the three rejected on verification are in `docs/audits/2026-08-27-audit-2.md`.
-- 2026-08-27 `scripts/release.py` is cancelled before being written, and the CHANGELOG format
+- 2026-08-27 (#16) `scripts/release.py` is cancelled before being written, and the CHANGELOG format
   no longer promises a commit hash. The script's only job was to backfill each entry's sha at
   tag time -- and the sha is the wrong thing to cite here, because `main` is squash-merged, so
   a branch hash names an object that never leaves the clone it was made in. The PR number
@@ -173,7 +173,7 @@ worth citing.
   file set, `be4abc7` and `d4a4fad` are the two halves of PR #11. The M0 hashes are left alone
   because those commits really are reachable on `main`; only the ones a squash discarded were
   changed.
-- 2026-08-27 The audit-due counter now fires at 15 commits rather than 60, and the first
+- 2026-08-27 (#16) The audit-due counter now fires at 15 commits rather than 60, and the first
   recorded audit lives in `docs/audits/`. Sixty was chosen when the repository had fourteen
   commits, where it read as "a long while"; at the rate this one actually moves it is months,
   and a whole milestone can land and go stale inside one interval. The evidence is the audit
@@ -186,7 +186,7 @@ worth citing.
   green while testing nothing near a boundary at all — a check that cannot fail, in the file
   whose whole subject is a check that could not fail. It now reads the constant from the gate,
   verified by temporarily changing the gate and watching the test follow it.
-- 2026-08-27 Two stale entries fixed in `docs/TROUBLESHOOTING.md`, found by the audit above.
+- 2026-08-27 (#16) Two stale entries fixed in `docs/TROUBLESHOOTING.md`, found by the audit above.
   A symptom entry claimed an `HTTP 400 ... thinking_token_budget` was "feature-detected and
   dropped automatically" — nothing ever detected it, because the adapter has never sent the
   field, so the symptom cannot arise through this server. Deleted rather than reworded: this
