@@ -106,6 +106,14 @@ back **uninterpreted**: null content with `finish_reason: "length"` is a valid r
 carrying no text, not an error. Deciding what that means belongs to the response state
 machine in M3, which needs the raw value to decide it.
 
+The adapter's single HTTP client bounds **connect and request separately**. One timeout for
+both looks harmless, because the failure everyone pictures is a refused connection — and a
+refused connection sends RST and fails in milliseconds regardless. A *dropped* route sends
+nothing, so a shared bound leaves the connect phase held open for the entire request
+timeout. The operating system's own SYN-retransmission limit is the only thing underneath,
+and it varies by platform, so the stall is long and its length is not ours to predict.
+Connect is therefore bound by its own, much shorter setting.
+
 ### Four path layers, allowlist first
 
 Workspace roots, then an extension allowlist, then a secret denylist, then gitignore.

@@ -96,12 +96,18 @@ class OpenAICompatBackend:
         self._entry = entry
         self._api_key = _resolve_api_key(entry)
         self._owns_client = client is None
-        # One timeout for the whole request, taken from turn_timeout: a single
-        # non-streaming call *is* the turn. dispatch_timeout spans a whole delegation and
-        # belongs to the caller above. No separate connect timeout is invented here --
-        # that would be a new setting living outside config.py, and a refused connection
-        # already fails immediately without one.
-        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(cfg.turn_timeout))
+        # turn_timeout bounds the request body: a single non-streaming call *is* the turn.
+        # dispatch_timeout spans a whole delegation and belongs to the caller above.
+        #
+        # connect_timeout bounds the connect phase separately, and much shorter. An earlier
+        # comment here argued no such bound was needed because "a refused connection already
+        # fails immediately" -- true, and irrelevant. A REFUSED connection sends RST and
+        # fails in milliseconds; a DROPPED or blackholed route sends nothing at all, so
+        # without a connect bound it stalled for the full turn_timeout. Measured on the
+        # unfixed code: refused 0.02s, dropped still pending after 40s.
+        self._client = client or httpx.AsyncClient(
+            timeout=httpx.Timeout(cfg.turn_timeout, connect=cfg.connect_timeout)
+        )
 
     # --- outbound ----------------------------------------------------------------------
 
