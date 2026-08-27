@@ -142,6 +142,24 @@ worth citing.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-27 Six gate checks now have negative tests, so the gate is trusted for a
+  reason rather than by habit. `check_budgets`, `check_orphan_docs`,
+  `check_manifest_docs_exist`, `check_split_dodge`, `check_secret_paths` and
+  `check_pr_text` had none: the existing suite covers the four checks already caught
+  validating nothing, by name, and nothing covered these. Two of them guard the pull
+  request title and body -- the surface no commit hook can see -- so they had been running
+  unverified on every pull request this repository has ever opened, including the two that
+  landed the audit which found this.
+  Each is asserted in both directions, because one alone is not a test: a check that always
+  fires passes a fires-on-violation test, and a check that never fires passes a
+  silent-on-clean test. Only the pair tells them apart. `check_secret_paths` had exactly
+  that half-test already -- one case proving it does *not* flag the policy list, and
+  nothing proving it flags anything.
+  The tests were then themselves negative-tested, which is the step the project convention
+  exists to force: each check was neutered to `return []` in turn and the suite re-run, and
+  every one produced failures matching its assertion count. Two tests written for an
+  earlier self-defeating check had passed against the bug before being rewritten, so
+  proving the check fires is not the same as proving the test would notice if it did not.
 - 2026-08-27 (#17) The generated configuration reference now marks settings that nothing reads.
   Nineteen of forty-two -- the sandbox, the model-facing tools, admission control -- were
   rendered identically to settings that work, so a third of the reference read as live

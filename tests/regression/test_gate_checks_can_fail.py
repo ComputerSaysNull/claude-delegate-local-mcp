@@ -1,0 +1,241 @@
+"""Six gate checks that had never been shown to fire.
+
+The second audit of 2026-08-27 found that `check_budgets`, `check_orphan_docs`,
+`check_manifest_docs_exist`, `check_split_dodge`, `check_secret_paths` and `check_pr_text`
+had no negative test. `test_gate_self_defeating_checks.py` covers the four checks that were
+already caught validating nothing, by name; its docstring says both were found "by
+negative-testing the gate rather than by reading it", which is exactly what these six had
+never had. Two of them -- `check_pr_text` and `check_secret_paths` -- guard the surface
+CLAUDE.md says no hook can gate.
+
+Every check here is asserted in BOTH directions: that it fires on a real violation, and
+that it stays silent on the closest thing that is not one. One direction alone is not a
+test. A check that always fires passes a fires-on-violation test, and a check that never
+fires passes a silent-on-clean test; only the pair distinguishes a working check from
+either broken one.
+
+`check_secret_paths` had exactly that half-test before this file: one case asserting it
+does *not* flag the policy list. Nothing asserted it flags anything.
+
+Named after the bug, per the project's convention.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+GATE = ROOT / "scripts" / "docs_gate.py"
+
+# Fictional, and assembled at runtime, for the same reason test_forbidden_matching.py does
+# it: a test proving a secret scanner works must not itself contain the string the scanner
+# looks for, and exempting the test file would be a hole rather than a fix.
+FORBIDDEN_LITERAL = "host-" + "zeta"
+
+MANIFEST = """\
+[docs."docs/PARENT.md"]
+audience = ["contributor"]
+plane = "product"
+owns = ["src/real.py"]
+covers_not = "Nothing."
+
+[unowned]
+paths = ["tests/**", "scripts/**", "security/**", "src/other.py"]
+"""
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    """A throwaway repository the gate can be pointed at.
+
+    The gate resolves ROOT from its own location, so copying the script into a temp tree
+    makes that tree the repository under test. Nothing here touches the real one.
+    """
+    r = tmp_path / "r"
+    (r / "scripts").mkdir(parents=True)
+    (r / "security").mkdir()
+    (r / "docs").mkdir()
+    (r / "src").mkdir()
+    shutil.copy(GATE, r / "scripts" / "docs_gate.py")
+    (r / "scripts" / "docs_ownership.toml").write_text(MANIFEST, encoding="utf-8")
+    for name, body in (
+        ("allowed_emails.txt", "t@example.com\n"),
+        ("secret_globs.txt", ".env\nid_rsa\n"),
+        ("content_safe_emails.txt", "t@example.com\n"),
+        ("forbidden_strings.txt", "# local\n" + FORBIDDEN_LITERAL + "\n"),
+    ):
+        (r / "security" / name).write_text(body, encoding="utf-8")
+    (r / "docs" / "PARENT.md").write_text("<!-- BUDGET: 99 -->\n# Parent\n", encoding="utf-8")
+    (r / "src" / "real.py").write_text("x = 1\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=r, capture_output=True)
+    subprocess.run(["git", "add", "-A"], cwd=r, capture_output=True)
+    return r
+
+
+def gate(repo: Path, *args: str) -> list[str]:
+    """Run the gate in the temp repo and return its report lines."""
+    subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True)
+    proc = subprocess.run(
+        [sys.executable, "scripts/docs_gate.py", *(args or ("--mode", "pre-commit"))],
+        cwd=repo, capture_output=True, text=True,
+    )
+    return proc.stdout.splitlines()
+
+
+def fired(lines: list[str], check: str, *needles: str) -> bool:
+    """True when `check` reported a BLOCK or WARN mentioning every needle."""
+    return any(
+        f"[{check}]" in ln
+        and ("BLOCK" in ln or "WARN" in ln)
+        and all(n in ln for n in needles)
+        for ln in lines
+    )
+
+
+# --------------------------------------------------------------------------- budgets
+
+def test_budget_fires_when_a_document_is_over_its_cap(repo: Path):
+    (repo / "docs" / "big.md").write_text(
+        "<!-- BUDGET: 5 -->\n" + "line\n" * 40, encoding="utf-8")
+    assert fired(gate(repo), "budget", "docs/big.md", "against a budget of 5")
+
+
+def test_budget_is_silent_when_the_document_fits(repo: Path):
+    """The other direction. A check that blocks every document would pass the test above."""
+    (repo / "docs" / "small.md").write_text(
+        "<!-- BUDGET: 50 -->\n" + "line\n" * 4, encoding="utf-8")
+    assert not fired(gate(repo), "budget", "docs/small.md")
+
+
+def test_per_entry_budget_fires_on_one_long_section(repo: Path):
+    (repo / "docs" / "log.md").write_text(
+        "<!-- BUDGET-PER-ENTRY: 3 -->\n## short\nx\n## long\n" + "y\n" * 30,
+        encoding="utf-8")
+    assert fired(gate(repo), "budget", "docs/log.md", "'long'")
+
+
+def test_per_entry_budget_is_silent_on_short_sections(repo: Path):
+    (repo / "docs" / "log2.md").write_text(
+        "<!-- BUDGET-PER-ENTRY: 30 -->\n## a\nx\n## b\ny\n", encoding="utf-8")
+    assert not fired(gate(repo), "budget", "docs/log2.md")
+
+
+def test_archive_threshold_warns_rather_than_blocks(repo: Path):
+    """ARCHIVE-AT is the append-only instrument: it must warn and never block."""
+    (repo / "docs" / "hist.md").write_text(
+        "<!-- ARCHIVE-AT: 5 -->\n" + "line\n" * 40, encoding="utf-8")
+    lines = gate(repo)
+    assert fired(lines, "budget", "docs/hist.md", "archive threshold")
+    assert not any("BLOCK" in ln and "docs/hist.md" in ln for ln in lines)
+
+
+# ---------------------------------------------------------------------- orphan docs
+
+def test_orphan_doc_fires_when_owned_code_does_not_exist(repo: Path):
+    (repo / "src" / "real.py").unlink()
+    assert fired(gate(repo), "orphan-doc", "docs/PARENT.md")
+
+
+def test_orphan_doc_is_silent_when_the_owned_code_is_tracked(repo: Path):
+    assert not fired(gate(repo), "orphan-doc", "docs/PARENT.md")
+
+
+# -------------------------------------------------------------- manifest documents
+
+def test_manifest_fires_when_a_listed_document_is_absent(repo: Path):
+    (repo / "docs" / "PARENT.md").unlink()
+    assert fired(gate(repo), "manifest", "docs/PARENT.md", "does not exist")
+
+
+def test_manifest_is_silent_when_the_document_is_present(repo: Path):
+    assert not fired(gate(repo), "manifest", "does not exist")
+
+
+# ------------------------------------------------------------------- the split dodge
+
+def _add_child(repo: Path, *, audience: str, owns: str) -> None:
+    """Register and stage a second document, as someone evading a budget would."""
+    manifest = repo / "scripts" / "docs_ownership.toml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "[unowned]",
+            textwrap.dedent(f"""\
+                [docs."docs/CHILD.md"]
+                audience = [{audience}]
+                plane = "product"
+                owns = [{owns}]
+                covers_not = "Nothing."
+
+                [unowned]"""),
+        ),
+        encoding="utf-8",
+    )
+    (repo / "docs" / "CHILD.md").write_text("<!-- BUDGET: 99 -->\n# Child\n", encoding="utf-8")
+
+
+def test_split_dodge_fires_on_a_subset_of_an_existing_document(repo: Path):
+    _add_child(repo, audience='"contributor"', owns='"src/real.py"')
+    assert fired(gate(repo), "split-dodge", "docs/CHILD.md", "docs/PARENT.md")
+
+
+def test_split_dodge_is_silent_when_the_audience_is_distinct(repo: Path):
+    """A real split. Same owned code, different reader -- allowed by ADR-0003."""
+    _add_child(repo, audience='"user"', owns='"src/real.py"')
+    assert not fired(gate(repo), "split-dodge", "docs/CHILD.md")
+
+
+# ------------------------------------------------------------------- secret paths
+
+def test_secret_path_fires_on_a_tracked_file_matching_a_glob(repo: Path):
+    """The direction that had never been asserted. `.env` is in the fixture's glob list."""
+    (repo / ".env").write_text("TOKEN=x\n", encoding="utf-8")
+    assert fired(gate(repo), "secret-path", ".env")
+
+
+def test_secret_path_is_silent_on_the_example_file(repo: Path):
+    """`.env.example` matches nothing and must stay committable."""
+    (repo / ".env.example").write_text("TOKEN=\n", encoding="utf-8")
+    assert not fired(gate(repo), "secret-path", ".env.example")
+
+
+def test_secret_path_fires_on_a_match_by_basename_in_a_subdirectory(repo: Path):
+    """The glob is matched against the basename too, so nesting must not hide a key."""
+    (repo / "src" / "id_rsa").write_text("key\n", encoding="utf-8")
+    assert fired(gate(repo), "secret-path", "id_rsa")
+
+
+# ----------------------------------------------------------------- pull request text
+
+def _event(repo: Path, *, title: str, body: str) -> str:
+    p = repo / "event.json"
+    p.write_text(json.dumps({"pull_request": {"title": title, "body": body}}),
+                 encoding="utf-8")
+    return str(p)
+
+
+def test_pr_title_is_scanned(repo: Path):
+    ev = _event(repo, title=f"fix: crash on {FORBIDDEN_LITERAL}", body="clean")
+    assert fired(gate(repo, "--mode", "ci", "--pr-event", ev), "public-text", "title")
+
+
+def test_pr_body_is_scanned(repo: Path):
+    ev = _event(repo, title="fix: a crash", body=f"reproduced on {FORBIDDEN_LITERAL}")
+    assert fired(gate(repo, "--mode", "ci", "--pr-event", ev), "public-text", "body")
+
+
+def test_pr_text_is_silent_when_both_are_clean(repo: Path):
+    ev = _event(repo, title="fix: a crash", body="reproduced locally")
+    assert not fired(gate(repo, "--mode", "ci", "--pr-event", ev), "public-text")
+
+
+def test_pr_text_reports_a_skip_rather_than_a_pass_when_there_is_no_payload(repo: Path):
+    """The distinction SKIP exists for: 'could not check' must not read as 'checked'."""
+    lines = gate(repo, "--mode", "ci")
+    assert any("[public-text]" in ln and "SKIP" in ln for ln in lines)
