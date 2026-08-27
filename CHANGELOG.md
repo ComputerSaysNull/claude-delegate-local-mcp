@@ -12,6 +12,104 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-27 The empty answer is now reproduced against the live cluster and recovered from
+  there, not only against a backend that was told to return the signature. Every other test
+  of this path scripts the failure, which proves the state machine reads its own inputs and
+  nothing about whether a real model still produces those inputs -- and ADR-0014's recorded
+  numbers had in fact already drifted (JOURNAL 2026-08-27). Two cases: the budget retry
+  answering after a first dispatch too small to finish in, and the terminal verdict after a
+  step-down, each asserting the mitigation was really spent rather than just the outcome.
+  Both are deliberately cheap, because reproducing exhaustion needs a *small* budget: they
+  run in under three minutes together, where one full-cap max-effort exhaustion takes tens
+  of minutes.
+  Writing it surfaced a trap worth recording, since it is the same shape as the bug the
+  suite exists to prevent. The first version capped the model at the same number as the
+  first budget, which -- the cap being applied last, and to everything -- also pinned the
+  retry, so the stage skipped and the recovery fell through to the step-down. The test still
+  passed. Then the floor was set to 4096, below the 7033 tokens this prompt actually needs at
+  low effort, and it fell through again. Both times a green test was exercising a different
+  stage than its name claimed, and only asserting the *level* the dispatch ended on caught
+  it. The numbers now come from the measurement instead of from plausibility.
+- 2026-08-27 An answer that comes back empty because reasoning ate the whole budget is now
+  recovered from instead of merely labelled. The failure is measured, not hypothetical
+  (ADR-0014), and until now the server named it and handed it back, with the tool
+  description asking *Claude* to retry at a lower effort -- which spends cloud tokens and a
+  round trip on a decision the server is better placed to make, having the budget, the level
+  and the finish reason in front of it.
+  Three stages: send; on the signature retry once at the larger of double the budget and
+  `thinking_max_tokens_floor`, keeping the effort level; if still empty, step the level down
+  once and send again. Not a cascade through every level -- each stage is a real generation
+  at the largest budget the model allows, so a four-step climb down would cost more than the
+  answer while the caller waits.
+  The order is deliberate and is the opposite of obvious. Raising the budget keeps the
+  rendered prompt identical apart from one number, so the prefix cache survives it; stepping
+  the level down changes the prompt itself, because effort is part of it (measured, JOURNAL
+  2026-08-26), so that dispatch misses the cache and pays a fresh prefill on top of its
+  generation. The cheap mitigation goes first. The stepped budget is resolved again for the
+  new level rather than inherited, since a lower level no longer needs headroom the higher
+  one forced up. The step table is derived from `EFFORT_LEVELS` rather than written out: a
+  second copy would stop agreeing with it silently, by stepping to a level that no longer
+  exists or skipping one that does.
+  The trigger is narrow on purpose -- empty text **and** a length stop. An empty answer at
+  `finish_reason: "stop"` is a model that genuinely had nothing to say, and a length stop
+  with text in it is ordinary truncation where an answer exists and is merely cut short.
+  Firing on either would buy a full generation, twice, for nothing; both have their own
+  regression test, because over-firing here is as expensive as under-firing.
+  One stage is skipped rather than spent: where the model's own cap already pinned the first
+  budget there is no larger budget to retry at, and re-sending the request unchanged pays a
+  generation for a result that cannot differ.
+- 2026-08-27 `delegate()` now returns `reasoning_exhausted` beside `empty_response`, because
+  they are different claims and only the second was ever being made. `empty_response` stays
+  the mechanical fact. `reasoning_exhausted` is the diagnosis, true only after a larger
+  budget and a lower level have both been spent -- ADR-0014's `reasoning_exhausted_budget`,
+  and the point at which the phrase is earned.
+  The distinction is not cosmetic; the two states send a caller to opposite fixes. Empty
+  after both mitigations means the task needs more reasoning than this model finishes inside
+  its budget, so split it or send it elsewhere. Empty with the level *already* at its lowest
+  means there was nothing to step down and the budget was simply too small -- and reporting
+  that as exhaustion would tell the caller to lower an effort that is already lowest, which
+  is a wrong instruction rather than a vague one. It has its own regression test.
+- 2026-08-27 A dispatch now survives a failure that was never about the request. Until now
+  a single dropped route, a restarting endpoint or a 503 during a model reload ended the
+  delegation, and the caller's only recourse was to ask Claude to try again -- which spends
+  Claude tokens to work around someone else's transient hardware. `loop.py` retries above
+  the adapter, so the adapter stays a translator and there is exactly one place that
+  decides what a failure means.
+  Selective, not blanket: unreachable is always retried, a refusal only for 429, 500, 502,
+  503 and 504, and a protocol error never. Those statuses are a module constant rather than
+  a setting, because which HTTP codes mean *temporary* is a fact rather than a preference,
+  and the set is exact -- 400, 401, 403 and 404 describe the request, and sending the same
+  request again cannot change the answer. base.py always said a refusal was "usually" not
+  worth retrying; this is the code that makes that word mean something. On exhaustion the
+  last real exception propagates unchanged, because the four error kinds are distinguishable
+  precisely so the layer above can act on them and a "gave up after N" wrapper would throw
+  that away.
+  `Retry-After` is honoured in both spellings RFC 7231 allows -- a count of seconds and an
+  HTTP-date. Reading only one would honour the header by luck, since which arrives is the
+  server's choice. An unparseable or absent header falls back to exponential backoff rather
+  than failing the call; it is a hint from someone else's machine, not a contract. An
+  honoured delay is used as sent and deliberately not jittered: jitter decorrelates clients
+  that are guessing, and a server that named a time has removed the guess. Ordinary backoff
+  is jittered across the full range.
+  New `retry_max_delay`, capping any single wait including an honoured one. Not decoration:
+  the wait sits between requests, where no HTTP timeout reaches it, so an uncapped header
+  stalls the delegation for as long as it likes. It is deliberately small because two
+  bounds that would otherwise cover this do not exist yet -- `dispatch_timeout` is declared
+  and enforced nowhere, and the per-turn progress notification that holds off the client's
+  30-minute stdio idle timeout is ADR-0018 and lands with the turn loop. Both gaps are
+  written down in ARCHITECTURE.md rather than left for a reader to assume are covered.
+  `BackendRefused` carries the `Retry-After` header verbatim and unparsed, for the same
+  reason it already carried the body and `finish_reason` is still raw: the adapter
+  translates and does not interpret. The response object does not survive the exception, so
+  a retry that could not see the header could not honour it.
+  The result gains `attempts` -- real calls made, counted by the server rather than inferred
+  (ADR-0007). The token counts beside it describe the attempt that answered, not the sum, so
+  a quiet success that actually took three tries is visible instead of invisible.
+  One of the six checks written for this could not fail when first written: the test
+  asserting an honoured `Retry-After` is *not* jittered used a jitter stand-in returning the
+  top of its range, so a wrongly-jittered 7 was still 7 and the assertion held either way.
+  Found by mutating the implementation and watching the suite stay green, not by reading it.
+  The stand-in now returns a value that could never be mistaken for an honoured one.
 - 2026-08-27 `delegate(files=[...])`: the server reads the files itself and gives them to
   the local model, so their contents never enter Claude's context. This is the thing the
   repository is for -- until now the only way to have a file reviewed was to read it into
@@ -39,6 +137,40 @@ because an entry lives in the commit it describes and cannot know its own hash.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-27 M3 is scoped down and its four context-economics items move to M4, because
+  they read conversation history, evictions and an action ledger that only the turn loop and
+  `tools.py` produce. Building them here would have been four commits whose only caller was
+  a test, with an `off by default` flag controlling nothing -- and "off by default" buys
+  safety for an operator upgrading, not for code with no call site. The design work is
+  recorded under M4 rather than deferred blank, including the finding that the denominator
+  must be `ModelEntry.context_window` and never the dataclass's own 131072 fallback that an
+  entry omitting the field inherits silently, and that the reserve has to be a fraction of
+  the window rather than a flat count.
+  One of upstream's five negative tests was evaluated and dropped: it needs a local-only
+  gate that also blocks an explicit override on a cloud backend, and ADR-0008 ships no cloud
+  backends while `context_window` is always operator-set, so there is no two-branch gate to
+  break. A synthetic two-tier fixture would have passed whether or not the code had the
+  flaw, which is the kind of check this repository already knows is worse than none. Named
+  and dismissed in PLAN.md rather than left as a silent gap.
+- 2026-08-27 Feature-detecting the `thinking_token_budget` rejection is cancelled, not
+  deferred, and PLAN.md keeps the item with the reason. There is nothing to detect: the
+  adapter never sends the field, which is the strongest available form of ADR-0017's "never
+  rely on it", so no 400 ever arrives. A detector for a request we do not make is machinery
+  guarding nothing.
+  Re-probed before deciding, per ADR-0017's own lesson that this stack's docs and its
+  behaviour disagree. Still refused, still naming `VLLM_USE_V2_MODEL_RUNNER=0`. The probe
+  earned its keep anyway: the error body carries `param: null`, so the structural check the
+  item was going to key on (`error.param == "thinking_token_budget"`) would have matched
+  nothing on every call, with the text fallback silently carrying the whole feature while
+  looking like a safety net. ADR-0017 stands unedited; JOURNAL 2026-08-27 has the body.
+- 2026-08-27 `delegate()`'s tool description again, and again as a behaviour change rather
+  than a wording one (CLAUDE.md's invariant). It used to tell the caller to retry an empty
+  answer at a lower effort. The server now does exactly that itself, so the instruction
+  became false *and* wasteful -- a caller following it would repeat, at cloud-token cost,
+  work that had already been done. It now says plainly not to retry, that a dropped route
+  and an empty answer are both handled below it, and how to read `empty_response` and
+  `reasoning_exhausted` together, since those two point at different fixes. It also
+  documents `attempts`.
 - 2026-08-27 `delegate()`'s tool description, which is the model-facing contract and so is
   a behaviour change rather than a wording one. It previously told the model it could not
   read any file and to paste code into the task; both halves are now false. It says to name

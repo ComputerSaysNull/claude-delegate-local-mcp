@@ -73,28 +73,25 @@ Throwaway scripts, deliberately not shipped.
 
 ## M3 — Response state machine
 
-- ⬜ Retry and backoff, honouring `Retry-After`
-- ⬜ Empty-answer detection, retry at the floor, effort step-down
-- ⬜ Feature-detect the `thinking_token_budget` rejection and degrade
-- ⬜ Integration test reproducing the empty answer against the live cluster
-- ⬜ Context-overflow handling, off by default. Promoted from Deferred 2026-08-26: the
-  upstream fork shipped it and our parked wording had already converged on the same
-  detection signal (ADR-0024). Retroactive abort when prompt size plateaus while history
-  grows *and* this server evicted nothing to explain it; preventive graduated response at
-  70/85/95% of projected usage — tighten retention, wrap-up nudge, hard abort. On abort, a
-  state report reconciling the model's ledger against `git status` ground truth
-- ⬜ Negative tests for the five bugs that cost upstream, three of one shape — a threshold
-  computed against the wrong denominator: firing on this server's own evictions; a band
-  firing on ordinary growth; a flat reserve alone exceeding 95% of a small window; a probe
-  reading the architecture maximum instead of the configured window; a local-only gate also
-  blocking the explicit override on cloud backends. The denominator is the thing to test
-- ⬜ Diagnostics opt-in per call — action ledger on success as well as failure, per-turn
-  token and eviction breakdown, and an evicted-then-reread correlation, which is what
-  separates a genuinely expensive dispatch from one re-reading what it lost. ADR-0007
-  extended from exit codes to context economics, and a prerequisite for sizing eviction
-- ⬜ Two constraints from upstream's bugs: a negative cache expires, or one transient
-  backend outage disables overflow handling until restart; a nudge reply concatenates and
-  never overwrites what the model already said
+Scoped down 2026-08-27 to what a one-shot dispatch can actually own. The four
+context-economics items moved to M4: they read conversation history, evictions and an
+action ledger, none of which exist until the turn loop and `tools.py` do, so building them
+here would have meant four commits whose only caller was a test and an `off by default`
+flag controlling nothing. The design work is not lost — it is recorded under M4.
+
+- ✅ 2026-08-27 Retry and backoff, honouring `Retry-After` — `0b4b633`
+- ✅ 2026-08-27 Empty-answer detection, retry at the floor, effort step-down — `dea7f0b`
+- ❌ 2026-08-27 Feature-detect the `thinking_token_budget` rejection and degrade.
+  **Reason: there is nothing to detect.** The adapter never sends the field, which is the
+  strongest form of ADR-0017's "never rely on it", so no 400 ever arrives to feature-detect.
+  Re-probed before deciding rather than reasoned about: still refused, still naming
+  `VLLM_USE_V2_MODEL_RUNNER=0`, the flag the serving stack's own docs do not mention.
+  Reasoning is bounded by `max_tokens` plus the retry-and-step-down guard, exactly as
+  ADR-0017 said it would be. The probe also found the error body carries `param: null`, so
+  the structural detection this item was going to use would have matched nothing every time
+  while a text fallback silently carried the feature — JOURNAL 2026-08-27. Revisit only if
+  the endpoint's boot configuration changes; ADR-0017 stands unedited
+- ✅ 2026-08-27 Integration test reproducing the empty answer against the live cluster
 
 ## M4 — Agentic loop and model tools
 
@@ -108,6 +105,41 @@ Throwaway scripts, deliberately not shipped.
 - ⬜ `max_tokens` precedence: call argument, then frontmatter, then the per-model bump,
   then the configured default *last*. An operator lowering the ceiling must not suppress
   the bump that stops heavy-reasoning models returning empty output (ADR-0024)
+- ⬜ Context-overflow handling, off by default. Promoted from Deferred 2026-08-26 and moved
+  out of M3 2026-08-27, because it consumes per-turn history this milestone produces.
+  Retroactive abort when prompt size plateaus while history grows *and* this server evicted
+  nothing to explain it — the explanatory variable must be a flag this server set, never
+  inferred from the model's account (ADR-0007's spirit), and the plateau needs a small token
+  slop or a backend trimming a token between turns reads as truncation. Preventive graduated
+  response at 70/85/95% of projected usage — tighten retention, wrap-up nudge, hard abort.
+  On abort, a state report reconciling the model's ledger against `git status` ground truth
+- ⬜ Negative tests for the bugs that cost upstream, three of one shape — a threshold
+  computed against the wrong denominator: firing on this server's own evictions; a band
+  firing on ordinary growth; a flat reserve alone exceeding 95% of a small window; a probe
+  reading the wrong window. The denominator is `ModelEntry.context_window` and nothing
+  else — not `thinking_max_tokens_floor`, which is a reply budget, and not the dataclass's
+  own 131072 fallback that an entry omitting the field inherits silently, which is the
+  realistic local form of upstream's "architecture maximum" bug. The reserve must be a
+  fraction of the window rather than a flat count, which closes that bug class instead of
+  patching one instance. Upstream's fifth test — a local-only gate also blocking the
+  explicit override on cloud backends — was **evaluated 2026-08-27 and is not applicable**:
+  ADR-0008 ships no cloud backends and `context_window` is always the operator-set value,
+  so there is no two-branch gate to break, and a synthetic two-tier fixture would pass
+  whether or not the code had the flaw. Its lesson folds into the wrong-denominator test:
+  assert only one branch decides which number is the window
+- ⬜ Diagnostics opt-in per call — action ledger on success as well as failure, per-turn
+  token and eviction breakdown, and an evicted-then-reread correlation, which is what
+  separates a genuinely expensive dispatch from one re-reading what it lost. ADR-0007
+  extended from exit codes to context economics, and a prerequisite for sizing eviction
+- ⬜ Two constraints from upstream's bugs: a negative cache expires, or one transient
+  backend outage disables overflow handling until restart — and a transport failure while
+  probing must never populate it, only a confirmed refusal; a nudge reply concatenates and
+  never overwrites what the model already said
+- ⬜ Enforce `dispatch_timeout`, which is declared and consumed nowhere. M3's retry waits
+  and the empty-answer stages are bounded only by their own counters, and an exhausted
+  max-effort delegation measured at tens of minutes (JOURNAL 2026-08-27) — so this and the
+  progress notification above are what keep a long delegation inside the client's idle
+  timeout
 
 ## M5 — Sandbox
 

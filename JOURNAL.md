@@ -424,3 +424,76 @@ were tried; only the second works.
 Second finding from the same session, same shape: a venv's `bin/` is not on the PATH that
 `wsl.exe -e` resolves against, so the bare console-script name fails with `No such file or
 directory` — which reads as "not installed" when it is installed and on no relevant PATH.
+
+---
+
+## 2026-08-27 — At max effort this model does not answer, at any budget
+
+ADR-0014 recorded that a 512-token budget returned null content and that "at 4096 it
+answers but still truncates". The second half no longer reproduces, and building the empty-
+answer recovery on it would have got the mitigation backwards.
+
+Measured against the live endpoint, max effort, one hard prompt, budget varied:
+
+| max_tokens | finish   | content | reasoning chars | completion tokens |
+|------------|----------|---------|-----------------|-------------------|
+| 512        | length   | null    | 1,482           | 512               |
+| 6,144      | length   | null    | 18,006          | 6,144             |
+| 16,384     | length   | null    | 48,115          | 16,384            |
+| 32,768     | length   | null    | 91,753          | 32,768            |
+| 65,536     | length   | null    | 231,977         | 65,536            |
+| 16,384 at **low** effort | **stop** | **1,781 chars** | 18,629 | 7,033 |
+
+Reasoning grows to fill whatever it is given and the answer never arrives. Every row at max
+effort is the exhaustion signature, and completion tokens equal the budget exactly in all
+five — the saturation trap JOURNAL 2026-08-26 already warned about, here as the *result*
+rather than an artefact of it. The same prompt at low effort answered comfortably and
+stopped on its own, using 7,033 of 16,384.
+
+So **raising the budget is not the mitigation for this failure; lowering the effort is.**
+The recovery order in `loop.py` puts the budget retry first because it keeps the prompt
+prefix intact and the step-down second because changing the level discards the prefix cache.
+That ordering is still right on cache grounds, but it would be pure waste here — and it
+turns out not to fire at all with production numbers, for an arithmetic reason worth
+stating rather than discovering later. High and max effort already resolve the budget to
+`thinking_max_tokens_floor` (131072), and the model's own `max_tokens_cap` is 131072, so
+"the larger of double the budget and the floor" caps back to the budget already sent. The
+guard that skips a byte-identical retry therefore skips the whole stage, and the level steps
+down on the second call. `test_at_max_effort_the_budget_retry_is_skipped_and_it_steps_down_immediately`
+pins that arithmetic, because if the floor ever drops below the cap the stage silently comes
+back and costs the model's entire cap to fail again.
+
+Two things to carry forward. A max-effort delegation that ends in exhaustion now costs two
+dispatches at 131072 tokens; the 65536-token call alone ran for over ten minutes, so the
+pair sits near or past the client's 30-minute stdio idle timeout, which nothing holds off
+until ADR-0018's per-turn notification lands with the turn loop. And the default effort
+being `low` is doing more work than it looks: it is the difference between an answer and
+nothing on this prompt, not a cost preference.
+
+ADR-0014's decision stands — reproduce and guard rather than avoid — and its recorded
+numbers are simply older than the deployment. Not edited, per the rule that ADR bodies are
+not rewritten; this entry is the correction.
+
+---
+
+## 2026-08-27 — `thinking_token_budget` is still refused, and its error names no parameter
+
+Re-probed before deciding whether to build M3's feature detection for it, since ADR-0017's
+measurement was two days old and that ADR's own lesson is to prefer a probe over a doc.
+
+Still a 400, with the same message naming `VLLM_USE_V2_MODEL_RUNNER=0` — the boot flag the
+serving stack's own documentation does not mention. Unchanged, so ADR-0017 holds.
+
+The useful part is the shape of the error, which would have quietly broken the detector as
+designed:
+
+    {"error": {"message": "thinking_token_budget is not yet supported by the V2 model
+     runner. Run vLLM with VLLM_USE_V2_MODEL_RUNNER=0 to use thinking_token_budget.",
+     "type": "BadRequestError", "param": null, "code": 400}}
+
+`param` is **null**. The plan was to feature-detect structurally on
+`error.param == "thinking_token_budget"` and fall back to a text match only if that failed.
+Structural detection would have matched nothing, every time, and the fallback would have
+been carrying the whole feature while looking like a safety net. Worth knowing before
+writing a detector for any other optional field on this stack: the parameter name is in the
+prose and nowhere else.

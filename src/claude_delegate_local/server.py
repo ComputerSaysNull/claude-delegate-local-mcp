@@ -218,13 +218,27 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
         was unavailable, but it cannot tell you what it never saw.
 
         Returns `answer` plus what actually happened: the model that served it, the raw
-        `finish_reason`, token counts, and the prefetch accounting. Check
-        `empty_response`. An empty answer with `finish_reason: "length"` is not a model
-        with nothing to say -- it is one that spent the whole reply budget on reasoning
-        and had none left to answer with. Retry that at a lower effort, or with a smaller
-        task; do not report it as an empty result. If the call fails outright,
-        `backend_status()` will say whether the model is down, misconfigured, or serving
-        something other than it should.
+        `finish_reason`, token counts, the prefetch accounting, and `attempts` -- the real
+        number of backend calls this took, which is more than one when something failed
+        and was retried for you.
+
+        Do not retry this call yourself to work around an empty answer or a flaky
+        endpoint. The server already does both, and repeating it here spends your context
+        to redo work that was done. A dropped route or a temporary refusal is retried with
+        backoff; an answer that comes back empty at a length stop -- reasoning having
+        consumed the whole reply budget -- is retried at a larger budget and then at a
+        lower effort before you are told about it.
+
+        So `empty_response: true` means those were already tried and it is still empty.
+        Read `reasoning_exhausted` alongside it. True: the task needs more reasoning than
+        this model can finish inside its budget, so split it or send it somewhere else --
+        asking again, or at a lower effort, will not help. False: the budget was simply
+        too small for the answer at an effort that is already the lowest, so a shorter
+        task or a model with a larger cap is the fix. Either way, report the empty result
+        rather than presenting it as a model with nothing to say.
+
+        If the call fails outright, `backend_status()` will say whether the model is down,
+        misconfigured, or serving something other than it should.
         """
         try:
             entry = registry.resolve(model)
@@ -248,7 +262,7 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
             raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
         try:
-            response, used_effort = await run_one_shot(
+            dispatched = await run_one_shot(
                 cfg,
                 entry,
                 backend,
@@ -260,6 +274,7 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
         except (BackendUnavailable, BackendRefused, BackendProtocolError) as e:
             raise _refuse(e) from e
 
+        response = dispatched.response
         answer = response.text
         return {
             **prefetched.accounting(),
@@ -270,11 +285,22 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
             "finish_reason": response.finish_reason,
             "input_tokens": response.input_tokens,
             "output_tokens": response.output_tokens,
-            "effort": used_effort,
-            # A mechanical fact, not a diagnosis. Deciding what an empty answer *means*
-            # is the M3 state machine's job; saying plainly that it is empty is this
-            # commit's, because otherwise "" reads as a successful reply.
+            "effort": dispatched.effort,
+            # Real backend calls made, counted by the server rather than inferred. More
+            # than one means something failed and was retried without the caller having to
+            # care; the token counts above describe the attempt that answered, not the sum.
+            "attempts": dispatched.attempts,
+            # Still the mechanical fact, and still reported on its own: "" must never read
+            # as a successful reply. What changed is that reaching here means the state
+            # machine already tried a larger budget and a lower effort.
             "empty_response": answer == "",
+            # The diagnosis, which is a different claim and only earned once the
+            # mitigations have actually been spent. True means every one was tried and the
+            # answer is still empty at a length stop -- ADR-0014's reasoning_exhausted_budget.
+            # False alongside an empty answer means the effort was already at its lowest,
+            # so nothing was left to step down and the budget, not the reasoning, is what
+            # ran out. Two different fixes, which is why they are two different fields.
+            "reasoning_exhausted": dispatched.reasoning_exhausted,
         }
 
     @mcp.tool

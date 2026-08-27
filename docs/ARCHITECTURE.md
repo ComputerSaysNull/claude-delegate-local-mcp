@@ -1,8 +1,19 @@
-<!-- BUDGET: 340 -->
+<!-- BUDGET: 425 -->
 <!-- Raised from 300 across M2. This document owns wsl.py, paths.py and context.py, and
      all three went from a table row reading "not built" to behaviour that has to be
      explained. Partly paid for by cutting the bytes-per-token measurements, which
-     AGENTS.md already carried in full. -->
+     AGENTS.md already carried in full.
+     Raised again from 340 in M3: loop.py stopped being a straight-through dispatch, and
+     retry selectivity is a set of decisions whose reasons do not survive being compressed
+     into a sentence. The two bounds that do NOT yet exist are documented on purpose --
+     an unenforced dispatch_timeout is exactly the kind of gap a reader assumes is
+     covered.
+     Raised again from 375 to 425 for empty-answer recovery. The two terminal states are
+     different diagnoses that send a caller to different fixes, and the reason each
+     mitigation is ordered where it is -- prefix cache first, prefill last -- is not
+     recoverable from the code by someone deciding whether to reorder them. The last ten
+     lines are the measurement that says one of those stages does not fire in production:
+     without it the skip reads as tidiness rather than the thing holding the cost down. -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -67,7 +78,7 @@ Prefetching removes several such turns from the front of every delegation.
 | `context.py` | Prefetch, token budgeting, prompt ordering; history eviction *(not built)* |
 | `backends/base.py` | `Backend` protocol and the canonical message shape |
 | `backends/openai_compat.py` | The only adapter shipped |
-| `loop.py` | The one-shot path; the turn loop and response state machine *(not built)* |
+| `loop.py` | The one-shot path and the response state machine; the turn loop *(not built)* |
 | `tools.py` | Model-facing tools and their enforcement *(not built)* |
 | `sandbox.py` | bubblewrap invocation *(not built)* |
 | `server.py` | MCP wiring, the tool declarations, the backend cache |
@@ -99,7 +110,7 @@ every delegation, and would give `backend_status()` a second pool alongside `del
 for the same endpoint. The cache is injectable, for the reason the adapter takes a
 `client`: otherwise a test of the tool surface opens a real socket and waits a real timeout.
 
-### The one-shot path prefetches, resolves, sends, and interprets nothing
+### The one-shot path prefetches, resolves, sends, and retries
 
 `delegate()` builds one request from one task and the files named with it, and returns
 what came back. Paths are checked before the backend is even looked up, so a refusal costs
@@ -110,15 +121,19 @@ at high or max effort, then the per-model cap last, because the cap is what the 
 actually accept. An unlisted effort is refused before dispatch: it has no translation into
 the server's vocabulary, and discovering that mid-call wastes the call.
 
-What it does not do is decide anything: `finish_reason` and the token counts come back raw,
-because M3's state machine needs the unread values and would be built on sand otherwise.
+A dispatch that fails on the way out is retried here rather than surfaced, and a reply that
+arrives empty is recovered from — both below, under
+[retry](#retry-sits-above-the-adapter-and-honours-what-the-endpoint-asks-for) and
+[empty-answer recovery](#an-empty-answer-is-recovered-from-before-it-is-reported). What
+stays true is where the reading happens: `finish_reason` and the token counts cross the
+adapter raw, and `loop.py` is the only layer that interprets them.
 
-That leaves one hazard M1 must face without M3's machinery. A reply can be valid, empty and
-stopped on length — the budget spent on reasoning, nothing left to answer with (ADR-0014).
-Returned bare, `{"answer": ""}` reads as a model with nothing to say, and the caller reports
-a false result. So the result carries `empty_response`, a mechanical fact rather than a
-diagnosis, and the tool description says what an empty answer at a length stop means. It is
-not called `reasoning_exhausted_budget`: that word means every mitigation was tried.
+A reply can be valid, empty and stopped on length — the budget spent on reasoning, nothing
+left to answer with (ADR-0014). That is now recovered from rather than merely reported;
+see [empty-answer recovery](#an-empty-answer-is-recovered-from-before-it-is-reported)
+below. The result still carries `empty_response` as a mechanical fact, and now
+`reasoning_exhausted` beside it as the diagnosis — which is a separate claim, and earned
+only once the mitigations have actually been spent.
 
 ### `backend_status()` answers a question a stack trace cannot
 
@@ -190,6 +205,35 @@ nothing, so a shared bound leaves the connect phase held open for the entire req
 timeout. The operating system's own SYN-retransmission limit is the only thing underneath,
 and it varies by platform, so the stall is long and its length is not ours to predict.
 Connect is therefore bound by its own, much shorter setting.
+
+### Retry sits above the adapter, and honours what the endpoint asks for
+
+The four error kinds exist so retry can be selective, and `loop.py` is where that selection
+happens — never in the adapter, which stays a translator. Unreachable is always worth
+another attempt; a refusal only for an exact set of statuses, 429 and 500/502/503/504.
+Everything else — 400, 401, 403, 404 — describes the request, and sending it again cannot
+change the answer. The set is a module constant, not a setting: which codes mean *temporary*
+is a fact rather than a preference. A protocol error is never retried. On exhaustion the
+last real exception propagates unchanged, because a "gave up after N" wrapper would discard
+the very distinction this layer exists to keep.
+
+`Retry-After` is honoured in both spellings RFC 7231 allows — a count of seconds and an
+HTTP-date — since which one arrives is the server's choice and reading one honours the
+header by luck. An unparseable or absent header falls back to exponential backoff rather
+than failing the call: it is a hint from someone else's machine. An honoured delay is used
+as sent and deliberately *not* jittered, jitter being for clients that are guessing;
+ordinary backoff is jittered across the full range.
+
+Both are capped by [`retry_max_delay`](CONFIGURATION.md), which is not decoration: the wait
+sits outside every HTTP call, so no request timeout reaches it and an uncapped header stalls
+the delegation as long as it likes. It is deliberately small because two bounds that would
+otherwise cover this **do not exist yet** — `dispatch_timeout` is declared and enforced
+nowhere, and the per-turn progress notification holding off the client's 30-minute stdio
+idle timeout is ADR-0018, arriving with the turn loop. Worst case for one delegation is
+`retry_max_attempts` attempts plus the capped waits between them.
+
+The result reports `attempts`: real calls made, counted by the server, while the token
+counts beside it describe the attempt that answered rather than the sum. (ADR-0007)
 
 ### Four path layers, allowlist first
 
@@ -267,10 +311,52 @@ them — `off` is our word for the server's `none` — and a level with no trans
 refused only after its prefill had been paid for. (ADR-0013)
 
 There is a real failure mode here, reproduced rather than assumed: at high effort with a
-small reply budget, reasoning consumes the whole allowance and the response comes back
-with null content and a length stop. The server detects exactly that, retries once at a
-larger budget without charging the turn, then steps effort down, then fails with a precise
-reason rather than an empty answer. (ADR-0014)
+small reply budget, reasoning consumes the whole allowance and the response comes back with
+null content and a length stop. What the server does about it is below. (ADR-0014)
+
+### An empty answer is recovered from before it is reported
+
+The signature is narrow on purpose: empty text **and** a length stop, together. Either
+alone is a different thing — an empty answer at `finish_reason: "stop"` is a model that
+genuinely had nothing to say, and a length stop with text in it is ordinary truncation
+where an answer exists and is merely cut short. Both must be left alone, because every
+mitigation below costs a full generation at the largest budget the model allows.
+
+Three stages, and deliberately not a cascade through every level. Send. If the signature
+appears, retry once at the larger of double the budget and
+[`thinking_max_tokens_floor`](CONFIGURATION.md), keeping the effort level — this stage
+keeps the rendered prompt identical apart from the budget, so the prefix cache survives it.
+If that is still empty, step the level down once and send again. The step table is derived
+from the level vocabulary rather than written out, so it cannot drift into stepping to a
+level that no longer exists.
+
+Stepping down is the last resort rather than the first because it is the expensive one: the
+level is part of the rendered prompt, so `prompt_tokens` moves with it (measured, JOURNAL
+2026-08-26) and a stepped dispatch misses the prefix cache entirely, paying a fresh prefill
+on top of its generation. The stepped budget is resolved again for the new level rather than
+inherited, since a lower level no longer needs the headroom the higher one forced up.
+
+One stage is skipped rather than spent: when the model's own cap already pinned the first
+budget there is no larger budget to retry at, and re-sending the request unchanged buys a
+full generation for a result that cannot differ. That is not a rare edge — high and max
+effort already resolve to `thinking_max_tokens_floor`, so where the model cap equals it the
+budget stage never fires and the level steps down on the second call. Measured, and the
+measurement is why the skip matters rather than being a tidiness: at max effort raising the
+budget is not the mitigation at all, and lowering the level is (JOURNAL 2026-08-27, which
+also notes what an exhausted max-effort delegation costs in wall clock against the idle
+timeout above). A test pins the arithmetic so the stage cannot quietly return.
+
+The two terminal states are different diagnoses, and conflating them would send the caller
+to the wrong fix. Still empty after both mitigations is ADR-0014's exhaustion —
+`reasoning_exhausted: true`, meaning the task needs more reasoning than this model finishes
+inside its budget. Still empty with the level *already* at its lowest is not: there was
+nothing left to disable, so the budget was too small for the answer, and reporting that as
+exhaustion would tell the caller to lower an effort that is already lowest.
+
+`attempts` counts every real call across all three stages and every transport retry inside
+them. The token counts describe the attempt that answered, not the sum: ADR-0014 requires
+the retry not to charge the turn budget, and with no turn accounting yet that is what the
+rule amounts to here.
 
 ### Prompt order is load-bearing
 
