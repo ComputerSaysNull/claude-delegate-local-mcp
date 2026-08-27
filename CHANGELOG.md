@@ -142,6 +142,15 @@ worth citing.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-27 `check_split_dodge` no longer takes a changed-file list it never read. The
+  parameter had been there since the check was written, ignored on every call: the check
+  needs the files being *added*, and `changed_files()` reports that a path changed rather
+  than how, so it queries git itself. An argument that is accepted and discarded is worse
+  than either having it or not -- the signature describes a function this is not, and it
+  invites a later reader to "fix" the check by wiring the wrong list into it. The docstring
+  now says why the list is not taken, so the next person to notice stops there. Found while
+  writing the check's first negative test, which is the usual way an unused argument
+  surfaces: nothing exercises it, so nothing contradicts it.
 - 2026-08-27 Six gate checks now have negative tests, so the gate is trusted for a
   reason rather than by habit. `check_budgets`, `check_orphan_docs`,
   `check_manifest_docs_exist`, `check_split_dodge`, `check_secret_paths` and

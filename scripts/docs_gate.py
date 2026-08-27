@@ -883,12 +883,18 @@ def check_manifest_docs_exist() -> list[Finding]:
     return out
 
 
-def check_split_dodge(changed: list[str]) -> list[Finding]:
+def check_split_dodge() -> list[Finding]:
     """A new document must earn its existence, or it is a budget being evaded.
 
     Valid reasons to split: a different audience, different owned code, or reference
     material separated from narrative. "It got long" is a reason to raise a budget, not
     to create a file. See ADR-0003.
+
+    Takes no changed-file list on purpose, and must not be given one. This check needs
+    the files being ADDED, which `changed_files()` does not distinguish -- it reports
+    that a path changed, not how. It previously accepted a `changed` argument and
+    ignored it, which is worse than either: a signature describing a function this is
+    not, and an invitation to "fix" the check by wiring the wrong list into it.
     """
     manifest = load_manifest()
     if manifest is None:
@@ -1049,8 +1055,6 @@ def main() -> int:
             findings += fn(args.pr_event)
         elif name == "owning-doc":
             findings += ownership_findings(changed, reused_message, args.mode)
-        elif name == "split-dodge":
-            findings += fn(changed)
         else:
             findings += fn()
 
