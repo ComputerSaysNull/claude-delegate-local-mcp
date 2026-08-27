@@ -87,6 +87,24 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-27 The documented MCP registration could not start the server from anywhere but
+  this repository, and the failure named the wrong thing. `wsl.exe -e` carries the *Windows*
+  working directory across the boundary, so the server looked for `models.toml` inside
+  whichever project Claude Code was open on and refused to boot with `Model registry not
+  found` — naming a file that exists and is correct. The registration now pins `--cd`, which
+  has a trap of its own: the Windows form of the path is accepted and the `/mnt/c/...` form
+  is rejected with `ERROR_PATH_NOT_FOUND`. It also now names the console script by absolute
+  path, because a venv's `bin/` is not on the PATH `wsl.exe -e` resolves against and the
+  bare name fails with `No such file or directory` — which reads as "not installed" when it
+  is installed. Both measured, not reasoned about. JOURNAL 2026-08-27.
+- 2026-08-27 The install instructions told Windows users to create `.venv`, which on the
+  WSL2 topology overwrites the Windows virtualenv of the same name in place; the result
+  looks like a corrupted install rather than a collision. README now puts the WSL
+  environment elsewhere, and on the native filesystem rather than `/mnt/c` (ADR-0020).
+- 2026-08-27 README claimed the server emits a progress notification every turn to hold off
+  the 30-minute stdio idle timeout. It does not: that is M4. A document describing unbuilt
+  behaviour in the present tense is worse than one that omits it, because it stops anyone
+  from looking for the cause when the timeout fires.
 - 2026-08-26 `git commit --amend` was judged against the wrong parent. The owning-doc
   check compared the staged index against HEAD, which is right for a normal commit and wrong
   for an amend: the amend's parent is HEAD~1, and the files already inside the commit being

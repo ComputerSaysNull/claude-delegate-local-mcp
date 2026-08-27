@@ -400,3 +400,27 @@ unchanged. It is not sent.
 
 ADR-0017's 400 was re-confirmed unchanged along the way, still naming
 `VLLM_USE_V2_MODEL_RUNNER=0` rather than the boot flag its own documentation advertises.
+
+---
+
+## 2026-08-27 — `wsl.exe -e` brings the Windows working directory with it
+
+Cost most of the end-to-end launch step, and the symptom pointed at the wrong file.
+
+The server reads `models.toml` and `.env` relative to its working directory. Launched
+through `wsl.exe -d Ubuntu-24.04 -e claude-delegate-local-mcp`, that directory is not the
+install and not the WSL home — it is whatever the *Windows* parent's directory was,
+translated. So the same registration works when Claude Code happens to be open on this
+repository and fails with `Model registry not found` from any other project, naming a file
+that exists and is correct.
+
+Measured rather than reasoned about: `wsl.exe -d Ubuntu-24.04 -e pwd` prints the translated
+Windows cwd, and changing directory on the Windows side changes what it prints.
+
+`--cd` fixes it, with a trap of its own: `--cd /mnt/c/...` is rejected with
+`ERROR_PATH_NOT_FOUND`, while the same directory given in Windows form is accepted. Both
+were tried; only the second works.
+
+Second finding from the same session, same shape: a venv's `bin/` is not on the PATH that
+`wsl.exe -e` resolves against, so the bare console-script name fails with `No such file or
+directory` — which reads as "not installed" when it is installed and on no relevant PATH.

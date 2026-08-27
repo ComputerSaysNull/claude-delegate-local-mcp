@@ -58,9 +58,9 @@ Throwaway scripts, deliberately not shipped.
 
 - ✅ 2026-08-26 `backends/base.py` — `Backend` protocol, canonical request and response — `9e03113`
 - ✅ 2026-08-26 `backends/openai_compat.py` — the only adapter shipped — `9e03113`
-- ⬜ `delegate()` one-shot, no `files[]` yet
-- ⬜ `backend_status()` probing `/v1/models` per registry entry
-- ⬜ Launched through `wsl.exe` from a real Claude Code config, end to end
+- ✅ 2026-08-27 `delegate()` one-shot, no `files[]` yet — `be4abc7`
+- ✅ 2026-08-27 `backend_status()` probing `/v1/models` per registry entry — `d4a4fad`
+- ✅ 2026-08-27 Launched through `wsl.exe` from a real Claude Code config, end to end
 
 ## M2 — files[] prefetch
 
