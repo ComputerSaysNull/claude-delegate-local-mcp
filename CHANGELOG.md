@@ -48,6 +48,27 @@ because an entry lives in the commit it describes and cannot know its own hash.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-26 `.env` was never read. The README has said `cp .env.example .env` since the
+  first commit, but `config.load()` consulted `os.environ` and nothing else — no dotenv
+  dependency, and no `env` key in the README's `mcpServers` block either. Creating the file
+  did nothing, reported nothing, and left every setting at its default: a documented setup
+  step that was a no-op, which is worse than an undocumented one because it is believed.
+
+  `config.load()` now reads it, in about fifteen lines with no new dependency. The real
+  environment wins over the file, so an explicit override still works. Putting an `env` key
+  in the MCP client's configuration was rejected and ADR-0027 records why: this project's
+  topology launches the server as `wsl.exe -e claude-delegate-local-mcp`, so that key sets
+  variables for `wsl.exe` on the Windows side, one hop short of the Linux process reading
+  them — crossing the boundary needs `WSLENV` too, which fails silently when forgotten.
+
+  Three behaviours exist to remove silent failures rather than add features: a file named
+  explicitly and missing raises, while an absent `<repo>/.env` does not, because asking for
+  a specific file is a promise; passing `environ` suppresses discovery, so the suite never
+  reads whatever `.env` sits in the working tree; and a leading `export ` is stripped while
+  a name that cannot be an environment variable raises, since both otherwise parse to a key
+  no setting matches — read, accepted, ignored. Values are taken literally, because
+  `DELEGATE_WORKSPACE_ROOTS` on Windows is full of backslashes. All fourteen tests were
+  confirmed failing against the unfixed loader.
 - 2026-08-26 The documentation gate judged the commit it was not making. In pre-commit
   mode both message-dependent checks read `.git/COMMIT_EDITMSG`, which git writes *after*
   the pre-commit hook returns — so both read the previous commit's message. The

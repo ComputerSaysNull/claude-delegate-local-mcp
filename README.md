@@ -64,6 +64,12 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 python scripts/install_hooks.py       # optional, gives the gate at commit time
 ```
 
+`.env` is read by `config.load()` as a fallback: anything already set in the environment
+wins, so an explicit override still works. Point `DELEGATE_ENV_FILE` at another file to use
+one elsewhere — if it names a file that does not exist, that is an error rather than a
+silent fall back to defaults. ADR-0027 for why the server reads the file itself instead of
+taking an `env` key from your MCP client's configuration.
+
 `.env` and `models.toml` are gitignored, deliberately: they name a host, and a hostname
 identifies your machine as surely as an address does.
 
