@@ -5,9 +5,14 @@ Newest first. Entries carry the **why**, not just the what: the symptom that pro
 change, the cause, and the fix. A terse one-liner is not enough -- in six months the
 reason is the only part still worth having.
 
-Format: `- YYYY-MM-DD (#PR) [sha] what changed, and why.` The date and PR are written by
-hand at merge time; `scripts/release.py` backfills the squash-merge sha at tag time,
-because an entry lives in the commit it describes and cannot know its own hash.
+Format: `- YYYY-MM-DD (#PR) what changed, and why.` Both written by hand at merge time.
+The `(#PR)` half starts with PR #16, the one that wrote this line; every entry below it
+predates the convention and carries no number, which is why none of them shows one.
+
+No commit hash, deliberately. An entry lives in the commit it describes and so cannot know
+its own hash, and `main` is squash-merged, so a branch hash written here names an object
+that never reaches anyone else's clone. The PR number survives the squash and is the thing
+worth citing.
 
 ## [Unreleased]
 
@@ -137,6 +142,60 @@ because an entry lives in the commit it describes and cannot know its own hash.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-27 (#16) The second documentation audit of the day, and the eighteen findings it
+  landed. Two fault classes account for most of them, and the first audit had found one
+  instance of each without seeing either as a class. Facts restated outside their owning
+  document: the bytes/token measurement existed in six places in copies that had already
+  diverged, and now lives only in JOURNAL 2026-08-25 with everything mutable linking to it.
+  Machinery described in the present tense before it exists: nine impossible symptoms in
+  `docs/TROUBLESHOOTING.md`, two `CLAUDE.md` invariants about unwritten modules, and a
+  format line in this file promising a `(#PR)` citation that no entry carries -- written,
+  as it happens, by the commit that fixed the same fault in the entry above it.
+  Two gate constants were being restated as prose and one had already gone stale; they are
+  now described rather than copied, because making three copies agree is not a fix.
+  ADR-0031 corrects ADR-0005's claim that agent files are portable to Claude Code -- they
+  are not, and this repository's own `.claude/agents/` were the counter-example all along.
+  Findings and the three rejected on verification are in `docs/audits/2026-08-27-audit-2.md`.
+- 2026-08-27 (#16) `scripts/release.py` is cancelled before being written, and the CHANGELOG format
+  no longer promises a commit hash. The script's only job was to backfill each entry's sha at
+  tag time -- and the sha is the wrong thing to cite here, because `main` is squash-merged, so
+  a branch hash names an object that never leaves the clone it was made in. The PR number
+  survives the squash and is written by hand in the same edit as the entry, so there was
+  nothing left for a script to do. Removed from `docs_ownership.toml`, which had pre-registered
+  a path that will now never exist.
+  This surfaced from a question about why the project squash-merges at all, and it was the same
+  fault as the entry above: the format line described the script in the present tense while it
+  did not exist. The 2026-08-27 audit missed it, and the audit record now says so, along with
+  the reason the gate could not have caught it -- `check_manifest_docs_exist` verifies that
+  owning *documents* exist, and nothing verifies the code paths beside them.
+  PLAN.md's five unreachable hashes now cite their pull requests instead. Mapped by content
+  against the squashes on `main` rather than assumed: `9e03113` is PR #4 by identical title and
+  file set, `be4abc7` and `d4a4fad` are the two halves of PR #11. The M0 hashes are left alone
+  because those commits really are reachable on `main`; only the ones a squash discarded were
+  changed.
+- 2026-08-27 (#16) The audit-due counter now fires at 15 commits rather than 60, and the first
+  recorded audit lives in `docs/audits/`. Sixty was chosen when the repository had fourteen
+  commits, where it read as "a long while"; at the rate this one actually moves it is months,
+  and a whole milestone can land and go stale inside one interval. The evidence is the audit
+  itself: run at 26 commits — well under half the old threshold, so the counter had not asked
+  — it found two wrong entries in `docs/TROUBLESHOOTING.md`, one of which had been wrong since
+  the day it was written. A threshold that only fires after the damage is one that never fires.
+  The test for this check had its own copy of the number, written as a literal 60. Every case
+  in it churns threshold-plus-one commits, so lowering the gate's value would have left the
+  tests green while testing a boundary that had moved, and raising it would have left them
+  green while testing nothing near a boundary at all — a check that cannot fail, in the file
+  whose whole subject is a check that could not fail. It now reads the constant from the gate,
+  verified by temporarily changing the gate and watching the test follow it.
+- 2026-08-27 (#16) Two stale entries fixed in `docs/TROUBLESHOOTING.md`, found by the audit above.
+  A symptom entry claimed an `HTTP 400 ... thinking_token_budget` was "feature-detected and
+  dropped automatically" — nothing ever detected it, because the adapter has never sent the
+  field, so the symptom cannot arise through this server. Deleted rather than reworded: this
+  document owns no facts, and PLAN.md and ADR-0017 carry why the field is untouched. It was
+  wrong on the day it was written, and M3's probe is what exposed it.
+  The other indexed a symptom as `reasoning_exhausted_budget`, which is ADR-0014's name for
+  the decision and not the field a caller sees. A symptom index keyed on a string that appears
+  in no output cannot be searched by the person who needs it. It is now `reasoning_exhausted`,
+  split into the two cases M3 created, because they have opposite fixes.
 - 2026-08-27 M3 is scoped down and its four context-economics items move to M4, because
   they read conversation history, evictions and an action ledger that only the turn loop and
   `tools.py` produce. Building them here would have been four commits whose only caller was

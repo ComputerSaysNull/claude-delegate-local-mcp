@@ -4,7 +4,7 @@
 Two things a user actually touches: the agent files that shape a delegation, and the rules
 governing which files a delegated model may see.
 
-Tool internals are in [TOOLS.md](TOOLS.md) *(generated, once the tools exist)*; sandbox
+Tool internals will be in `docs/TOOLS.md`, generated once the tools exist; sandbox
 mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md). Settings are in
 [CONFIGURATION.md](CONFIGURATION.md).
 
@@ -19,7 +19,13 @@ test-writing, refactoring, migration — is a markdown file, not a new tool.
 
 That keeps the tool list Claude sees from growing without bound, and makes adding a task
 type a file rather than a code change and a release. The format is the one Claude Code
-already uses for its own subagents, so the files are portable. (ADR-0005)
+already uses for its own subagents. (ADR-0005)
+
+ADR-0005 went further and called the files *portable*. They are not, and this repository's
+own `.claude/agents/*.md` are the counter-example: Claude Code spells the tool list `tools`
+where this format spells it `allowed_tools`, and accepts an `effort: medium` that
+[config.py](../src/claude_delegate_local/config.py) deliberately refuses. The shape is
+borrowed; a file is not moved between the two unedited. (ADR-0031)
 
 ## Where they are found
 
@@ -175,17 +181,10 @@ one-shot mode, where the file is simply unavailable and the message says so.
 
 ### Budgets are in tokens, not bytes
 
-Bytes mislead by more than a factor of two. Measured against this model's tokenizer:
-
-| | bytes/token | 40K tokens is |
-|---|---|---|
-| JSON, punctuation-heavy | 1.78 | ~68 KiB |
-| TOML lockfile | 2.08 | ~78 KiB |
-| markdown | 3.42 | ~129 KiB |
-| Python source | 3.89 | ~145 KiB |
-
-A byte cap would allow twice the *context* for a data file as for a source file, which is
-backwards — data files are the ones worth trimming. (ADR-0019)
+Bytes mislead by more than a factor of two: the measured ratios are in
+the 2026-08-25 entry in
+[JOURNAL.md](../JOURNAL.md), which owns them. A byte cap would allow twice the *context* for a data file as for a
+source file, which is backwards — data files are the ones worth trimming. (ADR-0019)
 
 ### What the policy does not cover
 

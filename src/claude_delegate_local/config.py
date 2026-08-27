@@ -35,8 +35,8 @@ TRANSPORTS = ("stdio", "streamable-http")
 # more than 2x across file types, which is why the prefetch budget is denominated in
 # tokens rather than bytes -- 128 KiB is 33K tokens of Python but 72K tokens of JSON.
 #
-#   json/punctuation-heavy 1.78    toml lockfile 2.08    markdown 3.42
-#   minified python        3.55    python source 3.89    dense-docstring python 4.16
+# The measurements themselves live in JOURNAL 2026-08-25 and are not repeated here; the
+# values below are those numbers rounded down, which is a different thing.
 #
 # Each entry is rounded DOWN from the measurement, so an estimate errs toward
 # over-counting: over-counting wastes a little admission capacity, under-counting queues

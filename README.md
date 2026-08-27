@@ -143,8 +143,9 @@ that answers that is M4, so until then keep one-shot tasks well inside it.
 | [JOURNAL.md](JOURNAL.md) | What took real work to figure out |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Setup and conventions |
 
-No configuration default is stated anywhere but `docs/CONFIGURATION.md`, which is
-generated from the code that defines it. If you find one repeated elsewhere, that is a
+No configuration default is stated anywhere but `src/claude_delegate_local/config.py`,
+which is where they live; `docs/CONFIGURATION.md` is generated from it and is a rendering,
+never a source to edit. If you find one repeated elsewhere, that is a
 bug — [CLAUDE.md](CLAUDE.md) explains the scheme.
 
 ## Provenance and licence

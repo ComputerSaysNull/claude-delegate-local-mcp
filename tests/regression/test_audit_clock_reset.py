@@ -27,7 +27,30 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 GATE = ROOT / "scripts" / "docs_gate.py"
-STALE_THRESHOLD = 60
+
+
+def _stale_threshold() -> int:
+    """Read the threshold out of the gate rather than restating it.
+
+    It was written here as a literal 60, which is a second copy of a number that lives in
+    the gate -- and the copy cannot fail loudly. Every test below churns THRESHOLD + 1
+    commits, so lowering the gate's value leaves them passing while testing a boundary that
+    has moved, and raising it leaves them passing while testing nothing near the boundary at
+    all. Found when the gate went from 60 to 15.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("dg_threshold", GATE)
+    dg = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = dg
+    try:
+        spec.loader.exec_module(dg)
+        return int(dg.AUDIT_STALE_COMMITS)
+    finally:
+        sys.modules.pop(spec.name, None)
+
+
+STALE_THRESHOLD = _stale_threshold()
 
 
 def git(repo: Path, *args: str) -> str:

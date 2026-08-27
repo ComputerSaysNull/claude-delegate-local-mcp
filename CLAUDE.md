@@ -60,12 +60,13 @@ Rules a machine cannot check, so they land here:
   number or counter. The cluster caches prefixes, so one dynamic byte silently disables
   that with no error and no symptom beyond slower prefill. Dynamic content goes in the
   tail, inside tool results. (ADR-0011)
-- **`paths.py` and `sandbox.py` are independent layers, not redundant ones.** The path
+- **`paths.py` and `sandbox.py` will be independent layers, not redundant ones.** The path
   policy governs `read_file` and `write_file`, which run in the server process. Only
-  `run_bash` enters the sandbox. A bug in one is not covered by the other. (ADR-0010)
-- **`allowed_tools` is enforced at two sites** — declaration to the model, and execution.
-  Filtering only the declared list is advisory, because a model can call a tool it was
-  never offered. Touch one site, check the other.
+  `run_bash` enters the sandbox. A bug in one is not covered by the other. `sandbox.py` is
+  M5 and unwritten: this is a trap pre-registered for whoever writes it. (ADR-0010)
+- **`allowed_tools` must be enforced at two sites** — declaration to the model, and
+  execution. Filtering only the declared list is advisory, because a model can call a tool
+  it was never offered. Also M4/M6 and unwritten; when you add one site, add the other.
 - **Trust server-captured exit codes, never the model's account of them.** `bash_failures`
   and `last_bash_exit` come from real process exits and may contradict the model's final
   text. The whole self-verification design rests on this. (ADR-0007)

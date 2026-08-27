@@ -19,8 +19,8 @@ Throwaway scripts, deliberately not shipped.
 - ✅ 2026-08-25 Spike A — tool calling against the live cluster. Valid `tool_calls`,
   schema respected, four-turn loop consuming its own tool results, temperature honoured.
   ADR-0016 — `7650b5d`
-- ✅ 2026-08-25 Spike B — tokenizer ratio measured, 1.78 to 4.16 bytes/token across file
-  types. Changed the prefetch budget from bytes to tokens. ADR-0019 — `7650b5d`
+- ✅ 2026-08-25 Spike B — tokenizer ratio measured across file types (the numbers live in
+  JOURNAL 2026-08-25). Changed the prefetch budget from bytes to tokens. ADR-0019 — `7650b5d`
 - ✅ 2026-08-25 Spike C — 9p versus ext4. 12x on a full test run. Topology A confirmed.
   ADR-0020 — `fb9b5a7`
 - ✅ 2026-08-25 Spike D — client-side MCP timeouts. Wall clock is ~28h and irrelevant;
@@ -50,16 +50,17 @@ Throwaway scripts, deliberately not shipped.
 - ✅ 2026-08-25 Four build-time agents in `.claude/agents/`, models and effort set per task cost
 - ✅ 2026-08-25 CI: gate, tests on 3.11 and 3.12, gitleaks with an allowlist-based email rule
 - ✅ 2026-08-25 Audit trigger — the gate raises `audit-due` from git evidence: a document
-  unchanged across 12+ commits touching its owned code, or 60+ commits since the last
-  recorded audit. Warns, never blocks
+  unchanged across enough commits touching its owned code, or enough commits since the last
+  recorded audit. Both thresholds are constants in `scripts/docs_gate.py`; no document
+  restates them. Warns, never blocks
 - ✅ 2026-08-25 Public repo created, ruleset applied to `main`, secret scanning and push protection enabled. Direct push to `main` verified as refused
 
 ## M1 — One real backend call
 
-- ✅ 2026-08-26 `backends/base.py` — `Backend` protocol, canonical request and response — `9e03113`
-- ✅ 2026-08-26 `backends/openai_compat.py` — the only adapter shipped — `9e03113`
-- ✅ 2026-08-27 `delegate()` one-shot, no `files[]` yet — `be4abc7`
-- ✅ 2026-08-27 `backend_status()` probing `/v1/models` per registry entry — `d4a4fad`
+- ✅ 2026-08-26 `backends/base.py` — `Backend` protocol, canonical request and response — PR #4
+- ✅ 2026-08-26 `backends/openai_compat.py` — the only adapter shipped — PR #4
+- ✅ 2026-08-27 `delegate()` one-shot, no `files[]` yet — PR #11
+- ✅ 2026-08-27 `backend_status()` probing `/v1/models` per registry entry — PR #11
 - ✅ 2026-08-27 Launched through `wsl.exe` from a real Claude Code config, end to end
 
 ## M2 — files[] prefetch
@@ -79,8 +80,8 @@ action ledger, none of which exist until the turn loop and `tools.py` do, so bui
 here would have meant four commits whose only caller was a test and an `off by default`
 flag controlling nothing. The design work is not lost — it is recorded under M4.
 
-- ✅ 2026-08-27 Retry and backoff, honouring `Retry-After` — `0b4b633`
-- ✅ 2026-08-27 Empty-answer detection, retry at the floor, effort step-down — `dea7f0b`
+- ✅ 2026-08-27 Retry and backoff, honouring `Retry-After` — PR #15
+- ✅ 2026-08-27 Empty-answer detection, retry at the floor, effort step-down — PR #15
 - ❌ 2026-08-27 Feature-detect the `thinking_token_budget` rejection and degrade.
   **Reason: there is nothing to detect.** The adapter never sends the field, which is the
   strongest form of ADR-0017's "never rely on it", so no 400 ever arrives to feature-detect.
@@ -170,7 +171,13 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   agent name, so the very dispatches it exists to explain logged as unknown; and the
   success path leaking its whole diagnostic payload into ordinary responses once the
   directory was set. Off by default is not the same as inert when on (ADR-0024)
-- ⬜ README launcher documentation, `scripts/release.py`
+- ⬜ README launcher documentation
+- ❌ 2026-08-27 `scripts/release.py` — cancelled. Its job was to backfill each CHANGELOG
+  entry's commit hash at tag time, and the hash is the wrong thing to cite: `main` is
+  squash-merged, so a branch hash names an object that never leaves the clone it was made
+  in. The PR number survives and is written by hand in the same edit as the entry, so
+  there is nothing left to automate. CHANGELOG.md's format line described this script in
+  the present tense while it did not exist -- found by the 2026-08-27 audit
 
 ## Deferred and cancelled
 

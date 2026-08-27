@@ -1,4 +1,7 @@
-<!-- BUDGET: 190 -->
+<!-- BUDGET: 210 -->
+<!-- Raised from 190 on 2026-08-27: the audit-due section stopped restating two gate
+     constants and had to say why, and the archive procedure the gate warns about was
+     documented nowhere. -->
 # Contributing
 
 ## Setup
@@ -147,15 +150,29 @@ agents concurrently; CI enforces it via `max-parallel`.
 Not on a schedule, and not "when it feels off". The gate raises `audit-due` on two
 signals it computes from git:
 
-- a document has not changed across **12+ commits that touched the code it owns**, and
-- **60+ commits** have passed since the last file in `docs/audits/`.
+- a document has not changed across enough commits that touched the code it owns, and
+- enough commits have passed since the last file in `docs/audits/`.
+
+Both thresholds are constants at the top of `scripts/docs_gate.py`. They are deliberately
+not repeated here: one of them was lowered on 2026-08-27 and the prose copies in this file
+and in `PLAN.md` went on claiming the old value, which is the drift this whole scheme
+exists to stop.
 
 Both are evidence rather than a calendar: a quiet month needs no audit, and a busy week
 needs one whatever the date. Both warn rather than block, because blocking would force a
 documentation edit to land unrelated work, which turns a signal into a rubber stamp.
 
 Write findings to `docs/audits/YYYY-MM-DD-audit.md` and commit them — that file is what
-resets the counter, so recording the audit and clearing the warning are the same act.
+resets the counter, so recording the audit and clearing the warning are the same act. More
+than one audit on a date takes a `-2` suffix; a later audit supplements its predecessors
+rather than replacing them, since each is a dated record of what was true when it ran.
+
+### Archiving an append-only document
+
+`ARCHIVE-AT: n` warns when an append-only file has grown enough to split by year. Move the
+older entries — never trim them — into `archive/<document>-<year>.md` beside the original.
+`check_budgets` skips any path containing an `archive` component, so the split file is not
+re-budgeted and the original keeps its header.
 
 There is deliberately **no scheduled workflow**. It would need an API key, and a key sitting
 in CI is standing billing exposure for a job that fires whether or not anything changed.

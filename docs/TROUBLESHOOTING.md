@@ -1,13 +1,21 @@
-<!-- BUDGET: 265 -->
+<!-- BUDGET: 290 -->
 <!-- Raised from 240 on 2026-08-27: M1 shipped the first server that can fail at
      startup and the first tool that can report a backend, so two symptom classes
-     exist that had nowhere to be indexed before. -->
+     exist that had nowhere to be indexed before.
+     Raised again from 265 on 2026-08-27: M3 split the empty answer into two symptoms
+     with opposite fixes, and one stale entry was deleted to help pay for it.
+     Raised from 270 to 290 on 2026-08-27: the second audit found nine entries describing
+     unbuilt subsystems with nothing saying so, and marking them costs lines. -->
 # Troubleshooting
 
 Symptom, cause, fix.
 
 **This document owns no facts.** It links to whichever document owns the answer and never
-restates a default, a schema or a value. That is not fussiness: restating defaults inside
+restates a default, a schema or a value.
+
+**Entries marked *(not built)* describe a symptom you cannot hit yet.** They are written
+ahead of the subsystem so the index is ready when it lands; until then nothing in the
+server can produce them. [PLAN.md](../PLAN.md) has the roadmap. That is not fussiness: restating defaults inside
 symptom explanations is exactly how the project this descends from ended up documenting one
 setting as three different values in three places. If you want to add a value here, add the
 link instead.
@@ -101,6 +109,7 @@ curl -s http://YOUR-HEAD-NODE:8888/v1/models | python3 -m json.tool
 `backend_status()` reports this as `id_confirmed: false` with `status: "ok"` — the endpoint
 is healthy; the registry names something it does not serve. Check it first when a
 delegation is refused by a cluster that is plainly up.
+
 ### The health check fails against a server that is plainly healthy
 
 Bare vLLM does **not** serve `/health/liveliness` — that belongs to a proxy, and probing it
@@ -118,21 +127,21 @@ paste into a bug report.
 
 ### The answer is empty, with a length stop
 
-Reasoning consumed the entire reply budget. The server retries at a larger budget, then
-steps effort down, then fails explicitly. Persistent cases mean the effort level is too
-high for the task — set `effort: low`. See
-[MODELS.md](MODELS.md#choosing-default_effort).
+Reasoning consumed the entire reply budget. Seeing this means the server already tried to
+recover and failed too ([the stages](ARCHITECTURE.md#an-empty-answer-is-recovered-from-before-it-is-reported)),
+so do not retry the call yourself. Measured: at the top effort level this deployment never
+answered at any budget, so set `effort: low` ([MODELS.md](MODELS.md#choosing-default_effort)).
 
-### `HTTP 400 ... thinking_token_budget`
+### `reasoning_exhausted: true`
 
-Feature-detected and dropped automatically; you should only see it in logs. Note the
-serving stack's own documentation names the wrong gate for this field — the server's error
-message names the real one. ADR-0017.
+Both mitigations were spent and it still returned nothing: the task needs more reasoning than
+this model finishes inside its budget. Split it, or send it elsewhere — asking again will not
+help.
 
-### `reasoning_exhausted_budget`
+### `empty_response: true` with `reasoning_exhausted: false`
 
-Every mitigation was tried and the model still returned nothing. Reframe the task, or lower
-effort further.
+A different fault, and a different fix: effort was already lowest, so nothing could step down
+and the budget ran out rather than the reasoning. Shorten the task, or raise the model's cap.
 
 ### The model insists tests pass when they do not
 
@@ -140,14 +149,14 @@ Trust `bash_failures` and `last_bash_exit` in the result: those are captured by 
 from real process exits, and may contradict the prose. Models misreport command outcomes.
 ADR-0007.
 
-### Tool arguments arrive malformed
+### Tool arguments arrive malformed *(not built)*
 
 The model gets an actionable error and another turn. Recurring cases usually mean the
 temperature is too high — tool-call syntax tokens are sampled at the request temperature,
 so malformed calls grow likelier as it rises. See
 [CONFIGURATION.md](CONFIGURATION.md#generation-budgets).
 
-### `turn_limit` with work unfinished
+### `turn_limit` with work unfinished *(not built)*
 
 The task needed more round trips than the budget allowed. Raise `max_turns` in the agent's
 frontmatter, or split the task. Prefetching more via `files[]` also helps: without it the
@@ -157,17 +166,18 @@ first turn or two get spent exploring.
 
 ## Timeouts
 
-### The call disappears after about 30 minutes
+### The call disappears after about 30 minutes *(not built)*
 
 Not the wall-clock limit. This is Claude Code's separate **stdio idle timeout**, which
 fires when the server sends nothing at all for its window. Progress notifications exist to
 prevent it, so seeing this means they are not arriving. ADR-0018.
 
-### The call disappears sooner than the configured timeout
+### The call disappears sooner than the configured timeout *(not built)*
 
-Set `timeout` on the server's entry in your MCP config — milliseconds, minimum 1000.
-Progress notifications reset the *idle* timer but do **not** extend the wall clock, so the
-wall clock must cover the whole delegation up front.
+Set `timeout` on the server's entry in your MCP config; the units and the accepted range
+are Claude Code's, not this project's, so they are not restated here. Progress
+notifications reset the *idle* timer but do **not** extend the wall clock, so the wall
+clock must cover the whole delegation up front. ADR-0018.
 
 ### The tool call moves to the background after two minutes
 
@@ -176,6 +186,9 @@ Expected. Nearly every delegation will. It does not affect either timeout.
 ---
 
 ## Sandbox
+
+*Nothing in this section is built.* `run_bash` is M4 and `sandbox.py` is M5, so none of
+these symptoms can occur yet.
 
 ### `bwrap not found; run_bash is disabled`
 

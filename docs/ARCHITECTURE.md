@@ -23,7 +23,8 @@ This is not a configuration reference (see [CONFIGURATION.md](CONFIGURATION.md),
 generated) and not a list of traps (see [../CLAUDE.md](../CLAUDE.md)). Decisions have their
 own record in [../DECISIONS.md](../DECISIONS.md); this explains the shape they produced.
 
-Sections marked **not built** describe intended design. The roadmap is
+Sections marked **not built** describe intended design; in the module table the marker
+says whether it scopes to the whole module or only the clause before it. The roadmap is
 [../PLAN.md](../PLAN.md).
 
 ## The shape of a delegation
@@ -75,12 +76,12 @@ Prefetching removes several such turns from the front of every delegation.
 | `registry.py` | One explicit row per model: URL, format, window, defaults, concurrency |
 | `wsl.py` | The single path-translation boundary |
 | `paths.py` | The four-layer path policy |
-| `context.py` | Prefetch, token budgeting, prompt ordering; history eviction *(not built)* |
+| `context.py` | Prefetch, token budgeting, prompt ordering; history eviction *(that clause not built)* |
 | `backends/base.py` | `Backend` protocol and the canonical message shape |
 | `backends/openai_compat.py` | The only adapter shipped |
-| `loop.py` | The one-shot path and the response state machine; the turn loop *(not built)* |
-| `tools.py` | Model-facing tools and their enforcement *(not built)* |
-| `sandbox.py` | bubblewrap invocation *(not built)* |
+| `loop.py` | The one-shot path and the response state machine; the turn loop *(that clause not built)* |
+| `tools.py` | Model-facing tools and their enforcement *(whole module not built)* |
+| `sandbox.py` | bubblewrap invocation *(whole module not built)* |
 | `server.py` | MCP wiring, the tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run one transport |
 

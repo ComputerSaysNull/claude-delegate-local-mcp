@@ -20,6 +20,30 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0031 — 2026-08-27 — The agent file format is borrowed from Claude Code, not compatible with it — Accepted
+
+ADR-0005 said the files "use the same format Claude Code already uses for its own
+subagents, so they are portable". The first half is the useful part and still holds: the
+shape is frontmatter plus a system prompt, which is why the format needed no design and
+reads as familiar. The second half is false, and this repository's own
+`.claude/agents/*.md` are the counter-example sitting in the same tree.
+
+Claude Code spells the tool list `tools` and takes a comma-separated string; this format
+spells it `allowed_tools` and takes a list. Claude Code accepts `effort: medium`, which
+`config.py` refuses on purpose, because this project's effort vocabulary is its own
+(ADR-0013). And this format adds five keys Claude Code has never heard of — `max_turns`,
+`max_tokens`, `keep_tool_results`, `network`, `extra_binds` — because a delegated agent
+runs in a sandbox with a budget and a Claude Code subagent does not.
+
+So: borrowed, not compatible. A file does not move between the two unedited in either
+direction. Nothing changes in the code — the format was never actually built to be
+portable, only described that way — but the claim is load-bearing in
+`docs/AGENTS.md`, where a reader could reasonably have copied a file across and expected
+it to work.
+
+Found by the second documentation audit of 2026-08-27, which is the argument for auditing
+a claim against the repository's own files rather than against its intent.
+
 ## ADR-0030 — 2026-08-27 — A file is text if it has no NUL in 8 KiB and decodes as strict UTF-8 — Accepted
 
 Prefetch has to decide whether a file is text before inlining it, and the obvious answer —
@@ -596,7 +620,7 @@ The reference implementation of this feature has no validation whatsoever and wi
 read a private SSH key on request. Every refusal here returns an actionable message so
 the caller can retry with a valid path.
 
-## ADR-0005 — 2026-08-24 — Task shaping lives in agent definition files, not in more MCP tools — Accepted
+## ADR-0005 — 2026-08-24 — Task shaping lives in agent definition files, not in more MCP tools — Partially superseded by ADR-0031
 
 Five tools total. A new kind of delegated task is a markdown file, not a code change
 and a release, and Claude is not shown a tool list that grows without bound. The files
