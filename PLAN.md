@@ -58,12 +58,6 @@ Throwaway scripts, deliberately not shipped.
 
 - ✅ 2026-08-26 `backends/base.py` — `Backend` protocol, canonical request and response — `9e03113`
 - ✅ 2026-08-26 `backends/openai_compat.py` — the only adapter shipped — `9e03113`
-- ✅ 2026-08-26 `DELEGATE_CONNECT_TIMEOUT` — a dropped route no longer stalls for the
-  whole turn timeout; connect is bound separately
-- ✅ 2026-08-26 The docs gate reads the real commit message — commit-msg hook,
-  stale waivers no longer carry between commits
-- ✅ 2026-08-26 `.env` is read by `config.load()` — the README's setup step was a
-  no-op (ADR-0027)
 - ⬜ `delegate()` one-shot, no `files[]` yet
 - ⬜ `backend_status()` probing `/v1/models` per registry entry
 - ⬜ Launched through `wsl.exe` from a real Claude Code config, end to end
@@ -163,3 +157,22 @@ Throwaway scripts, deliberately not shipped.
 - ❌ 2026-08-25 Collapse reasoning effort to three levels — cancelled. Saves one enum
   value, does not shrink the state machine, and would make our API disagree with the
   backend's documented values. ADR-0013
+
+## Extra — work outside the milestone plan
+
+Found while doing something else, and fixed rather than filed. Kept apart from the
+milestones so a phase's counts mean what they say: M1 reading "5 of 8" while three of the
+five were repository tooling made the backend work look further along than it was.
+
+- ✅ 2026-08-26 `DELEGATE_CONNECT_TIMEOUT` — a dropped route stalled for the whole turn
+  timeout; connect is now bound separately — `#5`
+- ✅ 2026-08-26 The docs gate read the previous commit's message — moved to a commit-msg
+  hook, so stale waivers no longer carry between commits — `#6`
+- ✅ 2026-08-26 `.env` was documented but never read — `config.load()` reads it, ADR-0027
+  for why an MCP client's `env` key cannot reach the server — `#7`
+- ✅ 2026-08-26 A skipped live test read as a passing one — the skip now says the backend
+  is unproven and names the layer that stopped it — `#8`
+- ✅ 2026-08-26 ruff was configured and never ran; the rule set was drifting with the
+  installed version. Pinned, fixed, and required in CI — `#8`
+- ✅ 2026-08-26 `git commit --amend` was judged against the wrong parent — both readings
+  are evaluated and a pass that relied on the amend reading announces itself (ADR-0028) — `#9`

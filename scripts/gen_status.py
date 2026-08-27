@@ -35,6 +35,12 @@ def git(*args: str) -> str:
                           text=True, check=False).stdout.strip()
 
 
+# Headings that record work but are not phases: one is a backlog, the other is work done
+# outside the plan. Either would be reported as the milestone in progress -- Extra silently,
+# because it only hijacks the pointer once someone records unfinished work under it.
+NOT_A_PHASE = ("Deferred", "Extra")
+
+
 def parse_plan() -> list[dict]:
     """Flatten PLAN.md into items tagged with their milestone heading."""
     items: list[dict] = []
@@ -58,11 +64,14 @@ def render() -> str:
 
     by_mark = {k: [i for i in items if i["mark"] == k] for k in MARKS}
 
-    # The current milestone is the first with anything unfinished. Deferred work is
-    # excluded: it is a backlog, not a phase, and would otherwise always be "current".
+    # The current milestone is the first with anything unfinished. Deferred and Extra are
+    # excluded: one is a backlog and the other a record of work done outside the plan.
+    # Neither is a phase, and either would otherwise be reported as the one in progress --
+    # Extra silently, because it sits after the milestones and only hijacks the pointer
+    # once someone adds an unfinished item to it.
     current = None
     for i in items:
-        if i["mark"] in (ACTIVE, TODO) and not i["milestone"].startswith("Deferred"):
+        if i["mark"] in (ACTIVE, TODO) and not i["milestone"].startswith(NOT_A_PHASE):
             current = i["milestone"]
             break
 
