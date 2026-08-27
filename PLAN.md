@@ -68,8 +68,8 @@ Throwaway scripts, deliberately not shipped.
 - ✅ 2026-08-27 `wsl.py` — the Windows-to-POSIX boundary. Added to this milestone rather
   than absorbed silently: `files[]` is produced on Windows and checked in WSL, so without
   it M2 cannot work from a real Claude Code session, which is the bar M1 set
-- ⬜ `context.py` — prefetch, token budgeting, stable prompt ordering for prefix caching
-- ⬜ Binary detection, whole-file skip, per-type token accounting
+- ✅ 2026-08-27 `context.py` — prefetch, token budgeting, stable prompt ordering for prefix caching
+- ✅ 2026-08-27 Binary detection, whole-file skip, per-type token accounting — ADR-0030
 
 ## M3 — Response state machine
 
