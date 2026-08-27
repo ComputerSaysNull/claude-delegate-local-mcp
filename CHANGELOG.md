@@ -142,6 +142,19 @@ worth citing.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-27 `docs/ARCHITECTURE.md` splits, and `docs/DISPATCH.md` takes `loop.py` and
+  `backends/` with the four sections that describe them. It sat at 423 of 425 lines with
+  M4's turn loop -- also `loop.py` -- about to land on top of it, which both audits of the
+  day flagged and the second called overdue.
+  The interesting part is that the obvious cut does not survive the gate. Splitting along
+  the prose seam, narrative from reference, produces a document with the same audience as
+  its parent and a subset of its owned code, which `check_split_dodge` blocks as a budget
+  being evaded rather than a split -- correctly. The check turns "where does the prose
+  divide" into "which module does the new document own", which has exactly one answer here.
+  Ownership moves with the prose, so neither document describes code it does not own.
+  ARCHITECTURE.md's budget drops 425 → 330 rather than keeping the headroom that produced
+  the problem, and DISPATCH.md is budgeted at 180 against 137 used, sized for the turn loop
+  it will now receive instead. ADR-0032.
 - 2026-08-27 (#18) `check_split_dodge` no longer takes a changed-file list it never read. The
   parameter had been there since the check was written, ignored on every call: the check
   needs the files being *added*, and `changed_files()` reports that a path changed rather

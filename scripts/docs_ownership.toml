@@ -83,8 +83,6 @@ audience = ["contributor"]
 plane = "product"
 owns = [
   "src/claude_delegate_local/server.py",
-  "src/claude_delegate_local/loop.py",
-  "src/claude_delegate_local/backends/**",
   "src/claude_delegate_local/context.py",
   "src/claude_delegate_local/wsl.py",
   # Not written yet (M5). The claim is kept for the same reason as AGENTS.md's claim on
@@ -95,7 +93,21 @@ owns = [
 ]
 covers_not = """
 Environment variable values (CONFIGURATION.md), tool schemas (TOOLS.md), registry file
-format (MODELS.md), or step-by-step setup (README.md)."""
+format (MODELS.md), or step-by-step setup (README.md). Also not the wire format, retry,
+reasoning control or empty-answer recovery -- those moved to DISPATCH.md with the code
+they describe, and restating any of them here is the drift the split was meant to stop."""
+
+[docs."docs/DISPATCH.md"]
+audience = ["contributor"]
+plane = "product"
+owns = [
+  "src/claude_delegate_local/loop.py",
+  "src/claude_delegate_local/backends/**",
+]
+covers_not = """
+The orchestration around a dispatch -- prefetch, path checks, the backend cache, the MCP
+wiring -- which is ARCHITECTURE.md. Not settings (CONFIGURATION.md, generated) and not the
+registry file format (MODELS.md). This is what goes out to a model and what comes back."""
 
 [docs."docs/CONFIGURATION.md"]
 audience = ["user", "contributor"]
