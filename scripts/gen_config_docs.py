@@ -88,11 +88,11 @@ def render() -> str:
         "     regenerates this block and fails the build if it differs. To change a",
         "     default or a description, edit the dataclass field. -->",
         "",
-        f"All settings are environment variables. Prefix `{config.env_name('')}`. "
-        "List-valued settings are shown comma-separated for readability, but are "
-        "**parsed on `os.pathsep`** — `;` on Windows, `:` elsewhere. The rendering is "
-        "deliberately platform-independent so this file is byte-identical wherever it "
-        "is generated.",
+        (f"All settings are environment variables. Prefix `{config.env_name('')}`. "
+         "List-valued settings are shown comma-separated for readability, but are "
+         "**parsed on `os.pathsep`** — `;` on Windows, `:` elsewhere. The rendering is "
+         "deliberately platform-independent so this file is byte-identical wherever it "
+         "is generated."),
         "",
     ]
     for title, names in SECTIONS:
@@ -115,8 +115,8 @@ def render() -> str:
     leftover = [n for n in rows if n not in placed]
     if leftover:
         out += ["### Other", "",
-                "<!-- These fields matched no section in gen_config_docs.py SECTIONS."
-                " Add them to a group. -->", "",
+                ("<!-- These fields matched no section in gen_config_docs.py SECTIONS."
+                 " Add them to a group. -->"), "",
                 "| Variable | Default | Description |", "| --- | --- | --- |"]
         for name in leftover:
             r = rows[name]
@@ -129,7 +129,7 @@ def render() -> str:
 
 def splice(existing: str, block: str) -> str:
     if START in existing and END in existing:
-        head = existing.split(START)[0]
+        head = existing.split(START, maxsplit=1)[0]
         tail = existing.split(END, 1)[1]
         return head + block + tail
     # First run, or someone removed the markers: append rather than clobber prose.

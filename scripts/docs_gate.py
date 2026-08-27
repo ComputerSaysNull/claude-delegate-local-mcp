@@ -62,7 +62,7 @@ HOST_PATTERNS: list[tuple[str, str]] = [
 
 # `host:port` is only a leak when the host is a real name. Placeholders and loopback are
 # how the examples are supposed to read.
-HOSTPORT_RE = re.compile(r"\b([a-z][a-z0-9][a-z0-9.-]{1,40}):(\d{4,5})\b", re.I)
+HOSTPORT_RE = re.compile(r"\b([a-z][a-z0-9][a-z0-9.-]{1,40}):(\d{4,5})\b", re.IGNORECASE)
 # Names only. HOSTPORT_RE starts with [a-z], so a numeric host never reaches this set --
 # entries like "127.0.0.1" sat here looking load-bearing and were unreachable, one of them
 # written twice. Loopback in an example is allowed because the pattern cannot match it,
@@ -190,7 +190,7 @@ def check_commit_identity(mode: str, diff_range: str | None) -> list[Finding]:
             # is its machinery, not an identity claim, so it is permitted as a
             # committer and still refused as an author -- the author field is
             # the claim that matters.
-            if ce != ae and ce != "noreply" + "@github.com":
+            if ce not in (ae, "noreply" + "@github.com"):
                 pairs.append((ce, f"{sha} (committer)"))
     out = []
     for addr, where in pairs:
@@ -280,7 +280,7 @@ def check_host_identifiers() -> list[Finding]:
         text = p.read_text(encoding="utf-8", errors="replace")
         for i, line in enumerate(text.splitlines(), 1):
             for pat, label in HOST_PATTERNS:
-                m = re.search(pat, line, re.I)
+                m = re.search(pat, line, re.IGNORECASE)
                 if m:
                     out.append(Finding(BLOCK, "host-identifier",
                                        f"{r}:{i} looks like a {label}: {m.group(0)!r}. "
@@ -386,7 +386,8 @@ def check_commit_message(mode: str, diff_range: str | None,
             return [Finding(BLOCK, "commit-message",
                             "commit-msg mode requires --message-file.")]
         f = Path(message_file)
-        texts = [("pending commit", f.read_text(encoding="utf-8", errors="replace"))] if f.exists() else []
+        raw = f.read_text(encoding="utf-8", errors="replace") if f.exists() else None
+        texts = [("pending commit", raw)] if raw is not None else []
     elif mode == "pre-commit":
         # Nothing to read. git writes .git/COMMIT_EDITMSG *after* the pre-commit hook
         # returns, so reading it here inspects the PREVIOUS commit's message -- the check
@@ -424,7 +425,7 @@ def check_commit_message(mode: str, diff_range: str | None,
                                    f"entry from the local forbidden_strings list."))
                 break
         for pat, label in HOST_PATTERNS:
-            m = re.search(pat, body, re.I)
+            m = re.search(pat, body, re.IGNORECASE)
             if m:
                 out.append(Finding(BLOCK, "commit-message",
                                    f"{where}: the message contains what looks like a "
@@ -463,7 +464,7 @@ def scan_text(label: str, text: str) -> list[Finding]:
                                f"forbidden_strings list."))
             break
     for pat, lbl in HOST_PATTERNS:
-        m = re.search(pat, text, re.I)
+        m = re.search(pat, text, re.IGNORECASE)
         if m:
             out.append(Finding(BLOCK, "public-text",
                                f"{label} contains what looks like a {lbl}: "
@@ -534,7 +535,7 @@ def check_generated_docs() -> list[Finding]:
             out.append(Finding(SKIP, "generated-doc", f"{script} not written yet."))
             continue
         proc = subprocess.run([sys.executable, script, "--check"],
-                              cwd=ROOT, capture_output=True, text=True)
+                              cwd=ROOT, capture_output=True, text=True, check=False)
         if proc.returncode != 0:
             first = (proc.stdout or proc.stderr).strip().splitlines()
             out.append(Finding(BLOCK, "generated-doc",
@@ -578,7 +579,7 @@ def check_budgets() -> list[Finding]:
         if per_entry:
             seen += 1
             cap = int(per_entry.group(1))
-            sections = re.split(r"^## ", text, flags=re.M)[1:]
+            sections = re.split(r"^## ", text, flags=re.MULTILINE)[1:]
             for sec in sections:
                 title = sec.splitlines()[0].strip()[:70] if sec.strip() else "(untitled)"
                 n = len(sec.splitlines())
@@ -617,7 +618,7 @@ def check_adr_format() -> list[Finding]:
     if not p.exists():
         return [Finding(SKIP, "adr", "DECISIONS.md not written yet.")]
     text = p.read_text(encoding="utf-8")
-    heads = re.findall(r"^## (.+)$", text, re.M)
+    heads = re.findall(r"^## (.+)$", text, re.MULTILINE)
     if not heads:
         return [Finding(BLOCK, "adr", "DECISIONS.md declares no ADR headings.")]
     pattern = re.compile(
@@ -912,7 +913,7 @@ def waivers(mode: str, message_file: str | None = None) -> dict[str, str]:
     else:
         text = run("git", "log", "--format=%B", "origin/main...HEAD")
     out = {}
-    for m in re.finditer(r"^Docs-Gate-Skip:\s*([a-z-]+)\s*(?:--|—)\s*(.+)$", text, re.M):
+    for m in re.finditer(r"^Docs-Gate-Skip:\s*([a-z-]+)\s*(?:--|—)\s*(.+)$", text, re.MULTILINE):
         out[m.group(1).strip()] = m.group(2).strip()
     return out
 
@@ -926,7 +927,8 @@ def main() -> int:
                          "hook. The only stage where the real message exists.")
     ap.add_argument("--diff", dest="diff_range", default=None)
     ap.add_argument("--pr-event", metavar="PATH", default=None,
-                    help="Actions event payload; scans the pull request title and body, a public surface no hook can see.")
+                    help="Actions event payload; scans the pull request title and "
+                         "body, a public surface no hook can see.")
     ap.add_argument("--owner", metavar="PATH",
                     help="print which document owns PATH, then exit. Exists so CLAUDE.md "
                          "can state the ownership rule without restating the manifest.")
@@ -941,7 +943,8 @@ def main() -> int:
         docs = owners_of(path, manifest)
         if docs:
             for d in docs:
-                gen = " (generated -- run its generator, do not hand-edit)"                       if manifest["docs"][d].get("generated") else ""
+                gen = (" (generated -- run its generator, do not hand-edit)"
+                   if manifest["docs"][d].get("generated") else "")
                 print(f"{d}{gen}")
             return 0
         if _matches(path, manifest.get("unowned", {}).get("paths", [])):

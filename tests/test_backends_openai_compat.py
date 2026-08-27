@@ -267,7 +267,7 @@ async def test_tool_call_arguments_that_are_not_json_are_a_protocol_error():
             }
         ]
     )
-    with pytest.raises(base.BackendProtocolError, match="not.*JSON"):
+    with pytest.raises(base.BackendProtocolError, match=r"not.*JSON"):
         await backend(lambda req: httpx.Response(200, json=body)).complete(request())
 
 

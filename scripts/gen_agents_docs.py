@@ -43,7 +43,7 @@ def frontmatter(path: Path) -> dict[str, str]:
     dependency to read four files would cost more than it explains.
     """
     text = path.read_text(encoding="utf-8")
-    m = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.S)
+    m = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
     if not m:
         return {}
     out: dict[str, str] = {}
@@ -78,8 +78,8 @@ def render() -> str:
     rows = agents()
     out = [
         START,
-        "<!-- Generated from .claude/agents/*.md by scripts/gen_agents_docs.py."
-        " Change the frontmatter, not this. -->",
+        ("<!-- Generated from .claude/agents/*.md by scripts/gen_agents_docs.py."
+         " Change the frontmatter, not this. -->"),
         "",
         "| Agent | Model | Effort | For |",
         "|---|---|---|---|",
@@ -93,7 +93,7 @@ def render() -> str:
 
 def splice(existing: str, block: str) -> str:
     if START in existing and END in existing:
-        return existing.split(START)[0] + block + existing.split(END, 1)[1]
+        return existing.split(START, maxsplit=1)[0] + block + existing.split(END, 1)[1]
     sep = "" if existing.endswith("\n\n") or not existing else "\n"
     return existing + sep + "\n" + block + "\n"
 

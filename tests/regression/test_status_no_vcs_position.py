@@ -77,7 +77,7 @@ def test_no_recent_commits_section(rendered: str) -> None:
 def test_unchecked_region_holds_only_counts(rendered: str) -> None:
     """The real invariant, stated against the region that nothing else can verify."""
     tail = unchecked_region(rendered)
-    for line in (l.strip() for l in tail.splitlines()):
+    for line in (ln.strip() for ln in tail.splitlines()):
         if not line.startswith("- "):
             continue
         # Every bullet below the heading must be counts: digits, units, punctuation.

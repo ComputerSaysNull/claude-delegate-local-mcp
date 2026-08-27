@@ -4,11 +4,20 @@
   "enforcement": "active",
   "bypass_actors": [],
   "conditions": {
-    "ref_name": { "include": ["refs/heads/main"], "exclude": [] }
+    "ref_name": {
+      "include": [
+        "refs/heads/main"
+      ],
+      "exclude": []
+    }
   },
   "rules": [
-    { "type": "deletion" },
-    { "type": "non_fast_forward" },
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
     {
       "type": "pull_request",
       "parameters": {
@@ -17,7 +26,9 @@
         "require_code_owner_review": false,
         "require_last_push_approval": false,
         "required_review_thread_resolution": false,
-        "allowed_merge_methods": ["squash"]
+        "allowed_merge_methods": [
+          "squash"
+        ]
       }
     },
     {
@@ -25,10 +36,21 @@
       "parameters": {
         "strict_required_status_checks_policy": true,
         "required_status_checks": [
-          { "context": "docs and secrets gate" },
-          { "context": "tests (3.11)" },
-          { "context": "tests (3.12)" },
-          { "context": "secret scan" }
+          {
+            "context": "docs and secrets gate"
+          },
+          {
+            "context": "lint"
+          },
+          {
+            "context": "tests (3.11)"
+          },
+          {
+            "context": "tests (3.12)"
+          },
+          {
+            "context": "secret scan"
+          }
         ]
       }
     }

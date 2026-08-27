@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 # Values accepted by *this project* for reasoning effort -- deliberately not the server's
 # set, which has its own vocabulary. `backends/openai_compat.py` owns the translation, and
@@ -411,8 +411,8 @@ def parse_env_file(text: str) -> dict[str, str]:
     changes nothing is the worst of the three outcomes.
     """
     out: dict[str, str] = {}
-    for line in text.splitlines():
-        line = line.strip()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
@@ -478,7 +478,7 @@ def load(environ: dict[str, str] | None = None,
 
     live = os.environ if environ is None else environ
     src: dict[str, str] = {**discovered, **{k: v for k, v in live.items() if v != ""}}
-    defaults = Config.__dataclass_fields__  # noqa: SLF001 - documented dataclass API
+    defaults = Config.__dataclass_fields__
     kwargs: dict[str, Any] = {}
     for f in fields(Config):
         raw = src.get(env_name(f.name))

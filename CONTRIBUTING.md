@@ -85,9 +85,10 @@ Security-sensitive work — `sandbox.py`, `paths.py`, `wsl.py` — gets a short 
 
 ## CI
 
-`.github/workflows/ci.yml` runs three jobs on every pull request — **gate**, **tests**
-(3.11 and 3.12), and **gitleaks**. The workflow comments explain why each is shaped as it
-is; they are not repeated here.
+`.github/workflows/ci.yml` runs four jobs on every pull request — **gate**, **lint**,
+**tests** (3.11 and 3.12), and **gitleaks**. `pyproject.toml` pins the ruff version *and*
+the rule set: unpinned, findings went 3 to 45 across releases with no code change, and a
+lint job on a moving rule set fails builds nobody broke. Workflow comments explain the rest.
 
 Two things that live outside it and are easy to miss:
 

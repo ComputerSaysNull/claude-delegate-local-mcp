@@ -44,7 +44,7 @@ def parse_plan() -> list[dict]:
         if h:
             milestone = h.group(1).strip()
             continue
-        m = re.match(r"^- (%s) (.+)$" % "|".join(map(re.escape, MARKS)), line)
+        m = re.match(rf"^- ({'|'.join(map(re.escape, MARKS))}) (.+)$", line)
         if m:
             items.append({"mark": m.group(1), "text": m.group(2).strip(),
                           "milestone": milestone})
@@ -74,7 +74,8 @@ def render() -> str:
 
     tests = git("ls-files", "tests")
     ntests = len([x for x in tests.splitlines() if x.endswith(".py")])
-    adrs = len(re.findall(r"^## ADR-", (ROOT / "DECISIONS.md").read_text(encoding="utf-8"), re.M))
+    decisions = (ROOT / "DECISIONS.md").read_text(encoding="utf-8")
+    adrs = len(re.findall(r"^## ADR-", decisions, re.MULTILINE))
 
     out = [
         "<!-- GENERATED FILE -- do not edit.",
@@ -108,8 +109,8 @@ def render() -> str:
 
     total_done = len(by_mark[DONE])
     total_open = len(by_mark[ACTIVE]) + len(by_mark[TODO])
-    out += ["", f"**Overall:** {total_done} done, {total_open} open, "
-                f"{len(by_mark[CANCELLED])} cancelled.", ""]
+    out += ["", (f"**Overall:** {total_done} done, {total_open} open, "
+                f"{len(by_mark[CANCELLED])} cancelled."), ""]
 
     # Counts only, and deliberately no VCS position. See the note in main(): everything
     # below this heading is excluded from --check, so nothing can verify it. A count that
@@ -118,13 +119,13 @@ def render() -> str:
     # here for a day -- a branch deleted after merge, and a hash the squash rewrote --
     # and no check could have caught either.
     out += ["## Repository", "",
-            f"- {len(git('log', '--oneline').splitlines())} commit(s), "
-            f"{len(git('ls-files').splitlines())} tracked files",
+            (f"- {len(git('log', '--oneline').splitlines())} commit(s), "
+             f"{len(git('ls-files').splitlines())} tracked files"),
             f"- {ntests} test file(s), {adrs} decision record(s)",
             ""]
 
     blocked = [i["text"] for i in items
-               if i["mark"] == TODO and re.search(r"\bblocked\b", i["text"], re.I)]
+               if i["mark"] == TODO and re.search(r"\bblocked\b", i["text"], re.IGNORECASE)]
     if blocked:
         out += ["## Blocked", ""] + [f"- {b}" for b in blocked] + [""]
 
@@ -148,8 +149,8 @@ def main() -> int:
         # facts whose staleness is harmless may go there. render() is what keeps that true;
         # tests/regression/test_status_no_vcs_position.py is what stops it drifting back.
         def stable(text: str) -> str:
-            cut = text.split("## Repository")[0]
-            return "\n".join(l.rstrip() for l in cut.splitlines()).strip()
+            cut = text.split("## Repository", maxsplit=1)[0]
+            return "\n".join(ln.rstrip() for ln in cut.splitlines()).strip()
 
         if stable(old) == stable(new):
             print(f"ok: {TARGET.name} matches PLAN.md")

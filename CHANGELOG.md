@@ -194,6 +194,30 @@ because an entry lives in the commit it describes and cannot know its own hash.
   never tracked.
 
 ### Changed
+- 2026-08-26 ruff runs in CI, on a rule set that is written down rather than inherited.
+  It was configured in `pyproject.toml` and had never run anywhere — believed to be
+  enforcing something while enforcing nothing. Wiring it up as it stood would have been
+  worse: `[tool.ruff]` declared no `select` and the dependency was `ruff>=0.6` unbounded,
+  so the enforced set was whatever the installed version happened to default to. Measured
+  on this repository at ruff 0.16.4: **3 findings under ruff's classic defaults, 45 under
+  the installed version's**, with no line of the repository having changed between them. A
+  lint job on a moving rule set fails a build nobody broke.
+
+  So the set is pinned explicitly and the dependency bounded to `>=0.16,<0.17`. Each
+  `ignore` carries its reason: literal comparisons stay (`PLR2004`) because naming `200`
+  moves the number without explaining it; `PLW1510` and `PLC0415` are ignored under
+  `tests/**` because those tests run a subprocess *expecting* failure and assert on the
+  exit code themselves; `PLR0912` is ignored for `docs_gate.py`, whose check functions
+  branch once per rule they enforce.
+
+  The remaining findings are fixed. Two were worth more than tidiness: a `match=` pattern
+  in `test_registry.py` had unescaped dots, so it matched more than its author intended,
+  and a `for` variable in the new `.env` parser was being overwritten by its own strip.
+  Parenthesising an implicit string concatenation went wrong once on the way and turned two
+  list items into a tuple inside `gen_config_docs.py`; caught by reading the result, and
+  every generator was then checked to produce byte-identical output.
+
+  `lint` is added to the ruleset's required checks, so it gates rather than advises.
 - 2026-08-26 A skipped live test no longer reads as a passing one. The two tests that
   touch the backend skipped with "endpoint unreachable" and nothing else, so a run that
   exercised none of the real path was indistinguishable at a glance from one that exercised
