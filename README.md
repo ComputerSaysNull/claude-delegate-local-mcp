@@ -8,8 +8,9 @@ refactors, first-pass review — costs cloud tokens even when the reasoning requ
 modest. This moves that class of work onto your own hardware, where it is effectively
 free, and keeps Claude for the parts that need it.
 
-**Status: early.** Configuration, the model registry and the documentation tooling are in
-place and tested. The delegation tools themselves are not built yet. See
+**Status: early.** `delegate()` and `backend_status()` work: one task in, one answer back,
+from a real model over a real endpoint. `files[]`, the agentic loop, the sandbox and the
+agent roster are not built yet. See
 [STATUS.md](STATUS.md) for where things actually stand and [PLAN.md](PLAN.md) for the
 route.
 

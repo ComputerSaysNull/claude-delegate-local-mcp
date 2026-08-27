@@ -12,6 +12,22 @@ because an entry lives in the commit it describes and cannot know its own hash.
 ## [Unreleased]
 
 ### Added
+- 2026-08-27 `delegate()`: one task in, one answer back, from a model running on your own
+  hardware. The first thing in this repository that does the job the repository is for.
+  Effort resolves explicit argument, then registry row, then global default, and is always
+  sent rather than inherited from whatever the cluster was booted with; an unlisted level
+  is refused before dispatch, because it has no translation into the server's vocabulary
+  and finding that out mid-call wastes the call. The reply budget takes the reasoning floor
+  at high effort and the per-model cap last, the cap being what the wire will actually
+  accept. `finish_reason` and the token counts come back raw: M3's state machine needs the
+  unread values to decide anything, so M1 declines to decide for it.
+  The one hazard M1 cannot duck is the reply that is valid, empty, and stopped on length --
+  the budget spent on reasoning with nothing left to answer with. Returned bare, that reads
+  as a model with nothing to say and the caller reports a false result, so the result
+  carries `empty_response` as a mechanical fact and the tool description says what an empty
+  answer at a length stop means. It is not called `reasoning_exhausted_budget`: that word
+  means every mitigation was tried, and in M1 none of them exist yet. ADR-0011, ADR-0013,
+  ADR-0014.
 - 2026-08-27 The MCP server, and the first tool on it. Until now nothing called the backend
   adapter: the whole package was configuration and a seam. `server.py` declares the tools
   and owns one backend -- and so one connection pool -- per registry entry for the life of

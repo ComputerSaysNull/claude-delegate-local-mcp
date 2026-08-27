@@ -62,7 +62,7 @@ Prefetching removes several such turns from the front of every delegation.
 | `context.py` | Prefetch, token budgeting, prompt ordering, history eviction *(not built)* |
 | `backends/base.py` | `Backend` protocol and the canonical message shape |
 | `backends/openai_compat.py` | The only adapter shipped |
-| `loop.py` | The turn loop, one-shot path, response state machine *(not built)* |
+| `loop.py` | The one-shot path; the turn loop and response state machine *(not built)* |
 | `tools.py` | Model-facing tools and their enforcement *(not built)* |
 | `sandbox.py` | bubblewrap invocation *(not built)* |
 | `server.py` | MCP wiring, the tool declarations, the backend cache |
@@ -93,6 +93,25 @@ closes them in the lifespan teardown. Building per call would discard connection
 every delegation, and would give `backend_status()` a second pool alongside `delegate()`'s
 for the same endpoint. The cache is injectable, for the reason the adapter takes a
 `client`: otherwise a test of the tool surface opens a real socket and waits a real timeout.
+
+### The one-shot path resolves, sends, and interprets nothing
+
+`delegate()` builds one request from one task and returns what came back. Effort resolves
+explicit argument → registry row → global default and is always sent, never inherited from
+whatever the cluster was booted with (ADR-0013). The reply budget takes the reasoning floor
+at high or max effort, then the per-model cap last, because the cap is what the wire will
+actually accept. An unlisted effort is refused before dispatch: it has no translation into
+the server's vocabulary, and discovering that mid-call wastes the call.
+
+What it does not do is decide anything: `finish_reason` and the token counts come back raw,
+because M3's state machine needs the unread values and would be built on sand otherwise.
+
+That leaves one hazard M1 must face without M3's machinery. A reply can be valid, empty and
+stopped on length — the budget spent on reasoning, nothing left to answer with (ADR-0014).
+Returned bare, `{"answer": ""}` reads as a model with nothing to say, and the caller reports
+a false result. So the result carries `empty_response`, a mechanical fact rather than a
+diagnosis, and the tool description says what an empty answer at a length stop means. It is
+not called `reasoning_exhausted_budget`: that word means every mitigation was tried.
 
 ### `backend_status()` answers a question a stack trace cannot
 

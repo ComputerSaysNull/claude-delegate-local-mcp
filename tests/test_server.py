@@ -364,3 +364,165 @@ async def test_the_result_reports_every_registered_entry_and_marks_the_default()
     assert result["default"] == "b"
     assert {row["key"] for row in result["models"]} == {"a", "b"}
     assert [row["key"] for row in result["models"] if row["is_default"]] == ["b"]
+
+
+# --- delegate(), as the client sees it -------------------------------------------------
+
+
+def chat_reply(content="ok", finish_reason="stop", model="served-id-1", **over):
+    body = {
+        "model": model,
+        "choices": [
+            {"finish_reason": finish_reason, "message": {"role": "assistant", "content": content}}
+        ],
+        "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+    }
+    body.update(over)
+    return body
+
+
+def chat_handler(**over):
+    return lambda request: httpx.Response(200, json=chat_reply(**over))
+
+
+def delegated(handler, *, entries=None, config=None, **kwargs):
+    """Call delegate() over a real MCP session against a transport double."""
+    config = config or cfg()
+    entries = entries or (entry(),)
+    mcp = server.build(
+        config, registry(*entries, default=entries[0].key), DoubleCache(config, handler)
+    )
+
+    async def go():
+        async with Client(mcp) as client:
+            return (await client.call_tool("delegate", kwargs)).data
+
+    return asyncio.run(go())
+
+
+def test_delegate_is_declared_alongside_backend_status():
+    config = cfg()
+    mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
+
+    async def go():
+        async with Client(mcp) as client:
+            return [t.name for t in await client.list_tools()]
+
+    assert set(asyncio.run(go())) == {"delegate", "backend_status"}
+
+
+def test_delegate_returns_the_answer_and_the_bookkeeping():
+    result = delegated(chat_handler(content="the answer"), task="a question")
+    assert result["answer"] == "the answer"
+    assert result["finish_reason"] == "stop"
+    assert result["input_tokens"] == 7
+    assert result["output_tokens"] == 3
+    assert result["empty_response"] is False
+
+
+def test_the_reported_model_is_what_the_backend_said_not_what_was_asked_for():
+    """ADR-0007. Echoing the argument back would report success at using a model that
+    may never have served the request."""
+    result = delegated(chat_handler(model="something-else-entirely"), task="x")
+    assert result["model"] == "something-else-entirely"
+
+
+def test_the_reported_effort_is_the_one_actually_resolved():
+    result = delegated(chat_handler(), entries=(entry(default_effort="max"),), task="x")
+    assert result["effort"] == "max"
+
+
+# --- the empty answer that is not an answer -------------------------------------------
+
+
+def test_an_empty_answer_at_a_length_stop_is_flagged_rather_than_returned_bare():
+    """The reply budget went entirely on reasoning and left nothing to answer with.
+    Returning {"answer": ""} alone reads as a model with nothing to say, which is a
+    different thing and leads the caller to report a false result. ADR-0014; deciding
+    what to *do* about it is M3's."""
+    result = delegated(chat_handler(content=None, finish_reason="length"), task="x")
+    assert result["answer"] == ""
+    assert result["empty_response"] is True
+    assert result["finish_reason"] == "length", "the raw reason must survive uninterpreted"
+
+
+def test_an_ordinary_answer_is_not_flagged_as_empty():
+    """The negative control. A hardwired True would satisfy the test above and mark
+    every successful delegation as a failure."""
+    result = delegated(chat_handler(content="real content"), task="x")
+    assert result["empty_response"] is False
+
+
+def test_an_empty_answer_is_not_reported_as_reasoning_exhausted():
+    """M1 runs no mitigation, and TROUBLESHOOTING defines reasoning_exhausted_budget as
+    the state after every mitigation was tried. Claiming it here would be a lie about
+    work that did not happen."""
+    result = delegated(chat_handler(content=None, finish_reason="length"), task="x")
+    assert "reasoning_exhausted" not in json.dumps(result)
+
+
+# --- delegate() error mapping ---------------------------------------------------------
+
+
+def refusal(handler, **kwargs) -> str:
+    from fastmcp.exceptions import ToolError
+
+    try:
+        delegated(handler, **kwargs)
+    except ToolError as e:
+        return str(e)
+    raise AssertionError("expected the call to be refused")
+
+
+def test_an_unreachable_backend_is_refused_with_the_word_troubleshooting_indexes():
+    def handler(request):
+        raise httpx.ConnectError("connection failed")
+
+    assert server.STATUS_UNREACHABLE in refusal(handler, task="x")
+
+
+def test_a_401_is_refused_as_auth_failed():
+    assert server.STATUS_AUTH_FAILED in refusal(
+        lambda request: httpx.Response(401, text="no"), task="x"
+    )
+
+
+def test_a_500_is_refused_as_backend_refused_carrying_the_status():
+    message = refusal(lambda request: httpx.Response(500, text="boom"), task="x")
+    assert server.STATUS_REFUSED in message
+    assert "500" in message
+
+
+def test_a_protocol_error_is_distinguishable_from_a_refusal():
+    """Two different problems: one is the endpoint saying no, the other is the endpoint
+    not being what we think it is. Identical text would make the distinction fiction."""
+    protocol = refusal(lambda request: httpx.Response(200, json={"nope": 1}), task="x")
+    refused = refusal(lambda request: httpx.Response(500, text="boom"), task="x")
+    assert server.STATUS_PROTOCOL_ERROR in protocol
+    assert protocol != refused
+
+
+def test_an_unknown_model_is_refused_naming_the_registered_ones():
+    message = refusal(chat_handler(), task="x", model="no-such-model")
+    assert "flash" in message
+
+
+def test_an_unlisted_effort_is_refused_by_the_tool():
+    assert "effort" in refusal(chat_handler(), task="x", effort="medium")
+
+
+def test_no_refusal_from_delegate_ever_names_the_endpoint():
+    """ADR-0029 again, on the other tool. An error string reaches a log and from there
+    a pasted issue comment."""
+    def dropped(request):
+        raise httpx.ConnectError("connection failed")
+
+    for handler in (
+        dropped,
+        lambda request: httpx.Response(401, text="denied"),
+        lambda request: httpx.Response(500, text="boom"),
+        lambda request: httpx.Response(200, json={"nope": 1}),
+    ):
+        message = refusal(handler, task="x")
+        assert "example.com" not in message
+        assert "8000" not in message

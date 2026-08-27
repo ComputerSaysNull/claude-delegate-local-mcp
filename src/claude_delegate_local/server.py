@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 
 from .backends.base import (
     Backend,
@@ -32,7 +33,8 @@ from .backends.base import (
 )
 from .backends.openai_compat import OpenAICompatBackend
 from .config import Config, ConfigError
-from .registry import ModelEntry, Registry
+from .loop import InvalidDelegation, run_one_shot
+from .registry import ModelEntry, Registry, RegistryError
 
 SERVER_NAME = "delegate-local"
 
@@ -144,6 +146,25 @@ async def probe_entry(
     return row
 
 
+def _refuse(e: Exception) -> ToolError:
+    """Translate a backend failure into something the caller can act on.
+
+    A ToolError raised here reaches the model verbatim -- FastMCP re-raises its own
+    error type rather than masking it -- so these strings are part of the contract, and
+    the words are the ones docs/TROUBLESHOOTING.md indexes by. The distinctions are the
+    point: unreachable is somebody else's hardware, refused is usually a wrong path,
+    and a protocol error means the endpoint answered but is not the stack we meant.
+    """
+    if isinstance(e, BackendUnavailable):
+        return ToolError(f"{STATUS_UNREACHABLE}: {e}")
+    if isinstance(e, BackendRefused):
+        word = STATUS_AUTH_FAILED if e.status in (401, 403) else STATUS_REFUSED
+        return ToolError(f"{word}: the endpoint answered {e.status} for {e.url_path}.")
+    if isinstance(e, BackendProtocolError):
+        return ToolError(f"{STATUS_PROTOCOL_ERROR}: {e}")
+    return ToolError(str(e))
+
+
 def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) -> FastMCP:
     """Construct the server. Pure wiring; no I/O beyond what the tools do when called.
 
@@ -161,6 +182,63 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
             await cache.aclose()
 
     mcp: FastMCP = FastMCP(name=SERVER_NAME, lifespan=lifespan)
+
+    @mcp.tool
+    async def delegate(
+        task: str, model: str | None = None, effort: str | None = None
+    ) -> dict[str, Any]:
+        """Hand one self-contained task to a local model and get its answer back.
+
+        For bulk, mechanical or read-heavy work whose reasoning is modest: drafting,
+        first-pass review of code you paste into the task, mechanical rewrites,
+        explaining something. It runs on hardware the user hosts, so it costs no cloud
+        tokens -- prefer it whenever the work does not need your own judgement.
+
+        The model gets exactly the text in `task` and nothing else. It has no tools and
+        cannot read any file, so include the code you want it to look at in the task
+        itself. `model` names a registered model, defaulting to the configured one;
+        `effort` sets reasoning effort explicitly, one of "off", "low", "high", "max".
+
+        Returns `answer` plus what actually happened: the model that served it, the raw
+        `finish_reason`, and token counts. Check `empty_response`. An empty answer with
+        `finish_reason: "length"` is not a model with nothing to say -- it is one that
+        spent the whole reply budget on reasoning and had none left to answer with.
+        Retry that at a lower effort, or with a smaller task; do not report it as an
+        empty result. If the call fails outright, `backend_status()` will say whether
+        the model is down, misconfigured, or serving something other than it should.
+        """
+        try:
+            entry = registry.resolve(model)
+        except RegistryError as e:
+            raise ToolError(str(e)) from e  # already names the registered keys
+
+        try:
+            backend = cache.get(entry)
+        except (ConfigError, CanonicalShapeError) as e:
+            raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
+
+        try:
+            response, used_effort = await run_one_shot(cfg, entry, backend, task, effort=effort)
+        except InvalidDelegation as e:
+            raise ToolError(str(e)) from e
+        except (BackendUnavailable, BackendRefused, BackendProtocolError) as e:
+            raise _refuse(e) from e
+
+        answer = response.text
+        return {
+            "answer": answer,
+            # The model as the backend reported it, not as the caller asked for it.
+            # Server-captured ground truth is the only kind worth reporting. ADR-0007.
+            "model": response.model,
+            "finish_reason": response.finish_reason,
+            "input_tokens": response.input_tokens,
+            "output_tokens": response.output_tokens,
+            "effort": used_effort,
+            # A mechanical fact, not a diagnosis. Deciding what an empty answer *means*
+            # is the M3 state machine's job; saying plainly that it is empty is this
+            # commit's, because otherwise "" reads as a successful reply.
+            "empty_response": answer == "",
+        }
 
     @mcp.tool
     async def backend_status() -> dict[str, Any]:
