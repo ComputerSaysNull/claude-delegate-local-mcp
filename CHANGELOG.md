@@ -26,6 +26,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #25 — 2026-08-28 — feat: check Conventional Commits on both surfaces that reach main
+
+### Added
+- The gate now refuses a subject that is not a Conventional Commit, on the pull request
+  title and on every commit subject. CLAUDE.md and CONTRIBUTING.md have both required the
+  convention since the first commit and nothing read either, so it held only by habit --
+  and habit lapsed: five pull request titles carried `M1:`, `M2:` and `M3:` prefixes, and
+  two of those subjects reached `main`, across eleven pull requests before anyone noticed.
+- Both surfaces are checked because each is decisive in a different case. A squash takes
+  its subject from the pull request title for a multi-commit branch and from the commit
+  itself for a single-commit one, so guarding one leaves half of what lands unchecked.
+  That split is visible in the drift: #12 and #14 merged with correct `feat:` subjects
+  while their titles said `M2:`, and #11 and #15 carried the prefix into `main`. A title
+  check alone would have missed the second pair's subjects; a commit check alone would
+  have left every title wrong.
+- It blocks rather than warns. A malformed title is repaired by editing the pull request,
+  which is the difference between this and the secret scan on the same text: a leak is
+  already published by the time CI sees it, so that stays a backstop, while this is a real
+  gate. `Merge` and `Revert` subjects are exempt -- git writes them, so nobody had the
+  chance to apply a convention.
+- `CONVENTIONAL_TYPES` lives in the gate and CONTRIBUTING.md names the same six in prose
+  for a human to read. A test asserts the two agree, because two copies of one fact is the
+  drift the documentation scheme exists to prevent, and this one would otherwise be
+  discovered the next time somebody added a seventh type to only one of them.
+- Negative-tested in both directions: stubbed to report nothing, 3 failures; stubbed to
+  refuse everything, a different 3. It also caught an existing fixture whose synthetic
+  subject was the bare word `msg`, which is the cheapest evidence that it reads real input.
+  The five historical titles were corrected in place, which a pull request title permits
+  and a merged subject does not.
+
 ## #24 — 2026-08-28 — docs: one changelog section per pull request, and no size threshold
 
 ### Changed

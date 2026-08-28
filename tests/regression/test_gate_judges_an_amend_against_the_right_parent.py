@@ -138,10 +138,12 @@ def test_a_stale_marker_cannot_change_the_next_commit(repo: Path):
     git(repo, "add", "-A")
     marker = repo / ".git" / "docs-gate-reused-message"
 
-    first = run_gate(repo, "msg\n", reused=True)
+    # A conventional subject: the gate now checks shape too, and this test is about the
+    # marker's lifetime rather than the message.
+    first = run_gate(repo, "fix: msg\n", reused=True)
     assert first.returncode == 0, first.stdout
     assert not marker.exists(), "the marker survived a run and would judge the next commit"
 
-    second = run_gate(repo, "msg\n", reused=False)
+    second = run_gate(repo, "fix: msg\n", reused=False)
     assert second.returncode == 1, (
         f"the second run still behaved as an amend:\n{second.stdout}")
