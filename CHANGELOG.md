@@ -175,6 +175,20 @@ worth citing.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-28 (#23) The budget ledgers track their own budgets again. Four documents carry a
+  comment recording why their line budget moved -- the four whose budgets have moved --
+  and `docs/ARCHITECTURE.md`'s had drifted in two ways. It narrated 300 to 340 to 375 to
+  425 and stopped, while the marker above it reads 330: ADR-0032 lowered it after the
+  split and the ledger was never told, so a reader following it landed on a number that
+  is not there. The entry recording the drop is added.
+  The other drift is the interesting one. A ledger records why lines were spent, which
+  is bookkeeping about the document; this one had slipped into asserting the state of
+  the system -- "the two bounds that do NOT yet exist" -- in a file whose whole job is
+  to be what is true now, and enforcing `dispatch_timeout` had just made half of it
+  false. Rewritten to say what the lines were spent on rather than what is currently
+  missing, which is the only tense a ledger can hold without going stale.
+  PLAN.md gains the entry it should have had when its budget was raised 220 to 245
+  earlier the same session -- the convention being broken while it was being audited.
 - 2026-08-28 (#20) M4's real-exit-code item moves to M5, beside `sandbox.py`, and
   PLAN.md's budget rises 220 → 245. ADR-0010 has `run_bash` refuse rather than run
   unconfined, and `sandbox.py` is M5, so through the whole of M4 there is no process

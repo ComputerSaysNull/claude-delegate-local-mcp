@@ -5,15 +5,17 @@
      AGENTS.md already carried in full.
      Raised again from 340 in M3: loop.py stopped being a straight-through dispatch, and
      retry selectivity is a set of decisions whose reasons do not survive being compressed
-     into a sentence. The two bounds that do NOT yet exist are documented on purpose --
-     an unenforced dispatch_timeout is exactly the kind of gap a reader assumes is
-     covered.
+     into a sentence. Some of those lines went on two bounds that did not exist yet, an
+     unenforced dispatch_timeout being exactly the kind of gap a reader assumes is covered.
      Raised again from 375 to 425 for empty-answer recovery. The two terminal states are
      different diagnoses that send a caller to different fixes, and the reason each
      mitigation is ordered where it is -- prefix cache first, prefill last -- is not
      recoverable from the code by someone deciding whether to reorder them. The last ten
      lines are the measurement that says one of those stages does not fire in production:
-     without it the skip reads as tidiness rather than the thing holding the cost down. -->
+     without it the skip reads as tidiness rather than the thing holding the cost down.
+     Lowered from 425 to 330 on 2026-08-27, when loop.py and backends/ moved to DISPATCH.md
+     with the four sections describing them. A budget left at its old ceiling after a split
+     has been deferred rather than paid. ADR-0032. -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
