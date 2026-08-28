@@ -32,7 +32,7 @@ UNPROVEN = (
     "PREFETCH UNPROVEN BY THIS RUN -- this is not a pass. It reads real files through "
     "resolved POSIX paths, and the server runs in WSL. Run it there -- see "
     "CONTRIBUTING.md: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/cdl/bin/python -m pytest tests/test_context.py'"
+    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest tests/test_context.py'"
 )
 posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 

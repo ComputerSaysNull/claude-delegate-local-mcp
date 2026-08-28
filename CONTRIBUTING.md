@@ -13,10 +13,10 @@ in the WSL home, not the repository: creating one on `/mnt/c` is far slower (ADR
 
 ```bash
 wsl -d Ubuntu-24.04 -e bash -lc '
-  python3 -m venv ~/.venvs/cdl
-  ~/.venvs/cdl/bin/pip install -e "/mnt/c/path/to/repo[dev]"'
+  python3 -m venv ~/.venvs/delegate
+  ~/.venvs/delegate/bin/pip install -e "/mnt/c/path/to/repo[dev]"'
 
-wsl -d Ubuntu-24.04 -e bash -lc 'cd /mnt/c/path/to/repo && ~/.venvs/cdl/bin/python -m pytest -q'
+wsl -d Ubuntu-24.04 -e bash -lc 'cd /mnt/c/path/to/repo && ~/.venvs/delegate/bin/python -m pytest -q'
 ```
 
 Add `-m "not integration"` to skip anything needing the cluster; that is what CI runs. Tests
