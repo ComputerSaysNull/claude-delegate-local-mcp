@@ -127,13 +127,37 @@ def test_per_entry_budget_is_silent_on_short_sections(repo: Path):
     assert not fired(gate(repo), "budget", "docs/log2.md")
 
 
-def test_archive_threshold_warns_rather_than_blocks(repo: Path):
-    """ARCHIVE-AT is the append-only instrument: it must warn and never block."""
+def test_archive_threshold_is_gone_and_says_nothing(repo: Path):
+    """ARCHIVE-AT was removed (ADR-0033): a stale marker must be inert, not honoured.
+
+    It warned past a line count and pointed at a by-year split that a single-year document
+    could not perform, so it fired on every commit with no way to answer it. A marker left
+    behind in some old file must now do nothing at all -- silently still warning would be
+    the instrument surviving its own removal.
+    """
     (repo / "docs" / "hist.md").write_text(
         "<!-- ARCHIVE-AT: 5 -->\n" + "line\n" * 40, encoding="utf-8")
     lines = gate(repo)
-    assert fired(lines, "budget", "docs/hist.md", "archive threshold")
-    assert not any("BLOCK" in ln and "docs/hist.md" in ln for ln in lines)
+    assert not fired(lines, "budget", "docs/hist.md")
+
+
+def test_a_per_entry_budget_fires_on_the_changelog_shape(repo: Path):
+    """The shape ADR-0033 adopted: one `## ` section per pull request.
+
+    The 2026-08-27 audit withdrew per-entry budgeting for CHANGELOG.md because its entries
+    were bullets under one section, so the cap read the whole file as a single entry.
+    Sections per pull request are what make the existing check apply, and this asserts it
+    really does -- and that a short section beside a long one is left alone.
+    """
+    long_entry = "\n".join(f"- line {i}" for i in range(40))
+    (repo / "docs" / "cl.md").write_text(
+        "<!-- BUDGET-PER-ENTRY: 30 -->\n"
+        "## #2 -- second\n### Added\n- short\n"
+        f"## #1 -- first\n### Added\n{long_entry}\n",
+        encoding="utf-8")
+    lines = gate(repo)
+    assert fired(lines, "budget", "docs/cl.md", "#1 -- first")
+    assert not any("#2 -- second" in ln for ln in lines)
 
 
 # ---------------------------------------------------------------------- orphan docs

@@ -586,8 +586,12 @@ def check_budgets() -> list[Finding]:
     `BUDGET-PER-ENTRY: n` longest `## ` section. For APPEND-ONLY documents, where history
                           does not stop earning its place, so a total cap could only ever
                           be raised. Capping each entry keeps them terse instead.
-    `ARCHIVE-AT: n`       optional, append-only only. Warns when the file has grown enough
-                          to split by year, rather than blocking.
+    There is deliberately no total-size instrument for append-only documents. One was
+    tried -- `ARCHIVE-AT: n`, warning when the file passed a line count -- and it warned
+    without a remedy anyone could apply: the procedure it pointed at split by year, and a
+    document whose entries are all one year has no older year to move. It fired on every
+    commit until it stopped being read, which is the failure a warning has. Archiving is
+    now a judgement someone makes, not a threshold. (ADR-0033)
     """
     out = []
     seen = 0
@@ -598,14 +602,6 @@ def check_budgets() -> list[Finding]:
             continue
         text = p.read_text(encoding="utf-8", errors="replace")
         total = len(text.splitlines())
-
-        archive_at = re.search(r"<!--\s*ARCHIVE-AT:\s*(\d+)\s*-->", text)
-        if archive_at and total > int(archive_at.group(1)):
-            out.append(Finding(
-                WARN, "budget",
-                f"{r} is {total} lines, past its archive threshold of "
-                f"{archive_at.group(1)}. Consider splitting the older entries into a "
-                f"dated file; do not trim them."))
 
         per_entry = re.search(r"<!--\s*BUDGET-PER-ENTRY:\s*(\d+)\s*-->", text)
         if per_entry:
@@ -626,8 +622,6 @@ def check_budgets() -> list[Finding]:
 
         m = re.search(r"<!--\s*BUDGET:\s*(\d+)\s*-->", text)
         if not m:
-            if archive_at:
-                seen += 1
             continue
         seen += 1
         budget = int(m.group(1))
