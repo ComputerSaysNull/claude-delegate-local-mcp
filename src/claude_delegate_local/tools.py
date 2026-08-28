@@ -35,10 +35,23 @@ class ToolRefused(Exception):
 
 @dataclass(frozen=True, slots=True)
 class RegisteredTool:
-    """One tool: what the model is told, and what actually runs."""
+    """One tool: what the model is told, and what actually runs.
+
+    `cacheable` says whether repeating this call with identical arguments, inside one
+    delegation, must produce the same answer -- which is what lets the turn loop serve a
+    repeat from what it already has instead of paying for it twice. It is a property of
+    the tool, so it is declared with the tool; a loop that decided this by name would be
+    keeping a second copy of a fact about `tools.py` somewhere else.
+
+    False is the safe answer and the default. A tool with side effects is never cacheable,
+    and it also invalidates what was cached: a file read before a write and read again
+    after it has two different correct answers, and serving the first one twice would hand
+    the model a stale file it has every reason to believe is current.
+    """
 
     spec: ToolSpec
     handler: Callable[[Config, dict[str, object]], str]
+    cacheable: bool = False
 
 
 # --- argument helpers -------------------------------------------------------------------
@@ -179,6 +192,7 @@ READ_FILE = RegisteredTool(
         },
     ),
     handler=_read_file,
+    cacheable=True,
 )
 
 WRITE_FILE = RegisteredTool(
@@ -226,6 +240,37 @@ REGISTRY: dict[str, RegisteredTool] = {
     t.spec.name: t for t in (READ_FILE, WRITE_FILE, RUN_BASH)
 }
 ALL_TOOL_NAMES: frozenset[str] = frozenset(REGISTRY)
+
+# Implemented, but not offered, because it cannot work: `run_bash` refuses every call until
+# `sandbox.py` exists (ADR-0010). Declaring it anyway spends a turn to learn that -- and
+# ADR-0016 measured that the first turn is already often wasted on orientation, so this
+# would be the second. The registry keeps it because the refusal is the behaviour under
+# test, and `execute_tool` keeps checking it because a model can call what it was never
+# offered; what changes here is only what gets *declared*.
+#
+# Withheld server-wide rather than left to each caller: "the sandbox is not built" is a
+# fact about this server, not a preference of one delegation, so no `allowed_tools`
+# argument can opt back in. When M5 lands, this set empties and both sites follow.
+WITHHELD_TOOL_NAMES: frozenset[str] = frozenset({"run_bash"})
+
+
+def available_tool_names() -> frozenset[str]:
+    """What this server can offer today, as opposed to what it implements."""
+    return ALL_TOOL_NAMES - WITHHELD_TOOL_NAMES
+
+
+def resolve_allowed(requested: Iterable[str] | None) -> frozenset[str]:
+    """The resolved set for one delegation: what was asked for, minus what cannot work.
+
+    `None` means "whatever is available", which is the default a caller gets by not
+    choosing. An explicit set is narrowed, never widened -- intersecting rather than
+    unioning is what stops a caller naming a tool this server withholds, or one it does
+    not implement at all, and getting it.
+    """
+    available = available_tool_names()
+    if requested is None:
+        return available
+    return frozenset(requested) & available
 
 
 # --- the two enforcement sites ------------------------------------------------------------

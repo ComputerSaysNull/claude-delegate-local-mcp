@@ -21,7 +21,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 
 from .backends.base import (
@@ -34,9 +34,18 @@ from .backends.base import (
 from .backends.openai_compat import OpenAICompatBackend
 from .config import Config, ConfigError
 from .context import prefetch
-from .loop import Delegation, DispatchTimedOut, InvalidDelegation, run_one_shot
+from .loop import (
+    AgenticDispatch,
+    Delegation,
+    Dispatch,
+    DispatchTimedOut,
+    InvalidDelegation,
+    run_agentic_loop,
+    run_one_shot,
+)
 from .paths import PathPolicyError, PathRefused, resolve_all
 from .registry import ModelEntry, Registry, RegistryError
+from .tools import resolve_allowed
 
 SERVER_NAME = "delegate-local"
 
@@ -48,6 +57,25 @@ STATUS_AUTH_FAILED = "auth_failed"
 STATUS_REFUSED = "backend_refused"
 STATUS_PROTOCOL_ERROR = "backend_protocol_error"
 STATUS_MISCONFIGURED = "misconfigured"
+
+
+def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
+    """The turn-loop counters, present only when a loop actually ran.
+
+    Absent rather than zero-filled on the one-shot path. `tool_calls: 0` alongside an
+    answer would read as a model that chose not to use its tools, when in fact it was
+    never offered any -- a distinction the caller acts on differently.
+    """
+    if not isinstance(dispatched, AgenticDispatch):
+        return {}
+    return {
+        "turns": dispatched.turns,
+        "tool_calls": dispatched.tool_calls,
+        "tool_errors": dispatched.tool_errors,
+        "tool_calls_deduplicated": dispatched.deduped,
+        "tool_results_evicted": dispatched.evicted,
+        "hit_turn_limit": dispatched.hit_turn_limit,
+    }
 
 
 class BackendCache:
@@ -186,11 +214,17 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
     mcp: FastMCP = FastMCP(name=SERVER_NAME, lifespan=lifespan)
 
     @mcp.tool
-    async def delegate(
+    async def delegate(  # noqa: PLR0913 -- ctx is injected, not an argument the caller sees
         task: str,
         files: list[str] | None = None,
         model: str | None = None,
         effort: str | None = None,
+        allowed_tools: list[str] | None = None,
+        *,
+        # Keyword-only because it is not an argument at all: fastmcp injects it by type,
+        # it never appears in the schema the model reads, and a caller has nothing to put
+        # here. Positionally it would just be a sixth slot nobody may fill.
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Hand one self-contained task to a local model and get its answer back.
 
@@ -205,22 +239,35 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
         paste it here defeats the entire point of this tool. Give absolute paths, in
         whatever form you already have them -- Windows paths are translated for you.
 
-        The model has no tools and cannot open anything you did not name, so `task` plus
-        `files[]` must contain everything it needs. `model` names a registered model,
-        defaulting to the configured one; `effort` sets reasoning effort explicitly, one
-        of "off", "low", "high", "max".
+        The model works in turns, and can read and write files in the workspace itself.
+        So `files[]` is a head start rather than the whole world: name what it obviously
+        needs, and let it find the rest. It cannot run shell commands. Path rules are the
+        same ones that govern `files[]`, and a write it is refused comes back to it as a
+        refusal it can correct, not as a failed call.
 
-        A path that is not allowed fails the whole call before anything is sent, and the
-        error names every rejected path, the layer that rejected it, and what to do --
-        one correction fixes all of them. A file that is allowed but too large or not
-        text is **skipped**: the call proceeds without it, and `files_skipped` says which
-        and why. Read that field before trusting an answer; the model was told the file
-        was unavailable, but it cannot tell you what it never saw.
+        `model` names a registered model, defaulting to the configured one; `effort` sets
+        reasoning effort explicitly, one of "off", "low", "high", "max". `allowed_tools`
+        narrows what the model may use -- omit it for everything available, or pass an
+        empty list for a single-turn answer with no tools at all, which is the cheapest
+        shape when the task is self-contained and `files[]` already holds everything.
 
-        Returns `answer` plus what actually happened: the model that served it, the raw
-        `finish_reason`, token counts, the prefetch accounting, and `attempts` -- the real
-        number of backend calls this took, which is more than one when something failed
-        and was retried for you.
+        A path in `files[]` that is not allowed fails the whole call before anything is
+        sent, and the error names every rejected path, the layer that rejected it, and
+        what to do. A file that is allowed but too large or not text is **skipped**: the
+        call proceeds without it, and `files_skipped` says which and why. Read that field
+        before trusting an answer; the model was told the file was unavailable, but it
+        cannot tell you what it never saw.
+
+        Returns `answer` plus what the server watched happen, rather than the model's
+        account of it: `turns` is how many round trips it took, `tool_calls` how many
+        tools actually ran, `tool_errors` how many of those were refused, and `attempts`
+        the real number of backend calls, which exceeds `turns` when something failed and
+        was retried for you. A model's summary of its own work is not evidence; these are.
+
+        `hit_turn_limit: true` means it was still calling tools when its turns ran out.
+        The answer is whatever it could write once tools were withdrawn, so treat it as
+        partial -- and verify any file it claims to have written, because the count of
+        tools that ran does not say what they did.
 
         Do not retry this call yourself to work around an empty answer or a flaky
         endpoint. The server already does both, and repeating it here spends your context
@@ -261,14 +308,31 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
         except (ConfigError, CanonicalShapeError) as e:
             raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
+        delegation = Delegation(task=task, files_block=prefetched.block())
+        allowed = resolve_allowed(allowed_tools)
+
+        async def progress(turn: int, of: int) -> None:
+            """ADR-0018: this is what stops the client abandoning a delegation still running.
+
+            The client's stdio idle timer is 1800s and `dispatch_timeout` defaults to 3600s,
+            so without a per-turn notification a long delegation is dropped by the caller
+            while the server works on. Nothing renders it and it cannot be cancelled through
+            -- resetting that timer is the whole of its job.
+            """
+            if ctx is not None:
+                await ctx.report_progress(progress=turn, total=of)
+
         try:
-            dispatched = await run_one_shot(
-                cfg,
-                entry,
-                backend,
-                Delegation(task=task, files_block=prefetched.block()),
-                effort=effort,
-            )
+            if allowed:
+                dispatched = await run_agentic_loop(
+                    cfg, entry, backend, delegation,
+                    allowed=allowed, effort=effort, report_progress=progress,
+                )
+            else:
+                # An explicitly empty toolset. Not the loop with nothing declared: the
+                # one-shot prompt tells the model plainly that it cannot open anything and
+                # has no second turn, which is true here and is not true in the loop.
+                dispatched = await run_one_shot(cfg, entry, backend, delegation, effort=effort)
         except InvalidDelegation as e:
             raise ToolError(str(e)) from e
         except DispatchTimedOut as e:
@@ -295,6 +359,10 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
             # than one means something failed and was retried without the caller having to
             # care; the token counts above describe the attempt that answered, not the sum.
             "attempts": dispatched.attempts,
+            # The loop's ledger, and only when there was a loop. Reporting turns: 1 for the
+            # one-shot path would be a number the caller could compare against a budget that
+            # never applied to it. ADR-0007: what the server watched, not what was claimed.
+            **_loop_ledger(dispatched),
             # Still the mechanical fact, and still reported on its own: "" must never read
             # as a successful reply. What changed is that reaching here means the state
             # machine already tried a larger budget and a lower effort.

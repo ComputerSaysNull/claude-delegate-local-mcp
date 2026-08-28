@@ -69,7 +69,7 @@ Everything below the frontmatter is the system prompt.
 | `effort` | `off`, `low`, `high`, `max`. Refused loudly if misspelt |
 | `max_turns` | Round trips, capped by the server's hard ceiling |
 | `max_tokens` | Per-reply budget, clamped by the model's cap |
-| `keep_tool_results` | How many recent tool results survive history eviction |
+| `keep_tool_results` | How many recent tool results survive history eviction — [DISPATCH.md](DISPATCH.md) |
 | `allowed_tools` | Restricts what this agent may call. Enforced twice |
 | `network` | `true` re-shares the network namespace for `run_bash`. Default off |
 | `extra_binds` | Extra directories visible inside the sandbox |
