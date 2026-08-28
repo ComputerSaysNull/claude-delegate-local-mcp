@@ -402,6 +402,36 @@ worth citing.
   why this is a separate check rather than a pattern.
 
 ### Fixed
+- 2026-08-28 (#21) The inert marker in the generated configuration reference no longer counts
+  a mention in prose as a use, so a setting nothing reads stops rendering as a live knob.
+  `_unread_fields` scanned each module as raw text and collected every identifier-shaped
+  word, which made a name written in a comment or a docstring indistinguishable from a
+  name the code actually reads. It now parses each module and collects the names and
+  attributes the syntax tree actually references: a comment is not in the tree at all and
+  a string literal -- docstring included -- is a constant, so no identifier is read out of
+  either.
+  Parsing rather than tokenising is load-bearing, and CI caught why. Keeping NAME tokens
+  gives the right answer only from Python 3.12, where PEP 701 split f-strings into their
+  parts; on 3.11 an f-string is a single STRING token, so `f"{cfg.some_field}"` is a real
+  read that reads as prose. This feeds a *generated* file, so that would have made the
+  rendered document depend on which interpreter rendered it -- the 3.11 leg of the matrix
+  failed on exactly that while 3.12 passed. The syntax tree has an expression node for the
+  substitution on every supported version.
+  Exactly one setting was affected, and the way it was affected is the point.
+  `dispatch_timeout` is read by no module, and is named in two comments that say so --
+  `loop.py`'s "exists in config and is consumed nowhere" and the adapter's note that it
+  belongs to the caller above. The sentences documenting the setting as dead were the
+  sole reason the reference presented it to an operator as working. A truthful comment
+  suppressing the marker that repeats it is the same shape as the four checks this
+  project has already found reading the wrong thing, and it fails in the direction
+  `_unread_fields`'s own docstring calls the dangerous one: over-marking is visible and
+  gets fixed, under-marking restores the bug the scan exists to prevent.
+  Measured rather than reasoned about, by stripping comments and strings and rescanning:
+  19 settings marked against 20 genuinely unread, the difference being that one field.
+  The count in the rendered table moves 19 → 20 and nothing loses its marker.
+  The regression test asserts against a synthetic source tree, never the live one. A
+  test pinning `dispatch_timeout` would stop testing the moment the field is enforced
+  while still passing, which is this bug class wearing the other hat.
 - 2026-08-27 The documented MCP registration could not start the server from anywhere but
   this repository, and the failure named the wrong thing. `wsl.exe -e` carries the *Windows*
   working directory across the boundary, so the server looked for `models.toml` inside

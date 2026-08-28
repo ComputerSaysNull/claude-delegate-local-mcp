@@ -17,8 +17,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import difflib
-import re
 import sys
 import tempfile
 from pathlib import Path
@@ -70,6 +70,35 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
+def _code_identifiers(source: str) -> set[str]:
+    """Every identifier `source` actually references, ignoring comments and literals.
+
+    Prose is not a use. A comment naming a field -- including one truthfully saying the
+    field is unused -- must not count, or the marker inverts: the sentence documenting a
+    setting as dead is what reports it live.
+
+    Parsed rather than tokenised, and that is not a preference. Tokenising and keeping NAME
+    tokens gives the right answer only from Python 3.12, where PEP 701 split f-strings into
+    their parts; before that an f-string is a single STRING token, so `f"{cfg.some_field}"`
+    is a real read that reads as prose. Since this feeds a *generated* file, that would make
+    the rendered document depend on which interpreter rendered it. The syntax tree has an
+    expression node for the substitution on every supported version.
+
+    Attribute names are collected as well as bare names, because a setting is nearly always
+    reached as `cfg.<field>` and `<field>` is the attribute half. A name reached only
+    through a string -- `getattr(cfg, "some_field")` -- is still unread here, which is the
+    conservative direction `_unread_fields` documents and keeps deliberately.
+    """
+    tree = ast.parse(source)
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            found.add(node.attr)
+    return found
+
+
 def _unread_fields() -> set[str]:
     """Field names no module outside config.py reads.
 
@@ -80,18 +109,24 @@ def _unread_fields() -> set[str]:
     second copy of PLAN.md and would rot the day a subsystem landed; a scan of the source
     clears itself in the same commit that starts using the setting.
 
-    Deliberately conservative: a plain word-boundary match, so anything reached by
-    `getattr` counts as unread and is marked. Over-marking is visible and gets fixed;
+    Deliberately conservative: a plain identifier match over *code*, so anything reached
+    by `getattr` counts as unread and is marked. Over-marking is visible and gets fixed;
     under-marking restores the bug.
+
+    The scan reads code only. It used to read the file as raw text, which made every
+    identifier-shaped word in a comment or docstring a use -- and the first thing that
+    cost was `dispatch_timeout`, unread everywhere but named in two comments saying so.
+    That is under-marking, the direction this docstring calls the dangerous one, reached
+    by the sentence that documented the problem. Ignoring literals does not weaken the
+    getattr rule above; it strengthens it, a name reached only through a string literal
+    now being unread by both readings.
     """
     src = ROOT / "src" / "claude_delegate_local"
-    blob = "".join(
-        p.read_text(encoding="utf-8")
-        for p in sorted(src.rglob("*.py"))
-        if p.name != "config.py"
-    )
-    # Identifier tokens, so a field name is matched whole and never as a substring.
-    used = set(re.findall("[A-Za-z_][A-Za-z0-9_]*", blob))
+    used: set[str] = set()
+    for path in sorted(src.rglob("*.py")):
+        if path.name == "config.py":
+            continue
+        used |= _code_identifiers(path.read_text(encoding="utf-8"))
     return {r["field"] for r in config.describe() if r["field"] not in used}
 
 
