@@ -1,4 +1,7 @@
-<!-- BUDGET: 180 -->
+<!-- BUDGET: 265 -->
+<!-- Raised from 180 on 2026-08-28: the turn loop landed and brought five
+     mechanisms with it -- turns, eviction, dedup, countdown, progress. The room the
+     2026-08-27 split left was measured against a loop that had not been written. -->
 <!-- Split out of ARCHITECTURE.md on 2026-08-27 at 423/425 lines. Sized to leave room for
      M4's turn loop, which is also loop.py and would otherwise land back in the file this
      split relieved. ADR-0032. -->
@@ -12,7 +15,8 @@ Settings are in [CONFIGURATION.md](CONFIGURATION.md), which is generated, and th
 behind these mechanisms have their own record in [../DECISIONS.md](../DECISIONS.md). This
 explains the shape they produced.
 
-The turn loop is M4 and not built; this document covers the one-shot path.
+Both paths are here: the one-shot dispatch, and the turn loop above it. They share the
+retry and empty-answer machinery, which is why they share a document.
 
 ## One wire format, behind a seam
 
@@ -73,7 +77,7 @@ counts beside it describe the attempt that answered rather than the sum. (ADR-00
 
 ## One deadline covers the whole delegation
 
-[`dispatch_timeout`](CONFIGURATION.md) is taken once, at the top of `run_one_shot`, and
+[`dispatch_timeout`](CONFIGURATION.md) is taken once, at the top of a delegation, and
 passed down. Every stage of the empty-answer recovery and every transport retry inside them
 share it. A fresh budget per stage would mean the setting really bounded three times what it
 says, and no test of a single stage would have seen it.
@@ -98,8 +102,9 @@ which stage was running.
 **What this does not do** is keep a delegation inside the client's idle timeout. The default
 is 3600s against Claude Code's 1800s stdio idle timeout, so the client can abandon a
 delegation this bound is still happy with. The per-turn progress notification is what
-addresses that, and it arrives with the turn loop (ADR-0018). This turns an unbounded wait
-into a bounded one, attributed to the setting that caused it, and claims nothing more.
+addresses that (ADR-0018), and it is emitted by the turn loop below -- so the one-shot path,
+having no turns, cannot hold the client open at all. This bound turns an unbounded wait into
+a bounded one, attributed to the setting that caused it, and claims nothing more.
 
 ## Reasoning is controlled per request, never inherited
 
@@ -159,7 +164,98 @@ nothing left to disable, so the budget was too small for the answer, and reporti
 exhaustion would tell the caller to lower an effort that is already lowest.
 
 `attempts` counts every real call across all three stages and every transport retry inside
-them. The token counts describe the attempt that answered, not the sum: ADR-0014 requires
-the retry not to charge the turn budget, and with no turn accounting yet that is what the
-rule amounts to here.
+them, and across every turn when this runs inside the loop. The token counts describe the
+attempt that answered, not the sum: ADR-0014 requires the retry not to charge the turn
+budget, so a turn is charged for the answer it got rather than for what recovering it
+cost.
 
+## Turns, and what ends them
+
+A delegation is a loop, and one turn is one model reply plus any tools it called. The loop
+ends on the first reply that carries no tool calls — that reply *is* the answer — or when
+the turn budget runs out. [`max_turns_default`](CONFIGURATION.md) sets the budget and
+[`max_turns_hard_cap`](CONFIGURATION.md) bounds what a caller may ask for; the cap is
+applied silently rather than refused, because the work is legitimate and only the number is
+not. An agent file will resolve into the same precedence in M6.
+
+The last turn is declared **with no tools at all**. Without that short-circuit a delegation
+can end on a tool call nobody will run, having spent its whole budget and returned nothing
+readable. Withdrawing the tools leaves the model one thing it can still do, which is answer.
+The result reports `hit_turn_limit` so the caller can tell the two endings apart: an answer
+written under a withdrawn toolset is a partial one, and worth reading differently from an
+answer the model chose to give.
+
+Recovery from an empty answer is per turn and is the same code as the one-shot path — the
+cascade below lives in one function that both call. Two copies would be two diagnoses of
+exhaustion, drifting apart at whichever one was next edited.
+
+One deadline still covers the whole delegation, not each turn. Per-turn budgets would make
+the real bound `dispatch_timeout` times `max_turns`, which at the defaults is a day and a
+half rather than an hour.
+
+## The history is resent every turn, so it is trimmed every turn
+
+Each turn resends everything before it, so an untrimmed history makes a delegation cost the
+square of its length — the tenth turn paying again for the first nine tool results.
+[`keep_tool_results`](CONFIGURATION.md) keeps the most recent few intact and collapses the
+rest to a one-line stub. Oldest-first by count, which is what the setting says it is; a
+size-aware policy would evict differently and is not what was promised.
+
+What goes is the *content*. The block and its `tool_use_id` stay, because some backends
+validate that every tool use has a matching result, and dropping the block outright would
+turn a long delegation into a wire-level failure rather than a model that has forgotten
+something. The stub says plainly that the result was dropped and can be fetched again.
+
+This is also the honest limit of prefix caching in the loop. The static system prompt, the
+files block and the task are stable across turns and stay cached; everything after them
+changes by construction, since each turn appends to the history and eviction rewrites part
+of what is already there. Only the leading prefix is cache-stable, and no arrangement of the
+tail changes that.
+
+## A repeated tool call is answered, not re-run
+
+A model that repeats a call byte for byte usually does so because it is stuck, and paying
+for the same work twice does not unstick it. An identical call — same tool, same arguments,
+compared with the keys sorted so insertion order cannot defeat it — is served from what the
+first one returned, marked plainly as a repeat. Saying nothing and returning identical bytes
+would teach the model nothing; the marker is what breaks the cycle.
+
+Two limits, both deliberate. Only tools declared cacheable are served this way, and any tool
+that is *not* clears the cache: a file read before a write and read again after it has two
+different correct answers, and serving the first one twice would hand the model a file from
+before its own overwrite. Refusals are never cached either, since several are transient by
+nature — a file that does not exist yet is the obvious one — and caching one would make it
+permanent for the rest of the delegation.
+
+Known gap, recorded rather than papered over: a re-read of the same file at a different
+offset is a different argument set and is not caught. Closing it needs range tracking, which
+is its own piece of work. Upstream's version has the same hole.
+
+## The countdown is in the tail, and the progress notification is not decoration
+
+The model is told how many turns remain, and the last one is announced as the last. That
+text goes on the message carrying the tool results, never in the system prompt: a turn
+counter in the prefix changes one byte of it per turn and silently costs a full prefill
+every time, with no error and no symptom beyond slower answers (ADR-0011). The tail is where
+dynamic content is free, because the tool results beside it were never cacheable anyway.
+
+Separately, and for a different reason, the server emits one **progress notification per
+turn**. Nothing renders it and the client cannot cancel a synchronous tool call through it,
+so it looks cosmetic and is not: it resets Claude Code's stdio idle timer. That timer is
+1800s against a `dispatch_timeout` defaulting to 3600s, so without the notification a long
+delegation is abandoned by the client while the server is still working on it. This is what
+the one-shot path above cannot do, and the reason to prefer the loop for long work.
+(ADR-0018)
+
+The notification is injected into `loop.py` as a callable rather than imported, so the
+dispatch layer holds no MCP imports and a test can watch the calls without a client — the
+same seam as the injected clock and sleep.
+
+## The loop reports what the server watched, not what the model says it did
+
+`turns`, `tool_calls`, `tool_errors`, the number of calls deduplicated and the number of
+results evicted are all counted where they happen. ADR-0007 argues this for exit codes; the
+same argument covers the economics of the loop, and for the same reason — a model's summary
+of its own work is a claim, and these are observations. They are absent rather than zeroed
+on the one-shot path, where `tool_calls: 0` beside an answer would read as a model that
+chose not to use tools it was in fact never offered.

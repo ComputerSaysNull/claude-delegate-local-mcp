@@ -78,10 +78,10 @@ Prefetching removes several such turns from the front of every delegation.
 | `registry.py` | One explicit row per model: URL, format, window, defaults, concurrency |
 | `wsl.py` | The single path-translation boundary |
 | `paths.py` | The four-layer path policy |
-| `context.py` | Prefetch, token budgeting, prompt ordering; history eviction *(that clause not built)* |
+| `context.py` | Prefetch, token budgeting, prompt ordering. History eviction is the loop's, in `loop.py` |
 | `backends/base.py` | `Backend` protocol and the canonical message shape — [DISPATCH.md](DISPATCH.md) |
 | `backends/openai_compat.py` | The only adapter shipped — [DISPATCH.md](DISPATCH.md) |
-| `loop.py` | The one-shot path and the response state machine — [DISPATCH.md](DISPATCH.md); the turn loop *(that clause not built)* |
+| `loop.py` | The one-shot path, the response state machine and the turn loop — [DISPATCH.md](DISPATCH.md) |
 | `tools.py` | Model-facing tools, and both `allowed_tools` sites — [TOOLS.md](TOOLS.md) |
 | `sandbox.py` | bubblewrap invocation *(whole module not built)* |
 | `server.py` | MCP wiring, the tool declarations, the backend cache |
@@ -115,11 +115,22 @@ every delegation, and would give `backend_status()` a second pool alongside `del
 for the same endpoint. The cache is injectable, for the reason the adapter takes a
 `client`: otherwise a test of the tool surface opens a real socket and waits a real timeout.
 
-### The one-shot path prefetches, resolves, sends, and retries
+### `delegate()` prefetches, resolves, and then runs turns
 
-`delegate()` builds one request from one task and the files named with it, and returns
-what came back. Paths are checked before the backend is even looked up, so a refusal costs
-nothing and does not depend on the cluster being reachable that day. Effort resolves
+`delegate()` builds the opening request from one task and the files named with it, hands it
+to the turn loop, and returns what the loop finished with. Paths are checked before the
+backend is looked up, so a refusal costs nothing and needs no reachable cluster.
+
+Which path runs is decided by the resolved toolset and nothing else. `allowed_tools`
+narrows what the model may call, and resolving it to an empty set takes the one-shot path,
+whose prompt says plainly that the model cannot open anything and has no second turn --
+true there, and a lie in the loop, which is why they are separate prompts rather than one
+with an empty tool list. `run_bash` is subtracted from every resolved set while the sandbox
+is unbuilt, so it is never declared and cannot be asked back in. That does not replace the
+refusal at execution, which stays: a model can call a tool it was never offered.
+
+The per-turn progress notification is wired here, the only layer holding an MCP session:
+`loop.py` takes it as an injected callable and stays free of MCP imports (ADR-0018). Effort resolves
 explicit argument → registry row → global default and is always sent, never inherited from
 whatever the cluster was booted with (ADR-0013). The reply budget takes the reasoning floor
 at high or max effort, then the per-model cap last, because the cap is what the wire will
@@ -185,8 +196,8 @@ state. (ADR-0009, [MODELS.md](MODELS.md))
 
 Moved to [DISPATCH.md](DISPATCH.md), which now owns `loop.py` and `backends/`: the wire
 format seam, retry above the adapter, per-request reasoning control, recovery from an
-empty answer, and the whole-delegation deadline. Split out at 423 lines, before M4's turn
-loop -- also `loop.py` -- landed on top of it. (ADR-0032)
+empty answer, the whole-delegation deadline, and the turn loop that M4 added on top of
+them. Split out at 423 lines, before that loop -- also `loop.py` -- landed. (ADR-0032)
 
 What stays here is how those failures reach a caller. `server.py` maps each one to a
 `ToolError` that names the fix rather than the layer: a path refusal, a backend that is

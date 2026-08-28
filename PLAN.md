@@ -109,8 +109,13 @@ flag controlling nothing. The design work is not lost — it is recorded under M
 - ✅ `docs/TOOLS.md` generator — descriptions rendered from the registered tools. Moved
   here from M0b 2026-08-26: it cannot render a registry that does not exist yet, and the
   descriptions are the model-facing contract, so they arrive with `tools.py` or not at all
-- ⬜ `loop.py` — turns, eviction, dedup, countdown, final-turn short-circuit
-- ⬜ Progress notification per turn — required, not cosmetic (ADR-0018)
+- ✅ `loop.py` — turns, eviction, dedup, countdown, final-turn short-circuit. Dedup is
+  byte-identical on name and arguments and clears on any side-effecting tool; the
+  offset-aware case upstream also misses is recorded as a limitation in DISPATCH.md
+  rather than claimed. `delegate()` became agentic by default in the same change, and
+  `run_bash` stopped being declared while the sandbox is unbuilt (ADR-0010/ADR-0016)
+- ✅ Progress notification per turn — required, not cosmetic (ADR-0018). Injected into
+  `loop.py` as a callable, so the dispatch layer still holds no MCP imports
 - ⬜ `max_tokens` precedence: call argument, then frontmatter, then the per-model bump,
   then the configured default *last*. An operator lowering the ceiling must not suppress
   the bump that stops heavy-reasoning models returning empty output (ADR-0024)

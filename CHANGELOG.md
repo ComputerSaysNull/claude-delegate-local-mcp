@@ -26,6 +26,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #28 — 2026-08-28 — feat: the turn loop, and a delegation that can read for itself
+
+### Added
+- The agentic turn loop (M4). A delegation is turns now, not one shot: the model calls
+  tools, the server runs them and returns results, ending on the first reply with none.
+  `max_turns_default` and `max_turns_hard_cap` were fields nothing read.
+- The final turn is declared with **no tools**, so a delegation cannot spend its budget and
+  end on a call nobody will run. `hit_turn_limit` keeps that partial answer from reading as
+  a chosen one.
+- History eviction, honouring `keep_tool_results`: every turn resends what came before, so
+  an untrimmed history costs the square of the length. The block and its `tool_use_id`
+  survive behind a stub, as some backends reject a tool use with no matching result.
+- Dedup of byte-identical calls, always on: that a repeat cannot change its answer is a
+  fact, not a preference. A side-effecting tool clears the cache, since a file read before
+  a write and again after differs. Gap: a re-read at another offset is not caught.
+- One progress notification per turn (ADR-0018). Rendered nowhere, and not cosmetic: it
+  resets the client's 1800s idle timer, which `dispatch_timeout` at 3600s outlives, so the
+  client abandoned long delegations the server was still working on.
+
+### Changed
+- **`delegate()` is agentic by default.** Its description is the model-facing contract, so
+  this is behaviour: it no longer promises a model with no tools, offers `read_file` and
+  `write_file`, and reports the server's ledger rather than the model's account of its own
+  work (ADR-0007). `allowed_tools` narrows the set; empty takes the one-shot path.
+- Empty-answer recovery moved out of `run_one_shot` into a function the loop calls per
+  turn; copying it would have been two diagnoses of exhaustion, drifting apart.
+- `run_bash` is no longer declared: it refuses every call until the sandbox exists
+  (ADR-0010), and ADR-0016 measured the first turn as often already wasted. Withheld
+  server-wide; the refusal at execution stays, as a model can call what it was not offered.
 ## #31 — 2026-08-28 — fix: one scanner for the identifier checks, not two that disagree
 
 ### Fixed

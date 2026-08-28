@@ -70,15 +70,15 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_THINKING_DEFAULT` | low | Reasoning effort when neither the agent nor the registry entry specifies one. One of ('off', 'low', 'high', 'max'). Sent explicitly on every request rather than inherited, because the cluster's own default is set at boot and is not ours to assume. |
 | `DELEGATE_THINKING_MAX_TOKENS_FLOOR` | 131072 tokens | Floor applied to max_tokens when effort is high or max, and the size retried after an empty answer. Admission accounting must use the retry's size. |
 | `DELEGATE_RESEND_REASONING` | False | Send the model's prior reasoning back as history. Off: it costs input tokens and prefill on every turn, the conclusions already survive in the visible answer, and a growing prefix defeats prefix caching. |
-| `DELEGATE_TOOL_CALL_TEMPERATURE` | 0.2 | **Inert.** Temperature for every turn of the agentic loop. Low because tool-call syntax tokens are sampled at the request temperature, so malformed calls grow likelier as it rises. The one-shot path uses one_shot_temperature instead. |
+| `DELEGATE_TOOL_CALL_TEMPERATURE` | 0.2 | Temperature for every turn of the agentic loop. Low because tool-call syntax tokens are sampled at the request temperature, so malformed calls grow likelier as it rises. The one-shot path uses one_shot_temperature instead. |
 
 ### Agentic loop
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_MAX_TURNS_DEFAULT` | 25 | **Inert.** Round trips a delegation gets before the server stops it. One turn is one model reply plus any tool it ran. |
-| `DELEGATE_MAX_TURNS_HARD_CAP` | 40 | **Inert.** Ceiling no agent file or caller may exceed. Stops an agent definition asking for 500 turns and occupying the cluster for hours. |
-| `DELEGATE_KEEP_TOOL_RESULTS` | 6 | **Inert.** Most recent tool results kept intact; older ones collapse to a one-line stub. Every turn resends the whole history, so this is what stops quadratic growth. |
+| `DELEGATE_MAX_TURNS_DEFAULT` | 25 | Round trips a delegation gets before the server stops it. One turn is one model reply plus any tool it ran. |
+| `DELEGATE_MAX_TURNS_HARD_CAP` | 40 | Ceiling no agent file or caller may exceed. Stops an agent definition asking for 500 turns and occupying the cluster for hours. |
+| `DELEGATE_KEEP_TOOL_RESULTS` | 6 | Most recent tool results kept intact; older ones collapse to a one-line stub. Every turn resends the whole history, so this is what stops quadratic growth. |
 | `DELEGATE_MAX_BATCH_SIZE` | 12 | **Inert.** Largest accepted delegate_batch request. |
 
 ### Timeouts and retries
@@ -133,6 +133,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, turn_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
 | `DELEGATE_RETRY_MAX_DELAY` | 20.0 | Cap on a single wait between attempts, including one the endpoint asked for via Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past anything turn_timeout was meant to bound, and the wait happens between requests where no HTTP timeout applies to it. Kept well under the 30-minute stdio idle timeout because nothing yet emits a progress notification to hold that off -- that is ADR-0018 and lands with the turn loop. |
 
-*42 settings, 17 of them inert.*
+*42 settings, 13 of them inert.*
 
 <!-- GEN:CONFIG:END -->
