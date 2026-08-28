@@ -34,7 +34,7 @@ from .backends.base import (
 from .backends.openai_compat import OpenAICompatBackend
 from .config import Config, ConfigError
 from .context import prefetch
-from .loop import Delegation, InvalidDelegation, run_one_shot
+from .loop import Delegation, DispatchTimedOut, InvalidDelegation, run_one_shot
 from .paths import PathPolicyError, PathRefused, resolve_all
 from .registry import ModelEntry, Registry, RegistryError
 
@@ -270,6 +270,11 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
                 effort=effort,
             )
         except InvalidDelegation as e:
+            raise ToolError(str(e)) from e
+        except DispatchTimedOut as e:
+            # Not routed through _refuse: that names an endpoint, and this failure is a
+            # deadline the operator set. The message already carries the elapsed time, the
+            # limit and which stage was running when it expired.
             raise ToolError(str(e)) from e
         except (BackendUnavailable, BackendRefused, BackendProtocolError) as e:
             raise _refuse(e) from e

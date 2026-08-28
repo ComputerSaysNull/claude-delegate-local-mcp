@@ -17,6 +17,39 @@ worth citing.
 ## [Unreleased]
 
 ### Added
+- 2026-08-28 (#22) `dispatch_timeout` is enforced. It was declared, validated against
+  `turn_timeout`, documented as a working knob, and read by no module -- `loop.py`'s own
+  docstring called it "a gap rather than a decision". Each attempt was bounded by
+  `turn_timeout` inside the adapter's client, but the sum of attempts, the three
+  empty-answer recovery stages, and the backoff waits between them was bounded only by
+  `retry_max_attempts` and `retry_max_delay`, neither of which is a time. An exhausted
+  max-effort delegation is measured at tens of minutes (JOURNAL 2026-08-27), so the
+  unbounded case was reachable rather than theoretical.
+  One deadline is taken at the top of `run_one_shot` and shared by every stage below it.
+  Per-stage budgets would have made the setting bound three times what it says, and no
+  test of a single stage would have noticed. It is enforced at three points, because a
+  deadline checked in one of them can be walked past: before an attempt, as a ceiling on
+  that attempt taken from what is left, and against each backoff wait before sleeping.
+  The third matters most -- sleeping first spends the remaining budget and then reports
+  a deadline reached by a wait this server chose rather than by the work.
+  `DispatchTimedOut` is deliberately not a backend failure. Those say the endpoint did
+  not answer; this says it may be answering perfectly and the delegation has outlived
+  what the operator allows. Sending someone to check the cluster over their own deadline
+  is the wrong diagnosis, so the message names the elapsed time, the setting and the
+  stage instead.
+  Scope stated plainly, because the obvious reading is wrong: this does **not** keep a
+  delegation inside Claude Code's 1800s stdio idle timeout. The default is 3600s, twice
+  that, so the client can abandon a delegation this bound is still content with. Only
+  ADR-0018's per-turn progress notification addresses the idle timeout, and it arrives
+  with the turn loop. What this buys is an unbounded wait becoming a bounded one
+  attributed to the setting that caused it. The setting's own description said a
+  progress notification "is emitted every turn", present tense for something unbuilt;
+  corrected in the same edit.
+  Negative-tested by neutering the deadline so it is never set and never consulted: 5
+  failures, with the three cases asserting an unaffected delegation still passing, which
+  is the half that stops a permanently-firing deadline reading as a working one. That
+  run also took 30 seconds against 0.3, because the hanging-backend case really does
+  wait when the per-attempt ceiling is gone.
 - 2026-08-27 The empty answer is now reproduced against the live cluster and recovered from
   there, not only against a backend that was told to return the signature. Every other test
   of this path scripts the failure, which proves the state machine reads its own inputs and

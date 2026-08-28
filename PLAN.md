@@ -135,11 +135,13 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   backend outage disables overflow handling until restart — and a transport failure while
   probing must never populate it, only a confirmed refusal; a nudge reply concatenates and
   never overwrites what the model already said
-- ⬜ Enforce `dispatch_timeout`, which is declared and consumed nowhere. M3's retry waits
-  and the empty-answer stages are bounded only by their own counters, and an exhausted
-  max-effort delegation measured at tens of minutes (JOURNAL 2026-08-27) — so this and the
-  progress notification above are what keep a long delegation inside the client's idle
-  timeout
+- ✅ Enforce `dispatch_timeout`, which was declared and consumed nowhere. M3's retry waits
+  and the empty-answer stages were bounded only by their own counters, and an exhausted
+  max-effort delegation measured at tens of minutes (JOURNAL 2026-08-27). One deadline is
+  taken at the top of `run_one_shot` and shared by every stage, checked before each attempt,
+  applied as a ceiling on it, and checked against each backoff wait. Corrected while
+  landing it: this does **not** keep a delegation inside the client's idle timeout, the
+  default being 3600s against 1800s — only the progress notification above does that
 
 ## M5 — Sandbox
 

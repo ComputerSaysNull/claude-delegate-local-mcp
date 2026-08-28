@@ -64,14 +64,42 @@ ordinary backoff is jittered across the full range.
 
 Both are capped by [`retry_max_delay`](CONFIGURATION.md), which is not decoration: the wait
 sits outside every HTTP call, so no request timeout reaches it and an uncapped header stalls
-the delegation as long as it likes. It is deliberately small because two bounds that would
-otherwise cover this **do not exist yet** — `dispatch_timeout` is declared and enforced
-nowhere, and the per-turn progress notification holding off the client's 30-minute stdio
-idle timeout is ADR-0018, arriving with the turn loop. Worst case for one delegation is
-`retry_max_attempts` attempts plus the capped waits between them.
+the delegation as long as it likes. The whole-delegation deadline below now covers this too,
+but the cap stays: it keeps a single honoured `Retry-After` from spending a budget that the
+rest of the delegation still needs.
 
 The result reports `attempts`: real calls made, counted by the server, while the token
 counts beside it describe the attempt that answered rather than the sum. (ADR-0007)
+
+## One deadline covers the whole delegation
+
+[`dispatch_timeout`](CONFIGURATION.md) is taken once, at the top of `run_one_shot`, and
+passed down. Every stage of the empty-answer recovery and every transport retry inside them
+share it. A fresh budget per stage would mean the setting really bounded three times what it
+says, and no test of a single stage would have seen it.
+
+It is enforced at three points, because a deadline checked in only one of them is a deadline
+that can be walked past:
+
+- **Before an attempt**, so an expired budget costs nothing.
+- **As a ceiling on the attempt**, from what is left. `turn_timeout` already bounds one call
+  inside the adapter's client, but it is a fixed budget that knows nothing of how much
+  delegation remains, so without this the deadline could be overshot by a whole turn.
+- **Against the backoff wait**, before sleeping. A wait that would end past the deadline
+  ends the delegation instead — sleeping first would spend the rest of the budget and then
+  report a deadline reached by a wait this server chose rather than by the work.
+
+`DispatchTimedOut` is deliberately not one of the backend failures. Those say the endpoint
+did not answer; this says the endpoint may be answering perfectly and the delegation has
+still outlived what the operator allows. Sending someone to check the cluster over their own
+deadline is the wrong diagnosis, and the message names the elapsed time, the setting, and
+which stage was running.
+
+**What this does not do** is keep a delegation inside the client's idle timeout. The default
+is 3600s against Claude Code's 1800s stdio idle timeout, so the client can abandon a
+delegation this bound is still happy with. The per-turn progress notification is what
+addresses that, and it arrives with the turn loop (ADR-0018). This turns an unbounded wait
+into a bounded one, attributed to the setting that caused it, and claims nothing more.
 
 ## Reasoning is controlled per request, never inherited
 
