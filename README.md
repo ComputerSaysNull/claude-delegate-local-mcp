@@ -8,10 +8,9 @@ refactors, first-pass review — costs cloud tokens even when the reasoning requ
 modest. This moves that class of work onto your own hardware, where it is effectively
 free, and keeps Claude for the parts that need it.
 
-**Status: early.** `delegate()` and `backend_status()` work end to end against a real
-endpoint. `files[]`, the agentic loop, the sandbox and the agent roster do not. See
-[STATUS.md](STATUS.md) for where things actually stand and [PLAN.md](PLAN.md) for the
-route.
+**Status: early.** `delegate()`, `backend_status()`, `files[]` prefetch and the agentic
+loop work end to end against a real endpoint. The sandbox and the agent roster do not.
+See [STATUS.md](STATUS.md) for where things stand and [PLAN.md](PLAN.md) for the route.
 
 ## How it works
 
@@ -127,9 +126,8 @@ in the wrong directory or is not found at all, and neither failure names its own
 [TROUBLESHOOTING](docs/TROUBLESHOOTING.md#startup) has both symptoms. Give `--cd` the
 Windows form of the path; `/mnt/c/...` is rejected.
 
-`timeout` is milliseconds, and the wall-clock default is generous. A long delegation can
-still trip the separate 30-minute stdio *idle* timeout; the per-turn progress notification
-that answers that is M4, so until then keep one-shot tasks well inside it.
+`timeout` is milliseconds and the wall-clock default is generous. The per-turn progress
+notification holds off the separate stdio *idle* timeout but does not extend the wall clock.
 
 ## Documentation
 

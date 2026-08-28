@@ -191,10 +191,10 @@ a committed file listing what must not be committed is itself the leak.
 
 ## When this document splits
 
-Raised three times — 130, 175, 190, 215 — and the sentence here claiming *twice* was
-itself stale, which is the failure it existed to warn about. Back down to 190 by trimming:
-the branch-protection reasoning went to ADR-0026 and the documentation-strategy rules to
-the CLAUDE.md link that was already there.
+Raised, trimmed, raised again — 130, 175, 190, 215, back to 190, now 210. Twice the
+sentence here has gone stale about its own subject, which is the failure it exists to warn
+about, so it now says where to look rather than counting: the 215→190 trim moved
+branch-protection reasoning to ADR-0026, and the header records every raise with its cause.
 
 If it needs raising again, split instead: the operational half — CI and the agent roster —
 moves to its own document owning `.github/**` and `.claude/agents/**`, leaving the

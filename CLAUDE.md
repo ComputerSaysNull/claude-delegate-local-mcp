@@ -15,6 +15,7 @@ This lists what will bite you.
     python scripts/docs_gate.py --owner <path>      # which document owns this file
     python scripts/gen_config_docs.py               # after touching config.py
     python scripts/gen_agents_docs.py               # after touching .claude/agents/
+    python scripts/gen_tools_docs.py                # after touching tools.py
     python scripts/gen_status.py                    # after touching PLAN.md
     .venv/Scripts/python.exe -m pytest -q           # Windows
     wsl -d Ubuntu-24.04 -e bash -lc '...'           # anything needing bwrap or ext4
@@ -109,7 +110,6 @@ Rules a machine cannot check, so they land here:
   `word:` for case-sensitive whole-word matching. Never write a real personal
   identifier into an example, a commit message, or a pull request body — use a
   fictional one, and describe the mechanism rather than the specimen.
-
 - **A pull request title and body are a public surface that no hook can gate.** They are
   written outside git, so no commit hook can see them and CI only sees them after they are
   already published. For a *leak* that makes CI a backstop rather than a gate — the damage

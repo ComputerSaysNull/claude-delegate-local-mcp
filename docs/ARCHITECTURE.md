@@ -87,10 +87,9 @@ Prefetching removes several such turns from the front of every delegation.
 | `server.py` | MCP wiring, the tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run one transport |
 
-The table covers every module; the three marked above are documented in
-[DISPATCH.md](DISPATCH.md), which owns them. The ancestor put all of this in one
-2588-line file. We add two concerns it never had —
-path translation and sandboxing — so the split follows concerns, not line count.
+The table covers every module; the three marked above live in [DISPATCH.md](DISPATCH.md),
+which owns them. The ancestor put all of this in one large file; we add two concerns it
+never had — path translation and sandboxing — so the split follows concerns, not line count.
 `server.py` stays thin wiring; the logic lives in `loop.py`, `backends/` and `context.py`.
 
 ### stdout belongs to the protocol
