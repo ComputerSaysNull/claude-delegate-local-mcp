@@ -26,6 +26,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #26 — 2026-08-28 — feat: the model-facing tools, and both allowed_tools sites
+
+### Added
+- `tools.py`: `read_file`, `write_file` and `run_bash`, with `allowed_tools` enforced when
+  the list is declared to the model *and* again when a call arrives. Filtering only the
+  declared list is advisory -- a model can call a tool it was never offered -- so the
+  execution site does the work, and both live side by side so a new tool cannot reach only
+  one. The permitted set is a parameter, never a config field.
+- A refusal returns an error result rather than raising: `PathRefused` ending the call is
+  right for prefetch, but mid-loop it would discard every turn already paid for.
+- `run_bash` refuses every call: `sandbox.py` is M5, and ADR-0010 is explicit that
+  unconfined is not the fallback -- a control that degrades to nothing is worse than one
+  that is absent, because it is believed. Still registered, so the refusal is testable and
+  the model is told rather than left to infer it; reads neither `sandbox_enabled` nor
+  `run_bash_timeout`, which stay inert.
+- `docs/TOOLS.md`, generated from the registry, because a description is the model-facing
+  contract and rendering it from the strings actually sent is what stops the document
+  describing a tool the model never got.
+
+### Changed
+- `paths.resolve_all` takes `must_exist`, `False` only for `write_file`, which creates. It
+  relaxes the missing-file branch and nothing else: the parent must exist, a directory is
+  still refused, and every other layer still runs -- writing to a secret path is worse than
+  reading one, not better.
+- The gate now checks that every document the manifest marks `generated` is in the
+  freshness list. That list is hand-written, so a forgotten pair leaves a generated document
+  unchecked, passing because nothing looked; proven by removing the new pair. The parked
+  `docs/TOOLS.md` ownership entry is restored, `covers_not` corrected to DISPATCH.md since
+  ADR-0032 moved `loop.py` there.
+
 ## #25 — 2026-08-28 — feat: check Conventional Commits on both surfaces that reach main
 
 ### Added

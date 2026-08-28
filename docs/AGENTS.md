@@ -89,7 +89,10 @@ default.
 
 Once when declaring tools to the model, and again at execution. Filtering only the declared
 list is **advisory** — a model can call a tool it was never offered, and some do. If you
-touch one enforcement site, check the other.
+touch one enforcement site, check the other. Both live side by side in `tools.py`, and a
+call to a tool outside the set comes back as an error result rather than ending the
+delegation: mid-loop, throwing away every turn already paid for because the model made one
+bad call costs more than telling it no.
 
 ### `network: false` is the default, and means absent
 
@@ -111,7 +114,13 @@ server binds the resolved `uv` by default; anything else goes here.
 ## The path policy
 
 Four layers, checked in order, cheapest first. They apply to `files[]` *and* to the model's
-own `read_file` and `write_file`.
+own `read_file` and `write_file`. None of them involves the sandbox: only `run_bash` is ever
+confined, so these four are the whole control for a read or a write (ADR-0010).
+
+`write_file` creates, so for it — and only for it — layer 1's existence test is relaxed: a
+missing file is allowed, while the directory to write into must still exist and an existing
+*directory* is still refused. Every other layer runs unchanged, because writing to a secret
+path is worse than reading one rather than better.
 
 | | Layer | Refuses |
 |---|---|---|

@@ -326,7 +326,8 @@ def gitignored(reals: Sequence[str]) -> set[str]:
 
 
 def _resolve_one(
-    cfg: Config, raw: str, roots: Sequence[str], globs: Sequence[str]
+    cfg: Config, raw: str, roots: Sequence[str], globs: Sequence[str],
+    must_exist: bool = True,
 ) -> ResolvedPath | Refusal:
     """One path through layers 0 to 3. Layer 4 is batched and applied by the caller."""
     try:
@@ -358,7 +359,7 @@ def _resolve_one(
     # which is a small oracle the caller has no business being handed.
     refusal = _check_roots(raw, real, roots)
     if refusal is None:
-        refusal = _check_exists(raw, real)
+        refusal = _check_exists(raw, real, must_exist)
     if refusal is None:
         refusal = _check_ext(cfg, raw, real)
     if refusal is None:
@@ -366,28 +367,50 @@ def _resolve_one(
     return refusal or ResolvedPath(given=raw, posix=real)
 
 
-def _check_exists(given: str, real: str) -> Refusal | None:
+def _check_exists(given: str, real: str, must_exist: bool = True) -> Refusal | None:
+    """Layer 1's existence half.
+
+    `must_exist=False` is for `write_file`, which creates. It relaxes *only* the missing-file
+    branch: the containing directory must still be there, and an existing directory is still
+    refused. Nothing else is loosened -- roots, extension and the secret denylist all still
+    run, because writing to a secret path is worse than reading one, not better.
+    """
     if not os.path.exists(real):
-        return Refusal(
-            given=given,
-            layer=LAYER_ROOTS,
-            reason="no such file.",
-            remedy=(
-                "It resolved inside a workspace root, so the root is right and the rest "
-                f"is not: {real}"
-            ),
-        )
+        if must_exist:
+            return Refusal(
+                given=given,
+                layer=LAYER_ROOTS,
+                reason="no such file.",
+                remedy=(
+                    "It resolved inside a workspace root, so the root is right and the rest "
+                    f"is not: {real}"
+                ),
+            )
+        parent = os.path.dirname(real)
+        if not os.path.isdir(parent):
+            return Refusal(
+                given=given,
+                layer=LAYER_ROOTS,
+                reason="the directory to write into does not exist.",
+                remedy=(
+                    "Writing a file does not create the tree above it, so a typo in a "
+                    f"directory name would otherwise appear as a new one: {parent}"
+                ),
+            )
+        return None
     if not os.path.isfile(real):
         return Refusal(
             given=given,
             layer=LAYER_ROOTS,
             reason="it is a directory, not a file.",
-            remedy="Name the files to include. files[] does not walk a tree.",
+            remedy="Name the file itself. A directory is not a thing to read or write.",
         )
     return None
 
 
-def resolve_all(cfg: Config, given: Sequence[str]) -> tuple[ResolvedPath, ...]:
+def resolve_all(
+    cfg: Config, given: Sequence[str], *, must_exist: bool = True
+) -> tuple[ResolvedPath, ...]:
     r"""Resolve every caller path, or raise `PathRefused` naming each one that failed.
 
     Returns in caller order, deduplicated by resolved path -- `C:/p/a.py` and `C:\p\a.py`
@@ -406,7 +429,7 @@ def resolve_all(cfg: Config, given: Sequence[str]) -> tuple[ResolvedPath, ...]:
     seen: set[str] = set()
 
     for raw in given:
-        outcome = _resolve_one(cfg, raw, roots, globs)
+        outcome = _resolve_one(cfg, raw, roots, globs, must_exist)
         if isinstance(outcome, Refusal):
             refusals.append(outcome)
         elif outcome.posix not in seen:
