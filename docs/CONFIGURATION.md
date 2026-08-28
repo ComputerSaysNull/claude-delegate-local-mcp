@@ -87,7 +87,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TURN_TIMEOUT` | 1800 seconds | Per-turn backend call timeout. |
 | `DELEGATE_CONNECT_TIMEOUT` | 30 seconds | Bound on the TCP-connect phase alone, separate from turn_timeout. A refused connection sends RST and fails in milliseconds without this, but a dropped or blackholed route sends nothing and would otherwise stall for the whole of turn_timeout before httpx gives up. |
-| `DELEGATE_DISPATCH_TIMEOUT` | 3600 seconds | Whole-delegation timeout. Claude Code's own wall-clock MCP timeout defaults to about 28 hours so it is not the binding limit, but its stdio IDLE timeout is 30 minutes -- which is why a progress notification is emitted every turn. ADR-0018. |
+| `DELEGATE_DISPATCH_TIMEOUT` | 3600 seconds | **Inert.** Whole-delegation timeout. Claude Code's own wall-clock MCP timeout defaults to about 28 hours so it is not the binding limit, but its stdio IDLE timeout is 30 minutes -- which is why a progress notification is emitted every turn. ADR-0018. |
 | `DELEGATE_RETRY_MAX_ATTEMPTS` | 3 | Attempts on a retryable backend status. |
 | `DELEGATE_RETRY_BASE_DELAY` | 1.0 seconds | Exponential backoff base. |
 
@@ -133,6 +133,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, turn_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
 | `DELEGATE_RETRY_MAX_DELAY` | 20.0 | Cap on a single wait between attempts, including one the endpoint asked for via Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past anything turn_timeout was meant to bound, and the wait happens between requests where no HTTP timeout applies to it. Kept well under the 30-minute stdio idle timeout because nothing yet emits a progress notification to hold that off -- that is ADR-0018 and lands with the turn loop. |
 
-*42 settings, 19 of them inert.*
+*42 settings, 20 of them inert.*
 
 <!-- GEN:CONFIG:END -->
