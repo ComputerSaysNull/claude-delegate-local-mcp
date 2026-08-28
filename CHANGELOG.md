@@ -26,6 +26,32 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #31 — 2026-08-28 — fix: one scanner for the identifier checks, not two that disagree
+
+### Fixed
+- The identifier checks ran from two implementations rather than one, and they had
+  drifted: a string one of them refused was accepted by the other. One caller carried a
+  near-duplicate of `scan_text`, which had described itself in its own docstring as the
+  shared implementation since before it was one. The copy never picked up everything the
+  original grew, and nothing made it, because nothing compared them.
+- Both callers now go through `scan_text`, and it and the file scan share one predicate.
+  The label and the check name were all that genuinely differed, so they are all that is
+  parameterised.
+- Guarded in both directions on each surface: the checks are asserted to fire, and
+  legitimate placeholders are asserted still to pass, because a scanner that refused
+  everything would satisfy the first half on its own. A structural test asserts there is
+  exactly one implementation -- every behavioural test would pass again if someone
+  reintroduced a copy that happened to be correct that day, and it is the copy rather
+  than its current contents that is the defect.
+- Proved by reintroducing the fault and watching the right tests fail, rather than
+  trusting a green run.
+- Everything already published was re-run through the corrected scanner and is clean, so
+  nothing needed changing. The audit was itself checked against planted specimens first:
+  a zero-finding result means nothing until the thing reporting it has been shown to
+  detect anything at all.
+- `CLAUDE.md` overstated the previous coverage. It now describes the arrangement
+  accurately and says to extend the shared scanner rather than copy beside it.
+
 ## #27 — 2026-08-28 — fix: the WSL virtualenv had two names and one of them was fictional
 
 ### Fixed
