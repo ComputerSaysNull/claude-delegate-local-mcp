@@ -26,6 +26,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #27 — 2026-08-28 — fix: the WSL virtualenv had two names and one of them was fictional
+
+### Fixed
+- `CONTRIBUTING.md` said `~/.venvs/cdl` and `README.md` said `~/.venvs/delegate`, for what
+  is one environment, and only the second existed. All seven references now name the one
+  that does.
+- The cost was not a stale instruction. `test_paths.py`, `test_context.py` and
+  `test_tools.py` skip on Windows with a message telling the reader to prove the skipped
+  test under WSL, and that message named `~/.venvs/cdl/bin/python` -- a command that fails
+  before it reaches pytest. Those messages exist precisely so a skip cannot be read as a
+  pass, so one naming an unrunnable command sends the reader away with the skip still
+  unproven. Found the hard way: the tools tests needed WSL to exercise path layer 1, and
+  the documented interpreter was not there.
+- `README.md`'s setup installs the runtime only, with no `[dev]`, which is why the
+  environment had no pytest at all. Correct for someone running the server, so the fix is
+  to say where the test dependencies come from rather than to add them there.
+- Guarded by a regression test asserting the copies agree, since five of them existed and
+  nothing compared them. Negative-tested both ways: reintroducing the split fires, and so
+  does dropping the path from a skip message, which would otherwise satisfy an
+  agreement-only check by naming nothing.
+
 ## #26 — 2026-08-28 — feat: the model-facing tools, and both allowed_tools sites
 
 ### Added

@@ -29,7 +29,7 @@ UNPROVEN = (
     "LAYER 1 UNPROVEN BY THIS RUN -- this is not a pass. Resolving a real path needs a "
     "POSIX filesystem and the server runs in WSL, so every case that actually opens a "
     "file is proven there. Run: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/cdl/bin/python -m pytest tests/test_tools.py'"
+    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest tests/test_tools.py'"
 )
 posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 

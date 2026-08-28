@@ -68,7 +68,8 @@ On Windows plus WSL2 the two interpreters cannot share `.venv`: a Linux `python 
 .venv` overwrites a Windows one in place, and it reads as a corrupted install rather than a
 collision. Put the WSL one elsewhere, on the native filesystem rather than `/mnt/c` where
 creating it is ~27x slower (ADR-0020) — `python3 -m venv ~/.venvs/delegate`, then
-`~/.venvs/delegate/bin/pip install -e /mnt/c/path/to/the/repo`.
+`~/.venvs/delegate/bin/pip install -e /mnt/c/path/to/the/repo`. That is the runtime
+only; [CONTRIBUTING.md](CONTRIBUTING.md) adds `[dev]` to the same venv for tests.
 
 `.env` is read by `config.load()` as a fallback: anything already set in the environment
 wins, so an explicit override still works. Point `DELEGATE_ENV_FILE` at another file to use

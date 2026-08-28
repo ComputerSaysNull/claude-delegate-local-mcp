@@ -38,7 +38,7 @@ UNPROVEN = (
     "LAYERS 1 AND 4 UNPROVEN BY THIS RUN -- this is not a pass. They need a POSIX "
     "filesystem (resolving symlinks, a git work tree) and the server runs in WSL. Run "
     "them there -- see CONTRIBUTING.md: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/cdl/bin/python -m pytest tests/test_paths.py'"
+    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest tests/test_paths.py'"
 )
 posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 
