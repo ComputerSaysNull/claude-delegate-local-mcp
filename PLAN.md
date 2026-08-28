@@ -1,4 +1,9 @@
 <!-- BUDGET: 245 -->
+<!-- Raised from 220 on 2026-08-28: the file sat at exactly 220 of 220 with ten M4
+     items still to annotate on completion. PLAN.md grows monotonically by design --
+     ADR-0003 keeps completed items with their annotations and cancelled ones with
+     their reasons -- so its length tracks the milestone count rather than settling.
+     If it recurs the answer is archive/, which check_budgets skips, not a raise. -->
 # Plan
 
 The roadmap. One line per item, status first so the file scans.
