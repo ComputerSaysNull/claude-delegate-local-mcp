@@ -169,10 +169,12 @@ rather than replacing them, since each is a dated record of what was true when i
 
 ### Archiving an append-only document
 
-`ARCHIVE-AT: n` warns when an append-only file has grown enough to split by year. Move the
-older entries — never trim them — into `archive/<document>-<year>.md` beside the original.
-`check_budgets` skips any path containing an `archive` component, so the split file is not
-re-budgeted and the original keeps its header.
+Archiving is a judgement, not a threshold: no check asks for it or warns that it is due —
+one did, and named a remedy nobody could apply (ADR-0033). Move the older entries — never
+trim them — into `archive/<document>-<period>.md` beside the original, where the period is
+whatever actually divides them: a year, a month, or the format they were written in.
+`check_budgets` skips any path containing an `archive` component, so the archived file is
+not budgeted and the original keeps its header.
 
 There is deliberately **no scheduled workflow**. It would need an API key, and a key sitting
 in CI is standing billing exposure for a job that fires whether or not anything changed.

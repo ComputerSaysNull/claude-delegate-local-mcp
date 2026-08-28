@@ -1,5 +1,4 @@
 <!-- BUDGET-PER-ENTRY: 60 -->
-<!-- ARCHIVE-AT: 900 -->
 # Decisions
 
 Numbered ADRs, newest first. **Append-only**: the body of a decision is never edited,
@@ -19,6 +18,44 @@ decision is actually in play. There is deliberately no index table — a table w
 be a second copy of the same facts, and second copies drift.
 
 ---
+
+## ADR-0033 — 2026-08-28 — The changelog is one section per pull request, and append-only documents have no size threshold — Accepted
+
+Two changes with one cause: the instruments did not fit the document.
+
+`CHANGELOG.md` was a flat list of dated bullets under a single `## [Unreleased]`. ADR-0022
+says append-only documents cap each entry rather than the total, and this one could not:
+`check_budgets` splits entries on `^## `, so the marker would have read 600 lines as one
+entry and blocked at once. The 2026-08-27 audit found exactly this and withdrew the finding,
+concluding `ARCHIVE-AT` was the right instrument instead. That accepted a limitation of the
+tool as a fact about the document.
+
+Restructuring the file removes the limitation rather than working around it. One `##`
+section per pull request, newest first, with `Added` / `Changed` / `Fixed` beneath it, means
+the sections `check_budgets` already looks for are the entries, and `BUDGET-PER-ENTRY: 30`
+works with no change to the gate at all. The heading carries the number, so an entry and the
+pull request it describes are named the same way, and a merged section is never edited
+afterwards — a correction is a new section, exactly as an ADR supersedes rather than
+overwrites.
+
+`ARCHIVE-AT` is removed outright, from the gate and from all three documents that carried
+it. It warned when a file passed a line count and pointed at a procedure that split by year;
+`CHANGELOG.md` reached the threshold with every entry in the same year, so there was no older
+year to move and no action the warning could be answered with. It then fired on every commit,
+which is how a warning stops being read. A threshold that cannot be cleared is worse than no
+threshold, for the same reason a check that cannot fail is worse than no check: both are
+believed. Archiving is now requested by a person, and `check_budgets` still skips any path
+with an `archive` component so an archived file stays unbudgeted.
+
+The migration is a cut, not a rewrite. Of 59 entries only 11 carried a pull request number —
+the convention began at #16 — so the rest could not become numbered sections without
+inventing numbers that never existed. They move verbatim to `archive/CHANGELOG-2026-08.md`
+and the new format starts from #20. Rewriting them would have meant fabricating the one
+field the new heading exists to carry.
+
+Supersedes ADR-0022 only in part. Its split by document class stands, and per-entry budgets
+now apply to `CHANGELOG.md` for the first time; what it loses is the optional total-size
+warning for append-only files.
 
 ## ADR-0032 — 2026-08-27 — ARCHITECTURE.md splits along module ownership, not along the prose seam — Accepted
 
@@ -334,7 +371,7 @@ not of the remote.
 
 ---
 
-## ADR-0022 — 2026-08-25 — Size budgets differ by document class: total lines for mutable, per-entry for append-only — Accepted
+## ADR-0022 — 2026-08-25 — Size budgets differ by document class: total lines for mutable, per-entry for append-only — Partially superseded by ADR-0033
 
 Found by hitting the limit. `DECISIONS.md` reached 372 lines against a 400 budget after a
 day's work, and the only available response would have been to raise the number — again

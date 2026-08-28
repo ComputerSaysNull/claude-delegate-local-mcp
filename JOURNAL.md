@@ -1,5 +1,4 @@
 <!-- BUDGET-PER-ENTRY: 55 -->
-<!-- ARCHIVE-AT: 600 -->
 # Journal
 
 Things that took real work to figure out, so the next person does not pay for them
