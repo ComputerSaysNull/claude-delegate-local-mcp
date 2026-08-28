@@ -63,10 +63,16 @@ Rules a machine cannot check, so they land here:
 - **`paths.py` and `sandbox.py` will be independent layers, not redundant ones.** The path
   policy governs `read_file` and `write_file`, which run in the server process. Only
   `run_bash` enters the sandbox. A bug in one is not covered by the other. `sandbox.py` is
-  M5 and unwritten: this is a trap pre-registered for whoever writes it. (ADR-0010)
-- **`allowed_tools` must be enforced at two sites** — declaration to the model, and
-  execution. Filtering only the declared list is advisory, because a model can call a tool
-  it was never offered. Also M4/M6 and unwritten; when you add one site, add the other.
+  M5 and unwritten: this is a trap pre-registered for whoever writes it. Until it exists
+  `run_bash` refuses every call *and* is withheld from declaration, so writing `sandbox.py`
+  makes live a route nothing exercises end to end today. (ADR-0010)
+- **`allowed_tools` is enforced at two sites**, `declared_tools` and `execute_tool` in
+  `tools.py`, and neither trusts the other. Filtering only the declared list is advisory,
+  because a model can call a tool it was never offered. Both exist now, which makes the
+  trap a maintenance one rather than a build one: change either site alone and enforcement
+  goes back to being asymmetric, silently. Withholding a tool -- as `run_bash` is while the
+  sandbox is unbuilt -- narrows only what is *declared*, and is never a substitute for the
+  execution check.
 - **Trust server-captured exit codes, never the model's account of them.** `bash_failures`
   and `last_bash_exit` come from real process exits and may contradict the model's final
   text. The whole self-verification design rests on this. (ADR-0007)

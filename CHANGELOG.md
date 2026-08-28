@@ -26,6 +26,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #32 — 2026-08-28 — docs: an invariant that described itself as unbuilt after it was built
+
+### Fixed
+- `CLAUDE.md` still said `allowed_tools` was "Also M4/M6 and unwritten; when you add one
+  site, add the other". Both sites landed in M4 (#26), so the instruction addressed a
+  reader who no longer exists, and the trap it was protecting had quietly changed shape:
+  the risk is no longer forgetting to build the second site but editing one of the two and
+  not the other, which returns enforcement to asymmetric with nothing to notice it. The
+  bullet now names `declared_tools` and `execute_tool` and says which mistake is now the
+  live one.
+- Recorded there too that withholding a tool from declaration -- as `run_bash` now is --
+  narrows only what is offered and is never a substitute for the execution check, since
+  that is exactly the misreading the two-site rule exists to prevent.
+- The adjacent `paths.py`/`sandbox.py` bullet reads as stale and is not: `sandbox.py` is
+  genuinely unwritten, so the trap stands. What it gained is the consequence of the
+  withholding above -- nothing reaches the sandbox path at all today, so writing that
+  module makes live a route no test covers end to end.
+- No mechanism found this. `docs_ownership.toml` registers `CLAUDE.md` with `owns = []`,
+  so no gate ties it to the code it describes, and nothing will catch the next one either.
+  Worth knowing rather than assuming the gate has it covered.
+
 ## #28 — 2026-08-28 — feat: the turn loop, and a delegation that can read for itself
 
 ### Added
