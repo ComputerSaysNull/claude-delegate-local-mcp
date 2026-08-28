@@ -92,7 +92,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 seconds | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, turn_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
 | `DELEGATE_RETRY_MAX_ATTEMPTS` | 3 | Attempts on a retryable backend status. |
 | `DELEGATE_RETRY_BASE_DELAY` | 1.0 seconds | Exponential backoff base. |
-| `DELEGATE_RETRY_MAX_DELAY` | 20.0 seconds | Cap on a single wait between attempts, including one the endpoint asked for via Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past anything turn_timeout was meant to bound, and the wait happens between requests where no HTTP timeout applies to it. Kept well under the 30-minute stdio idle timeout because nothing yet emits a progress notification to hold that off -- that is ADR-0018 and lands with the turn loop. |
+| `DELEGATE_RETRY_MAX_DELAY` | 20.0 seconds | Cap on a single wait between attempts, including one the endpoint asked for via Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past anything turn_timeout was meant to bound, and the wait happens between requests where no HTTP timeout applies to it. Kept well under the stdio idle timeout even though ADR-0018's notification now holds that off: it fires once at the top of a turn, and this wait sits inside one, unobserved. |
 
 ### Admission control
 

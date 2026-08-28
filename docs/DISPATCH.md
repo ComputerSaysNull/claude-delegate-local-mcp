@@ -126,7 +126,8 @@ dispatch. The per-model cap applies last everywhere: it is what the wire accepts
 The cluster's reasoning default is set at boot and is not ours to assume — the stack we
 run against ships one value in its example environment while two of its own documents
 recommend another. So every request states its reasoning level explicitly. Resolution:
-agent frontmatter, then the registry row, then the global default.
+the call argument, then the registry row, then the global default. An agent-file step joins
+the front of that order in M6.
 
 An unrecognised value is refused rather than passed through — but not because the backend
 would ignore it. It does not: it validates `reasoning_effort` and answers a bad one with a

@@ -26,6 +26,32 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #33 — 2026-08-28 — docs: the audit M4 was owed, and the sentences it made false
+
+### Fixed
+- Six places described M4's machinery as unbuilt after it shipped: README's opening
+  paragraph called the agentic loop and `files[]` non-working, and three TROUBLESHOOTING
+  entries kept a *(not built)* marker whose contract says the server cannot produce them —
+  so the index denied symptoms a reader can hit today. The inverse of what the previous two
+  audits found, and harder to see: nothing goes looking for sentences a merge falsified.
+- `docs/DISPATCH.md` put agent frontmatter, unstarted M6, at the front of reasoning-effort
+  precedence and omitted the call argument that `resolve_effort` checks first.
+  `docs/ARCHITECTURE.md` had it right, so the two disagreed and the owner of `loop.py` was
+  the wrong one.
+- Two row renderers in `gen_config_docs.py` disagreed: the leftover "Other" loop dropped the
+  unit suffix, the **required** marker and the **Inert.** prefix, so two timeouts showed a
+  bare number where every sibling said "seconds". Worse latently — the footer counts inert
+  fields across all rows, so an inert setting in "Other" would be counted in the total and
+  unmarked in its own row. One renderer now, and the three orphaned fields have sections.
+  The gate could not see any of it: it compares the committed file against this generator,
+  and the two agreed.
+- A config docstring justified `retry_max_delay`'s cap with "nothing yet emits a progress
+  notification". One does now, and the cap survives for a better reason the docstring gives
+  instead: the notification fires at the top of a turn, and a retry wait sits inside one.
+- `CLAUDE.md` omitted `gen_tools_docs.py` from its command list; `CONTRIBUTING.md`'s budget
+  history was stale about its own subject for the second time; and a sentence explaining the
+  owns-no-facts rule sat in the *(not built)* paragraph, appearing to justify the wrong rule.
+
 ## #30 — 2026-08-28 — feat: a caller can name the reply budget, and be believed
 
 ### Added

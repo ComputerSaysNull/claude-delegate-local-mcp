@@ -11,14 +11,14 @@
 Symptom, cause, fix.
 
 **This document owns no facts.** It links to whichever document owns the answer and never
-restates a default, a schema or a value.
+restates a default, a schema or a value. That is not fussiness: restating defaults inside
+symptom explanations is how the project this descends from ended up documenting one setting
+as three different values in three places. Add the link instead.
 
-**Entries marked *(not built)* describe a symptom you cannot hit yet.** They are written
-ahead of the subsystem so the index is ready when it lands; until then nothing in the
-server can produce them. [PLAN.md](../PLAN.md) has the roadmap. That is not fussiness: restating defaults inside
-symptom explanations is exactly how the project this descends from ended up documenting one
-setting as three different values in three places. If you want to add a value here, add the
-link instead.
+**Entries marked *(not built)* describe a symptom you cannot hit yet**, written ahead of the
+subsystem so the index is ready when it lands; until then nothing in the server can produce
+them. [PLAN.md](../PLAN.md) has the roadmap, and a marker outlasting its milestone is a
+defect in itself: the 2026-08-28 audit found four, all of them M4's.
 
 ---
 
@@ -149,30 +149,30 @@ Trust `bash_failures` and `last_bash_exit` in the result: those are captured by 
 from real process exits, and may contradict the prose. Models misreport command outcomes.
 ADR-0007.
 
-### Tool arguments arrive malformed *(not built)*
+### Tool arguments arrive malformed
 
 The model gets an actionable error and another turn. Recurring cases usually mean the
 temperature is too high — tool-call syntax tokens are sampled at the request temperature,
 so malformed calls grow likelier as it rises. See
 [CONFIGURATION.md](CONFIGURATION.md#generation-budgets).
 
-### `turn_limit` with work unfinished *(not built)*
+### `hit_turn_limit: true` with work unfinished
 
-The task needed more round trips than the budget allowed. Raise `max_turns` in the agent's
-frontmatter, or split the task. Prefetching more via `files[]` also helps: without it the
-first turn or two get spent exploring.
+The task needed more round trips than the budget allowed. Raise `max_turns` on the call, or
+split the task. Prefetching more via `files[]` also helps: without it the first turn or two
+get spent exploring.
 
 ---
 
 ## Timeouts
 
-### The call disappears after about 30 minutes *(not built)*
+### The call disappears after about 30 minutes
 
 Not the wall-clock limit. This is Claude Code's separate **stdio idle timeout**, which
 fires when the server sends nothing at all for its window. Progress notifications exist to
 prevent it, so seeing this means they are not arriving. ADR-0018.
 
-### The call disappears sooner than the configured timeout *(not built)*
+### The call disappears sooner than the configured timeout
 
 Set `timeout` on the server's entry in your MCP config; the units and the accepted range
 are Claude Code's, not this project's, so they are not restated here. Progress
@@ -260,10 +260,11 @@ If it is genuinely unnecessary — a pure rename, say — add
 `Docs-Gate-Skip: owning-doc -- <reason>` to the commit message. It stays visible in every
 run. See [../CONTRIBUTING.md](../CONTRIBUTING.md).
 
-### `STALE: docs/CONFIGURATION.md`
+### `STALE:` on a generated document
 
-It is generated. Run `python scripts/gen_config_docs.py` and commit the result; never edit
-the table by hand.
+It is rendered from code or from PLAN.md, and is never edited by hand. Run the matching
+generator and commit the result — [../CLAUDE.md](../CLAUDE.md) lists which one renders
+which, and is the only place that mapping lives.
 
 ### The gate blocks a new document as a "split dodge"
 

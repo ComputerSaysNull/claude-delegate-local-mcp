@@ -254,9 +254,9 @@ class Config:
         "Cap on a single wait between attempts, including one the endpoint asked for via "
         "Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past "
         "anything turn_timeout was meant to bound, and the wait happens between requests "
-        "where no HTTP timeout applies to it. Kept well under the 30-minute stdio idle "
-        "timeout because nothing yet emits a progress notification to hold that off -- "
-        "that is ADR-0018 and lands with the turn loop.",
+        "where no HTTP timeout applies to it. Kept well under the stdio idle timeout "
+        "even though ADR-0018's notification now holds that off: it fires once at the top "
+        "of a turn, and this wait sits inside one, unobserved.",
         unit="seconds",
     )
 
