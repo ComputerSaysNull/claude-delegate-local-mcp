@@ -56,11 +56,12 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                                   "run_bash_timeout")),
     ("Generation budgets", ("max_tokens", "thinking_default",
                             "thinking_max_tokens_floor", "resend_reasoning",
-                            "tool_call_temperature")),
+                            "tool_call_temperature", "one_shot_temperature")),
     ("Agentic loop", ("max_turns_default", "max_turns_hard_cap",
                       "keep_tool_results", "max_batch_size")),
     ("Timeouts and retries", ("turn_timeout", "connect_timeout", "dispatch_timeout",
-                              "retry_max_attempts", "retry_base_delay")),
+                              "status_probe_timeout", "retry_max_attempts",
+                              "retry_base_delay", "retry_max_delay")),
     ("Admission control", ("max_inflight_seqs", "kv_token_budget",
                            "large_prefill_tokens", "max_inflight_large_prefills")),
     ("Sandbox", ("sandbox_enabled", "bwrap_bin", "sandbox_home", "toolchain_binds",
@@ -138,6 +139,29 @@ def _cell(text: object) -> str:
     return s.replace("|", "\\|").replace("\n", " ")
 
 
+def _row(r: dict[str, object], *, inert: bool) -> str:
+    """One renderer for both tables, because two of them disagreed.
+
+    The leftover "Other" loop dropped three things the sectioned loop applied: the unit
+    suffix, the **required** marker and the **Inert.** prefix. So a setting rendered
+    differently depending on nothing but whether someone had filed it under a heading.
+    Live for two timeouts that showed a bare number where every sibling said "seconds"
+    (2026-08-28 audit). Worse latently: the footer counts inert fields across every row,
+    so an inert setting landing in "Other" was counted in the total and unmarked in its
+    own row -- a table contradicting itself, with the gate unable to see it because the
+    committed file matched this generator exactly.
+    """
+    default = _cell(r["default"])
+    if r["unit"]:
+        default = f"{default} {r['unit']}"
+    if r["required"]:
+        default = "**required**"
+    desc = _cell(r["description"])
+    if inert:
+        desc = f"**Inert.** {desc}"
+    return f"| `{r['env']}` | {default} | {desc} |"
+
+
 def render() -> str:
     rows = {r["field"]: r for r in config.describe()}
     unread = _unread_fields()
@@ -170,17 +194,8 @@ def render() -> str:
         out += [f"### {title}", "", "| Variable | Default | Description |",
                 "| --- | --- | --- |"]
         for name in present:
-            r = rows[name]
             placed.add(name)
-            default = _cell(r["default"])
-            if r["unit"]:
-                default = f"{default} {r['unit']}"
-            if r["required"]:
-                default = "**required**"
-            desc = _cell(r["description"])
-            if name in unread:
-                desc = f"**Inert.** {desc}"
-            out.append(f"| `{r['env']}` | {default} | {desc} |")
+            out.append(_row(rows[name], inert=name in unread))
         out.append("")
 
     leftover = [n for n in rows if n not in placed]
@@ -190,8 +205,7 @@ def render() -> str:
                  " Add them to a group. -->"), "",
                 "| Variable | Default | Description |", "| --- | --- | --- |"]
         for name in leftover:
-            r = rows[name]
-            out.append(f"| `{r['env']}` | {_cell(r['default'])} | {_cell(r['description'])} |")
+            out.append(_row(rows[name], inert=name in unread))
         out.append("")
 
     n_inert = len(unread & set(rows))

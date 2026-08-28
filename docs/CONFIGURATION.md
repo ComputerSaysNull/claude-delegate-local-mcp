@@ -71,6 +71,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_THINKING_MAX_TOKENS_FLOOR` | 131072 tokens | Floor applied to max_tokens when effort is high or max, and the size retried after an empty answer. Admission accounting must use the retry's size. |
 | `DELEGATE_RESEND_REASONING` | False | Send the model's prior reasoning back as history. Off: it costs input tokens and prefill on every turn, the conclusions already survive in the visible answer, and a growing prefix defeats prefix caching. |
 | `DELEGATE_TOOL_CALL_TEMPERATURE` | 0.2 | Temperature for every turn of the agentic loop. Low because tool-call syntax tokens are sampled at the request temperature, so malformed calls grow likelier as it rises. The one-shot path uses one_shot_temperature instead. |
+| `DELEGATE_ONE_SHOT_TEMPERATURE` | 1.0 | Temperature for the one-shot delegate() path. Separate from tool_call_temperature because that value is low to protect tool-call syntax, and the one-shot path emits no tool calls -- there is no syntax to protect and nothing to gain from suppressing the model's own default sampling. |
 
 ### Agentic loop
 
@@ -88,8 +89,10 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_TURN_TIMEOUT` | 1800 seconds | Per-turn backend call timeout. |
 | `DELEGATE_CONNECT_TIMEOUT` | 30 seconds | Bound on the TCP-connect phase alone, separate from turn_timeout. A refused connection sends RST and fails in milliseconds without this, but a dropped or blackholed route sends nothing and would otherwise stall for the whole of turn_timeout before httpx gives up. |
 | `DELEGATE_DISPATCH_TIMEOUT` | 3600 seconds | Whole-delegation timeout, spanning every retry and every empty-answer recovery stage. Claude Code's own wall-clock MCP timeout defaults to about 28 hours so it is not the binding limit; its stdio IDLE timeout of 30 minutes is lower than this default, and the per-turn progress notification that answers that is ADR-0018, arriving with the turn loop. This bounds the wait, not the client's patience. |
+| `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 seconds | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, turn_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
 | `DELEGATE_RETRY_MAX_ATTEMPTS` | 3 | Attempts on a retryable backend status. |
 | `DELEGATE_RETRY_BASE_DELAY` | 1.0 seconds | Exponential backoff base. |
+| `DELEGATE_RETRY_MAX_DELAY` | 20.0 seconds | Cap on a single wait between attempts, including one the endpoint asked for via Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past anything turn_timeout was meant to bound, and the wait happens between requests where no HTTP timeout applies to it. Kept well under the 30-minute stdio idle timeout because nothing yet emits a progress notification to hold that off -- that is ADR-0018 and lands with the turn loop. |
 
 ### Admission control
 
@@ -122,16 +125,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
-
-### Other
-
-<!-- These fields matched no section in gen_config_docs.py SECTIONS. Add them to a group. -->
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `DELEGATE_ONE_SHOT_TEMPERATURE` | 1.0 | Temperature for the one-shot delegate() path. Separate from tool_call_temperature because that value is low to protect tool-call syntax, and the one-shot path emits no tool calls -- there is no syntax to protect and nothing to gain from suppressing the model's own default sampling. |
-| `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, turn_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
-| `DELEGATE_RETRY_MAX_DELAY` | 20.0 | Cap on a single wait between attempts, including one the endpoint asked for via Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past anything turn_timeout was meant to bound, and the wait happens between requests where no HTTP timeout applies to it. Kept well under the 30-minute stdio idle timeout because nothing yet emits a progress notification to hold that off -- that is ADR-0018 and lands with the turn loop. |
 
 *42 settings, 13 of them inert.*
 
