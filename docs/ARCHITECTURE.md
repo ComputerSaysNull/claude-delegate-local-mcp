@@ -132,9 +132,9 @@ refusal at execution, which stays: a model can call a tool it was never offered.
 The per-turn progress notification is wired here, the only layer holding an MCP session:
 `loop.py` takes it as an injected callable and stays free of MCP imports (ADR-0018). Effort resolves
 explicit argument → registry row → global default and is always sent, never inherited from
-whatever the cluster was booted with (ADR-0013). The reply budget takes the reasoning floor
-at high or max effort, then the per-model cap last, because the cap is what the wire will
-actually accept. An unlisted effort is refused before dispatch: it has no translation into
+whatever the cluster was booted with (ADR-0013). The reply budget resolves the same way,
+caller first and the configured default last, and is
+[described with the rest of resolution](DISPATCH.md#the-reply-budget-is-resolved-once-most-specific-first). An unlisted effort is refused before dispatch: it has no translation into
 the server's vocabulary, and discovering that mid-call wastes the call.
 
 A dispatch that fails on the way out is retried here rather than surfaced, and a reply that

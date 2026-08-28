@@ -116,9 +116,14 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   `run_bash` stopped being declared while the sandbox is unbuilt (ADR-0010/ADR-0016)
 - ✅ Progress notification per turn — required, not cosmetic (ADR-0018). Injected into
   `loop.py` as a callable, so the dispatch layer still holds no MCP imports
-- ⬜ `max_tokens` precedence: call argument, then frontmatter, then the per-model bump,
+- ✅ `max_tokens` precedence: call argument, then frontmatter, then the per-model bump,
   then the configured default *last*. An operator lowering the ceiling must not suppress
-  the bump that stops heavy-reasoning models returning empty output (ADR-0024)
+  the bump that stops heavy-reasoning models returning empty output (ADR-0024). Found on
+  2026-08-28 that half of this already held -- the floor was a `max()` over the configured
+  value from the start, and there is no per-model bump, only `max_tokens_cap` applied last.
+  What was missing was the call argument itself, which did not exist. A caller's number is
+  honoured rather than raised to the floor, since raising it would make the argument
+  advisory; the recovery cascade covers a caller who guesses low
 - ⬜ Context-overflow handling, off by default. Promoted from Deferred 2026-08-26 and moved
   out of M3 2026-08-27, because it consumes per-turn history this milestone produces.
   Retroactive abort when prompt size plateaus while history grows *and* this server evicted

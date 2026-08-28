@@ -142,6 +142,59 @@ def test_the_model_cap_is_applied_after_the_floor():
     assert loop.resolve_max_tokens(config, entry(max_tokens_cap=8000), "high") == 8000
 
 
+def test_an_explicit_budget_beats_the_configured_one():
+    assert loop.resolve_max_tokens(cfg(max_tokens=1000), entry(), "low", 4096) == 4096
+
+
+def test_an_explicit_budget_is_not_raised_to_the_reasoning_floor():
+    """The most specific instruction there is. Multiplying it by thirty because the effort
+    happens to be high would make the argument advisory, and ADR-0014's recovery already
+    covers the caller who guessed too low -- at the cost of one extra dispatch."""
+    config = cfg(max_tokens=1000, thinking_max_tokens_floor=50000)
+    assert loop.resolve_max_tokens(config, entry(), "max", 4096) == 4096
+
+
+def test_the_floor_still_applies_when_no_budget_was_named():
+    """The other direction, and the property ADR-0024 actually protects: an operator
+    lowering DELEGATE_MAX_TOKENS must not suppress the floor. A resolver that had started
+    honouring the configured value unconditionally would pass every test above."""
+    config = cfg(max_tokens=1000, thinking_max_tokens_floor=50000)
+    assert loop.resolve_max_tokens(config, entry(), "max") == 50000
+
+
+def test_the_model_cap_still_wins_over_an_explicit_budget():
+    """The cap is what the wire accepts. Asking past it is a refusal, not a larger reply."""
+    config = cfg(max_tokens=1000)
+    assert loop.resolve_max_tokens(config, entry(max_tokens_cap=2000), "low", 999999) == 2000
+
+
+def test_a_budget_below_one_is_refused_before_dispatch():
+    with pytest.raises(loop.InvalidDelegation, match="at least 1"):
+        loop.resolve_max_tokens(cfg(), entry(), "low", 0)
+
+
+def test_an_explicit_budget_reaches_the_request():
+    backend = SpyBackend(ok_response("answered"))
+
+    async def go():
+        await loop.run_one_shot(
+            cfg(max_tokens=1000), entry(), backend, loop.Delegation("hi"), max_tokens=4096
+        )
+
+    asyncio.run(go())
+    assert backend.requests[0].max_tokens == 4096
+
+
+def test_the_step_down_stage_keeps_honouring_the_explicit_budget():
+    """The stepped stage re-resolves the budget for its new level, so it is the one place
+    an explicit number could quietly be dropped for the configured default."""
+    config = cfg(max_tokens=1000, thinking_max_tokens_floor=50000)
+    backend = RecordingBackend([empty_at_length(), empty_at_length(), ok_response("late")])
+    recover(config, backend, {"max_tokens_cap": 500000}, effort="max", max_tokens=4096)
+    assert budgets(backend)[0] == 4096, "the first stage must send what was asked for"
+    assert budgets(backend)[-1] == 4096, "the stepped stage dropped it"
+
+
 # --- the static system prompt (ADR-0011) ----------------------------------------------
 
 

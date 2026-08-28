@@ -1,7 +1,10 @@
-<!-- BUDGET: 265 -->
+<!-- BUDGET: 280 -->
 <!-- Raised from 180 on 2026-08-28: the turn loop landed and brought five
      mechanisms with it -- turns, eviction, dedup, countdown, progress. The room the
-     2026-08-27 split left was measured against a loop that had not been written. -->
+     2026-08-27 split left was measured against a loop that had not been written.
+     Then to 280 for budget precedence (ADR-0024). Two raises in one day is the
+     signal ADR-0003 means it to be: the next addition should be weighed against a
+     split rather than a third raise. -->
 <!-- Split out of ARCHITECTURE.md on 2026-08-27 at 423/425 lines. Sized to leave room for
      M4's turn loop, which is also loop.py and would otherwise land back in the file this
      split relieved. ADR-0032. -->
@@ -105,6 +108,18 @@ delegation this bound is still happy with. The per-turn progress notification is
 addresses that (ADR-0018), and it is emitted by the turn loop below -- so the one-shot path,
 having no turns, cannot hold the client open at all. This bound turns an unbounded wait into
 a bounded one, attributed to the setting that caused it, and claims nothing more.
+
+## The reply budget is resolved once, most specific first
+
+Call argument, then agent frontmatter (M6), then the configured default **last**. That
+ordering is ADR-0024's surviving constraint: an operator lowering the ceiling must not
+suppress the floor that stops heavy-reasoning models returning nothing, so at high and max
+effort the floor is a `max()` over the configured value rather than an alternative to it.
+
+A caller's own number is *not* raised to that floor — it is the most specific instruction
+there is, and multiplying it by thirty would make the argument advisory. Guessing too low
+still gets the recovery below, which retries at the floor, so being wrong costs one extra
+dispatch. The per-model cap applies last everywhere: it is what the wire accepts.
 
 ## Reasoning is controlled per request, never inherited
 
