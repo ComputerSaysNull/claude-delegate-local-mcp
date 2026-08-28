@@ -1,4 +1,4 @@
-<!-- BUDGET: 220 -->
+<!-- BUDGET: 245 -->
 # Plan
 
 The roadmap. One line per item, status first so the file scans.
@@ -101,7 +101,6 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   here from M0b 2026-08-26: it cannot render a registry that does not exist yet, and the
   descriptions are the model-facing contract, so they arrive with `tools.py` or not at all
 - ⬜ `loop.py` — turns, eviction, dedup, countdown, final-turn short-circuit
-- ⬜ Real exit codes captured by the server, reported apart from the model's claims
 - ⬜ Progress notification per turn — required, not cosmetic (ADR-0018)
 - ⬜ `max_tokens` precedence: call argument, then frontmatter, then the per-model bump,
   then the configured default *last*. An operator lowering the ceiling must not suppress
@@ -147,6 +146,11 @@ flag controlling nothing. The design work is not lost — it is recorded under M
 - ⬜ `sandbox.py` — empty root, the corrected symlink set, bind-order rules
 - ⬜ Toolchain binds so `uv` resolves inside the sandbox
 - ⬜ Refuse to run when bwrap is absent
+- ⬜ Real exit codes captured by the server, reported apart from the model's claims
+  (ADR-0007). Moved here from M4 2026-08-28: `run_bash` refuses until `sandbox.py`
+  exists (ADR-0010), so in M4 there is no process exit to capture. Building it there
+  would have meant capture logic reachable only from a mock — a test that cannot fail,
+  which is the one shape this repository has already paid for four times
 - ⬜ Secret denylist enforced at the mount level
 - ⬜ Tests: bind order for all three HOME/workdir cases; denial verified **by address**
 - ⬜ Test that the sandbox dies with its parent
