@@ -731,3 +731,154 @@ def test_the_tool_description_tells_the_model_not_to_paste_files():
     assert "files[]" in description
     assert "never enter your context" in description
     assert "files_skipped" in description
+
+
+# --- the agentic loop, over a real MCP session ---------------------------------------------
+
+
+def tool_call_reply(name: str, args: dict, *, call_id: str = "call-0"):
+    """A chat-completions reply that asks for a tool, in the shape the adapter reads."""
+    return {
+        "id": "cmpl-1",
+        "model": "served-id-1",
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": "tool_calls",
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {"name": name, "arguments": json.dumps(args)},
+                        }
+                    ],
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10},
+    }
+
+
+def turn_handler(*replies):
+    """Serves one canned HTTP reply per request, so a delegation can span real turns."""
+    remaining = list(replies)
+
+    def handler(request):
+        return httpx.Response(200, json=remaining.pop(0))
+
+    return handler
+
+
+def test_delegate_does_not_expose_the_injected_context_to_the_model():
+    """`ctx` is wiring. A model that saw it in the schema could try to fill it in."""
+    config = cfg()
+    mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
+
+    async def go():
+        async with Client(mcp) as client:
+            return next(t for t in await client.list_tools() if t.name == "delegate")
+
+    schema = asyncio.run(go()).inputSchema
+    assert "ctx" not in schema["properties"]
+    assert "allowed_tools" in schema["properties"]
+
+
+@files_posix_only
+def test_a_delegation_that_calls_a_tool_runs_more_than_one_turn(tmp_path):
+    """The whole point of M4, proved through the MCP surface rather than at the loop."""
+    target = tmp_path / "note.py"
+    target.write_text("# hello\n", encoding="utf-8")
+    config = cfg(workspace_roots=(str(tmp_path),))
+    result = delegated(
+        turn_handler(
+            tool_call_reply("read_file", {"path": str(target)}),
+            chat_reply(content="it says hello"),
+        ),
+        config=config,
+        task="what does the file say",
+    )
+    assert result["answer"] == "it says hello"
+    assert result["turns"] == 2
+    assert result["tool_calls"] == 1
+    assert result["tool_errors"] == 0
+    assert result["hit_turn_limit"] is False
+
+
+def test_an_empty_toolset_takes_the_one_shot_path_and_reports_no_ledger():
+    """`tool_calls: 0` next to an answer would read as a model that chose not to use its
+    tools. It was never offered any, and the caller acts on that differently."""
+    result = delegated(
+        chat_handler(content="the answer"), task="a question", allowed_tools=[]
+    )
+    assert result["answer"] == "the answer"
+    assert "turns" not in result
+    assert "tool_calls" not in result
+
+
+def test_the_default_delegation_offers_the_file_tools_and_withholds_run_bash():
+    seen: list[dict] = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(content="done"))
+
+    delegated(handler, task="a question")
+    declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
+    assert declared == {"read_file", "write_file"}
+
+
+def test_progress_is_notified_to_the_client_once_per_turn():
+    """ADR-0018, end to end. The client's stdio idle timer is what this resets, so a
+    notification the loop emits but the session never sends would be no use at all.
+
+    The tool call is one the path policy refuses, which is deliberate: a refusal is still a
+    turn, it costs no filesystem, and what is under test here is the notification rather
+    than the tool. Two turns must produce two notifications either way.
+    """
+    config = cfg(max_turns_default=4)
+    mcp = server.build(
+        config,
+        registry(entry()),
+        DoubleCache(
+            config,
+            turn_handler(
+                tool_call_reply("read_file", {"path": "/nowhere/at/all.py"}),
+                chat_reply(content="I could not read it"),
+            ),
+        ),
+    )
+    seen: list[tuple[float, float | None]] = []
+
+    async def on_progress(progress, total, message):
+        seen.append((progress, total))
+
+    async def go():
+        async with Client(mcp, progress_handler=on_progress) as client:
+            return (await client.call_tool("delegate", {"task": "read it"})).data
+
+    result = asyncio.run(go())
+    assert result["turns"] == 2
+    assert result["tool_errors"] == 1, "the refusal is the turn, and it is reported as one"
+    assert [p for p, _ in seen] == [1, 2]
+    assert {total for _, total in seen} == {4}, "the budget reported is the turn budget"
+
+
+def test_a_one_turn_delegation_still_notifies():
+    """The other direction is not 'no notification' -- it is that the turn doing all the
+    waiting is exactly the one that must not be skipped."""
+    config = cfg()
+    mcp = server.build(config, registry(entry()), DoubleCache(config, chat_handler(content="x")))
+    seen = []
+
+    async def on_progress(progress, total, message):
+        seen.append((progress, total))
+
+    async def go():
+        async with Client(mcp, progress_handler=on_progress) as client:
+            await client.call_tool("delegate", {"task": "q"})
+
+    asyncio.run(go())
+    assert len(seen) == 1
