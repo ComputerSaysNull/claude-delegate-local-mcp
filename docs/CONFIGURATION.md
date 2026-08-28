@@ -58,8 +58,8 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_MAX_READ_CHARS` | 50000 chars | **Inert.** Cap on one read_file response. The model is told the true total and how to page, so it continues by range rather than re-reading. |
-| `DELEGATE_MAX_WRITE_BYTES` | 8388608 bytes | **Inert.** Cap on one write_file call. |
+| `DELEGATE_MAX_READ_CHARS` | 50000 chars | Cap on one read_file response. The model is told the true total and how to page, so it continues by range rather than re-reading. |
+| `DELEGATE_MAX_WRITE_BYTES` | 8388608 bytes | Cap on one write_file call. |
 | `DELEGATE_RUN_BASH_TIMEOUT` | 120 seconds | **Inert.** Per-command timeout for run_bash. |
 
 ### Generation budgets
@@ -133,6 +133,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, turn_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
 | `DELEGATE_RETRY_MAX_DELAY` | 20.0 | Cap on a single wait between attempts, including one the endpoint asked for via Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past anything turn_timeout was meant to bound, and the wait happens between requests where no HTTP timeout applies to it. Kept well under the 30-minute stdio idle timeout because nothing yet emits a progress notification to hold that off -- that is ADR-0018 and lands with the turn loop. |
 
-*42 settings, 19 of them inert.*
+*42 settings, 17 of them inert.*
 
 <!-- GEN:CONFIG:END -->

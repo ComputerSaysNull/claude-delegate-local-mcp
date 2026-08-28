@@ -101,8 +101,12 @@ flag controlling nothing. The design work is not lost — it is recorded under M
 
 ## M4 — Agentic loop and model tools
 
-- ⬜ `tools.py` — read_file, write_file, run_bash; `allowed_tools` enforced at execution
-- ⬜ `docs/TOOLS.md` generator — descriptions rendered from the registered tools. Moved
+- ✅ `tools.py` — read_file, write_file, run_bash; `allowed_tools` enforced at both sites,
+  declaration and execution, since a model can call a tool it was never offered. `run_bash`
+  refuses every call until `sandbox.py` (ADR-0010). `paths.py` gained `must_exist=False`
+  for `write_file`, which creates: it relaxes only the missing-file branch and no other
+  layer
+- ✅ `docs/TOOLS.md` generator — descriptions rendered from the registered tools. Moved
   here from M0b 2026-08-26: it cannot render a registry that does not exist yet, and the
   descriptions are the model-facing contract, so they arrive with `tools.py` or not at all
 - ⬜ `loop.py` — turns, eviction, dedup, countdown, final-turn short-circuit

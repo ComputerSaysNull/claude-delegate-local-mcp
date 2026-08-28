@@ -594,15 +594,20 @@ def check_secret_paths() -> list[Finding]:
     return out
 
 
-def check_generated_docs() -> list[Finding]:
-    out = []
-    generators = [
+def generator_targets() -> list[tuple[str, str]]:
+    """The (script, rendered document) pairs. One copy, read by two checks."""
+    return [
         ("scripts/gen_config_docs.py", "docs/CONFIGURATION.md"),
         ("scripts/gen_status.py", "STATUS.md"),
         ("scripts/gen_gitleaks_config.py", ".gitleaks.toml"),
         ("scripts/gen_agents_docs.py", "CONTRIBUTING.md"),
+        ("scripts/gen_tools_docs.py", "docs/TOOLS.md"),
     ]
-    for script, target in generators:
+
+
+def check_generated_docs() -> list[Finding]:
+    out = []
+    for script, target in generator_targets():
         if not (ROOT / script).exists():
             out.append(Finding(SKIP, "generated-doc", f"{script} not written yet."))
             continue
@@ -613,6 +618,33 @@ def check_generated_docs() -> list[Finding]:
             out.append(Finding(BLOCK, "generated-doc",
                                f"{target} is stale. Run: python {script}. "
                                f"({first[0] if first else 'no output'})"))
+    return out
+
+
+def check_generated_docs_are_all_checked() -> list[Finding]:
+    """Every document the manifest calls generated must be in the freshness list.
+
+    That list is hand-written, so adding a generator and forgetting the tuple leaves the
+    new document with no freshness check at all -- passing for the reason that nothing
+    looked. The manifest already records which documents are generated, so the two can be
+    compared instead of both being trusted.
+
+    One-way on purpose. The freshness list also covers STATUS.md, .gitleaks.toml and
+    CONTRIBUTING.md, which are generated in part and own no code, so they carry no
+    `generated` flag; requiring the sets to match would flag those forever.
+    """
+    manifest = load_manifest()
+    if manifest is None:
+        return [Finding(SKIP, "generated-doc", f"{MANIFEST.name} not present.")]
+    checked = {target for _, target in generator_targets()}
+    out = []
+    for doc, meta in manifest["docs"].items():
+        if meta.get("generated") and doc not in checked:
+            out.append(Finding(
+                BLOCK, "generated-doc",
+                f"{MANIFEST.name} marks {doc} as generated, but no generator in "
+                f"check_generated_docs() renders it, so nothing checks it is current. Add "
+                f"the (script, target) pair there in the same commit as the generator."))
     return out
 
 
@@ -964,6 +996,7 @@ CHECKS = {
     "never-track": check_never_tracked,
     "commit-message": check_commit_message,
     "generated-doc": check_generated_docs,
+    "generated-coverage": check_generated_docs_are_all_checked,
     "budget": check_budgets,
     "adr": check_adr_format,
     "owning-doc": check_ownership,
