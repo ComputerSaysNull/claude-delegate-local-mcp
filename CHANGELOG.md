@@ -142,6 +142,20 @@ worth citing.
   model a page of replacement characters and present it as source. ADR-0030.
 
 ### Changed
+- 2026-08-28 (#20) M4's real-exit-code item moves to M5, beside `sandbox.py`, and
+  PLAN.md's budget rises 220 → 245. ADR-0010 has `run_bash` refuse rather than run
+  unconfined, and `sandbox.py` is M5, so through the whole of M4 there is no process
+  exit for the server to capture. Left where it was, the item could only have been
+  built against a mock, with no path a caller could reach -- a test that cannot fail,
+  which is the exact shape this repository has now found five times and the reason the
+  rule against it exists. Moving it costs nothing and removes the temptation; M4 goes
+  to 10 items and M5 to 8, with the totals unchanged.
+  The budget is raised rather than trimmed because PLAN.md grows monotonically by
+  design: ADR-0003 keeps completed items with their annotations and cancelled items
+  with their reasons, so its length tracks the milestone count and a fixed ceiling is
+  the wrong instrument. It was at exactly 220 of 220, so annotating a single M4 item on
+  completion would have blocked. If it recurs the answer is `archive/`, which
+  `check_budgets` already skips, not another raise.
 - 2026-08-27 (#19) `docs/ARCHITECTURE.md` splits, and `docs/DISPATCH.md` takes `loop.py` and
   `backends/` with the four sections that describe them. It sat at 423 of 425 lines with
   M4's turn loop -- also `loop.py` -- about to land on top of it, which both audits of the
