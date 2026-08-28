@@ -317,13 +317,11 @@ def check_host_identifiers() -> list[Finding]:
                     out.append(Finding(BLOCK, "host-identifier",
                                        f"{r}:{i} looks like a {label}: {m.group(0)!r}. "
                                        f"Hosts are configuration, never literals."))
-            for m in HOSTPORT_RE.finditer(line):
-                host = m.group(1).lower()
-                if host not in HOSTPORT_ALLOWED and not host.startswith("your-"):
-                    out.append(Finding(
-                        BLOCK, "host-identifier",
-                        f"{r}:{i} contains {m.group(0)!r}. A hostname is as identifying "
-                        f"as an address. Use a placeholder in examples."))
+            for hit in hostport_leaks(line):
+                out.append(Finding(
+                    BLOCK, "host-identifier",
+                    f"{r}:{i} contains {hit!r}. A hostname is as identifying "
+                    f"as an address. Use a placeholder in examples."))
             # Compare with whitespace normalised, so "Ada  Lovelace" matches
             # "Ada Lovelace". Harmless for single-word entries, which contain no
             # whitespace to collapse. Without this the line pass missed the case and the
@@ -436,9 +434,6 @@ def check_commit_message(mode: str, diff_range: str | None,
                 sha, body = chunk.split(chr(31), 1)
                 texts.append((sha.strip(), body))
 
-    literals, word_literals = split_literals(
-        load_lines(ROOT / "security" / "forbidden_strings.txt"))
-    allowed = set(load_lines(AUTHOR_ALLOWLIST_FILE))
     out = []
     for where, text in texts:
         # A comment line in a commit template is not part of the message.
@@ -451,40 +446,43 @@ def check_commit_message(mode: str, diff_range: str | None,
         finding = conventional_subject_finding(f"{where}: the subject", subject)
         if finding:
             out.append(finding)
-        flat = " ".join(body.split()).lower()
-        for lit in literals:
-            if " ".join(lit.split()).lower() in flat:
-                out.append(Finding(BLOCK, "commit-message",
-                                   f"{where}: the message contains an entry from the "
-                                   f"local forbidden_strings list."))
-                break
-        for lit in word_literals:
-            if re.search(_word_pattern(lit), body):
-                out.append(Finding(BLOCK, "commit-message",
-                                   f"{where}: the message contains a word-boundary "
-                                   f"entry from the local forbidden_strings list."))
-                break
-        for pat, label in HOST_PATTERNS:
-            m = re.search(pat, body, re.IGNORECASE)
-            if m:
-                out.append(Finding(BLOCK, "commit-message",
-                                   f"{where}: the message contains what looks like a "
-                                   f"{label}: {m.group(0)!r}."))
-        for m in EMAIL_RE.finditer(body):
-            if m.group(0) not in allowed and not is_content_safe(m.group(0)):
-                out.append(Finding(BLOCK, "commit-message",
-                                   f"{where}: the message contains {m.group(0)!r}, "
-                                   f"which is not an allowlisted address."))
+        # The same scan the pull request title and body get. A commit message is no less
+        # public once it is pushed, and it used to get a near-copy of this that had
+        # drifted -- the copy never learned about host:port.
+        out += scan_text(f"{where}: the message", body, "commit-message")
     return out
 
 
-def scan_text(label: str, text: str) -> list[Finding]:
+def hostport_leaks(text: str) -> list[str]:
+    """Every `host:port` in `text` whose host is a real name rather than a placeholder.
+
+    One predicate, used by the file scan and by `scan_text`, so the surfaces cannot
+    disagree about what a leak is. They did disagree, for long enough to matter: this ran
+    against tracked files only, and the same string was refused in one place and accepted
+    in another.
+    """
+    out = []
+    for m in HOSTPORT_RE.finditer(text):
+        host = m.group(1).lower()
+        if host not in HOSTPORT_ALLOWED and not host.startswith("your-"):
+            out.append(m.group(0))
+    return out
+
+
+def scan_text(label: str, text: str, check: str = "public-text") -> list[Finding]:
     """Run the identifier checks over arbitrary text.
 
-    Used for the commit message and for a pull request title and body. A pull request
-    body is a public surface written outside git entirely, so no hook and no file check
-    can see it -- which is exactly how a specimen got published once despite every other
-    check passing.
+    The single implementation for the commit message and for a pull request title and
+    body. It was documented as that before it was one: another caller carried a second
+    copy that had drifted and no longer ran everything this does. `check` and `label` are
+    the only things that differed, so they are the only things parameterised.
+
+    Extend this rather than adding a check beside it. Two copies cannot be kept in step by
+    intention alone -- that is what the previous pair proved, over months, unnoticed.
+
+    A pull request body is a public surface written outside git entirely, so no hook and
+    no file check can see it -- which is exactly how a specimen got published once despite
+    every other check passing.
     """
     loose, words = split_literals(
         load_lines(ROOT / "security" / "forbidden_strings.txt"))
@@ -493,25 +491,29 @@ def scan_text(label: str, text: str) -> list[Finding]:
     out = []
     for lit in loose:
         if " ".join(lit.split()).lower() in flat:
-            out.append(Finding(BLOCK, "public-text",
+            out.append(Finding(BLOCK, check,
                                f"{label} contains an entry from the local "
                                f"forbidden_strings list."))
             break
     for lit in words:
         if re.search(_word_pattern(lit), text):
-            out.append(Finding(BLOCK, "public-text",
+            out.append(Finding(BLOCK, check,
                                f"{label} contains a word-boundary entry from the local "
                                f"forbidden_strings list."))
             break
     for pat, lbl in HOST_PATTERNS:
         m = re.search(pat, text, re.IGNORECASE)
         if m:
-            out.append(Finding(BLOCK, "public-text",
+            out.append(Finding(BLOCK, check,
                                f"{label} contains what looks like a {lbl}: "
                                f"{m.group(0)!r}."))
+    for hit in hostport_leaks(text):
+        out.append(Finding(BLOCK, check,
+                           f"{label} contains {hit!r}. A hostname is as identifying as "
+                           f"an address. Use a placeholder."))
     for m in EMAIL_RE.finditer(text):
         if m.group(0) not in allowed and not is_content_safe(m.group(0)):
-            out.append(Finding(BLOCK, "public-text",
+            out.append(Finding(BLOCK, check,
                                f"{label} contains {m.group(0)!r}, which is not an "
                                f"allowlisted address."))
     return out
