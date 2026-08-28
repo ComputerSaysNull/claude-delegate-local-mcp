@@ -837,3 +837,216 @@ def test_at_max_effort_the_budget_retry_is_skipped_and_it_steps_down_immediately
     assert efforts(backend) == ["max", "high"], "the second call steps down, it does not re-budget"
     assert backend.calls == 2
     assert result.effort == "high"
+
+
+# --- the whole-delegation deadline (dispatch_timeout) ------------------------------------
+#
+# `dispatch_timeout` was declared, validated against turn_timeout, documented, and read by
+# nothing: loop.py's own docstring called it "a gap rather than a decision". The sum of
+# attempts plus the waits between them was bounded only by retry_max_attempts and
+# retry_max_delay, neither of which is a time.
+#
+# The clock is injected for the same reason sleep is. A deadline test that spends the
+# deadline is a test nobody runs twice, and every case below is driven by a fake clock the
+# test advances itself -- except the one that proves the per-attempt ceiling, which needs a
+# real event loop and so uses a deliberately tiny real budget.
+
+
+class FakeClock:
+    """A monotonic clock the test drives. Never reads the wall."""
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class AdvancingSleep(SleepSpy):
+    """A sleep that costs the clock what it was asked to wait, without waiting."""
+
+    def __init__(self, clock: FakeClock) -> None:
+        super().__init__()
+        self.clock = clock
+
+    async def __call__(self, seconds: float) -> None:
+        await super().__call__(seconds)
+        self.clock.advance(seconds)
+
+
+class SlowBackend(ScriptedBackend):
+    """A backend whose every call costs the fake clock a fixed number of seconds."""
+
+    def __init__(self, script, clock: FakeClock, seconds: float) -> None:
+        super().__init__(script)
+        self.clock = clock
+        self.seconds = seconds
+
+    async def complete(self, request):
+        self.clock.advance(self.seconds)
+        return await super().complete(request)
+
+
+def test_a_delegation_that_finishes_inside_the_deadline_is_untouched():
+    """The deadline must be invisible when it is not reached, or it is not a deadline."""
+    clock = FakeClock()
+    backend = SlowBackend([ok_response("done")], clock, seconds=5)
+    response, attempts = asyncio.run(
+        loop.complete_with_retry(
+            cfg(dispatch_timeout=3600),
+            backend,
+            one_shot("hello"),
+            sleep=AdvancingSleep(clock),
+            jitter=lambda lo, hi: hi,
+            deadline=clock() + 3600,
+            clock=clock,
+        )
+    )
+    assert response.text == "done"
+    assert attempts == 1
+
+
+def test_the_deadline_ends_a_delegation_whose_retries_outlive_it():
+    clock = FakeClock()
+    backend = SlowBackend(
+        [BackendUnavailable("dropped")] * 5, clock, seconds=40
+    )
+    with pytest.raises(loop.DispatchTimedOut) as excinfo:
+        asyncio.run(
+            loop.complete_with_retry(
+                cfg(dispatch_timeout=100, turn_timeout=100, retry_max_attempts=9),
+                backend,
+                one_shot("hello"),
+                sleep=AdvancingSleep(clock),
+                jitter=lambda lo, hi: hi,
+                deadline=clock() + 100,
+                clock=clock,
+            )
+        )
+    assert backend.calls < 9, "it must stop on the clock, not on the attempt counter"
+    assert excinfo.value.limit == 100
+
+
+def test_a_backoff_that_would_sleep_past_the_deadline_ends_it_instead():
+    """Sleeping first would burn the budget and then blame the work for the wait."""
+    clock = FakeClock()
+    sleep = AdvancingSleep(clock)
+    backend = SlowBackend([BackendUnavailable("dropped")] * 3, clock, seconds=1)
+    with pytest.raises(loop.DispatchTimedOut) as excinfo:
+        asyncio.run(
+            loop.complete_with_retry(
+                cfg(dispatch_timeout=2, turn_timeout=2, connect_timeout=1, retry_max_attempts=5,
+                    retry_base_delay=30.0, retry_max_delay=30.0),
+                backend,
+                one_shot("hello"),
+                sleep=sleep,
+                jitter=lambda lo, hi: hi,
+                deadline=clock() + 2,
+                clock=clock,
+            )
+        )
+    assert sleep.waits == [], "the 30s backoff must not be slept at all"
+    assert excinfo.value.stage == "waiting to retry"
+
+
+def test_the_refusal_names_the_setting_the_elapsed_time_and_the_stage():
+    """An operator has to know it was their own deadline, and which knob it was."""
+    clock = FakeClock()
+    backend = SlowBackend([BackendUnavailable("dropped")] * 4, clock, seconds=60)
+    with pytest.raises(loop.DispatchTimedOut) as excinfo:
+        asyncio.run(
+            loop.complete_with_retry(
+                cfg(dispatch_timeout=50, turn_timeout=50, retry_max_attempts=4),
+                backend,
+                one_shot("hello"),
+                sleep=AdvancingSleep(clock),
+                jitter=lambda lo, hi: hi,
+                deadline=clock() + 50,
+                clock=clock,
+            )
+        )
+    message = str(excinfo.value)
+    assert "DELEGATE_DISPATCH_TIMEOUT" in message
+    assert "50s" in message
+    assert excinfo.value.elapsed > 0
+
+
+def test_one_deadline_spans_every_stage_rather_than_restarting_per_stage():
+    """Three stages each given a fresh budget would bound the delegation at three times it.
+
+    The empty-answer recovery is three real dispatches (ADR-0014). If run_one_shot handed
+    each of them its own `dispatch_timeout`, the setting would silently mean something
+    other than what it says, and no test of a single stage would notice.
+    """
+    clock = FakeClock()
+    backend = SlowBackend([empty_at_length()] * 4, clock, seconds=30)
+    with pytest.raises(loop.DispatchTimedOut):
+        asyncio.run(
+            loop.run_one_shot(
+                cfg(dispatch_timeout=50, turn_timeout=50),
+                entry(),
+                backend,
+                loop.Delegation("hello"),
+                effort="high",
+                sleep=AdvancingSleep(clock),
+                clock=clock,
+            )
+        )
+    # 30s a call against a 50s shared budget: the second starts at 30s and fits, the
+    # third is refused before it is sent. Had each stage been handed its own 50s, all
+    # three would have run and nothing here would have noticed.
+    assert backend.calls == 2
+
+
+def test_a_delegation_inside_the_deadline_still_completes_through_run_one_shot():
+    """The other direction: run_one_shot must not have become a timeout generator."""
+    clock = FakeClock()
+    backend = SlowBackend([ok_response("fine")], clock, seconds=1)
+    result = asyncio.run(
+        loop.run_one_shot(
+            cfg(dispatch_timeout=3600),
+            entry(),
+            backend,
+            loop.Delegation("hello"),
+            sleep=AdvancingSleep(clock),
+            clock=clock,
+        )
+    )
+    assert result.response.text == "fine"
+
+
+def test_a_single_attempt_is_capped_by_what_is_left_of_the_deadline():
+    """turn_timeout bounds one call but knows nothing of how much delegation is left.
+
+    Real time, deliberately: this is the one behaviour a fake clock cannot show, because
+    the ceiling is enforced by the event loop. The budget is tiny so the test costs it.
+    """
+
+    class Hanging:
+        calls = 0
+
+        async def complete(self, request):
+            Hanging.calls += 1
+            await asyncio.sleep(30)
+
+        async def probe(self):
+            return ("served-id-1",)
+
+        async def aclose(self):
+            pass
+
+    with pytest.raises(loop.DispatchTimedOut):
+        asyncio.run(
+            loop.complete_with_retry(
+                cfg(dispatch_timeout=1, turn_timeout=1, connect_timeout=1),
+                Hanging(),
+                one_shot("hello"),
+                sleep=SleepSpy(),
+                jitter=lambda lo, hi: hi,
+                deadline=time.monotonic() + 0.05,
+            )
+        )
+    assert Hanging.calls == 1

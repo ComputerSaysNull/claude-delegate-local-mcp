@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** M4 — Agentic loop and model tools — 0 of 10 items done
+**Current phase:** M4 — Agentic loop and model tools — 1 of 10 items done
 
 ## In progress
 
@@ -26,16 +26,16 @@
 | M1 — One real backend call | 5 | 0 | 0 | 0 |
 | M2 — files[] prefetch | 4 | 0 | 0 | 0 |
 | M3 — Response state machine | 3 | 0 | 0 | 1 |
-| M4 — Agentic loop and model tools | 0 | 0 | 10 | 0 |
+| M4 — Agentic loop and model tools | 1 | 0 | 9 | 0 |
 | M5 — Sandbox | 0 | 0 | 8 | 0 |
 | M6 — Agents, batching, discovery | 0 | 0 | 3 | 0 |
 | M7 — Admission control and polish | 0 | 0 | 4 | 1 |
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
 | Extra — work outside the milestone plan | 6 | 0 | 0 | 0 |
 
-**Overall:** 45 done, 26 open, 7 cancelled.
+**Overall:** 46 done, 25 open, 7 cancelled.
 
 ## Repository
 
-- 30 commit(s), 80 tracked files
-- 25 test file(s), 32 decision record(s)
+- 32 commit(s), 81 tracked files
+- 26 test file(s), 32 decision record(s)

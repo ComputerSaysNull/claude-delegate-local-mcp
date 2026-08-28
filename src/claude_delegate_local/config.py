@@ -240,9 +240,11 @@ class Config:
     )
     dispatch_timeout: int = _f(
         3600,
-        "Whole-delegation timeout. Claude Code's own wall-clock MCP timeout defaults to "
-        "about 28 hours so it is not the binding limit, but its stdio IDLE timeout is 30 "
-        "minutes -- which is why a progress notification is emitted every turn. ADR-0018.",
+        "Whole-delegation timeout, spanning every retry and every empty-answer recovery "
+        "stage. Claude Code's own wall-clock MCP timeout defaults to about 28 hours so it "
+        "is not the binding limit; its stdio IDLE timeout of 30 minutes is lower than this "
+        "default, and the per-turn progress notification that answers that is ADR-0018, "
+        "arriving with the turn loop. This bounds the wait, not the client's patience.",
         unit="seconds",
     )
     retry_max_attempts: int = _f(3, "Attempts on a retryable backend status.")

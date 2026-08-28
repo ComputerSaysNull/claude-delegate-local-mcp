@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, UTC
@@ -86,6 +87,27 @@ SYSTEM_PROMPT_ONE_SHOT = (
 
 class InvalidDelegation(ValueError):
     """A caller's argument is wrong. Raised before anything is sent to a backend."""
+
+
+class DispatchTimedOut(Exception):
+    """The whole delegation outlived `dispatch_timeout`.
+
+    Distinct from every backend failure on purpose. `BackendUnavailable` says the endpoint
+    did not answer; this says the endpoint may well be answering and the delegation has
+    still taken longer than the operator allows. Sending a caller to check the cluster on
+    a deadline they set themselves would be the wrong diagnosis, and ADR-0007's argument
+    for server-captured truth applies to *which* failure this was as much as to exit codes.
+    """
+
+    def __init__(self, elapsed: float, limit: int, stage: str) -> None:
+        self.elapsed = elapsed
+        self.limit = limit
+        self.stage = stage
+        super().__init__(
+            f"Delegation abandoned after {elapsed:.1f}s, past the "
+            f"DELEGATE_DISPATCH_TIMEOUT of {limit}s, while {stage}. Raise that setting if "
+            "the work legitimately takes this long, or shorten the task."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,13 +245,15 @@ def _delay_before_retry(
     return jitter(0.0, backoff)
 
 
-async def complete_with_retry(
+async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test seams
     cfg: Config,
     backend: Backend,
     request: CanonicalRequest,
     *,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     jitter: Callable[[float, float], float] = random.uniform,
+    deadline: float | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> tuple[CanonicalResponse, int]:
     """Send until it answers, a failure is not worth repeating, or the attempts run out.
 
@@ -245,23 +269,57 @@ async def complete_with_retry(
     and `cache` into the server: without that, a test of the retry logic sleeps for real,
     and a test of the cap cannot pin the random factor.
 
-    No outer deadline is enforced here, and that is a gap rather than a decision.
-    `dispatch_timeout` exists in config and is consumed nowhere; each individual attempt is
-    bounded by `turn_timeout` inside the adapter's client, but the sum of attempts plus the
-    waits between them is bounded only by `retry_max_attempts` and `retry_max_delay`.
-    Whole-delegation enforcement, and the per-turn progress notification that keeps a long
-    wait from tripping the client's own idle timeout (ADR-0018), both arrive with the turn
-    loop. Until then the small `retry_max_delay` default is the whole mitigation.
+    `deadline` is an absolute reading of `clock`, set by the caller that owns the whole
+    delegation, and it bounds the sum this function used to leave unbounded: attempts, and
+    the waits between them. It is checked before each attempt, applied *to* each attempt as
+    a ceiling, and checked against the wait before sleeping -- a backoff that would sleep
+    past the deadline ends the delegation instead of waking up to find it already gone.
+    `None` disables it, which is what the empty-answer stages above use when they have
+    already exhausted the budget themselves.
+
+    `clock` is injected for the same reason `sleep` and `jitter` are: a test of the
+    deadline must not spend the deadline. The ceiling on each attempt is measured with the
+    same clock, so a fake clock governs the whole function and the event loop is never
+    asked to wait for real.
     """
     attempts = 0
+    started = clock()
+
+    def remaining() -> float | None:
+        return None if deadline is None else deadline - clock()
+
+    def spent() -> float:
+        return clock() - started
+
     while True:
+        left = remaining()
+        if left is not None and left <= 0:
+            raise DispatchTimedOut(spent(), cfg.dispatch_timeout, "waiting on the backend")
         attempts += 1
         try:
-            return await backend.complete(request), attempts
+            if left is None:
+                return await backend.complete(request), attempts
+            # The per-attempt ceiling. `turn_timeout` already bounds one call inside the
+            # adapter's client, but it is a fixed budget that knows nothing about how much
+            # of the delegation is left, so without this the deadline could still be
+            # overshot by a whole turn.
+            return await asyncio.wait_for(backend.complete(request), timeout=left), attempts
+        except TimeoutError as e:
+            raise DispatchTimedOut(
+                spent(), cfg.dispatch_timeout, "waiting on the backend"
+            ) from e
         except (BackendUnavailable, BackendRefused) as e:
             if not _is_retryable(e) or attempts >= cfg.retry_max_attempts:
                 raise
-            await sleep(_delay_before_retry(cfg, e, attempts, jitter))
+            wait = _delay_before_retry(cfg, e, attempts, jitter)
+            left = remaining()
+            if left is not None and wait >= left:
+                # Sleeping first would burn the rest of the budget and then report the
+                # deadline, naming a wait this function chose rather than the work.
+                raise DispatchTimedOut(
+                    spent() + wait, cfg.dispatch_timeout, "waiting to retry"
+                ) from e
+            await sleep(wait)
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,6 +365,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     *,
     effort: str | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
     """Resolve, send, and recover from an answer that is empty because it ran out of room.
 
@@ -322,6 +381,18 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     prefill on top of the generation. That is why it is the last resort rather than the
     first, and why the budget retry -- which keeps the level, and the prefix -- comes first.
 
+    `dispatch_timeout` is enforced here, across all three stages and every transport retry
+    inside them, because this is the only layer that knows a delegation is what it is. One
+    deadline is taken at entry and passed down; the stages do not each get a fresh budget,
+    which would make the real bound the timeout times the number of stages.
+
+    What this bounds is a wait, not the client's idle timeout. The default is 3600s against
+    Claude Code's 1800s stdio idle timeout, so a delegation can still be abandoned by the
+    client while this is perfectly happy -- ADR-0018's per-turn progress notification is
+    what addresses that, and it arrives with the turn loop. Enforcing this turns an
+    unbounded wait into a bounded one attributed to the setting that caused it, and claims
+    nothing further.
+
     Attempts accumulate across all three stages and every transport retry inside them, so
     the number reported is what this delegation really cost. What is *not* summed is the
     token counts: those come from the attempt that answered. ADR-0014 says the retry must
@@ -331,6 +402,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     resolved = resolve_effort(cfg, entry, effort)
     asked_budget = resolve_max_tokens(cfg, entry, resolved)
     attempts = 0
+    deadline = clock() + cfg.dispatch_timeout
 
     def request_at(level: str, budget: int) -> CanonicalRequest:
         return build_one_shot_request(
@@ -341,7 +413,8 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         )
 
     response, spent = await complete_with_retry(
-        cfg, backend, request_at(resolved, asked_budget), sleep=sleep
+        cfg, backend, request_at(resolved, asked_budget),
+        sleep=sleep, deadline=deadline, clock=clock,
     )
     attempts += spent
     if not is_empty_at_length(response):
@@ -352,7 +425,8 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     floor = entry.cap_tokens(max(2 * asked_budget, cfg.thinking_max_tokens_floor))
     if floor > asked_budget:
         response, spent = await complete_with_retry(
-            cfg, backend, request_at(resolved, floor), sleep=sleep
+            cfg, backend, request_at(resolved, floor),
+            sleep=sleep, deadline=deadline, clock=clock,
         )
         attempts += spent
         if not is_empty_at_length(response):
@@ -371,7 +445,8 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         return Dispatch(response, resolved, attempts)
 
     response, spent = await complete_with_retry(
-        cfg, backend, request_at(stepped, resolve_max_tokens(cfg, entry, stepped)), sleep=sleep
+        cfg, backend, request_at(stepped, resolve_max_tokens(cfg, entry, stepped)),
+        sleep=sleep, deadline=deadline, clock=clock,
     )
     attempts += spent
     return Dispatch(response, stepped, attempts, is_empty_at_length(response))

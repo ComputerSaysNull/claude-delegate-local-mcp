@@ -182,9 +182,15 @@ state. (ADR-0009, [MODELS.md](MODELS.md))
 ### Dispatch, retry and the response state machine
 
 Moved to [DISPATCH.md](DISPATCH.md), which now owns `loop.py` and `backends/`: the wire
-format seam, retry above the adapter, per-request reasoning control, and recovery from an
-empty answer. Split out at 423 lines, before M4's turn loop -- also `loop.py` -- landed on
-top of it. (ADR-0032)
+format seam, retry above the adapter, per-request reasoning control, recovery from an
+empty answer, and the whole-delegation deadline. Split out at 423 lines, before M4's turn
+loop -- also `loop.py` -- landed on top of it. (ADR-0032)
+
+What stays here is how those failures reach a caller. `server.py` maps each one to a
+`ToolError` that names the fix rather than the layer: a path refusal, a backend that is
+unreachable or refusing, and a delegation that outlived `dispatch_timeout`. That last one
+is routed separately from the backend failures on purpose -- they name an endpoint, and it
+names a deadline the operator set, which is a different thing to go and change.
 
 ### Four path layers, allowlist first
 
