@@ -23,6 +23,7 @@ Named after the bug, per the project's convention.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -263,3 +264,83 @@ def test_pr_text_reports_a_skip_rather_than_a_pass_when_there_is_no_payload(repo
     """The distinction SKIP exists for: 'could not check' must not read as 'checked'."""
     lines = gate(repo, "--mode", "ci")
     assert any("[public-text]" in ln and "SKIP" in ln for ln in lines)
+
+
+# ------------------------------------------------------ conventional commit subjects
+#
+# CLAUDE.md and CONTRIBUTING.md both required Conventional Commits and nothing read
+# either. Five pull request titles and two subjects on main drifted to "M1: ...",
+# "M2: ..." and "M3: ..." before anyone noticed, across eleven pull requests.
+#
+# Checked on both surfaces because each is decisive in a different case: a squash of a
+# multi-commit branch takes its subject from the pull request title, and a squash of a
+# single-commit branch takes it from the commit. Guarding one leaves the other open,
+# which is exactly the split that let those two subjects through while every title
+# around them was well formed.
+
+def test_a_milestone_prefixed_pr_title_is_refused(repo: Path):
+    ev = _event(repo, title="M1: one real backend call", body="clean")
+    assert fired(gate(repo, "--mode", "ci", "--pr-event", ev), "conventional-subject")
+
+
+def test_a_conventional_pr_title_is_accepted(repo: Path):
+    """Without this, a check that refused every title would pass the test above."""
+    ev = _event(repo, title="feat: one real backend call", body="clean")
+    assert not fired(gate(repo, "--mode", "ci", "--pr-event", ev), "conventional-subject")
+
+
+def test_a_scope_and_a_breaking_marker_are_still_conventional(repo: Path):
+    ev = _event(repo, title="feat(loop)!: drop the old dispatch", body="clean")
+    assert not fired(gate(repo, "--mode", "ci", "--pr-event", ev), "conventional-subject")
+
+
+def test_a_type_outside_the_declared_set_is_refused(repo: Path):
+    """`wip:` is Conventional-shaped but not one of the six CONTRIBUTING.md names."""
+    ev = _event(repo, title="wip: half a thing", body="clean")
+    assert fired(gate(repo, "--mode", "ci", "--pr-event", ev), "conventional-subject")
+
+
+def test_a_milestone_prefixed_commit_subject_is_refused(repo: Path):
+    msg = repo / "msg.txt"
+    msg.write_text("M3: the response state machine\n\nbody\n", encoding="utf-8")
+    lines = gate(repo, "--mode", "commit-msg", "--message-file", str(msg))
+    assert fired(lines, "conventional-subject")
+
+
+def test_a_conventional_commit_subject_is_accepted(repo: Path):
+    msg = repo / "msg.txt"
+    msg.write_text("feat: the response state machine\n\nbody\n", encoding="utf-8")
+    lines = gate(repo, "--mode", "commit-msg", "--message-file", str(msg))
+    assert not fired(lines, "conventional-subject")
+
+
+def test_a_generated_merge_or_revert_subject_is_exempt(repo: Path):
+    """Nobody wrote these, so holding them to a convention would block a real operation."""
+    for subject in ("Merge branch 'main' into feat/x", 'Revert "feat: a thing"'):
+        msg = repo / "msg.txt"
+        msg.write_text(subject + "\n", encoding="utf-8")
+        lines = gate(repo, "--mode", "commit-msg", "--message-file", str(msg))
+        assert not fired(lines, "conventional-subject"), subject
+
+
+def test_contributing_lists_exactly_the_gated_types():
+    """The prose copy and the enforced copy must not drift.
+
+    CONTRIBUTING.md names the types for a human; docs_gate.py decides. Two copies of one
+    fact is the drift this repository's whole documentation scheme exists to prevent, so
+    the second copy is asserted against the first rather than trusted.
+    """
+    import importlib.util
+    import sys
+    spec = importlib.util.spec_from_file_location(
+        "dg_types", ROOT / "scripts" / "docs_gate.py")
+    mod = importlib.util.module_from_spec(spec)
+    # Registered before execution: the module defines dataclasses, and dataclasses
+    # resolves a class's module through sys.modules while the class body is executing.
+    sys.modules["dg_types"] = mod
+    spec.loader.exec_module(mod)
+    prose = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    line = next(ln for ln in prose.splitlines() if "conventionalcommits.org" in ln)
+    block = line + " " + prose.splitlines()[prose.splitlines().index(line) + 1]
+    named = set(re.findall(r"`(\w+):`", block))
+    assert named == set(mod.CONVENTIONAL_TYPES), (named, mod.CONVENTIONAL_TYPES)

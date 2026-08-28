@@ -105,10 +105,17 @@ Rules a machine cannot check, so they land here:
   fictional one, and describe the mechanism rather than the specimen.
 
 - **A pull request title and body are a public surface that no hook can gate.** They are
-  written outside git, so no commit hook can see them and CI only sees them after
-  they are already published. CI scans them anyway, but the check is a backstop, not a
-  gate. Write the **mechanism, never the specimen** — "a fragment that collides with
-  ordinary vocabulary", not the fragment itself. The same applies to issue comments.
+  written outside git, so no commit hook can see them and CI only sees them after they are
+  already published. For a *leak* that makes CI a backstop rather than a gate — the damage
+  is done on publish. Write the **mechanism, never the specimen** — "a fragment that
+  collides with ordinary vocabulary", not the fragment itself. The same applies to issue
+  comments.
+- **The title's shape, unlike its contents, is blocked outright**, because a malformed
+  title is repaired by editing it. Conventional Commits is checked on the pull request
+  title *and* on every commit subject: a squash takes its subject from the title for a
+  multi-commit branch and from the commit for a single one, so guarding either alone
+  leaves half of what reaches `main` unchecked. Both were unchecked until two `M1:`-style
+  subjects and five such titles had already landed.
 
 ## Conventions
 

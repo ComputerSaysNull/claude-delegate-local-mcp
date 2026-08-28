@@ -41,7 +41,8 @@ commit that changes `paths.py` without touching `docs/AGENTS.md` is blocked, and
 means anything if features arrive whole.
 
 [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`,
-`test:`, `refactor:`, `chore:`. Branches `feat/<slug>`, `fix/<slug>`, `docs/<slug>`.
+`test:`, `refactor:`, `chore:`. Branches `feat/<slug>`, `fix/<slug>`, `docs/<slug>`. The
+gate holds this list and checks it on both the commit subject and the pull request title.
 
 Write the **why** in the body, not just the what. The symptom that prompted the change,
 the cause, and the fix. In six months the why is the only part still worth having.
