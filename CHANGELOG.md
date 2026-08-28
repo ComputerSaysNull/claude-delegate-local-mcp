@@ -26,6 +26,32 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #30 — 2026-08-28 — feat: a caller can name the reply budget, and be believed
+
+### Added
+- `max_tokens` on `delegate()`, threaded through both dispatch paths and through every
+  stage of the empty-answer recovery. There was no way for a caller to name a budget at
+  all: the configured default was the only source, so a task needing a short reply paid
+  the reasoning floor's 131072-token ceiling like everything else.
+- A caller's number is honoured as given, up to the per-model cap, and is deliberately
+  *not* raised to `thinking_max_tokens_floor` at high effort. Raising it would make the
+  argument advisory, and ADR-0014's recovery already covers a caller who guessed too low
+  -- at the cost of one extra dispatch, against an argument that would otherwise not mean
+  what it says.
+
+### Fixed
+- The step-down stage re-resolves the budget for its new effort level, which made it the
+  one place an explicit number could be silently replaced by the configured default. It
+  now carries through. Proved by reintroducing the bug and watching the test fail with
+  50000 against the 4096 that was asked for, rather than trusting a passing test.
+
+### Changed
+- Half of ADR-0024's constraint turned out to hold already, and the plan said otherwise.
+  The floor has always been a `max()` over the configured value, so an operator lowering
+  the ceiling never could suppress it, and there is no per-model bump -- only
+  `max_tokens_cap`, applied last. Recorded in `PLAN.md` so the next reader does not go
+  looking for a defect that was never there. The property now has a test that can fail.
+
 ## #32 — 2026-08-28 — docs: an invariant that described itself as unbuilt after it was built
 
 ### Fixed

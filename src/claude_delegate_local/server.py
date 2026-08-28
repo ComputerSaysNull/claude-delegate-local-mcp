@@ -219,11 +219,13 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
         files: list[str] | None = None,
         model: str | None = None,
         effort: str | None = None,
-        allowed_tools: list[str] | None = None,
         *,
-        # Keyword-only because it is not an argument at all: fastmcp injects it by type,
-        # it never appears in the schema the model reads, and a caller has nothing to put
-        # here. Positionally it would just be a sixth slot nobody may fill.
+        # Keyword-only from here, and not merely to satisfy a lint: MCP passes every
+        # argument by name, so positional order is a promise to nobody.
+        allowed_tools: list[str] | None = None,
+        max_tokens: int | None = None,
+        # Not an argument at all -- fastmcp injects it by type, and it never appears in
+        # the schema the model reads.
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Hand one self-contained task to a local model and get its answer back.
@@ -250,6 +252,12 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
         narrows what the model may use -- omit it for everything available, or pass an
         empty list for a single-turn answer with no tools at all, which is the cheapest
         shape when the task is self-contained and `files[]` already holds everything.
+
+        `max_tokens` caps one reply. Leave it alone unless you have a reason: the default
+        is already raised at high and max effort so reasoning does not consume the whole
+        allowance and return nothing, and naming a small number here opts out of that
+        headroom rather than saving anything. It is honoured as given, up to whatever the
+        model itself accepts.
 
         A path in `files[]` that is not allowed fails the whole call before anything is
         sent, and the error names every rejected path, the layer that rejected it, and
@@ -326,13 +334,16 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
             if allowed:
                 dispatched = await run_agentic_loop(
                     cfg, entry, backend, delegation,
-                    allowed=allowed, effort=effort, report_progress=progress,
+                    allowed=allowed, effort=effort, max_tokens=max_tokens,
+                    report_progress=progress,
                 )
             else:
                 # An explicitly empty toolset. Not the loop with nothing declared: the
                 # one-shot prompt tells the model plainly that it cannot open anything and
                 # has no second turn, which is true here and is not true in the loop.
-                dispatched = await run_one_shot(cfg, entry, backend, delegation, effort=effort)
+                dispatched = await run_one_shot(
+                    cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens
+                )
         except InvalidDelegation as e:
             raise ToolError(str(e)) from e
         except DispatchTimedOut as e:

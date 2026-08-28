@@ -175,12 +175,35 @@ def resolve_effort(cfg: Config, entry: ModelEntry, explicit: str | None = None) 
     return entry.effective_effort(cfg)
 
 
-def resolve_max_tokens(cfg: Config, entry: ModelEntry, effort: str) -> int:
-    """The reply budget, with the per-model cap applied last.
+def resolve_max_tokens(
+    cfg: Config, entry: ModelEntry, effort: str, explicit: int | None = None
+) -> int:
+    """The reply budget: the caller's number, else the configured one raised at high effort.
 
     Reasoning is generated against this same budget, so a high effort with a low cap
     produces an answer that is empty because it thought until it ran out. ADR-0014.
+
+    Precedence, most specific first: the call argument, then the agent's frontmatter (M6,
+    which resolves into `explicit` when it exists), then the configured default -- which
+    comes **last** rather than first. ADR-0024: an operator lowering the ceiling must not
+    suppress the floor that stops heavy-reasoning models returning nothing, so the floor is
+    applied as a `max()` over the configured value and not as an alternative to it.
+
+    An explicit number is *not* raised to that floor. It is the most specific instruction
+    there is, and silently multiplying it by thirty would make the argument advisory. The
+    caller who asks for a small budget at max effort still gets ADR-0014's recovery, which
+    retries at the floor -- so the cost of being wrong here is one extra dispatch, and the
+    cost of overriding them is an argument that does not mean what it says.
+
+    The per-model cap applies to every path, last, because it is what the wire will accept.
     """
+    if explicit is not None:
+        if explicit < 1:
+            raise InvalidDelegation(
+                f"max_tokens={explicit} must be at least 1. A budget of nothing cannot "
+                "produce an answer."
+            )
+        return entry.cap_tokens(explicit)
     budget = cfg.max_tokens
     if effort in ("high", "max"):
         budget = max(budget, cfg.thinking_max_tokens_floor)
@@ -399,6 +422,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     *,
     effort: str,
     deadline: float | None,
+    max_tokens: int | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
@@ -428,7 +452,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     token counts: those come from the attempt that answered. ADR-0014 says the retry must
     not charge the turn budget, so a turn is charged for the answer it got.
     """
-    asked_budget = resolve_max_tokens(cfg, entry, effort)
+    asked_budget = resolve_max_tokens(cfg, entry, effort, max_tokens)
     attempts = 0
 
     response, spent = await complete_with_retry(
@@ -464,7 +488,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
         return Dispatch(response, effort, attempts)
 
     response, spent = await complete_with_retry(
-        cfg, backend, build(stepped, resolve_max_tokens(cfg, entry, stepped)),
+        cfg, backend, build(stepped, resolve_max_tokens(cfg, entry, stepped, max_tokens)),
         sleep=sleep, deadline=deadline, clock=clock,
     )
     attempts += spent
@@ -478,6 +502,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     delegation: Delegation,
     *,
     effort: str | None = None,
+    max_tokens: int | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
@@ -513,7 +538,8 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
 
     return await dispatch_with_recovery(
         cfg, entry, backend, request_at,
-        effort=resolved, sleep=sleep, deadline=deadline, clock=clock,
+        effort=resolved, max_tokens=max_tokens,
+        sleep=sleep, deadline=deadline, clock=clock,
     )
 
 
@@ -714,6 +740,7 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
     *,
     allowed: frozenset[str],
     effort: str | None = None,
+    max_tokens: int | None = None,
     max_turns: int | None = None,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -790,7 +817,8 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
 
         dispatch = await dispatch_with_recovery(
             cfg, entry, backend, build,
-            effort=resolved_effort, sleep=sleep, deadline=deadline, clock=clock,
+            effort=resolved_effort, max_tokens=max_tokens,
+            sleep=sleep, deadline=deadline, clock=clock,
         )
         attempts += dispatch.attempts
         calls = dispatch.response.tool_uses

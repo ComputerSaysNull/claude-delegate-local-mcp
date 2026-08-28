@@ -882,3 +882,27 @@ def test_a_one_turn_delegation_still_notifies():
 
     asyncio.run(go())
     assert len(seen) == 1
+
+
+def test_a_caller_named_budget_reaches_the_wire():
+    """ADR-0024's precedence, through the surface a caller actually uses."""
+    seen: list[dict] = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(content="done"))
+
+    delegated(handler, task="a question", max_tokens=4096)
+    assert seen[0]["max_tokens"] == 4096
+
+
+def test_without_one_the_configured_budget_is_used():
+    """The other direction: a server that always forwarded 4096 would pass the test above."""
+    seen: list[dict] = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(content="done"))
+
+    delegated(handler, config=cfg(max_tokens=1234), task="a question")
+    assert seen[0]["max_tokens"] == 1234
