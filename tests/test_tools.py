@@ -13,6 +13,7 @@ them are proven under WSL rather than here; see tests/test_paths.py for the same
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -247,15 +248,29 @@ def test_write_file_still_refuses_an_unlisted_extension(workspace):
     assert result.is_error
 
 
-needs_bwrap = pytest.mark.skipif(
-    __import__("shutil").which("bwrap") is None,
-    reason=(
-        "EXIT-CODE CAPTURE UNPROVEN BY THIS RUN -- this is not a pass. Capturing a real "
-        "exit code needs a real bubblewrap, which exists in WSL and not on Windows. Run: "
-        "wsl -d Ubuntu-24.04 -e bash -lc 'cd <repo> && ~/.venvs/delegate/bin/python -m "
-        "pytest tests/test_tools.py'"
-    ),
+BWRAP_REASON = (
+    "EXIT-CODE CAPTURE UNPROVEN BY THIS RUN -- this is not a pass. Capturing a real "
+    "exit code needs a real bubblewrap, which exists in WSL and not on Windows. Run: "
+    "wsl -d Ubuntu-24.04 -e bash -lc 'cd <repo> && ~/.venvs/delegate/bin/python -m "
+    "pytest tests/test_tools.py'"
 )
+
+
+def needs_bwrap(fn):
+    """Both markers, always, because either alone is not enough.
+
+    `skipif` on a missing bubblewrap is what keeps this quiet on Windows. It is *not* what
+    keeps it quiet in CI: the runner installs bubblewrap, so `which` finds one, and then
+    every invocation fails anyway because the sandbox cannot bring up loopback in a new
+    network namespace without CAP_NET_ADMIN. The `integration` marker is what CI excludes,
+    and a test carrying only the skipif runs there and fails.
+
+    Composed into one decorator rather than left as two, because that is exactly the pair
+    that got separated once.
+    """
+    return pytest.mark.integration(
+        pytest.mark.skipif(shutil.which("bwrap") is None, reason=BWRAP_REASON)(fn))
+
 
 # --- run_bash ---------------------------------------------------------------------------
 

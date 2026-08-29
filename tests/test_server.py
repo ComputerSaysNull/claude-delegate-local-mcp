@@ -917,15 +917,29 @@ def test_without_one_the_configured_budget_is_used():
     assert seen[0]["max_tokens"] == 1234
 
 
-needs_bwrap = pytest.mark.skipif(
-    shutil.which("bwrap") is None,
-    reason=(
-        "THE OPENED ROUTE IS UNPROVEN BY THIS RUN -- this is not a pass. It runs a real "
-        "command in a real sandbox, which needs bubblewrap: WSL, not Windows. Run: wsl -d "
-        "Ubuntu-24.04 -e bash -lc 'cd <repo> && ~/.venvs/delegate/bin/python -m pytest "
-        "tests/test_server.py'"
-    ),
+BWRAP_REASON = (
+    "THE OPENED ROUTE IS UNPROVEN BY THIS RUN -- this is not a pass. It runs a real "
+    "command in a real sandbox, which needs bubblewrap: WSL, not Windows. Run: wsl -d "
+    "Ubuntu-24.04 -e bash -lc 'cd <repo> && ~/.venvs/delegate/bin/python -m pytest "
+    "tests/test_server.py'"
 )
+
+
+def needs_bwrap(fn):
+    """Both markers, always, because either alone is not enough.
+
+    `skipif` on a missing bubblewrap is what keeps this quiet on Windows. It is *not* what
+    keeps it quiet in CI: the runner installs bubblewrap, so `which` finds one, and then
+    every invocation fails anyway because the sandbox cannot bring up loopback in a new
+    network namespace without CAP_NET_ADMIN. The `integration` marker is what CI excludes,
+    and a test carrying only the skipif runs there and fails.
+
+    Composed into one decorator rather than left as two, because that is exactly the pair
+    that got separated once.
+    """
+    return pytest.mark.integration(
+        pytest.mark.skipif(shutil.which("bwrap") is None, reason=BWRAP_REASON)(fn))
+
 
 
 @needs_bwrap

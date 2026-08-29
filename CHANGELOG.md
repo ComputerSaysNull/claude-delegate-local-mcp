@@ -143,6 +143,14 @@ Older entries, in the previous flat format, are in
   nothing, but a `~/.ssh` symlinked into a dotfiles repository would have killed every
   `run_bash` call with an error naming neither the denylist nor the link. The earlier note
   that bwrap creates a missing mountpoint holds only for a plain path, not a link.
+- The new bubblewrap tests carried a `skipif` on a missing bubblewrap but not the
+  `integration` marker, so CI ran them and they failed. Either guard alone is insufficient
+  and for different reasons: the skipif is what keeps them quiet on Windows, while CI
+  *installs* bubblewrap and excludes by marker instead -- and there the sandbox cannot bring
+  up loopback without CAP_NET_ADMIN, so every invocation exits 1. `needs_bwrap` is now one
+  decorator applying both, because that is exactly the pair that got separated. Caught by
+  CI, which is the backstop working rather than the gate; verified by reproducing CI's own
+  selection against a real bubblewrap.
 - `docs/AGENTS.md` said the denylist was enforced "by never binding matching paths into the
   sandbox". That was never how it could work, for the reason above.
 - `last_bash_exit` survived a timeout with the previous command's exit code standing, so a
