@@ -95,8 +95,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      # What the sandbox tests need. Present now so integration tests can be enabled
-      # later without touching this file.
+      # What the sandbox tests need to *import*, not to run. Measured on this runner
+      # 2026-08-29: bwrap creates the user namespace fine, then fails to bring up
+      # loopback inside the new network namespace -- "Failed RTM_NEWADDR: Operation not
+      # permitted", no CAP_NET_ADMIN. So the sandbox tests stay `integration`-marked and
+      # this install does not, by itself, let them be enabled here. See JOURNAL.
       - name: Install bubblewrap
         run: sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
 

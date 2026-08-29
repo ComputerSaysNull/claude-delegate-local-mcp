@@ -158,9 +158,10 @@ def _run_bash(cfg: Config, args: dict[str, object]) -> str:
     silently degrades to nothing is worse than one that is absent, because it is believed.
     `sandbox.py` is M5.
 
-    Deliberately reads neither `sandbox_enabled` nor `run_bash_timeout`. Both are still
-    inert, and touching either would mark them live in the generated configuration
-    reference while nothing acts on them -- and would imply a branch that does not exist.
+    `sandbox.py` now exists, but nothing here calls it yet: the mount-level secret denylist
+    is unbuilt, so the route stays closed and this refusal stays unconditional. Reading a
+    sandbox setting here would mark it live in the generated reference while nothing acts on
+    it, and would imply a branch that does not exist.
     """
     _text_arg(args, "command")
     raise ToolRefused(

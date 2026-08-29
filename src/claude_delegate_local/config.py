@@ -348,12 +348,6 @@ class Config:
     )
 
     # ---- sandbox (ADR-0010) ------------------------------------------------------
-    sandbox_enabled: bool = _f(
-        True,
-        "Confine run_bash with bubblewrap. When enabled and bwrap is absent, run_bash "
-        "REFUSES rather than running unconfined. Setting this to 0 is an explicit, "
-        "logged choice to run shell commands with no confinement.",
-    )
     bwrap_bin: str = _f("bwrap", "bubblewrap binary name or path.")
     sandbox_home: str = _f(
         "~/.cache/claude-delegate-local/sandbox-home",

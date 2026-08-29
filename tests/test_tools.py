@@ -20,7 +20,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from claude_delegate_local import tools
+from claude_delegate_local import sandbox, tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
 
@@ -265,13 +265,18 @@ def test_run_bash_refusal_names_the_sandbox_as_the_reason(workspace):
     assert "unconfined" in result.content.lower()
 
 
-def test_run_bash_does_not_consult_the_still_inert_sandbox_settings(workspace):
-    """Reading either would mark it live in the generated reference while nothing acts.
+def test_a_working_sandbox_does_not_by_itself_open_the_route(workspace, monkeypatch):
+    """M5 built `sandbox.py`; it did not connect it, and the difference must be asserted.
 
-    Asserted by behaviour rather than by inspection: turning the sandbox off in config must
-    not turn the refusal into an unconfined run, because there is no such branch.
+    The predecessor of this test turned the sandbox off in config and checked the refusal
+    survived. That setting is gone -- there is no configuration that runs a shell unconfined
+    -- so the risk it guarded moved: the danger now is the opposite one, that a *present*
+    bubblewrap is read as permission to start running commands while the mount-level secret
+    denylist is still unbuilt. Behaviour, not inspection: a real bwrap on PATH changes
+    nothing here.
     """
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: "/usr/bin/bwrap")
+    assert sandbox.available(cfg(workspace)) is True
     result = tools.execute_tool(
-        cfg(workspace, sandbox_enabled=False), call("run_bash", command="echo hi"),
-        tools.ALL_TOOL_NAMES)
+        cfg(workspace), call("run_bash", command="echo hi"), tools.ALL_TOOL_NAMES)
     assert result.is_error

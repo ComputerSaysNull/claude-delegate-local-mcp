@@ -19,6 +19,44 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0034 — 2026-08-29 — No setting runs a shell unconfined, and bind order is part of the policy — Accepted
+
+Three decisions taken while writing `sandbox.py`, recorded because each is easy to
+reintroduce and two of them fail quietly.
+
+**`sandbox_enabled` is deleted rather than implemented.** Its description promised that
+`DELEGATE_SANDBOX_ENABLED=0` was "an explicit, logged choice to run shell commands with no
+confinement". ADR-0010 refuses when bubblewrap is *absent*, and the escape hatch was written
+as the compatible other half: an operator's deliberate opt-out rather than a silent degrade.
+It is deleted because that distinction does not survive contact with the rest of the system.
+Nothing downstream can see the difference — not the caller, not the model, not the tool
+result — so a server with the sandbox switched off is indistinguishable from one with it on
+until something has already run unconfined. A control that can be turned off from outside
+the code is a control whose state has to be checked to be believed, and nothing here checks
+it. The field is removed, not left as a no-op, because a `bool` that can only be `True`
+renders in the generated reference as a knob that does something.
+
+**Bind order is a security property, not a formatting choice.** bubblewrap applies binds in
+argv order and a later bind shadows an earlier one at or below its path. So HOME binds
+before the workdir, and read-only toolchain binds come before the read-write workdir; the
+first keeps a workdir nested under the sandbox HOME writable, the second stops an
+overlapping toolchain bind pinning the workdir read-only. Both are invisible until two paths
+overlap, and the failure of the second names the wrong cause entirely — a read-only
+filesystem error inside the directory the operator explicitly chose. `build_argv` is
+therefore a pure function, so the ordering is asserted directly rather than inferred from a
+command that happened to work.
+
+**`--dir` does not create a bind's source, and the error says otherwise.** The first version
+used `--dir <home> --bind <home> <home>`, reasoning that the mount point had to exist.
+bubblewrap creates the mount point itself; what it cannot do is invent the *source*, and
+`--dir` makes a directory inside the sandbox rather than on the host. On a fresh install this
+fails with `Can't find source path`, which reads as a mistyped setting rather than as a
+directory nobody has created yet. The host directory is now created before every call. Found
+by running the integration tests, not by reading the argv — the same way ADR-0021's two
+corrections were found, and the reason those tests exist at all.
+
+---
+
 ## ADR-0033 — 2026-08-28 — The changelog is one section per pull request, and append-only documents have no size threshold — Accepted
 
 Two changes with one cause: the instruments did not fit the document.

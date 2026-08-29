@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** M5 — Sandbox — 0 of 8 items done
+**Current phase:** M5 — Sandbox — 4 of 8 items done
 
 ## In progress
 
@@ -13,9 +13,9 @@
 
 ## Next up
 
-- `sandbox.py` — empty root, the corrected symlink set, bind-order rules
-- Toolchain binds so `uv` resolves inside the sandbox
-- Refuse to run when bwrap is absent
+- Real exit codes captured by the server, reported apart from the model's claims
+- Secret denylist enforced at the mount level
+- Test that the sandbox dies with its parent
 
 ## Progress by phase
 
@@ -27,15 +27,15 @@
 | M2 — files[] prefetch | 4 | 0 | 0 | 0 |
 | M3 — Response state machine | 3 | 0 | 0 | 1 |
 | M4 — Agentic loop and model tools | 10 | 0 | 0 | 0 |
-| M5 — Sandbox | 0 | 0 | 8 | 0 |
+| M5 — Sandbox | 4 | 0 | 4 | 0 |
 | M6 — Agents, batching, discovery | 0 | 0 | 3 | 0 |
 | M7 — Admission control and polish | 0 | 0 | 4 | 1 |
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
 | Extra — work outside the milestone plan | 6 | 0 | 0 | 0 |
 
-**Overall:** 55 done, 16 open, 7 cancelled.
+**Overall:** 59 done, 12 open, 7 cancelled.
 
 ## Repository
 
-- 43 commit(s), 91 tracked files
-- 31 test file(s), 33 decision record(s)
+- 44 commit(s), 96 tracked files
+- 36 test file(s), 34 decision record(s)

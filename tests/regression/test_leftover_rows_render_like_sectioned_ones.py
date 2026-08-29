@@ -48,8 +48,8 @@ def test_a_leftover_row_still_carries_its_unit(everything_leftover):
 
 
 def test_a_leftover_row_still_carries_its_inert_marker(everything_leftover):
-    """The latent half. sandbox_enabled is inert until M5 writes the sandbox."""
-    row = _row_for(everything_leftover, "DELEGATE_SANDBOX_ENABLED")
+    """The latent half. agents_dir is inert until M6 writes the agent loader."""
+    row = _row_for(everything_leftover, "DELEGATE_AGENTS_DIR")
     assert "**Inert.**" in row, row
 
 

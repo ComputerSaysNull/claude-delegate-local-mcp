@@ -546,3 +546,30 @@ Two incidental notes, neither load-bearing but both cheap to record:
 reasoning-exhaustion shape recorded on 2026-08-27, reproduced here incidentally at a
 budget far below the floor. Not a new finding; noted only so the transcript is not
 mistaken for a failed probe.
+
+
+## 2026-08-29 — bwrap on a GitHub runner fails at loopback, not at the user namespace
+
+Planned as a two-minute spike and worth the entry only because the expected answer was
+wrong, in the direction that would have produced a confident false statement in a document.
+
+The question was whether the sandbox tests could drop their `integration` mark and guard
+every pull request. The expected obstacle was AppArmor: Ubuntu has restricted unprivileged
+user namespaces since 23.10, `ubuntu-latest` is 24.04, and that is exactly the mechanism
+bubblewrap needs. Reasoning stopped there, and reasoning was wrong.
+
+What the runner actually prints:
+
+    bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+The user namespace is created without complaint. What fails is one step later --
+`--unshare-all` implies a new *network* namespace, and bwrap brings up `lo` inside it, which
+needs `CAP_NET_ADMIN` that the runner does not grant. Identical on 3.11 and 3.12.
+
+Two things worth keeping. The obstacle was real but not the one predicted, so a plan written
+from the prediction would have described the wrong fix -- and "AppArmor blocks userns on CI"
+is the kind of plausible sentence that survives into documentation unchallenged. And the
+first attempt measured nothing at all: the step went into the `lint` job, which does not
+install bubblewrap, printed `command not found`, and passed anyway because it was marked
+`continue-on-error`. A check that cannot fail, in a spike written to answer whether a check
+could run. Read the log, not the tick.

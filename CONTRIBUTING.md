@@ -1,4 +1,6 @@
-<!-- BUDGET: 210 -->
+<!-- BUDGET: 210      Raised from 210 to 220 on 2026-08-29: CI installs bubblewrap and cannot run it, which
+     a contributor would otherwise learn by trusting a green tick over an unrun sandbox.
+-->
 <!-- Raised from 190 on 2026-08-27: the audit-due section stopped restating two gate
      constants and had to say why, and the archive procedure the gate warns about was
      documented nowhere. -->
@@ -76,6 +78,11 @@ passes on clean input. Four checks here have already been found unable to fail â
 lists them.
 
 Mark anything needing the live cluster or a real `bwrap` as `@pytest.mark.integration`.
+
+**Neither kind runs in CI, and the `bwrap` kind cannot**: on a runner it builds its user
+namespace, then fails to configure loopback for want of `CAP_NET_ADMIN` (measured
+2026-08-29, see JOURNAL). A green CI run is therefore no evidence about the sandbox. Change
+`sandbox.py` and you must run the suite in WSL yourself before pushing.
 
 ## Decisions
 
