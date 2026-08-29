@@ -1,4 +1,6 @@
-<!-- BUDGET: 245 -->
+<!-- BUDGET: 252      Raised from 245 on 2026-08-29: M5 gained a ninth item. Un-withholding
+     `run_bash` opens the route the whole milestone exists to open, and it was tracked
+     only in a handoff note, which is not a place a plan can be read from. -->
 <!-- Raised from 220 on 2026-08-28: the file sat at exactly 220 of 220 with ten M4
      items still to annotate on completion. PLAN.md grows monotonically by design --
      ADR-0003 keeps completed items with their annotations and cancelled ones with
@@ -167,19 +169,22 @@ flag controlling nothing. The design work is not lost — it is recorded under M
 - ✅ 2026-08-29 `sandbox.py` — empty root, the corrected symlink set, bind-order rules
 - ✅ 2026-08-29 Toolchain binds so `uv` resolves inside the sandbox. `uv` is not installed in this WSL, so the probe is proven against a patched `which` and the absent case is the one proven for real
 - ✅ 2026-08-29 Refuse to run when bwrap is absent — and `sandbox_enabled` deleted, so no setting runs a shell unconfined either (ADR-0034)
-- ⬜ Real exit codes captured by the server, reported apart from the model's claims
-  (ADR-0007). Moved here from M4 2026-08-28: `run_bash` refuses until `sandbox.py`
-  exists (ADR-0010), so in M4 there is no process exit to capture. Building it there
-  would have meant capture logic reachable only from a mock — a test that cannot fail,
-  which is the one shape this repository has already paid for four times
-- ⬜ Secret denylist enforced at the mount level
+- ✅ 2026-08-29 Real exit codes captured by the server, reported apart from the model's
+  claims (ADR-0007). Reachable without a mock while `run_bash` is still withheld, because
+  `execute_tool` takes its allowed set as a parameter and never consults the withholding
+- ✅ 2026-08-29 Secret denylist enforced at the mount level (ADR-0035)
 - ✅ 2026-08-29 Tests: bind order for all three HOME/workdir cases; denial verified **by address**. Both proven to fail against a real violation, not merely to pass
-- ⬜ Test that the sandbox dies with its parent
-- ⬜ Steer shell text-patching toward `write_file` — a note appended to that `run_bash`
+- ✅ 2026-08-29 Test that the sandbox dies with its parent — the argv assertion proved the
+  flag was passed, not that anything acts on it. Proven to fail: stripped, it survives
+- ✅ 2026-08-29 Steer shell text-patching toward `write_file` — a note appended to that `run_bash`
   call's own result, not the system prompt, because upstream found a prompt instruction did
   not stop the pattern on retry. Advisory, never blocking, and only when the resolved tool
   set actually includes `write_file` — the resolved set the executor enforces, not the
   declared list (ADR-0024)
+- ✅ 2026-08-29 Un-withhold `run_bash` — `WITHHELD_TOOL_NAMES` emptied and the description
+  reworded in the same commit, so the tool is never offered while telling the model not to
+  use it. Proven end to end through the MCP surface, the one route that could not be
+  exercised before: a scripted model claims success after `exit 3` and the ledger says 3
 
 ## M6 — Agents, batching, discovery
 

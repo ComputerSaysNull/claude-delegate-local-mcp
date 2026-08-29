@@ -19,6 +19,7 @@ import pytest
 
 from claude_delegate_local import loop, tools
 from claude_delegate_local.backends.base import (
+    BashOutcome,
     CanonicalResponse,
     TextBlock,
     ThinkingBlock,
@@ -259,27 +260,35 @@ def test_the_same_call_inside_the_allowed_set_runs(registered):
     assert result.tool_errors == 0
 
 
-def test_run_bash_is_not_declared_while_the_sandbox_is_absent():
-    assert "run_bash" not in tools.available_tool_names()
-    assert "run_bash" not in {s.name for s in tools.declared_tools(tools.resolve_allowed(None))}
+def test_run_bash_is_declared_now_that_something_confines_it():
+    """M5's point. It was withheld from M4 until the sandbox and the mount-level denylist
+    both existed; they do, so the route is open and the tool is offered."""
+    assert "run_bash" in tools.available_tool_names()
+    assert "run_bash" in {s.name for s in tools.declared_tools(tools.resolve_allowed(None))}
+    assert tools.available_tool_names() == frozenset({"read_file", "write_file", "run_bash"})
 
 
-def test_run_bash_cannot_be_asked_back_in_by_a_caller():
-    """Withheld server-wide. An explicit request narrows the set; it never widens it."""
-    assert tools.resolve_allowed(["run_bash"]) == frozenset()
-    assert tools.resolve_allowed(["read_file", "run_bash"]) == frozenset({"read_file"})
+def test_withholding_still_works_although_nothing_is_withheld(monkeypatch):
+    """`WITHHELD_TOOL_NAMES` is empty now and kept anyway, so this is what stops it rotting.
+
+    An empty set makes every assertion about it pass for the wrong reason, and the next
+    thing implemented before it is safe would find the mechanism quietly broken. Proven
+    against a real entry instead: a withheld tool leaves the declared set, and a caller
+    naming it explicitly still cannot widen the set back.
+    """
+    monkeypatch.setattr(tools, "WITHHELD_TOOL_NAMES", frozenset({"write_file"}))
+    assert tools.available_tool_names() == frozenset({"read_file", "run_bash"})
+    assert tools.resolve_allowed(["write_file"]) == frozenset()
+    assert tools.resolve_allowed(["read_file", "write_file"]) == frozenset({"read_file"})
+    assert "write_file" not in {s.name for s in tools.declared_tools(tools.resolve_allowed(None))}
 
 
-def test_the_other_tools_are_still_offered():
-    """The other direction: the withholding must be `run_bash` and not everything."""
-    assert tools.available_tool_names() == frozenset({"read_file", "write_file"})
-
-
-def test_run_bash_is_still_refused_at_the_execution_site():
-    """Withholding narrows what is declared. It must not become the only thing stopping it."""
+def test_a_tool_outside_the_allowed_set_is_still_refused_at_the_execution_site():
+    """Site two, which never consulted the withholding and so is unaffected by emptying it.
+    A model can name a tool it was never offered, and that is the case worth catching."""
     call = ToolUseBlock(id="x", name="run_bash", input={"command": "ls"})
-    result = tools.execute_tool(cfg(), call, tools.ALL_TOOL_NAMES)
-    assert result.is_error and "sandbox" in result.content
+    result = tools.execute_tool(cfg(), call, frozenset({"read_file"}))
+    assert result.is_error and "not available" in result.content
 
 
 # --- dedup ------------------------------------------------------------------------------------
@@ -548,3 +557,57 @@ def test_the_ledger_counts_what_the_server_did(registered):
     assert result.tool_errors == 1
     assert result.deduped == 1
     assert result.attempts == 3
+
+
+# --- bash ground truth (ADR-0007) --------------------------------------------------------
+
+
+def _watch_bash(*outcomes):
+    """Feed `_Watch` real result blocks and read back what the ledger would report."""
+    w = loop._Watch(diagnostics=False)
+    for i, (bash, is_error) in enumerate(outcomes):
+        w.called(
+            ToolUseBlock(id=f"c{i}", name="run_bash", input={"command": "x"}),
+            "error" if is_error else "ran",
+            ToolResultBlock(tool_use_id=f"c{i}", content="", is_error=is_error, bash=bash),
+        )
+    return w
+
+
+def test_the_ledger_counts_real_exits_not_the_models_account_of_them():
+    w = _watch_bash(
+        (BashOutcome(exit_code=0, ran=True), False),
+        (BashOutcome(exit_code=3, ran=True), True),
+        (BashOutcome(exit_code=0, ran=True), False),
+    )
+    assert (w.bash_calls, w.bash_failures, w.last_bash_exit) == (3, 1, 0)
+
+
+def test_a_refused_call_counts_as_an_attempt_but_leaves_the_last_exit_alone():
+    """`tool_calls` beside it counts attempts, so these must too -- a model refused ten
+    times has not run zero commands. But nothing exited, so overwriting last_bash_exit with
+    None would be indistinguishable from a timeout, which is a different fact."""
+    w = _watch_bash(
+        (BashOutcome(exit_code=7, ran=True), True),
+        (BashOutcome(exit_code=None, ran=False), True),
+    )
+    assert (w.bash_calls, w.bash_failures, w.last_bash_exit) == (2, 2, 7)
+
+
+def test_a_timeout_clears_the_last_exit_rather_than_reporting_a_number():
+    w = _watch_bash(
+        (BashOutcome(exit_code=0, ran=True), False),
+        (BashOutcome(exit_code=None, timed_out=True, ran=True), True),
+    )
+    assert w.last_bash_exit is None
+    assert w.bash_failures == 1
+
+
+def test_other_tools_never_touch_the_bash_counters():
+    w = loop._Watch(diagnostics=False)
+    w.called(
+        ToolUseBlock(id="r", name="read_file", input={"path": "/x"}),
+        "ran",
+        ToolResultBlock(tool_use_id="r", content="text"),
+    )
+    assert (w.bash_calls, w.bash_failures, w.last_bash_exit) == (0, 0, None)

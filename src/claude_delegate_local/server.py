@@ -79,6 +79,14 @@ def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
         "tool_calls_deduplicated": dispatched.deduped,
         "tool_results_evicted": dispatched.evicted,
         "hit_turn_limit": dispatched.hit_turn_limit,
+        # Present at zero, not absent, once a loop ran: these share the gate above rather
+        # than getting a narrower one of their own. A delegation that was offered run_bash
+        # and did not use it is a real answer, and the same one `tool_calls: 0` gives.
+        "bash_calls": dispatched.bash_calls,
+        "bash_failures": dispatched.bash_failures,
+        # None means nothing exited -- no command ran, or the last was killed on timeout.
+        # 0 is a real exit code and cannot carry either meaning (ADR-0007).
+        "last_bash_exit": dispatched.last_bash_exit,
     }
 
 

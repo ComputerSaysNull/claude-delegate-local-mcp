@@ -1,4 +1,6 @@
-<!-- BUDGET: 375 -->
+<!-- BUDGET: 386      Raised from 375 on 2026-08-29: the mount-level secret denylist is a
+     mechanism this document owns and could not previously describe, because it did not
+     exist. What it replaced was one wrong sentence in AGENTS.md. -->
 <!-- Raised from 300 across M2. This document owns wsl.py, paths.py and context.py, and
      all three went from a table row reading "not built" to behaviour that has to be
      explained. Partly paid for by cutting the bytes-per-token measurements, which
@@ -260,17 +262,17 @@ implemented: a control an operator can switch off is still a control that can si
 off, and nothing downstream — not the caller, not the model — can tell from the outside.
 (ADR-0034)
 
-### What is built, and what is still closed
+### The route, now open
 
-`sandbox.py` exists and its behaviour is proven against a real bubblewrap, but **nothing
-calls it yet**. `run_bash` still refuses unconditionally and is still withheld from
-declaration, because the secret denylist is not yet enforced at the mount level. The module
-is reached only by its own tests until that lands.
+`run_bash` is declared and it runs commands. It was withheld from M4 until two things
+existed: a sandbox that could confine it, and a denylist enforced at the mount level for
+secrets inside what that sandbox binds. Both do, so `WITHHELD_TOOL_NAMES` is empty.
 
-One consequence worth naming rather than discovering: the sandbox settings in
-[CONFIGURATION.md](CONFIGURATION.md) lost their *Inert* marker when this module started
-reading them. That marker tracks whether source mentions a field, not whether a request can
-reach it, so those rows currently overstate what is wired.
+The set is kept rather than deleted. Withholding is how this server says "this tool exists
+and cannot work today" — a fact about the server, distinct from a caller narrowing one
+delegation through `allowed_tools`. It also never was a control on its own: it narrows only
+what is *declared*, and `execute_tool` checks its own allowed set without consulting it,
+because a model can call a tool it was never offered.
 
 **Bind order is load-bearing.** bubblewrap applies binds in argv order and a later one
 shadows an earlier one at or below the same path, so two rules hold: HOME binds before the
@@ -283,12 +285,24 @@ the **path policy** and never enter the sandbox — they run in the server proce
 makes itself, and insufficient only once an arbitrary shell exists — which is why the
 secret denylist is additionally enforced at the *mount* level for `run_bash`.
 
+**Covering up, not leaving out.** An empty root means the denylist cannot subtract: a secret
+is visible only because it sits inside a tree that had to be bound whole. So `run` walks the
+bound HOME and workdir and `build_argv` mounts something empty over each match — `--tmpfs` on
+a directory, `--ro-bind /dev/null` on a file — after every bind, since a shadow needs its tree
+to exist first. The walk is bounded, and exhausting the budget refuses the command rather than
+covering part of a tree. `secret_match` is shared with the path policy, so one list cannot be
+read two ways — which means the layers share limits too: both match resolved paths, so neither
+covers a link whose *name* matches while its target does not. The scan is point-in-time, and
+`run_bash` holds a read-write bind for the whole call, so a file the command writes afterwards
+is not covered and cannot be. Defence in depth for one tool, not a replacement. (ADR-0035)
+
 ### Ground truth over self-report
 
 Models misreport command outcomes. The server therefore computes `bash_calls`,
 `bash_failures` and `last_bash_exit` from real process exits and reports them as fields
-distinct from the model's prose, and the `run_bash` description tells the model not to
-contradict them.
+distinct from the model's prose. What each counts, and why `last_bash_exit` can be `None`
+when `0` would be a lie, is in [DISPATCH.md](DISPATCH.md), which owns the loop that counts
+them.
 
 Without this, "the tests pass" is an assertion rather than a measurement, and the entire
 self-verification design rests on it. (ADR-0007)

@@ -172,6 +172,13 @@ class Config:
     )
     max_write_bytes: int = _f(8388608, "Cap on one write_file call.", unit="bytes")
     run_bash_timeout: int = _f(120, "Per-command timeout for run_bash.", unit="seconds")
+    max_bash_output_chars: int = _f(
+        20000,
+        "Cap on the combined stdout and stderr of one run_bash call. The tail is cut "
+        "and the true length stated, never silently dropped -- a build log is exactly "
+        "the kind of output whose last line matters most.",
+        unit="characters",
+    )
 
     # ---- generation budgets ------------------------------------------------------
     max_tokens: int = _f(
@@ -365,6 +372,17 @@ class Config:
         "Extra environment names allowed through to a sandboxed command, on top of the "
         "built-in allowlist.",
     )
+    secret_shadow_max_entries: int = _f(
+        10000,
+        "Entries the mount-level secret scan may visit before it gives up and refuses the "
+        "command. Also a latency ceiling: the scan runs per run_bash call, and the "
+        "workspace lives on /mnt/c. This repository scans in 230.",
+    )
+    secret_shadow_max_depth: int = _f(
+        24,
+        "Directory depth the mount-level secret scan may descend before it gives up and "
+        "refuses the command. Guards against a symlink loop the walk cannot see.",
+    )
 
     # ---- agents ------------------------------------------------------------------
     agents_dir: str = _f(
@@ -412,6 +430,9 @@ class Config:
                 "could ever be prefetched."
             )
         for name in (
+            "max_bash_output_chars",
+            "secret_shadow_max_entries",
+            "secret_shadow_max_depth",
             "turn_timeout",
             "connect_timeout",
             "dispatch_timeout",

@@ -1,4 +1,8 @@
-<!-- BUDGET-PER-ENTRY: 30 -->
+<!-- BUDGET-PER-ENTRY: 95      Raised from 30 on 2026-08-29: 30 was sized for a
+     single-feature pull request, and it had started deciding how work was split rather
+     than how it was described -- a milestone finished in one pull request had to be
+     broken into five to fit. The per-entry cap exists to stop an entry sprawling, not
+     to cap how much one pull request may do. -->
 # Changelog
 
 Newest first, **one section per pull request**. The heading carries the number, the merge
@@ -25,6 +29,137 @@ worth citing.
 
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
+
+## #36 — 2026-08-29 — feat: run_bash confined, its secrets covered, and its exits measured
+
+### Added
+- A behavioural test for `--die-with-parent`. The flag has shipped since `sandbox.py` was
+  written and the suite asserted it was present in the argv, which proves it was passed and
+  not that anything acts on it. The claim worth holding is that a sandboxed command cannot
+  outlive the server that started it — otherwise a crashed or restarted server leaves shells
+  running against the workspace with nothing left to reap them.
+- Its negative half, which is what makes the first able to fail: the same fixture with the
+  flag stripped, asserting the orphaned command *does* survive. Without it, a positive result
+  is equally consistent with a command that died for some unrelated reason.
+- `_orphaned_run`, which starts bwrap from a throwaway shell that then exits on its own.
+  `sandbox.run` blocks until the command finishes, so it cannot express this: the parent
+  whose death matters is the server, and a test cannot kill its own interpreter. No signal is
+  sent — `start_new_session=True` puts the sandbox in its own process group, so a test that
+  killed the group would prove its own teardown instead of the flag. The shell lingers before
+  exiting, because otherwise bwrap can be reparented to init before it installs the
+  parent-death signal, which looks exactly like the flag failing.
+
+- The secret denylist is now enforced at the **mount level** for `run_bash`, the last thing
+  standing between the sandbox and being connected. An empty root means a denylist cannot
+  work by subtraction — a secret is visible only because it sits inside a tree that had to be
+  bound whole — so each match is covered up instead: `--tmpfs` over a directory,
+  `--ro-bind /dev/null` over a file, emitted after every bind because a shadow needs its tree
+  to exist first. ADR-0035.
+- `paths.py` gains `secret_match`, lifted out of `_check_secret` and shared with the sandbox.
+  Sharing only the denylist *file* would have left two readings of it, so a pattern could
+  refuse `read_file` while the same file stayed readable from a shell, with nothing to report
+  the disagreement.
+- `DELEGATE_SECRET_SHADOW_MAX_ENTRIES` and `DELEGATE_SECRET_SHADOW_MAX_DEPTH` bound the scan.
+  Exhausting either refuses the command rather than running with part of a tree covered, for
+  the same reason a missing denylist file is fatal: once the command is running, partial
+  coverage is indistinguishable from full coverage. The bound is also a latency ceiling — the
+  scan runs per call, on `/mnt/c`. This repository scans in 230 entries and 0.21s.
+- Tests proving the file is unreadable **from inside the sandbox**, not merely that a flag
+  reached the argv — an argv assertion passes with the mount at the wrong path, which is the
+  one mistake this feature can actually make. Paired with a control using a denylist that
+  matches nothing, without which an unreadable file is equally consistent with a broken bind
+  or a wrong HOME.
+
+- `bash_calls`, `bash_failures` and `last_bash_exit` exist. They were described in four
+  documents and implemented in none — `run_bash` refused every call, so there was no process
+  exit to capture and nothing to count. ADR-0007's original subject, and the last of its
+  claims that was still only a claim.
+- `run_bash` is wired to `sandbox.py` and runs commands. Its result carries what the server
+  measured as a field on the result block, never parsed back out of the text the model also
+  reads: a trailer regex over prose stops firing the day the wording changes, and nothing
+  reports that it stopped.
+- `DELEGATE_MAX_BASH_OUTPUT_CHARS` caps combined output, keeping the **tail** rather than the
+  head and stating the true length. A build says what went wrong on its last line. stdout and
+  stderr are labelled separately, because a command that printed nothing and one that printed
+  a warning are different facts a model cannot distinguish once they are merged.
+- A timeout says it timed out, in words, and reports no exit code. A model summarising its own
+  run must not be able to read "no exit code" as success.
+
+- A steer from shell text-patching toward `write_file`, appended to that `run_bash` call's
+  own result. When a command rewrites file text -- an in-place `sed`, a redirect into a path,
+  `tee`, `patch` -- the note says `write_file` replaces a file whole and avoids the quoting
+  and partial-match mistakes an in-place edit fails silently on. On the result rather than in
+  the system prompt because upstream found a prompt instruction did not stop the pattern on
+  retry: it has to arrive next to the evidence, in the turn that decides what to do next.
+  Advisory and never blocking -- the error flag and the measured outcome are identical with
+  and without it. ADR-0024.
+- It is gated on the **resolved** tool set the executor enforces, never the declared list.
+  Steering toward a tool the same function would then refuse is worse than staying quiet.
+- Seven patterns that must fire and six that must not, tested separately from the wiring. A
+  note appended to every command is one the model learns to skip, which is the same as no
+  note, so the negative half is what makes the steer worth having at all.
+- Tests pinning that setup finishes before the command starts, so "covered up" never means
+  "readable for a moment". A shadow that fails to mount aborts bubblewrap with the command
+  never running -- an `echo` would have printed if the two overlapped -- and a shadowed secret
+  read as the very first instruction, repeatedly, never appears. Written because the wording
+  invited the question, and an invariant nobody can check is one that rots.
+
+### Changed
+- **`run_bash` is declared, and runs commands.** It has been withheld since M4, refusing
+  every call, waiting on a sandbox that could confine it and a denylist that could cover
+  secrets inside what that sandbox binds. Both landed above, so `WITHHELD_TOOL_NAMES` is
+  empty and the route is open.
+- Its description is reworded in the same commit, necessarily: a tool offered while its own
+  description says `CURRENTLY REFUSES EVERY CALL` is worse than one not offered at all. That
+  string is the model-facing contract, so this is a behaviour change and not a wording fix.
+  It now states the confinement, the timeout, that the server reports the real exit code,
+  and that `write_file` is the better way to change a file's text.
+- `WITHHELD_TOOL_NAMES` is kept rather than deleted. Withholding is how this server says "a
+  tool exists and cannot work today", which is a different statement from a caller narrowing
+  one delegation, and rebuilding the mechanism under pressure is worse than keeping an empty
+  set. It is now tested against a *synthetic* entry: an empty set makes every assertion about
+  it pass for the wrong reason, and the next thing implemented before it is safe would find
+  the mechanism quietly broken.
+- `run_bash` no longer refuses unconditionally — but it is **still withheld from
+  declaration**, so no model can reach it. The route is not open; this commit only makes the
+  capture path real, and it is reachable without a mock because `execute_tool` takes its
+  allowed set as a parameter and never consults the withholding.
+- Three tests that pinned the unconditional refusal are replaced rather than deleted. The one
+  asserting a working bubblewrap does not by itself open the route now asserts what actually
+  holds it shut, the withholding. That test's own predecessor turned the sandbox off in
+  config, a setting since removed. Each time the guard moved the test had to move with it,
+  which is the argument for naming a test after the guard rather than after the tool.
+
+### Fixed
+- A directory named `.ssh` does not match the pattern `.ssh/**` — only its children do — so
+  the first version of the scan shadowed no directory at all while believing it had. Every
+  directory entry in the denylist was decoration. Directories are now matched by asking the
+  question the pattern was written to answer, about a child rather than the directory itself.
+  Found by running the integration tests in WSL, not by reading the walk; the three tests that
+  caught it are the ones that had to fail first.
+- Symlinks are skipped by the scan. Measured against a real bwrap: a shadow op on a symlink
+  node does not follow it and does not create it, it aborts the whole invocation with
+  `Can't mount tmpfs on ...: No such file or directory`. That is fail-closed and leaks
+  nothing, but a `~/.ssh` symlinked into a dotfiles repository would have killed every
+  `run_bash` call with an error naming neither the denylist nor the link. The earlier note
+  that bwrap creates a missing mountpoint holds only for a plain path, not a link.
+- The new bubblewrap tests carried a `skipif` on a missing bubblewrap but not the
+  `integration` marker, so CI ran them and they failed. Either guard alone is insufficient
+  and for different reasons: the skipif is what keeps them quiet on Windows, while CI
+  *installs* bubblewrap and excludes by marker instead -- and there the sandbox cannot bring
+  up loopback without CAP_NET_ADMIN, so every invocation exits 1. `needs_bwrap` is now one
+  decorator applying both, because that is exactly the pair that got separated. Caught by
+  CI, which is the backstop working rather than the gate; verified by reproducing CI's own
+  selection against a real bubblewrap.
+- `docs/AGENTS.md` said the denylist was enforced "by never binding matching paths into the
+  sandbox". That was never how it could work, for the reason above.
+- `last_bash_exit` survived a timeout with the previous command's exit code standing, so a
+  killed command could report the `0` of the one before it — precisely the misreport ADR-0007
+  exists to catch. A command killed on timeout did run, so it is the last one and reports no
+  exit code; a *refusal* never started a process, so the previous exit code is still the true
+  answer. The result block carries `ran` to separate the two. Caught by a test written for
+  the semantics before the code was, which is the only reason the two were compared at all.
+
 
 ## #35 — 2026-08-29 — feat: a sandbox that is built, proven, and still not connected
 

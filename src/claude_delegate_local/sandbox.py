@@ -29,10 +29,11 @@ import os
 import posixpath
 import shutil
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from .config import Config
+from .paths import load_secret_globs, secret_match
 from .wsl import to_posix
 
 log = logging.getLogger(__name__)
@@ -82,6 +83,30 @@ class SandboxUnavailable(RuntimeError):
     still a control that can silently be off, and neither the caller nor the model can tell
     the difference from the outside (ADR-0010).
     """
+
+
+class SecretShadowIncomplete(RuntimeError):
+    """The secret scan hit its budget before it finished, so the command does not run.
+
+    Fail-closed, for the same reason `load_secret_globs` refuses a missing denylist: partial
+    coverage is indistinguishable from full coverage once the command is running, and the
+    thing left uncovered is by definition the thing the list exists to cover.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class ShadowTarget:
+    """One denylist match, and the mount that covers it up.
+
+    `kind` decides the primitive, and the two are not interchangeable -- a tmpfs needs a
+    directory to mount on and a regular file needs something file-shaped over it. Both were
+    checked against a running bwrap rather than read off documentation (ADR-0021).
+    """
+
+    path: str
+    kind: str  # "dir" | "file"
+    matched: str
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,7 +220,118 @@ def _resolv_conf_target() -> str | None:
     return real if os.path.exists(real) else None
 
 
-def build_argv(cfg: Config, req: SandboxRequest) -> list[str]:
+# A name to probe a directory with. The denylist's directory entries are written as
+# `.ssh/**`, which matches what is *inside* the directory and not the directory itself --
+# so asking `secret_match` about `~/.ssh` returns nothing, and the whole directory would go
+# unshadowed while every file under it matched. Asking about a child instead is what the
+# pattern was written to answer. fnmatch has no globstar, so `**` is an ordinary `*` that
+# also spans `/`, which is why one probe covers nested children too.
+#
+# The name must match nothing on its own: no dot, so `*.pem` and `*.key` cannot fire, and
+# none of the substrings the list looks for. A pattern like `*credential*` that would match
+# through the probe also matches the directory's own path, which the direct check catches.
+_DIR_PROBE = "delegate-probe"
+
+
+def _dir_match(path: str, globs: Sequence[str]) -> str | None:
+    """A directory is a secret if it matches, or if the list says its contents are."""
+    return secret_match(path, globs) or secret_match(f"{path}/{_DIR_PROBE}", globs)
+
+
+def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTarget, ...]:
+    """Every denylist match under the bound roots, as a mount that will cover it up. I/O.
+
+    An empty root means a denylist cannot work by subtraction: there is nothing to subtract
+    from, and a secret is only ever visible because it sits inside a tree that had to be
+    bound whole. So it is covered up afterwards instead, which needs a concrete path -- and
+    the denylist holds patterns. Hence a walk.
+
+    **Only `home` and `workdir` are scanned.** `extra_binds` are read-only toolchain paths
+    an operator chose, typically somewhere under `/usr`; scanning them is latency spent
+    where credentials do not live, and covering up a file inside a read-only bind protects
+    nothing that bind did not already protect.
+
+    **Symlinks are skipped, and that is not laziness.** Emitting a shadow op on a symlink
+    node does not follow it and does not create it -- it aborts the entire bwrap invocation
+    with `Can't mount tmpfs on ...: No such file or directory`, measured against a running
+    bwrap 0.9.0. Fail-closed, so nothing leaks, but a `~/.ssh` symlinked into a dotfiles
+    repository is common enough that every `run_bash` call would die naming neither the
+    denylist nor the link. Skipping loses less than it looks: a link's target is either
+    inside a bound root, where this walk reaches it by its real path anyway, or outside
+    every bound root, where the sandbox never bound it and the link simply dangles.
+
+    What this leaves uncovered, stated rather than discovered later: a link whose *name*
+    matches the denylist but whose *target* does not -- `.ssh` pointing at `realssh`. That
+    is the same gap `paths.py` has, because it also resolves before matching, and the two
+    share `secret_match` precisely so they cannot disagree about it. Both layers match real
+    paths. Neither matches names that merely point at something.
+
+    The scan is point-in-time. A file the command itself writes afterwards is not covered,
+    and cannot be: `run_bash` holds a read-write bind for the whole call. This is
+    defence-in-depth for one tool, not the authority `paths.py` is for `read_file`.
+    """
+    roots: list[str] = [req.home]
+    if req.workdir is not None and req.workdir != req.home:
+        roots.append(req.workdir)
+
+    globs = load_secret_globs(cfg)
+    found: list[ShadowTarget] = []
+    seen: set[str] = set()
+    budget = cfg.secret_shadow_max_entries
+
+    for root in roots:
+        base_depth = root.rstrip("/").count("/")
+        for dirpath, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
+            if dirpath.rstrip("/").count("/") - base_depth >= cfg.secret_shadow_max_depth:
+                raise SecretShadowIncomplete(
+                    f"the secret scan reached {cfg.secret_shadow_max_depth} directories "
+                    f"deep under {root} and stopped. run_bash is refused rather than run "
+                    "with a denylist that covered only part of the tree. Raise "
+                    "DELEGATE_SECRET_SHADOW_MAX_DEPTH if the tree is genuinely that deep."
+                )
+
+            budget -= len(dirnames) + len(filenames)
+            if budget < 0:
+                raise SecretShadowIncomplete(
+                    f"the secret scan visited more than {cfg.secret_shadow_max_entries} "
+                    f"entries under {root} and stopped. run_bash is refused rather than "
+                    "run with a denylist that covered only part of the tree. Raise "
+                    "DELEGATE_SECRET_SHADOW_MAX_ENTRIES, or bind a narrower workdir."
+                )
+
+            kept: list[str] = []
+            for name in dirnames:
+                full = posixpath.join(dirpath, name)
+                if os.path.islink(full):
+                    continue  # never descended, never shadowed; see the docstring
+                glob = _dir_match(full, globs)
+                if glob is None:
+                    kept.append(name)
+                    continue
+                # Matched: shadow it and do not descend. Pruning is what keeps `.git/**`
+                # from walking every loose object, and it also guarantees no shadow is ever
+                # emitted inside another one, where the outer tmpfs would hide the target
+                # the inner op needs to exist.
+                if full not in seen:
+                    seen.add(full)
+                    found.append(ShadowTarget(path=full, kind="dir", matched=glob))
+            dirnames[:] = kept
+
+            for name in filenames:
+                full = posixpath.join(dirpath, name)
+                if os.path.islink(full):
+                    continue
+                glob = secret_match(full, globs)
+                if glob is not None and full not in seen:
+                    seen.add(full)
+                    found.append(ShadowTarget(path=full, kind="file", matched=glob))
+
+    return tuple(found)
+
+
+def build_argv(
+    cfg: Config, req: SandboxRequest, shadows: Sequence[ShadowTarget] = ()
+) -> list[str]:
     """Config plus a request in, the exact bwrap argv out. Pure.
 
     **Bind order carries meaning.** bwrap applies binds in argv order and a later bind
@@ -208,6 +344,13 @@ def build_argv(cfg: Config, req: SandboxRequest) -> list[str]:
        toolchain bind overlaps the workdir, the workdir must still be writable -- otherwise
        a build fails with a read-only-filesystem error inside the very directory the
        operator chose to run it in, which names the wrong cause.
+
+    3. Secret shadows come after every bind, because a shadow covers up a path *inside* a
+       tree that a bind created, and bwrap would have nothing to mount on if it ran first.
+       `shadows` is a parameter rather than something computed here: finding them is a
+       filesystem walk, and folding I/O into this function would make the two rules above
+       assertable only on a machine with a real bwrap and a real tree -- which on Windows,
+       where a contributor's first `pytest` happens, means not at all. `run` does the walk.
 
     Both rules are asserted directly in the tests, because both are invisible until the day
     the paths overlap.
@@ -229,6 +372,15 @@ def build_argv(cfg: Config, req: SandboxRequest) -> list[str]:
         # Read-write: a shell that cannot write its own working directory cannot run a
         # build or a test suite, which is most of why run_bash exists.
         argv += ["--bind", req.workdir, req.workdir]
+
+    # Rule 3: after every bind, so each shadow has something to mount on.
+    for shadow in shadows:
+        if shadow.kind == "dir":
+            argv += ["--tmpfs", shadow.path]
+        else:
+            # A tmpfs needs a directory. /dev/null is the file-shaped equivalent: readable
+            # as a mount source, and an unreadable empty thing once it is in place.
+            argv += ["--ro-bind", "/dev/null", shadow.path]
 
     if req.network:
         argv.append("--share-net")
@@ -279,7 +431,7 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
         )
 
     ensure_home(req.home)
-    argv = build_argv(cfg, req)
+    argv = build_argv(cfg, req, discover_secret_shadows(cfg, req))
     try:
         proc = subprocess.run(
             argv,

@@ -13,6 +13,7 @@ them are proven under WSL rather than here; see tests/test_paths.py for the same
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -247,36 +248,218 @@ def test_write_file_still_refuses_an_unlisted_extension(workspace):
     assert result.is_error
 
 
+BWRAP_REASON = (
+    "EXIT-CODE CAPTURE UNPROVEN BY THIS RUN -- this is not a pass. Capturing a real "
+    "exit code needs a real bubblewrap, which exists in WSL and not on Windows. Run: "
+    "wsl -d Ubuntu-24.04 -e bash -lc 'cd <repo> && ~/.venvs/delegate/bin/python -m "
+    "pytest tests/test_tools.py'"
+)
+
+
+def needs_bwrap(fn):
+    """Both markers, always, because either alone is not enough.
+
+    `skipif` on a missing bubblewrap is what keeps this quiet on Windows. It is *not* what
+    keeps it quiet in CI: the runner installs bubblewrap, so `which` finds one, and then
+    every invocation fails anyway because the sandbox cannot bring up loopback in a new
+    network namespace without CAP_NET_ADMIN. The `integration` marker is what CI excludes,
+    and a test carrying only the skipif runs there and fails.
+
+    Composed into one decorator rather than left as two, because that is exactly the pair
+    that got separated once.
+    """
+    return pytest.mark.integration(
+        pytest.mark.skipif(shutil.which("bwrap") is None, reason=BWRAP_REASON)(fn))
+
+
 # --- run_bash ---------------------------------------------------------------------------
 
 
-def test_run_bash_refuses_every_call(workspace):
-    """ADR-0010: no sandbox means no shell, not an unconfined shell."""
+def test_run_bash_refuses_when_bwrap_is_absent(workspace, monkeypatch):
+    """ADR-0010: no bubblewrap means no shell, not an unconfined shell."""
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: None)
     result = tools.execute_tool(
         cfg(workspace), call("run_bash", command="echo hi"), tools.ALL_TOOL_NAMES)
     assert result.is_error
     assert "ADR-0010" in result.content
 
 
-def test_run_bash_refusal_names_the_sandbox_as_the_reason(workspace):
+def test_the_refusal_names_confinement_as_the_reason(workspace, monkeypatch):
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: None)
     result = tools.execute_tool(
         cfg(workspace), call("run_bash", command="ls"), tools.ALL_TOOL_NAMES)
-    assert "sandbox" in result.content.lower()
+    assert "confined" in result.content.lower()
     assert "unconfined" in result.content.lower()
 
 
-def test_a_working_sandbox_does_not_by_itself_open_the_route(workspace, monkeypatch):
-    """M5 built `sandbox.py`; it did not connect it, and the difference must be asserted.
+def test_a_refusal_reports_no_exit_code_but_still_counts_as_an_attempt(workspace, monkeypatch):
+    """`ran` is what separates "nothing ran" from "ran and said nothing".
 
-    The predecessor of this test turned the sandbox off in config and checked the refusal
-    survived. That setting is gone -- there is no configuration that runs a shell unconfined
-    -- so the risk it guarded moved: the danger now is the opposite one, that a *present*
-    bubblewrap is read as permission to start running commands while the mount-level secret
-    denylist is still unbuilt. Behaviour, not inspection: a real bwrap on PATH changes
-    nothing here.
+    Without it a refusal and a clean `exit 0` are both `exit_code`-shaped, and the ledger
+    would either miscount attempts or invent an exit code no process produced.
     """
-    monkeypatch.setattr(sandbox.shutil, "which", lambda _: "/usr/bin/bwrap")
-    assert sandbox.available(cfg(workspace)) is True
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: None)
     result = tools.execute_tool(
-        cfg(workspace), call("run_bash", command="echo hi"), tools.ALL_TOOL_NAMES)
+        cfg(workspace), call("run_bash", command="ls"), tools.ALL_TOOL_NAMES)
+    assert result.bash is not None
+    assert result.bash.ran is False
+    assert result.bash.exit_code is None
+    assert result.bash.timed_out is False
+
+
+def test_the_route_is_open_and_nothing_narrows_it_any_more(workspace):
+    """The end of a chain of tests, each named after the guard that held the route shut.
+
+    First a config setting turned the sandbox off; that setting was deleted. Then the
+    handler refused unconditionally; it runs commands now. Then the withholding; it is empty
+    as of M5. Naming each test after the guard rather than after the tool is what made the
+    replacement obvious every time, instead of leaving an assertion that passed for a reason
+    that had stopped being true.
+    """
+    assert "run_bash" in tools.available_tool_names()
+    assert "run_bash" in tools.resolve_allowed(None)
+    assert "run_bash" in tools.resolve_allowed(["run_bash", "read_file"])
+    assert [s for s in tools.declared_tools(tools.resolve_allowed(None))
+            if s.name == "run_bash"]
+
+
+def test_execute_tool_still_checks_its_own_allowed_set(workspace):
+    """Site two. A model can name a tool it was never offered, so the executor checks too --
+    and it never consulted the withholding, so emptying that set did not weaken this."""
+    result = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="ls"), frozenset({"read_file"}))
     assert result.is_error
+    assert "not available" in result.content
+
+
+@needs_bwrap
+def test_a_real_exit_code_is_captured_not_taken_from_the_model(workspace):
+    """The ground truth ADR-0007 rests on, through the tool layer rather than sandbox.run.
+
+    Reachable without a mock even while run_bash is withheld: `execute_tool` takes `allowed`
+    as a parameter and never consults WITHHELD_TOOL_NAMES, which is exactly why the
+    withholding is not by itself a control (see the test above).
+    """
+    result = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="exit 3"), tools.ALL_TOOL_NAMES)
+    assert result.bash is not None
+    assert result.bash.exit_code == 3
+    assert result.bash.ran is True
+    assert result.is_error is True
+
+
+@needs_bwrap
+def test_a_clean_command_reports_zero_and_is_not_an_error(workspace):
+    result = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="echo hello"), tools.ALL_TOOL_NAMES)
+    assert result.bash.exit_code == 0
+    assert result.is_error is False
+    assert "hello" in result.content
+
+
+@needs_bwrap
+def test_stdout_and_stderr_are_labelled_separately(workspace):
+    """Merged, a model cannot tell which stream it is reading, and they mean different
+    things -- a command that printed nothing to stdout is a different fact from one that
+    printed a warning."""
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("run_bash", command="echo out; echo err >&2"),
+        tools.ALL_TOOL_NAMES)
+    assert "stdout:" in result.content
+    assert "stderr:" in result.content
+
+
+@needs_bwrap
+def test_long_output_is_cut_to_the_tail_with_the_true_length_stated(workspace):
+    """The tail, not the head: a build says what went wrong on its last line."""
+    result = tools.execute_tool(
+        cfg(workspace, max_bash_output_chars=200),
+        call("run_bash", command="seq 1 5000"),
+        tools.ALL_TOOL_NAMES)
+    assert "truncated" in result.content
+    assert "5000" in result.content
+    assert result.bash.exit_code == 0
+
+
+@needs_bwrap
+def test_a_timeout_says_so_and_reports_no_exit_code(workspace):
+    """None rather than a number, and said in words: a model summarising its own run must
+    not be able to read "no exit code" as success."""
+    result = tools.execute_tool(
+        cfg(workspace, run_bash_timeout=2),
+        call("run_bash", command="sleep 30"),
+        tools.ALL_TOOL_NAMES)
+    assert result.bash.timed_out is True
+    assert result.bash.exit_code is None
+    assert result.bash.ran is True
+    assert "timed out" in result.content.lower()
+    assert result.is_error is True
+
+
+# --- the write_file steer (ADR-0024) ------------------------------------------------------
+
+
+@pytest.mark.parametrize("command", [
+    "sed -i s/a/b/ config.py",
+    "perl -pi -e s/x/y/ notes.md",
+    "awk -i inplace 1 f.txt",
+    "cat > out.txt << EOF",
+    "echo hi >> server.log",
+    "tee settings.json",
+    "patch < fix.diff",
+])
+def test_shell_text_patching_is_recognised(command):
+    assert tools._rewrites_text(command) is True
+
+
+@pytest.mark.parametrize("command", [
+    "ls -la",
+    "grep needle haystack.txt | head",
+    "pytest -q",
+    "python -c 'print(1)' > /dev/null",
+    "curl -s -o /dev/null http://example",
+    "make 2>&1",
+])
+def test_reading_and_discarding_are_not_patching(command):
+    """The half that makes the steer worth having. A note on every command is a note the
+    model learns to skip, which is the same as no note."""
+    assert tools._rewrites_text(command) is False
+
+
+def test_the_steer_is_appended_when_write_file_is_available(workspace, monkeypatch):
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: None)
+    result = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="sed -i s/a/b/ f.py"),
+        {"run_bash", "write_file"})
+    assert "write_file is available" in result.content
+
+
+def test_the_steer_is_withheld_when_write_file_is_not_in_the_resolved_set(workspace, monkeypatch):
+    """Gated on the set the executor enforces, not the declared list. Steering toward a tool
+    this same function would refuse is worse than staying quiet."""
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: None)
+    result = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="sed -i s/a/b/ f.py"), {"run_bash"})
+    assert "write_file is available" not in result.content
+
+
+def test_the_steer_is_advisory_and_never_changes_the_outcome(workspace, monkeypatch):
+    """Advisory means the result stands: same error flag, same measured outcome, one extra
+    paragraph. A steer that altered either would be a block wearing a note's clothing."""
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: None)
+    steered = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="sed -i s/a/b/ f.py"),
+        {"run_bash", "write_file"})
+    plain = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="sed -i s/a/b/ f.py"), {"run_bash"})
+    assert steered.is_error == plain.is_error
+    assert steered.bash == plain.bash
+    assert steered.content.startswith(plain.content)
+
+
+def test_an_ordinary_command_gets_no_steer_even_with_write_file_available(workspace, monkeypatch):
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: None)
+    result = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="ls -la"), {"run_bash", "write_file"})
+    assert "write_file is available" not in result.content

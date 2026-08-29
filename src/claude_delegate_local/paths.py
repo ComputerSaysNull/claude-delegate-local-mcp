@@ -237,7 +237,18 @@ def _path_suffixes(real: str) -> tuple[str, ...]:
     return tuple(["/".join(parts[i:]) for i in range(len(parts))] + [real])
 
 
-def _check_secret(given: str, real: str, globs: Sequence[str]) -> Refusal | None:
+def secret_match(real: str, globs: Sequence[str]) -> str | None:
+    """The first denylist pattern matching `real`, or None.
+
+    Split out from `_check_secret` so the sandbox can ask the same question. `sandbox.py`
+    shadows denylist matches at the mount level, and doing that against a second matcher
+    would mean one list read two ways: a pattern could deny `read_file` while leaving the
+    same file readable from a shell, and nothing would report the disagreement. The
+    denylist file was already shared; this shares the reading of it.
+
+    Returns the pattern rather than a bool because both callers need to name it -- one in
+    a refusal the model reads, one in a diagnostic about what was covered up.
+    """
     candidates = _path_suffixes(real.lower())
     for glob in globs:
         # fnmatchcase on pre-lowered strings, never fnmatch: fnmatch folds case through
@@ -245,17 +256,24 @@ def _check_secret(given: str, real: str, globs: Sequence[str]) -> Refusal | None
         # denylist would behave differently on either side of the boundary.
         lowered = glob.lower()
         if any(fnmatch.fnmatchcase(c, lowered) for c in candidates):
-            return Refusal(
-                given=given,
-                layer=LAYER_SECRET,
-                reason=f"it matches the secret denylist pattern {glob!r}.",
-                remedy=(
-                    "Delegated models never receive credential material. This list is "
-                    "shared with the git secrets gate, so an entry here also means the "
-                    "file must never be committed. Drop it from files[]."
-                ),
-            )
+            return glob
     return None
+
+
+def _check_secret(given: str, real: str, globs: Sequence[str]) -> Refusal | None:
+    glob = secret_match(real, globs)
+    if glob is None:
+        return None
+    return Refusal(
+        given=given,
+        layer=LAYER_SECRET,
+        reason=f"it matches the secret denylist pattern {glob!r}.",
+        remedy=(
+            "Delegated models never receive credential material. This list is shared "
+            "with the git secrets gate, so an entry here also means the file must never "
+            "be committed. Drop it from files[]."
+        ),
+    )
 
 
 # ---- layer 4 ---------------------------------------------------------------------

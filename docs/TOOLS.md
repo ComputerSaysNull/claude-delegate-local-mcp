@@ -37,7 +37,7 @@ Write a UTF-8 text file in the workspace, creating it or replacing it whole. Pat
 
 ## `run_bash`
 
-Run a shell command. CURRENTLY REFUSES EVERY CALL: the sandbox that would confine it is not built, and this server will not run commands unconfined instead. Do not plan around it; use read_file and write_file.
+Run a shell command, confined: no network, an empty filesystem apart from a scratch HOME and a read-only toolchain, and your real home directory absent rather than merely unreadable. Commands time out and are killed. The server reports the real exit code it observed, so do not describe a command as having succeeded when the result says otherwise. To change a file's text, prefer write_file, which replaces it whole.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -46,3 +46,26 @@ Run a shell command. CURRENTLY REFUSES EVERY CALL: the sandbox that would confin
 *3 tools.*
 
 <!-- GEN:TOOLS:END -->
+
+## A result can carry more than the tool returned
+
+Two things are attached to a `run_bash` result after the handler is done, both outside the
+generated block above because neither is part of a tool's declared contract.
+
+**What the server measured.** The real exit code, whether the command was killed on a
+timeout, and whether anything ran at all, carried as fields rather than as text the model
+also reads. [DISPATCH.md](DISPATCH.md) has what each counts and why "no exit code" is not
+zero.
+
+**A steer toward `write_file`.** When a command rewrites file text — an in-place `sed`, a
+redirect into a path, `tee`, `patch` — a note is appended to that call's own result saying
+`write_file` replaces a file whole and avoids the quoting and partial-match mistakes an
+in-place edit fails silently on.
+
+It goes on the result rather than in the system prompt because upstream found a prompt
+instruction did not stop the pattern on retry: the note has to arrive next to the evidence,
+in the turn that decides what to do next. It is advisory and never blocks — the command
+already ran, and the error flag and measured outcome are identical with and without it. It
+is emitted only when `write_file` is in the **resolved** set the executor enforces, never
+the declared list, because steering toward a tool this same function would then refuse is
+worse than staying quiet. (ADR-0024)

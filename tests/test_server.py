@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 
 import httpx
 import pytest
@@ -805,6 +806,11 @@ def test_a_delegation_that_calls_a_tool_runs_more_than_one_turn(tmp_path):
     assert result["tool_calls"] == 1
     assert result["tool_errors"] == 0
     assert result["hit_turn_limit"] is False
+    # Present at zero once a loop ran, sharing the gate with the counters above rather than
+    # getting a narrower one. None, not 0: nothing exited, and 0 is a real exit code.
+    assert result["bash_calls"] == 0
+    assert result["bash_failures"] == 0
+    assert result["last_bash_exit"] is None
 
 
 def test_an_empty_toolset_takes_the_one_shot_path_and_reports_no_ledger():
@@ -816,9 +822,12 @@ def test_an_empty_toolset_takes_the_one_shot_path_and_reports_no_ledger():
     assert result["answer"] == "the answer"
     assert "turns" not in result
     assert "tool_calls" not in result
+    # The bash counters share that gate rather than getting one of their own.
+    assert "bash_calls" not in result
+    assert "last_bash_exit" not in result
 
 
-def test_the_default_delegation_offers_the_file_tools_and_withholds_run_bash():
+def test_the_default_delegation_now_offers_all_three_tools():
     seen: list[dict] = []
 
     def handler(request):
@@ -827,7 +836,7 @@ def test_the_default_delegation_offers_the_file_tools_and_withholds_run_bash():
 
     delegated(handler, task="a question")
     declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
-    assert declared == {"read_file", "write_file"}
+    assert declared == {"read_file", "write_file", "run_bash"}
 
 
 def test_progress_is_notified_to_the_client_once_per_turn():
@@ -906,3 +915,69 @@ def test_without_one_the_configured_budget_is_used():
 
     delegated(handler, config=cfg(max_tokens=1234), task="a question")
     assert seen[0]["max_tokens"] == 1234
+
+
+BWRAP_REASON = (
+    "THE OPENED ROUTE IS UNPROVEN BY THIS RUN -- this is not a pass. It runs a real "
+    "command in a real sandbox, which needs bubblewrap: WSL, not Windows. Run: wsl -d "
+    "Ubuntu-24.04 -e bash -lc 'cd <repo> && ~/.venvs/delegate/bin/python -m pytest "
+    "tests/test_server.py'"
+)
+
+
+def needs_bwrap(fn):
+    """Both markers, always, because either alone is not enough.
+
+    `skipif` on a missing bubblewrap is what keeps this quiet on Windows. It is *not* what
+    keeps it quiet in CI: the runner installs bubblewrap, so `which` finds one, and then
+    every invocation fails anyway because the sandbox cannot bring up loopback in a new
+    network namespace without CAP_NET_ADMIN. The `integration` marker is what CI excludes,
+    and a test carrying only the skipif runs there and fails.
+
+    Composed into one decorator rather than left as two, because that is exactly the pair
+    that got separated once.
+    """
+    return pytest.mark.integration(
+        pytest.mark.skipif(shutil.which("bwrap") is None, reason=BWRAP_REASON)(fn))
+
+
+
+@needs_bwrap
+def test_a_delegation_reaches_a_real_shell_and_the_ledger_contradicts_the_model():
+    """The whole of M5, end to end, and the only test that could not exist before it.
+
+    Every layer below this was reachable while `run_bash` was withheld, because
+    `execute_tool` takes its allowed set as a parameter. This one is not: it goes through
+    the MCP surface, so the tool has to be declared for the call to be routed at all.
+
+    The model is scripted to claim success after a command that exits 3. That is the exact
+    misreport ADR-0007 was written about, and the assertion is that the ledger disagrees
+    with the answer sitting beside it -- not that the two agree.
+    """
+    result = delegated(
+        turn_handler(
+            tool_call_reply("run_bash", {"command": "exit 3"}),
+            chat_reply(content="All checks passed cleanly."),
+        ),
+        task="run the checks",
+    )
+    assert result["answer"] == "All checks passed cleanly."
+    assert result["bash_calls"] == 1
+    assert result["bash_failures"] == 1
+    assert result["last_bash_exit"] == 3
+
+
+@needs_bwrap
+def test_the_ledger_agrees_with_the_model_when_the_model_is_right():
+    """The other half. Without it, a ledger that reported failure unconditionally would
+    pass the test above while being useless."""
+    result = delegated(
+        turn_handler(
+            tool_call_reply("run_bash", {"command": "exit 0"}),
+            chat_reply(content="it worked"),
+        ),
+        task="run the checks",
+    )
+    assert result["bash_calls"] == 1
+    assert result["bash_failures"] == 0
+    assert result["last_bash_exit"] == 0

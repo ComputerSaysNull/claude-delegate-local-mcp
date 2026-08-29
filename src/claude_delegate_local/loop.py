@@ -34,6 +34,7 @@ from pathlib import Path
 from .backends.base import (
     Backend,
     BackendRefused,
+    BashOutcome,
     BackendUnavailable,
     CanonicalRequest,
     CanonicalResponse,
@@ -874,15 +875,24 @@ class _Watch:
         self.tool_errors = 0
         self.deduped = 0
         self.evictions = 0
+        # ADR-0007's original subject. Counted from real process exits, never from the
+        # model's account of them, and reported beside its prose rather than inside it.
+        self.bash_calls = 0
+        self.bash_failures = 0
+        self.last_bash_exit: int | None = None
         self._paths: dict[str, str] = {}  # tool_use_id -> the path argument it carried
         self._evicted_at: dict[str, int] = {}  # path -> the turn its result was dropped
 
-    def called(self, call: ToolUseBlock, outcome: str) -> None:
+    def called(
+        self, call: ToolUseBlock, outcome: str, result: ToolResultBlock | None = None
+    ) -> None:
         """Record one tool call, and correlate it against anything we evicted earlier."""
         is_error = outcome == "error"
         self.tool_calls += 1
         self.tool_errors += is_error
         self.deduped += outcome == "repeat"
+        if result is not None and result.bash is not None:
+            self._bash(result.bash, is_error)
         path = str(call.input.get("path") or "")
         self.calls.append((call.name, path, is_error))
         if path:
@@ -892,6 +902,24 @@ class _Watch:
             # reconciling this against the tree is looking for anyway.
             self._paths[call.id] = path
         self._reread(path)
+
+    def _bash(self, bash: BashOutcome, is_error: bool) -> None:
+        """One shell command, as the server saw it rather than as the model reports it.
+
+        Attempts, not completions: a call refused before a process started still happened,
+        and `tool_calls` beside it counts the same way.
+
+        `last_bash_exit` moves only when something actually ran, and `ran` is the whole
+        line. A command killed on timeout *did* run, so it becomes the last one and reports
+        no exit code -- leaving the previous 0 standing would let a kill read as a success,
+        which is the exact misreport ADR-0007 exists to catch. A refusal never started a
+        process, so the last command that ran is still the previous one and its exit code is
+        still the true answer.
+        """
+        self.bash_calls += 1
+        self.bash_failures += is_error or bash.timed_out or bash.exit_code != 0
+        if bash.ran:
+            self.last_bash_exit = bash.exit_code
 
     def evicted(self, before: tuple[Message, ...], after: tuple[Message, ...], count: int) -> None:
         self.evictions += count
@@ -1128,6 +1156,11 @@ class AgenticDispatch:
     deduped: int = 0
     evicted: int = 0
     hit_turn_limit: bool = False
+    # ADR-0007. `last_bash_exit` is None for "nothing exited" -- no command ran, or the last
+    # one was killed on timeout -- which 0 cannot mean, being a real exit code.
+    bash_calls: int = 0
+    bash_failures: int = 0
+    last_bash_exit: int | None = None
     # Zero means never, rather than "on turn zero" -- turns are numbered from one, so the
     # sentinel cannot collide with a real answer. Reported because a delegation that was
     # tightened or nudged produced its answer under different conditions from one that was
@@ -1211,7 +1244,7 @@ def _run_calls(
     outcomes: list[tuple[str, str]] = []
     for call in calls:
         block, outcome = _run_one_call(cfg, call, allowed, cached)
-        watch.called(call, outcome)
+        watch.called(call, outcome, block if isinstance(block, ToolResultBlock) else None)
         outcomes.append((call.name, outcome))
         results.append(block)
     return results, tuple(outcomes)
@@ -1356,6 +1389,9 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
         deduped=watch.deduped,
         evicted=watch.evictions,
         hit_turn_limit=turn == turns and bool(dispatch.response.tool_uses),
+        bash_calls=watch.bash_calls,
+        bash_failures=watch.bash_failures,
+        last_bash_exit=watch.last_bash_exit,
         overflow_tightened_at=guard.tightened_at,
         overflow_nudged_at=guard.nudged_at,
         diagnostics=tuple(watch.turns),
