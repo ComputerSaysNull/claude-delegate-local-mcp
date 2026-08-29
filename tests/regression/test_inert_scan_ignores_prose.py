@@ -31,7 +31,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import gen_config_docs as gen  # noqa: E402
 
-FIELD = "sandbox_enabled"
+# Any declared field nothing reads. Was sandbox_enabled until M5 deleted it.
+FIELD = "agents_dir"
 
 
 def scan_with(tmp_path, monkeypatch, body: str) -> set[str]:

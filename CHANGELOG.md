@@ -26,6 +26,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #35 — 2026-08-29 — feat: a sandbox that is built, proven, and still not connected
+
+### Added
+- `sandbox.py`: the bubblewrap invocation `run_bash` has been refusing calls without since
+  M4. Empty root, both mandatory `usr/lib64` and `usr/sbin` symlinks (ADR-0021), network
+  denied unless asked for, and a bound persistent HOME so the real one stays absent rather
+  than read-only. `build_argv` is pure, so bind order is asserted on Windows where no
+  bubblewrap exists; what only a kernel can show is proven under WSL. Nothing calls it yet:
+  `run_bash` stays refused and withheld until the mount-level denylist lands, adding a layer
+  without opening the route.
+- Bind order as a stated rule: HOME before the workdir, read-only toolchain binds before the
+  read-write one. Invisible until two paths overlap, and the second's failure names the wrong
+  cause — a read-only filesystem inside the directory the operator chose. ADR-0034.
+- Network denial proven **by address, never by hostname**: a lookup fails whether or not the
+  namespace is isolated, so the obvious test reports a sealed sandbox that merely had broken
+  DNS. Verified against a real violation — with isolation removed it sees a live response.
+
+### Changed
+- `DELEGATE_SANDBOX_ENABLED` is **removed**. It promised that 0 was an explicit choice to run
+  commands unconfined, but nothing downstream could see that choice, so a server with the
+  sandbox off was indistinguishable from one with it on until something had already run
+  unconfined. A no-op would still render as a working knob. ADR-0034. Its two regression
+  tests now use `agents_dir` as their inert-setting specimen and say why one is needed: they
+  are that scanner's negative tests, and one naming no real field would pass forever.
+
+### Fixed
+- `--dir` created the sandbox HOME *inside* the sandbox while the bind still needed a host
+  source, so every command on a fresh install failed with `Can't find source path`, which
+  reads as a mistyped setting. Found by running the tests, not by reading the argv.
+
 ## #34 — 2026-08-29 — feat: a delegation that notices it is running out of room
 
 ### Added

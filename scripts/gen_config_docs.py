@@ -67,8 +67,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                               "retry_base_delay", "retry_max_delay")),
     ("Admission control", ("max_inflight_seqs", "kv_token_budget",
                            "large_prefill_tokens", "max_inflight_large_prefills")),
-    ("Sandbox", ("sandbox_enabled", "bwrap_bin", "sandbox_home", "toolchain_binds",
-                 "env_passthrough")),
+    ("Sandbox", ("bwrap_bin", "sandbox_home", "toolchain_binds", "env_passthrough")),
     ("Agents", ("agents_dir",)),
     ("Transport", ("transport", "http_port")),
 ]

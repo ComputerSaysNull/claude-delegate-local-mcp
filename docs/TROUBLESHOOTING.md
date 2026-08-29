@@ -187,8 +187,9 @@ Expected. Nearly every delegation will. It does not affect either timeout.
 
 ## Sandbox
 
-*Nothing in this section is built.* `run_bash` is M4 and `sandbox.py` is M5, so none of
-these symptoms can occur yet.
+*`sandbox.py` is built; nothing calls it yet.* `run_bash` still refuses every call until the
+secret denylist is enforced at the mount level, so these symptoms reach you today only from
+the sandbox's own tests or from a hand-run `bwrap`. The causes below are real either way.
 
 ### `bwrap not found; run_bash is disabled`
 
@@ -201,6 +202,13 @@ commands are unavailable. ADR-0010.
 Almost always the **ELF loader**, not the command — the kernel reports a missing
 interpreter as if the executable were absent. Verify with the empty-root smoke test in the
 [README](../README.md#on-windows-with-the-server-in-wsl2). ADR-0021.
+
+### `bwrap: Can't find source path ...`, naming the sandbox HOME
+
+The persistent HOME is bound from the host, and a bind needs its source to exist. The
+message reads like a mistyped `DELEGATE_SANDBOX_HOME`, and on a fresh install it usually is
+not — it is a directory nobody has created yet. The server creates it before every call, so
+seeing this from the server itself means the path is genuinely unwritable. ADR-0034.
 
 ### `uv: not found` inside the sandbox
 

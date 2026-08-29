@@ -1,4 +1,4 @@
-<!-- BUDGET: 360 -->
+<!-- BUDGET: 375 -->
 <!-- Raised from 300 across M2. This document owns wsl.py, paths.py and context.py, and
      all three went from a table row reading "not built" to behaviour that has to be
      explained. Partly paid for by cutting the bytes-per-token measurements, which
@@ -15,7 +15,12 @@
      without it the skip reads as tidiness rather than the thing holding the cost down.
      Lowered from 425 to 330 on 2026-08-27, when loop.py and backends/ moved to DISPATCH.md
      with the four sections describing them. A budget left at its old ceiling after a split
-     has been deferred rather than paid. ADR-0032. -->
+     has been deferred rather than paid. ADR-0032.
+     Raised from 360 to 375 in M5. sandbox.py's row stopped saying "not built", and the
+     two bind-order rules are invisible in the code -- they are an ordering, not a
+     statement -- so a reader deciding whether to move a bind cannot recover them by
+     reading build_argv. The section saying what is built but still unreached is the other
+     half: without it the config reference's newly un-marked sandbox rows read as wired. -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -83,7 +88,7 @@ Prefetching removes several such turns from the front of every delegation.
 | `backends/openai_compat.py` | The only adapter shipped — [DISPATCH.md](DISPATCH.md) |
 | `loop.py` | The one-shot path, the response state machine and the turn loop — [DISPATCH.md](DISPATCH.md) |
 | `tools.py` | Model-facing tools, and both `allowed_tools` sites — [TOOLS.md](TOOLS.md) |
-| `sandbox.py` | bubblewrap invocation *(whole module not built)* |
+| `sandbox.py` | bubblewrap invocation: the argv, the binds, and the refusal *(built, not yet reached)* |
 | `server.py` | MCP wiring, the tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run one transport |
 
@@ -248,6 +253,29 @@ runs in WSL2 even though Claude Code does not. (ADR-0002)
 **If bubblewrap is missing, `run_bash` refuses.** The ancestor logs a warning and runs the
 command unconfined. A security control that silently degrades to nothing is worse than an
 absent one, because it is believed. (ADR-0010)
+
+There is also no setting that runs a shell unconfined. `DELEGATE_SANDBOX_ENABLED` once
+promised exactly that as "an explicit, logged choice", and was deleted rather than
+implemented: a control an operator can switch off is still a control that can silently be
+off, and nothing downstream — not the caller, not the model — can tell from the outside.
+(ADR-0034)
+
+### What is built, and what is still closed
+
+`sandbox.py` exists and its behaviour is proven against a real bubblewrap, but **nothing
+calls it yet**. `run_bash` still refuses unconditionally and is still withheld from
+declaration, because the secret denylist is not yet enforced at the mount level. The module
+is reached only by its own tests until that lands.
+
+One consequence worth naming rather than discovering: the sandbox settings in
+[CONFIGURATION.md](CONFIGURATION.md) lost their *Inert* marker when this module started
+reading them. That marker tracks whether source mentions a field, not whether a request can
+reach it, so those rows currently overstate what is wired.
+
+**Bind order is load-bearing.** bubblewrap applies binds in argv order and a later one
+shadows an earlier one at or below the same path, so two rules hold: HOME binds before the
+workdir, and read-only toolchain binds come before the read-write workdir. Both matter only
+when paths overlap, which is exactly why they are asserted rather than remembered. (ADR-0034)
 
 The division of labour is easy to get wrong: `read_file` and `write_file` are governed by
 the **path policy** and never enter the sandbox — they run in the server process. Only

@@ -23,9 +23,15 @@ from claude_delegate_local import config  # noqa: E402
 
 
 def test_a_setting_nothing_reads_is_reported_as_inert():
-    """The positive case: sandbox_enabled is declared and no module reads it yet."""
+    """The positive case: agents_dir is declared and no module reads it yet.
+
+    The specimen was sandbox_enabled until M5 deleted that field outright. Any field for an
+    unbuilt subsystem does here -- agents_dir waits on agents.py in M6 -- and when the last
+    of them goes live this test needs a new one rather than a weakened assertion. A version
+    of it that quietly stopped naming a real field would pass forever.
+    """
     unread = gen._unread_fields()
-    assert "sandbox_enabled" in unread
+    assert "agents_dir" in unread
 
 
 def test_a_setting_the_server_reads_is_not_reported_as_inert():
@@ -36,7 +42,7 @@ def test_a_setting_the_server_reads_is_not_reported_as_inert():
 
 
 def test_the_scan_does_not_mark_every_setting():
-    """A scan that read nothing would mark all 42 and still render a believable file."""
+    """A scan that read nothing would mark every field and still render a believable file."""
     unread = gen._unread_fields()
     total = len(config.describe())
     assert 0 < len(unread) < total
@@ -54,6 +60,6 @@ def test_a_field_becomes_live_the_moment_source_mentions_it(tmp_path, monkeypatc
     fake = tmp_path / "src" / "claude_delegate_local"
     fake.mkdir(parents=True)
     (fake / "config.py").write_text("# ignored by the scan\n", encoding="utf-8")
-    (fake / "uses_it.py").write_text("x = cfg.sandbox_enabled\n", encoding="utf-8")
+    (fake / "uses_it.py").write_text("x = cfg.agents_dir\n", encoding="utf-8")
     monkeypatch.setattr(gen, "ROOT", tmp_path)
-    assert "sandbox_enabled" not in gen._unread_fields()
+    assert "agents_dir" not in gen._unread_fields()
