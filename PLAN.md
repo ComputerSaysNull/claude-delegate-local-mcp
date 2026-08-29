@@ -1,4 +1,6 @@
-<!-- BUDGET: 245 -->
+<!-- BUDGET: 252      Raised from 245 on 2026-08-29: M5 gained a ninth item. Un-withholding
+     `run_bash` opens the route the whole milestone exists to open, and it was tracked
+     only in a handoff note, which is not a place a plan can be read from. -->
 <!-- Raised from 220 on 2026-08-28: the file sat at exactly 220 of 220 with ten M4
      items still to annotate on completion. PLAN.md grows monotonically by design --
      ADR-0003 keeps completed items with their annotations and cancelled ones with
@@ -174,12 +176,17 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   which is the one shape this repository has already paid for four times
 - ⬜ Secret denylist enforced at the mount level
 - ✅ 2026-08-29 Tests: bind order for all three HOME/workdir cases; denial verified **by address**. Both proven to fail against a real violation, not merely to pass
-- ⬜ Test that the sandbox dies with its parent
+- ✅ 2026-08-29 Test that the sandbox dies with its parent — the argv assertion proved the
+  flag was passed, not that anything acts on it. Proven to fail: stripped, it survives
 - ⬜ Steer shell text-patching toward `write_file` — a note appended to that `run_bash`
   call's own result, not the system prompt, because upstream found a prompt instruction did
   not stop the pattern on retry. Advisory, never blocking, and only when the resolved tool
   set actually includes `write_file` — the resolved set the executor enforces, not the
   declared list (ADR-0024)
+- ⬜ Un-withhold `run_bash` — empty `WITHHELD_TOOL_NAMES` and reword `CURRENTLY REFUSES
+  EVERY CALL` in the same commit, or the tool is offered while telling the model not to
+  use it. That string is the model-facing contract, so it is a behaviour change. Last:
+  the only commit in M5 where a mistake reaches a real shell
 
 ## M6 — Agents, batching, discovery
 

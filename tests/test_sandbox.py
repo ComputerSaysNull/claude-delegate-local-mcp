@@ -15,9 +15,11 @@ so a hostname-only test would report a tight sandbox that might just have broken
 
 from __future__ import annotations
 
+import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -370,3 +372,90 @@ def test_a_hanging_command_is_killed_and_reported_as_a_timeout(tmp_path):
         command="sleep 30", home=str(tmp_path / "home")))
     assert result.timed_out is True
     assert result.exit_code is None
+
+
+def _orphaned_run(argv: list[str], workdir: Path, *, linger: float = 2.0) -> None:
+    """Start `argv` from a parent that exits while the sandboxed command is still running.
+
+    `sandbox.run` blocks until the command finishes, so it cannot express this at all: the
+    parent whose death matters is the server process, and a test cannot kill its own
+    interpreter. So the parent here is a throwaway shell that backgrounds bwrap and then
+    exits on its own -- no signal is sent to anything, which matters, because
+    `start_new_session=True` puts the sandbox in its own process group and a test that
+    killed the group would be proving its own teardown rather than `--die-with-parent`.
+
+    The shell lingers briefly before exiting. Without that, it can exit before bwrap has
+    installed its parent-death signal, leaving bwrap already reparented to init -- which
+    looks exactly like the flag not working and would make this test lie in the safe
+    direction.
+    """
+    quoted = " ".join(shlex.quote(a) for a in argv)
+    subprocess.run(
+        ["/bin/sh", "-c", f"{quoted} >/dev/null 2>&1 & sleep {linger}"],
+        cwd=str(workdir), check=True, timeout=60,
+    )
+
+
+def _await_start(marker: Path, *, limit: float = 30.0) -> None:
+    deadline = time.monotonic() + limit
+    while time.monotonic() < deadline:
+        if marker.exists():
+            return
+        time.sleep(0.2)
+    raise AssertionError(
+        f"the sandboxed command never started ({marker} was never written), so whatever "
+        "this test goes on to observe about survival says nothing about --die-with-parent"
+    )
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_the_sandbox_dies_with_its_parent(tmp_path):
+    """The flag has shipped since the module was written; only the argv was ever asserted.
+
+    An argv assertion proves the flag was passed, not that anything acts on it. The claim
+    that matters is that a sandboxed command cannot outlive the server that started it --
+    otherwise a crashed or restarted server leaves shells running against the workspace
+    with nothing left to reap them.
+    """
+    work = tmp_path / "work"
+    work.mkdir()
+    argv = sandbox.build_argv(cfg(), req(
+        command="echo up > started; sleep 8; echo alive > survived",
+        home=str(tmp_path / "home"), workdir=str(work)))
+    sandbox.ensure_home(str(tmp_path / "home"))
+
+    _orphaned_run(argv, work)
+    _await_start(work / "started")
+    time.sleep(10)
+
+    assert not (work / "survived").exists(), (
+        "the sandboxed command outlived the parent that started it"
+    )
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_without_die_with_parent_the_command_does_survive(tmp_path):
+    """The half that proves the test above can fail.
+
+    Same fixture, same orphaning, one flag removed. If this does not survive then the
+    survival check is measuring the shell's exit or a timing accident rather than the flag,
+    and the test above would pass against a sandbox that never reaped anything.
+    """
+    work = tmp_path / "work"
+    work.mkdir()
+    argv = sandbox.build_argv(cfg(), req(
+        command="echo up > started; sleep 8; echo alive > survived",
+        home=str(tmp_path / "home"), workdir=str(work)))
+    argv.remove("--die-with-parent")
+    sandbox.ensure_home(str(tmp_path / "home"))
+
+    _orphaned_run(argv, work)
+    _await_start(work / "started")
+    time.sleep(10)
+
+    assert (work / "survived").exists(), (
+        "nothing survived even without --die-with-parent, so the positive test proves "
+        "nothing about the flag"
+    )

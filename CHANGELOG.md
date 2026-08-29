@@ -26,6 +26,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #36 — 2026-08-29 — test: the sandbox dies with its parent, proven rather than passed
+
+### Added
+- A behavioural test for `--die-with-parent`. The flag has shipped since `sandbox.py` was
+  written and the suite asserted it was present in the argv, which proves it was passed and
+  not that anything acts on it. The claim worth holding is that a sandboxed command cannot
+  outlive the server that started it — otherwise a crashed or restarted server leaves shells
+  running against the workspace with nothing left to reap them.
+- Its negative half, which is what makes the first able to fail: the same fixture with the
+  flag stripped, asserting the orphaned command *does* survive. Without it, a positive result
+  is equally consistent with a command that died for some unrelated reason.
+- `_orphaned_run`, which starts bwrap from a throwaway shell that then exits on its own.
+  `sandbox.run` blocks until the command finishes, so it cannot express this: the parent
+  whose death matters is the server, and a test cannot kill its own interpreter. No signal is
+  sent — `start_new_session=True` puts the sandbox in its own process group, so a test that
+  killed the group would prove its own teardown instead of the flag. The shell lingers before
+  exiting, because otherwise bwrap can be reparented to init before it installs the
+  parent-death signal, which looks exactly like the flag failing.
+
 ## #35 — 2026-08-29 — feat: a sandbox that is built, proven, and still not connected
 
 ### Added
