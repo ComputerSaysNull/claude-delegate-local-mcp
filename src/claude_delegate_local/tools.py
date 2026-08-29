@@ -292,9 +292,12 @@ RUN_BASH = RegisteredTool(
     spec=ToolSpec(
         name="run_bash",
         description=(
-            "Run a shell command. CURRENTLY REFUSES EVERY CALL: the sandbox that would "
-            "confine it is not built, and this server will not run commands unconfined "
-            "instead. Do not plan around it; use read_file and write_file."
+            "Run a shell command, confined: no network, an empty filesystem apart from a "
+            "scratch HOME and a read-only toolchain, and your real home directory absent "
+            "rather than merely unreadable. Commands time out and are killed. The server "
+            "reports the real exit code it observed, so do not describe a command as having "
+            "succeeded when the result says otherwise. To change a file's text, prefer "
+            "write_file, which replaces it whole."
         ),
         input_schema={
             "type": "object",
@@ -313,17 +316,19 @@ REGISTRY: dict[str, RegisteredTool] = {
 }
 ALL_TOOL_NAMES: frozenset[str] = frozenset(REGISTRY)
 
-# Implemented, but not offered, because it cannot work: `run_bash` refuses every call until
-# `sandbox.py` exists (ADR-0010). Declaring it anyway spends a turn to learn that -- and
-# ADR-0016 measured that the first turn is already often wasted on orientation, so this
-# would be the second. The registry keeps it because the refusal is the behaviour under
-# test, and `execute_tool` keeps checking it because a model can call what it was never
-# offered; what changes here is only what gets *declared*.
+# Empty, as of M5. It held `run_bash` from M4 until the sandbox could confine it and the
+# mount-level denylist could cover secrets inside what it binds; both exist now, so the
+# route is open and nothing here narrows the declared set.
 #
-# Withheld server-wide rather than left to each caller: "the sandbox is not built" is a
-# fact about this server, not a preference of one delegation, so no `allowed_tools`
-# argument can opt back in. When M5 lands, this set empties and both sites follow.
-WITHHELD_TOOL_NAMES: frozenset[str] = frozenset({"run_bash"})
+# Kept rather than deleted, and deliberately. Withholding is how this server says "this
+# tool exists and cannot work today", which is a different statement from a caller's
+# `allowed_tools` narrowing one delegation -- a fact about the server, not a preference.
+# Deleting the mechanism would mean rebuilding it under pressure the next time something is
+# implemented before it is safe. Note what it never was: withholding narrows only what is
+# *declared*, and `execute_tool` checks its own allowed set regardless, because a model can
+# call a tool it was never offered. Emptying this set does not weaken that second check,
+# because that check never consulted this set.
+WITHHELD_TOOL_NAMES: frozenset[str] = frozenset()
 
 
 def available_tool_names() -> frozenset[str]:

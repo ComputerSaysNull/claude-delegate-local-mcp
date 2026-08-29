@@ -262,17 +262,17 @@ implemented: a control an operator can switch off is still a control that can si
 off, and nothing downstream — not the caller, not the model — can tell from the outside.
 (ADR-0034)
 
-### What is built, and what is still closed
+### The route, now open
 
-`sandbox.py` exists, its behaviour is proven against a real bubblewrap, and the secret
-denylist is now enforced at the mount level — but **nothing calls it yet**. `run_bash` still
-refuses unconditionally and is still withheld from declaration. The module is reached only by
-its own tests until the tool is wired to it.
+`run_bash` is declared and it runs commands. It was withheld from M4 until two things
+existed: a sandbox that could confine it, and a denylist enforced at the mount level for
+secrets inside what that sandbox binds. Both do, so `WITHHELD_TOOL_NAMES` is empty.
 
-One consequence worth naming rather than discovering: the sandbox settings in
-[CONFIGURATION.md](CONFIGURATION.md) lost their *Inert* marker when this module started
-reading them. That marker tracks whether source mentions a field, not whether a request can
-reach it, so those rows currently overstate what is wired.
+The set is kept rather than deleted. Withholding is how this server says "this tool exists
+and cannot work today" — a fact about the server, distinct from a caller narrowing one
+delegation through `allowed_tools`. It also never was a control on its own: it narrows only
+what is *declared*, and `execute_tool` checks its own allowed set without consulting it,
+because a model can call a tool it was never offered.
 
 **Bind order is load-bearing.** bubblewrap applies binds in argv order and a later one
 shadows an earlier one at or below the same path, so two rules hold: HOME binds before the

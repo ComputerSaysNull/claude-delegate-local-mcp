@@ -61,19 +61,19 @@ Rules a machine cannot check, so they land here:
   number or counter. The cluster caches prefixes, so one dynamic byte silently disables
   that with no error and no symptom beyond slower prefill. Dynamic content goes in the
   tail, inside tool results. (ADR-0011)
-- **`paths.py` and `sandbox.py` will be independent layers, not redundant ones.** The path
+- **`paths.py` and `sandbox.py` are independent layers, not redundant ones.** The path
   policy governs `read_file` and `write_file`, which run in the server process. Only
-  `run_bash` enters the sandbox. A bug in one is not covered by the other. `sandbox.py` is
-  M5 and unwritten: this is a trap pre-registered for whoever writes it. Until it exists
-  `run_bash` refuses every call *and* is withheld from declaration, so writing `sandbox.py`
-  makes live a route nothing exercises end to end today. (ADR-0010)
+  `run_bash` enters the sandbox. A bug in one is not covered by the other, and the sandbox
+  reading the same denylist does not change that: it covers up matches inside what it binds,
+  point-in-time, while a command holds a read-write bind for its whole run. Treating either
+  as a backstop for the other is the trap. (ADR-0010, ADR-0035)
 - **`allowed_tools` is enforced at two sites**, `declared_tools` and `execute_tool` in
   `tools.py`, and neither trusts the other. Filtering only the declared list is advisory,
   because a model can call a tool it was never offered. Both exist now, which makes the
   trap a maintenance one rather than a build one: change either site alone and enforcement
-  goes back to being asymmetric, silently. Withholding a tool -- as `run_bash` is while the
-  sandbox is unbuilt -- narrows only what is *declared*, and is never a substitute for the
-  execution check.
+  goes back to being asymmetric, silently. `WITHHELD_TOOL_NAMES` is empty as of M5 and kept
+  anyway, so remember what it never was: it narrows only what is *declared*, and is never a
+  substitute for the execution check, which does not consult it.
 - **Trust server-captured exit codes, never the model's account of them.** `bash_failures`
   and `last_bash_exit` come from real process exits and may contradict the model's final
   text. The whole self-verification design rests on this. (ADR-0007)

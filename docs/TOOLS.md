@@ -37,7 +37,7 @@ Write a UTF-8 text file in the workspace, creating it or replacing it whole. Pat
 
 ## `run_bash`
 
-Run a shell command. CURRENTLY REFUSES EVERY CALL: the sandbox that would confine it is not built, and this server will not run commands unconfined instead. Do not plan around it; use read_file and write_file.
+Run a shell command, confined: no network, an empty filesystem apart from a scratch HOME and a read-only toolchain, and your real home directory absent rather than merely unreadable. Commands time out and are killed. The server reports the real exit code it observed, so do not describe a command as having succeeded when the result says otherwise. To change a file's text, prefer write_file, which replaces it whole.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |

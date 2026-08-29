@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** M5 — Sandbox — 8 of 9 items done
+**Current phase:** M6 — Agents, batching, discovery — 0 of 3 items done
 
 ## In progress
 
@@ -13,7 +13,9 @@
 
 ## Next up
 
-- Un-withhold `run_bash` — empty `WITHHELD_TOOL_NAMES` and reword `CURRENTLY REFUSES
+- `agents.py` — three-tier lookup, frontmatter validated and actually binding
+- `delegate_to_agent`, `delegate_batch`, `list_agents`
+- Workdir root allowlist, symlink escape closed
 
 ## Progress by phase
 
@@ -25,15 +27,15 @@
 | M2 — files[] prefetch | 4 | 0 | 0 | 0 |
 | M3 — Response state machine | 3 | 0 | 0 | 1 |
 | M4 — Agentic loop and model tools | 10 | 0 | 0 | 0 |
-| M5 — Sandbox | 8 | 0 | 1 | 0 |
+| M5 — Sandbox | 9 | 0 | 0 | 0 |
 | M6 — Agents, batching, discovery | 0 | 0 | 3 | 0 |
 | M7 — Admission control and polish | 0 | 0 | 4 | 1 |
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
 | Extra — work outside the milestone plan | 6 | 0 | 0 | 0 |
 
-**Overall:** 63 done, 9 open, 7 cancelled.
+**Overall:** 64 done, 8 open, 7 cancelled.
 
 ## Repository
 
-- 48 commit(s), 98 tracked files
+- 49 commit(s), 98 tracked files
 - 37 test file(s), 35 decision record(s)

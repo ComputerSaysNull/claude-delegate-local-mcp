@@ -181,10 +181,10 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   not stop the pattern on retry. Advisory, never blocking, and only when the resolved tool
   set actually includes `write_file` — the resolved set the executor enforces, not the
   declared list (ADR-0024)
-- ⬜ Un-withhold `run_bash` — empty `WITHHELD_TOOL_NAMES` and reword `CURRENTLY REFUSES
-  EVERY CALL` in the same commit, or the tool is offered while telling the model not to
-  use it. That string is the model-facing contract, so it is a behaviour change. Last:
-  the only commit in M5 where a mistake reaches a real shell
+- ✅ 2026-08-29 Un-withhold `run_bash` — `WITHHELD_TOOL_NAMES` emptied and the description
+  reworded in the same commit, so the tool is never offered while telling the model not to
+  use it. Proven end to end through the MCP surface, the one route that could not be
+  exercised before: a scripted model claims success after `exit 3` and the ledger says 3
 
 ## M6 — Agents, batching, discovery
 

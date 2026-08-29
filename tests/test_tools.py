@@ -292,26 +292,27 @@ def test_a_refusal_reports_no_exit_code_but_still_counts_as_an_attempt(workspace
     assert result.bash.timed_out is False
 
 
-def test_withholding_is_what_holds_the_route_closed_now(workspace):
-    """Replaces a test that asserted run_bash refuses unconditionally.
+def test_the_route_is_open_and_nothing_narrows_it_any_more(workspace):
+    """The end of a chain of tests, each named after the guard that held the route shut.
 
-    That refusal is gone -- the handler runs commands now -- so the assertion has to move to
-    whatever actually keeps the route shut, which is the withholding. The predecessor of
-    *that* test turned the sandbox off in config; that setting no longer exists. Each time
-    the guard moved, the test had to move with it, which is the point of naming it after the
-    guard rather than after the tool.
+    First a config setting turned the sandbox off; that setting was deleted. Then the
+    handler refused unconditionally; it runs commands now. Then the withholding; it is empty
+    as of M5. Naming each test after the guard rather than after the tool is what made the
+    replacement obvious every time, instead of leaving an assertion that passed for a reason
+    that had stopped being true.
     """
-    assert "run_bash" not in tools.available_tool_names()
-    assert "run_bash" not in tools.resolve_allowed(None)
-    assert "run_bash" not in tools.resolve_allowed(["run_bash", "read_file"])
-    assert not [s for s in tools.declared_tools(tools.resolve_allowed(None))
-                if s.name == "run_bash"]
+    assert "run_bash" in tools.available_tool_names()
+    assert "run_bash" in tools.resolve_allowed(None)
+    assert "run_bash" in tools.resolve_allowed(["run_bash", "read_file"])
+    assert [s for s in tools.declared_tools(tools.resolve_allowed(None))
+            if s.name == "run_bash"]
 
 
-def test_execute_tool_still_refuses_it_independently_of_the_declared_list(workspace):
-    """Site two. A model can name a tool it was never offered, so the executor checks too."""
+def test_execute_tool_still_checks_its_own_allowed_set(workspace):
+    """Site two. A model can name a tool it was never offered, so the executor checks too --
+    and it never consulted the withholding, so emptying that set did not weaken this."""
     result = tools.execute_tool(
-        cfg(workspace), call("run_bash", command="ls"), tools.resolve_allowed(None))
+        cfg(workspace), call("run_bash", command="ls"), frozenset({"read_file"}))
     assert result.is_error
     assert "not available" in result.content
 

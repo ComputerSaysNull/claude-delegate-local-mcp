@@ -30,7 +30,7 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #36 — 2026-08-29 — feat: the route the sandbox was built for, finally open
+## #36 — 2026-08-29 — feat: run_bash confined, its secrets covered, and its exits measured
 
 ### Added
 - A behavioural test for `--die-with-parent`. The flag has shipped since `sandbox.py` was
@@ -100,6 +100,21 @@ Older entries, in the previous flat format, are in
   note, so the negative half is what makes the steer worth having at all.
 
 ### Changed
+- **`run_bash` is declared, and runs commands.** It has been withheld since M4, refusing
+  every call, waiting on a sandbox that could confine it and a denylist that could cover
+  secrets inside what that sandbox binds. Both landed above, so `WITHHELD_TOOL_NAMES` is
+  empty and the route is open.
+- Its description is reworded in the same commit, necessarily: a tool offered while its own
+  description says `CURRENTLY REFUSES EVERY CALL` is worse than one not offered at all. That
+  string is the model-facing contract, so this is a behaviour change and not a wording fix.
+  It now states the confinement, the timeout, that the server reports the real exit code,
+  and that `write_file` is the better way to change a file's text.
+- `WITHHELD_TOOL_NAMES` is kept rather than deleted. Withholding is how this server says "a
+  tool exists and cannot work today", which is a different statement from a caller narrowing
+  one delegation, and rebuilding the mechanism under pressure is worse than keeping an empty
+  set. It is now tested against a *synthetic* entry: an empty set makes every assertion about
+  it pass for the wrong reason, and the next thing implemented before it is safe would find
+  the mechanism quietly broken.
 - `run_bash` no longer refuses unconditionally — but it is **still withheld from
   declaration**, so no model can reach it. The route is not open; this commit only makes the
   capture path real, and it is reachable without a mock because `execute_tool` takes its
