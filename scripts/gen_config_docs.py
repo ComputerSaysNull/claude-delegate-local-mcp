@@ -68,6 +68,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Admission control", ("max_inflight_seqs", "kv_token_budget",
                            "large_prefill_tokens", "max_inflight_large_prefills")),
     ("Sandbox", ("bwrap_bin", "sandbox_home", "toolchain_binds", "env_passthrough",
+                 "max_bash_output_chars",
                  "secret_shadow_max_entries", "secret_shadow_max_depth")),
     ("Agents", ("agents_dir",)),
     ("Transport", ("transport", "http_port")),

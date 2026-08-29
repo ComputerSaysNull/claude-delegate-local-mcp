@@ -23,7 +23,8 @@ import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from .backends.base import ToolResultBlock, ToolSpec, ToolUseBlock
+from . import sandbox
+from .backends.base import BashOutcome, ToolResultBlock, ToolSpec, ToolUseBlock
 from .config import Config
 from .context import decode_text
 from .paths import PathPolicyError, PathRefused, resolve_all
@@ -50,8 +51,21 @@ class RegisteredTool:
     """
 
     spec: ToolSpec
-    handler: Callable[[Config, dict[str, object]], str]
+    handler: Callable[[Config, dict[str, object]], str | BashResult]
     cacheable: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class BashResult:
+    """A handler's text plus what the server measured, on the way to the result block.
+
+    Only `run_bash` returns one. Every other handler still returns a bare string, so this
+    widens one tool's contract rather than all of them.
+    """
+
+    text: str
+    outcome: BashOutcome
+    is_error: bool = False
 
 
 # --- argument helpers -------------------------------------------------------------------
@@ -151,23 +165,79 @@ def _write_file(cfg: Config, args: dict[str, object]) -> str:
     return f"{verb} {real} ({len(encoded)} bytes)."
 
 
-def _run_bash(cfg: Config, args: dict[str, object]) -> str:
-    """Always refuses. The sandbox does not exist yet, and unconfined is not the fallback.
+def _capped(cfg: Config, result: sandbox.SandboxResult) -> str:
+    """stdout and stderr, labelled, cut to the cap with the true length stated.
 
-    ADR-0010: upstream logs a warning and runs the command anyway. A security control that
-    silently degrades to nothing is worse than one that is absent, because it is believed.
-    `sandbox.py` is M5.
-
-    `sandbox.py` now exists, but nothing here calls it yet: the mount-level secret denylist
-    is unbuilt, so the route stays closed and this refusal stays unconditional. Reading a
-    sandbox setting here would mark it live in the generated reference while nothing acts on
-    it, and would imply a branch that does not exist.
+    Labelled because a command that printed nothing and one that printed to stderr are
+    different facts, and a model reading them merged cannot tell which it has. Cut rather
+    than refused -- unlike `write_file`, where a short file is a corrupt one -- because a
+    truncated log is still evidence, and the tail is the part worth keeping: a build says
+    what went wrong on its last line, not its first.
     """
-    _text_arg(args, "command")
-    raise ToolRefused(
-        "run_bash is refused: the sandbox is not built yet (M5), and this server does not "
-        "run shell commands unconfined as a fallback (ADR-0010). Use read_file and "
-        "write_file, and leave anything needing a shell to the caller.")
+    parts = []
+    if result.stdout:
+        parts.append(f"stdout:\n{result.stdout.rstrip()}")
+    if result.stderr:
+        parts.append(f"stderr:\n{result.stderr.rstrip()}")
+    text = "\n\n".join(parts) or "(no output)"
+    if len(text) <= cfg.max_bash_output_chars:
+        return text
+    kept = text[-cfg.max_bash_output_chars:]
+    return (
+        f"[truncated: {len(text)} characters of output, showing the last "
+        f"{len(kept)}.]\n{kept}"
+    )
+
+
+def _run_bash(cfg: Config, args: dict[str, object]) -> BashResult:
+    """Run one command in the sandbox, and report what the server saw it do.
+
+    ADR-0010: upstream logs a warning and runs the command unconfined when bubblewrap is
+    missing. That never happens here. Every path out of this function that did not reach a
+    real process exit reports `exit_code=None`, and `ran` separates "nothing ran" from "it
+    ran and returned nothing to say" -- the model's account of the command is not evidence,
+    and 0 is a real exit code that must not be inventable by a refusal (ADR-0007).
+
+    Refusals return rather than raise, so the ledger can count an attempted call. A model
+    that tried ten commands and was refused ten times has not run zero commands, and
+    `tool_calls` beside it in the same ledger already counts attempts.
+    """
+    try:
+        command = _text_arg(args, "command")
+    except ToolRefused as e:
+        return BashResult(str(e), BashOutcome(exit_code=None), is_error=True)
+
+    try:
+        result = sandbox.run(cfg, sandbox.SandboxRequest(
+            command=command,
+            home=sandbox.resolve_home(cfg),
+            # No caller supplies a workspace bind yet, so the command's working directory is
+            # the sandbox HOME. `discover_secret_shadows` already covers a workdir when one
+            # arrives; nothing here has to change for it.
+            workdir=None,
+            network=False,
+            extra_binds=sandbox.probe_toolchain_binds(cfg),
+            env=sandbox.resolve_env(cfg),
+        ))
+    except (sandbox.SandboxUnavailable, sandbox.SecretShadowIncomplete) as e:
+        return BashResult(str(e), BashOutcome(exit_code=None), is_error=True)
+
+    if result.timed_out:
+        # Said in words, not left to a null exit code. "No exit code" must not be readable
+        # as success by a model summarising its own run.
+        return BashResult(
+            f"Timed out after {cfg.run_bash_timeout}s and was killed. Output up to that "
+            f"point:\n\n{_capped(cfg, result)}",
+            BashOutcome(exit_code=None, timed_out=True, ran=True),
+            is_error=True,
+        )
+
+    body = _capped(cfg, result)
+    return BashResult(
+        f"exit {result.exit_code}\n\n{body}",
+        BashOutcome(exit_code=result.exit_code, ran=True),
+        is_error=result.exit_code != 0,
+    )
 
 
 READ_FILE = RegisteredTool(
@@ -319,6 +389,14 @@ def execute_tool(
             is_error=True,
         )
     try:
-        return ToolResultBlock(tool_use_id=call.id, content=tool.handler(cfg, call.input))
+        produced = tool.handler(cfg, call.input)
     except (ToolRefused, PathRefused, PathPolicyError) as e:
         return ToolResultBlock(tool_use_id=call.id, content=str(e), is_error=True)
+    if isinstance(produced, BashResult):
+        return ToolResultBlock(
+            tool_use_id=call.id,
+            content=produced.text,
+            is_error=produced.is_error,
+            bash=produced.outcome,
+        )
+    return ToolResultBlock(tool_use_id=call.id, content=produced)

@@ -70,6 +70,32 @@ Older entries, in the previous flat format, are in
   matches nothing, without which an unreadable file is equally consistent with a broken bind
   or a wrong HOME.
 
+- `bash_calls`, `bash_failures` and `last_bash_exit` exist. They were described in four
+  documents and implemented in none — `run_bash` refused every call, so there was no process
+  exit to capture and nothing to count. ADR-0007's original subject, and the last of its
+  claims that was still only a claim.
+- `run_bash` is wired to `sandbox.py` and runs commands. Its result carries what the server
+  measured as a field on the result block, never parsed back out of the text the model also
+  reads: a trailer regex over prose stops firing the day the wording changes, and nothing
+  reports that it stopped.
+- `DELEGATE_MAX_BASH_OUTPUT_CHARS` caps combined output, keeping the **tail** rather than the
+  head and stating the true length. A build says what went wrong on its last line. stdout and
+  stderr are labelled separately, because a command that printed nothing and one that printed
+  a warning are different facts a model cannot distinguish once they are merged.
+- A timeout says it timed out, in words, and reports no exit code. A model summarising its own
+  run must not be able to read "no exit code" as success.
+
+### Changed
+- `run_bash` no longer refuses unconditionally — but it is **still withheld from
+  declaration**, so no model can reach it. The route is not open; this commit only makes the
+  capture path real, and it is reachable without a mock because `execute_tool` takes its
+  allowed set as a parameter and never consults the withholding.
+- Three tests that pinned the unconditional refusal are replaced rather than deleted. The one
+  asserting a working bubblewrap does not by itself open the route now asserts what actually
+  holds it shut, the withholding. That test's own predecessor turned the sandbox off in
+  config, a setting since removed. Each time the guard moved the test had to move with it,
+  which is the argument for naming a test after the guard rather than after the tool.
+
 ### Fixed
 - A directory named `.ssh` does not match the pattern `.ssh/**` — only its children do — so
   the first version of the scan shadowed no directory at all while believing it had. Every
@@ -85,6 +111,12 @@ Older entries, in the previous flat format, are in
   that bwrap creates a missing mountpoint holds only for a plain path, not a link.
 - `docs/AGENTS.md` said the denylist was enforced "by never binding matching paths into the
   sandbox". That was never how it could work, for the reason above.
+- `last_bash_exit` survived a timeout with the previous command's exit code standing, so a
+  killed command could report the `0` of the one before it — precisely the misreport ADR-0007
+  exists to catch. A command killed on timeout did run, so it is the last one and reports no
+  exit code; a *refusal* never started a process, so the previous exit code is still the true
+  answer. The result block carries `ran` to separate the two. Caught by a test written for
+  the semantics before the code was, which is the only reason the two were compared at all.
 
 
 ## #35 — 2026-08-29 — feat: a sandbox that is built, proven, and still not connected

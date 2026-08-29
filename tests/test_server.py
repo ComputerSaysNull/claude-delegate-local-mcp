@@ -805,6 +805,11 @@ def test_a_delegation_that_calls_a_tool_runs_more_than_one_turn(tmp_path):
     assert result["tool_calls"] == 1
     assert result["tool_errors"] == 0
     assert result["hit_turn_limit"] is False
+    # Present at zero once a loop ran, sharing the gate with the counters above rather than
+    # getting a narrower one. None, not 0: nothing exited, and 0 is a real exit code.
+    assert result["bash_calls"] == 0
+    assert result["bash_failures"] == 0
+    assert result["last_bash_exit"] is None
 
 
 def test_an_empty_toolset_takes_the_one_shot_path_and_reports_no_ledger():
@@ -816,6 +821,9 @@ def test_an_empty_toolset_takes_the_one_shot_path_and_reports_no_ledger():
     assert result["answer"] == "the answer"
     assert "turns" not in result
     assert "tool_calls" not in result
+    # The bash counters share that gate rather than getting one of their own.
+    assert "bash_calls" not in result
+    assert "last_bash_exit" not in result
 
 
 def test_the_default_delegation_offers_the_file_tools_and_withholds_run_bash():

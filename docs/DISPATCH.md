@@ -276,6 +276,22 @@ of its own work is a claim, and these are observations. They are absent rather t
 on the one-shot path, where `tool_calls: 0` beside an answer would read as a model that
 chose not to use tools it was in fact never offered.
 
+`bash_calls`, `bash_failures` and `last_bash_exit` are the subject ADR-0007 was written
+about, and are now counted the same way. The exit code reaches the ledger as a field on the
+result block, never parsed back out of the text the model also reads: a trailer regex over
+prose stops firing the day the wording changes, and nothing reports that it stopped.
+
+Two distinctions in those three numbers are worth stating, because both are easy to get
+backwards. **Attempts, not completions** — a call refused before a process started still
+happened, and `tool_calls` beside it counts the same way; a model refused ten times has not
+run zero commands. **`last_bash_exit` moves only when something ran**, which is why the
+result block carries `ran` separately from the exit code. A command killed on timeout *did*
+run, so it becomes the last one and reports no exit code — leaving the previous `0` standing
+would let a kill read as a success, which is the exact misreport ADR-0007 exists to catch. A
+refusal never started a process, so the last command that ran is still the previous one, and
+its exit code is still the true answer. `None` carries "nothing exited"; `0` cannot, being a
+real exit code a command can return.
+
 ## Context economics, off by default
 
 A delegation that runs out of room does not fail. It keeps answering, from a history the

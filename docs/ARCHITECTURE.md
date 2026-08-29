@@ -300,8 +300,9 @@ is not covered and cannot be. Defence in depth for one tool, not a replacement. 
 
 Models misreport command outcomes. The server therefore computes `bash_calls`,
 `bash_failures` and `last_bash_exit` from real process exits and reports them as fields
-distinct from the model's prose, and the `run_bash` description tells the model not to
-contradict them.
+distinct from the model's prose. What each counts, and why `last_bash_exit` can be `None`
+when `0` would be a lie, is in [DISPATCH.md](DISPATCH.md), which owns the loop that counts
+them.
 
 Without this, "the tests pass" is an assertion rather than a measurement, and the entire
 self-verification design rests on it. (ADR-0007)

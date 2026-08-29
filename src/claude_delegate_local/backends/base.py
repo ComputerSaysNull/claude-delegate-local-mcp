@@ -124,10 +124,33 @@ class ToolUseBlock:
 
 
 @dataclass(frozen=True, slots=True)
+class BashOutcome:
+    """What the server saw a shell command do, apart from what the model says about it.
+
+    Carried on the result block rather than parsed back out of `content`, because a trailer
+    regex over text the model also reads is a check that stops firing the day the wording
+    changes, and nothing reports that it stopped. ADR-0007 rests on these being measured.
+
+    `exit_code` is None when nothing exited: killed on timeout, or refused before a process
+    ever started. Those are distinguished by `timed_out`, and neither is 0 -- which is a
+    real exit code a command can return and must not collide with either.
+
+    Lives here rather than in `tools.py` because `tools.py` imports this module, and the
+    block has to be able to name the type it carries.
+    """
+
+    exit_code: int | None
+    timed_out: bool = False
+    ran: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class ToolResultBlock:
     tool_use_id: str
     content: str
     is_error: bool = False
+    # None for every tool but run_bash, so no other construction site changes.
+    bash: BashOutcome | None = None
 
 
 ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock

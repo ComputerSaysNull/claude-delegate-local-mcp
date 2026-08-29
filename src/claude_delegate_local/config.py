@@ -172,6 +172,13 @@ class Config:
     )
     max_write_bytes: int = _f(8388608, "Cap on one write_file call.", unit="bytes")
     run_bash_timeout: int = _f(120, "Per-command timeout for run_bash.", unit="seconds")
+    max_bash_output_chars: int = _f(
+        20000,
+        "Cap on the combined stdout and stderr of one run_bash call. The tail is cut "
+        "and the true length stated, never silently dropped -- a build log is exactly "
+        "the kind of output whose last line matters most.",
+        unit="characters",
+    )
 
     # ---- generation budgets ------------------------------------------------------
     max_tokens: int = _f(
@@ -423,6 +430,7 @@ class Config:
                 "could ever be prefetched."
             )
         for name in (
+            "max_bash_output_chars",
             "secret_shadow_max_entries",
             "secret_shadow_max_depth",
             "turn_timeout",
