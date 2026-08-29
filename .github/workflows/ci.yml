@@ -70,22 +70,6 @@ jobs:
       # than inherited. Both matter: with an unbounded version and no `select`, this
       # repository went from 3 findings to 45 across ruff releases without a line of it
       # changing. A lint job on a moving rule set fails builds nobody broke.
-      # TEMPORARY SPIKE -- remove before merge. Answers one question this repository
-      # cannot answer by reasoning: whether a GitHub runner permits the unprivileged
-      # user namespace bubblewrap needs, or restricts it via AppArmor as Ubuntu has
-      # since 23.10. If it works, the sandbox tests can drop their `integration` mark
-      # and guard every pull request instead of only a hand-run WSL session.
-      - name: SPIKE does bwrap work on this runner
-        continue-on-error: true
-        run: |
-          echo "--- smoke: empty root ---"
-          bwrap --unshare-all --ro-bind /usr /usr --ro-bind /etc /etc --proc /proc                 --dev /dev --tmpfs /tmp --symlink usr/bin /bin --symlink usr/lib /lib                 --symlink usr/lib64 /lib64 --symlink usr/sbin /sbin -- /bin/echo ok
-          echo "smoke exit: $?"
-          echo "--- the sandbox suite, integration mark ignored ---"
-          python -m pip install --upgrade pip >/dev/null && pip install -e ".[dev]" >/dev/null
-          python -m pytest tests/test_sandbox.py -q --no-header
-          echo "suite exit: $?"
-
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -115,6 +99,22 @@ jobs:
       # later without touching this file.
       - name: Install bubblewrap
         run: sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+
+      # TEMPORARY SPIKE -- remove before merge. Answers one question this repository
+      # cannot answer by reasoning: whether a GitHub runner permits the unprivileged
+      # user namespace bubblewrap needs, or restricts it via AppArmor as Ubuntu has
+      # since 23.10. If it works, the sandbox tests can drop their `integration` mark
+      # and guard every pull request instead of only a hand-run WSL session.
+      - name: SPIKE does bwrap work on this runner
+        continue-on-error: true
+        run: |
+          echo "--- smoke: empty root ---"
+          bwrap --unshare-all --ro-bind /usr /usr --ro-bind /etc /etc --proc /proc                 --dev /dev --tmpfs /tmp --symlink usr/bin /bin --symlink usr/lib /lib                 --symlink usr/lib64 /lib64 --symlink usr/sbin /sbin -- /bin/echo ok
+          echo "smoke exit: $?"
+          echo "--- the sandbox suite, integration mark ignored ---"
+          python -m pip install --upgrade pip >/dev/null && pip install -e ".[dev]" >/dev/null
+          python -m pytest tests/test_sandbox.py -q --no-header
+          echo "suite exit: $?"
 
       - name: Install
         run: |
