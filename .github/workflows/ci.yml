@@ -95,26 +95,13 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      # What the sandbox tests need. Present now so integration tests can be enabled
-      # later without touching this file.
+      # What the sandbox tests need to *import*, not to run. Measured on this runner
+      # 2026-08-29: bwrap creates the user namespace fine, then fails to bring up
+      # loopback inside the new network namespace -- "Failed RTM_NEWADDR: Operation not
+      # permitted", no CAP_NET_ADMIN. So the sandbox tests stay `integration`-marked and
+      # this install does not, by itself, let them be enabled here. See JOURNAL.
       - name: Install bubblewrap
         run: sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
-
-      # TEMPORARY SPIKE -- remove before merge. Answers one question this repository
-      # cannot answer by reasoning: whether a GitHub runner permits the unprivileged
-      # user namespace bubblewrap needs, or restricts it via AppArmor as Ubuntu has
-      # since 23.10. If it works, the sandbox tests can drop their `integration` mark
-      # and guard every pull request instead of only a hand-run WSL session.
-      - name: SPIKE does bwrap work on this runner
-        continue-on-error: true
-        run: |
-          echo "--- smoke: empty root ---"
-          bwrap --unshare-all --ro-bind /usr /usr --ro-bind /etc /etc --proc /proc                 --dev /dev --tmpfs /tmp --symlink usr/bin /bin --symlink usr/lib /lib                 --symlink usr/lib64 /lib64 --symlink usr/sbin /sbin -- /bin/echo ok
-          echo "smoke exit: $?"
-          echo "--- the sandbox suite, integration mark ignored ---"
-          python -m pip install --upgrade pip >/dev/null && pip install -e ".[dev]" >/dev/null
-          python -m pytest tests/test_sandbox.py -q --no-header
-          echo "suite exit: $?"
 
       - name: Install
         run: |
