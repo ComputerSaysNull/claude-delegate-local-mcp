@@ -31,6 +31,16 @@ from typing import Any
 EFFORT_LEVELS = ("off", "low", "high", "max")
 TRANSPORTS = ("stdio", "streamable-http")
 
+# Fractions of the model's context window at which the agentic loop changes behaviour:
+# tighten retention, nudge the model to wrap up, then abort. Constants rather than
+# settings, for the same reason EFFORT_LEVELS is one -- they name three points on a single
+# escalation, and an operator free to move them independently can invert the order so the
+# loop aborts before it has ever nudged. The reserve beside them IS a setting, because it
+# is a size rather than a stage.
+OVERFLOW_TIGHTEN_AT = 0.70
+OVERFLOW_NUDGE_AT = 0.85
+OVERFLOW_ABORT_AT = 0.95
+
 # Bytes per token, MEASURED against this model's own tokenizer (ADR-0019). These vary by
 # more than 2x across file types, which is why the prefetch budget is denominated in
 # tokens rather than bytes -- 128 KiB is 33K tokens of Python but 72K tokens of JSON.
@@ -220,6 +230,58 @@ class Config:
     )
     max_batch_size: int = _f(12, "Largest accepted delegate_batch request.")
 
+    # ---- context overflow (M4) ---------------------------------------------------
+    context_overflow_enabled: bool = _f(
+        False,
+        "Master switch for both halves of overflow handling: the retroactive check that "
+        "notices a prompt has stopped growing while the history did not, and the "
+        "preventive response that tightens retention, nudges and finally aborts as "
+        "projected usage climbs. Off by default because every threshold here is measured "
+        "against ModelEntry.context_window, and a registry entry that omits that field "
+        "inherits a silent default -- arming this against a window nobody set would "
+        "compute every threshold from a number the operator never chose.",
+    )
+    overflow_plateau_slop_tokens: int = _f(
+        64,
+        "Tolerance absorbed before a prompt that did not grow counts as one that could "
+        "not. Without it a backend trimming a token or two between turns reads as "
+        "truncation, and the delegation aborts on jitter.",
+        unit="est. tokens",
+    )
+    overflow_min_growth_tokens: int = _f(
+        256,
+        "History growth in one turn below which a plateau is evidence of nothing. Sized "
+        "from measurement, not taste: a nine-word message costs about 100 prompt tokens "
+        "of chat-template envelope (JOURNAL 2026-08-29), so a threshold in the tens would "
+        "fire on the envelope alone. A real tool result is far above this.",
+        unit="est. tokens",
+    )
+    overflow_reserve_fraction: float = _f(
+        0.05,
+        "Headroom held back for the reply in every projected-usage figure, as a FRACTION "
+        "of the model's context window. A fraction rather than a flat count on purpose: a "
+        "flat reserve large enough to matter for a 1M window exceeds 95% of an 8K one on "
+        "its own, so the detector would report a small model as full at rest. Scaling it "
+        "closes that whole bug class instead of picking a number that happens to suit "
+        "both.",
+    )
+    overflow_probe_cache_ttl: float = _f(
+        900.0,
+        "How long a failed window check is remembered before it is asked again. The point "
+        "of the expiry is the whole setting: upstream cached this verdict forever, so a "
+        "single transient outage disabled overflow handling until someone restarted the "
+        "server. Fifteen minutes is long enough that a dead endpoint is not re-probed on "
+        "every delegation, and short enough that a recovered one arms itself without "
+        "intervention.",
+        unit="seconds",
+    )
+    overflow_tightened_keep_tool_results: int = _f(
+        1,
+        "Replaces keep_tool_results once projected usage passes the first threshold, for "
+        "the rest of the delegation. Retention only tightens; it never relaxes again, "
+        "because a delegation that recovers headroom by evicting has not stopped growing.",
+    )
+
     # ---- timeouts ----------------------------------------------------------------
     turn_timeout: int = _f(1800, "Per-turn backend call timeout.", unit="seconds")
     connect_timeout: int = _f(
@@ -383,6 +445,7 @@ class Config:
                 "could outlive the delegation containing it."
             )
         self._validate_retry()
+        self._validate_overflow()
 
     def _validate_retry(self) -> None:
         """The retry settings, checked here rather than inline above.
@@ -408,6 +471,46 @@ class Config:
                 f"DELEGATE_RETRY_MAX_DELAY ({self.retry_max_delay}): the first backoff "
                 "would already be above the cap, so the cap would be the only delay ever "
                 "used and the base would silently mean nothing."
+            )
+
+    def _validate_overflow(self) -> None:
+        """The context-overflow settings, checked together because they constrain each other.
+
+        Split out for the reason `_validate_retry` was: one concern with a name reads
+        better than four more branches in `__post_init__`. Checked even when the feature is
+        disabled -- a setting that only fails once someone arms it fails at the worst
+        possible moment, and this file's whole convention is to refuse at load.
+        """
+        if not 0.0 < self.overflow_reserve_fraction < OVERFLOW_ABORT_AT:
+            raise ConfigError(
+                f"DELEGATE_OVERFLOW_RESERVE_FRACTION ({self.overflow_reserve_fraction}) "
+                f"must be above 0 and below {OVERFLOW_ABORT_AT}. It is a fraction of the "
+                "context window, not a token count. At or above the abort threshold the "
+                "reserve alone accounts for the whole budget, so every delegation would "
+                "abort on its first turn against an empty history -- which is exactly the "
+                "shape of the flat-reserve bug this setting is a fraction to avoid."
+            )
+        for name in ("overflow_plateau_slop_tokens", "overflow_min_growth_tokens"):
+            if getattr(self, name) < 0:
+                raise ConfigError(f"DELEGATE_{name.upper()} must not be negative.")
+        if self.overflow_tightened_keep_tool_results > self.keep_tool_results:
+            raise ConfigError(
+                f"DELEGATE_OVERFLOW_TIGHTENED_KEEP_TOOL_RESULTS "
+                f"({self.overflow_tightened_keep_tool_results}) exceeds "
+                f"DELEGATE_KEEP_TOOL_RESULTS ({self.keep_tool_results}): crossing the "
+                "first threshold would RELAX retention rather than tighten it, and the "
+                "history would grow faster the closer it got to the window."
+            )
+        if self.overflow_probe_cache_ttl <= 0:
+            raise ConfigError(
+                "DELEGATE_OVERFLOW_PROBE_CACHE_TTL must be positive. Zero would re-probe "
+                "the endpoint on every delegation; there is no value meaning 'never "
+                "expire', because a cache that never expires is the bug this setting is "
+                "here to prevent."
+            )
+        if self.overflow_tightened_keep_tool_results < 0:
+            raise ConfigError(
+                "DELEGATE_OVERFLOW_TIGHTENED_KEEP_TOOL_RESULTS must not be negative."
             )
 
     # ---- derived helpers ---------------------------------------------------------

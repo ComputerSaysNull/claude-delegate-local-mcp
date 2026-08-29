@@ -289,6 +289,20 @@ class Backend(Protocol):
         """Model ids this endpoint reports serving. The health check, per MODELS.md."""
         ...
 
+    async def probe_window(self) -> int | None:
+        """The context window this endpoint reports for its served model, if it says.
+
+        `None` means the endpoint answered and did not mention one -- a confirmed absence,
+        not a failure to ask. A transport failure raises `BackendUnavailable` instead, and
+        the difference matters: a caller caching "this backend cannot tell me" must never
+        cache it because the network was down for a moment.
+
+        This exists to CHECK the operator's `context_window`, never to supply it. An
+        auto-derived window is how upstream came to compute every threshold against a
+        model file's architecture maximum rather than the window actually served.
+        """
+        ...
+
     async def aclose(self) -> None:
         """Release the transport. Safe to call more than once."""
         ...

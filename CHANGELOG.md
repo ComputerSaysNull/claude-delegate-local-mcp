@@ -26,6 +26,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #34 — 2026-08-29 — feat: a delegation that notices it is running out of room
+
+### Added
+- Context-overflow handling, off by default, closing M4. A delegation that fills its window
+  does not fail today — it keeps answering from a history the backend has quietly begun
+  dropping. Now 70/85/95% of projected use tightens retention, nudges the model to wrap up,
+  then aborts; and a prompt that stops growing while the loop is still appending reads as
+  silent truncation, but only once this server's own eviction is ruled out by a count it
+  recorded where it evicted, never by anything the model said (ADR-0007). On abort, a report
+  puts that ledger beside `git status`, unreconciled: the disagreement is the finding.
+- A window check before any of it arms: `context_window` was the operator's word and nothing
+  verified it. The endpoint is asked once per model and **validates, never derives** — a
+  disagreement disarms and names both numbers rather than adopting the endpoint's, since an
+  auto-derived window is how upstream came to threshold against an architecture maximum.
+- `diagnostics=true` on `delegate()`, a model-facing contract change: per-turn costs, and
+  which files were re-read after this server dropped them. The ledger says a delegation was
+  expensive; only this says whether the work was large or paid twice for the same bytes.
+
+### Changed
+- The reply reserve is a **fraction** of the window, never a token count, read in one
+  function: a flat reserve worth holding on a 1M window is over 95% of an 8K one.
+- The negative cache expires and only a *confirmed refusal* writes to it. Upstream's did
+  neither, so one transient outage disabled the feature until a restart.
+- A wrap-up nudge concatenates and never overwrites: the loop ends on any reply with no tool
+  calls, so "understood, wrapping up" would have replaced findings already written.
+
+### Fixed
+- `attempts` accumulated at the end of the turn body, which the answering turn never reaches
+  — a delegation that retried twice then answered reported `attempts: 0`.
+
 ## #33 — 2026-08-28 — docs: the audit M4 was owed, and the sentences it made false
 
 ### Fixed

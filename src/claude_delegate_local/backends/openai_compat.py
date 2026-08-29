@@ -148,6 +148,30 @@ class OpenAICompatBackend:
             )
         return tuple(str(m["id"]) for m in data if isinstance(m, dict) and "id" in m)
 
+    async def probe_window(self) -> int | None:
+        """The served model's window, as this endpoint reports it. Measured, not assumed.
+
+        vLLM names it `max_model_len` on each entry of /v1/models (JOURNAL 2026-08-29).
+        The field is not in the OpenAI schema, so an endpoint that omits it is answering
+        correctly and simply has nothing to say -- hence `None` rather than an error. Only
+        the entry matching `served_model_id` is consulted: a host serving several models
+        would otherwise have its first one speak for the one we are actually using.
+        """
+        payload = await self._get(self._entry.models_url, _MODELS_PATH)
+        data = payload.get("data")
+        if not isinstance(data, list):
+            raise BackendProtocolError(
+                f"{_MODELS_PATH} returned no 'data' list; got keys {sorted(payload)}."
+            )
+        for model in data:
+            if not isinstance(model, dict) or model.get("id") != self._entry.served_model_id:
+                continue
+            for field in ("max_model_len", "context_length", "n_ctx"):
+                value = model.get(field)
+                if isinstance(value, int) and value > 0:
+                    return value
+        return None
+
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()

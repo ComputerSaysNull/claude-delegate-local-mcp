@@ -1,4 +1,4 @@
-<!-- BUDGET: 280 -->
+<!-- BUDGET: 400 -->
 <!-- Raised from 180 on 2026-08-28: the turn loop landed and brought five
      mechanisms with it -- turns, eviction, dedup, countdown, progress. The room the
      2026-08-27 split left was measured against a loop that had not been written.
@@ -275,3 +275,75 @@ same argument covers the economics of the loop, and for the same reason — a mo
 of its own work is a claim, and these are observations. They are absent rather than zeroed
 on the one-shot path, where `tool_calls: 0` beside an answer would read as a model that
 chose not to use tools it was in fact never offered.
+
+## Context economics, off by default
+
+A delegation that runs out of room does not fail. It keeps answering, from a history the
+backend has quietly begun dropping, and the answer looks exactly like one written with
+everything in view. `context_overflow_enabled` turns on two checks that notice, and it is
+off by default for a reason given below.
+
+Every threshold is a share of `ModelEntry.context_window` and of nothing else. Four of the
+five bugs this cost the ancestor project were one shape — a threshold computed against the
+wrong denominator — so the window is read in exactly one function,
+`loop.projected_fraction`, and the reserve held back for the reply is a **fraction** of it
+rather than a token count. That is not tidiness: a flat reserve large enough to matter on a
+million-token window is more than 95% of an 8K one, so the same constant that is prudent for
+one model reports the other as full before it has done anything.
+
+**Preventively**, projected use is compared against three points on one escalation:
+retention tightens, then the model is told to wrap up, then the delegation aborts. The
+stages are module constants rather than settings, because they name one ordered escalation
+and an operator free to move them independently can invert it. Retention only ever tightens;
+a delegation that wins back headroom by evicting has not stopped growing.
+
+**Retroactively**, a prompt that stops growing while the loop is still appending to the
+history is evidence that something upstream is dropping it. The catch is that this server's
+own eviction is by far the likeliest explanation, so the check subtracts it first — and
+subtracts it by reading a count the loop recorded at the point it evicted, never by reading
+`finish_reason` or the model's account of what it still remembers. That is ADR-0007 applied
+to context rather than to exit codes. There is a small token slop on the comparison, because
+a backend that trims a token between turns must not read as truncation.
+
+On abort the caller gets a state report rather than a bare refusal: the server's ledger of
+what it ran, beside `git status --porcelain` for the repositories the delegation wrote into.
+The two are deliberately not reconciled for the reader — where they disagree, the
+disagreement is the finding. The git call is server-side, exactly as the path policy's layer
+4 already runs git, and is not a route into the sandbox (ADR-0010).
+
+### The window is checked before any of it is armed
+
+`context_window` is whatever the operator wrote in `models.toml`, and `docs/MODELS.md` is
+explicit that nothing enforces it against the server. Arming a graduated abort against an
+unverified denominator is how the ancestor came to compute every threshold against a ceiling
+its backend would never reach. So the first agentic delegation to a model asks the endpoint
+what window it is serving and compares.
+
+The check **validates and never derives**. On a disagreement overflow handling stays off and
+says which two numbers disagree; it does not adopt the endpoint's figure, because the
+operator's file is authoritative for everything else about that model. An endpoint that
+reports no window at all is answering correctly and does not block anything.
+
+The verdict is cached per model, and the cache expires — that expiry is the whole point of
+it. The ancestor's equivalent never expired and was written on any failure, so one transient
+outage disabled overflow handling until someone restarted the server. Here a **confirmed
+refusal** is cached and a **transport failure** is not: an endpoint that answered has told us
+something about itself, and one we could not reach has not.
+
+### Diagnostics, per call
+
+`diagnostics=true` adds a per-turn breakdown to the reply: what each turn's prompt cost,
+what it evicted, which tools it ran and how each ended. Metadata only — tool results are not
+carried, since a diagnostic that embedded what it was measuring would become the expensive
+payload it exists to explain.
+
+The field worth asking for is `evicted_then_reread`: files the model read again after this
+server had dropped the first read from the history. The aggregate ledger can already say a
+delegation was expensive. Only this says whether it was expensive because the work was large
+or because it kept paying twice for the same bytes — and those have different fixes, one of
+them being a larger `keep_tool_results`. It is a prerequisite for sizing eviction rather
+than a report about it.
+
+Correlation is on the path argument the model supplied, not the path the policy resolved:
+`tools.py` never hands the resolved one back, and the raw argument is what a reader
+reconciling the report against a working tree is looking at anyway.

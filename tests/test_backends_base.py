@@ -210,6 +210,9 @@ def test_protocol_accepts_a_complete_implementation():
         async def probe(self):
             ...
 
+        async def probe_window(self):
+            ...
+
         async def aclose(self):
             ...
 

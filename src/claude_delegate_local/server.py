@@ -17,8 +17,11 @@ the other half of that rule.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+import json
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from typing import Any
 
 from fastmcp import Context, FastMCP
@@ -36,6 +39,7 @@ from .config import Config, ConfigError
 from .context import prefetch
 from .loop import (
     AgenticDispatch,
+    ContextOverflowAborted,
     Delegation,
     Dispatch,
     DispatchTimedOut,
@@ -78,6 +82,49 @@ def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
     }
 
 
+def _diagnostics_block(
+    dispatched: Dispatch | AgenticDispatch, *, requested: bool
+) -> dict[str, Any]:
+    """The per-turn ledger, present only when the caller asked and a loop actually ran.
+
+    Absent rather than empty, following `_loop_ledger` above and for the same reason: an
+    empty `diagnostics` alongside an answer would read as a delegation that took no turns,
+    when in fact none was recorded. The one-shot path has no turns to report at all.
+
+    `evicted_then_reread` is the field worth reading. Turn costs say a delegation was
+    expensive; this says whether it was expensive because the work was large or because it
+    kept paying again for context this server had dropped. Those have different fixes --
+    a bigger job versus a larger `keep_tool_results` -- and no other number distinguishes
+    them.
+    """
+    if not requested or not isinstance(dispatched, AgenticDispatch):
+        return {}
+    return {
+        "diagnostics": {
+            "turns": [
+                {
+                    "turn": t.turn,
+                    "input_tokens": t.input_tokens,
+                    "output_tokens": t.output_tokens,
+                    "attempts": t.attempts,
+                    "effort": t.effort,
+                    "tool_results_evicted": t.evicted,
+                    "tool_calls": [{"name": n, "outcome": o} for n, o in t.tool_calls],
+                }
+                for t in dispatched.diagnostics
+            ],
+            "evicted_then_reread": [
+                {
+                    "path": r.path,
+                    "evicted_at_turn": r.evicted_at_turn,
+                    "reread_at_turn": r.reread_at_turn,
+                }
+                for r in dispatched.rereads
+            ],
+        }
+    }
+
+
 class BackendCache:
     """One backend -- and so one httpx connection pool -- per registry entry.
 
@@ -103,6 +150,141 @@ class BackendCache:
         for backend in self._backends.values():
             await backend.aclose()
         self._backends.clear()
+
+
+class WindowCheck:
+    """Whether overflow handling may be armed for a model, and why not when it may not.
+
+    Every context-overflow threshold is a share of `ModelEntry.context_window`, which is a
+    number the operator wrote in `models.toml` and which nothing has ever verified --
+    `docs/MODELS.md` says as much: "used for budgeting headroom, not enforced against the
+    server". Arming a graduated abort against an unverified denominator is precisely how
+    upstream came to compute every threshold against a ceiling the backend would never
+    reach. So the window is checked once per model before the feature is allowed to act.
+
+    The check **validates and never derives**. A disagreement disarms overflow handling and
+    says so; it does not quietly adopt the server's number, because the operator's file is
+    the source of truth for everything else about that model and a config that is silently
+    overridden in one field is worse than one that is wrong in the open.
+
+    Three verdicts, and the distinction between the last two is the point of the class:
+
+    - the endpoint agrees, or reports no window at all -> armed;
+    - the endpoint **answered** and disagrees -> disarmed, cached, and re-checked when the
+      entry expires;
+    - the endpoint could not be **reached** -> disarmed for this call and NOT cached.
+
+    Upstream's negative cache had no expiry and was populated by any failure, so one
+    transient outage disabled overflow handling until the server was restarted. Both halves
+    of that are fixed here: a transport failure never writes to the cache, and what does get
+    written expires.
+    """
+
+    def __init__(self, cfg: Config, *, clock: Callable[[], float] = time.monotonic) -> None:
+        self._cfg = cfg
+        self._clock = clock
+        self._verdicts: dict[str, tuple[str, float]] = {}
+
+    async def armed(self, backend: Backend, entry: ModelEntry) -> tuple[bool, str]:
+        """May overflow handling act for this model? Returns the verdict and a reason."""
+        if not self._cfg.context_overflow_enabled:
+            return False, ""
+        cached = self._verdicts.get(entry.key)
+        if cached is not None and self._clock() - cached[1] < self._cfg.overflow_probe_cache_ttl:
+            return not cached[0], cached[0]
+
+        try:
+            reported = await backend.probe_window()
+        except BackendUnavailable:
+            # Reached nothing, so learned nothing. Deliberately not cached: this is the
+            # transient outage that used to disable the feature until a restart.
+            return False, "the endpoint could not be reached to check its context window"
+        except (BackendRefused, BackendProtocolError) as e:
+            reason = f"the endpoint refused the context-window check ({type(e).__name__})"
+            self._verdicts[entry.key] = (reason, self._clock())
+            return False, reason
+
+        if reported is not None and reported != entry.context_window:
+            # Never adopted. The mismatch is reported and the feature stays off, because a
+            # threshold computed against the wrong window is the bug this exists to avoid.
+            reason = (
+                f"models.toml gives context_window={entry.context_window} for "
+                f"{entry.key!r}, but the endpoint reports {reported}. Overflow handling "
+                "stays off rather than compute every threshold against a number one of "
+                "the two disagrees with. Correct models.toml to arm it."
+            )
+            self._verdicts[entry.key] = (reason, self._clock())
+            return False, reason
+
+        self._verdicts[entry.key] = ("", self._clock())
+        return True, ""
+
+
+async def arm_overflow(
+    windows: WindowCheck, backend: Backend, entry: ModelEntry, cfg: Config, *, agentic: bool
+) -> tuple[Config, str]:
+    """The config the turn loop should run under, and why it differs if it does.
+
+    Decided here rather than inside the loop so that `run_agentic_loop` has one switch to
+    read instead of a switch and a verdict. Returns a *new* config rather than mutating the
+    server's: the disarm applies to this delegation, and a model whose endpoint was briefly
+    unreachable must not stay disarmed for every other model in the registry.
+    """
+    if not agentic or not cfg.context_overflow_enabled:
+        # The one-shot path has no turns, no history and nothing to overflow, so it must
+        # not spend a round trip discovering that.
+        return cfg, ""
+    armed, reason = await windows.armed(backend, entry)
+    if armed:
+        return cfg, ""
+    return replace(cfg, context_overflow_enabled=False), reason
+
+
+async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved arguments
+    cfg: Config,
+    entry: ModelEntry,
+    backend: Backend,
+    delegation: Delegation,
+    *,
+    allowed: frozenset[str],
+    effort: str | None,
+    max_tokens: int | None,
+    diagnostics: bool = False,
+    report_progress: Callable[[int, int], Awaitable[None]],
+) -> Dispatch | AgenticDispatch:
+    """Run the delegation on whichever path the toolset implies, and translate its failures.
+
+    Both halves belong together: which path ran decides which failures are possible, and
+    every one of them has to reach the caller as a `ToolError` rather than a traceback. Out
+    of `build()` because it is the only part of that function that is not wiring.
+    """
+    try:
+        if allowed:
+            return await run_agentic_loop(
+                cfg, entry, backend, delegation,
+                allowed=allowed, effort=effort, max_tokens=max_tokens,
+                diagnostics=diagnostics, report_progress=report_progress,
+            )
+        # An explicitly empty toolset. Not the loop with nothing declared: the one-shot
+        # prompt tells the model plainly that it cannot open anything and has no second
+        # turn, which is true here and is not true in the loop.
+        return await run_one_shot(
+            cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens
+        )
+    except ContextOverflowAborted as e:
+        # Before the plain InvalidDelegation branch, which is its base class. The report is
+        # the whole point: an abort lands mid-work, and what the caller needs is what the
+        # server watched happen beside what git says is on disk, not the message.
+        raise ToolError(f"{e}\n\n{json.dumps(e.report, indent=2, default=str)}") from e
+    except InvalidDelegation as e:
+        raise ToolError(str(e)) from e
+    except DispatchTimedOut as e:
+        # Not routed through _refuse: that names an endpoint, and this failure is a deadline
+        # the operator set. The message already carries the elapsed time, the limit and
+        # which stage was running when it expired.
+        raise ToolError(str(e)) from e
+    except (BackendUnavailable, BackendRefused, BackendProtocolError) as e:
+        raise _refuse(e) from e
 
 
 async def probe_entry(
@@ -203,6 +385,10 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
     timeout, which is slow, flaky, and not what the test is about.
     """
     cache = cache or BackendCache(cfg)
+    # One per server, beside the backend cache and for the same reason: the verdict is
+    # per model and per process, and re-probing every delegation would spend a round
+    # trip to re-learn something that changes only when the operator edits a file.
+    windows = WindowCheck(cfg)
 
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncIterator[dict[str, Any]]:
@@ -224,6 +410,7 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
         # argument by name, so positional order is a promise to nobody.
         allowed_tools: list[str] | None = None,
         max_tokens: int | None = None,
+        diagnostics: bool = False,
         # Not an argument at all -- fastmcp injects it by type, and it never appears in
         # the schema the model reads.
         ctx: Context | None = None,
@@ -234,6 +421,13 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
         first-pass review, mechanical rewrites, explaining something. It runs on hardware
         the user hosts, so it costs no cloud tokens -- prefer it whenever the work does
         not need your own judgement.
+
+        Set `diagnostics=true` to get a per-turn breakdown back alongside the answer:
+        what each turn's prompt cost, what it evicted, which tools it ran, and -- the part
+        worth asking for -- which files were read again after the server had dropped the
+        first read from the history. Use it when a delegation was slower or more expensive
+        than the work justified and you want to know which. It makes the reply larger and
+        changes nothing about how the work is done, so leave it off by default.
 
         **Name files in `files[]` rather than pasting them into `task`.** The server
         reads them itself and gives them to the model directly, so their contents never
@@ -330,29 +524,14 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
             if ctx is not None:
                 await ctx.report_progress(progress=turn, total=of)
 
-        try:
-            if allowed:
-                dispatched = await run_agentic_loop(
-                    cfg, entry, backend, delegation,
-                    allowed=allowed, effort=effort, max_tokens=max_tokens,
-                    report_progress=progress,
-                )
-            else:
-                # An explicitly empty toolset. Not the loop with nothing declared: the
-                # one-shot prompt tells the model plainly that it cannot open anything and
-                # has no second turn, which is true here and is not true in the loop.
-                dispatched = await run_one_shot(
-                    cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens
-                )
-        except InvalidDelegation as e:
-            raise ToolError(str(e)) from e
-        except DispatchTimedOut as e:
-            # Not routed through _refuse: that names an endpoint, and this failure is a
-            # deadline the operator set. The message already carries the elapsed time, the
-            # limit and which stage was running when it expired.
-            raise ToolError(str(e)) from e
-        except (BackendUnavailable, BackendRefused, BackendProtocolError) as e:
-            raise _refuse(e) from e
+        loop_cfg, overflow_off_because = await arm_overflow(
+            windows, backend, entry, cfg, agentic=bool(allowed)
+        )
+        dispatched = await dispatch_delegation(
+            loop_cfg, entry, backend, delegation,
+            allowed=allowed, effort=effort, max_tokens=max_tokens,
+            diagnostics=diagnostics, report_progress=progress,
+        )
 
         response = dispatched.response
         answer = response.text
@@ -385,6 +564,11 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
             # so nothing was left to step down and the budget, not the reasoning, is what
             # ran out. Two different fixes, which is why they are two different fields.
             "reasoning_exhausted": dispatched.reasoning_exhausted,
+            # Present only when the operator armed overflow handling and this server
+            # declined to use it. Absent means it was off, or on and working -- the two the
+            # caller has no decision to make about.
+            **({"overflow_disarmed": overflow_off_because} if overflow_off_because else {}),
+            **_diagnostics_block(dispatched, requested=diagnostics),
         }
 
     @mcp.tool
