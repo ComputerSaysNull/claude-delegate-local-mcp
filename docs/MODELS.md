@@ -46,7 +46,7 @@ The table key (`deepseek-v4-flash`) is the handle callers use. It does not have 
 | `served_model_id` | yes | Exactly as the server reports it at `GET {base_url}/v1/models` |
 | `api_format` | no | `openai` (default). `anthropic` parses but has no adapter yet and is refused at load, naming ADR-0008 |
 | `api_key_env` | no | *Name* of an environment variable holding a bearer token. Omit when the endpoint needs none. The key itself never appears here |
-| `context_window` | no | Used for budgeting headroom, not enforced against the server |
+| `context_window` | no | Used for budgeting headroom. Not enforced against the server, but checked against it when overflow handling is armed — see below |
 | `default_effort` | no | `off`, `low`, `high`, `max`. Falls back to the global default |
 | `max_tokens_cap` | no | Clamps any larger request. `0` means no cap |
 | `concurrency` | no | *This endpoint's* limit, checked alongside the global in-flight cap |
@@ -120,3 +120,20 @@ with no default, zero concurrency, invalid TOML, and a missing file.
 
 A bad registry discovered thirty minutes into a delegation is a far worse experience than a
 refusal to boot.
+
+## The window is checked, never derived
+
+`context_window` is yours to set and nothing overrides it. When `context_overflow_enabled`
+is on, the server asks the endpoint once per model what window it is actually serving and
+compares the two — because every overflow threshold is a share of this number, and a
+threshold over a wrong denominator is the bug that feature exists to avoid.
+
+A disagreement disarms overflow handling for that model and reports both numbers. The
+endpoint's figure is never adopted: an auto-derived window is how the ancestor project came
+to compute every threshold against a model file's architecture maximum rather than the
+window being served. An endpoint that reports no window is fine and blocks nothing; vLLM
+reports one as `max_model_len` (JOURNAL 2026-08-29).
+
+An entry that omits `context_window` inherits the dataclass default silently. That is the
+local form of the same bug, and it is why overflow handling is off by default rather than
+on: arming it against a number nobody chose is worse than not arming it.

@@ -282,6 +282,42 @@ def _repo_top(directory: str) -> str | None:
     return proc.stdout.decode("utf-8", "replace").strip() or None
 
 
+def repo_status(directories: Sequence[str]) -> dict[str, tuple[str, ...]]:
+    """`git status --porcelain` for each work tree containing one of `directories`.
+
+    Ground truth for the report a context-overflow abort produces. The point is not to be
+    helpful about git: it is that an aborted delegation's own account of what it changed
+    is the least trustworthy thing in the room, and this is the one statement about the
+    working tree that does not come from the model (ADR-0007).
+
+    Scoped to the directories handed in -- in practice the parents of files the delegation
+    actually wrote -- and never to the whole workspace. A report that enumerated every
+    root would disclose unrelated in-flight work to whoever reads the failure, and would
+    cost a subprocess per root to do it.
+
+    This is server-side git, exactly as layer 4 already uses it, and not a route into the
+    sandbox: `run_bash` is a different mechanism with a different threat model (ADR-0010).
+    A failure here is swallowed to an empty entry, because a report that cannot be
+    produced must not replace the abort that prompted it.
+    """
+    tops: dict[str, None] = {}
+    for directory in directories:
+        try:
+            top = _repo_top(directory)
+        except PathPolicyError:
+            return {}  # git absent. The abort still stands; it just carries no ground truth.
+        if top:
+            tops[top] = None
+    out: dict[str, tuple[str, ...]] = {}
+    for top in tops:
+        proc = _git(["git", "-C", top, "status", "--porcelain"])
+        if proc.returncode != 0:
+            continue
+        lines = proc.stdout.decode("utf-8", "replace").splitlines()
+        out[top] = tuple(line for line in lines if line.strip())
+    return out
+
+
 def gitignored(reals: Sequence[str]) -> set[str]:
     """Which of `reals` git ignores. One `check-ignore` per repository, not per file.
 

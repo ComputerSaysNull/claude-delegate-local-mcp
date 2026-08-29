@@ -82,6 +82,17 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_KEEP_TOOL_RESULTS` | 6 | Most recent tool results kept intact; older ones collapse to a one-line stub. Every turn resends the whole history, so this is what stops quadratic growth. |
 | `DELEGATE_MAX_BATCH_SIZE` | 12 | **Inert.** Largest accepted delegate_batch request. |
 
+### Context overflow
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DELEGATE_CONTEXT_OVERFLOW_ENABLED` | False | Master switch for both halves of overflow handling: the retroactive check that notices a prompt has stopped growing while the history did not, and the preventive response that tightens retention, nudges and finally aborts as projected usage climbs. Off by default because every threshold here is measured against ModelEntry.context_window, and a registry entry that omits that field inherits a silent default -- arming this against a window nobody set would compute every threshold from a number the operator never chose. |
+| `DELEGATE_OVERFLOW_PLATEAU_SLOP_TOKENS` | 64 est. tokens | Tolerance absorbed before a prompt that did not grow counts as one that could not. Without it a backend trimming a token or two between turns reads as truncation, and the delegation aborts on jitter. |
+| `DELEGATE_OVERFLOW_MIN_GROWTH_TOKENS` | 256 est. tokens | History growth in one turn below which a plateau is evidence of nothing. Sized from measurement, not taste: a nine-word message costs about 100 prompt tokens of chat-template envelope (JOURNAL 2026-08-29), so a threshold in the tens would fire on the envelope alone. A real tool result is far above this. |
+| `DELEGATE_OVERFLOW_RESERVE_FRACTION` | 0.05 | Headroom held back for the reply in every projected-usage figure, as a FRACTION of the model's context window. A fraction rather than a flat count on purpose: a flat reserve large enough to matter for a 1M window exceeds 95% of an 8K one on its own, so the detector would report a small model as full at rest. Scaling it closes that whole bug class instead of picking a number that happens to suit both. |
+| `DELEGATE_OVERFLOW_TIGHTENED_KEEP_TOOL_RESULTS` | 1 | Replaces keep_tool_results once projected usage passes the first threshold, for the rest of the delegation. Retention only tightens; it never relaxes again, because a delegation that recovers headroom by evicting has not stopped growing. |
+| `DELEGATE_OVERFLOW_PROBE_CACHE_TTL` | 900.0 seconds | How long a failed window check is remembered before it is asked again. The point of the expiry is the whole setting: upstream cached this verdict forever, so a single transient outage disabled overflow handling until someone restarted the server. Fifteen minutes is long enough that a dead endpoint is not re-probed on every delegation, and short enough that a recovered one arms itself without intervention. |
+
 ### Timeouts and retries
 
 | Variable | Default | Description |
@@ -126,6 +137,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
 
-*42 settings, 13 of them inert.*
+*48 settings, 13 of them inert.*
 
 <!-- GEN:CONFIG:END -->

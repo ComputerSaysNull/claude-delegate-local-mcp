@@ -229,3 +229,12 @@ delegate_to_agent(
 The result reports `bash_failures` and `last_bash_exit` **captured by the server**, not
 claimed by the model. Trust those over the prose: models misreport command outcomes, and
 the ancestor ships a dedicated test because of it. (ADR-0007)
+
+## The server runs git, and that is not the sandbox
+
+`paths.py` shells out to git twice, both inside the server process: layer 4 runs
+`check-ignore` to decide what a delegated model may see, and `repo_status` runs
+`status --porcelain` for the ground truth in a context-overflow abort report. Neither is a
+route into `run_bash`, which is bwrap-confined and refuses every call until `sandbox.py`
+exists (ADR-0010) — these are the server's own calls, with arguments it chose. `repo_status`
+sees only the work trees holding files the delegation wrote, never every workspace root.

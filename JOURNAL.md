@@ -505,3 +505,44 @@ Structural detection would have matched nothing, every time, and the fallback wo
 been carrying the whole feature while looking like a safety net. Worth knowing before
 writing a detector for any other optional field on this stack: the parameter name is in the
 prose and nowhere else.
+
+## 2026-08-29 — The serving stack does report its own window, and it agrees with ours
+
+Measured before designing the context-overflow probe, because PLAN.md's item 4 speaks of
+"a transport failure while probing" without saying what is probed, and this project has
+no probe of context size at all. Two readings were possible and the measurement decides
+between them, so guessing would have built the wrong thing.
+
+`GET {base_url}/v1/models` returns, per model entry:
+
+    "max_model_len": 1048576
+
+which matches the operator-set `context_window` in `models.toml` exactly. So the probe
+can **validate** rather than derive: the operator's number stays authoritative, and the
+probe's only job is to notice when it disagrees with the server. That distinction is the
+whole lesson of upstream's bug 4, where an auto-probe read the model file's architecture
+maximum instead of the configured window and every threshold was computed against a
+ceiling the backend would never reach.
+
+A trivial completion also confirms usage is reported and usable:
+
+    "usage": {"prompt_tokens": 103, "completion_tokens": 16, "total_tokens": 119,
+              "prompt_tokens_details": {"cached_tokens": 0, ...}}
+
+This mattered because `openai_compat.py` turns a missing `usage` block into `0` with no
+error, which is indistinguishable from a genuinely tiny prompt — a silent zero would have
+made the plateau detector unfalsifiable. It is not missing here.
+
+Two incidental notes, neither load-bearing but both cheap to record:
+
+- `prompt_tokens` was 103 for a nine-word message. That is chat-template overhead, and it
+  means a per-turn growth threshold measured in tens of tokens sits inside the noise of a
+  single message envelope.
+- `prompt_tokens_details.cached_tokens` is reported separately and does **not** reduce
+  `prompt_tokens`. Prefix caching therefore cannot masquerade as a plateau, which is one
+  fewer false-positive source for the retroactive check to defend against.
+
+`max_tokens: 16` returned `finish_reason: "length"` with `content: null` — the same
+reasoning-exhaustion shape recorded on 2026-08-27, reproduced here incidentally at a
+budget far below the floor. Not a new finding; noted only so the transcript is not
+mistaken for a failed probe.

@@ -1,11 +1,11 @@
 """The delegation itself: build a request, send it, hand back what came back.
 
-Still the one-shot path only -- there is no turn loop here yet (M4). What M3 adds is the
-response state machine, in two halves that compose. Below, a dispatch that survives a
+Three layers that compose, built in that order. At the bottom, a dispatch that survives a
 dropped route, a refusal the endpoint calls temporary, and a `Retry-After` it asks us to
-honour. Above that, recovery from a reply that arrived intact and empty because reasoning
+honour. Above it, recovery from a reply that arrived intact and empty because reasoning
 consumed the whole budget (ADR-0014): retry once at a larger budget, then step effort down,
-then say plainly that everything was tried.
+then say plainly that everything was tried. Above that, the turn loop -- turns, tool calls,
+history eviction -- and the context economics that watch what the loop is spending.
 
 This is the only place in the project that *interprets* what a backend handed back, which
 is why the adapter below goes on passing `finish_reason`, the token counts and the raw
@@ -26,9 +26,10 @@ import json
 import random
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, UTC
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 
 from .backends.base import (
     Backend,
@@ -43,7 +44,14 @@ from .backends.base import (
     ToolResultBlock,
     ToolUseBlock,
 )
-from .config import EFFORT_LEVELS, Config
+from .config import (
+    EFFORT_LEVELS,
+    OVERFLOW_ABORT_AT,
+    OVERFLOW_NUDGE_AT,
+    OVERFLOW_TIGHTEN_AT,
+    Config,
+)
+from .paths import repo_status
 from .registry import ModelEntry
 from .tools import REGISTRY, declared_tools, execute_tool
 
@@ -121,6 +129,25 @@ SYSTEM_PROMPT_AGENTIC = (
 
 class InvalidDelegation(ValueError):
     """A caller's argument is wrong. Raised before anything is sent to a backend."""
+
+
+class ContextOverflowAborted(InvalidDelegation):
+    """The delegation was stopped because its context was full, or had silently truncated.
+
+    Carries a state report rather than only a message. An abort here lands in the middle of
+    work: files may already have been written, and the caller's next question is always
+    "what did it actually do to my tree?" The model's own summary is the one answer that
+    cannot be trusted for it, so the report puts the server's ledger of tool calls beside
+    `git status` and lets the reader see where the two disagree (ADR-0007).
+
+    A subclass of `InvalidDelegation` so `server.py`'s existing branch catches it without a
+    second except clause -- but it carries `report`, and `delegate()` returns that rather
+    than only the message.
+    """
+
+    def __init__(self, message: str, *, report: dict[str, object]) -> None:
+        super().__init__(message)
+        self.report = report
 
 
 class DispatchTimedOut(Exception):
@@ -649,6 +676,428 @@ def countdown_line(turns_left: int) -> str:
     return f"[{turns_left} turns remain, this one included.]"
 
 
+# --- context economics --------------------------------------------------------------------
+
+
+# What the model is told when projected usage crosses the nudge threshold. A separate line
+# from `countdown_line` and never a replacement for it: the two say different things -- one
+# counts turns, the other counts room -- and a delegation can be short of either without
+# being short of both.
+WRAP_UP_LINE = (
+    "[context is running short. Stop opening new threads of work: finish what you have, "
+    "and write your answer while there is still room for it.]"
+)
+
+
+def estimate_message_tokens(cfg: Config, message: Message) -> int:
+    """Rough size of one history message, in the same estimated tokens as everything else.
+
+    Deliberately our own estimate rather than anything the backend reports. It is one side
+    of the plateau comparison, and the whole point of that comparison is to hold a number
+    we computed against a number the backend did -- two estimates from the same source
+    could agree while both being wrong.
+
+    Extension-less on purpose: `estimate_tokens` then costs it at the densest ratio it
+    knows, so a message is over-counted rather than under-counted. Under-counting here
+    would suppress a real detection, which is the failure that matters.
+    """
+    nbytes = 0
+    for block in message.content:
+        if isinstance(block, (TextBlock, ThinkingBlock)):
+            nbytes += len(block.text)
+        elif isinstance(block, ToolResultBlock):
+            nbytes += len(block.content)
+        elif isinstance(block, ToolUseBlock):
+            nbytes += len(block.name) + len(_dedup_key(block))
+    return cfg.estimate_tokens(nbytes)
+
+
+def overflow_reserve(cfg: Config, entry: ModelEntry) -> int:
+    """Headroom held back for the reply, as a fraction of *this model's* window.
+
+    A fraction and never a flat count. A flat reserve big enough to be worth holding on a
+    1M-token window is larger than 95% of an 8K one, so the same constant that is prudent
+    for one model reports the other as full while its history is still empty. Upstream
+    shipped the flat version and this is the bug it produced.
+    """
+    return round(entry.context_window * cfg.overflow_reserve_fraction)
+
+
+def projected_fraction(
+    cfg: Config, entry: ModelEntry, last_input_tokens: int, pending_tokens: int
+) -> float:
+    """Share of the window this turn is projected to occupy, in [0, ...).
+
+    **This is the only place the denominator is chosen, and it is `entry.context_window`.**
+    Not `thinking_max_tokens_floor`, which is a reply budget and a different number for a
+    different purpose; not a count of what this server evicted, which measures our own
+    housekeeping rather than the model's room. Four of the five bugs this cost upstream
+    were one shape -- a threshold over the wrong denominator -- so the denominator is read
+    once, here, and every threshold is expressed against what this returns.
+
+    Note that a registry entry omitting `context_window` inherits a default silently
+    (`registry.py`), which is the local form of upstream's "architecture maximum" bug. That
+    is why `context_overflow_enabled` is off by default rather than on.
+    """
+    reserve = overflow_reserve(cfg, entry)
+    return (last_input_tokens + pending_tokens + reserve) / entry.context_window
+
+
+def plateaued_without_eviction(
+    cfg: Config,
+    *,
+    prev_input_tokens: int,
+    this_input_tokens: int,
+    grew_by: int,
+    evicted_this_turn: int,
+) -> bool:
+    """Did the prompt stop growing for a reason this server cannot account for?
+
+    The retroactive half of overflow handling. If we appended real content to the history
+    and the backend's reported prompt nevertheless did not grow, something dropped it --
+    and if this server did not do the dropping, the backend did, silently, which means the
+    model has been answering from a history neither of us can see the whole of.
+
+    `evicted_this_turn` is the explanatory variable and it is **a count this server set at
+    the point it evicted**, never a reading of `finish_reason` and never the model's
+    account of what it still remembers (ADR-0007). That ordering matters: our own eviction
+    is by far the likeliest reason a prompt plateaus, so a check that did not subtract it
+    first would fire constantly on healthy delegations and be switched off within a day.
+
+    `grew_by` is compared against a floor because most turns add almost nothing, and a
+    plateau under an empty append is not evidence of anything. The slop on the other side
+    exists because a backend that trims a token between turns must not read as truncation.
+    """
+    if evicted_this_turn > 0:
+        return False
+    if grew_by <= cfg.overflow_min_growth_tokens:
+        return False
+    return this_input_tokens <= prev_input_tokens + cfg.overflow_plateau_slop_tokens
+
+
+# One tool call as the server saw it: name, the path argument if it had one, and
+# whether it failed. Enough to reconcile against `git status`, and nothing more --
+# result content would make an abort report the size of the delegation it aborted.
+_Ledger = list[tuple[str, str, bool]]
+
+
+@dataclass(frozen=True, slots=True)
+class TurnDiagnostic:
+    """What one turn cost and what it did, kept only when the caller asked for it.
+
+    ADR-0007 extended from exit codes to context economics: every field here is something
+    the server watched, never something the model reported about itself. The aggregate
+    ledger on `AgenticDispatch` says a delegation ran nine turns and evicted twelve results;
+    this says which turn the eviction happened on and what the prompt cost either side of
+    it, which is the difference between knowing a delegation was expensive and knowing why.
+
+    Metadata only, deliberately. Tool results are not carried: a diagnostic that embedded
+    what it was measuring would become the expensive payload it exists to explain.
+    """
+
+    turn: int
+    input_tokens: int
+    output_tokens: int
+    attempts: int
+    effort: str
+    evicted: int
+    tool_calls: tuple[tuple[str, str], ...]  # (name, outcome)
+
+
+@dataclass(frozen=True, slots=True)
+class RereadAfterEviction:
+    """A file read again after this server dropped the first read from the history.
+
+    The measurement that separates a genuinely expensive delegation from one paying twice
+    for the same bytes. Both are slow; only the second is fixable by raising
+    `keep_tool_results`, and without this there is no way to tell them apart -- which is why
+    PLAN.md calls it a prerequisite for sizing eviction rather than a report about it.
+    """
+
+    path: str
+    evicted_at_turn: int
+    reread_at_turn: int
+
+
+def newly_evicted_ids(
+    before: tuple[Message, ...], after: tuple[Message, ...]
+) -> tuple[str, ...]:
+    """Which tool results this eviction pass replaced with the stub, by `tool_use_id`.
+
+    A separate diff rather than a third return value from `evict_stale_tool_results`. That
+    function's `(kept, dropped)` shape is asserted on directly by existing tests, and
+    widening a tuple that other code unpacks is the kind of change that compiles everywhere
+    and breaks one caller quietly. This reads the same two values that function already
+    hands back, so it cannot disagree with it about what happened.
+    """
+    was_stub = {
+        block.tool_use_id
+        for message in before
+        for block in message.content
+        if isinstance(block, ToolResultBlock) and block.content == EVICTED_STUB
+    }
+    return tuple(
+        block.tool_use_id
+        for message in after
+        for block in message.content
+        if isinstance(block, ToolResultBlock)
+        and block.content == EVICTED_STUB
+        and block.tool_use_id not in was_stub
+    )
+
+
+class _Watch:
+    """Everything the server observed about one delegation, in one place.
+
+    Four structures that were separate locals in the turn loop and are one concern: what was
+    called, which file each call named, what the loop evicted, and what it cost. Together
+    they are ADR-0007's ledger for context economics -- server-captured facts, never the
+    model's account of itself.
+
+    `calls` is maintained always, because an overflow abort needs it to produce a report and
+    an abort is not something the caller opted into. The per-turn detail is kept only when
+    `diagnostics` was asked for; the two path dictionaries are maintained regardless, since
+    they cost one small entry per tool call and the correlation they feed cannot be
+    reconstructed after the fact.
+    """
+
+    def __init__(self, *, diagnostics: bool) -> None:
+        self.diagnostics = diagnostics
+        self.calls: _Ledger = []
+        self.turns: list[TurnDiagnostic] = []
+        self.rereads: list[RereadAfterEviction] = []
+        self.turn = 0  # the turn now running, so callees need not be handed it
+        # The aggregate ledger `AgenticDispatch` reports. Counters rather than derived from
+        # `calls`, because `attempts` and `evicted` have no entry there to be derived from.
+        self.attempts = 0
+        self.tool_calls = 0
+        self.tool_errors = 0
+        self.deduped = 0
+        self.evictions = 0
+        self._paths: dict[str, str] = {}  # tool_use_id -> the path argument it carried
+        self._evicted_at: dict[str, int] = {}  # path -> the turn its result was dropped
+
+    def called(self, call: ToolUseBlock, outcome: str) -> None:
+        """Record one tool call, and correlate it against anything we evicted earlier."""
+        is_error = outcome == "error"
+        self.tool_calls += 1
+        self.tool_errors += is_error
+        self.deduped += outcome == "repeat"
+        path = str(call.input.get("path") or "")
+        self.calls.append((call.name, path, is_error))
+        if path:
+            # Keyed by id, because an eviction knows only ids and has to be able to name a
+            # file. The raw argument rather than the resolved path: `tools.py` never hands
+            # the resolved one back, and the model's own argument is what a reader
+            # reconciling this against the tree is looking for anyway.
+            self._paths[call.id] = path
+        self._reread(path)
+
+    def evicted(self, before: tuple[Message, ...], after: tuple[Message, ...], count: int) -> None:
+        self.evictions += count
+        for dropped_id in newly_evicted_ids(before, after):
+            path = self._paths.get(dropped_id)
+            if path:
+                self._evicted_at.setdefault(path, self.turn)
+
+    def _reread(self, path: str) -> None:
+        """Note a file read again after this server dropped the first read of it."""
+        was = self._evicted_at.pop(path, 0) if path else 0
+        if was:
+            self.rereads.append(
+                RereadAfterEviction(path, evicted_at_turn=was, reread_at_turn=self.turn)
+            )
+
+    def turn_cost(self, dispatch: Dispatch, *, evicted: int) -> None:
+        """What this turn cost, recorded the moment the backend answers.
+
+        Here rather than at the end of the turn body, and that is not a stylistic choice:
+        the turn that produces the answer calls no tools and breaks out of the loop before
+        reaching the end of it. Accumulating from down there silently lost the answering
+        turn's attempts from the ledger -- a delegation that retried twice and then answered
+        reported `attempts: 0`, which is exactly the kind of counter that reads as fine.
+        """
+        self.attempts += dispatch.attempts
+        if not self.diagnostics:
+            return
+        self.turns.append(
+            TurnDiagnostic(
+                turn=self.turn,
+                input_tokens=dispatch.response.input_tokens,
+                output_tokens=dispatch.response.output_tokens,
+                attempts=dispatch.attempts,
+                effort=dispatch.effort,
+                evicted=evicted,
+                tool_calls=(),
+            )
+        )
+
+    def turn_tools(self, outcomes: tuple[tuple[str, str], ...]) -> None:
+        """Attach this turn's tool outcomes to the record `turn_cost` already opened."""
+        if self.diagnostics and self.turns:
+            self.turns[-1] = replace(self.turns[-1], tool_calls=outcomes)
+
+
+class _OverflowGuard:
+    """The context economics of one delegation, kept together rather than in the loop.
+
+    Extracted for the reason `Config._validate_retry` was: these are several statements
+    serving a single concern with a name, and the turn loop reads better delegating to it
+    than interleaving it. The side benefit is that the thresholds become testable without
+    running a delegation at all, which matters here -- a check on this path that could not
+    fire would be trusted, and this project has already found four of those.
+
+    Entirely inert unless `context_overflow_enabled`. Every method returns the do-nothing
+    answer when it is off, so the loop needs no second branch around each call.
+    """
+
+    def __init__(self, cfg: Config, entry: ModelEntry) -> None:
+        self.cfg = cfg
+        self.entry = entry
+        # Only ever tightens. A delegation that wins back headroom by evicting has not
+        # stopped growing, so relaxing again would only re-run the same climb.
+        self.keep = cfg.keep_tool_results
+        self.prev_input_tokens = 0  # what the backend reported for the previous request
+        self.pending_tokens = 0  # what we have appended since that request
+        self.tightened_at = 0
+        self.nudged_at = 0
+
+    @property
+    def armed(self) -> bool:
+        return self.cfg.context_overflow_enabled
+
+    def share(self) -> float:
+        return projected_fraction(
+            self.cfg, self.entry, self.prev_input_tokens, self.pending_tokens
+        )
+
+    def added(self, message: Message) -> None:
+        self.pending_tokens += estimate_message_tokens(self.cfg, message)
+
+    def begin_turn(self, *, turn: int, turns: int, ledger: _Ledger) -> None:
+        """Abort if there is no room left, tighten retention if there is nearly none.
+
+        Called before eviction, not after: the projection is what decides how hard to
+        evict, so reading it from a history this turn has already trimmed would be
+        measuring the cure rather than the illness.
+        """
+        if not self.armed:
+            return
+        share = self.share()
+        if share >= OVERFLOW_ABORT_AT:
+            raise ContextOverflowAborted(
+                f"Stopped on turn {turn} of {turns}: projected context use reached "
+                f"{share:.0%} of this model's {self.entry.context_window}-token window, at "
+                f"or past the {OVERFLOW_ABORT_AT:.0%} abort threshold. Continuing would "
+                "have produced an answer written against a history the backend was already "
+                "dropping. The report below is what the server watched happen.",
+                report=_overflow_report(ledger, turn=turn, turns=turns, share=share),
+            )
+        if share >= OVERFLOW_TIGHTEN_AT and not self.tightened_at:
+            self.tightened_at = turn
+            self.keep = self.cfg.overflow_tightened_keep_tool_results
+
+    def observe(
+        self,
+        response: CanonicalResponse,
+        *,
+        evicted_this_turn: int,
+        turn: int,
+        turns: int,
+        ledger: _Ledger,
+    ) -> None:
+        """Record what the prompt actually cost, and abort if it stopped growing.
+
+        `evicted_this_turn` rather than a running total, because what has to be ruled out
+        is an eviction *this* turn -- that is the only one that could explain *this* turn's
+        prompt failing to grow.
+        """
+        if self.armed and turn > 1 and plateaued_without_eviction(
+            self.cfg,
+            prev_input_tokens=self.prev_input_tokens,
+            this_input_tokens=response.input_tokens,
+            grew_by=self.pending_tokens,
+            evicted_this_turn=evicted_this_turn,
+        ):
+            raise ContextOverflowAborted(
+                f"Stopped on turn {turn} of {turns}: about {self.pending_tokens} estimated "
+                f"tokens were added to the history, but the backend reported the prompt "
+                f"moving only from {self.prev_input_tokens} to {response.input_tokens} "
+                "tokens, and this server evicted nothing this turn that would account for "
+                "it. Something upstream is dropping history silently, so anything the "
+                "model says from here is written against a conversation it can no longer "
+                "see the whole of.",
+                report=_overflow_report(ledger, turn=turn, turns=turns, share=None),
+            )
+        self.prev_input_tokens = response.input_tokens
+        self.pending_tokens = 0
+
+    def nudge_due(self, *, turn: int) -> bool:
+        """Whether this turn's results should carry the wrap-up line.
+
+        Asked after the response rather than before it, so the decision uses what the
+        backend said the prompt cost rather than the estimate the turn began on.
+        """
+        if not self.armed or self.share() < OVERFLOW_NUDGE_AT:
+            return False
+        self.nudged_at = self.nudged_at or turn
+        return True
+
+
+def _preserve_across_nudge(
+    response: CanonicalResponse, *, said_before: str
+) -> CanonicalResponse:
+    """Keep what the model said before it was told to wrap up.
+
+    The loop ends on any reply carrying no tool calls, and that reply's text becomes the
+    whole answer. A model answering a wrap-up nudge often replies with an acknowledgement
+    -- "understood, finishing now" -- which under that rule silently replaces the substance
+    it had already written. Upstream shipped exactly this and lost real answers to it.
+
+    So a nudge reply **concatenates and never overwrites**. Only on the nudge path: an
+    ordinary multi-turn delegation still answers with its final turn, because its earlier
+    turns are narration ("let me check that file") and joining those onto every answer
+    would make every answer worse to fix a case that only arises here.
+
+    Returns the response unchanged when there is nothing to preserve, or when the final
+    reply already contains it -- a model that restated its own findings does not need them
+    twice.
+    """
+    if not said_before.strip():
+        return response
+    ending = response.text
+    if said_before.strip() in ending:
+        return response
+    kept = TextBlock(said_before.rstrip() + "\n\n")
+    return replace(response, content=(kept, *response.content))
+
+
+def _overflow_report(
+    ledger: _Ledger, *, turn: int, turns: int, share: float | None
+) -> dict[str, object]:
+    """What the server watched, beside what the working tree says. ADR-0007.
+
+    Two accounts of the same events, deliberately not merged into one. The ledger is every
+    tool call this server ran and whether it failed; `git status` is what is actually on
+    disk. Where they disagree the disagreement is the finding, and a report that reconciled
+    them for the reader would hide it.
+
+    Scoped to the directories the delegation wrote into, never the whole workspace.
+    """
+    writes = [path for name, path, is_error in ledger if name == "write_file" and path]
+    failed = [path for name, path, is_error in ledger if name == "write_file" and is_error]
+    directories = sorted({str(Path(path).parent) for path in writes if path})
+    return {
+        "stopped_on_turn": turn,
+        "of_turns": turns,
+        "projected_context_use": None if share is None else round(share, 4),
+        "tool_calls_run": len(ledger),
+        "files_written": sorted(set(writes) - set(failed)),
+        "writes_that_failed": sorted(set(failed)),
+        "git_status": {top: list(lines) for top, lines in repo_status(directories).items()},
+    }
+
+
 def _dedup_key(call: ToolUseBlock) -> str:
     """A stable rendering of one call's arguments, for comparison only.
 
@@ -679,6 +1128,17 @@ class AgenticDispatch:
     deduped: int = 0
     evicted: int = 0
     hit_turn_limit: bool = False
+    # Zero means never, rather than "on turn zero" -- turns are numbered from one, so the
+    # sentinel cannot collide with a real answer. Reported because a delegation that was
+    # tightened or nudged produced its answer under different conditions from one that was
+    # not, and the caller cannot tell from the text which they are reading.
+    overflow_tightened_at: int = 0
+    overflow_nudged_at: int = 0
+    # Empty unless the caller asked. Absent-not-zero-filled, the same convention
+    # `server.py::_loop_ledger` documents: an empty ledger the caller did not request must
+    # not read as a delegation that did nothing.
+    diagnostics: tuple[TurnDiagnostic, ...] = ()
+    rereads: tuple[RereadAfterEviction, ...] = ()
 
 
 def _assistant_blocks(cfg: Config, response: CanonicalResponse) -> tuple[ContentBlock, ...]:
@@ -732,6 +1192,31 @@ def _run_one_call(
     return result, "error" if result.is_error else "ran"
 
 
+def _run_calls(
+    cfg: Config,
+    calls: tuple[ToolUseBlock, ...],
+    allowed: frozenset[str],
+    cached: dict[tuple[str, str], str],
+    watch: _Watch,
+) -> tuple[list[ContentBlock], tuple[tuple[str, str], ...]]:
+    """One turn's tool calls, run in order. Returns the result blocks, errors and repeats.
+
+    Separate from `_run_one_call` because the ledger entry belongs to the turn rather than
+    to the call: it records the path argument the model asked for, not the path the policy
+    resolved, and that distinction is worth keeping in one visible place. The two can
+    differ, and it is the model's own argument that the abort report needs -- reconciling
+    what it *believed* it wrote against what is on disk is the point of that report.
+    """
+    results: list[ContentBlock] = []
+    outcomes: list[tuple[str, str]] = []
+    for call in calls:
+        block, outcome = _run_one_call(cfg, call, allowed, cached)
+        watch.called(call, outcome)
+        outcomes.append((call.name, outcome))
+        results.append(block)
+    return results, tuple(outcomes)
+
+
 async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
     cfg: Config,
     entry: ModelEntry,
@@ -742,6 +1227,7 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
     effort: str | None = None,
     max_tokens: int | None = None,
     max_turns: int | None = None,
+    diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
@@ -786,18 +1272,24 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
     history: list[Message] = [Message("user", (TextBlock(body),))]
 
     cached: dict[tuple[str, str], str] = {}
-    attempts = tool_calls = tool_errors = deduped = evicted = 0
+    watch = _Watch(diagnostics=diagnostics)
+    guard = _OverflowGuard(cfg, entry)
     dispatch: Dispatch | None = None
+    text_before_nudge = ""
+    nudge_pending = False
     turn = 0
 
     while turn < turns:
         turn += 1
+        watch.turn = turn
         await report_progress(turn, turns)
         final = turn == turns
 
-        trimmed, dropped = evict_stale_tool_results(tuple(history), cfg.keep_tool_results)
-        evicted += dropped
+        guard.begin_turn(turn=turn, turns=turns, ledger=watch.calls)
+        before = tuple(history)
+        trimmed, dropped = evict_stale_tool_results(before, guard.keep)
         history = list(trimmed)
+        watch.evicted(before, trimmed, dropped)
 
         def build(
             level: str, budget: int, *, _msgs: tuple[Message, ...] = tuple(history),
@@ -820,33 +1312,52 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
             effort=resolved_effort, max_tokens=max_tokens,
             sleep=sleep, deadline=deadline, clock=clock,
         )
-        attempts += dispatch.attempts
+        watch.turn_cost(dispatch, evicted=dropped)
+        guard.observe(
+            dispatch.response, evicted_this_turn=dropped, turn=turn, turns=turns,
+            ledger=watch.calls,
+        )
+
         calls = dispatch.response.tool_uses
         if final or not calls:
             break
 
-        history.append(Message("assistant", _assistant_blocks(cfg, dispatch.response)))
-        results: list[ContentBlock] = []
-        for call in calls:
-            block, outcome = _run_one_call(cfg, call, allowed, cached)
-            tool_calls += 1
-            tool_errors += outcome == "error"
-            deduped += outcome == "repeat"
-            results.append(block)
+        assistant = Message("assistant", _assistant_blocks(cfg, dispatch.response))
+        history.append(assistant)
+        guard.added(assistant)
+
+        results, outcomes = _run_calls(cfg, calls, allowed, cached, watch)
+        watch.turn_tools(outcomes)
         results.append(TextBlock(countdown_line(turns - turn)))
-        history.append(Message("user", tuple(results)))
+
+        nudge_pending = guard.nudge_due(turn=turn)
+        if nudge_pending:
+            # Appended alongside the countdown, never instead of it: one counts turns and
+            # the other counts room, and a delegation can be short of either alone.
+            results.append(TextBlock(WRAP_UP_LINE))
+            text_before_nudge = dispatch.response.text
+
+        user_message = Message("user", tuple(results))
+        history.append(user_message)
+        guard.added(user_message)
 
     if dispatch is None:  # unreachable: turns >= 1, so the body ran at least once
         raise InvalidDelegation("max_turns resolved to zero turns.")
     return AgenticDispatch(
-        response=dispatch.response,
+        response=_preserve_across_nudge(
+            dispatch.response, said_before=text_before_nudge if nudge_pending else ""
+        ),
         effort=dispatch.effort,
-        attempts=attempts,
+        attempts=watch.attempts,
         reasoning_exhausted=dispatch.reasoning_exhausted,
         turns=turn,
-        tool_calls=tool_calls,
-        tool_errors=tool_errors,
-        deduped=deduped,
-        evicted=evicted,
+        tool_calls=watch.tool_calls,
+        tool_errors=watch.tool_errors,
+        deduped=watch.deduped,
+        evicted=watch.evictions,
         hit_turn_limit=turn == turns and bool(dispatch.response.tool_uses),
+        overflow_tightened_at=guard.tightened_at,
+        overflow_nudged_at=guard.nudged_at,
+        diagnostics=tuple(watch.turns),
+        rereads=tuple(watch.rereads) if diagnostics else (),
     )

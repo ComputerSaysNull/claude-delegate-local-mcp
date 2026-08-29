@@ -124,7 +124,7 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   What was missing was the call argument itself, which did not exist. A caller's number is
   honoured rather than raised to the floor, since raising it would make the argument
   advisory; the recovery cascade covers a caller who guesses low
-- ⬜ Context-overflow handling, off by default. Promoted from Deferred 2026-08-26 and moved
+- ✅ 2026-08-29 Context-overflow handling, off by default. Promoted from Deferred 2026-08-26 and moved
   out of M3 2026-08-27, because it consumes per-turn history this milestone produces.
   Retroactive abort when prompt size plateaus while history grows *and* this server evicted
   nothing to explain it — the explanatory variable must be a flag this server set, never
@@ -132,7 +132,7 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   slop or a backend trimming a token between turns reads as truncation. Preventive graduated
   response at 70/85/95% of projected usage — tighten retention, wrap-up nudge, hard abort.
   On abort, a state report reconciling the model's ledger against `git status` ground truth
-- ⬜ Negative tests for the bugs that cost upstream, three of one shape — a threshold
+- ✅ 2026-08-29 Negative tests for the bugs that cost upstream, three of one shape — a threshold
   computed against the wrong denominator: firing on this server's own evictions; a band
   firing on ordinary growth; a flat reserve alone exceeding 95% of a small window; a probe
   reading the wrong window. The denominator is `ModelEntry.context_window` and nothing
@@ -146,11 +146,11 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   so there is no two-branch gate to break, and a synthetic two-tier fixture would pass
   whether or not the code had the flaw. Its lesson folds into the wrong-denominator test:
   assert only one branch decides which number is the window
-- ⬜ Diagnostics opt-in per call — action ledger on success as well as failure, per-turn
+- ✅ 2026-08-29 Diagnostics opt-in per call — action ledger on success as well as failure, per-turn
   token and eviction breakdown, and an evicted-then-reread correlation, which is what
   separates a genuinely expensive dispatch from one re-reading what it lost. ADR-0007
   extended from exit codes to context economics, and a prerequisite for sizing eviction
-- ⬜ Two constraints from upstream's bugs: a negative cache expires, or one transient
+- ✅ 2026-08-29 Two constraints from upstream's bugs: a negative cache expires, or one transient
   backend outage disables overflow handling until restart — and a transport failure while
   probing must never populate it, only a confirmed refusal; a nudge reply concatenates and
   never overwrites what the model already said

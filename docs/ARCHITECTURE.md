@@ -1,4 +1,4 @@
-<!-- BUDGET: 330 -->
+<!-- BUDGET: 360 -->
 <!-- Raised from 300 across M2. This document owns wsl.py, paths.py and context.py, and
      all three went from a table row reading "not built" to behaviour that has to be
      explained. Partly paid for by cutting the bytes-per-token measurements, which
@@ -327,3 +327,20 @@ in [AGENTS.md](AGENTS.md). (ADR-0019)
   incrementally either way. Progress notifications — which are *required*, to avoid the
   stdio idle timeout — cover the part that matters. (ADR-0018)
 - **No cloud providers.** Everything cloud-specific in the ancestor was deleted.
+
+## The server decides whether overflow handling may act, and the loop only reads a switch
+
+`WindowCheck` lives beside `BackendCache` and for the same reason: its verdict is per model
+and per process, and re-probing on every delegation would spend a round trip to re-learn
+something that changes only when the operator edits a file.
+
+The verdict is applied by handing `run_agentic_loop` a config whose switch already reflects
+it, rather than by passing the loop a switch and a verdict to combine. `arm_overflow`
+returns a *new* config; the server's own is never mutated, so one model whose endpoint was
+briefly unreachable cannot disarm the feature for every other model in the registry. When
+the server declines to use a feature the operator armed, the reply says so — silence there
+is indistinguishable from the feature working.
+
+`dispatch_delegation` holds the two dispatch paths and the translation of every failure they
+can raise into a `ToolError`. It is out of `build()` because it is the only part of that
+function that is not wiring: which path ran decides which failures are possible.
