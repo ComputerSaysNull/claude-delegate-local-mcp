@@ -1,4 +1,6 @@
-<!-- BUDGET: 375 -->
+<!-- BUDGET: 386      Raised from 375 on 2026-08-29: the mount-level secret denylist is a
+     mechanism this document owns and could not previously describe, because it did not
+     exist. What it replaced was one wrong sentence in AGENTS.md. -->
 <!-- Raised from 300 across M2. This document owns wsl.py, paths.py and context.py, and
      all three went from a table row reading "not built" to behaviour that has to be
      explained. Partly paid for by cutting the bytes-per-token measurements, which
@@ -262,10 +264,10 @@ off, and nothing downstream — not the caller, not the model — can tell from 
 
 ### What is built, and what is still closed
 
-`sandbox.py` exists and its behaviour is proven against a real bubblewrap, but **nothing
-calls it yet**. `run_bash` still refuses unconditionally and is still withheld from
-declaration, because the secret denylist is not yet enforced at the mount level. The module
-is reached only by its own tests until that lands.
+`sandbox.py` exists, its behaviour is proven against a real bubblewrap, and the secret
+denylist is now enforced at the mount level — but **nothing calls it yet**. `run_bash` still
+refuses unconditionally and is still withheld from declaration. The module is reached only by
+its own tests until the tool is wired to it.
 
 One consequence worth naming rather than discovering: the sandbox settings in
 [CONFIGURATION.md](CONFIGURATION.md) lost their *Inert* marker when this module started
@@ -282,6 +284,17 @@ the **path policy** and never enter the sandbox — they run in the server proce
 `run_bash` is confined. That is intended. The policy is sufficient for calls the server
 makes itself, and insufficient only once an arbitrary shell exists — which is why the
 secret denylist is additionally enforced at the *mount* level for `run_bash`.
+
+**Covering up, not leaving out.** An empty root means the denylist cannot subtract: a secret
+is visible only because it sits inside a tree that had to be bound whole. So `run` walks the
+bound HOME and workdir and `build_argv` mounts something empty over each match — `--tmpfs` on
+a directory, `--ro-bind /dev/null` on a file — after every bind, since a shadow needs its tree
+to exist first. The walk is bounded, and exhausting the budget refuses the command rather than
+covering part of a tree. `secret_match` is shared with the path policy, so one list cannot be
+read two ways — which means the layers share limits too: both match resolved paths, so neither
+covers a link whose *name* matches while its target does not. The scan is point-in-time, and
+`run_bash` holds a read-write bind for the whole call, so a file the command writes afterwards
+is not covered and cannot be. Defence in depth for one tool, not a replacement. (ADR-0035)
 
 ### Ground truth over self-report
 

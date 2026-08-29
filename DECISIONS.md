@@ -19,6 +19,59 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0035 — 2026-08-29 — The secret denylist is enforced by covering paths up, not by leaving them out — Accepted
+
+`paths.py` enforces the denylist by refusing a path. The sandbox cannot: bubblewrap starts
+from an **empty root**, so there is nothing to subtract from. A secret is only ever visible
+inside the sandbox because it sits within a tree that had to be bound whole — the sandbox
+HOME, or a workspace. So the denylist is enforced afterwards, by mounting something empty
+over each match: `--tmpfs` over a directory, `--ro-bind /dev/null` over a file. Both
+primitives were checked against a running bwrap 0.9.0 rather than read off documentation,
+which is now the third time that has been the difference between a working argv and a
+plausible one (ADR-0021).
+
+**Covering up needs a concrete path, and the denylist holds patterns.** Hence a walk, which
+is filesystem I/O in a module whose whole design rests on `build_argv` being pure. The walk
+therefore lives in `run`, and `build_argv` takes the results as a parameter. Folding the I/O
+into `build_argv` would make the bind-ordering rules — the security property — assertable
+only on a machine with a real bubblewrap and a real tree, which on Windows, where a
+contributor's first `pytest` happens, means not at all.
+
+**One matcher, not one list.** `secret_match` is lifted out of `paths.py` and shared. Sharing
+only the file would leave two readings of it: a pattern could deny `read_file` while leaving
+the same file readable from a shell, and nothing would report the disagreement. This also
+means the two layers share their limits, deliberately — both match *resolved* paths, so
+neither covers a link whose name matches the list but whose target does not. That gap is
+stated rather than closed, because closing it in one layer only would be worse than having
+it in both.
+
+**Only HOME and the workdir are scanned.** Toolchain binds are read-only paths an operator
+chose, usually under `/usr`. Scanning them is latency spent where credentials do not live,
+and a shadow inside a read-only bind protects nothing that bind did not already protect.
+
+**The scan is bounded, and running out of budget refuses the command.** Fail-closed, for the
+same reason `load_secret_globs` refuses a missing denylist: once the command is running,
+partial coverage is indistinguishable from full coverage, and what was left uncovered is by
+definition what the list exists to cover. The bound is also a latency ceiling — the scan runs
+per call, on `/mnt/c`, which is roughly 12x slower (ADR-0020).
+
+**Symlinks are skipped, and the reason is measured.** Emitting a shadow op on a symlink node
+does not follow it and does not create it; it aborts the entire invocation with `Can't mount
+tmpfs on ...: No such file or directory`. That is fail-closed and leaks nothing, but a
+`~/.ssh` symlinked into a dotfiles repository is common enough that every `run_bash` call
+would die naming neither the denylist nor the link. Skipping loses little: a link's target is
+either inside a bound root, where the walk reaches it by its real path, or outside every
+bound root, where the sandbox never bound it and the link dangles.
+
+**What this is not.** It is defence in depth for one tool, not an authority. The scan is
+point-in-time, and `run_bash` holds a read-write bind for the whole call, so a file the
+command itself writes afterwards is not covered and cannot be. `paths.py` remains the sole
+authority for `read_file` and `write_file`; these stay independent layers, not redundant ones
+(ADR-0010). A reading of this decision that treats the sandbox as making the path policy
+unnecessary has the direction backwards.
+
+---
+
 ## ADR-0034 — 2026-08-29 — No setting runs a shell unconfined, and bind order is part of the policy — Accepted
 
 Three decisions taken while writing `sandbox.py`, recorded because each is easy to

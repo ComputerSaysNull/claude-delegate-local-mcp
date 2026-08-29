@@ -200,7 +200,7 @@ source file, which is backwards — data files are the ones worth trimming. (ADR
 `read_file` and `write_file` are governed by the policy and run in the server process. Only
 `run_bash` enters the sandbox — and a shell can read anything visible to it, so for
 `run_bash` the policy alone is decorative. The secret denylist is therefore *also* enforced
-at the mount level, by never binding matching paths into the sandbox. (ADR-0010)
+at the mount level, by mounting something empty over each match. One matcher. (ADR-0035)
 
 ## A worked example
 

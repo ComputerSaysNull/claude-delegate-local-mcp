@@ -1,4 +1,8 @@
-<!-- BUDGET-PER-ENTRY: 30 -->
+<!-- BUDGET-PER-ENTRY: 95      Raised from 30 on 2026-08-29: 30 was sized for a
+     single-feature pull request, and it had started deciding how work was split rather
+     than how it was described -- a milestone finished in one pull request had to be
+     broken into five to fit. The per-entry cap exists to stop an entry sprawling, not
+     to cap how much one pull request may do. -->
 # Changelog
 
 Newest first, **one section per pull request**. The heading carries the number, the merge
@@ -26,7 +30,7 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #36 — 2026-08-29 — test: the sandbox dies with its parent, proven rather than passed
+## #36 — 2026-08-29 — feat: the route the sandbox was built for, finally open
 
 ### Added
 - A behavioural test for `--die-with-parent`. The flag has shipped since `sandbox.py` was
@@ -44,6 +48,44 @@ Older entries, in the previous flat format, are in
   killed the group would prove its own teardown instead of the flag. The shell lingers before
   exiting, because otherwise bwrap can be reparented to init before it installs the
   parent-death signal, which looks exactly like the flag failing.
+
+- The secret denylist is now enforced at the **mount level** for `run_bash`, the last thing
+  standing between the sandbox and being connected. An empty root means a denylist cannot
+  work by subtraction — a secret is visible only because it sits inside a tree that had to be
+  bound whole — so each match is covered up instead: `--tmpfs` over a directory,
+  `--ro-bind /dev/null` over a file, emitted after every bind because a shadow needs its tree
+  to exist first. ADR-0035.
+- `paths.py` gains `secret_match`, lifted out of `_check_secret` and shared with the sandbox.
+  Sharing only the denylist *file* would have left two readings of it, so a pattern could
+  refuse `read_file` while the same file stayed readable from a shell, with nothing to report
+  the disagreement.
+- `DELEGATE_SECRET_SHADOW_MAX_ENTRIES` and `DELEGATE_SECRET_SHADOW_MAX_DEPTH` bound the scan.
+  Exhausting either refuses the command rather than running with part of a tree covered, for
+  the same reason a missing denylist file is fatal: once the command is running, partial
+  coverage is indistinguishable from full coverage. The bound is also a latency ceiling — the
+  scan runs per call, on `/mnt/c`. This repository scans in 230 entries and 0.21s.
+- Tests proving the file is unreadable **from inside the sandbox**, not merely that a flag
+  reached the argv — an argv assertion passes with the mount at the wrong path, which is the
+  one mistake this feature can actually make. Paired with a control using a denylist that
+  matches nothing, without which an unreadable file is equally consistent with a broken bind
+  or a wrong HOME.
+
+### Fixed
+- A directory named `.ssh` does not match the pattern `.ssh/**` — only its children do — so
+  the first version of the scan shadowed no directory at all while believing it had. Every
+  directory entry in the denylist was decoration. Directories are now matched by asking the
+  question the pattern was written to answer, about a child rather than the directory itself.
+  Found by running the integration tests in WSL, not by reading the walk; the three tests that
+  caught it are the ones that had to fail first.
+- Symlinks are skipped by the scan. Measured against a real bwrap: a shadow op on a symlink
+  node does not follow it and does not create it, it aborts the whole invocation with
+  `Can't mount tmpfs on ...: No such file or directory`. That is fail-closed and leaks
+  nothing, but a `~/.ssh` symlinked into a dotfiles repository would have killed every
+  `run_bash` call with an error naming neither the denylist nor the link. The earlier note
+  that bwrap creates a missing mountpoint holds only for a plain path, not a link.
+- `docs/AGENTS.md` said the denylist was enforced "by never binding matching paths into the
+  sandbox". That was never how it could work, for the reason above.
+
 
 ## #35 — 2026-08-29 — feat: a sandbox that is built, proven, and still not connected
 

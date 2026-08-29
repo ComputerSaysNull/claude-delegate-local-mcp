@@ -365,6 +365,17 @@ class Config:
         "Extra environment names allowed through to a sandboxed command, on top of the "
         "built-in allowlist.",
     )
+    secret_shadow_max_entries: int = _f(
+        10000,
+        "Entries the mount-level secret scan may visit before it gives up and refuses the "
+        "command. Also a latency ceiling: the scan runs per run_bash call, and the "
+        "workspace lives on /mnt/c. This repository scans in 230.",
+    )
+    secret_shadow_max_depth: int = _f(
+        24,
+        "Directory depth the mount-level secret scan may descend before it gives up and "
+        "refuses the command. Guards against a symlink loop the walk cannot see.",
+    )
 
     # ---- agents ------------------------------------------------------------------
     agents_dir: str = _f(
@@ -412,6 +423,8 @@ class Config:
                 "could ever be prefetched."
             )
         for name in (
+            "secret_shadow_max_entries",
+            "secret_shadow_max_depth",
             "turn_timeout",
             "connect_timeout",
             "dispatch_timeout",

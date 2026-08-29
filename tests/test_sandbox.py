@@ -15,6 +15,7 @@ so a hostname-only test would report a tight sandbox that might just have broken
 
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 import subprocess
@@ -39,6 +40,13 @@ needs_bwrap = pytest.mark.skipif(
     ),
 )
 
+SCAN_UNPROVEN = (
+    "SECRET SCAN UNPROVEN BY THIS RUN -- this is not a pass. The walk matches denylist "
+    "patterns against POSIX path suffixes, and os.walk yields backslashes on Windows, so "
+    "it finds nothing here rather than failing. Run it in WSL -- see CONTRIBUTING.md."
+)
+posix_only = pytest.mark.skipif(os.name != "posix", reason=SCAN_UNPROVEN)
+
 WORKDIR = "/mnt/c/Users/dev/proj"
 HOME = "/home/dev/.cache/sandbox-home"
 
@@ -62,7 +70,7 @@ def pairs(argv: list[str], flag: str) -> list[tuple[str, ...]]:
     hand so a test reads as a claim about binds instead of about list offsets.
     """
     arity = {"--bind": 2, "--ro-bind": 2, "--symlink": 2, "--setenv": 2,
-             "--dir": 1, "--chdir": 1, "--share-net": 0, "--clearenv": 0}[flag]
+             "--dir": 1, "--chdir": 1, "--tmpfs": 1, "--share-net": 0, "--clearenv": 0}[flag]
     out = []
     for i, tok in enumerate(argv):
         if tok == flag:
@@ -459,3 +467,218 @@ def test_without_die_with_parent_the_command_does_survive(tmp_path):
         "nothing survived even without --die-with-parent, so the positive test proves "
         "nothing about the flag"
     )
+
+
+# --- secret denylist at the mount level ---------------------------------------------------
+
+
+def globs_file(tmp_path: Path, *patterns: str) -> str:
+    f = tmp_path / "globs.txt"
+    f.write_text("# test denylist\n" + "\n".join(patterns) + "\n", encoding="utf-8")
+    return str(f)
+
+
+def test_a_shadowed_directory_becomes_a_tmpfs_and_a_file_gets_dev_null():
+    """The two primitives are not interchangeable: a tmpfs needs a directory to mount on."""
+    argv = sandbox.build_argv(cfg(), req(), shadows=(
+        sandbox.ShadowTarget(path=f"{HOME}/.ssh", kind="dir", matched=".ssh/**"),
+        sandbox.ShadowTarget(path=f"{HOME}/id_rsa", kind="file", matched="id_rsa*"),
+    ))
+    assert (f"{HOME}/.ssh",) in pairs(argv, "--tmpfs")
+    assert ("/dev/null", f"{HOME}/id_rsa") in pairs(argv, "--ro-bind")
+
+
+def test_shadows_come_after_every_bind():
+    """Rule 3. A shadow covers a path inside a tree a bind created; emit it first and bwrap
+    has nothing to mount on. Checked against the last bind, not the first, because the
+    workdir bind is the one most likely to move."""
+    work = "/mnt/c/Users/dev/proj"
+    argv = sandbox.build_argv(
+        cfg(), req(workdir=work, extra_binds=("/usr/local/bin",)),
+        shadows=(sandbox.ShadowTarget(path=f"{work}/.env", kind="file", matched=".env"),))
+    last_bind = max(
+        i for i, a in enumerate(argv)
+        if a in ("--bind", "--ro-bind") and argv[i + 2] in (HOME, work, "/usr/local/bin")
+    )
+    assert argv.index(f"{work}/.env") > last_bind
+
+
+def test_no_shadows_leaves_the_argv_exactly_as_it_was():
+    assert sandbox.build_argv(cfg(), req()) == sandbox.build_argv(cfg(), req(), shadows=())
+
+
+@posix_only
+def test_the_scan_finds_a_secret_file_and_a_secret_directory(tmp_path):
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "known_hosts").write_text("x", encoding="utf-8")
+    (home / "id_rsa").write_text("x", encoding="utf-8")
+    (home / "notes.md").write_text("x", encoding="utf-8")
+
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=globs_file(tmp_path, ".ssh/**", "id_rsa*")),
+        req(home=str(home)))
+
+    assert {t.path: t.kind for t in found} == {
+        f"{home}/.ssh": "dir", f"{home}/id_rsa": "file"}
+
+
+@posix_only
+def test_a_matched_directory_is_not_descended_into(tmp_path):
+    """Pruning keeps `.git/**` off every loose object, and stops a shadow being emitted
+    inside another one, where the outer tmpfs hides the target the inner op needs."""
+    home = tmp_path / "home"
+    (home / ".ssh" / "nested").mkdir(parents=True)
+    (home / ".ssh" / "nested" / "id_rsa").write_text("x", encoding="utf-8")
+
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=globs_file(tmp_path, ".ssh/**", "id_rsa*")),
+        req(home=str(home)))
+
+    assert [t.path for t in found] == [f"{home}/.ssh"]
+
+
+@posix_only
+def test_the_workdir_is_scanned_too_not_only_home(tmp_path):
+    home, work = tmp_path / "home", tmp_path / "work"
+    home.mkdir()
+    work.mkdir()
+    (work / ".env").write_text("x", encoding="utf-8")
+
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=globs_file(tmp_path, ".env")),
+        req(home=str(home), workdir=str(work)))
+
+    assert [t.path for t in found] == [f"{work}/.env"]
+
+
+@posix_only
+def test_toolchain_binds_are_not_scanned(tmp_path):
+    """Read-only paths an operator chose, usually under /usr. Latency spent where
+    credentials do not live, and a shadow inside a read-only bind protects nothing new."""
+    home, tools = tmp_path / "home", tmp_path / "tools"
+    home.mkdir()
+    tools.mkdir()
+    (tools / "id_rsa").write_text("x", encoding="utf-8")
+
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=globs_file(tmp_path, "id_rsa*")),
+        req(home=str(home), extra_binds=(str(tools),)))
+
+    assert found == ()
+
+
+@posix_only
+def test_a_symlink_is_never_shadowed(tmp_path):
+    """Measured, not assumed: a shadow op on a symlink node aborts the whole bwrap
+    invocation rather than following or creating it. Fail-closed, so nothing leaks, but a
+    ~/.ssh symlinked into a dotfiles repo would then kill every run_bash call."""
+    home = tmp_path / "home"
+    (home / "real").mkdir(parents=True)
+    (home / "real" / "key").write_text("x", encoding="utf-8")
+    (home / "id_rsa").symlink_to(home / "real" / "key")
+
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=globs_file(tmp_path, "id_rsa*")),
+        req(home=str(home)))
+
+    assert found == ()
+
+
+@posix_only
+def test_the_scan_refuses_rather_than_cover_part_of_a_tree(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    for i in range(12):
+        (home / f"f{i}").write_text("x", encoding="utf-8")
+
+    with pytest.raises(sandbox.SecretShadowIncomplete) as e:
+        sandbox.discover_secret_shadows(
+            cfg(secret_globs_file=globs_file(tmp_path, "id_rsa*"),
+                secret_shadow_max_entries=5),
+            req(home=str(home)))
+    assert "run_bash is refused" in str(e.value)
+
+
+@posix_only
+def test_a_tree_deeper_than_the_budget_refuses_too(tmp_path):
+    home = tmp_path / "home"
+    deep = home
+    for i in range(6):
+        deep = deep / f"d{i}"
+    deep.mkdir(parents=True)
+
+    with pytest.raises(sandbox.SecretShadowIncomplete):
+        sandbox.discover_secret_shadows(
+            cfg(secret_globs_file=globs_file(tmp_path, "id_rsa*"),
+                secret_shadow_max_depth=3),
+            req(home=str(home)))
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_denylisted_file_is_unreadable_from_inside_the_sandbox(tmp_path):
+    """From inside, not from the argv. An argv assertion passes with the mount at the wrong
+    path, which is the one mistake this feature can actually make."""
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "id_rsa").write_text("PRIVATE-KEY-BODY", encoding="utf-8")
+
+    result = sandbox.run(
+        cfg(secret_globs_file=globs_file(tmp_path, "id_rsa*")),
+        req(command="cat ~/id_rsa", home=str(home)))
+
+    assert result.exit_code != 0
+    assert "PRIVATE-KEY-BODY" not in result.stdout
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_the_same_file_is_readable_when_the_denylist_does_not_match(tmp_path):
+    """The half that makes the one above able to fail. Without it, an unreadable file is
+    equally consistent with a broken bind, a wrong HOME, or a sandbox reading nothing."""
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "id_rsa").write_text("PRIVATE-KEY-BODY", encoding="utf-8")
+
+    result = sandbox.run(
+        cfg(secret_globs_file=globs_file(tmp_path, "nothing-matches-this")),
+        req(command="cat ~/id_rsa", home=str(home)))
+
+    assert result.exit_code == 0
+    assert "PRIVATE-KEY-BODY" in result.stdout
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_denylisted_directory_reads_empty_from_inside(tmp_path):
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "id_ed25519").write_text("PRIVATE-KEY-BODY", encoding="utf-8")
+
+    result = sandbox.run(
+        cfg(secret_globs_file=globs_file(tmp_path, ".ssh/**")),
+        req(command="ls -A ~/.ssh; echo ---; cat ~/.ssh/id_ed25519 2>&1 || true",
+            home=str(home)))
+
+    listing = result.stdout.split("---")[0]
+    assert listing.strip() == ""
+    assert "PRIVATE-KEY-BODY" not in result.stdout
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_symlinked_secret_does_not_break_the_sandbox(tmp_path):
+    """The availability half of the symlink finding. A shadow op on a link aborts bwrap
+    outright, so the walk skips links -- and this proves the command still runs."""
+    home = tmp_path / "home"
+    (home / "real").mkdir(parents=True)
+    (home / "real" / "key").write_text("x", encoding="utf-8")
+    (home / "id_rsa").symlink_to(home / "real" / "key")
+
+    result = sandbox.run(
+        cfg(secret_globs_file=globs_file(tmp_path, "id_rsa*")),
+        req(command="echo still-running", home=str(home)))
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "still-running"

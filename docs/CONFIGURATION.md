@@ -122,6 +122,8 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_SANDBOX_HOME` | ~/.cache/claude-delegate-local/sandbox-home | Persistent HOME inside the sandbox. The real HOME is never bound, so credential directories are absent rather than merely unwritable. |
 | `DELEGATE_TOOLCHAIN_BINDS` | *(empty)* | Extra read-only binds so tools resolve inside an empty root. Empty means probe for `uv` and bind it: it lives outside the sandbox HOME, so `uv run pytest` fails with 'not found' without this. The single most likely first-run sandbox failure. |
 | `DELEGATE_ENV_PASSTHROUGH` | *(empty)* | Extra environment names allowed through to a sandboxed command, on top of the built-in allowlist. |
+| `DELEGATE_SECRET_SHADOW_MAX_ENTRIES` | 10000 | Entries the mount-level secret scan may visit before it gives up and refuses the command. Also a latency ceiling: the scan runs per run_bash call, and the workspace lives on /mnt/c. This repository scans in 230. |
+| `DELEGATE_SECRET_SHADOW_MAX_DEPTH` | 24 | Directory depth the mount-level secret scan may descend before it gives up and refuses the command. Guards against a symlink loop the walk cannot see. |
 
 ### Agents
 
@@ -136,6 +138,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
 
-*47 settings, 7 of them inert.*
+*49 settings, 7 of them inert.*
 
 <!-- GEN:CONFIG:END -->
