@@ -190,7 +190,18 @@ flag controlling nothing. The design work is not lost — it is recorded under M
 
 - ⬜ `agents.py` — three-tier lookup, frontmatter validated and actually binding
 - ⬜ `delegate_to_agent`, `delegate_batch`, `list_agents`
-- ⬜ Workdir root allowlist, symlink escape closed
+- ⬜ Workdir root allowlist, symlink escape closed. Binding a workspace makes the
+  120s `run_bash_timeout` wrong for the first thing a delegated model will try: this
+  suite needs 157s in WSL and 361s on Windows, so a model asked to run the tests hits
+  the timeout and reports a kill rather than a result. Not a bug today only because
+  `workdir` is `None` for every caller, so no delegation can reach the repository at
+  all. Revisit the default in the same commit that binds a workspace, not after
+
+- ⬜ Declaration must ask whether the sandbox can run, not remember that it could. M5
+  emptied `WITHHELD_TOOL_NAMES`, and `available_tool_names()` takes no `Config`, so on a
+  host without bubblewrap `run_bash` is declared and refuses every call — a turn spent
+  learning what the server already knew (JOURNAL 2026-08-29). Fix where the tool set is
+  resolved, not by re-withholding statically
 
 ## M7 — Admission control and polish
 

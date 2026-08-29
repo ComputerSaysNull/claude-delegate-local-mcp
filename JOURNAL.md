@@ -573,3 +573,66 @@ first attempt measured nothing at all: the step went into the `lint` job, which 
 install bubblewrap, printed `command not found`, and passed anyway because it was marked
 `continue-on-error`. A check that cannot fail, in a spike written to answer whether a check
 could run. Read the log, not the tick.
+
+## 2026-08-29 — Delegation latency measured, and it is generation that varies, not tools
+
+Five identical delegations of each shape against `deepseek-v4-flash`, through
+`server.dispatch_delegation` — the same function the MCP tool calls, skipping only the
+stdio hop and `arm_overflow`.
+
+| Shape | mean | median | min | max | stdev |
+| --- | --- | --- | --- | --- | --- |
+| Tool-using, WSL (2 turns, 1 `read_file`) | 2.23s | 2.22s | 2.19s | 2.30s | **0.04s** |
+| One-shot prose, WSL | 52.44s | 33.63s | 16.67s | **127.42s** | 46.22s |
+| One-shot prose, Windows | 15.62s | 18.53s | 7.95s | 22.99s | 6.89s |
+
+Tool use is not the expensive part. The tool task is 20x faster than the prose task while
+doing strictly more, because its answer is 82 characters and largely determined. The prose
+task varies 8x between runs on identical input, and the slowest run returned the *shortest*
+output of its five — so it is not length, it is model load.
+
+Do not read the Windows/WSL gap as a host difference. With a stdev of 46s on five samples
+the two populations overlap heavily; separating host from noise needs far more runs than
+this. One sample would have been worthless in either direction, which is the point.
+
+For choosing timeouts: a turn is normally seconds to about two minutes. 1800s per turn is
+the right order of magnitude, and nothing here justifies lowering it — a full-cap max-effort
+run is already recorded elsewhere in this journal as taking tens of minutes.
+
+## 2026-08-29 — Running the server on Windows refuses every path, and says the wrong reason
+
+Cost half an hour and a 30-minute hang before it was noticed, because the symptom names
+something else entirely.
+
+A timing harness was pointed at the server from **Windows** Python with
+`workspace_roots=("C:/Users/.../ClaudeLocalMCP",)`. Every `read_file` came back with *"its
+resolved path lies outside the configured workspace root"*. The path was plainly inside the
+root, which is what made it confusing. The path policy normalises to POSIX, so a Windows
+root never matches a resolved path — the server is meant to run in WSL, and the suite's
+`posix_only` markers already encode that, which is why no test catches it.
+
+The delegation did not fail fast. The model retried a call that could never succeed for the
+whole turn budget, six turns, and only then answered that it could not read the file. Five
+repetitions of that is what looked like a hang. The loop behaved correctly throughout; there
+was nothing to fix in it.
+
+Worth knowing twice over: nothing refuses to start the server on Windows, and the refusal a
+delegated model receives blames the workspace configuration rather than the platform.
+
+## 2026-08-29 — Emptying the withhold set offers `run_bash` on hosts that cannot run it
+
+Found while chasing the above, and it is a real regression rather than a curiosity.
+
+`available_tool_names()` subtracts `WITHHELD_TOOL_NAMES`, which M5 emptied, and it takes no
+`Config` — so it never asks `sandbox.available(cfg)`. On a host with no bubblewrap,
+`run_bash` is now declared to the model and refuses every call. The Windows diagnostic above
+shows the cost directly: turn 4 of 6 spent calling `run_bash` and being told no.
+
+The comment deleted when the set was emptied had argued exactly this, about the withholding
+it was justifying: *"Declaring it anyway spends a turn to learn that — and ADR-0016 measured
+that the first turn is already often wasted on orientation, so this would be the second."*
+The reasoning survived the code it was attached to.
+
+The fix is not to re-withhold statically. It is that declaration should ask whether the
+sandbox can actually run, the same way `sandbox.run` already refuses when it cannot — one
+condition, checked where the tool set is resolved rather than remembered as a constant.

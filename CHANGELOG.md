@@ -30,6 +30,40 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #37 — 2026-08-29 — test: isolate roster tests, add pytest-xdist, record timing measurements
+
+### Fixed
+- `test_agent_roster_is_generated.py` edited the real `.claude/agents/*.md` and
+  `CONTRIBUTING.md`, then put them back in a fixture teardown. That teardown runs on an
+  assertion failure but not on a killed process, so an interrupted run left the working tree
+  corrupt with nothing to say so. It now copies the generator and its inputs into a throwaway
+  tree and points the generator at that, which is the pattern five sibling regression tests
+  already use -- the generator resolves its root from its own location, so a copy *is* the
+  repository under test.
+- The same mutation made the suite unsafe to run in parallel: another worker running the
+  read-only roster check saw the perturbed files and failed. Found by running `pytest -n
+  auto`, which failed on roughly half of its runs and passed on the rest. Five consecutive
+  clean runs since, in the configuration that used to fail.
+
+### Added
+- `pytest-xdist` as a dev dependency, opt-in rather than in `addopts`. `-n 8` takes the
+  non-live Windows suite from 181s to 60s, and the full WSL suite from 235s to around 100s.
+  Spawning processes rather than running the tests is the dominant cost on both. What is left
+  varies between 64s and 145s from run to run, and that spread is the live model generating,
+  not the harness -- the rest is steady. Parallelism also turns out to be a check in its own
+  right: it fails on any test that mutates shared state, which is exactly how the defect above
+  surfaced.
+- A test that regenerating makes the roster check pass again. The two tests either side of it
+  assert the check *fails* on a perturbation; without this one, a `--check` that failed
+  unconditionally would satisfy both and be useless.
+
+### Changed
+- Recorded against M6's workspace-bind item: binding a workspace makes the 120s
+  `run_bash_timeout` wrong for the first thing a delegated model will try. This suite needs
+  157s in WSL and 361s on Windows, so a model asked to run the tests would report a kill
+  rather than a result. Not a bug today only because `workdir` is `None` for every caller, so
+  no delegation can reach the repository at all.
+
 ## #36 — 2026-08-29 — feat: run_bash confined, its secrets covered, and its exits measured
 
 ### Added
