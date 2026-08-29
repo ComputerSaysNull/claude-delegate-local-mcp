@@ -98,6 +98,11 @@ Older entries, in the previous flat format, are in
 - Seven patterns that must fire and six that must not, tested separately from the wiring. A
   note appended to every command is one the model learns to skip, which is the same as no
   note, so the negative half is what makes the steer worth having at all.
+- Tests pinning that setup finishes before the command starts, so "covered up" never means
+  "readable for a moment". A shadow that fails to mount aborts bubblewrap with the command
+  never running -- an `echo` would have printed if the two overlapped -- and a shadowed secret
+  read as the very first instruction, repeatedly, never appears. Written because the wording
+  invited the question, and an invariant nobody can check is one that rots.
 
 ### Changed
 - **`run_bash` is declared, and runs commands.** It has been withheld since M4, refusing

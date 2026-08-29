@@ -682,3 +682,54 @@ def test_a_symlinked_secret_does_not_break_the_sandbox(tmp_path):
 
     assert result.exit_code == 0
     assert result.stdout.strip() == "still-running"
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_failed_shadow_means_the_command_never_runs(tmp_path):
+    """Setup completes before exec, so a shadow is never applied around a running command.
+
+    The question this answers is whether "covered up" implies a window in which the secret
+    is readable. It does not, and the proof is negative: a shadow op on a symlink aborts
+    bubblewrap, and if the command were executing while mounts were still being applied, an
+    `echo` would have printed before the abort. Nothing prints. bwrap builds the whole mount
+    namespace, pivots, and only then execs.
+    """
+    home = tmp_path / "home"
+    (home / "real").mkdir(parents=True)
+    (home / "id_rsa").symlink_to(home / "real")
+    argv = sandbox.build_argv(cfg(), req(command="echo COMMAND-RAN", home=str(home)),
+        shadows=(sandbox.ShadowTarget(
+            path=str(home / "id_rsa"), kind="dir", matched="id_rsa*"),))
+    sandbox.ensure_home(str(home))
+
+    proc = subprocess.run(argv, capture_output=True, text=True, timeout=60, check=False)
+
+    assert proc.returncode != 0
+    assert "COMMAND-RAN" not in proc.stdout, (
+        "the command executed despite a failed mount, so setup and execution overlap and a "
+        "shadow could be applied around a running command"
+    )
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_shadowed_secret_is_never_readable_however_early_it_is_read(tmp_path):
+    """The positive half, raced rather than argued.
+
+    A single run proves the shadow is in place by the time a command gets around to reading.
+    Reading as the very first instruction, repeatedly, is what would land in a startup window
+    if one existed.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "id_rsa").write_text("PRIVATE-KEY-BODY", encoding="utf-8")
+    config = cfg(secret_globs_file=globs_file(tmp_path, "id_rsa*"))
+
+    leaked = [
+        r.stdout for _ in range(25)
+        if "PRIVATE-KEY-BODY" in (r := sandbox.run(
+            config, req(command="cat ~/id_rsa", home=str(home)))).stdout
+    ]
+
+    assert leaked == []
