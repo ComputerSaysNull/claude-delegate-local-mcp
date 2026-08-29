@@ -20,6 +20,12 @@ claude-delegate-local-mcp = "claude_delegate_local.main:run"
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
+    # Opt-in parallelism. `-n 8` takes the suite from about three minutes to under one on
+    # Windows, where process spawning rather than the tests is the dominant cost. Left out
+    # of addopts so a plain `pytest` still runs serially and reads normally; the speed is
+    # there when it is wanted. Parallelism is also a check in its own right: it fails on
+    # any test that mutates shared state, which is how the agent-roster one was found.
+    "pytest-xdist>=3.8,<4",
     "ruff>=0.16,<0.17",
 ]
 
