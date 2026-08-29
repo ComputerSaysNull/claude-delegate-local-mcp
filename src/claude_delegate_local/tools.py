@@ -20,6 +20,7 @@ per-call; a server-wide default would be a config default living outside `config
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
@@ -358,6 +359,44 @@ def declared_tools(allowed: Iterable[str]) -> tuple[ToolSpec, ...]:
     return tuple(t.spec for name, t in REGISTRY.items() if name in permitted)
 
 
+# A shell command that rewrites file text, which `write_file` does better. Upstream found a
+# system-prompt instruction did not stop the pattern on retry, so the note is appended to the
+# offending call's own result instead -- next to the evidence, in the turn that has to decide
+# what to do next (ADR-0024).
+#
+# In-place editors are named explicitly rather than caught by a general "looks like editing"
+# rule, because the cost of a false positive is a note the model can ignore and the cost of a
+# false negative is nothing at all. Redirection is the one general case, and it excludes the
+# device targets and fd duplications that are not file edits at all.
+_IN_PLACE = re.compile(
+    r"(?:^|[\s;&|(])(?:sed|perl|ruby|gawk|awk)\s+(?:-\w*\s+)*-[a-z]*i\b"
+    r"|(?:^|[\s;&|(])patch\b"
+    r"|(?:^|[\s;&|(])tee\b(?!\s+/dev/)",
+)
+_REDIRECT = re.compile(r">>?\s*(?![&/]dev/)(?!&)([^\s;&|>]+)")
+
+STEER = (
+    "[note: this command rewrites file text through the shell. write_file is available in "
+    "this delegation and replaces a file whole, which avoids the quoting, escaping and "
+    "partial-match mistakes that in-place edits fail silently on. Advisory only: the command "
+    "above ran and its result stands.]"
+)
+
+
+def _rewrites_text(command: str) -> bool:
+    """Whether a shell command looks like it patches file text.
+
+    Advisory, so this errs toward quiet: a missed case costs nothing, and a false positive
+    costs one line the model may ignore. It must never be read as a reason to block.
+    """
+    if _IN_PLACE.search(command):
+        return True
+    for target in _REDIRECT.findall(command):
+        if not target.startswith("/dev/"):
+            return True
+    return False
+
+
 def execute_tool(
     cfg: Config, call: ToolUseBlock, allowed: Iterable[str]
 ) -> ToolResultBlock:
@@ -372,12 +411,13 @@ def execute_tool(
     would throw away every turn already paid for because the model made one bad call. Telling
     it no and letting it try again is cheaper than starting over.
     """
-    if call.name not in set(allowed):
+    permitted = set(allowed)
+    if call.name not in permitted:
         return ToolResultBlock(
             tool_use_id=call.id,
             content=(
                 f"{call.name!r} is not available in this delegation. Available: "
-                f"{', '.join(sorted(set(allowed))) or 'none'}."
+                f"{', '.join(sorted(permitted)) or 'none'}."
             ),
             is_error=True,
         )
@@ -393,9 +433,15 @@ def execute_tool(
     except (ToolRefused, PathRefused, PathPolicyError) as e:
         return ToolResultBlock(tool_use_id=call.id, content=str(e), is_error=True)
     if isinstance(produced, BashResult):
+        text = produced.text
+        # Gated on the resolved set this function enforces, never on what was declared: the
+        # declared list is a suggestion, and steering toward a tool the executor would refuse
+        # would be worse than staying quiet. `permitted` is that set (ADR-0024).
+        if "write_file" in permitted and _rewrites_text(str(call.input.get("command") or "")):
+            text = text + "\n\n" + STEER
         return ToolResultBlock(
             tool_use_id=call.id,
-            content=produced.text,
+            content=text,
             is_error=produced.is_error,
             bash=produced.outcome,
         )

@@ -85,6 +85,20 @@ Older entries, in the previous flat format, are in
 - A timeout says it timed out, in words, and reports no exit code. A model summarising its own
   run must not be able to read "no exit code" as success.
 
+- A steer from shell text-patching toward `write_file`, appended to that `run_bash` call's
+  own result. When a command rewrites file text -- an in-place `sed`, a redirect into a path,
+  `tee`, `patch` -- the note says `write_file` replaces a file whole and avoids the quoting
+  and partial-match mistakes an in-place edit fails silently on. On the result rather than in
+  the system prompt because upstream found a prompt instruction did not stop the pattern on
+  retry: it has to arrive next to the evidence, in the turn that decides what to do next.
+  Advisory and never blocking -- the error flag and the measured outcome are identical with
+  and without it. ADR-0024.
+- It is gated on the **resolved** tool set the executor enforces, never the declared list.
+  Steering toward a tool the same function would then refuse is worse than staying quiet.
+- Seven patterns that must fire and six that must not, tested separately from the wiring. A
+  note appended to every command is one the model learns to skip, which is the same as no
+  note, so the negative half is what makes the steer worth having at all.
+
 ### Changed
 - `run_bash` no longer refuses unconditionally — but it is **still withheld from
   declaration**, so no model can reach it. The route is not open; this commit only makes the

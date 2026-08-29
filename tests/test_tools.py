@@ -379,3 +379,71 @@ def test_a_timeout_says_so_and_reports_no_exit_code(workspace):
     assert result.bash.ran is True
     assert "timed out" in result.content.lower()
     assert result.is_error is True
+
+
+# --- the write_file steer (ADR-0024) ------------------------------------------------------
+
+
+@pytest.mark.parametrize("command", [
+    "sed -i s/a/b/ config.py",
+    "perl -pi -e s/x/y/ notes.md",
+    "awk -i inplace 1 f.txt",
+    "cat > out.txt << EOF",
+    "echo hi >> server.log",
+    "tee settings.json",
+    "patch < fix.diff",
+])
+def test_shell_text_patching_is_recognised(command):
+    assert tools._rewrites_text(command) is True
+
+
+@pytest.mark.parametrize("command", [
+    "ls -la",
+    "grep needle haystack.txt | head",
+    "pytest -q",
+    "python -c 'print(1)' > /dev/null",
+    "curl -s -o /dev/null http://example",
+    "make 2>&1",
+])
+def test_reading_and_discarding_are_not_patching(command):
+    """The half that makes the steer worth having. A note on every command is a note the
+    model learns to skip, which is the same as no note."""
+    assert tools._rewrites_text(command) is False
+
+
+def test_the_steer_is_appended_when_write_file_is_available(workspace, monkeypatch):
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: None)
+    result = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="sed -i s/a/b/ f.py"),
+        {"run_bash", "write_file"})
+    assert "write_file is available" in result.content
+
+
+def test_the_steer_is_withheld_when_write_file_is_not_in_the_resolved_set(workspace, monkeypatch):
+    """Gated on the set the executor enforces, not the declared list. Steering toward a tool
+    this same function would refuse is worse than staying quiet."""
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: None)
+    result = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="sed -i s/a/b/ f.py"), {"run_bash"})
+    assert "write_file is available" not in result.content
+
+
+def test_the_steer_is_advisory_and_never_changes_the_outcome(workspace, monkeypatch):
+    """Advisory means the result stands: same error flag, same measured outcome, one extra
+    paragraph. A steer that altered either would be a block wearing a note's clothing."""
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: None)
+    steered = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="sed -i s/a/b/ f.py"),
+        {"run_bash", "write_file"})
+    plain = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="sed -i s/a/b/ f.py"), {"run_bash"})
+    assert steered.is_error == plain.is_error
+    assert steered.bash == plain.bash
+    assert steered.content.startswith(plain.content)
+
+
+def test_an_ordinary_command_gets_no_steer_even_with_write_file_available(workspace, monkeypatch):
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: None)
+    result = tools.execute_tool(
+        cfg(workspace), call("run_bash", command="ls -la"), {"run_bash", "write_file"})
+    assert "write_file is available" not in result.content
