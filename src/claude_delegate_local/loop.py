@@ -174,16 +174,33 @@ class DispatchTimedOut(Exception):
 
 @dataclass(frozen=True, slots=True)
 class Delegation:
-    """What to delegate: the task, and the material assembled for it.
+    """What to delegate: the task, the material assembled for it, and the agent's own prompt.
 
-    A value object rather than another parameter, because these are the parts of one
-    prompt and M4 adds a third (the agent body). Keeping them together is what lets the
-    ordering rule live in exactly one place -- `build_one_shot_request` renders them in
-    the fixed order, instead of each caller being trusted to concatenate correctly.
+    A value object rather than three parameters, because these are the parts of one prompt
+    and the order they go in is load-bearing (ADR-0011). `render` is what keeps that rule in
+    one place. It has to be a method rather than a convention: the parked version of this
+    docstring claimed the ordering lived in exactly one place while two call sites -- the
+    one-shot builder and the turn loop -- each concatenated the parts themselves, and the
+    agent body would have been a third segment to add to both. Two sites that must agree and
+    are not made to are a drift waiting to happen.
     """
 
     task: str
     files_block: str = ""
+    agent_body: str = ""
+
+    def render(self) -> str:
+        """The user message: agent body, then files, then task. Never the system prompt.
+
+        The system prompt is a byte-for-byte constant that the cluster caches, so nothing
+        that varies per delegation may enter it -- the agent body included, however much it
+        reads like one (ADR-0011). Task last because it varies most between calls, so a
+        changed byte invalidates the least.
+        """
+        if not self.task or not self.task.strip():
+            raise InvalidDelegation("task is empty. There is nothing to delegate.")
+        parts = (self.agent_body, self.files_block, self.task)
+        return "\n\n".join(part for part in parts if part)
 
 
 def resolve_effort(cfg: Config, entry: ModelEntry, explicit: str | None = None) -> str:
@@ -243,15 +260,11 @@ def build_one_shot_request(
 ) -> CanonicalRequest:
     """One user message, no tools, and a system prompt that does not vary.
 
-    Order inside the message is files then task, which with the static system prompt
-    ahead of both gives the sequence ADR-0011 fixes: system, agent body (M6), files, task
-    last. The task is the part that varies most between calls, so it goes where a changed
-    byte costs the least -- at the end, after everything a second call might share.
+    The static system prompt ahead of `Delegation.render` gives the sequence ADR-0011
+    fixes: system, agent body, files block, task last. The ordering itself lives on
+    `Delegation`, so this function and the turn loop cannot disagree about it.
     """
-    task = delegation.task
-    if not task or not task.strip():
-        raise InvalidDelegation("task is empty. There is nothing to delegate.")
-    body = f"{delegation.files_block}\n\n{task}" if delegation.files_block else task
+    body = delegation.render()
     return CanonicalRequest(
         system=SYSTEM_PROMPT_ONE_SHOT,
         messages=(Message("user", (TextBlock(body),)),),
@@ -1298,11 +1311,7 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
     specs = declared_tools(allowed)
     deadline = clock() + cfg.dispatch_timeout
 
-    task = delegation.task
-    if not task or not task.strip():
-        raise InvalidDelegation("task is empty. There is nothing to delegate.")
-    body = f"{delegation.files_block}\n\n{task}" if delegation.files_block else task
-    history: list[Message] = [Message("user", (TextBlock(body),))]
+    history: list[Message] = [Message("user", (TextBlock(delegation.render()),))]
 
     cached: dict[tuple[str, str], str] = {}
     watch = _Watch(diagnostics=diagnostics)

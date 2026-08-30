@@ -1,4 +1,8 @@
-<!-- BUDGET: 240 -->
+<!-- BUDGET: 256      Raised from 240 on 2026-08-30: agents.py landed, so this document
+     stopped describing a design and started describing behaviour. The added length is one
+     new section -- why an over-cap max_turns is refused in a file and clamped for a caller.
+     A deviation from a rule documented elsewhere has to be written down where someone hits
+     it, or the two documents simply disagree and the reader picks whichever they found. -->
 # Agents and the path policy
 
 Two things a user actually touches: the agent files that shape a delegation, and the rules
@@ -8,9 +12,11 @@ Tool internals are in [TOOLS.md](TOOLS.md), generated from `tools.py`; sandbox
 mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md). Settings are in
 [CONFIGURATION.md](CONFIGURATION.md).
 
-**Status: the path policy is built and enforced; agents are not.** `paths.py` landed in M2;
-`agents.py` is M6, so everything above [The path policy](#the-path-policy) describes a
-design rather than behaviour. The roadmap is [../PLAN.md](../PLAN.md).
+**Status: the lookup and the frontmatter are built and enforced; the MCP tools that reach
+them are not yet.** `paths.py` landed in M2 and `agents.py` in M6. What an agent file means
+is now behaviour rather than design, but `delegate_to_agent` and `list_agents` are still to
+come, so today a definition is loaded by tests and not yet by a caller. The roadmap is
+[../PLAN.md](../PLAN.md).
 
 ## Why agents are files
 
@@ -67,7 +73,7 @@ Everything below the frontmatter is the system prompt.
 |---|---|
 | `model` | Registry key. **Actually binds the dispatch** — see below |
 | `effort` | `off`, `low`, `high`, `max`. Refused loudly if misspelt |
-| `max_turns` | Round trips, capped by the server's hard ceiling |
+| `max_turns` | Round trips. Above the server's hard ceiling the **file is refused**, not clamped — see below |
 | `max_tokens` | Per-reply budget, clamped by the model's cap |
 | `keep_tool_results` | How many recent tool results survive history eviction — [DISPATCH.md](DISPATCH.md) |
 | `allowed_tools` | Restricts what this agent may call. Enforced twice |
@@ -84,6 +90,18 @@ and sent to another.
 
 Precedence: explicit call argument, then frontmatter, then the registry row, then the global
 default.
+
+### An over-cap `max_turns` is refused, where a caller's is clamped
+
+A caller passing `max_turns` above [`max_turns_hard_cap`](CONFIGURATION.md) has it clamped
+in silence, because the work is legitimate and only the number is not
+([DISPATCH.md](DISPATCH.md)). An agent *file* asking for the same thing is refused when it
+loads.
+
+The difference is what happens next. A call argument is gone the moment the call returns; a
+file is committed, read again, and believed. Clamping there would leave the wrong number in
+the file forever, working correctly and reading as though it were in effect — and the person
+who eventually needs those turns would have no way to tell it never had them.
 
 ### `allowed_tools` is enforced twice
 

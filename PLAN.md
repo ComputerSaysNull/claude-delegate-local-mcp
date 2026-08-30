@@ -188,7 +188,16 @@ flag controlling nothing. The design work is not lost — it is recorded under M
 
 ## M6 — Agents, batching, discovery
 
-- ⬜ `agents.py` — three-tier lookup, frontmatter validated and actually binding
+- ✅ 2026-08-30 `agents.py` — three-tier lookup, frontmatter validated and actually binding.
+  Parsed by hand rather than by adding a YAML dependency: the field set is fixed and known,
+  and what a hand parser cannot read it refuses instead of guessing. An unknown key, a
+  misspelt `effort` and a `name:` disagreeing with the filename are all refused, because the
+  ancestor bug this format exists to avoid was frontmatter loaded and then ignored. An
+  over-cap `max_turns` is refused here where a caller's is clamped — a file is committed and
+  read again, so a silent clamp would leave the wrong number in it forever. `Delegation`
+  gained the agent body and a `render` that both prompt-assembly sites now call: the
+  docstring claimed the ordering rule lived in one place while two sites concatenated it
+  themselves, and the body would have been a third segment to keep in step across both
 - ⬜ `delegate_to_agent`, `delegate_batch`, `list_agents`
 - ⬜ Workdir root allowlist, symlink escape closed. Binding a workspace makes the
   120s `run_bash_timeout` wrong for the first thing a delegated model will try: this
