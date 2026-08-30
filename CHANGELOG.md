@@ -30,6 +30,43 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #41 — 2026-08-30 — feat: the five tools, and a batch that shares its prompt
+
+### Added
+- `delegate_to_agent`, `delegate_batch` and `list_agents`. That is five MCP tools, which is
+  the number `docs/AGENTS.md` has promised since M0b, and a test now asserts the exact set
+  rather than membership -- a sixth tool added without argument would otherwise pass, and
+  the cost of one is paid by every caller whose tool list grows.
+- `run_delegation`, the shared body all four delegating paths go through. They differ only
+  in where their arguments come from, so they resolve and then reuse it. A second dispatch
+  path is how the halves of a precedence rule drift apart, and precedence is the whole of
+  what an agent file is.
+- `delegate_batch` shares one agent and one `files[]` across many tasks (ADR-0037). That is
+  the shape ADR-0011's prompt order was already describing -- system, agent body, files,
+  task last, so the task is the part that varies. Everything before it is identical between
+  items and the cluster serves it from its prefix cache: eight questions about one module
+  cost roughly one read of it. Items run concurrently, bounded by the endpoint's own
+  `concurrency`, which the registry has declared since M1 and nothing enforced until now,
+  because nothing until now ran two requests at once. Both directions of that bound are
+  tested -- exceeding it fails, and so does running sequentially.
+- One item failing does not fail the batch. Each result carries its own `ok`, and a failed
+  one carries `error` where its answer would be. Failing the whole call would discard
+  compute already spent on items that worked.
+- The result of an agent delegation names the file that shaped it. The lookup has three
+  tiers, so the agent's name alone does not identify what was read, and a delegation that
+  behaved unexpectedly is usually a file behaving exactly as written.
+
+### Fixed
+- The workdir was used to look an agent up **before** it was root-checked. The lookup reads
+  `<workdir>/.claude/agents/`, so an unvalidated caller path was driving a filesystem read
+  and the root check was merely something that happened afterwards -- which is not a check.
+  Found by a test asserting the refusal for an out-of-root workdir, which instead reported
+  the agent as missing: the lookup had already gone looking in a directory nobody allowed.
+  Verified by restoring the old order and watching the test fail again.
+- `PathRefused` described every refusal as "path(s) in files[]", including the workdir,
+  which is a different surface and is one path rather than a list. It now names the surface
+  it refused.
+
 ## #40 — 2026-08-30 — feat: a delegation can be given a workspace, and the timeout that makes usable
 
 ### Added

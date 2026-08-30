@@ -1,4 +1,5 @@
-<!-- BUDGET: 394      Raised from 386 on 2026-08-30: M6 made what the sandbox binds a
+<!-- BUDGET: 400      Raised from 394 on 2026-08-30: agents.py joined the module table
+     and the tool count in it became a number worth stating. Raised from 386 that day: M6 made what the sandbox binds a
      property of the delegation rather than of the server, and the secret scan widened with
      it. Raised from 375 on 2026-08-29: the mount-level secret denylist is a
      mechanism this document owns and could not previously describe, because it did not
@@ -91,13 +92,14 @@ Prefetching removes several such turns from the front of every delegation.
 | `backends/base.py` | `Backend` protocol and the canonical message shape — [DISPATCH.md](DISPATCH.md) |
 | `backends/openai_compat.py` | The only adapter shipped — [DISPATCH.md](DISPATCH.md) |
 | `loop.py` | The one-shot path, the response state machine and the turn loop — [DISPATCH.md](DISPATCH.md) |
+| `agents.py` | The three-tier agent lookup and the frontmatter — [AGENTS.md](AGENTS.md) |
 | `tools.py` | Model-facing tools, and both `allowed_tools` sites — [TOOLS.md](TOOLS.md) |
 | `sandbox.py` | bubblewrap invocation: the argv, the binds, and the refusal |
-| `server.py` | MCP wiring, the tool declarations, the backend cache |
+| `server.py` | MCP wiring, the five tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run one transport |
 
 The table covers every module; the three marked above live in [DISPATCH.md](DISPATCH.md),
-which owns them. The ancestor put all of this in one large file; we add two concerns it
+which owns them, and `agents.py` in [AGENTS.md](AGENTS.md). The ancestor put all of this in one large file; we add two concerns it
 never had — path translation and sandboxing — so the split follows concerns, not line count.
 `server.py` stays thin wiring; the logic lives in `loop.py`, `backends/` and `context.py`.
 

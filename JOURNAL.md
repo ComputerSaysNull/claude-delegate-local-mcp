@@ -636,3 +636,33 @@ The reasoning survived the code it was attached to.
 The fix is not to re-withhold statically. It is that declaration should ask whether the
 sandbox can actually run, the same way `sandbox.run` already refuses when it cannot — one
 condition, checked where the tool set is resolved rather than remembered as a constant.
+
+## 2026-08-30 — The suite timings that sized `run_bash_timeout`, re-measured
+
+`PLAN.md` and `CHANGELOG.md` both carried "157s in WSL and 361s on Windows" for this
+suite, and the same pull request that recorded those also recorded 181s on Windows and 235s
+in WSL for what reads like the same thing. The two sets disagree about *which host is
+slower*, so at least one was measuring a different population -- most likely one included
+the live-model tests and the other did not, though nothing written down says which.
+
+Re-measured before setting the timeout, since a number nobody can reproduce is not evidence.
+
+| Run | Windows | WSL |
+| --- | --- | --- |
+| Serial | not taken | **281s** |
+| `-n 8` | 95s - 213s | 100s - 187s |
+
+Only the WSL serial figure actually matters for the setting. `run_bash` executes inside
+bwrap inside WSL, and a model told "run the tests" runs `pytest`, not `pytest -n 8`. So 281s
+is the number, and the old 120s default sat below it by more than a factor of two.
+
+The parallel figures are quoted as ranges because that is what they are: five runs across
+the session spanned 95-213s on Windows for an unchanged tree. `#37` recorded 60s and
+attributed the run-to-run spread to the live model generating rather than the harness, which
+is consistent -- but it means a single `-n 8` sample is worth very little, and the 3x
+speed-up it claims is a best case rather than a typical one.
+
+The general lesson is not about pytest. Two figures for the same quantity, in the same
+commit, and nobody noticed until the number had to be used for something. A measurement
+recorded without saying what was measured decays into a number that looks authoritative and
+cannot be checked.

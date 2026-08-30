@@ -1,4 +1,6 @@
-<!-- BUDGET: 272      Raised from 256 on 2026-08-30, same day: the workdir surface
+<!-- BUDGET: 300      Raised from 272 on 2026-08-30: the three tools landed, so the
+     worked examples became real calls and delegate_batch needed its shape stated where
+     someone deciding whether to use it looks. Raised from 256 earlier that day: the workdir surface
      and the extra_binds constraint both became real and both needed stating where someone
      configuring them looks. Raised from 240 earlier that day: agents.py landed, so this document
      stopped describing a design and started describing behaviour. The added length is one
@@ -14,16 +16,16 @@ Tool internals are in [TOOLS.md](TOOLS.md), generated from `tools.py`; sandbox
 mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md). Settings are in
 [CONFIGURATION.md](CONFIGURATION.md).
 
-**Status: the lookup and the frontmatter are built and enforced; the MCP tools that reach
-them are not yet.** `paths.py` landed in M2 and `agents.py` in M6. What an agent file means
-is now behaviour rather than design, but `delegate_to_agent` and `list_agents` are still to
-come, so today a definition is loaded by tests and not yet by a caller. The roadmap is
+**Status: built and enforced.** `paths.py` landed in M2, `agents.py` and the three tools
+that reach it in M6. Everything below describes behaviour. The roadmap is
 [../PLAN.md](../PLAN.md).
 
 ## Why agents are files
 
-There are five MCP tools and there will stay five. A new *kind* of delegated task — review,
-test-writing, refactoring, migration — is a markdown file, not a new tool.
+There are five MCP tools and there will stay five: `delegate`, `delegate_to_agent`,
+`delegate_batch`, `list_agents` and `backend_status`. A new *kind* of delegated task —
+review, test-writing, refactoring, migration — is a markdown file, not a new tool. A test
+asserts the exact set, so a sixth cannot arrive without someone arguing for it.
 
 That keeps the tool list Claude sees from growing without bound, and makes adding a task
 type a file rather than a code change and a release. The format is the one Claude Code
@@ -257,6 +259,30 @@ delegate_to_agent(
   workdir = "C:/proj",
 )
 ```
+
+`workdir` is what separates an agent that can only read from one that can work: it binds
+that directory into the sandbox, writable, so `run_bash` can run the project's tests there.
+It is checked against the workdir roots **before** it is used to look the agent up, since
+the lookup reads `<workdir>/.claude/agents/` and a check that runs afterwards is not a check.
+
+Several tasks over the same material go in one call:
+
+```
+delegate_batch(
+  agent_name = "reviewer",
+  files      = ["C:/proj/src/payments/refund.py"],
+  tasks      = ["Check the currency rounding.",
+                "Check the refund window boundary.",
+                "Check for unhandled partial refunds."],
+)
+```
+
+Every item shares the agent body and the files block and differs only in the task, which is
+exactly the order [ADR-0011](../DECISIONS.md) fixed the prompt in — so the shared part is
+served from the cluster's prefix cache instead of being paid for three times. Items run
+concurrently up to the endpoint's declared `concurrency`, and **one failing does not fail
+the batch**: each result carries its own `ok`, so read `failed` before trusting a summary.
+(ADR-0037)
 
 The result reports `bash_failures` and `last_bash_exit` **captured by the server**, not
 claimed by the model. Trust those over the prose: models misreport command outcomes, and

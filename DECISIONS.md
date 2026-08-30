@@ -19,6 +19,39 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0037 — 2026-08-30 — `delegate_batch` shares one prefix, bounds itself by the endpoint, and reports per item — Accepted
+
+**Context.** `max_batch_size` existed from M0b and nothing else did: no shape, no failure
+contract, no concurrency rule. Three questions had to be answered together, because the
+answer to the first constrains the others.
+
+**Decision — one agent, one `files[]`, many tasks.** The prompt order ADR-0011 fixed is
+system, agent body, files, task last, chosen so the task is the part that varies. That is
+already a description of a batch. Items that share everything but the task share a prompt
+prefix, and the cluster serves a shared prefix from cache, so eight questions about one
+module cost roughly one read of it. The alternative considered, fully independent items,
+was rejected because every item is then a fresh prefix: it saves round trips and nothing
+else, which is close to the caller making N calls. It also discovers a path refusal in item
+nine after eight items have been paid for, where a shared `files[]` resolves once, before
+anything is sent.
+
+**Decision — bounded by `entry.concurrency`.** The registry has declared a per-endpoint
+limit since M1 and nothing enforced it, because until now nothing here ran two requests at
+once. A batch is the first thing that can, so it is the first thing that could break that
+promise. This is not the global token budget: that is M7's, it is a different quantity, and
+`max_inflight_seqs` stays inert.
+
+**Decision — per-item results, and the batch always returns.** Each item carries its own
+`ok`, and a failed one carries `error` where its answer would be. Failing the whole batch
+would discard compute already spent on the items that worked, and on a shared cluster a
+single transient refusal is not rare. This is ADR-0007's stance applied to a new unit: report
+what the server observed, per unit of work, rather than a summary that flattens it.
+
+**Consequences.** A caller must read `failed` before trusting any summary of a batch — a
+partially failed batch still returns successfully, which is the trade for not discarding
+work. Progress is reported per finished item rather than per turn, because turn counts
+interleaved from items running concurrently describe nothing anyone can act on.
+
 ## ADR-0036 — 2026-08-30 — `extra_binds` is scanned for secrets, because an agent file now chooses it — Accepted
 
 **Context.** `discover_secret_shadows` scanned the sandbox HOME and the workdir and
