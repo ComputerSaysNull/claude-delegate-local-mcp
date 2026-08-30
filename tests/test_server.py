@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import shutil
+from pathlib import Path
 
 import httpx
 import pytest
@@ -402,7 +403,14 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_delegate_is_declared_alongside_backend_status():
+def test_exactly_five_tools_are_declared():
+    """docs/AGENTS.md:17 promises five and no more, and this is what holds it to that.
+
+    The promise is the design: a new *kind* of delegated task is a markdown file, not a
+    sixth tool. Asserting the exact set rather than membership is deliberate -- a sixth
+    tool added without argument would otherwise pass, and the cost of that is paid by
+    every caller whose tool list grows, not by whoever added it.
+    """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
 
@@ -410,7 +418,9 @@ def test_delegate_is_declared_alongside_backend_status():
         async with Client(mcp) as client:
             return [t.name for t in await client.list_tools()]
 
-    assert set(asyncio.run(go())) == {"delegate", "backend_status"}
+    assert set(asyncio.run(go())) == {
+        "delegate", "delegate_to_agent", "delegate_batch", "list_agents", "backend_status",
+    }
 
 
 def test_delegate_returns_the_answer_and_the_bookkeeping():
@@ -1005,3 +1015,273 @@ def test_the_ledger_agrees_with_the_model_when_the_model_is_right():
     assert result["bash_calls"] == 1
     assert result["bash_failures"] == 0
     assert result["last_bash_exit"] == 0
+
+
+# --- delegate_to_agent, delegate_batch, list_agents ---------------------------------------
+
+
+def called(handler, tool, *, entries=None, config=None, **kwargs):
+    """Call any tool over a real MCP session against a transport double."""
+    config = config or cfg()
+    entries = entries or (entry(),)
+    mcp = server.build(
+        config, registry(*entries, default=entries[0].key), DoubleCache(config, handler)
+    )
+
+    async def go():
+        async with Client(mcp) as client:
+            return (await client.call_tool(tool, kwargs)).data
+
+    return asyncio.run(go())
+
+
+def agent_file(root: Path, name: str, frontmatter: str = "", body: str = "You help.") -> Path:
+    d = root / ".claude" / "agents"
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{name}.md"
+    path.write_text(f"---\nname: {name}\n{frontmatter}---\n{body}\n", encoding="utf-8")
+    return path
+
+
+@files_posix_only
+def test_the_agent_body_reaches_the_model_and_the_system_prompt_does_not_move(tmp_path):
+    """ADR-0011 at the wire, which is the only place it can actually be checked.
+
+    A unit test can assert the body lands in the user message; only the request that leaves
+    the server proves the system prompt was not quietly rebuilt around it on the way.
+    """
+    agent_file(tmp_path, "helper", body="AGENT INSTRUCTIONS HERE")
+    seen: list[dict] = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(content="done"))
+
+    called(handler, "delegate_to_agent",
+           config=cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere")),
+           agent_name="helper", task="the task", workdir=str(tmp_path))
+
+    messages = seen[0]["messages"]
+    system = [m for m in messages if m["role"] == "system"]
+    user = [m for m in messages if m["role"] == "user"]
+    assert "AGENT INSTRUCTIONS HERE" in user[0]["content"]
+    assert all("AGENT INSTRUCTIONS HERE" not in m["content"] for m in system)
+    body = user[0]["content"]
+    assert body.index("AGENT INSTRUCTIONS HERE") < body.index("the task")
+
+
+@files_posix_only
+def test_the_frontmatter_model_actually_binds(tmp_path):
+    """The ancestor bug, asserted where it does damage: on the wire.
+
+    `model:` was loaded and ignored there. Here the agent names the second registry entry,
+    and what proves it bound is the served id in the request -- not the parsed spec, which
+    would be true even if nothing consumed it.
+    """
+    agent_file(tmp_path, "big", frontmatter="model: second\n")
+    seen: list[str] = []
+
+    def handler(request):
+        seen.append(json.loads(request.content)["model"])
+        return httpx.Response(200, json=chat_reply(content="done"))
+
+    called(handler, "delegate_to_agent",
+           entries=(entry(), entry(key="second", served_model_id="served-id-2")),
+           config=cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere")),
+           agent_name="big", task="t", workdir=str(tmp_path))
+
+    assert seen[0] == "served-id-2", "the frontmatter model did not reach the backend"
+
+
+@files_posix_only
+def test_an_explicit_model_still_beats_the_agent_file(tmp_path):
+    """Precedence, in the direction that lets one hard case go to a larger model without
+    editing a file everyone else uses."""
+    agent_file(tmp_path, "big", frontmatter="model: second\n")
+    seen: list[str] = []
+
+    def handler(request):
+        seen.append(json.loads(request.content)["model"])
+        return httpx.Response(200, json=chat_reply(content="done"))
+
+    called(handler, "delegate_to_agent",
+           entries=(entry(), entry(key="second", served_model_id="served-id-2")),
+           config=cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere")),
+           agent_name="big", task="t", model="flash", workdir=str(tmp_path))
+
+    assert seen[0] == "served-id-1"
+
+
+@files_posix_only
+def test_the_result_names_the_file_that_shaped_it(tmp_path):
+    """The lookup has three tiers, so the name alone does not identify what was read."""
+    path = agent_file(tmp_path, "helper")
+    result = called(chat_handler(content="a"), "delegate_to_agent",
+                    config=cfg(workspace_roots=(str(tmp_path),),
+                               agents_dir=str(tmp_path / "nowhere")),
+                    agent_name="helper", task="t", workdir=str(tmp_path))
+    assert result["agent"] == "helper"
+    assert result["agent_source"] == str(path)
+
+
+@files_posix_only
+def test_a_missing_agent_is_refused_before_anything_is_sent(tmp_path):
+    def explode(request):
+        raise AssertionError("the backend was called for an agent that does not exist")
+
+    with pytest.raises(Exception, match="No agent named"):
+        called(explode, "delegate_to_agent",
+               config=cfg(workspace_roots=(str(tmp_path),),
+                          agents_dir=str(tmp_path / "nowhere")),
+               agent_name="ghost", task="t", workdir=str(tmp_path))
+
+
+@files_posix_only
+def test_a_workdir_outside_every_root_is_refused_before_anything_is_sent(tmp_path):
+    """The path check costs nothing and must not depend on the cluster being reachable."""
+    agent_file(tmp_path, "helper")
+
+    def explode(request):
+        raise AssertionError("the backend was called with an unchecked workdir")
+
+    with pytest.raises(Exception, match="outside every workdir root"):
+        called(explode, "delegate_to_agent",
+               config=cfg(workspace_roots=(str(tmp_path),),
+                          agents_dir=str(tmp_path / "nowhere")),
+               agent_name="helper", task="t", workdir=str(tmp_path.parent))
+
+
+# --- delegate_batch -----------------------------------------------------------------------
+
+
+def test_a_batch_returns_one_result_per_task_in_order():
+    results = called(chat_handler(content="a"), "delegate_batch",
+                     tasks=["one", "two", "three"])
+    assert results["count"] == 3
+    assert [r["index"] for r in results["results"]] == [0, 1, 2]
+    assert [r["task"] for r in results["results"]] == ["one", "two", "three"]
+    assert results["failed"] == []
+    assert all(r["ok"] for r in results["results"])
+
+
+@files_posix_only
+def test_every_item_in_a_batch_shares_the_prefix_and_differs_only_in_the_task(tmp_path):
+    """The reason the tool exists. If the shared part varied per item there would be no
+    cache to hit and a batch would be N separate calls wearing one name."""
+    agent_file(tmp_path, "helper", body="SHARED AGENT BODY")
+    seen: list[str] = []
+
+    def handler(request):
+        seen.append(json.loads(request.content)["messages"][-1]["content"])
+        return httpx.Response(200, json=chat_reply(content="done"))
+
+    called(handler, "delegate_batch",
+           config=cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere")),
+           tasks=["alpha", "beta"], agent_name="helper", workdir=str(tmp_path))
+
+    assert len(seen) == 2
+    prefixes = {body[: body.rindex("\n\n")] for body in seen}
+    assert len(prefixes) == 1, "the shared prefix differed between items"
+    assert all("SHARED AGENT BODY" in body for body in seen)
+    assert {body[body.rindex("\n\n") + 2 :] for body in seen} == {"alpha", "beta"}
+
+
+def test_one_failing_item_does_not_discard_the_others():
+    """The contract. Work already paid for is never thrown away because a later item was
+    refused -- and on a shared cluster a single transient refusal is not rare."""
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if json.loads(request.content)["messages"][-1]["content"].endswith("poison"):
+            return httpx.Response(503, json={"error": "overloaded"})
+        return httpx.Response(200, json=chat_reply(content="fine"))
+
+    results = called(handler, "delegate_batch",
+                     config=cfg(retry_max_attempts=1),
+                     tasks=["good one", "poison", "good two"])
+
+    assert results["failed"] == [1]
+    by_index = {r["index"]: r for r in results["results"]}
+    assert by_index[0]["ok"] and by_index[0]["answer"] == "fine"
+    assert by_index[2]["ok"] and by_index[2]["answer"] == "fine"
+    assert not by_index[1]["ok"]
+    assert "answer" not in by_index[1]
+    assert by_index[1]["error"]
+
+
+def test_a_batch_over_the_cap_is_refused_naming_the_setting():
+    with pytest.raises(Exception, match="DELEGATE_MAX_BATCH_SIZE"):
+        called(chat_handler(), "delegate_batch",
+               config=cfg(max_batch_size=2), tasks=["a", "b", "c"])
+
+
+def test_an_empty_batch_is_refused():
+    with pytest.raises(Exception, match="nothing to delegate"):
+        called(chat_handler(), "delegate_batch", tasks=[])
+
+
+def test_a_batch_never_exceeds_the_endpoints_declared_concurrency():
+    """`concurrency` has been in the registry since M1 and nothing has enforced it. A batch
+    is the first thing here that runs more than one request at once, so it is the first
+    thing that could break the promise the registry makes."""
+    live = {"now": 0, "peak": 0}
+
+    async def handler(request):
+        # `await`, not `time.sleep`: a blocking sleep pins the event loop, and every item
+        # then runs one at a time whatever the semaphore does -- so the test would report
+        # a bound that was really just a stalled loop.
+        live["now"] += 1
+        live["peak"] = max(live["peak"], live["now"])
+        await asyncio.sleep(0.02)
+        live["now"] -= 1
+        return httpx.Response(200, json=chat_reply(content="done"))
+
+    called(handler, "delegate_batch",
+           entries=(entry(concurrency=2),),
+           config=cfg(max_batch_size=8),
+           tasks=[f"task {i}" for i in range(8)])
+
+    assert live["peak"] <= 2, f"ran {live['peak']} at once against an endpoint declaring 2"
+    assert live["peak"] > 1, "ran sequentially; the concurrency the registry declares is unused"
+
+
+# --- list_agents ---------------------------------------------------------------------------
+
+
+@files_posix_only
+def test_list_agents_reports_what_delegate_to_agent_would_find(tmp_path):
+    agent_file(tmp_path, "reviewer",
+               frontmatter="description: Reviews a diff.\nmodel: second\neffort: high\n")
+    agent_file(tmp_path, "writer")
+
+    listed = called(chat_handler(), "list_agents",
+                    entries=(entry(), entry(key="second", served_model_id="served-id-2")),
+                    config=cfg(workspace_roots=(str(tmp_path),),
+                               agents_dir=str(tmp_path / "nowhere")),
+                    workdir=str(tmp_path))
+
+    rows = {a["name"]: a for a in listed["agents"]}
+    assert listed["count"] == 2
+    assert rows["reviewer"]["description"] == "Reviews a diff."
+    assert rows["reviewer"]["model"] == "second"
+    assert rows["reviewer"]["effort"] == "high"
+    assert rows["reviewer"]["source"].endswith("reviewer.md")
+    assert rows["writer"]["model"] == "(the server default)"
+
+
+@files_posix_only
+def test_a_broken_agent_file_is_left_out_rather_than_breaking_the_list(tmp_path):
+    """Discovery is not validation. One unparseable file must not make every other agent
+    undiscoverable -- but asking for it by name still says exactly what is wrong."""
+    agent_file(tmp_path, "good")
+    (tmp_path / ".claude" / "agents" / "broken.md").write_text(
+        "---\nname: broken\nnonsense: 1\n---\nb\n", encoding="utf-8")
+
+    config = cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere"))
+    listed = called(chat_handler(), "list_agents", config=config, workdir=str(tmp_path))
+    assert [a["name"] for a in listed["agents"]] == ["good"]
+
+    with pytest.raises(Exception, match="unknown frontmatter key"):
+        called(chat_handler(), "delegate_to_agent", config=config,
+               agent_name="broken", task="t", workdir=str(tmp_path))

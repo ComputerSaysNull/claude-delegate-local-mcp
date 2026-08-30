@@ -35,6 +35,8 @@ from .backends.base import (
     CanonicalShapeError,
 )
 from .backends.openai_compat import OpenAICompatBackend
+from .agents import AgentError, AgentSpec, load_agent
+from .agents import list_agents as discover_agents
 from .config import Config, ConfigError
 from .context import prefetch
 from .loop import (
@@ -47,9 +49,9 @@ from .loop import (
     run_agentic_loop,
     run_one_shot,
 )
-from .paths import PathPolicyError, PathRefused, resolve_all
+from .paths import PathPolicyError, PathRefused, resolve_all, resolve_workdir
 from .registry import ModelEntry, Registry, RegistryError
-from .tools import resolve_allowed
+from .tools import BashPolicy, resolve_allowed
 
 SERVER_NAME = "delegate-local"
 
@@ -257,6 +259,8 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     allowed: frozenset[str],
     effort: str | None,
     max_tokens: int | None,
+    max_turns: int | None = None,
+    policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]],
 ) -> Dispatch | AgenticDispatch:
@@ -271,6 +275,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
             return await run_agentic_loop(
                 cfg, entry, backend, delegation,
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
+                max_turns=max_turns, policy=policy,
                 diagnostics=diagnostics, report_progress=report_progress,
             )
         # An explicitly empty toolset. Not the loop with nothing declared: the one-shot
@@ -385,7 +390,164 @@ def _refuse(e: Exception) -> ToolError:
     return ToolError(str(e))
 
 
-def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) -> FastMCP:
+async def run_delegation(  # noqa: PLR0913 -- the union of one tool's arguments
+    cfg: Config,
+    registry: Registry,
+    cache: BackendCache,
+    windows: WindowCheck,
+    *,
+    task: str,
+    files: list[str] | None = None,
+    model: str | None = None,
+    effort: str | None = None,
+    allowed_tools: list[str] | None = None,
+    max_tokens: int | None = None,
+    agent: AgentSpec | None = None,
+    workdir: str | None = None,
+    diagnostics: bool = False,
+    ctx: Context | None = None,
+) -> dict[str, Any]:
+    """One delegation, from arguments to the result dict. Shared by every tool that runs one.
+
+    `delegate`, `delegate_to_agent` and each item of `delegate_batch` differ only in where
+    their arguments come from, so they resolve and then reuse this rather than each growing
+    a dispatch path of its own. A second path is how the two halves of a precedence rule
+    drift apart, and precedence is exactly what an agent file is.
+
+    The agent, if there is one, is already loaded and validated -- this applies it, and
+    does not go looking for it. `workdir` arrives already resolved and root-checked.
+    """
+    max_turns: int | None = None
+    # Precedence, once, here: explicit call argument, then the agent file, then the
+    # registry row, then the global default (docs/AGENTS.md). Resolved to a single
+    # `ModelEntry` that is then used for everything -- the backend cache key, the dispatch,
+    # and whatever counts concurrency against the endpoint. The ancestor bug this guards is
+    # two of those resolving separately and disagreeing, so a request is counted against one
+    # endpoint and sent to another.
+    try:
+        entry = registry.resolve(model or (agent.model if agent else None))
+    except RegistryError as e:
+        raise ToolError(str(e)) from e  # already names the registered keys
+
+    if agent is not None:
+        effort = effort or agent.effort
+        max_tokens = max_tokens or agent.max_tokens
+        max_turns = agent.max_turns
+        if allowed_tools is None and agent.allowed_tools is not None:
+            allowed_tools = list(agent.allowed_tools)
+        if agent.keep_tool_results is not None:
+            # `replace` rather than another parameter through `run_agentic_loop`, which is
+            # already at its argument limit. The same seam `arm_overflow` uses below.
+            #
+            # The tightened value moves with it. `Config` refuses to load when the overflow
+            # figure exceeds the ordinary one, and rightly -- crossing a threshold must
+            # narrow the history, never widen it. An agent asking to keep fewer results than
+            # the configured overflow value would otherwise fail validation here, mid-call,
+            # naming a setting the caller never touched.
+            cfg = replace(
+                cfg,
+                keep_tool_results=agent.keep_tool_results,
+                overflow_tightened_keep_tool_results=min(
+                    cfg.overflow_tightened_keep_tool_results, agent.keep_tool_results
+                ),
+            )
+
+    # Before the backend is even looked up: a refused path must cost nothing, and
+    # must not depend on whether the cluster happens to be reachable today.
+    try:
+        resolved = resolve_all(cfg, files or [])
+    except PathRefused as e:
+        raise ToolError(str(e)) from e
+    except PathPolicyError as e:
+        raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
+
+    prefetched = prefetch(cfg, resolved)
+
+    try:
+        backend = cache.get(entry)
+    except (ConfigError, CanonicalShapeError) as e:
+        raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
+
+    delegation = Delegation(
+        task=task,
+        files_block=prefetched.block(),
+        agent_body=agent.body if agent else "",
+    )
+    allowed = resolve_allowed(allowed_tools, cfg)
+    policy = BashPolicy(
+        workdir=workdir,
+        network=agent.network if agent else False,
+        extra_binds=agent.extra_binds if agent else (),
+    )
+
+    async def progress(turn: int, of: int) -> None:
+        """ADR-0018: this is what stops the client abandoning a delegation still running.
+
+        The client's stdio idle timer is 1800s and `dispatch_timeout` defaults to 3600s,
+        so without a per-turn notification a long delegation is dropped by the caller
+        while the server works on. Nothing renders it and it cannot be cancelled through
+        -- resetting that timer is the whole of its job.
+        """
+        if ctx is not None:
+            await ctx.report_progress(progress=turn, total=of)
+
+    loop_cfg, overflow_off_because = await arm_overflow(
+        windows, backend, entry, cfg, agentic=bool(allowed)
+    )
+    dispatched = await dispatch_delegation(
+        loop_cfg, entry, backend, delegation,
+        allowed=allowed, effort=effort, max_tokens=max_tokens,
+        max_turns=max_turns, policy=policy,
+        diagnostics=diagnostics, report_progress=progress,
+    )
+
+    response = dispatched.response
+    answer = response.text
+    return {
+        **prefetched.accounting(),
+        # Which file shaped this, when one did. A delegation that behaved unexpectedly is
+        # usually an agent file behaving as written, and the caller cannot check that
+        # without knowing which file was read -- the lookup has three tiers, so the name
+        # alone does not identify it.
+        **({"agent": agent.name, "agent_source": agent.source_path} if agent else {}),
+        "answer": answer,
+        # The model as the backend reported it, not as the caller asked for it.
+        # Server-captured ground truth is the only kind worth reporting. ADR-0007.
+        "model": response.model,
+        "finish_reason": response.finish_reason,
+        "input_tokens": response.input_tokens,
+        "output_tokens": response.output_tokens,
+        "effort": dispatched.effort,
+        # Real backend calls made, counted by the server rather than inferred. More
+        # than one means something failed and was retried without the caller having to
+        # care; the token counts above describe the attempt that answered, not the sum.
+        "attempts": dispatched.attempts,
+        # The loop's ledger, and only when there was a loop. Reporting turns: 1 for the
+        # one-shot path would be a number the caller could compare against a budget that
+        # never applied to it. ADR-0007: what the server watched, not what was claimed.
+        **_loop_ledger(dispatched),
+        # Still the mechanical fact, and still reported on its own: "" must never read
+        # as a successful reply. What changed is that reaching here means the state
+        # machine already tried a larger budget and a lower effort.
+        "empty_response": answer == "",
+        # The diagnosis, which is a different claim and only earned once the
+        # mitigations have actually been spent. True means every one was tried and the
+        # answer is still empty at a length stop -- ADR-0014's reasoning_exhausted_budget.
+        # False alongside an empty answer means the effort was already at its lowest,
+        # so nothing was left to step down and the budget, not the reasoning, is what
+        # ran out. Two different fixes, which is why they are two different fields.
+        "reasoning_exhausted": dispatched.reasoning_exhausted,
+        # Present only when the operator armed overflow handling and this server
+        # declined to use it. Absent means it was off, or on and working -- the two the
+        # caller has no decision to make about.
+        **({"overflow_disarmed": overflow_off_because} if overflow_off_because else {}),
+        **_diagnostics_block(dispatched, requested=diagnostics),
+    }
+
+
+def build(  # noqa: PLR0915 -- the statement count is the tool count; see the docstring
+    cfg: Config, registry: Registry, cache: BackendCache | None = None
+) -> FastMCP:
     """Construct the server. Pure wiring; no I/O beyond what the tools do when called.
 
     `cache` is injectable for the same reason `OpenAICompatBackend` takes a `client`:
@@ -497,86 +659,202 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
         If the call fails outright, `backend_status()` will say whether the model is down,
         misconfigured, or serving something other than it should.
         """
-        try:
-            entry = registry.resolve(model)
-        except RegistryError as e:
-            raise ToolError(str(e)) from e  # already names the registered keys
+        return await run_delegation(
+            cfg, registry, cache, windows,
+            task=task, files=files, model=model, effort=effort,
+            allowed_tools=allowed_tools, max_tokens=max_tokens,
+            diagnostics=diagnostics, ctx=ctx,
+        )
 
-        # Before the backend is even looked up: a refused path must cost nothing, and
-        # must not depend on whether the cluster happens to be reachable today.
+    def _load(agent_name: str, workdir: str | None) -> AgentSpec:
         try:
-            resolved = resolve_all(cfg, files or [])
+            return load_agent(cfg, agent_name, workdir)
+        except AgentError as e:
+            raise ToolError(str(e)) from e
+
+    def _workdir(given: str | None) -> str | None:
+        """Resolved and root-checked once, here, so every tool below gets the same answer."""
+        if given is None:
+            return None
+        try:
+            return resolve_workdir(cfg, given)
         except PathRefused as e:
             raise ToolError(str(e)) from e
         except PathPolicyError as e:
             raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
-        prefetched = prefetch(cfg, resolved)
+    @mcp.tool
+    async def delegate_to_agent(  # noqa: PLR0913 -- ctx is injected, not a caller argument
+        agent_name: str,
+        task: str,
+        files: list[str] | None = None,
+        workdir: str | None = None,
+        *,
+        model: str | None = None,
+        effort: str | None = None,
+        allowed_tools: list[str] | None = None,
+        max_tokens: int | None = None,
+        diagnostics: bool = False,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        """Delegate to a named agent -- a markdown file that shapes how the task is done.
 
+        Use this over `delegate` when the work has a *kind*: writing tests, reviewing a
+        diff, migrating an API. The agent file carries the instructions, the model, the
+        reasoning effort and the tools that kind of work needs, so you send the task and not
+        the preamble. `list_agents()` shows what is available.
+
+        `workdir` is what makes an agent able to work rather than only read. It binds that
+        directory into the sandbox, writable, so `run_bash` can run the project's tests or
+        its linter there. Without it the model can still read files you name and write
+        through `write_file`, but a shell has nothing of yours to run against. Give the
+        repository root, in whatever path form you already have.
+
+        Every explicit argument here wins over the agent file, so you can send one hard case
+        to `test-writer` at a larger model without editing the file. Omit them and the file
+        decides.
+
+        The reply is `delegate`'s, plus `agent` naming the file that was used. Read
+        `bash_failures` and `last_bash_exit` over the model's own prose: those are real
+        process exits the server captured, and a model summarising its own test run is not
+        evidence (ADR-0007).
+        """
+        # The workdir is checked *before* it is used to look anything up. The agent lookup
+        # reads `<workdir>/.claude/agents/`, so passing the caller's argument to it
+        # unchecked would let an unvalidated path drive a filesystem read -- the root check
+        # would then be a thing that happened afterwards, which is not a check at all.
+        resolved_workdir = _workdir(workdir)
+        agent = _load(agent_name, resolved_workdir)
+        return await run_delegation(
+            cfg, registry, cache, windows,
+            task=task, files=files, model=model, effort=effort,
+            allowed_tools=allowed_tools, max_tokens=max_tokens,
+            agent=agent, workdir=resolved_workdir,
+            diagnostics=diagnostics, ctx=ctx,
+        )
+
+    @mcp.tool
+    async def delegate_batch(  # noqa: PLR0913 -- ctx is injected, not a caller argument
+        tasks: list[str],
+        agent_name: str | None = None,
+        files: list[str] | None = None,
+        workdir: str | None = None,
+        *,
+        model: str | None = None,
+        effort: str | None = None,
+        allowed_tools: list[str] | None = None,
+        max_tokens: int | None = None,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        """Run several tasks sharing one agent and one set of files, and get all the answers.
+
+        The point is the sharing. Every task gets the same agent body and the same `files[]`
+        block, and only the task itself differs -- so the whole prompt up to the task is
+        identical between them and the cluster serves it from cache. A batch of eight
+        questions about one module costs roughly one read of that module, not eight. Eight
+        separate `delegate` calls pay for it eight times.
+
+        So use it when the tasks genuinely share context: several questions about the same
+        files, one review applied under different criteria, one migration described once and
+        applied to a list of call sites. When they do not share context, call `delegate` for
+        each -- an unrelated batch saves nothing and delays the first answer until the last
+        one is done.
+
+        Items run concurrently, bounded by what the model's registry entry says its endpoint
+        will take, so a large batch queues rather than swamping it.
+
+        **One item failing does not fail the batch.** Each result carries its own `ok`, and a
+        failed one carries `error` instead of an answer, with the `index` and `task` that
+        produced it. Work already done is never discarded because a later item was refused.
+        Read `failed` before trusting any summary of the whole thing.
+        """
+        if not tasks:
+            raise ToolError("tasks[] is empty. There is nothing to delegate.")
+        if len(tasks) > cfg.max_batch_size:
+            raise ToolError(
+                f"{len(tasks)} tasks exceeds DELEGATE_MAX_BATCH_SIZE "
+                f"({cfg.max_batch_size}). Split it, or raise the setting. The cap exists "
+                "because every item holds a slot on a shared endpoint while it runs."
+            )
+
+        # Checked before it is used to look anything up, as in `delegate_to_agent`.
+        resolved_workdir = _workdir(workdir)
+        agent = _load(agent_name, resolved_workdir) if agent_name else None
+
+        # The endpoint's own declared limit, which nothing has enforced until now. A batch is
+        # the first thing in this server that runs more than one request at a time, so it is
+        # the first thing that could exceed it. The global budget is M7's; this is not it.
         try:
-            backend = cache.get(entry)
-        except (ConfigError, CanonicalShapeError) as e:
-            raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
+            entry = registry.resolve(model or (agent.model if agent else None))
+        except RegistryError as e:
+            raise ToolError(str(e)) from e
+        gate = asyncio.Semaphore(max(1, entry.concurrency))
 
-        delegation = Delegation(task=task, files_block=prefetched.block())
-        allowed = resolve_allowed(allowed_tools, cfg)
+        done = 0
 
-        async def progress(turn: int, of: int) -> None:
-            """ADR-0018: this is what stops the client abandoning a delegation still running.
-
-            The client's stdio idle timer is 1800s and `dispatch_timeout` defaults to 3600s,
-            so without a per-turn notification a long delegation is dropped by the caller
-            while the server works on. Nothing renders it and it cannot be cancelled through
-            -- resetting that timer is the whole of its job.
-            """
+        async def run(index: int, one: str) -> dict[str, Any]:
+            nonlocal done
+            async with gate:
+                try:
+                    outcome = await run_delegation(
+                        cfg, registry, cache, windows,
+                        task=one, files=files, model=model, effort=effort,
+                        allowed_tools=allowed_tools, max_tokens=max_tokens,
+                        agent=agent, workdir=resolved_workdir,
+                        # No `ctx`: progress is reported per finished item below, not per
+                        # turn. Turn counts interleaved from items running at once would
+                        # describe nothing a reader could act on.
+                        diagnostics=False, ctx=None,
+                    )
+                except ToolError as e:
+                    # Caught rather than raised, which is the whole contract: an item that
+                    # failed must not discard the ones that worked. Every failure inside
+                    # `run_delegation` has already been translated into a `ToolError`.
+                    outcome = {"ok": False, "error": str(e)}
+                else:
+                    outcome = {"ok": True, **outcome}
+            done += 1
             if ctx is not None:
-                await ctx.report_progress(progress=turn, total=of)
+                await ctx.report_progress(progress=done, total=len(tasks))
+            return {"index": index, "task": one, **outcome}
 
-        loop_cfg, overflow_off_because = await arm_overflow(
-            windows, backend, entry, cfg, agentic=bool(allowed)
-        )
-        dispatched = await dispatch_delegation(
-            loop_cfg, entry, backend, delegation,
-            allowed=allowed, effort=effort, max_tokens=max_tokens,
-            diagnostics=diagnostics, report_progress=progress,
-        )
-
-        response = dispatched.response
-        answer = response.text
+        results = await asyncio.gather(*(run(i, t) for i, t in enumerate(tasks)))
         return {
-            **prefetched.accounting(),
-            "answer": answer,
-            # The model as the backend reported it, not as the caller asked for it.
-            # Server-captured ground truth is the only kind worth reporting. ADR-0007.
-            "model": response.model,
-            "finish_reason": response.finish_reason,
-            "input_tokens": response.input_tokens,
-            "output_tokens": response.output_tokens,
-            "effort": dispatched.effort,
-            # Real backend calls made, counted by the server rather than inferred. More
-            # than one means something failed and was retried without the caller having to
-            # care; the token counts above describe the attempt that answered, not the sum.
-            "attempts": dispatched.attempts,
-            # The loop's ledger, and only when there was a loop. Reporting turns: 1 for the
-            # one-shot path would be a number the caller could compare against a budget that
-            # never applied to it. ADR-0007: what the server watched, not what was claimed.
-            **_loop_ledger(dispatched),
-            # Still the mechanical fact, and still reported on its own: "" must never read
-            # as a successful reply. What changed is that reaching here means the state
-            # machine already tried a larger budget and a lower effort.
-            "empty_response": answer == "",
-            # The diagnosis, which is a different claim and only earned once the
-            # mitigations have actually been spent. True means every one was tried and the
-            # answer is still empty at a length stop -- ADR-0014's reasoning_exhausted_budget.
-            # False alongside an empty answer means the effort was already at its lowest,
-            # so nothing was left to step down and the budget, not the reasoning, is what
-            # ran out. Two different fixes, which is why they are two different fields.
-            "reasoning_exhausted": dispatched.reasoning_exhausted,
-            # Present only when the operator armed overflow handling and this server
-            # declined to use it. Absent means it was off, or on and working -- the two the
-            # caller has no decision to make about.
-            **({"overflow_disarmed": overflow_off_because} if overflow_off_because else {}),
-            **_diagnostics_block(dispatched, requested=diagnostics),
+            "results": list(results),
+            "count": len(results),
+            "failed": [r["index"] for r in results if not r["ok"]],
+            **({"agent": agent.name} if agent else {}),
+        }
+
+    @mcp.tool
+    async def list_agents(workdir: str | None = None) -> dict[str, Any]:
+        """List the agents available to `delegate_to_agent`, and where each was found.
+
+        Call this before guessing an agent name. Each row carries the `name` to pass, the
+        `description` the file gives itself, the `model` and `effort` it binds, and the
+        `source` it was read from.
+
+        `workdir` matters. Agents are looked for in that project first and in your personal
+        directory second, so a repository can ship one that knows its own conventions. Pass
+        the same `workdir` you intend to delegate with, or this list will not match what a
+        delegation would actually find.
+
+        A file that does not parse is left out rather than breaking the list. Ask for it by
+        name with `delegate_to_agent` to see exactly what is wrong with it.
+        """
+        found = discover_agents(cfg, _workdir(workdir))
+        return {
+            "agents": [
+                {
+                    "name": a.name,
+                    "description": a.description,
+                    "model": a.model or "(the server default)",
+                    "effort": a.effort or "(the model default)",
+                    "source": a.source_path,
+                }
+                for a in found
+            ],
+            "count": len(found),
         }
 
     @mcp.tool

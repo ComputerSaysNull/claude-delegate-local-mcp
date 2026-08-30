@@ -198,7 +198,16 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   gained the agent body and a `render` that both prompt-assembly sites now call: the
   docstring claimed the ordering rule lived in one place while two sites concatenated it
   themselves, and the body would have been a third segment to keep in step across both
-- ⬜ `delegate_to_agent`, `delegate_batch`, `list_agents`
+- ✅ 2026-08-30 `delegate_to_agent`, `delegate_batch`, `list_agents`. All three resolve and
+  then reuse `run_delegation`, the seam `delegate` already went through, so precedence lives
+  in one place rather than once per tool. `delegate_batch` shares one agent and one
+  `files[]` across many tasks, which is the shape ADR-0011's prompt order was already
+  describing: everything up to the task is identical, so the cluster serves it from cache.
+  Bounded by the endpoint's own `concurrency`, declared in the registry since M1 and
+  enforced here for the first time because nothing until now ran two requests at once. One
+  failing item does not fail the batch (ADR-0037). The workdir is root-checked **before** it
+  is used to look an agent up, since the lookup reads `<workdir>/.claude/agents/` — caught
+  by a test asserting the refusal, which instead reported the agent as missing
 - ✅ 2026-08-30 Workdir root allowlist, symlink escape closed. `resolve_workdir` checks the
   argument against `workdir_roots`, resolving before comparing so a symlink inside a root
   pointing out of it is refused on where it lands. `network` and `extra_binds` stopped being

@@ -91,13 +91,18 @@ class PathRefused(Exception):
     refusals discovered one at a time.
     """
 
-    def __init__(self, refusals: Iterable[Refusal], total: int) -> None:
+    def __init__(
+        self, refusals: Iterable[Refusal], total: int, *, surface: str = "files[]"
+    ) -> None:
         self.refusals = tuple(refusals)
         self.total = total
+        self.surface = surface
         head = (
-            f"{len(self.refusals)} of {total} path(s) in files[] were refused, so nothing "
+            f"{len(self.refusals)} of {total} path(s) in {surface} were refused, so nothing "
             "was sent to the model. Every refusal is listed, not just the first, so one "
             "correction fixes all of them:"
+        ) if total > 1 or surface == "files[]" else (
+            f"The {surface} was refused, so nothing was sent to the model:"
         )
         super().__init__(head + "\n\n" + "\n\n".join(f"  {r}" for r in self.refusals))
 
@@ -502,7 +507,7 @@ def resolve_workdir(cfg: Config, given: str) -> str:
                 "A workdir is resolved by the server, which has its own working directory "
                 "and will not share yours. Give an absolute path."
             ),
-        )], 1)
+        )], 1, surface="workdir")
 
     real = os.path.realpath(posix)
     if not os.path.isdir(real):
@@ -515,7 +520,7 @@ def resolve_workdir(cfg: Config, given: str) -> str:
                 else f"its real location {real} does not exist."
             ),
             remedy="A workdir must be an existing directory.",
-        )], 1)
+        )], 1, surface="workdir")
 
     roots = resolved_workdir_roots(cfg)
     if not any(_within(real, root) for root in roots):
@@ -529,7 +534,7 @@ def resolve_workdir(cfg: Config, given: str) -> str:
                 "of it is refused on where it lands, not on where it sits. Set "
                 "DELEGATE_WORKDIR_ROOTS, or DELEGATE_WORKSPACE_ROOTS which it falls back to."
             ),
-        )], 1)
+        )], 1, surface="workdir")
     return real
 
 

@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** M6 — Agents, batching, discovery — 3 of 4 items done
+**Current phase:** M7 — Admission control and polish — 0 of 5 items done
 
 ## In progress
 
@@ -13,7 +13,9 @@
 
 ## Next up
 
-- `delegate_to_agent`, `delegate_batch`, `list_agents`
+- Token-budget admission, three rules, high-water marks and wait totals
+- Cross-process slots
+- Operator-level dispatch transcript to disk, independent of any caller-facing flag and
 
 ## Progress by phase
 
@@ -26,14 +28,14 @@
 | M3 — Response state machine | 3 | 0 | 0 | 1 |
 | M4 — Agentic loop and model tools | 10 | 0 | 0 | 0 |
 | M5 — Sandbox | 9 | 0 | 0 | 0 |
-| M6 — Agents, batching, discovery | 3 | 0 | 1 | 0 |
+| M6 — Agents, batching, discovery | 4 | 0 | 0 | 0 |
 | M7 — Admission control and polish | 0 | 0 | 4 | 1 |
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
 | Extra — work outside the milestone plan | 6 | 0 | 0 | 0 |
 
-**Overall:** 67 done, 6 open, 7 cancelled.
+**Overall:** 68 done, 5 open, 7 cancelled.
 
 ## Repository
 
-- 49 commit(s), 100 tracked files
-- 38 test file(s), 36 decision record(s)
+- 50 commit(s), 100 tracked files
+- 38 test file(s), 37 decision record(s)

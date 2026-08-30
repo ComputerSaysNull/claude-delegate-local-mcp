@@ -80,7 +80,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_MAX_TURNS_DEFAULT` | 25 | Round trips a delegation gets before the server stops it. One turn is one model reply plus any tool it ran. |
 | `DELEGATE_MAX_TURNS_HARD_CAP` | 40 | Ceiling no agent file or caller may exceed. Stops an agent definition asking for 500 turns and occupying the cluster for hours. |
 | `DELEGATE_KEEP_TOOL_RESULTS` | 6 | Most recent tool results kept intact; older ones collapse to a one-line stub. Every turn resends the whole history, so this is what stops quadratic growth. |
-| `DELEGATE_MAX_BATCH_SIZE` | 12 | **Inert.** Largest accepted delegate_batch request. |
+| `DELEGATE_MAX_BATCH_SIZE` | 12 | Largest accepted delegate_batch request. |
 
 ### Context overflow
 
@@ -139,6 +139,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
 
-*50 settings, 5 of them inert.*
+*50 settings, 4 of them inert.*
 
 <!-- GEN:CONFIG:END -->
