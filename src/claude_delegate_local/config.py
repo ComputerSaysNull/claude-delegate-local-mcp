@@ -378,6 +378,28 @@ class Config:
         unit="seconds",
     )
 
+    cross_process_slots: bool = _f(
+        True,
+        "Count the four admission rules against every server process on this machine "
+        "rather than against this one alone. On by default because the default transport "
+        "is stdio, which gives each connected client its own server process: with this "
+        "off, every rule above bounds one editor window, and the cluster sees the "
+        "configured limit multiplied by however many windows are open. Turning it off is "
+        "only correct where this really is the sole process against the endpoint. Needs a "
+        "POSIX filesystem lock, so it is inert on Windows -- backend_status reports "
+        "whether it is actually active, and never assumes it is. See ADR-0040.",
+    )
+    slots_dir: str = _f(
+        "",
+        "Directory holding the shared admission counters. Empty means XDG_RUNTIME_DIR, "
+        "falling back to /dev/shm -- both tmpfs, which is what makes losing the file on "
+        "reboot correct rather than lossy. Set it only to separate installations that "
+        "must not share a budget, such as two checkouts pointed at genuinely different "
+        "clusters; two projects sharing one cluster must share one directory, which is "
+        "the default and needs no configuration. Never put this on /mnt/c: locking "
+        "across the Windows drive boundary is not dependable (ADR-0020).",
+    )
+
     # ---- operator transcript (ADR-0024) ------------------------------------------
     transcript_dir: str = _f(
         "",

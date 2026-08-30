@@ -96,6 +96,7 @@ Prefetching removes several such turns from the front of every delegation.
 | `tools.py` | Model-facing tools, and both `allowed_tools` sites — [TOOLS.md](TOOLS.md) |
 | `sandbox.py` | bubblewrap invocation: the argv, the binds, and the refusal |
 | `admission.py` | The four-rule gate every delegation passes before it reaches a backend |
+| `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
 | `server.py` | MCP wiring, the five tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run one transport |
@@ -392,6 +393,31 @@ The two stack rather than dividing one budget.
 Oversubscription announces itself as latency; idle capacity is silent. So the status tool
 reports high-water marks, admission-wait totals and the count of waits that hit their
 limit, and the constants are tunable from evidence instead of guesswork. (ADR-0012)
+
+### The budget belongs to the machine, not to the process
+
+Every rule above is only as global as the thing counting it, and for a while that was one
+process. The transport is stdio, so the MCP client starts a server per registration: two
+editor windows open on two projects are two servers, each with counters starting at zero,
+against one KV pool. Each rule bounded a session, and the cluster saw the configured
+ceiling multiplied by the number of windows open.
+
+So the counters live in a file under `flock` that every server on the machine shares, and
+`admission.py` tests the four rules against the sum. `slots.py` owns that file; the policy
+did not change, only the scope it counts over. The test and the write are one critical
+section — reading totals, deciding, then writing would let two processes see the same room
+and both take it, precisely when the cluster is busy.
+
+A record is keyed by PID and process start time and is dropped as soon as that pair stops
+matching a live process, so an editor window that is killed outright leaks nothing and no
+recycled PID can inherit its slots. The lock is non-blocking and retried between `await`s,
+because holding the event loop inside it would stall delegations that are already running.
+
+`backend_status` reports whether the shared budget is actually active, the machine-wide
+totals, and how many processes hold slots — observed rather than assumed, since a gate that
+has quietly narrowed to one process looks exactly like a working one until the cluster is
+oversubscribed. Where no POSIX lock exists it degrades to per-process counting and says so.
+Defaults and the two settings are in [CONFIGURATION.md](CONFIGURATION.md). (ADR-0040)
 
 ### The operator transcript is not the caller's diagnostics
 

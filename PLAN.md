@@ -245,7 +245,19 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   the endpoint rule deleted. The wait has its own timeout, because `dispatch_timeout`'s
   deadline is set inside the loop it bounds and does not start until a slot is already
   granted (ADR-0038)
-- ⬜ Cross-process slots
+- ✅ 2026-08-30 Cross-process slots — the four rules now count the machine rather than
+  the session. `slots.py`, a per-process record in one `flock`ed file on tmpfs that every
+  server shares. The gap was not exotic: stdio starts a server per registration, so two
+  editor windows on two projects were two gates with independently zeroed counters against
+  one KV pool, and the configured ceiling was multiplied by however many windows were open
+  — `admission.py`'s own docstring called itself the global budget "by construction" while
+  that was true only within a process. The predicate is evaluated *inside* the lock, since
+  reading totals and deciding afterwards lets two processes see the same room and both take
+  it. Records are keyed by `(pid, start_time)` and reclaimed on liveness, so a `kill -9`d
+  window leaks nothing and a recycled PID inherits nothing. Keying the file by endpoint
+  digest was designed and rejected: it stops sharing silently when a registry drifts, which
+  is this same bug with no symptom. Tested with two real processes and negative-tested
+  against a build with sharing removed (ADR-0040)
 - ✅ 2026-08-30 Operator-level dispatch transcript to disk, independent of any caller-facing
   flag and stripped from the response. Both upstream bugs are defended by structure rather
   than by care: the record is assembled from identity captured before the attempt and

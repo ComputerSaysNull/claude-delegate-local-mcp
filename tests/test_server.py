@@ -1315,6 +1315,30 @@ def test_backend_status_reports_the_admission_gate():
         assert key in gate, f"backend_status lost {key}"
 
 
+def test_backend_status_says_whether_the_budget_is_machine_wide():
+    """ADR-0040's reporting half, and the reason it is reported rather than assumed.
+
+    A gate that has quietly narrowed to a single process looks exactly like a working one
+    from the outside -- right up until two editor windows saturate the cluster between
+    them. So `active` is answered by whether the shared file can actually be read, and it
+    has to survive into a real response rather than existing only in the module that
+    computes it.
+    """
+    result = called(ok_handler("served-id-1"), "backend_status")
+    shared = result["admission"]["cross_process"]
+
+    assert "active" in shared, "backend_status lost the cross-process block entirely"
+    if shared["active"]:
+        # Zero at idle, and that is right: a record exists only while a process is
+        # actually holding a slot, and is removed again on release rather than lingering.
+        assert shared["processes_holding_slots"] == 0
+        assert shared["inflight_tokens"] == 0
+    else:
+        # Windows, where the suite runs but the server never does. Saying why is the
+        # whole point: a narrowed scope must never read as a healthy one.
+        assert shared["reason"], "an inactive shared budget must say why"
+
+
 def test_a_single_delegate_is_bounded_by_the_endpoints_concurrency_too():
     """The gap the gate closed. `max_inflight_seqs`' own help text says the endpoint's
     limit and the global budget are "both checked", and until the gate existed that was

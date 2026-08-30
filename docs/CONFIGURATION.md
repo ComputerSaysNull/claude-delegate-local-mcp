@@ -118,6 +118,8 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_LARGE_PREFILL_TOKENS` | 32768 tokens | A request estimated above this counts as a large cold prefill. |
 | `DELEGATE_MAX_INFLIGHT_LARGE_PREFILLS` | 2 | Concurrent large prefills. The engine admits one long prefill at a time, so this is one running plus one staged -- pipelining, not throttling. Raising it makes every large request slower rather than any of them faster. |
 | `DELEGATE_ADMISSION_WAIT_TIMEOUT` | 600 seconds | Bound on time spent waiting for a slot, before dispatch_timeout starts its own clock. Separate rather than shared, because dispatch_timeout's deadline is set inside the loop it bounds, which does not run until admission has already been granted -- it cannot bound a wait that ends before it begins. The two therefore stack rather than divide one budget. Deliberately well under dispatch_timeout: a wait this long means the budget is misconfigured or the cluster is wedged, and an error naming the rule that bound is worth more than an hour spent queued. backend_status reports the longest wait seen and how many hit this limit. |
+| `DELEGATE_CROSS_PROCESS_SLOTS` | True | Count the four admission rules against every server process on this machine rather than against this one alone. On by default because the default transport is stdio, which gives each connected client its own server process: with this off, every rule above bounds one editor window, and the cluster sees the configured limit multiplied by however many windows are open. Turning it off is only correct where this really is the sole process against the endpoint. Needs a POSIX filesystem lock, so it is inert on Windows -- backend_status reports whether it is actually active, and never assumes it is. See ADR-0040. |
+| `DELEGATE_SLOTS_DIR` | *(empty)* | Directory holding the shared admission counters. Empty means XDG_RUNTIME_DIR, falling back to /dev/shm -- both tmpfs, which is what makes losing the file on reboot correct rather than lossy. Set it only to separate installations that must not share a budget, such as two checkouts pointed at genuinely different clusters; two projects sharing one cluster must share one directory, which is the default and needs no configuration. Never put this on /mnt/c: locking across the Windows drive boundary is not dependable (ADR-0020). |
 
 ### Operator transcript
 
@@ -150,6 +152,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
 
-*52 settings.*
+*54 settings.*
 
 <!-- GEN:CONFIG:END -->
