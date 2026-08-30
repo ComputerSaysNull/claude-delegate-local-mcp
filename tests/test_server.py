@@ -18,7 +18,7 @@ import httpx
 import pytest
 from fastmcp import Client
 
-from claude_delegate_local import server
+from claude_delegate_local import sandbox, server
 from claude_delegate_local.backends import openai_compat as oc
 from claude_delegate_local.config import Config
 from claude_delegate_local.registry import ModelEntry, Registry
@@ -827,7 +827,11 @@ def test_an_empty_toolset_takes_the_one_shot_path_and_reports_no_ledger():
     assert "last_bash_exit" not in result
 
 
-def test_the_default_delegation_now_offers_all_three_tools():
+def test_the_default_delegation_now_offers_all_three_tools(monkeypatch):
+    """On a host that can confine a shell. Bubblewrap is stubbed because its presence is a
+    property of the machine running the suite, not of the wiring under test, and this test
+    should say the same thing on Windows as it does in WSL."""
+    monkeypatch.setattr(sandbox, "available", lambda _cfg: True)
     seen: list[dict] = []
 
     def handler(request):
@@ -837,6 +841,26 @@ def test_the_default_delegation_now_offers_all_three_tools():
     delegated(handler, task="a question")
     declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
     assert declared == {"read_file", "write_file", "run_bash"}
+
+
+def test_a_host_without_bubblewrap_is_not_offered_run_bash(monkeypatch):
+    """The same route, on the other kind of host, asserted where the model actually reads it.
+
+    `tests/test_tools.py` proves the resolved set drops the tool; this proves the drop
+    survives every layer between there and the wire, which is the part a unit test cannot
+    see. Before this, a delegation on such a host spent a turn calling `run_bash` and being
+    told no (JOURNAL 2026-08-29).
+    """
+    monkeypatch.setattr(sandbox, "available", lambda _cfg: False)
+    seen: list[dict] = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(content="done"))
+
+    delegated(handler, task="a question")
+    declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
+    assert declared == {"read_file", "write_file"}
 
 
 def test_progress_is_notified_to_the_client_once_per_turn():

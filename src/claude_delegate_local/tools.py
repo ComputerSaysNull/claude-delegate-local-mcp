@@ -320,6 +320,12 @@ ALL_TOOL_NAMES: frozenset[str] = frozenset(REGISTRY)
 # mount-level denylist could cover secrets inside what it binds; both exist now, so the
 # route is open and nothing here narrows the declared set.
 #
+# It stays empty. `run_bash` is withheld on a host without bubblewrap, but that is a fact
+# about the host and is asked for in `available_tool_names` rather than recorded here: a
+# constant cannot answer a question whose answer differs per machine. This set is for a
+# tool this server withholds *everywhere*, which is a narrower thing than it looks and is
+# why emptying it was right.
+#
 # Kept rather than deleted, and deliberately. Withholding is how this server says "this
 # tool exists and cannot work today", which is a different statement from a caller's
 # `allowed_tools` narrowing one delegation -- a fact about the server, not a preference.
@@ -331,20 +337,36 @@ ALL_TOOL_NAMES: frozenset[str] = frozenset(REGISTRY)
 WITHHELD_TOOL_NAMES: frozenset[str] = frozenset()
 
 
-def available_tool_names() -> frozenset[str]:
-    """What this server can offer today, as opposed to what it implements."""
-    return ALL_TOOL_NAMES - WITHHELD_TOOL_NAMES
+def available_tool_names(cfg: Config) -> frozenset[str]:
+    """What this server can offer today, as opposed to what it implements.
+
+    Asks rather than remembers. `run_bash` needs bubblewrap, and whether bubblewrap is
+    present is a fact about the host this process is running on -- not something a constant
+    written at import time can know. M5 emptied `WITHHELD_TOOL_NAMES` and left this function
+    taking no `Config`, so on a host without `bwrap` the tool was declared and then refused
+    every call: a whole turn spent learning what the server already knew, and ADR-0016
+    measured that the first turn is often already lost to orientation, making this the
+    second (JOURNAL 2026-08-29).
+
+    The same condition `sandbox.run` refuses on, checked where the set is resolved instead
+    of after a turn has been paid for. One condition, two places it can be observed, and
+    this is the cheaper one.
+    """
+    names = ALL_TOOL_NAMES - WITHHELD_TOOL_NAMES
+    if not sandbox.available(cfg):
+        names -= {"run_bash"}
+    return names
 
 
-def resolve_allowed(requested: Iterable[str] | None) -> frozenset[str]:
+def resolve_allowed(requested: Iterable[str] | None, cfg: Config) -> frozenset[str]:
     """The resolved set for one delegation: what was asked for, minus what cannot work.
 
     `None` means "whatever is available", which is the default a caller gets by not
     choosing. An explicit set is narrowed, never widened -- intersecting rather than
-    unioning is what stops a caller naming a tool this server withholds, or one it does
-    not implement at all, and getting it.
+    unioning is what stops a caller naming a tool this server withholds, one the host
+    cannot run, or one it does not implement at all, and getting it.
     """
-    available = available_tool_names()
+    available = available_tool_names(cfg)
     if requested is None:
         return available
     return frozenset(requested) & available

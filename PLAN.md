@@ -197,11 +197,15 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   `workdir` is `None` for every caller, so no delegation can reach the repository at
   all. Revisit the default in the same commit that binds a workspace, not after
 
-- ⬜ Declaration must ask whether the sandbox can run, not remember that it could. M5
-  emptied `WITHHELD_TOOL_NAMES`, and `available_tool_names()` takes no `Config`, so on a
-  host without bubblewrap `run_bash` is declared and refuses every call — a turn spent
-  learning what the server already knew (JOURNAL 2026-08-29). Fix where the tool set is
-  resolved, not by re-withholding statically
+- ✅ 2026-08-30 Declaration must ask whether the sandbox can run, not remember that it
+  could. M5 emptied `WITHHELD_TOOL_NAMES`, and `available_tool_names()` takes no `Config`,
+  so on a host without bubblewrap `run_bash` was declared and refused every call — a turn
+  spent learning what the server already knew (JOURNAL 2026-08-29). Fixed where the tool
+  set is resolved: `available_tool_names` and `resolve_allowed` now take a `Config` and ask
+  `sandbox.available`. `WITHHELD_TOOL_NAMES` stays empty, because whether a host has bwrap
+  is not something an import-time constant can answer. Found by the suite rather than by
+  the change: an end-to-end server test asserted all three tools were offered, and it was
+  passing on Windows only because nothing consulted the host
 
 ## M7 — Admission control and polish
 

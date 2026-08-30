@@ -519,7 +519,7 @@ def build(cfg: Config, registry: Registry, cache: BackendCache | None = None) ->
             raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
         delegation = Delegation(task=task, files_block=prefetched.block())
-        allowed = resolve_allowed(allowed_tools)
+        allowed = resolve_allowed(allowed_tools, cfg)
 
         async def progress(turn: int, of: int) -> None:
             """ADR-0018: this is what stops the client abandoning a delegation still running.

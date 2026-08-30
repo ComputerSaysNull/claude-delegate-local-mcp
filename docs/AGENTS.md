@@ -4,7 +4,7 @@
 Two things a user actually touches: the agent files that shape a delegation, and the rules
 governing which files a delegated model may see.
 
-Tool internals will be in `docs/TOOLS.md`, generated once the tools exist; sandbox
+Tool internals are in [TOOLS.md](TOOLS.md), generated from `tools.py`; sandbox
 mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md). Settings are in
 [CONFIGURATION.md](CONFIGURATION.md).
 
@@ -235,6 +235,6 @@ the ancestor ships a dedicated test because of it. (ADR-0007)
 `paths.py` shells out to git twice, both inside the server process: layer 4 runs
 `check-ignore` to decide what a delegated model may see, and `repo_status` runs
 `status --porcelain` for the ground truth in a context-overflow abort report. Neither is a
-route into `run_bash`, which is bwrap-confined and refuses every call until `sandbox.py`
-exists (ADR-0010) — these are the server's own calls, with arguments it chose. `repo_status`
-sees only the work trees holding files the delegation wrote, never every workspace root.
+route into `run_bash`, which is bwrap-confined and refuses rather than run unconfined where
+bubblewrap is absent (ADR-0010, ADR-0034) — these are the server's own calls, with arguments
+it chose. `repo_status` sees only work trees the delegation wrote to, never every root.

@@ -30,6 +30,40 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #38 — 2026-08-30 — fix: declare run_bash only where a sandbox can run it
+
+### Fixed
+- `run_bash` was declared to the model on hosts with no bubblewrap, and then refused every
+  call it was asked to make. M5 emptied `WITHHELD_TOOL_NAMES` to open the route, but
+  `available_tool_names()` took no `Config` and so had no way to ask whether *this* host
+  could confine a shell -- it subtracted a constant decided at import time from a set decided
+  at import time. The symptom was a wasted turn: a Windows diagnostic recorded a delegation
+  spending turn 4 of 6 calling `run_bash` and being told no, and ADR-0016 already measured
+  that the first turn is often lost to orientation, which made this the second.
+  `available_tool_names` and `resolve_allowed` now take a `Config` and ask
+  `sandbox.available` -- the same condition `sandbox.run` refuses on, checked where the tool
+  set is resolved rather than after a round trip has paid for it.
+- The comment deleted when the withhold set was emptied had argued exactly this case about
+  the withholding it was justifying. The reasoning outlived the code it was attached to, so
+  it is written down again where it now belongs: `WITHHELD_TOOL_NAMES` stays empty and stays
+  in place, because it is for a tool withheld *everywhere*, and a per-host fact is not
+  something a constant can answer.
+- Three documentation lines falsified by `#36` and missed when it landed: the module table
+  in ARCHITECTURE.md still marked `sandbox.py` *(built, not yet reached)* while the same
+  document's own "The route, now open" section said otherwise; AGENTS.md said `run_bash`
+  "refuses every call until `sandbox.py` exists"; and AGENTS.md described TOOLS.md as
+  something that would be generated "once the tools exist".
+
+### Added
+- A test that the tool leaves every set when `bwrap_bin` names something that does not
+  resolve, and its counterpart at the server surface, where the declared list is read off
+  the wire rather than out of a function. Both were run against the unfixed code first and
+  both failed, which is the only thing that makes them worth having.
+- A test that the *executor* still refuses `run_bash` on such a host for its own reason.
+  Narrowing what is declared is advisory -- a model can call a tool it was never offered --
+  and the two sites are meant not to trust each other. That one passes with or without this
+  change, deliberately: it guards the site that was never broken.
+
 ## #37 — 2026-08-29 — test: isolate roster tests, add pytest-xdist, record timing measurements
 
 ### Fixed
