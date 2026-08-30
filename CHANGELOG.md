@@ -30,6 +30,47 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #43 — 2026-08-30 — feat: admission counts every server process, not just this one
+
+### Added
+- `slots.py`: the four admission rules now count every server process on this machine,
+  not just this one. The symptom was invisible from inside a session and ordinary to
+  reach: the transport is stdio, so the MCP client starts one server process per
+  registration, and two editor windows open on two projects are two `Admission` objects
+  with independently zeroed counters against one KV pool. Every rule bounded a session,
+  so the cluster saw `kv_token_budget`, `max_inflight_seqs` and
+  `max_inflight_large_prefills` multiplied by the number of windows open. The cause is
+  visible in the module's own docstring, which called itself the global budget "by
+  construction" -- true within a process, and that was exactly the scope that did not
+  matter. The fix is one `flock`ed file of per-process records on tmpfs, which
+  `admission.py` reads instead of its own attributes; the policy is untouched.
+- The predicate is evaluated **inside** the lock. Reading the totals, testing the four
+  rules and publishing the result are one critical section, because returning the totals
+  and deciding afterwards is a time-of-check race in which two processes both see room
+  and both take it -- and it widens exactly when the cluster is saturated. `admit()`
+  therefore takes the predicate as a callable rather than returning numbers.
+- Records are keyed by `(pid, start_time)` and reclaimed by liveness, so a `kill -9`d
+  editor window leaks nothing, with no heartbeat to miss and no timeout to wait out, and
+  a recycled PID cannot inherit a dead process's slots. The staleness timeout beside it
+  is a backstop for platforms with no `/proc`, never the primary mechanism.
+- `cross_process_slots` and `slots_dir` in `config.py`. Keying the file by a digest of
+  the endpoint was designed and rejected: it shares correctly until one project's
+  registry drifts, at which point the digest changes and two installations *silently stop
+  sharing* -- this same bug again, with no symptom. Separation is explicit instead.
+
+### Changed
+- `backend_status` gains an `admission.cross_process` block: whether the shared budget is
+  actually active, the machine-wide totals, and how many processes hold slots. It reports
+  what it can observe rather than what was configured, because those differ exactly when
+  something is wrong. A tool-description change, so a behaviour change (ADR-0040).
+- `Admission` takes an optional `SharedSlots`. Without one it behaves exactly as before
+  along the same code path rather than a parallel one -- which is what Windows gets,
+  where the suite runs but the server never does, and it says so rather than appearing
+  healthy.
+- Waiting is now also polling, since another process's release cannot notify this one's
+  condition. A local release still wakes waiters immediately and does not wait the poll
+  out.
+
 ## #42 — 2026-08-30 — feat: enforce the admission budget, and write an operator transcript
 
 ### Added

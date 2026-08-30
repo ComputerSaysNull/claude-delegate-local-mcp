@@ -19,6 +19,66 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0040 — 2026-08-30 — Admission counts the machine, through a locked file every process shares — Accepted
+
+**Context.** ADR-0012 set the policy and ADR-0038 made it one atomic predicate over four
+rules. Both reasoned as though the server were the only thing spending the budget, and
+`admission.py` said so: one instance per process, "the global budget by construction".
+Transport is stdio, so the client spawns one server per registration: two editor windows
+on two projects are two servers with two sets of zeroed counters against one KV pool, and
+the cluster sees the ceiling times the number of windows open. The rules were never wrong
+— the scope was, and the docstring asserting otherwise kept it invisible.
+
+**Decision — a file of per-process records, on tmpfs, shared by every server.** Each
+process keeps one record of what it holds; the four rules are tested against the sum.
+`slots.py` owns the storage and the reclaim, `admission.py` keeps the policy — the
+predicate is the same function, reading summed totals instead of local attributes.
+
+**Decision — the predicate is evaluated inside the lock.** Reading the totals, testing the
+rules and publishing the result are one critical section under one exclusive `flock`. The
+obvious alternative — return totals, decide, write afterwards — is a time-of-check race in
+which two processes both see room and both take it, widening exactly when the cluster is
+saturated. `admit()` therefore takes the predicate as a callable rather than returning
+numbers. ADR-0038's property survives across processes: nothing is partially acquired, and
+a waiter that does not fit holds nothing anywhere.
+
+**Decision — a record is keyed by `(pid, start_time)`, reclaimed on liveness.** The start
+time is field 22 of `/proc/<pid>/stat`. A record whose PID is gone, or live under a
+different start time, is dropped by the next process to take the lock. A `kill -9`d window
+costs nothing — no heartbeat to miss, no timeout to wait out — and PID reuse cannot
+inherit a dead process's slots. The staleness timeout beside it is a backstop for
+platforms without `/proc`, where reclaiming on a timer would either leak for its length or
+evict a live process that was merely slow.
+
+**Decision — one shared file per machine; the operator separates them.** Keying it by a
+digest of the endpoint was designed and rejected: it shares correctly until one project's
+registry drifts, at which point the digest changes and the two installations *silently
+stop sharing*, reintroducing this bug with no symptom. `slots_dir` makes separation
+explicit where it is genuinely wanted. Differing budgets are likewise not negotiated: each
+process enforces its own limits against the global totals, so a stricter one simply waits
+more.
+
+**Decision — never block the loop, never wedge on a corrupt file.** The lock is `LOCK_EX |
+LOCK_NB` retried around `await asyncio.sleep`; a blocking `flock` would freeze delegations
+already running and waiting for nothing. An unparseable file is reset rather than refused,
+because refusing every delegation on the machine until someone deletes a file by hand
+turns a latency protection into an outage.
+
+**Alternative rejected — one shared server over `streamable-http`.** It would make the
+gate global by construction and delete this mechanism, and stays the better answer if the
+configuration model changes. It is blocked by that model, not the transport: config,
+registry, path roots and the agent directory are all loaded once per process, so one
+shared server means one project's path policy and agent roster applied to every client — a
+redesign, not a flag.
+
+**Consequences.** `backend_status` gains a `cross_process` block: whether the shared
+budget is active, the machine-wide totals, and how many processes hold slots — observed
+rather than configured, because those differ exactly when something is wrong. Without a
+lock (Windows, where the suite runs but the server never does) it degrades to per-process
+and says so. The tests use two real processes, negative-tested against a build with
+sharing removed: "it eventually ran" passes identically against a gate counting the
+machine and one counting nothing.
+
 ## ADR-0039 — 2026-08-30 — A transcript record holds paths, accounting and the task, but never file contents — Accepted
 
 **Context.** ADR-0024 adopted an operator dispatch transcript and named the two bugs

@@ -33,18 +33,24 @@ floor-time approximation rather than a running total. Growing it per turn would 
 this module to the turn loop's internals and add a reconciliation path on every abort;
 `peak_inflight_tokens` is the cheaper way to find out whether that trade was wrong.
 
-One instance per process. It is the global budget by construction, so every dispatch path
-has to share the one object or it is not global.
+One instance per process, and -- since ADR-0040 -- one shared counter file across every
+process on the machine. Sharing the object within a process was never sufficient: the
+transport is stdio, so two editor windows are two servers, and four rules that each
+bound a session bound the cluster at the configured limit times the number of windows
+open. `slots.py` owns that file; this module owns what the numbers in it mean.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from .slots import SharedSlots, SlotsUnavailable, Totals
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -55,6 +61,14 @@ if TYPE_CHECKING:
 # turn happens and so nothing else pings (ADR-0018). Not a config field: it is tied to
 # the client's timer rather than to anything an operator tunes.
 _WAIT_TICK_SECONDS = 30.0
+
+# How often a waiter re-tests the shared file. Another process's release cannot notify
+# this one's condition, so cross-process waiting is polling and there is no way around
+# that short of a broker. Cheap: the critical section is a small document on tmpfs.
+_POLL_SECONDS = 0.25
+
+
+log = logging.getLogger(__name__)
 
 
 class AdmissionError(Exception):
@@ -113,9 +127,10 @@ class AdmissionLease:
 
 
 class Admission:
-    """The four-rule gate. One per process."""
+    """The four-rule gate. One per process, over counters the whole machine shares."""
 
-    def __init__(self, cfg: Config) -> None:
+    def __init__(self, cfg: Config, slots: SharedSlots | None = None) -> None:
+        self._slots = slots
         self._max_seqs = cfg.max_inflight_seqs
         self._token_budget = cfg.kv_token_budget
         self._large_threshold = cfg.large_prefill_tokens
@@ -139,22 +154,84 @@ class Admission:
 
     # ---- the predicate -----------------------------------------------------------
     def _binding(
-        self, tokens: int, is_large: bool, key: str, limit: int
+        self, live: Totals, tokens: int, is_large: bool, key: str, limit: int
     ) -> tuple[str, int] | None:
         """The first rule that does not admit this request, or None if all four do.
 
         Returns the rule rather than a bool so a timeout can say which limit it waited
         on. "Waited 600s" tells an operator nothing about what to change.
+
+        `live` is every process's usage summed, not this one's. The rules themselves are
+        unchanged from when they read local attributes: that was a bug about scope, not
+        a bug about policy.
         """
-        if self._inflight_seqs >= self._max_seqs:
+        if live.seqs >= self._max_seqs:
             return ("max_inflight_seqs", self._max_seqs)
-        if self._inflight_tokens + tokens > self._token_budget:
+        if live.tokens + tokens > self._token_budget:
             return ("kv_token_budget", self._token_budget)
-        if is_large and self._inflight_large >= self._max_large:
+        if is_large and live.large >= self._max_large:
             return ("max_inflight_large_prefills", self._max_large)
-        if self._per_entry.get(key, 0) >= limit:
+        if live.per_entry.get(key, 0) >= limit:
             return (f"concurrency for {key}", limit)
         return None
+
+    def _local_totals(self) -> Totals:
+        """This process's own usage, in the shape the predicate reads.
+
+        Used when there is no shared file, which reproduces the pre-ADR-0040 behaviour
+        exactly rather than approximating it -- one code path, two scopes.
+        """
+        return Totals(
+            seqs=self._inflight_seqs,
+            tokens=self._inflight_tokens,
+            large=self._inflight_large,
+            per_entry=self._per_entry,
+        )
+
+    async def _try_take(
+        self, tokens: int, is_large: bool, key: str, limit: int
+    ) -> tuple[str, int] | None:
+        """Test the four rules and, if they admit, take the slot. One atomic step.
+
+        Atomic in both scopes, for the same reason. Within the process the caller holds
+        the condition; across processes `SharedSlots.admit` holds the file lock while it
+        evaluates this predicate, so no other process can decide against totals we have
+        already read. Handing back totals and deciding afterwards is the time-of-check
+        race this shape exists to make unrepresentable.
+        """
+
+        def decide(live: Totals) -> tuple[str, int] | None:
+            return self._binding(live, tokens, is_large, key, limit)
+
+        if self._slots is not None:
+            binding = await self._slots.admit(
+                tokens=tokens, is_large=is_large, entry_key=key, decide=decide
+            )
+        else:
+            binding = decide(self._local_totals())
+        if binding is not None:
+            return binding
+        self._take_locally(tokens, is_large, key)
+        return None
+
+    def _take_locally(self, tokens: int, is_large: bool, key: str) -> None:
+        """Mirror the slot into this process's own counters and peaks.
+
+        The shared file is what the rules are tested against; these are what `status()`
+        reports as this process's share, and what the peaks are measured over.
+        """
+        self._inflight_seqs += 1
+        self._inflight_tokens += tokens
+        if is_large:
+            self._inflight_large += 1
+        self._per_entry[key] = self._per_entry.get(key, 0) + 1
+
+        self._peak_seqs = max(self._peak_seqs, self._inflight_seqs)
+        self._peak_tokens = max(self._peak_tokens, self._inflight_tokens)
+        self._peak_large = max(self._peak_large, self._inflight_large)
+        self._peak_per_entry[key] = max(
+            self._peak_per_entry.get(key, 0), self._per_entry[key]
+        )
 
     # ---- acquire and release -----------------------------------------------------
     async def acquire(  # noqa: PLR0913 -- four rules need four sizes and a deadline
@@ -181,7 +258,9 @@ class Admission:
         waited = False
 
         async with self._cond:
-            while (binding := self._binding(tokens, is_large, entry_key, entry_limit)) is not None:
+            while (
+                binding := await self._try_take(tokens, is_large, entry_key, entry_limit)
+            ) is not None:
                 # Checked after the predicate, never before: a request that fits is
                 # admitted even if its deadline has just passed. Failing one that could
                 # have run would be the gate causing the outage it exists to prevent.
@@ -192,7 +271,11 @@ class Admission:
                     raise AdmissionTimedOut(now - started, *binding)
                 waited = True
 
-                slice_ = _WAIT_TICK_SECONDS
+                # A release in *another* process notifies nothing here, so waiting is
+                # also polling. Short enough that a freed slot is taken promptly, long
+                # enough that an idle machine is not re-reading a file forever. A local
+                # release still wakes the condition at once and does not wait this out.
+                slice_ = _WAIT_TICK_SECONDS if self._slots is None else _POLL_SECONDS
                 if deadline is not None:
                     slice_ = min(slice_, max(deadline - now, 0.001))
                 try:
@@ -202,19 +285,6 @@ class Admission:
                     pass
                 if on_wait is not None:
                     await on_wait()
-
-            self._inflight_seqs += 1
-            self._inflight_tokens += tokens
-            if is_large:
-                self._inflight_large += 1
-            self._per_entry[entry_key] = self._per_entry.get(entry_key, 0) + 1
-
-            self._peak_seqs = max(self._peak_seqs, self._inflight_seqs)
-            self._peak_tokens = max(self._peak_tokens, self._inflight_tokens)
-            self._peak_large = max(self._peak_large, self._inflight_large)
-            self._peak_per_entry[entry_key] = max(
-                self._peak_per_entry.get(entry_key, 0), self._per_entry[entry_key]
-            )
 
         elapsed = time.monotonic() - started if waited else 0.0
         if waited:
@@ -230,6 +300,24 @@ class Admission:
 
     async def release(self, lease: AdmissionLease) -> None:
         async with self._cond:
+            if self._slots is not None:
+                # Best effort on purpose. A slot this process cannot give back is
+                # reclaimed by the next acquirer as soon as this process exits, since
+                # a record is keyed by a PID that will no longer be live -- so the
+                # leak is bounded by the life of the process rather than permanent.
+                # Refusing to release locally because the file was unreachable would
+                # wedge this process for good, which is strictly worse.
+                try:
+                    await self._slots.release(
+                        tokens=lease.tokens,
+                        is_large=lease.is_large,
+                        entry_key=lease.entry_key,
+                    )
+                except SlotsUnavailable:
+                    log.warning(
+                        "could not return a slot to the shared file; it will be "
+                        "reclaimed when this process exits"
+                    )
             self._inflight_seqs -= 1
             self._inflight_tokens -= lease.tokens
             if lease.is_large:

@@ -52,6 +52,7 @@ from .loop import (
 )
 from .paths import PathPolicyError, PathRefused, resolve_all, resolve_workdir
 from .registry import ModelEntry, Registry, RegistryError
+from .slots import build_slots, cross_process_status
 from . import transcript
 from .tools import BashPolicy, resolve_allowed
 
@@ -635,10 +636,16 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
     # per model and per process, and re-probing every delegation would spend a round
     # trip to re-learn something that changes only when the operator edits a file.
     windows = WindowCheck(cfg)
-    # One per process, and that is the whole of what makes it a global budget. Built
-    # here beside the cache and the window check so every tool closure below shares the
-    # same object rather than each counting against a gate of its own.
-    admission = Admission(cfg)
+    # One per process, beside the cache and the window check so every tool closure below
+    # shares the same object rather than each counting against a gate of its own. That is
+    # necessary and was never sufficient: the object is global only within this process,
+    # and stdio gives every connected client a process of its own. `slots` is what makes
+    # the budget global across them (ADR-0040); without it the four rules bound one editor
+    # window each. `build_slots` returns None when the platform cannot lock, and the
+    # reason is reported rather than swallowed -- a gate that has quietly narrowed its
+    # scope looks exactly like one that is working.
+    slots, slots_reason = build_slots(cfg)
+    admission = Admission(cfg, slots)
 
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncIterator[dict[str, Any]]:
@@ -952,6 +959,12 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         worth reading closely -- the endpoint is healthy but is not serving the model
         this entry names, so delegating to it will not do what the registry claims.
 
+        The `admission` block reports this process's own gauges and peaks, and, under
+        `admission.cross_process`, whether the four rules are being counted across every
+        server process on the machine and what that machine-wide total currently is.
+        `active: false` there means each connected client is being bounded separately, so
+        the real load on the cluster is higher than this process's numbers suggest.
+
         Endpoint addresses are deliberately never included in the result.
         """
         rows = await asyncio.gather(
@@ -963,7 +976,10 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         return {
             "default": registry.default_key,
             "models": list(rows),
-            "admission": admission.status(),
+            "admission": {
+                **admission.status(),
+                "cross_process": await cross_process_status(slots, slots_reason),
+            },
         }
 
     return mcp
