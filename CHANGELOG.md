@@ -30,6 +30,54 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #40 — 2026-08-30 — feat: a delegation can be given a workspace, and the timeout that makes usable
+
+### Added
+- `paths.resolve_workdir`: layer 1 applied to the `workdir` argument, which is a separate
+  surface from the files read inside it. Checked against `workdir_roots`, which falls back
+  to `workspace_roots` when unset -- reading a project and being able to work in it are
+  separable grants, and a workdir is bound **writable** for the whole call. Resolved before
+  it is compared, so a symlink sitting inside a root but pointing out of it is refused on
+  where it lands rather than where it sits. Proven by making the check compare the path as
+  written instead: the escape test stops failing, which is what a written-path check buys.
+- `tools.BashPolicy` carries the workdir, the network flag and the extra binds from the
+  delegation to `SandboxRequest`. All three were hardcoded in `_run_bash` -- `workdir=None`
+  most consequentially, which meant no delegation could reach a repository at all. Per
+  delegation and never a config field, for the same reason `allowed_tools` is not one.
+- Real-sandbox tests for the three: a bound workdir is the working directory and is
+  writable, a secret inside an `extra_binds` directory cannot be read, and an ordinary file
+  in the same directory still can. Read from a running shell rather than asserted against
+  argv -- `#36`'s lesson was that a flag in the argv proves it was passed, not that anything
+  acts on it.
+
+### Changed
+- `run_bash_timeout` 120s → 600s. The figures the plan carried for this decision were stale
+  and disagreed with numbers recorded in the same pull request that produced them, so the
+  suite was re-measured: **281s serially in WSL**, which is the environment `run_bash`
+  actually runs in. 120s therefore sat below the median legitimate command rather than above
+  the slowest, which is the only place a timeout can tell a hung command from a slow one.
+  The two errors are not symmetric. Too high wastes wall clock on a hung command and is
+  bounded by `dispatch_timeout` anyway; too low kills real work and reports it as a non-zero
+  exit, and a model handed that reasons about it as a test failure and repairs passing code
+  -- corrupting the exact ground truth ADR-0007 rests on.
+- The secret scan now covers `extra_binds` as well as HOME and the workdir (ADR-0036). The
+  exclusion was deliberate and recorded, and both of its reasons stopped holding: the value
+  is "an operator's choice" no longer, because an agent file supplies it, and "a read-only
+  bind protects nothing more" was never right for a credential, where being read *is* the
+  threat. Demonstrated before it was claimed: a planted key in an `extra_binds` directory is
+  readable from inside a real sandbox without this change, and returns nothing with it.
+
+### Fixed
+- `DELEGATE_WORKDIR_ROOTS` rendered as **Inert** while being read, because the scan looks
+  for a field name in code outside `config.py` and `paths.py` reaches this one through the
+  `effective_workdir_roots` property -- where the "empty means reuse workspace_roots"
+  fallback lives, and where it has to live, since inlining it at the call site would put a
+  config default outside `config.py`. The scan now follows one level of accessor. Not a
+  harmless over-mark: the marker's stated meaning is that the setting "does nothing, because
+  the subsystem it controls is not built", so a reader deciding whether to set it was told
+  the opposite of the truth. Both failure directions are tested -- an accessor nobody calls
+  cannot launder a dead field, and the hop does not chain.
+
 ## #39 — 2026-08-30 — feat: agent files are found, validated, and actually bind
 
 ### Added

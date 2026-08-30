@@ -41,7 +41,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DELEGATE_WORKSPACE_ROOTS` | **required** | REQUIRED. Layer 1: directories a delegated model may read from, separated by os.pathsep. Any path whose real location falls outside every root is refused, which is what closes symlink escapes. Written in native host form. |
-| `DELEGATE_WORKDIR_ROOTS` | *(empty)* | **Inert.** Layer 1 applied to the `workdir` argument itself, which is a separate surface from the files read within it. Empty means reuse workspace_roots. |
+| `DELEGATE_WORKDIR_ROOTS` | *(empty)* | Layer 1 applied to the `workdir` argument itself, which is a separate surface from the files read within it. Empty means reuse workspace_roots. |
 | `DELEGATE_EXT_ALLOWLIST` | .py, .pyi, .md, .rst, .txt, .toml, .yaml, .yml, .json, .ts, .tsx, .js, .jsx, .mjs, .css, .html, .sql, .sh, .rs, .go, .java, .kt, .c, .h, .cpp, .hpp, .cs, .rb, .php, .swift, .lua, .ini, .cfg, .env-example, .gitignore, .dockerfile, .makefile | Layer 2: the practical allowlist. A pure allowlist cannot work for file contents -- you cannot enumerate every source file you will ever delegate -- so extension is the axis that can be allowlisted. Anything not listed is refused. |
 | `DELEGATE_SECRET_GLOBS_FILE` | ./security/secret_globs.txt | Layer 3: globs a model must never receive, shared with the git secrets gate so there is one list and not two that drift. |
 | `DELEGATE_RESPECT_GITIGNORE` | True | Layer 4: refuse paths git ignores. Cheap, and catches build output and local environment files that pass the extension allowlist. |
@@ -60,7 +60,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_MAX_READ_CHARS` | 50000 chars | Cap on one read_file response. The model is told the true total and how to page, so it continues by range rather than re-reading. |
 | `DELEGATE_MAX_WRITE_BYTES` | 8388608 bytes | Cap on one write_file call. |
-| `DELEGATE_RUN_BASH_TIMEOUT` | 120 seconds | Per-command timeout for run_bash. |
+| `DELEGATE_RUN_BASH_TIMEOUT` | 600 seconds | Per-command timeout for run_bash. Sized to tell a hung command from a slow one, which means it has to sit above the slowest legitimate command rather than near it. Running a project's test suite is the first thing a delegated model is asked to do once it has a workdir, and this repository's own suite takes 281s serially in WSL -- so 120s, the previous value, was below the median legitimate command and killed real work. A kill is reported as a non-zero exit, and the model then reasons about it as a test failure and 'fixes' passing code, which corrupts the ground truth the whole self-verification design rests on (ADR-0007). The opposite error only wastes wall clock, and dispatch_timeout bounds it anyway. |
 
 ### Generation budgets
 
@@ -139,6 +139,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
 
-*50 settings, 6 of them inert.*
+*50 settings, 5 of them inert.*
 
 <!-- GEN:CONFIG:END -->

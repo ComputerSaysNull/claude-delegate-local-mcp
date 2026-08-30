@@ -1,4 +1,6 @@
-<!-- BUDGET: 386      Raised from 375 on 2026-08-29: the mount-level secret denylist is a
+<!-- BUDGET: 394      Raised from 386 on 2026-08-30: M6 made what the sandbox binds a
+     property of the delegation rather than of the server, and the secret scan widened with
+     it. Raised from 375 on 2026-08-29: the mount-level secret denylist is a
      mechanism this document owns and could not previously describe, because it did not
      exist. What it replaced was one wrong sentence in AGENTS.md. -->
 <!-- Raised from 300 across M2. This document owns wsl.py, paths.py and context.py, and
@@ -261,6 +263,13 @@ promised exactly that as "an explicit, logged choice", and was deleted rather th
 implemented: a control an operator can switch off is still a control that can silently be
 off, and nothing downstream — not the caller, not the model — can tell from the outside.
 (ADR-0034)
+
+What is bound is now the delegation's to choose — a workdir, a network namespace, extra
+toolchain directories — so the secret scan covers all three roots rather than the two it
+began with. Skipping `extra_binds` had been justified by the value being an operator's, and
+an agent file supplying it ended that. The reasoning is worth keeping even where it stopped
+applying: this is the second time here that a comment has outlived the code it justified,
+the first being the one explaining `WITHHELD_TOOL_NAMES`. (ADR-0036)
 
 ### The route, now open
 

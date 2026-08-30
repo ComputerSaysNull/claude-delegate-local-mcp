@@ -132,7 +132,39 @@ def _unread_fields() -> set[str]:
         if path.name == "config.py":
             continue
         used |= _code_identifiers(path.read_text(encoding="utf-8"))
+    used |= _reached_through_accessors(src / "config.py", used)
     return {r["field"] for r in config.describe() if r["field"] not in used}
+
+
+def _reached_through_accessors(config_path: Path, used: set[str]) -> set[str]:
+    """Fields a live `config.py` accessor reads on the caller's behalf.
+
+    One level of indirection, and only this one. `workdir_roots` is read by nothing outside
+    `config.py` and is nonetheless live, because `paths.py` calls
+    `effective_workdir_roots()` and that property is where the "empty means reuse
+    workspace_roots" fallback lives. Inlining the fallback at the call site to satisfy a
+    scanner would put a config default outside `config.py`, which is the one thing this
+    project does not do.
+
+    Marking it inert was not a false alarm in the harmless direction: the marker's stated
+    meaning is that the setting "does nothing, because the subsystem it controls is not
+    built", and a reader deciding whether to set it would have been told the opposite of
+    the truth.
+
+    Still conservative. An accessor nobody calls confers nothing, so an unused property
+    cannot launder a dead field into a live one, and one level does not chain -- an
+    accessor reached only through another accessor stays unread and stays marked.
+    """
+    tree = ast.parse(config_path.read_text(encoding="utf-8"))
+    reached: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef) or node.name not in used:
+            continue
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Attribute) and isinstance(inner.value, ast.Name):
+                if inner.value.id == "self":
+                    reached.add(inner.attr)
+    return reached
 
 
 def _cell(text: object) -> str:

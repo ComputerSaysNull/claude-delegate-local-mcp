@@ -126,7 +126,7 @@ def test_the_configured_bwrap_binary_leads_the_argv():
 
 
 def test_case_one_no_workdir_binds_only_home_and_chdirs_there():
-    """The shape every caller produces today: nothing supplies a workdir until M6."""
+    """The shape a delegation gets when it names no workdir, which is still the default."""
     argv = sandbox.build_argv(cfg(), req())
     assert (HOME, HOME) in pairs(argv, "--bind")
     assert pairs(argv, "--chdir") == [(HOME,)]
@@ -331,6 +331,67 @@ def test_the_real_home_is_absent_rather_than_merely_unwritable(tmp_path):
     home = str(tmp_path / "home")
     result = sandbox.run(cfg(), req(command="ls -d ~/.ssh 2>&1 || true", home=home))
     assert ".ssh" not in result.stdout or "No such file" in result.stdout
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_secret_inside_an_extra_bind_cannot_be_read(tmp_path):
+    """Read it and get nothing, rather than assert the mount op is in the argv.
+
+    #36's lesson, applied to the bind this commit opened: asserting a flag is present proves
+    it was passed, not that anything acts on it. An agent file chooses `extra_binds` now, so
+    the question is not whether a shadow was requested but whether a shell inside the
+    sandbox can still read the key -- and that is answerable only by trying.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    toolchain = tmp_path / "toolchain"
+    toolchain.mkdir()
+    (toolchain / "id_rsa").write_text("PRIVATE KEY MATERIAL", encoding="utf-8")
+
+    result = sandbox.run(
+        cfg(secret_globs_file=globs_file(tmp_path, "id_rsa*")),
+        req(command=f"cat {toolchain}/id_rsa 2>&1 || true",
+            home=str(home), extra_binds=(str(toolchain),)))
+
+    assert "PRIVATE KEY MATERIAL" not in result.stdout
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_non_secret_inside_an_extra_bind_is_still_readable(tmp_path):
+    """The other half. Without it, a bind that failed outright would satisfy the test above
+    while breaking the feature it is meant to protect."""
+    home = tmp_path / "home"
+    home.mkdir()
+    toolchain = tmp_path / "toolchain"
+    toolchain.mkdir()
+    (toolchain / "runner.sh").write_text("ORDINARY TOOLCHAIN FILE", encoding="utf-8")
+
+    result = sandbox.run(
+        cfg(secret_globs_file=globs_file(tmp_path, "id_rsa*")),
+        req(command=f"cat {toolchain}/runner.sh", home=str(home),
+            extra_binds=(str(toolchain),)))
+
+    assert "ORDINARY TOOLCHAIN FILE" in result.stdout
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_bound_workdir_is_the_working_directory_and_is_writable(tmp_path):
+    """What binding a workspace is for. Until this commit `workdir` was None for every
+    caller, so a delegated model could not reach a repository at all."""
+    home = tmp_path / "home"
+    home.mkdir()
+    work = tmp_path / "proj"
+    work.mkdir()
+
+    result = sandbox.run(cfg(), req(
+        command="pwd && echo written > made-here.txt", home=str(home), workdir=str(work)))
+
+    assert result.exit_code == 0
+    assert result.stdout.strip().splitlines()[0] == str(work)
+    assert (work / "made-here.txt").read_text(encoding="utf-8").strip() == "written"
 
 
 @pytest.mark.integration
@@ -553,9 +614,22 @@ def test_the_workdir_is_scanned_too_not_only_home(tmp_path):
 
 
 @posix_only
-def test_toolchain_binds_are_not_scanned(tmp_path):
-    """Read-only paths an operator chose, usually under /usr. Latency spent where
-    credentials do not live, and a shadow inside a read-only bind protects nothing new."""
+def test_extra_binds_are_scanned_now_that_an_agent_file_can_choose_them(tmp_path):
+    """This asserts the opposite of what it used to, and the reversal is the point.
+
+    It was `test_toolchain_binds_are_not_scanned`, and the exclusion was justified twice
+    over: `extra_binds` were paths an operator chose, usually under /usr, so scanning them
+    spent latency where credentials do not live; and shadowing inside a read-only bind
+    protected nothing the bind did not already protect.
+
+    M6 killed the first premise. An agent file supplies `extra_binds` now, and a markdown
+    file anyone can add to a repository is not an operator decision -- the entire argument
+    for trusting the value was that a person with server access had typed it. The second
+    premise was never right for secrets: read-only means readable, and being read is the
+    whole threat for a credential.
+
+    So a bind holding a private key is covered up, exactly as a workdir holding one is.
+    """
     home, tools = tmp_path / "home", tmp_path / "tools"
     home.mkdir()
     tools.mkdir()
@@ -565,7 +639,7 @@ def test_toolchain_binds_are_not_scanned(tmp_path):
         cfg(secret_globs_file=globs_file(tmp_path, "id_rsa*")),
         req(home=str(home), extra_binds=(str(tools),)))
 
-    assert found == ()
+    assert [t.path for t in found] == [f"{tools}/id_rsa"]
 
 
 @posix_only

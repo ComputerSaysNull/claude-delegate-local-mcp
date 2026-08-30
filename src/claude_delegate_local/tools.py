@@ -52,8 +52,32 @@ class RegisteredTool:
     """
 
     spec: ToolSpec
-    handler: Callable[[Config, dict[str, object]], str | BashResult]
+    handler: Callable[..., str | BashResult]
     cacheable: bool = False
+    # Whether this tool's handler takes the delegation's `BashPolicy` as a third argument.
+    # Declared with the tool for the same reason `cacheable` is: it is a fact about the
+    # tool, and an executor deciding it by name would keep a second copy of that fact
+    # somewhere else. Only `run_bash` enters the sandbox, so only `run_bash` sets it, and
+    # widening one tool's signature beats adding an ignored parameter to the other two.
+    wants_policy: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class BashPolicy:
+    """What one delegation may do inside the sandbox: where, with what, and on whose network.
+
+    Per delegation, never a config field -- for the same reason `allowed_tools` is not one.
+    These come from an agent file or a call argument, and a server-wide default for them
+    would be a config default living outside `config.py`.
+
+    The default is the pre-M6 behaviour exactly: no workspace bound, no network, and only
+    the toolchain binds the server probes for itself. A caller that says nothing gets a
+    sandbox that can reach nothing of theirs, which is the right way round.
+    """
+
+    workdir: str | None = None
+    network: bool = False
+    extra_binds: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,7 +214,7 @@ def _capped(cfg: Config, result: sandbox.SandboxResult) -> str:
     )
 
 
-def _run_bash(cfg: Config, args: dict[str, object]) -> BashResult:
+def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashResult:
     """Run one command in the sandbox, and report what the server saw it do.
 
     ADR-0010: upstream logs a warning and runs the command unconfined when bubblewrap is
@@ -212,12 +236,13 @@ def _run_bash(cfg: Config, args: dict[str, object]) -> BashResult:
         result = sandbox.run(cfg, sandbox.SandboxRequest(
             command=command,
             home=sandbox.resolve_home(cfg),
-            # No caller supplies a workspace bind yet, so the command's working directory is
-            # the sandbox HOME. `discover_secret_shadows` already covers a workdir when one
-            # arrives; nothing here has to change for it.
-            workdir=None,
-            network=False,
-            extra_binds=sandbox.probe_toolchain_binds(cfg),
+            # The workdir arrives already resolved and root-checked by
+            # `paths.resolve_workdir`. It is not re-derived here: a second resolution is a
+            # second chance to disagree with the first, and the check that matters happened
+            # where the caller's argument was still a caller's argument.
+            workdir=policy.workdir,
+            network=policy.network,
+            extra_binds=sandbox.probe_toolchain_binds(cfg) + policy.extra_binds,
             env=sandbox.resolve_env(cfg),
         ))
     except (sandbox.SandboxUnavailable, sandbox.SecretShadowIncomplete) as e:
@@ -308,6 +333,7 @@ RUN_BASH = RegisteredTool(
         },
     ),
     handler=_run_bash,
+    wants_policy=True,
 )
 
 # Insertion order is the declared order, and it is fixed here rather than sorted at use.
@@ -425,7 +451,10 @@ def _rewrites_text(command: str) -> bool:
 
 
 def execute_tool(
-    cfg: Config, call: ToolUseBlock, allowed: Iterable[str]
+    cfg: Config,
+    call: ToolUseBlock,
+    allowed: Iterable[str],
+    policy: BashPolicy | None = None,
 ) -> ToolResultBlock:
     """Site two: what actually runs.
 
@@ -456,7 +485,11 @@ def execute_tool(
             is_error=True,
         )
     try:
-        produced = tool.handler(cfg, call.input)
+        produced = (
+            tool.handler(cfg, call.input, policy or BashPolicy())
+            if tool.wants_policy
+            else tool.handler(cfg, call.input)
+        )
     except (ToolRefused, PathRefused, PathPolicyError) as e:
         return ToolResultBlock(tool_use_id=call.id, content=str(e), is_error=True)
     if isinstance(produced, BashResult):

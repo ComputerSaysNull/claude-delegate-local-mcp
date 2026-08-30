@@ -171,7 +171,19 @@ class Config:
         unit="chars",
     )
     max_write_bytes: int = _f(8388608, "Cap on one write_file call.", unit="bytes")
-    run_bash_timeout: int = _f(120, "Per-command timeout for run_bash.", unit="seconds")
+    run_bash_timeout: int = _f(
+        600,
+        "Per-command timeout for run_bash. Sized to tell a hung command from a slow one, "
+        "which means it has to sit above the slowest legitimate command rather than near "
+        "it. Running a project's test suite is the first thing a delegated model is asked "
+        "to do once it has a workdir, and this repository's own suite takes 281s serially "
+        "in WSL -- so 120s, the previous value, was below the median legitimate command and "
+        "killed real work. A kill is reported as a non-zero exit, and the model then "
+        "reasons about it as a test failure and 'fixes' passing code, which corrupts the "
+        "ground truth the whole self-verification design rests on (ADR-0007). The opposite "
+        "error only wastes wall clock, and dispatch_timeout bounds it anyway.",
+        unit="seconds",
+    )
     max_bash_output_chars: int = _f(
         20000,
         "Cap on the combined stdout and stderr of one run_bash call. The tail is cut "

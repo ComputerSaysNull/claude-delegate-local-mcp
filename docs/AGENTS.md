@@ -1,4 +1,6 @@
-<!-- BUDGET: 256      Raised from 240 on 2026-08-30: agents.py landed, so this document
+<!-- BUDGET: 272      Raised from 256 on 2026-08-30, same day: the workdir surface
+     and the extra_binds constraint both became real and both needed stating where someone
+     configuring them looks. Raised from 240 earlier that day: agents.py landed, so this document
      stopped describing a design and started describing behaviour. The added length is one
      new section -- why an over-cap max_turns is refused in a file and clamped for a caller.
      A deviation from a rule documented elsewhere has to be written down where someone hits
@@ -129,6 +131,12 @@ but a tool installed under your home directory, `uv` being the common case, is *
 and `uv run pytest` fails with "not found". That is the most likely first-run surprise. The
 server binds the resolved `uv` by default; anything else goes here.
 
+A bind here is **read-only**, and the secret denylist still reaches inside it. The path
+policy's layer 1 does not: requiring an `extra_binds` entry to sit inside a workspace root
+would defeat the field, whose whole purpose is reaching a toolchain that lives outside one.
+So the constraint that remains is the one that matters — no agent file can bind a directory
+in order to read credentials out of it. (ADR-0036)
+
 ## The path policy
 
 Four layers, checked in order, cheapest first. They apply to `files[]` *and* to the model's
@@ -215,8 +223,14 @@ source file, which is backwards — data files are the ones worth trimming. (ADR
 
 ### What the policy does not cover
 
-`read_file` and `write_file` are governed by the policy and run in the server process. Only
-`run_bash` enters the sandbox — and a shell can read anything visible to it, so for
+`read_file` and `write_file` are governed by the policy and run in the server process. The
+`workdir` argument is checked as its own surface, against
+[`workdir_roots`](CONFIGURATION.md), which falls back to the workspace roots when unset —
+reading a project and being able to work in it are separable grants, and a workdir is bound
+**writable** for the whole call. It is resolved before it is compared, so a symlink sitting
+inside a root but pointing out of it is refused on where it lands.
+
+Only `run_bash` enters the sandbox — and a shell can read anything visible to it, so for
 `run_bash` the policy alone is decorative. The secret denylist is therefore *also* enforced
 at the mount level, by mounting something empty over each match. One matcher. (ADR-0035)
 

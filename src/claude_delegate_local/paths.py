@@ -128,6 +128,19 @@ def resolved_roots(cfg: Config) -> tuple[str, ...]:
     return tuple(os.path.realpath(to_posix(r)) for r in cfg.workspace_roots)
 
 
+def resolved_workdir_roots(cfg: Config) -> tuple[str, ...]:
+    """The roots a `workdir` may sit in, which is a separate surface from the files read.
+
+    `workdir_roots` empty means reuse `workspace_roots`, so the common case needs no second
+    setting. They are separable because binding a directory read-write into a sandbox is a
+    bigger grant than reading a file out of it: an operator may want a model able to *read*
+    three projects while only ever *working* in one.
+    """
+    return tuple(
+        os.path.realpath(to_posix(r)) for r in cfg.effective_workdir_roots
+    )
+
+
 def _within(real: str, root: str) -> bool:
     root = root.rstrip("/")
     return real == root or real.startswith(root + "/")
@@ -460,6 +473,64 @@ def _check_exists(given: str, real: str, must_exist: bool = True) -> Refusal | N
             remedy="Name the file itself. A directory is not a thing to read or write.",
         )
     return None
+
+
+def resolve_workdir(cfg: Config, given: str) -> str:
+    """Layer 1 for the `workdir` argument. Returns the resolved POSIX path, or refuses.
+
+    Only layer 1 applies. Layers 2 to 4 are about *file contents* -- an extension allowlist,
+    a secret denylist, a gitignore check -- and a working directory is not a file. The
+    denylist still reaches inside it, but at the mount level rather than here, because a
+    shell can read anything visible to it and a path check the shell never consults is
+    decoration (ADR-0035).
+
+    **Resolved before it is compared, which is the whole point.** A symlink inside a root
+    pointing outside it is a real escape, and it is invisible to any check that compares the
+    path as written. `os.path.realpath` first, then the root test -- the same order, and the
+    same reason, as `_resolve_one`.
+
+    Raises `PathRefused` carrying one refusal, so a caller that already handles the files[]
+    case handles this one without learning a second exception.
+    """
+    posix = to_posix(given)
+    if not posixpath.isabs(posix):
+        raise PathRefused([Refusal(
+            given=given,
+            layer=LAYER_FORM,
+            reason="it is not an absolute path.",
+            remedy=(
+                "A workdir is resolved by the server, which has its own working directory "
+                "and will not share yours. Give an absolute path."
+            ),
+        )], 1)
+
+    real = os.path.realpath(posix)
+    if not os.path.isdir(real):
+        raise PathRefused([Refusal(
+            given=given,
+            layer=LAYER_FORM,
+            reason=(
+                f"its real location {real} is not a directory."
+                if os.path.exists(real)
+                else f"its real location {real} does not exist."
+            ),
+            remedy="A workdir must be an existing directory.",
+        )], 1)
+
+    roots = resolved_workdir_roots(cfg)
+    if not any(_within(real, root) for root in roots):
+        raise PathRefused([Refusal(
+            given=given,
+            layer=LAYER_ROOTS,
+            reason=f"its real location {real} is outside every workdir root.",
+            remedy=(
+                f"Permitted workdir roots: {', '.join(roots) or '(none)'}. The resolved "
+                "location is what is checked, so a symlink inside a root that points out "
+                "of it is refused on where it lands, not on where it sits. Set "
+                "DELEGATE_WORKDIR_ROOTS, or DELEGATE_WORKSPACE_ROOTS which it falls back to."
+            ),
+        )], 1)
+    return real
 
 
 def resolve_all(

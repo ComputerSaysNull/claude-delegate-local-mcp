@@ -246,10 +246,22 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
     bound whole. So it is covered up afterwards instead, which needs a concrete path -- and
     the denylist holds patterns. Hence a walk.
 
-    **Only `home` and `workdir` are scanned.** `extra_binds` are read-only toolchain paths
-    an operator chose, typically somewhere under `/usr`; scanning them is latency spent
-    where credentials do not live, and covering up a file inside a read-only bind protects
-    nothing that bind did not already protect.
+    **`home`, `workdir` and `extra_binds` are all scanned.** The first two always were. The
+    third was excluded, deliberately, on two grounds that were written down and have since
+    stopped holding: that `extra_binds` are paths "an operator chose, typically somewhere
+    under `/usr`", and that covering a file inside a read-only bind protects nothing the
+    bind did not already protect.
+
+    The first premise died when M6 let an agent *file* supply `extra_binds`. A markdown file
+    that anyone can add to a repository is not an operator decision, and the argument for
+    trusting the value was entirely that an operator had typed it. The second was never
+    quite right for credentials specifically: read-only still means readable, and reading is
+    the whole of the threat for a secret -- a read-only bind stops it being edited, which
+    nobody was worried about.
+
+    Recorded rather than deleted, because the reasoning outliving the code it justified is a
+    failure this repository has now seen twice: the same thing happened to the comment
+    explaining `WITHHELD_TOOL_NAMES` when that set was emptied. (ADR-0035)
 
     **Symlinks are skipped, and that is not laziness.** Emitting a shadow op on a symlink
     node does not follow it and does not create it -- it aborts the entire bwrap invocation
@@ -273,6 +285,7 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
     roots: list[str] = [req.home]
     if req.workdir is not None and req.workdir != req.home:
         roots.append(req.workdir)
+    roots.extend(b for b in req.extra_binds if b not in roots)
 
     globs = load_secret_globs(cfg)
     found: list[ShadowTarget] = []

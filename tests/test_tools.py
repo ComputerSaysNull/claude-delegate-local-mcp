@@ -368,6 +368,52 @@ def test_the_absent_sandbox_does_not_weaken_the_execution_site(workspace, monkey
     assert result.is_error
 
 
+def test_the_policy_reaches_the_sandbox_request(workspace, monkeypatch):
+    """`run_bash` was hardcoded to no workdir, no network and toolchain binds only.
+
+    Every one of those is now the delegation's to decide, and the wiring is what this
+    asserts: the executor's policy argument arrives at `SandboxRequest` unchanged. Captured
+    at the boundary rather than run, because what is under test is the plumbing, and a real
+    bwrap would prove the plumbing only incidentally.
+    """
+    seen: list[sandbox.SandboxRequest] = []
+
+    def capture(cfg_, req):
+        seen.append(req)
+        return sandbox.SandboxResult(stdout="", stderr="", exit_code=0, timed_out=False)
+
+    monkeypatch.setattr(sandbox, "run", capture)
+    policy = tools.BashPolicy(
+        workdir=str(workspace), network=True, extra_binds=("/opt/toolchain",))
+    tools.execute_tool(
+        cfg(workspace), call("run_bash", command="ls"), frozenset({"run_bash"}), policy)
+
+    (req,) = seen
+    assert req.workdir == str(workspace)
+    assert req.network is True
+    assert "/opt/toolchain" in req.extra_binds
+
+
+def test_a_delegation_that_names_no_policy_reaches_nothing_of_yours(workspace, monkeypatch):
+    """The default is the pre-M6 behaviour exactly, and it is the safe direction.
+
+    A caller that says nothing must not silently inherit a workspace: `workdir=None` means
+    the command runs in the sandbox HOME, with no network and only the binds the server
+    probed for itself.
+    """
+    seen: list[sandbox.SandboxRequest] = []
+    monkeypatch.setattr(sandbox, "run", lambda c, r: (
+        seen.append(r),
+        sandbox.SandboxResult(stdout="", stderr="", exit_code=0, timed_out=False))[1])
+    monkeypatch.setattr(sandbox, "probe_toolchain_binds", lambda c: ())
+
+    tools.execute_tool(cfg(workspace), call("run_bash", command="ls"), frozenset({"run_bash"}))
+    (req,) = seen
+    assert req.workdir is None
+    assert req.network is False
+    assert req.extra_binds == ()
+
+
 def test_execute_tool_still_checks_its_own_allowed_set(workspace):
     """Site two. A model can name a tool it was never offered, so the executor checks too --
     and it never consulted the withholding, so emptying that set did not weaken this."""

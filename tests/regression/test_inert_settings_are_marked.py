@@ -68,3 +68,65 @@ def test_a_field_becomes_live_the_moment_source_mentions_it(tmp_path, monkeypatc
     (fake / "uses_it.py").write_text("x = cfg.agents_dir\n", encoding="utf-8")
     monkeypatch.setattr(gen, "ROOT", tmp_path)
     assert "agents_dir" not in gen._unread_fields()
+
+
+def _fake_tree(tmp_path, *, config_src: str, caller_src: str) -> None:
+    fake = tmp_path / "src" / "claude_delegate_local"
+    fake.mkdir(parents=True)
+    (fake / "config.py").write_text(config_src, encoding="utf-8")
+    (fake / "caller.py").write_text(caller_src, encoding="utf-8")
+
+
+ACCESSOR_CONFIG = """
+class Config:
+    def effective_workdir_roots(self):
+        return self.workdir_roots or self.workspace_roots
+"""
+
+CHAINED_CONFIG = """
+class Config:
+    def outer(self):
+        return self.inner()
+
+    def inner(self):
+        return self.buried
+"""
+
+
+def test_a_field_read_only_through_a_live_accessor_is_not_marked(tmp_path, monkeypatch):
+    """`workdir_roots` is named by nothing outside config.py and is still live.
+
+    `paths.py` calls `effective_workdir_roots()`, and that property is where the "empty
+    means reuse workspace_roots" fallback lives. Inlining the fallback at the call site to
+    please a scanner would put a config default outside `config.py`, which is the one thing
+    this project does not do -- so the scan follows the accessor instead.
+    """
+    _fake_tree(tmp_path, config_src=ACCESSOR_CONFIG,
+               caller_src="y = cfg.effective_workdir_roots\n")
+    monkeypatch.setattr(gen, "ROOT", tmp_path)
+    monkeypatch.setattr(gen.config, "describe", lambda: [{"field": "workdir_roots"}])
+    assert gen._unread_fields() == set()
+
+
+def test_an_accessor_nobody_calls_cannot_launder_a_dead_field(tmp_path, monkeypatch):
+    """The negative half, and the one that makes the branch above worth having.
+
+    Without it, any field touched by any property in config.py would read as live whether or
+    not a caller existed -- which is under-marking, the direction this scan's own docstring
+    calls the dangerous one. The accessor here is identical; nothing calls it, and that is
+    the only difference.
+    """
+    _fake_tree(tmp_path, config_src=ACCESSOR_CONFIG, caller_src="y = something_else()\n")
+    monkeypatch.setattr(gen, "ROOT", tmp_path)
+    monkeypatch.setattr(gen.config, "describe", lambda: [{"field": "workdir_roots"}])
+    assert gen._unread_fields() == {"workdir_roots"}
+
+
+def test_the_accessor_hop_does_not_chain(tmp_path, monkeypatch):
+    """One level, deliberately. A property reached only from another property is not a use:
+    chaining would let a dead field ride an arbitrarily long path back to looking live."""
+    _fake_tree(tmp_path, config_src=CHAINED_CONFIG, caller_src="y = cfg.outer()\n")
+    monkeypatch.setattr(gen, "ROOT", tmp_path)
+    monkeypatch.setattr(gen.config, "describe", lambda: [{"field": "buried"}])
+    assert gen._unread_fields() == {"buried"}
+
