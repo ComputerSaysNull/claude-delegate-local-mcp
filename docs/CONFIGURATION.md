@@ -130,7 +130,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_AGENTS_DIR` | ~/.claude/agents | **Inert.** Third and last place an agent definition is looked for, after the workspace's own agents and skills directories. |
+| `DELEGATE_AGENTS_DIR` | ~/.claude/agents | Third and last place an agent definition is looked for, after the workspace's own agents and skills directories. |
 
 ### Transport
 
@@ -139,6 +139,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
 
-*50 settings, 7 of them inert.*
+*50 settings, 6 of them inert.*
 
 <!-- GEN:CONFIG:END -->

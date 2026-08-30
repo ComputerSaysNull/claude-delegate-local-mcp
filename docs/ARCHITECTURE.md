@@ -312,7 +312,8 @@ self-verification design rests on it. (ADR-0007)
 The cluster caches prompt prefixes, so identical leading tokens are served from cache —
 saving prefill time *and* leaving more KV pool free. Order is therefore fixed: system
 prompt, agent body, files block, task last, with the file list sorted deterministically by
-resolved path.
+resolved path. That order lives on `Delegation.render`, in one place, because the one-shot
+builder and the turn loop both need it and two copies of an ordering rule is one too many.
 
 Sorted *before* the total budget is accumulated, not after, or the same six files listed
 in a different order would return a different five. The budget also stops at the first

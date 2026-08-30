@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** M6 — Agents, batching, discovery — 1 of 4 items done
+**Current phase:** M6 — Agents, batching, discovery — 2 of 4 items done
 
 ## In progress
 
@@ -13,7 +13,6 @@
 
 ## Next up
 
-- `agents.py` — three-tier lookup, frontmatter validated and actually binding
 - `delegate_to_agent`, `delegate_batch`, `list_agents`
 - Workdir root allowlist, symlink escape closed. Binding a workspace makes the
 
@@ -28,14 +27,14 @@
 | M3 — Response state machine | 3 | 0 | 0 | 1 |
 | M4 — Agentic loop and model tools | 10 | 0 | 0 | 0 |
 | M5 — Sandbox | 9 | 0 | 0 | 0 |
-| M6 — Agents, batching, discovery | 1 | 0 | 3 | 0 |
+| M6 — Agents, batching, discovery | 2 | 0 | 2 | 0 |
 | M7 — Admission control and polish | 0 | 0 | 4 | 1 |
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
 | Extra — work outside the milestone plan | 6 | 0 | 0 | 0 |
 
-**Overall:** 65 done, 8 open, 7 cancelled.
+**Overall:** 66 done, 7 open, 7 cancelled.
 
 ## Repository
 
-- 47 commit(s), 98 tracked files
-- 37 test file(s), 35 decision record(s)
+- 48 commit(s), 100 tracked files
+- 38 test file(s), 35 decision record(s)

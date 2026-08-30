@@ -30,6 +30,47 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #39 — 2026-08-30 — feat: agent files are found, validated, and actually bind
+
+### Added
+- `agents.py`: the three-tier lookup (`<workdir>/.claude/agents/<name>.md`, then
+  `<workdir>/.claude/skills/<name>/SKILL.md`, then the configured personal directory, first
+  match wins) and the frontmatter validator behind it. `load_agent` is the whole surface a
+  caller needs; `list_agents` enumerates what is visible, dropping a name shadowed by a
+  nearer tier rather than reporting a choice the lookup does not offer.
+- The frontmatter is parsed by hand rather than by adding PyYAML. The field set is fixed and
+  known, the runtime is otherwise `fastmcp` and `httpx`, and what this parser cannot read --
+  nested maps, block scalars, block lists -- it refuses rather than reading as something
+  else. That refusal is the point: a hand-written parser that guesses is worse than a
+  dependency.
+- Every frontmatter rule refuses rather than defaults, because the ancestor bug this format
+  exists to avoid is frontmatter that was loaded and then ignored. An unknown key is refused
+  (a `mode:` for `model:` would otherwise cost the setting in silence), `effort: medium` is
+  refused by name because it is Claude Code's vocabulary and not this one (ADR-0031), a tool
+  this server does not implement is refused, and a `name:` that disagrees with the filename
+  is refused because callers look agents up by filename and one of the two is then a lie.
+- `Delegation` gained `agent_body`, and the prompt order moved onto a `render` method.
+
+### Changed
+- An agent file asking for more turns than `max_turns_hard_cap` is refused when it loads,
+  where a caller passing the same number is still clamped in silence. The asymmetry is
+  deliberate and is now written down in both places it can be met: a call argument is gone
+  when the call returns, but a file is committed, read again and believed, so clamping there
+  would leave a wrong number in it indefinitely -- running correctly, and reading as though
+  it were in effect.
+
+### Fixed
+- `Delegation`'s docstring claimed the prompt ordering rule "lives in exactly one place"
+  while the one-shot builder and the turn loop each concatenated the parts themselves. The
+  claim was false before the agent body existed and would have become a third segment to
+  keep in step across two sites. Both now call `Delegation.render`, which is what the
+  docstring always said.
+- Two regression tests named a setting that had just gone live. Each asserts the inert
+  marker can appear, and each named `agents_dir` as its specimen -- which `agents.py` now
+  reads. Repointed at a field that is still unbuilt rather than loosened: the assertion
+  moving is the marker working, and a version of either test that stopped naming a real
+  field would pass forever, which is the failure both were written against.
+
 ## #38 — 2026-08-30 — fix: declare run_bash only where a sandbox can run it
 
 ### Fixed

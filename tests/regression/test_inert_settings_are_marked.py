@@ -23,15 +23,20 @@ from claude_delegate_local import config  # noqa: E402
 
 
 def test_a_setting_nothing_reads_is_reported_as_inert():
-    """The positive case: agents_dir is declared and no module reads it yet.
+    """The positive case: kv_token_budget is declared and no module reads it yet.
 
-    The specimen was sandbox_enabled until M5 deleted that field outright. Any field for an
-    unbuilt subsystem does here -- agents_dir waits on agents.py in M6 -- and when the last
-    of them goes live this test needs a new one rather than a weakened assertion. A version
-    of it that quietly stopped naming a real field would pass forever.
+    The specimen was sandbox_enabled until M5 deleted that field outright, then agents_dir
+    until M6's agents.py started reading it. Any field for an unbuilt subsystem does here --
+    kv_token_budget waits on M7's admission control -- and when the last of them goes live
+    this test needs a new one rather than a weakened assertion. A version of it that quietly
+    stopped naming a real field would pass forever.
+
+    Note what replacing the specimen is *not*: an accommodation. Each time, the field went
+    live because the subsystem was built, which is the marker doing its job. The assertion
+    is rewritten to point at something still unbuilt, never loosened to keep passing.
     """
     unread = gen._unread_fields()
-    assert "agents_dir" in unread
+    assert "kv_token_budget" in unread
 
 
 def test_a_setting_the_server_reads_is_not_reported_as_inert():

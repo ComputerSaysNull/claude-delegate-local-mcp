@@ -48,8 +48,13 @@ def test_a_leftover_row_still_carries_its_unit(everything_leftover):
 
 
 def test_a_leftover_row_still_carries_its_inert_marker(everything_leftover):
-    """The latent half. agents_dir is inert until M6 writes the agent loader."""
-    row = _row_for(everything_leftover, "DELEGATE_AGENTS_DIR")
+    """The latent half. kv_token_budget is inert until M7 builds admission control.
+
+    The specimen was agents_dir until M6's agents.py started reading it. Any still-inert
+    field serves; what must not happen is dropping the assertion because its subject went
+    live, which would leave the leftover path unwatched.
+    """
+    row = _row_for(everything_leftover, "DELEGATE_KV_TOKEN_BUDGET")
     assert "**Inert.**" in row, row
 
 

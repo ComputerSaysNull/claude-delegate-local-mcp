@@ -111,7 +111,7 @@ a bounded one, attributed to the setting that caused it, and claims nothing more
 
 ## The reply budget is resolved once, most specific first
 
-Call argument, then agent frontmatter (M6), then the configured default **last**. That
+Call argument, then agent frontmatter, then the configured default **last**. That
 ordering is ADR-0024's surviving constraint: an operator lowering the ceiling must not
 suppress the floor that stops heavy-reasoning models returning nothing, so at high and max
 effort the floor is a `max()` over the configured value rather than an alternative to it.
@@ -126,8 +126,7 @@ dispatch. The per-model cap applies last everywhere: it is what the wire accepts
 The cluster's reasoning default is set at boot and is not ours to assume — the stack we
 run against ships one value in its example environment while two of its own documents
 recommend another. So every request states its reasoning level explicitly. Resolution:
-the call argument, then the registry row, then the global default. An agent-file step joins
-the front of that order in M6.
+the call argument, then the agent file, then the registry row, then the global default.
 
 An unrecognised value is refused rather than passed through — but not because the backend
 would ignore it. It does not: it validates `reasoning_effort` and answers a bad one with a
@@ -192,7 +191,12 @@ ends on the first reply that carries no tool calls — that reply *is* the answe
 the turn budget runs out. [`max_turns_default`](CONFIGURATION.md) sets the budget and
 [`max_turns_hard_cap`](CONFIGURATION.md) bounds what a caller may ask for; the cap is
 applied silently rather than refused, because the work is legitimate and only the number is
-not. An agent file will resolve into the same precedence in M6.
+not.
+
+An **agent file** asking for more than the cap is refused instead, at load. The asymmetry is
+deliberate: a call argument is transient, so clamping it costs nobody anything, while a file
+is committed, read again and trusted. Clamping there would leave a wrong number sitting in
+the file indefinitely, running correctly and reading as though it were in effect.
 
 The last turn is declared **with no tools at all**. Without that short-circuit a delegation
 can end on a tool call nobody will run, having spent its whole budget and returned nothing
