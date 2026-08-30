@@ -1,0 +1,29 @@
+# Directories covered and not walked, because they are machine-generated bulk.
+#
+# This is NOT the secret denylist -- that is security/secret_globs.txt, and the two are
+# kept apart on purpose. A match here is covered with the same tmpfs a matched secret
+# directory gets, so covering more is never less safe: a secret inside one of these is
+# hidden by the covering mount whether or not the scan ever looked inside. What this list
+# buys is the *walk*, which is per run_bash call and on /mnt/c.
+#
+# Measured on this repository: 10,586 entries and 66s with .venv walked, 248 entries and
+# 0.7s with it covered. See ADR-0041.
+#
+# What does NOT belong here: anything a shell might legitimately need to read. The
+# contents become invisible, and the tmpfs that covers them is writable, so a command that
+# writes into one appears to succeed and leaves nothing behind.
+#
+# node_modules is listed despite that, on measurement rather than principle. A 32,184-entry
+# project here is refused on every call without it and scans in 3s with it, and raising the
+# cap instead means a ~3 minute walk before every command. So `npm test` inside the sandbox
+# is not something this line costs -- it is not reachable at any setting. Delete the line
+# if a project needs it and is small enough to walk.
+.venv/**
+node_modules/**
+venv/**
+.tox/**
+.nox/**
+__pycache__/**
+.mypy_cache/**
+.pytest_cache/**
+.ruff_cache/**

@@ -310,6 +310,26 @@ covers a link whose *name* matches while its target does not. The scan is point-
 `run_bash` holds a read-write bind for the whole call, so a file the command writes afterwards
 is not covered and cannot be. Defence in depth for one tool, not a replacement. (ADR-0035)
 
+**Bulk directories are covered and not walked.** The walk is per `run_bash` call, on a
+workspace that lives on `/mnt/c`, and the budget above is what a project's own installed
+dependencies exhaust: this repository walked 10,586 entries in 66 seconds once it carried a
+virtualenv, against 248 in 0.7 with one covered. So a second list, `opaque_globs_file`,
+names machine-generated directories, and a match is covered with the same tmpfs a matched
+secret directory gets and pruned from the walk for the same reason.
+
+Covering is what makes skipping safe: a secret inside such a directory is hidden by the
+mount over its parent whether or not the walk ever looked inside it. Pruning *without*
+covering would be a hole, and the direction is easy to get backwards — the obvious rule,
+"skip whatever gitignore ignores", would drop `.env` from a scan that exists to find it.
+
+Kept as a separate file from the denylist deliberately. That one is a security control
+whose absence is fatal; this one only decides what the walk skips, so a missing file is a
+warning. Sharing them would make a slow scan fixable by editing the security list. Raising
+the entry budget is the other tempting fix and is worse than it looks: it makes every call
+walk the tree, and once inside a virtualenv `*secret*` and `*credential*` match ordinary
+library filenames, so the scan mounts `/dev/null` over the imports of the environment it
+just read. (ADR-0041)
+
 ### Ground truth over self-report
 
 Models misreport command outcomes. The server therefore computes `bash_calls`,

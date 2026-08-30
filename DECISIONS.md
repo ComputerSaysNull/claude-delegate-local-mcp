@@ -19,6 +19,62 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0041 — 2026-08-30 — Bulk directories are covered and skipped, not the denylist — Accepted
+
+**Context.** `run_bash` was refused on every real project. The mount-level secret scan
+walks the workdir before each call and refuses past `secret_shadow_max_entries`, which is
+right — a partial denylist reads exactly like a complete one — but the default was
+measured on a checkout with no virtualenv in it. `config.py` said as much in its own help
+text: "This repository scans in 230." With `.venv` present it walks 10,586. Found by
+running the tool rather than the suite: every scan test builds one to twelve files by
+hand, and the two that exercise the budget do it by lowering the cap to five, so nothing
+ever asked whether a realistic tree passes the shipped default.
+
+**Decision — a second list, covered with the same mount and pruned from the walk.**
+`opaque_globs_file` names machine-generated directories. A match is covered with the tmpfs
+a matched secret directory already gets, and pruned for the same reason. Measured on this
+repository, on /mnt/c: 10,586 entries and 66s walked, against 248 and 0.7s covered. The
+scan runs per call, so the 66s was not a slow start but the feature's whole cost, paid
+before every command.
+
+**Covering is what makes skipping safe.** A secret inside an opaque directory is hidden by
+the mount over its parent whether or not the walk looked inside. Pruning *without*
+covering is a hole, and it is the easy mistake: the obvious rule — skip whatever gitignore
+ignores — drops `.env`, which is gitignored, from the scan that exists to find it. Both
+wrong builds were constructed and shown failing; prune-without-cover is caught from inside
+a real sandbox, by a shell reading the file, because no argv assertion can catch it —
+there is no op for a path the walk never visited.
+
+**Decision — separate file, and a missing one is not fatal.** The denylist is a security
+control and its absence stops the server, because a list matching nothing is
+indistinguishable from one that passed. This list only decides what the walk skips, so an
+absent file warns. Sharing one file would make a slow scan fixable by editing the security
+list, which is the one edit nobody should make for a performance reason.
+
+**Alternative rejected — raise the entry budget.** Worse than slow. Every call would walk
+the tree, and once inside a virtualenv `*secret*` and `*credential*` match ordinary
+library filenames — `keyring/credentials.py`, `pydantic_settings/.../secrets.py`,
+`certifi/cacert.pem`. The scan mounts `/dev/null` over each, so raising the cap spends a
+minute and then breaks the imports and the TLS roots of the environment it just read.
+Twenty of the twenty-two matches on this repository were of that kind.
+
+**Alternative deferred — `os.scandir`.** About 76% of the walk is one `stat` per entry
+across the Windows boundary, and a dirent-cached symlink test removes it: 68.0s → 16.3s
+without the stat, 9.6s with `scandir`. A real 7x, and still not a feature at 9.6s per
+command, so it does not substitute for pruning. Recorded with its numbers so the next
+person need not re-measure; worth doing only if the walk ever matters again after pruning,
+where it is 0.7s.
+
+**Consequences.** A regression test builds a project-shaped tree and scans it with the
+shipped lists and a budget just above what the project is worth without its virtualenv, so
+it passes only while the shipped file still names one — deleting that line fails three
+tests. `node_modules` is on the list from measurement rather than principle: a
+32,184-entry project is refused on every call without it and scans in 3s with it, and
+raising the cap instead is a ~3 minute walk per command — so `npm test` inside the sandbox
+is not something the entry costs, it is unreachable at any setting. The tmpfs that covers
+a directory is writable, so a command writing into one appears to succeed and leaves
+nothing behind. The refusal message names the lever.
+
 ## ADR-0040 — 2026-08-30 — Admission counts the machine, through a locked file every process shares — Accepted
 
 **Context.** ADR-0012 set the policy and ADR-0038 made it one atomic predicate over four
