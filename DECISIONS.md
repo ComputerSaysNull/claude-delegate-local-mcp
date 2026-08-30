@@ -19,6 +19,35 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0036 — 2026-08-30 — `extra_binds` is scanned for secrets, because an agent file now chooses it — Accepted
+
+**Context.** `discover_secret_shadows` scanned the sandbox HOME and the workdir and
+deliberately skipped `extra_binds`. Two reasons were recorded. They were paths "an operator
+chose, typically somewhere under `/usr`", so scanning them spent latency where credentials
+do not live; and covering a file inside a read-only bind "protects nothing that bind did not
+already protect".
+
+M6 lets an agent file supply `extra_binds`. A markdown file that anyone can add to a
+repository is not an operator decision, and the whole force of the first reason was that a
+person with server access had typed the value. The second reason was never right for
+secrets specifically: a read-only bind stops a file being *edited*, and nobody was worried
+about a private key being edited. Read-only means readable, and being read is the threat.
+
+**Decision.** The scan covers `home`, `workdir` and `extra_binds`. The alternative
+considered was constraining `extra_binds` by the layer-1 root check instead, and it was
+rejected because it defeats the field: its documented purpose is binding a toolchain such as
+`uv` from under the home directory, which is deliberately outside the workspace roots.
+
+**Consequences.** The walk is wider, bounded by the `secret_shadow_max_entries` and
+`_max_depth` limits that already existed. An operator binding a large tree pays for it once
+per call. Verified by reading a planted key from inside a real sandbox and getting nothing,
+then removing the change and reading it successfully — the control was demonstrated failing
+before it was claimed to work.
+
+What this does not change: the scan is still point-in-time, still skips symlinks, and is
+still defence-in-depth for one tool rather than the authority `paths.py` is for `read_file`.
+ADR-0035 governs all of that and stands.
+
 ## ADR-0035 — 2026-08-29 — The secret denylist is enforced by covering paths up, not by leaving them out — Accepted
 
 `paths.py` enforces the denylist by refusing a path. The sandbox cannot: bubblewrap starts

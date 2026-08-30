@@ -54,7 +54,7 @@ from .config import (
 )
 from .paths import repo_status
 from .registry import ModelEntry
-from .tools import REGISTRY, declared_tools, execute_tool
+from .tools import REGISTRY, BashPolicy, declared_tools, execute_tool
 
 # One level down, DERIVED from the vocabulary rather than written out again. A hand-written
 # table is a second copy of EFFORT_LEVELS that stops agreeing with it the moment a level is
@@ -1205,6 +1205,7 @@ def _run_one_call(
     call: ToolUseBlock,
     allowed: frozenset[str],
     cached: dict[tuple[str, str], str],
+    policy: BashPolicy,
 ) -> tuple[ToolResultBlock, str]:
     """Execute one tool call, or serve it from what an identical earlier one returned.
 
@@ -1224,7 +1225,7 @@ def _run_one_call(
             "repeat",
         )
 
-    result = execute_tool(cfg, call, allowed)
+    result = execute_tool(cfg, call, allowed, policy)
     tool = REGISTRY.get(call.name)
     if tool is None or not tool.cacheable:
         # Unknown or side-effecting. Everything cached so far may describe a world that no
@@ -1238,12 +1239,14 @@ def _run_one_call(
     return result, "error" if result.is_error else "ran"
 
 
-def _run_calls(
+def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox policy
     cfg: Config,
     calls: tuple[ToolUseBlock, ...],
     allowed: frozenset[str],
     cached: dict[tuple[str, str], str],
     watch: _Watch,
+    *,
+    policy: BashPolicy,
 ) -> tuple[list[ContentBlock], tuple[tuple[str, str], ...]]:
     """One turn's tool calls, run in order. Returns the result blocks, errors and repeats.
 
@@ -1256,7 +1259,7 @@ def _run_calls(
     results: list[ContentBlock] = []
     outcomes: list[tuple[str, str]] = []
     for call in calls:
-        block, outcome = _run_one_call(cfg, call, allowed, cached)
+        block, outcome = _run_one_call(cfg, call, allowed, cached, policy)
         watch.called(call, outcome, block if isinstance(block, ToolResultBlock) else None)
         outcomes.append((call.name, outcome))
         results.append(block)
@@ -1273,6 +1276,7 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
     effort: str | None = None,
     max_tokens: int | None = None,
     max_turns: int | None = None,
+    policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -1310,6 +1314,7 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
     turns = resolve_max_turns(cfg, max_turns)
     specs = declared_tools(allowed)
     deadline = clock() + cfg.dispatch_timeout
+    bash_policy = policy or BashPolicy()
 
     history: list[Message] = [Message("user", (TextBlock(delegation.render()),))]
 
@@ -1368,7 +1373,7 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
         history.append(assistant)
         guard.added(assistant)
 
-        results, outcomes = _run_calls(cfg, calls, allowed, cached, watch)
+        results, outcomes = _run_calls(cfg, calls, allowed, cached, watch, policy=bash_policy)
         watch.turn_tools(outcomes)
         results.append(TextBlock(countdown_line(turns - turn)))
 

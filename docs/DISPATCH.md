@@ -198,6 +198,13 @@ deliberate: a call argument is transient, so clamping it costs nobody anything, 
 is committed, read again and trusted. Clamping there would leave a wrong number sitting in
 the file indefinitely, running correctly and reading as though it were in effect.
 
+Tool calls carry a `BashPolicy` alongside the allowed set: where `run_bash` runs, whether it
+has a network, and what else is bound. It travels with the turn rather than sitting in
+configuration, for the reason `allowed_tools` does — it belongs to one delegation, and a
+server-wide default for it would be a config default living outside `config.py`. A
+delegation that names none gets a sandbox that can reach nothing of the caller's, which is
+the right way for the default to fail.
+
 The last turn is declared **with no tools at all**. Without that short-circuit a delegation
 can end on a tool call nobody will run, having spent its whole budget and returned nothing
 readable. Withdrawing the tools leaves the model one thing it can still do, which is answer.

@@ -199,12 +199,16 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   docstring claimed the ordering rule lived in one place while two sites concatenated it
   themselves, and the body would have been a third segment to keep in step across both
 - ⬜ `delegate_to_agent`, `delegate_batch`, `list_agents`
-- ⬜ Workdir root allowlist, symlink escape closed. Binding a workspace makes the
-  120s `run_bash_timeout` wrong for the first thing a delegated model will try: this
-  suite needs 157s in WSL and 361s on Windows, so a model asked to run the tests hits
-  the timeout and reports a kill rather than a result. Not a bug today only because
-  `workdir` is `None` for every caller, so no delegation can reach the repository at
-  all. Revisit the default in the same commit that binds a workspace, not after
+- ✅ 2026-08-30 Workdir root allowlist, symlink escape closed. `resolve_workdir` checks the
+  argument against `workdir_roots`, resolving before comparing so a symlink inside a root
+  pointing out of it is refused on where it lands. `network` and `extra_binds` stopped being
+  hardcoded in the same commit, since they are the same three lines. `run_bash_timeout`
+  raised 120s → 600s: the figures this item quoted were wrong, and re-measuring gave 281s
+  for a serial WSL run, so 120s sat below the median legitimate command rather than above
+  the slowest. A kill reports a non-zero exit, and a model then reasons about it as a test
+  failure and repairs passing code, which corrupts the ground truth ADR-0007 rests on.
+  `extra_binds` is now scanned for secrets (ADR-0036): the exclusion was justified by the
+  value being an operator's choice, and an agent file choosing it ended that
 
 - ✅ 2026-08-30 Declaration must ask whether the sandbox can run, not remember that it
   could. M5 emptied `WITHHELD_TOOL_NAMES`, and `available_tool_names()` takes no `Config`,

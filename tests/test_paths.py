@@ -32,6 +32,7 @@ from claude_delegate_local.paths import (
     Refusal,
     load_secret_globs,
     resolve_all,
+    resolve_workdir,
 )
 
 UNPROVEN = (
@@ -445,3 +446,106 @@ def test_a_refusal_names_the_layer_and_a_remedy():
     assert "C:/p/.env" in rendered
     assert "layer 3, secret denylist" in rendered
     assert "Drop it." in rendered
+
+
+# --- the workdir surface (layer 1 only) ---------------------------------------------------
+
+
+@posix_only
+def test_a_workdir_inside_a_root_resolves_to_its_real_location(tmp_path):
+    root = tmp_path / "root"
+    (root / "proj").mkdir(parents=True)
+    conf = cfg(tmp_path, workspace_roots=(os.path.realpath(root),))
+    assert resolve_workdir(conf, str(root / "proj")) == os.path.realpath(root / "proj")
+
+
+@posix_only
+def test_a_workdir_symlinked_out_of_every_root_is_refused(tmp_path):
+    """The escape this item exists to close, and the one a written-path check cannot see.
+
+    The link sits inside a root, so containment passes on the path as written. Binding it
+    read-write into the sandbox would hand a delegated model a directory nobody allowed --
+    and unlike a file read, a workdir bind is writable for the whole call.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "elsewhere" / "loot"
+    outside.mkdir(parents=True)
+    link = root / "innocent"
+    link.symlink_to(outside, target_is_directory=True)
+
+    conf = cfg(tmp_path, workspace_roots=(os.path.realpath(root),))
+    with pytest.raises(PathRefused) as e:
+        resolve_workdir(conf, str(link))
+    (refusal,) = e.value.refusals
+    assert refusal.layer == LAYER_ROOTS
+    assert "loot" in refusal.reason, "the message names where it lands, not where it sits"
+
+
+@posix_only
+def test_a_workdir_symlink_staying_inside_the_root_is_allowed(tmp_path):
+    """Otherwise the test above would pass against a policy that refused every symlink."""
+    root = tmp_path / "root"
+    real = root / "sub" / "proj"
+    real.mkdir(parents=True)
+    link = root / "alias"
+    link.symlink_to(real, target_is_directory=True)
+    conf = cfg(tmp_path, workspace_roots=(os.path.realpath(root),))
+    assert resolve_workdir(conf, str(link)) == os.path.realpath(real)
+
+
+@posix_only
+def test_a_workdir_outside_every_root_is_refused(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    conf = cfg(tmp_path, workspace_roots=(os.path.realpath(root),))
+    with pytest.raises(PathRefused) as e:
+        resolve_workdir(conf, str(other))
+    assert e.value.refusals[0].layer == LAYER_ROOTS
+
+
+@posix_only
+def test_workdir_roots_are_a_separate_surface_from_workspace_roots(tmp_path):
+    """Reading a project and working in it are different grants, so they are configured
+    separately. A model may be allowed to read three checkouts and write in one."""
+    readable = tmp_path / "readable"
+    workable = tmp_path / "workable"
+    readable.mkdir()
+    workable.mkdir()
+    conf = cfg(
+        tmp_path,
+        workspace_roots=(os.path.realpath(readable), os.path.realpath(workable)),
+        workdir_roots=(os.path.realpath(workable),),
+    )
+    assert resolve_workdir(conf, str(workable)) == os.path.realpath(workable)
+    with pytest.raises(PathRefused, match="outside every workdir root"):
+        resolve_workdir(conf, str(readable))
+
+
+@posix_only
+def test_empty_workdir_roots_falls_back_to_the_workspace_roots(tmp_path):
+    """The default, and the reason the second setting is not required to use the first."""
+    root = tmp_path / "root"
+    root.mkdir()
+    conf = cfg(tmp_path, workspace_roots=(os.path.realpath(root),), workdir_roots=())
+    assert resolve_workdir(conf, str(root)) == os.path.realpath(root)
+
+
+def test_a_relative_workdir_is_refused(tmp_path):
+    """The server has its own working directory and will not share the caller's."""
+    with pytest.raises(PathRefused, match="not an absolute path"):
+        resolve_workdir(cfg(tmp_path), "relative/proj")
+
+
+@posix_only
+def test_a_workdir_that_is_a_file_or_missing_is_refused(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    conf = cfg(tmp_path, workspace_roots=(os.path.realpath(root),))
+    afile = touch(root / "notadir.py")
+    with pytest.raises(PathRefused, match="not a directory"):
+        resolve_workdir(conf, str(afile))
+    with pytest.raises(PathRefused, match="does not exist"):
+        resolve_workdir(conf, str(root / "nope"))
