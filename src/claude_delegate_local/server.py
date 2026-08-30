@@ -35,10 +35,11 @@ from .backends.base import (
     CanonicalShapeError,
 )
 from .backends.openai_compat import OpenAICompatBackend
+from .admission import Admission, AdmissionError, AdmissionLease
 from .agents import AgentError, AgentSpec, load_agent
 from .agents import list_agents as discover_agents
 from .config import Config, ConfigError
-from .context import prefetch
+from .context import estimate_text_tokens, prefetch
 from .loop import (
     AgenticDispatch,
     ContextOverflowAborted,
@@ -51,6 +52,7 @@ from .loop import (
 )
 from .paths import PathPolicyError, PathRefused, resolve_all, resolve_workdir
 from .registry import ModelEntry, Registry, RegistryError
+from . import transcript
 from .tools import BashPolicy, resolve_allowed
 
 SERVER_NAME = "delegate-local"
@@ -390,11 +392,12 @@ def _refuse(e: Exception) -> ToolError:
     return ToolError(str(e))
 
 
-async def run_delegation(  # noqa: PLR0913 -- the union of one tool's arguments
+async def run_delegation(  # noqa: PLR0913, PLR0915 -- one tool's arguments, one dispatch
     cfg: Config,
     registry: Registry,
     cache: BackendCache,
     windows: WindowCheck,
+    admission: Admission,
     *,
     task: str,
     files: list[str] | None = None,
@@ -494,12 +497,85 @@ async def run_delegation(  # noqa: PLR0913 -- the union of one tool's arguments
     loop_cfg, overflow_off_because = await arm_overflow(
         windows, backend, entry, cfg, agentic=bool(allowed)
     )
-    dispatched = await dispatch_delegation(
-        loop_cfg, entry, backend, delegation,
-        allowed=allowed, effort=effort, max_tokens=max_tokens,
-        max_turns=max_turns, policy=policy,
-        diagnostics=diagnostics, report_progress=progress,
+
+    # Sized here, where the cost is known and nothing has been sent yet. Two numbers,
+    # because the gate needs two: the prompt is what gets prefilled, and the prompt plus
+    # the reply the endpoint is allowed to generate is what occupies the KV pool. Fixed
+    # for the whole delegation -- see `admission` for why that is an approximation and
+    # how you would find out it was a bad one. The same resolved `entry` that will serve
+    # the request supplies the per-endpoint limit, because counting against one endpoint
+    # and dispatching to another is the exact bug the single resolution above prevents.
+    prefill_estimate = (
+        prefetched.total_tokens
+        + estimate_text_tokens(cfg, task)
+        + (estimate_text_tokens(cfg, agent.body) if agent else 0)
     )
+    tokens_estimate = prefill_estimate + entry.cap_tokens(
+        cfg.max_tokens if max_tokens is None else max_tokens
+    )
+
+    async def ticked() -> None:
+        """ADR-0018 again, one layer earlier.
+
+        A queued delegation runs no turns, so nothing else resets the client's idle
+        timer while it waits. Without this a delegation that is merely queued is
+        abandoned by the caller exactly as a slow one used to be.
+        """
+        await progress(0, 0)
+
+    # Captured before anything is attempted, and never re-derived afterwards. The upstream
+    # bug this shape exists to prevent is a failure path with no agent name to report, so
+    # the very dispatches the transcript explains logged as unknown -- and the only place
+    # the name is in scope is here, before the attempt. ADR-0024.
+    started = time.monotonic()
+    lease: AdmissionLease | None = None
+    dispatched: Dispatch | AgenticDispatch | None = None
+    failure: BaseException | None = None
+    try:
+        async with admission.admit(
+            tokens_estimate,
+            prefill_tokens=prefill_estimate,
+            entry_key=entry.key,
+            entry_limit=entry.concurrency,
+            deadline=time.monotonic() + cfg.admission_wait_timeout,
+            on_wait=ticked,
+        ) as lease:
+            dispatched = await dispatch_delegation(
+                loop_cfg, entry, backend, delegation,
+                allowed=allowed, effort=effort, max_tokens=max_tokens,
+                max_turns=max_turns,
+                policy=policy,
+                # The caller's flag decides what the *caller* is shown, below. A transcript
+                # asks for the per-turn records itself, because the loop only keeps them
+                # when told to -- and an operator record that depended on the calling
+                # session having asked would not be an operator record.
+                diagnostics=diagnostics or transcript.enabled(cfg),
+                report_progress=progress,
+            )
+    except AdmissionError as e:
+        # Not routed through `_refuse`, for the same reason `DispatchTimedOut` is not:
+        # that names an endpoint as the thing at fault, and nothing here reached one.
+        failure = e
+        raise ToolError(str(e)) from e
+    except BaseException as e:
+        failure = e
+        raise
+    finally:
+        # A side effect whose result nothing reads. The other upstream bug was the record
+        # reaching the response through a dict merge, so there is deliberately no value
+        # here for the return below to pick up.
+        transcript.write(
+            cfg,
+            agent_name=agent.name if agent else None,
+            entry=entry,
+            task=task,
+            workdir=workdir,
+            prefetched=prefetched,
+            lease=lease,
+            dispatched=dispatched,
+            error=failure,
+            started=started,
+        )
 
     response = dispatched.response
     answer = response.text
@@ -559,6 +635,10 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
     # per model and per process, and re-probing every delegation would spend a round
     # trip to re-learn something that changes only when the operator edits a file.
     windows = WindowCheck(cfg)
+    # One per process, and that is the whole of what makes it a global budget. Built
+    # here beside the cache and the window check so every tool closure below shares the
+    # same object rather than each counting against a gate of its own.
+    admission = Admission(cfg)
 
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncIterator[dict[str, Any]]:
@@ -660,7 +740,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         misconfigured, or serving something other than it should.
         """
         return await run_delegation(
-            cfg, registry, cache, windows,
+            cfg, registry, cache, windows, admission,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens,
             diagnostics=diagnostics, ctx=ctx,
@@ -726,7 +806,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         resolved_workdir = _workdir(workdir)
         agent = _load(agent_name, resolved_workdir)
         return await run_delegation(
-            cfg, registry, cache, windows,
+            cfg, registry, cache, windows, admission,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens,
             agent=agent, workdir=resolved_workdir,
@@ -781,38 +861,39 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         resolved_workdir = _workdir(workdir)
         agent = _load(agent_name, resolved_workdir) if agent_name else None
 
-        # The endpoint's own declared limit, which nothing has enforced until now. A batch is
-        # the first thing in this server that runs more than one request at a time, so it is
-        # the first thing that could exceed it. The global budget is M7's; this is not it.
+        # Resolved once here so an unknown model fails the batch rather than every item in
+        # it identically. What this does *not* do any more is bound the batch: the
+        # endpoint's declared limit is one of the four rules `admission` checks, so items
+        # are held there alongside every other delegation in the process. A semaphore here
+        # bounded a batch against itself and nothing else -- two batches, or a batch beside
+        # a plain `delegate`, could still exceed the very limit it was reading.
         try:
-            entry = registry.resolve(model or (agent.model if agent else None))
+            registry.resolve(model or (agent.model if agent else None))
         except RegistryError as e:
             raise ToolError(str(e)) from e
-        gate = asyncio.Semaphore(max(1, entry.concurrency))
 
         done = 0
 
         async def run(index: int, one: str) -> dict[str, Any]:
             nonlocal done
-            async with gate:
-                try:
-                    outcome = await run_delegation(
-                        cfg, registry, cache, windows,
-                        task=one, files=files, model=model, effort=effort,
-                        allowed_tools=allowed_tools, max_tokens=max_tokens,
-                        agent=agent, workdir=resolved_workdir,
-                        # No `ctx`: progress is reported per finished item below, not per
-                        # turn. Turn counts interleaved from items running at once would
-                        # describe nothing a reader could act on.
-                        diagnostics=False, ctx=None,
-                    )
-                except ToolError as e:
-                    # Caught rather than raised, which is the whole contract: an item that
-                    # failed must not discard the ones that worked. Every failure inside
-                    # `run_delegation` has already been translated into a `ToolError`.
-                    outcome = {"ok": False, "error": str(e)}
-                else:
-                    outcome = {"ok": True, **outcome}
+            try:
+                outcome = await run_delegation(
+                    cfg, registry, cache, windows, admission,
+                    task=one, files=files, model=model, effort=effort,
+                    allowed_tools=allowed_tools, max_tokens=max_tokens,
+                    agent=agent, workdir=resolved_workdir,
+                    # No `ctx`: progress is reported per finished item below, not per
+                    # turn. Turn counts interleaved from items running at once would
+                    # describe nothing a reader could act on.
+                    diagnostics=False, ctx=None,
+                )
+            except ToolError as e:
+                # Caught rather than raised, which is the whole contract: an item that
+                # failed must not discard the ones that worked. Every failure inside
+                # `run_delegation` has already been translated into a `ToolError`.
+                outcome = {"ok": False, "error": str(e)}
+            else:
+                outcome = {"ok": True, **outcome}
             done += 1
             if ctx is not None:
                 await ctx.report_progress(progress=done, total=len(tasks))
@@ -879,6 +960,10 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
                 for key, entry in registry.entries.items()
             )
         )
-        return {"default": registry.default_key, "models": list(rows)}
+        return {
+            "default": registry.default_key,
+            "models": list(rows),
+            "admission": admission.status(),
+        }
 
     return mcp

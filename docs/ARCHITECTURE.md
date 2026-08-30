@@ -95,6 +95,8 @@ Prefetching removes several such turns from the front of every delegation.
 | `agents.py` | The three-tier agent lookup and the frontmatter — [AGENTS.md](AGENTS.md) |
 | `tools.py` | Model-facing tools, and both `allowed_tools` sites — [TOOLS.md](TOOLS.md) |
 | `sandbox.py` | bubblewrap invocation: the argv, the binds, and the refusal |
+| `admission.py` | The four-rule gate every delegation passes before it reaches a backend |
+| `transcript.py` | One operator record per dispatch, written outside the response |
 | `server.py` | MCP wiring, the five tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run one transport |
 
@@ -356,15 +358,68 @@ The real constraint is that summed live tokens stay under the KV pool; per-reque
 per-sequence limits are ceilings, not reservations.
 
 Oversubscription **queues** rather than failing, so this protects latency, not
-correctness — and it can degrade badly, because large cold prefills serialise. Three rules
-apply: total in-flight requests, summed token estimate against budget, and a separate cap
-on concurrent large prefills. That last is what actually binds for big tasks, and it is
-deliberate: the engine admits one long prefill at a time, so sending five makes all five
-slow rather than any of them fast.
+correctness — and it can degrade badly, because large cold prefills serialise. Four rules
+apply: total in-flight requests, summed token estimate against budget, a separate cap on
+concurrent large prefills, and the endpoint's own declared `concurrency`. The third is
+what actually binds for big tasks, and it is deliberate: the engine admits one long
+prefill at a time, so sending five makes all five slow rather than any of them fast. The
+fourth is per endpoint rather than global, and is checked on every path — a limit enforced
+only where requests happen to run in parallel bounds a caller against itself and nothing
+else.
+
+The four are **one predicate, not four gates in series**. A request that took a sequence
+slot and then blocked on the large-prefill cap would hold capacity it is not using for the
+whole wait, starving smaller requests that fit every rule. Nothing is ever partially
+acquired: a waiter that does not fit holds nothing.
+
+Two numbers size a request, and conflating them is a trap. Its KV footprint is the prompt
+plus the reply it is permitted to generate, and that is what the token budget counts. Its
+prefill is the prompt alone, and that is what decides whether it is a large cold prefill —
+decode is not prefill, and a reply allowance above the threshold would otherwise make
+every request "large" and quietly bound the whole server at one setting while every other
+rule reads as though it were the one binding.
+
+The estimate is fixed when a slot is granted and never grows, so for a long agentic
+delegation the token rule is a floor-time approximation rather than a running total.
+Growing it per turn would couple the gate to the turn loop's internals and add a
+reconciliation path on every abort; the high-water marks are the cheaper way to find out
+whether that trade was wrong.
+
+A wait is bounded separately from the dispatch it precedes, because the dispatch deadline
+is set inside the loop it bounds and does not start until a slot has already been granted.
+The two stack rather than dividing one budget.
 
 Oversubscription announces itself as latency; idle capacity is silent. So the status tool
-reports high-water marks and admission-wait totals, and the constants are tunable from
-evidence instead of guesswork. (ADR-0012)
+reports high-water marks, admission-wait totals and the count of waits that hit their
+limit, and the constants are tunable from evidence instead of guesswork. (ADR-0012)
+
+### The operator transcript is not the caller's diagnostics
+
+Two different audiences, and conflating them is what broke this upstream twice. The
+caller's `diagnostics` argument shapes the caller's reply. The transcript is written for
+whoever runs the server, and is **independent of any caller-facing flag** — what an
+operator can audit should not depend on what the calling session thought to ask for. A
+delegation worth investigating is rarely one anybody suspected in advance, so the record
+has to exist already.
+
+That independence has a cost the design has to pay rather than assume: the turn loop only
+*keeps* per-turn records when it is told to, so a configured transcript asks for them
+itself and the caller's own flag still decides, separately, what the reply contains.
+
+**Setting the directory must not change a single byte of any response.** The writer is
+called for its effect from a `finally` and returns nothing, so there is no value for the
+response dict — assembled from conditional spreads — to pick up. The record is built from
+identity captured *before* the attempt, because the agent's name is in scope only at the
+top of a delegation; assembling it any deeper leaves a failure with nothing to name, which
+is how upstream came to log exactly the dispatches it existed to explain as unknown.
+
+One file per dispatch rather than an appended log, because a batch has as many concurrent
+writers as items. Records carry the task, the files with their accounting, real token usage
+as the backend reported it, and the server-captured ledger — but **not file contents**,
+which are recoverable from the repository by path and are the only bulky part. The task is
+written verbatim: it exists nowhere else, and whoever configures the directory owns what
+lands in it. A write that fails is swallowed to stderr, never to stdout and never into the
+dispatch: a full disk must not fail work that already succeeded. (ADR-0024, ADR-0039)
 
 ### Token estimates are per file type
 

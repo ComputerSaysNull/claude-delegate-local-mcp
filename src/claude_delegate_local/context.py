@@ -290,3 +290,15 @@ def prefetch(cfg: Config, resolved: tuple[ResolvedPath, ...]) -> Prefetch:
         total_tokens=total,
         budget=cfg.max_total_prefetch_tokens,
     )
+
+
+def estimate_text_tokens(cfg: Config, text: str) -> int:
+    """Estimate the token cost of a string with no file behind it.
+
+    The same job `prefetch` does per file, minus the extension -- so it falls back to the
+    densest measured ratio and over-counts, which is the bias ADR-0019 chose deliberately.
+    Here that is what the caller wants: admission uses this to size a request before it
+    runs, and guessing high costs a little idle capacity where guessing low oversubscribes
+    the pool it is meant to protect.
+    """
+    return cfg.estimate_tokens(len(text.encode("utf-8")))

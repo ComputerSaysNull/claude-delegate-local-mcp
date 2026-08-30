@@ -1,0 +1,225 @@
+"""One record per dispatch, written for the operator rather than for the caller. ADR-0024.
+
+**Independent of the caller-facing `diagnostics` flag.** What an operator can audit should
+not depend on what the calling session thought to ask for. A delegation that behaved
+strangely is usually one nobody suspected in advance, so the record has to already exist
+by the time anyone wants it.
+
+Two bugs upstream shipped here are the acceptance criteria, not trivia:
+
+1. **Failure paths lost the agent name**, so the very dispatches the transcript existed to
+   explain were logged as `unknown`. The cause is structural: the identity is only in scope
+   at the top of `run_delegation`, and anything assembling the record further in has a
+   `Delegation` that carries the task but not the agent's *name*. So the record is built
+   from values captured **before** the attempt, and written from a `finally`.
+2. **The success path leaked its whole payload into ordinary responses** once the directory
+   was set, contradicting the design's own claim to leave the response untouched. That is a
+   dict-merge accident, so this module returns nothing a response could be built from.
+   `write` is called for its effect and its result is never consumed.
+
+"Off by default is not the same as inert when on." Both directions are tested: unset writes
+nothing, and set writes a complete record.
+
+**What is not in a record: file contents.** Files reach a record as paths, byte counts,
+token estimates and skip reasons -- everything about what the delegation was *given* -- but
+not their text. The text is recoverable from the repository by path, it is the only bulky
+part, and writing it would put every prefetched file on disk at rest indefinitely. The task
+is written verbatim, because it exists nowhere else; that is a deliberate acceptance that
+whoever sets this directory owns what lands in it.
+
+**One file per dispatch, never an appended log.** `delegate_batch` runs its items
+concurrently, so a batch has as many writers as items. Per-file sidesteps append atomicity
+entirely rather than reasoning about it -- and the filesystem here may be `/mnt/c`, where
+reasoning about it would be reasoning about the wrong one.
+
+**Nothing here may raise into the dispatch path, and nothing may touch stdout.** A full
+disk must not fail a delegation that already succeeded, and on stdio a stray `print`
+corrupts every subsequent MCP message (`server.py` owns that rule). Every failure is
+swallowed to `logging`, which the entrypoint has already pointed at stderr.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import time
+from datetime import datetime, UTC
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .admission import AdmissionLease
+    from .config import Config
+    from .context import Prefetch
+    from .loop import AgenticDispatch, Dispatch
+    from .registry import ModelEntry
+
+log = logging.getLogger(__name__)
+
+# Anything outside this is replaced in a filename. An agent name reaches us from a file on
+# disk, and a name is not a promise about path separators.
+_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+# Enough to make two records written in the same millisecond by one batch distinct.
+_COUNTER = {"n": 0}
+
+
+def enabled(cfg: Config) -> bool:
+    """Whether a transcript is being written at all.
+
+    The caller needs this before dispatching, not only after: per-turn diagnostics are
+    only *recorded* when the loop is told to record them, so a transcript has to ask for
+    them itself rather than hope the caller did.
+    """
+    return bool(cfg.transcript_dir.strip())
+
+
+def _slug(name: str | None) -> str:
+    if not name:
+        # Not "unknown". A delegation with no agent is an ordinary `delegate` call, and
+        # naming that the same as one whose identity was lost is what made the upstream
+        # bug invisible -- the records it broke read exactly like the records it did not.
+        return "no-agent"
+    return _UNSAFE.sub("-", name).strip("-") or "no-agent"
+
+
+def _files(prefetched: Prefetch | None) -> dict[str, Any]:
+    if prefetched is None:
+        return {}
+    account = prefetched.accounting()
+    return {
+        # Paths and cost, never text. See the module docstring.
+        "files_read": account["files_read"],
+        "files_skipped": account["files_skipped"],
+        "prefetch_tokens": account["prefetch_tokens"],
+        "prefetch_budget": account["prefetch_budget"],
+    }
+
+
+def _usage(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
+    """Real token usage as the backend reported it, not the estimate admission used.
+
+    The estimate is a guess made before the work; this is what the work cost. Summing
+    these across records is the only way to answer what the local cluster has actually
+    spent, so an estimate standing in for one here would quietly poison that total.
+    """
+    if dispatched is None:
+        return {}
+    response = dispatched.response
+    return {
+        "model": response.model,
+        "finish_reason": response.finish_reason,
+        "input_tokens": response.input_tokens,
+        "output_tokens": response.output_tokens,
+        "effort": dispatched.effort,
+        "attempts": dispatched.attempts,
+        "reasoning_exhausted": dispatched.reasoning_exhausted,
+        "answer_chars": len(response.text),
+        "empty_response": response.text == "",
+    }
+
+
+def _ledger(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
+    """The loop's counters. ADR-0007: what the server watched, not what was claimed."""
+    if dispatched is None or not hasattr(dispatched, "turns"):
+        return {}
+    return {
+        "turns": dispatched.turns,
+        "tool_calls": dispatched.tool_calls,
+        "tool_errors": dispatched.tool_errors,
+        "tool_calls_deduplicated": dispatched.deduped,
+        "tool_results_evicted": dispatched.evicted,
+        "hit_turn_limit": dispatched.hit_turn_limit,
+        "bash_calls": dispatched.bash_calls,
+        "bash_failures": dispatched.bash_failures,
+        "last_bash_exit": dispatched.last_bash_exit,
+        "overflow_tightened_at": dispatched.overflow_tightened_at,
+        "overflow_nudged_at": dispatched.overflow_nudged_at,
+        "per_turn": [
+            {
+                "turn": t.turn,
+                "input_tokens": t.input_tokens,
+                "output_tokens": t.output_tokens,
+                "attempts": t.attempts,
+                "effort": t.effort,
+                "tool_results_evicted": t.evicted,
+                "tool_calls": [{"name": n, "outcome": o} for n, o in t.tool_calls],
+            }
+            for t in dispatched.diagnostics
+        ],
+        "evicted_then_reread": [
+            {
+                "path": r.path,
+                "evicted_at_turn": r.evicted_at_turn,
+                "reread_at_turn": r.reread_at_turn,
+            }
+            for r in dispatched.rereads
+        ],
+    }
+
+
+def write(  # noqa: PLR0913 -- one record's worth of facts, from four different scopes
+    cfg: Config,
+    *,
+    agent_name: str | None,
+    entry: ModelEntry | None,
+    task: str,
+    workdir: str | None,
+    prefetched: Prefetch | None,
+    lease: AdmissionLease | None,
+    dispatched: Dispatch | AgenticDispatch | None,
+    error: BaseException | None,
+    started: float,
+) -> None:
+    """Write one record. Never raises, never returns anything a response could carry.
+
+    `agent_name` and `entry` are passed rather than derived so the failure path names the
+    same delegation the success path would have. Deriving either from `dispatched` would
+    reintroduce bug 1 exactly: on a failure there is no `dispatched` to derive from.
+    """
+    if not enabled(cfg):
+        return
+    try:
+        directory = Path(os.path.expanduser(cfg.transcript_dir.strip()))
+        directory.mkdir(parents=True, exist_ok=True)
+
+        _COUNTER["n"] += 1
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%f")[:-3]
+        agent = _slug(agent_name)
+        path = directory / f"{stamp}-{_COUNTER['n']:04d}-{agent}.json"
+
+        record: dict[str, Any] = {
+            "at": datetime.now(UTC).isoformat(),
+            "agent": agent_name,
+            "model_key": entry.key if entry else None,
+            "served_model_id": entry.served_model_id if entry else None,
+            "task": task,
+            "workdir": workdir,
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+            "ok": error is None,
+            **_files(prefetched),
+            **_usage(dispatched),
+            **_ledger(dispatched),
+        }
+        if lease is not None:
+            record["admission"] = {
+                "estimated_tokens": lease.tokens,
+                "large_prefill": lease.is_large,
+                "waited_seconds": round(lease.waited, 3),
+            }
+        if error is not None:
+            record["error"] = str(error)
+            record["error_type"] = type(error).__name__
+
+        path.write_text(
+            json.dumps(record, indent=2, default=str, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        # Deliberately broad, and deliberately silent to the caller. The delegation has
+        # already done its work; losing its record is worth strictly less than failing it,
+        # and there is no failure here an operator could not also see in the empty
+        # directory. Never to stdout: that is the MCP wire.
+        log.warning("could not write a dispatch transcript", exc_info=True)

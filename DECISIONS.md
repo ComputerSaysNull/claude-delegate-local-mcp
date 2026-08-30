@@ -19,6 +19,104 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0039 — 2026-08-30 — A transcript record holds paths, accounting and the task, but never file contents — Accepted
+
+**Context.** ADR-0024 adopted an operator dispatch transcript and named the two bugs
+upstream shipped in one. It did not say what a record contains, and that turns out to be
+the decision with consequences: a record is written to local disk and kept indefinitely.
+
+**Decision — paths and accounting, not file bodies.** A record names every file the
+delegation was given, with byte counts, token estimates and skip reasons, but not their
+text. The text is recoverable from the repository by path, it is the overwhelming majority
+of the bytes, and writing it would put every prefetched file at rest on disk for as long as
+the directory exists. The alternative considered, full fidelity with compaction after a
+retention window, was rejected as machinery bought for little: the window is most of the
+exposure, and there is no evidence yet about how large records actually get.
+
+**Decision — the task is written verbatim.** It exists nowhere else, and a record that
+cannot say what was asked does not answer the question a transcript is opened to answer.
+Files already pass the secret-glob and gitignore layers before a model sees them, so they
+are no new exposure; a task string passes nothing, and today it only crosses the network.
+Writing it accepts that whoever configures the directory owns what lands in it. Stated
+rather than left implicit, because the difference between in-flight and at-rest is the
+whole of what changes here.
+
+**Decision — no retention cap.** Records without file bodies are small enough that a cap
+would be a setting nobody could tune from evidence. Revisit if the directory grows in a way
+anybody notices; a cap added now would need a negative test proving it prunes, for a
+pressure that has not been observed.
+
+**Decision — one file per dispatch.** `delegate_batch` runs items concurrently, so a batch
+has as many writers as items. Per-file sidesteps append atomicity rather than reasoning
+about it, and the filesystem here may be `/mnt/c`, where reasoning about it would be
+reasoning about the wrong one. The agent name is in the filename as well as the record,
+because a directory of files nobody can search restores the bug in its only surviving form.
+
+**Decision — a configured transcript turns per-turn recording on for itself.** The turn
+loop keeps `TurnDiagnostic` records only when told to, so a transcript reading whatever the
+caller happened to request would be empty for nearly every delegation. It asks for them
+independently, and the caller's own flag still decides, separately, what the reply carries.
+Verified to change nothing backend-visible: the flag is loop-local bookkeeping and does not
+reach the request.
+
+**Consequences.** Enabling the directory changes no response, which is asserted by
+comparing whole responses rather than by looking for known field names — a leak of a field
+nobody thought to list is the leak that would actually happen. Records carry real token
+usage rather than the admission estimate, so they can be summed later to say what the
+cluster has spent; an estimate standing in would be the right shape and the wrong number.
+
+## ADR-0038 — 2026-08-30 — Admission is one predicate over four rules, sized by two numbers — Accepted
+
+**Context.** ADR-0012 fixed the policy — three rules, queue rather than fail, report
+high-water marks — and the four settings it implies have sat in `config.py` since M0b
+being read by nothing. Building it raised three questions ADR-0012 does not answer.
+
+**Decision — one predicate, not gates in series.** Four semaphores acquired in turn would
+let a request take the sequence slot and then block on the large-prefill cap, holding
+capacity it is not using for the whole wait and starving smaller requests that fit every
+rule. That is not a corner case: ADR-0012 says the large-prefill cap is what actually
+binds for big tasks, so "admitted under one rule, blocked by another" is the normal case.
+One condition variable over plain counters, checked as a single atomic boolean. Nothing is
+ever partially acquired, so a waiter that does not fit holds nothing.
+
+**Decision — the endpoint's own `concurrency` becomes the fourth rule.** ADR-0037 enforced
+it inside `delegate_batch` with a local semaphore, which bounded a batch against itself and
+nothing else: two batches, or a batch beside a plain `delegate`, could still exceed it, and
+a single `delegate` was never checked at all. `max_inflight_seqs`' own description already
+claimed both were checked. Folding it in makes that true on every path and leaves one gate
+rather than two that can disagree.
+
+**Decision — two numbers size a request.** Its KV footprint is the prompt plus the reply it
+is permitted to generate, and that is what the token budget counts. Its prefill is the
+prompt alone, and that is what classifies it as a large cold prefill. Conflating them is
+not cosmetic: `max_tokens` defaults above `large_prefill_tokens`, so classifying on the
+total makes *every* delegation large and silently bounds the whole server at
+`max_inflight_large_prefills` while every other rule reads as though it were the one
+binding. Found by a test that passed for the wrong reason — the batch bound held with the
+endpoint rule deleted — which is the failure mode CLAUDE.md's negative-testing rule exists
+to catch, caught this time by negative-testing rather than in production.
+
+**Decision — the estimate is fixed when a slot is granted.** A long agentic delegation's
+true footprint can exceed it late in the loop, so the token rule is a floor-time
+approximation. Growing it per turn would couple the gate to the turn loop's internals and
+add a reconciliation path on every abort. ADR-0012's own closing line is the answer:
+`peak_inflight_tokens` is the cheaper way to find out the trade was wrong.
+
+**Decision — the wait has its own timeout.** `dispatch_timeout`'s deadline is computed
+inside `run_one_shot` and `run_agentic_loop`, which do not run until a slot has been
+granted, so it cannot bound a wait that ends before it starts. Reusing it would mean
+threading a caller-supplied deadline through both and every test asserting on their
+deadline maths. `admission_wait_timeout` therefore stacks rather than dividing one budget,
+and defaults well below it: a wait that long means the budget is misconfigured or the
+cluster is wedged, and an error naming the rule that bound is worth more than an hour spent
+queued. A timeout also names its rule and is counted, because a limit nobody can see having
+been hit is a limit nobody revisits.
+
+**Consequences.** Four settings that were inert now change behaviour: work that ran
+immediately may queue. Zero in any of them is refused at load — it does not mean unlimited,
+it means nothing is ever admitted, which presents as congestion rather than as the
+misconfiguration it is.
+
 ## ADR-0037 — 2026-08-30 — `delegate_batch` shares one prefix, bounds itself by the endpoint, and reports per item — Accepted
 
 **Context.** `max_batch_size` existed from M0b and nothing else did: no shape, no failure

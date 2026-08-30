@@ -1222,9 +1222,13 @@ def test_an_empty_batch_is_refused():
 
 
 def test_a_batch_never_exceeds_the_endpoints_declared_concurrency():
-    """`concurrency` has been in the registry since M1 and nothing has enforced it. A batch
-    is the first thing here that runs more than one request at once, so it is the first
-    thing that could break the promise the registry makes."""
+    """`concurrency` is one of the four rules the admission gate checks (ADR-0012).
+
+    It used to be a semaphore local to this tool, which bounded a batch against itself
+    and nothing else -- two batches, or a batch beside a plain `delegate`, could still
+    exceed the limit it was reading. The bound now comes from the shared gate, so the
+    same assertion covers every path rather than this one.
+    """
     live = {"now": 0, "peak": 0}
 
     async def handler(request):
@@ -1285,3 +1289,91 @@ def test_a_broken_agent_file_is_left_out_rather_than_breaking_the_list(tmp_path)
     with pytest.raises(Exception, match="unknown frontmatter key"):
         called(chat_handler(), "delegate_to_agent", config=config,
                agent_name="broken", task="t", workdir=str(tmp_path))
+
+
+# --- admission control (ADR-0012) ----------------------------------------------------------
+
+def test_backend_status_reports_the_admission_gate():
+    """ADR-0012's reporting half: undersubscription is invisible unless something counts it.
+
+    Peaks that never approach their ceiling are the evidence that the ceiling is too low,
+    and there is nowhere else to read them from -- the gate is the only thing that knows.
+    """
+    result = called(ok_handler("served-id-1"), "backend_status")
+    gate = result["admission"]
+
+    assert gate["inflight_seqs"] == 0
+    for key in (
+        "peak_inflight_seqs",
+        "peak_inflight_tokens",
+        "peak_inflight_large_prefills",
+        "admission_wait_seconds_total",
+        "admission_wait_seconds_max",
+        "admission_wait_count",
+        "admission_timeouts",
+    ):
+        assert key in gate, f"backend_status lost {key}"
+
+
+def test_a_single_delegate_is_bounded_by_the_endpoints_concurrency_too():
+    """The gap the gate closed. `max_inflight_seqs`' own help text says the endpoint's
+    limit and the global budget are "both checked", and until the gate existed that was
+    false everywhere except inside `delegate_batch`: a plain `delegate` was never checked
+    against `concurrency` at all. Two concurrent `delegate` calls are the case a
+    batch-local semaphore could not see."""
+    live = {"now": 0, "peak": 0}
+
+    async def handler(request):
+        live["now"] += 1
+        live["peak"] = max(live["peak"], live["now"])
+        await asyncio.sleep(0.02)
+        live["now"] -= 1
+        return httpx.Response(200, json=chat_reply(content="done"))
+
+    config = cfg()
+    entries = (entry(concurrency=1),)
+    mcp = server.build(
+        config, registry(*entries, default=entries[0].key), DoubleCache(config, handler)
+    )
+
+    async def go():
+        async with Client(mcp) as client:
+            await asyncio.gather(
+                *(client.call_tool("delegate", {"task": f"t{i}"}) for i in range(4))
+            )
+
+    asyncio.run(go())
+    assert live["peak"] == 1, (
+        f"ran {live['peak']} at once against an endpoint declaring concurrency=1; "
+        "a plain delegate is not being counted against it"
+    )
+
+
+def test_a_delegation_that_fails_still_gives_its_slot_back():
+    """A leaked slot is permanent, and the gate has no way to notice or recover.
+
+    Exercised through a real failing dispatch rather than by calling `release` directly:
+    the whole risk is a path that never reaches the release, so a test that reaches it
+    by hand cannot fail against the bug.
+    """
+    config = cfg()
+    entries = (entry(),)
+    mcp = server.build(
+        config,
+        registry(*entries, default=entries[0].key),
+        DoubleCache(config, lambda request: httpx.Response(500, text="nope")),
+    )
+
+    async def go():
+        async with Client(mcp) as client:
+            for _ in range(3):
+                with pytest.raises(Exception, match="backend_refused"):
+                    await client.call_tool("delegate", {"task": "x"})
+            return (await client.call_tool("backend_status", {})).data
+
+    gate = asyncio.run(go())["admission"]
+    assert gate["inflight_seqs"] == 0, "a failed dispatch kept its sequence slot"
+    assert gate["inflight_tokens"] == 0, "a failed dispatch kept its token reservation"
+    assert gate["per_entry"]["flash"]["inflight"] == 0
+    # The marks are what the operator tunes from, so a failure must not erase them either.
+    assert gate["peak_inflight_seqs"] >= 1

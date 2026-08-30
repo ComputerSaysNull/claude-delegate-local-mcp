@@ -365,6 +365,30 @@ class Config:
         "is one running plus one staged -- pipelining, not throttling. Raising it makes "
         "every large request slower rather than any of them faster.",
     )
+    admission_wait_timeout: int = _f(
+        600,
+        "Bound on time spent waiting for a slot, before dispatch_timeout starts its own "
+        "clock. Separate rather than shared, because dispatch_timeout's deadline is set "
+        "inside the loop it bounds, which does not run until admission has already been "
+        "granted -- it cannot bound a wait that ends before it begins. The two therefore "
+        "stack rather than divide one budget. Deliberately well under dispatch_timeout: "
+        "a wait this long means the budget is misconfigured or the cluster is wedged, and "
+        "an error naming the rule that bound is worth more than an hour spent queued. "
+        "backend_status reports the longest wait seen and how many hit this limit.",
+        unit="seconds",
+    )
+
+    # ---- operator transcript (ADR-0024) ------------------------------------------
+    transcript_dir: str = _f(
+        "",
+        "Directory to write one record per dispatch into. Empty disables it, and empty "
+        "is the default. Independent of the caller's `diagnostics` argument by design: "
+        "what an operator can audit should not depend on what the calling session "
+        "thought to ask for. Setting it must not change a single byte of any response. "
+        "Records carry the task, the files and their accounting, real token usage and "
+        "the server-captured ledger -- but never file contents, which are recoverable "
+        "from the repository by path and are the only bulky part.",
+    )
 
     # ---- sandbox (ADR-0010) ------------------------------------------------------
     bwrap_bin: str = _f("bwrap", "bubblewrap binary name or path.")
@@ -450,6 +474,11 @@ class Config:
             "dispatch_timeout",
             "run_bash_timeout",
             "status_probe_timeout",
+            "admission_wait_timeout",
+            "max_inflight_seqs",
+            "kv_token_budget",
+            "large_prefill_tokens",
+            "max_inflight_large_prefills",
         ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"DELEGATE_{name.upper()} must be positive.")
