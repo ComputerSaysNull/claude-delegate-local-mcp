@@ -74,11 +74,43 @@ def test_deferred_is_not_reported_either(monkeypatch):
 
 
 def test_a_real_milestone_is_still_selected(monkeypatch):
-    """Guards the other direction: the exclusion must not swallow everything."""
+    """Guards the other direction: the exclusion must not swallow everything.
+
+    The open milestone is constructed, not borrowed from PLAN.md. This test used to read
+    the real plan, which worked only for as long as some milestone happened to be
+    unfinished: on the day the last one was closed it failed with nothing broken, and a
+    test that cries wolf is one somebody eventually deletes -- taking the guard with it.
+    An unfinished item on a genuine milestone is the condition under test, so it is the
+    condition the test builds.
+    """
+    gs = load_gen_status()
+    finished = [{**i, "mark": gs.DONE} for i in gs.parse_plan()]
+    doctored = [*finished, {"milestone": "M7 — Admission control and polish",
+                            "mark": gs.TODO, "text": "an unfinished item"}]
+    monkeypatch.setattr(gs, "parse_plan", lambda: doctored)
+
+    line = next(ln for ln in gs.render().splitlines()
+                if ln.startswith("**Current phase:**"))
+    assert "M7" in line and "all planned work complete" not in line, line
+
+
+def test_a_finished_plan_is_reported_as_finished():
+    """The other half of the pair above: complete must be sayable, and say so.
+
+    Without this, the guard above could be satisfied by a generator that never emits the
+    completion line at all -- which is what the previous version of that test was quietly
+    demanding.
+    """
     gs = load_gen_status()
     line = next(ln for ln in gs.render().splitlines()
                 if ln.startswith("**Current phase:**"))
-    assert "M" in line and "all planned work complete" not in line, line
+    open_items = [i for i in gs.parse_plan()
+                  if i["mark"] == gs.TODO
+                  and not any(n in i["milestone"] for n in gs.NOT_A_PHASE)]
+    if open_items:
+        assert "all planned work complete" not in line, line
+    else:
+        assert "all planned work complete" in line, line
 
 
 def test_extra_items_still_count_in_the_totals():

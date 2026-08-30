@@ -268,7 +268,14 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   reading the caller's flag would be empty for nearly every delegation. Records hold paths,
   accounting, the task and real token usage — never file contents, which are recoverable by
   path and are all the bulk (ADR-0039)
-- ⬜ README launcher documentation
+- ✅ 2026-08-30 README launcher documentation — verified rather than rewritten. There is
+  no launcher script to document: the launcher is the `claude-delegate-local-mcp` console
+  script from `pyproject.toml`, invoked by the client directly on Linux or through
+  `wsl.exe --cd ... -e ...` on Windows, and README already carries both registration
+  snippets, the note that `--cd` and the absolute path are load-bearing, and the link to
+  TROUBLESHOOTING. Checked against `pyproject.toml` and `main.py`; they agree. Closed
+  without a change because writing one would have put a second copy of facts that already
+  have a home, which is what ADR-0004 exists to stop
 - ❌ 2026-08-27 `scripts/release.py` — cancelled. Its job was to backfill each CHANGELOG
   entry's commit hash at tag time, and the hash is the wrong thing to cite: `main` is
   squash-merged, so a branch hash names an object that never leaves the clone it was made

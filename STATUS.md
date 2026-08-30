@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** M7 — Admission control and polish — 3 of 5 items done
+**Current phase:** all planned work complete
 
 ## In progress
 
@@ -13,7 +13,7 @@
 
 ## Next up
 
-- README launcher documentation
+- *nothing queued in this phase*
 
 ## Progress by phase
 
@@ -27,13 +27,13 @@
 | M4 — Agentic loop and model tools | 10 | 0 | 0 | 0 |
 | M5 — Sandbox | 9 | 0 | 0 | 0 |
 | M6 — Agents, batching, discovery | 4 | 0 | 0 | 0 |
-| M7 — Admission control and polish | 3 | 0 | 1 | 1 |
+| M7 — Admission control and polish | 4 | 0 | 0 | 1 |
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
 | Extra — work outside the milestone plan | 6 | 0 | 0 | 0 |
 
-**Overall:** 71 done, 2 open, 7 cancelled.
+**Overall:** 72 done, 1 open, 7 cancelled.
 
 ## Repository
 
-- 52 commit(s), 108 tracked files
+- 53 commit(s), 108 tracked files
 - 43 test file(s), 40 decision record(s)
