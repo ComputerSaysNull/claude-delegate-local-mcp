@@ -17,7 +17,7 @@ import asyncio
 
 import pytest
 
-from claude_delegate_local import loop, tools
+from claude_delegate_local import loop, sandbox, tools
 from claude_delegate_local.backends.base import (
     BashOutcome,
     CanonicalResponse,
@@ -260,12 +260,19 @@ def test_the_same_call_inside_the_allowed_set_runs(registered):
     assert result.tool_errors == 0
 
 
-def test_run_bash_is_declared_now_that_something_confines_it():
+def test_run_bash_is_declared_now_that_something_confines_it(monkeypatch):
     """M5's point. It was withheld from M4 until the sandbox and the mount-level denylist
-    both existed; they do, so the route is open and the tool is offered."""
-    assert "run_bash" in tools.available_tool_names()
-    assert "run_bash" in {s.name for s in tools.declared_tools(tools.resolve_allowed(None))}
-    assert tools.available_tool_names() == frozenset({"read_file", "write_file", "run_bash"})
+    both existed; they do, so the route is open and the tool is offered.
+
+    The host's own bubblewrap is stubbed out because that is a separate condition with its
+    own test in `test_tools.py`; this one is about the withholding, and it should say the
+    same thing on a machine that cannot run a sandbox at all.
+    """
+    monkeypatch.setattr(sandbox, "available", lambda _cfg: True)
+    c = cfg()
+    assert "run_bash" in tools.available_tool_names(c)
+    assert "run_bash" in {s.name for s in tools.declared_tools(tools.resolve_allowed(None, c))}
+    assert tools.available_tool_names(c) == frozenset({"read_file", "write_file", "run_bash"})
 
 
 def test_withholding_still_works_although_nothing_is_withheld(monkeypatch):
@@ -277,10 +284,13 @@ def test_withholding_still_works_although_nothing_is_withheld(monkeypatch):
     naming it explicitly still cannot widen the set back.
     """
     monkeypatch.setattr(tools, "WITHHELD_TOOL_NAMES", frozenset({"write_file"}))
-    assert tools.available_tool_names() == frozenset({"read_file", "run_bash"})
-    assert tools.resolve_allowed(["write_file"]) == frozenset()
-    assert tools.resolve_allowed(["read_file", "write_file"]) == frozenset({"read_file"})
-    assert "write_file" not in {s.name for s in tools.declared_tools(tools.resolve_allowed(None))}
+    monkeypatch.setattr(sandbox, "available", lambda _cfg: True)
+    c = cfg()
+    assert tools.available_tool_names(c) == frozenset({"read_file", "run_bash"})
+    assert tools.resolve_allowed(["write_file"], c) == frozenset()
+    assert tools.resolve_allowed(["read_file", "write_file"], c) == frozenset({"read_file"})
+    declared = {s.name for s in tools.declared_tools(tools.resolve_allowed(None, c))}
+    assert "write_file" not in declared
 
 
 def test_a_tool_outside_the_allowed_set_is_still_refused_at_the_execution_site():

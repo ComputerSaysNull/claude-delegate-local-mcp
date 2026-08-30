@@ -90,7 +90,7 @@ Prefetching removes several such turns from the front of every delegation.
 | `backends/openai_compat.py` | The only adapter shipped — [DISPATCH.md](DISPATCH.md) |
 | `loop.py` | The one-shot path, the response state machine and the turn loop — [DISPATCH.md](DISPATCH.md) |
 | `tools.py` | Model-facing tools, and both `allowed_tools` sites — [TOOLS.md](TOOLS.md) |
-| `sandbox.py` | bubblewrap invocation: the argv, the binds, and the refusal *(built, not yet reached)* |
+| `sandbox.py` | bubblewrap invocation: the argv, the binds, and the refusal |
 | `server.py` | MCP wiring, the tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run one transport |
 

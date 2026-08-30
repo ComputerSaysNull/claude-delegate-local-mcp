@@ -307,7 +307,7 @@ def test_a_refusal_reports_no_exit_code_but_still_counts_as_an_attempt(workspace
     assert result.bash.timed_out is False
 
 
-def test_the_route_is_open_and_nothing_narrows_it_any_more(workspace):
+def test_the_route_is_open_and_nothing_narrows_it_any_more(workspace, monkeypatch):
     """The end of a chain of tests, each named after the guard that held the route shut.
 
     First a config setting turned the sandbox off; that setting was deleted. Then the
@@ -315,12 +315,57 @@ def test_the_route_is_open_and_nothing_narrows_it_any_more(workspace):
     as of M5. Naming each test after the guard rather than after the tool is what made the
     replacement obvious every time, instead of leaving an assertion that passed for a reason
     that had stopped being true.
+
+    A fifth guard now exists and is deliberately stubbed out here rather than tested here:
+    a host without bubblewrap does not get the tool offered. That is
+    `test_run_bash_is_not_declared_where_bubblewrap_is_absent`; this test is about the
+    narrowing that happens once the host can run it at all.
     """
-    assert "run_bash" in tools.available_tool_names()
-    assert "run_bash" in tools.resolve_allowed(None)
-    assert "run_bash" in tools.resolve_allowed(["run_bash", "read_file"])
-    assert [s for s in tools.declared_tools(tools.resolve_allowed(None))
+    c = cfg(workspace)
+    monkeypatch.setattr(sandbox, "available", lambda _cfg: True)
+    assert "run_bash" in tools.available_tool_names(c)
+    assert "run_bash" in tools.resolve_allowed(None, c)
+    assert "run_bash" in tools.resolve_allowed(["run_bash", "read_file"], c)
+    assert [s for s in tools.declared_tools(tools.resolve_allowed(None, c))
             if s.name == "run_bash"]
+
+
+def test_run_bash_is_not_declared_where_bubblewrap_is_absent(workspace, monkeypatch):
+    """The declaration asks the host, rather than remembering an import-time constant.
+
+    M5 emptied `WITHHELD_TOOL_NAMES` and left `available_tool_names` taking no `Config`, so
+    on a machine with no `bwrap` the tool was offered and then refused every call it was
+    asked to make. A turn costs a round trip to learn something the server could have said
+    for free (JOURNAL 2026-08-29).
+
+    Proven by making the condition true rather than by asserting the code reads well: point
+    `bwrap_bin` at a name that does not resolve, which is exactly what `sandbox.available`
+    consults, and the tool leaves every set.
+    """
+    c = cfg(workspace, bwrap_bin="definitely-not-on-this-path-bwrap")
+    assert not sandbox.available(c)
+    assert "run_bash" not in tools.available_tool_names(c)
+    assert "run_bash" not in tools.resolve_allowed(None, c)
+    # And a caller naming it explicitly still cannot widen the set back, which is the
+    # property `resolve_allowed` exists for.
+    assert "run_bash" not in tools.resolve_allowed(["run_bash"], c)
+    assert "run_bash" not in {s.name for s in tools.declared_tools(tools.resolve_allowed(None, c))}
+    # The other two are untouched: this narrows one tool for one reason, not the set.
+    assert tools.available_tool_names(c) == frozenset({"read_file", "write_file"})
+
+
+def test_the_absent_sandbox_does_not_weaken_the_execution_site(workspace, monkeypatch):
+    """The trap CLAUDE.md names: narrowing the declared set is not enforcement.
+
+    `execute_tool` takes its allowed set as a parameter and does not consult
+    `available_tool_names`, so a model calling `run_bash` on a bwrap-less host must still be
+    refused *by the executor* -- and for its own reason, not because the declaration
+    happened to drop it. Asserted here so that a future change to one site cannot silently
+    make the other the only one left.
+    """
+    c = cfg(workspace, bwrap_bin="definitely-not-on-this-path-bwrap")
+    result = tools.execute_tool(c, call("run_bash", command="ls"), frozenset({"read_file"}))
+    assert result.is_error
 
 
 def test_execute_tool_still_checks_its_own_allowed_set(workspace):
