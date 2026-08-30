@@ -246,11 +246,16 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   deadline is set inside the loop it bounds and does not start until a slot is already
   granted (ADR-0038)
 - ⬜ Cross-process slots
-- ⬜ Operator-level dispatch transcript to disk, independent of any caller-facing flag and
-  stripped from the response. Upstream shipped two bugs here: failure paths losing the
-  agent name, so the very dispatches it exists to explain logged as unknown; and the
-  success path leaking its whole diagnostic payload into ordinary responses once the
-  directory was set. Off by default is not the same as inert when on (ADR-0024)
+- ✅ 2026-08-30 Operator-level dispatch transcript to disk, independent of any caller-facing
+  flag and stripped from the response. Both upstream bugs are defended by structure rather
+  than by care: the record is assembled from identity captured before the attempt and
+  written from a `finally`, because the agent name is in scope only at the top of a
+  delegation; and the writer returns nothing, so the response dict has no value to pick up.
+  Each was reintroduced to confirm its tests fail. A configured transcript turns per-turn
+  recording on for itself, since the loop keeps those records only when told to and one
+  reading the caller's flag would be empty for nearly every delegation. Records hold paths,
+  accounting, the task and real token usage — never file contents, which are recoverable by
+  path and are all the bulk (ADR-0039)
 - ⬜ README launcher documentation
 - ❌ 2026-08-27 `scripts/release.py` — cancelled. Its job was to backfill each CHANGELOG
   entry's commit hash at tag time, and the hash is the wrong thing to cite: `main` is

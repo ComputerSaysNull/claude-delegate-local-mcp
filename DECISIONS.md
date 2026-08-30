@@ -19,6 +19,52 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0039 — 2026-08-30 — A transcript record holds paths, accounting and the task, but never file contents — Accepted
+
+**Context.** ADR-0024 adopted an operator dispatch transcript and named the two bugs
+upstream shipped in one. It did not say what a record contains, and that turns out to be
+the decision with consequences: a record is written to local disk and kept indefinitely.
+
+**Decision — paths and accounting, not file bodies.** A record names every file the
+delegation was given, with byte counts, token estimates and skip reasons, but not their
+text. The text is recoverable from the repository by path, it is the overwhelming majority
+of the bytes, and writing it would put every prefetched file at rest on disk for as long as
+the directory exists. The alternative considered, full fidelity with compaction after a
+retention window, was rejected as machinery bought for little: the window is most of the
+exposure, and there is no evidence yet about how large records actually get.
+
+**Decision — the task is written verbatim.** It exists nowhere else, and a record that
+cannot say what was asked does not answer the question a transcript is opened to answer.
+Files already pass the secret-glob and gitignore layers before a model sees them, so they
+are no new exposure; a task string passes nothing, and today it only crosses the network.
+Writing it accepts that whoever configures the directory owns what lands in it. Stated
+rather than left implicit, because the difference between in-flight and at-rest is the
+whole of what changes here.
+
+**Decision — no retention cap.** Records without file bodies are small enough that a cap
+would be a setting nobody could tune from evidence. Revisit if the directory grows in a way
+anybody notices; a cap added now would need a negative test proving it prunes, for a
+pressure that has not been observed.
+
+**Decision — one file per dispatch.** `delegate_batch` runs items concurrently, so a batch
+has as many writers as items. Per-file sidesteps append atomicity rather than reasoning
+about it, and the filesystem here may be `/mnt/c`, where reasoning about it would be
+reasoning about the wrong one. The agent name is in the filename as well as the record,
+because a directory of files nobody can search restores the bug in its only surviving form.
+
+**Decision — a configured transcript turns per-turn recording on for itself.** The turn
+loop keeps `TurnDiagnostic` records only when told to, so a transcript reading whatever the
+caller happened to request would be empty for nearly every delegation. It asks for them
+independently, and the caller's own flag still decides, separately, what the reply carries.
+Verified to change nothing backend-visible: the flag is loop-local bookkeeping and does not
+reach the request.
+
+**Consequences.** Enabling the directory changes no response, which is asserted by
+comparing whole responses rather than by looking for known field names — a leak of a field
+nobody thought to list is the leak that would actually happen. Records carry real token
+usage rather than the admission estimate, so they can be summed later to say what the
+cluster has spent; an estimate standing in would be the right shape and the wrong number.
+
 ## ADR-0038 — 2026-08-30 — Admission is one predicate over four rules, sized by two numbers — Accepted
 
 **Context.** ADR-0012 fixed the policy — three rules, queue rather than fail, report

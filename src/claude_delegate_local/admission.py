@@ -106,6 +106,10 @@ class AdmissionLease:
     tokens: int
     is_large: bool
     entry_key: str
+    # This request's own wait, not the running total. The gate's counters answer "is the
+    # cluster saturated"; this answers "was *this* delegation slow because it queued",
+    # which is the question asked of one dispatch after the fact.
+    waited: float = 0.0
 
 
 class Admission:
@@ -212,9 +216,12 @@ class Admission:
                 self._peak_per_entry.get(entry_key, 0), self._per_entry[entry_key]
             )
 
+        elapsed = time.monotonic() - started if waited else 0.0
         if waited:
-            self._record_wait(time.monotonic() - started)
-        return AdmissionLease(tokens=tokens, is_large=is_large, entry_key=entry_key)
+            self._record_wait(elapsed)
+        return AdmissionLease(
+            tokens=tokens, is_large=is_large, entry_key=entry_key, waited=elapsed
+        )
 
     def _record_wait(self, seconds: float) -> None:
         self._wait_seconds_total += seconds

@@ -35,7 +35,7 @@ from .backends.base import (
     CanonicalShapeError,
 )
 from .backends.openai_compat import OpenAICompatBackend
-from .admission import Admission, AdmissionError
+from .admission import Admission, AdmissionError, AdmissionLease
 from .agents import AgentError, AgentSpec, load_agent
 from .agents import list_agents as discover_agents
 from .config import Config, ConfigError
@@ -52,6 +52,7 @@ from .loop import (
 )
 from .paths import PathPolicyError, PathRefused, resolve_all, resolve_workdir
 from .registry import ModelEntry, Registry, RegistryError
+from . import transcript
 from .tools import BashPolicy, resolve_allowed
 
 SERVER_NAME = "delegate-local"
@@ -391,7 +392,7 @@ def _refuse(e: Exception) -> ToolError:
     return ToolError(str(e))
 
 
-async def run_delegation(  # noqa: PLR0913 -- the union of one tool's arguments
+async def run_delegation(  # noqa: PLR0913, PLR0915 -- one tool's arguments, one dispatch
     cfg: Config,
     registry: Registry,
     cache: BackendCache,
@@ -522,6 +523,14 @@ async def run_delegation(  # noqa: PLR0913 -- the union of one tool's arguments
         """
         await progress(0, 0)
 
+    # Captured before anything is attempted, and never re-derived afterwards. The upstream
+    # bug this shape exists to prevent is a failure path with no agent name to report, so
+    # the very dispatches the transcript explains logged as unknown -- and the only place
+    # the name is in scope is here, before the attempt. ADR-0024.
+    started = time.monotonic()
+    lease: AdmissionLease | None = None
+    dispatched: Dispatch | AgenticDispatch | None = None
+    failure: BaseException | None = None
     try:
         async with admission.admit(
             tokens_estimate,
@@ -530,17 +539,43 @@ async def run_delegation(  # noqa: PLR0913 -- the union of one tool's arguments
             entry_limit=entry.concurrency,
             deadline=time.monotonic() + cfg.admission_wait_timeout,
             on_wait=ticked,
-        ):
+        ) as lease:
             dispatched = await dispatch_delegation(
                 loop_cfg, entry, backend, delegation,
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
-                max_turns=max_turns, policy=policy,
-                diagnostics=diagnostics, report_progress=progress,
+                max_turns=max_turns,
+                policy=policy,
+                # The caller's flag decides what the *caller* is shown, below. A transcript
+                # asks for the per-turn records itself, because the loop only keeps them
+                # when told to -- and an operator record that depended on the calling
+                # session having asked would not be an operator record.
+                diagnostics=diagnostics or transcript.enabled(cfg),
+                report_progress=progress,
             )
     except AdmissionError as e:
         # Not routed through `_refuse`, for the same reason `DispatchTimedOut` is not:
         # that names an endpoint as the thing at fault, and nothing here reached one.
+        failure = e
         raise ToolError(str(e)) from e
+    except BaseException as e:
+        failure = e
+        raise
+    finally:
+        # A side effect whose result nothing reads. The other upstream bug was the record
+        # reaching the response through a dict merge, so there is deliberately no value
+        # here for the return below to pick up.
+        transcript.write(
+            cfg,
+            agent_name=agent.name if agent else None,
+            entry=entry,
+            task=task,
+            workdir=workdir,
+            prefetched=prefetched,
+            lease=lease,
+            dispatched=dispatched,
+            error=failure,
+            started=started,
+        )
 
     response = dispatched.response
     answer = response.text

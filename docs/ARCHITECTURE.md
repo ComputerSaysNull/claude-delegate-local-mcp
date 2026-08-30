@@ -96,6 +96,7 @@ Prefetching removes several such turns from the front of every delegation.
 | `tools.py` | Model-facing tools, and both `allowed_tools` sites — [TOOLS.md](TOOLS.md) |
 | `sandbox.py` | bubblewrap invocation: the argv, the binds, and the refusal |
 | `admission.py` | The four-rule gate every delegation passes before it reaches a backend |
+| `transcript.py` | One operator record per dispatch, written outside the response |
 | `server.py` | MCP wiring, the five tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run one transport |
 
@@ -391,6 +392,34 @@ The two stack rather than dividing one budget.
 Oversubscription announces itself as latency; idle capacity is silent. So the status tool
 reports high-water marks, admission-wait totals and the count of waits that hit their
 limit, and the constants are tunable from evidence instead of guesswork. (ADR-0012)
+
+### The operator transcript is not the caller's diagnostics
+
+Two different audiences, and conflating them is what broke this upstream twice. The
+caller's `diagnostics` argument shapes the caller's reply. The transcript is written for
+whoever runs the server, and is **independent of any caller-facing flag** — what an
+operator can audit should not depend on what the calling session thought to ask for. A
+delegation worth investigating is rarely one anybody suspected in advance, so the record
+has to exist already.
+
+That independence has a cost the design has to pay rather than assume: the turn loop only
+*keeps* per-turn records when it is told to, so a configured transcript asks for them
+itself and the caller's own flag still decides, separately, what the reply contains.
+
+**Setting the directory must not change a single byte of any response.** The writer is
+called for its effect from a `finally` and returns nothing, so there is no value for the
+response dict — assembled from conditional spreads — to pick up. The record is built from
+identity captured *before* the attempt, because the agent's name is in scope only at the
+top of a delegation; assembling it any deeper leaves a failure with nothing to name, which
+is how upstream came to log exactly the dispatches it existed to explain as unknown.
+
+One file per dispatch rather than an appended log, because a batch has as many concurrent
+writers as items. Records carry the task, the files with their accounting, real token usage
+as the backend reported it, and the server-captured ledger — but **not file contents**,
+which are recoverable from the repository by path and are the only bulky part. The task is
+written verbatim: it exists nowhere else, and whoever configures the directory owns what
+lands in it. A write that fails is swallowed to stderr, never to stdout and never into the
+dispatch: a full disk must not fail work that already succeeded. (ADR-0024, ADR-0039)
 
 ### Token estimates are per file type
 

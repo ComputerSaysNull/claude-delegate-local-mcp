@@ -88,6 +88,7 @@ owns = [
   "src/claude_delegate_local/sandbox.py",
   "src/claude_delegate_local/main.py",
   "src/claude_delegate_local/admission.py",
+  "src/claude_delegate_local/transcript.py",
 ]
 covers_not = """
 Environment variable values (CONFIGURATION.md), tool schemas (TOOLS.md), registry file

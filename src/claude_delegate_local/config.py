@@ -378,6 +378,18 @@ class Config:
         unit="seconds",
     )
 
+    # ---- operator transcript (ADR-0024) ------------------------------------------
+    transcript_dir: str = _f(
+        "",
+        "Directory to write one record per dispatch into. Empty disables it, and empty "
+        "is the default. Independent of the caller's `diagnostics` argument by design: "
+        "what an operator can audit should not depend on what the calling session "
+        "thought to ask for. Setting it must not change a single byte of any response. "
+        "Records carry the task, the files and their accounting, real token usage and "
+        "the server-captured ledger -- but never file contents, which are recoverable "
+        "from the repository by path and are the only bulky part.",
+    )
+
     # ---- sandbox (ADR-0010) ------------------------------------------------------
     bwrap_bin: str = _f("bwrap", "bubblewrap binary name or path.")
     sandbox_home: str = _f(

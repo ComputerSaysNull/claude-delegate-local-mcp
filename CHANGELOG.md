@@ -30,6 +30,44 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #43 — 2026-08-30 — feat: an operator transcript that cannot reach the response
+
+### Added
+- `transcript.py`: one record per dispatch, written when `transcript_dir` is set and not
+  at all when it is not. ADR-0024 adopted this in M4 and nothing was built; there was no
+  disk-writing telemetry anywhere in `src/` before it.
+- Independent of the caller's `diagnostics` argument, which is the requirement rather
+  than a detail: what an operator can audit should not depend on what the calling session
+  thought to ask for. That has a cost the design pays instead of assuming -- `_Watch`
+  keeps per-turn records only when told to, so a configured transcript asks for them
+  itself, and the caller's flag still decides separately what the reply carries. Both
+  directions are tested, including that a caller who did ask still gets them.
+- Records carry **real** token usage as the backend reported it, not the estimate
+  admission sized the request with. The estimate is a guess made before the work; summing
+  usage across records is the only way to say what the cluster has actually spent, and an
+  estimate standing in would be the right shape and the wrong number.
+- `AdmissionLease` carries its own wait, so a record can say whether *this* delegation was
+  slow because it queued. The gate's totals answer a different question.
+
+### Changed
+- `docs/CONFIGURATION.md`'s line budget 150 → 175. The file is generated, one row per
+  setting, so its length is the count of settings; trimming it means deleting a setting or
+  its description. The cap catches a table growing prose, which a row cannot do.
+
+### Fixed
+- Neither upstream bug, reproduced and then defended. The record is assembled from identity
+  captured **before** the attempt and written from a `finally`, because the agent's name is
+  in scope only at the top of a delegation -- assemble it any deeper and a failure has
+  nothing to name, which is how the dispatches the transcript existed to explain came to
+  log as `unknown`. And the writer returns nothing, so the response dict -- still assembled
+  from conditional `**` spreads, which is the shape that leaked -- has no value to pick up.
+  Setting the directory is asserted to leave the whole response byte-identical, compared as
+  a whole rather than by checking for known field names: a leak of a field nobody thought
+  to list is the leak that would happen.
+- Both bugs were confirmed to be caught by reintroducing them: deriving the agent name from
+  the dispatch result fails three tests in the first file, and merging a payload into the
+  return fails the equality test in the second.
+
 ## #42 — 2026-08-30 — feat: the admission gate, and the four settings that were inert
 
 ### Added
