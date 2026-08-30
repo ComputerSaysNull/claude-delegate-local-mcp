@@ -30,7 +30,7 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #TBD — 2026-08-30 — fix: declare run_bash only where a sandbox can run it
+## #38 — 2026-08-30 — fix: declare run_bash only where a sandbox can run it
 
 ### Fixed
 - `run_bash` was declared to the model on hosts with no bubblewrap, and then refused every
