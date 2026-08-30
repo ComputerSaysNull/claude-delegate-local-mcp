@@ -136,8 +136,9 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_TOOLCHAIN_BINDS` | *(empty)* | Extra read-only binds so tools resolve inside an empty root. Empty means probe for `uv` and bind it: it lives outside the sandbox HOME, so `uv run pytest` fails with 'not found' without this. The single most likely first-run sandbox failure. |
 | `DELEGATE_ENV_PASSTHROUGH` | *(empty)* | Extra environment names allowed through to a sandboxed command, on top of the built-in allowlist. |
 | `DELEGATE_MAX_BASH_OUTPUT_CHARS` | 20000 characters | Cap on the combined stdout and stderr of one run_bash call. The tail is cut and the true length stated, never silently dropped -- a build log is exactly the kind of output whose last line matters most. |
-| `DELEGATE_SECRET_SHADOW_MAX_ENTRIES` | 10000 | Entries the mount-level secret scan may visit before it gives up and refuses the command. Also a latency ceiling: the scan runs per run_bash call, and the workspace lives on /mnt/c. This repository scans in 230. |
+| `DELEGATE_SECRET_SHADOW_MAX_ENTRIES` | 10000 | Entries the mount-level secret scan may visit before it gives up and refuses the command. Also a latency ceiling: the scan runs per run_bash call, and the workspace lives on /mnt/c, where a walk costs roughly 6ms per entry. This repository scans in 248 with the opaque list applied, and in 10586 without it -- 0.7 seconds against 66. Raising this is almost never the right answer to a refusal; naming the bulky directory in the opaque list is (ADR-0041). |
 | `DELEGATE_SECRET_SHADOW_MAX_DEPTH` | 24 | Directory depth the mount-level secret scan may descend before it gives up and refuses the command. Guards against a symlink loop the walk cannot see. |
+| `DELEGATE_OPAQUE_GLOBS_FILE` | ./security/opaque_globs.txt | Directories covered and not walked, because they hold machine-generated bulk. Separate from the secret denylist and matched the same way: a hit is covered with the tmpfs a matched secret directory gets, so covering more is never less safe -- what the list buys is the walk, which runs per run_bash call. Unlike the secret denylist a missing file is not fatal, because an empty list only costs time. Never list a directory a sandboxed command needs to read (ADR-0041). |
 
 ### Agents
 
@@ -152,6 +153,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
 
-*54 settings.*
+*55 settings.*
 
 <!-- GEN:CONFIG:END -->

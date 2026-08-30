@@ -30,6 +30,55 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #44 — 2026-08-30 — fix: run_bash was refused on every project carrying a virtualenv
+
+### Fixed
+- The mount-level secret scan walks the workdir before every `run_bash` call and refuses
+  once it passes `secret_shadow_max_entries`. That refusal is correct — a partial denylist
+  is indistinguishable from a complete one, so it fails closed — but the default was
+  measured on a checkout of this repository that had no virtualenv in it, and `config.py`
+  said so in its own help text: "This repository scans in 230." With `.venv` present it
+  walks 10,586 entries, so every shell command a delegated model tried was refused.
+- Found by running the tool rather than the suite. Every existing scan test builds a tree
+  of one to twelve files by hand, and the two that exercise the budget do it by *lowering*
+  the cap to five; none ever asked whether a realistic tree passes the shipped default,
+  which is the only question a user's first `run_bash` actually asks.
+
+### Added
+- `security/opaque_globs.txt` and `opaque_globs_file`: machine-generated directories that
+  are covered with the same tmpfs a matched secret directory gets, and pruned from the walk
+  for the same reason. Measured on this repository, on /mnt/c: 10,586 entries in 66s
+  walked, against 248 in 0.7s covered. The scan runs per call, so that 66s was the whole
+  per-command cost, not a slow start.
+- **Covering is what makes skipping safe.** A secret inside such a directory is hidden by
+  the mount over its parent whether or not the walk ever looked. Pruning *without* covering
+  is a hole, and it is the tempting mistake — "skip whatever gitignore ignores" would drop
+  `.env`, which is gitignored, from the scan that exists to find it. Both wrong builds were
+  constructed and shown failing; prune-without-cover is caught from inside a real sandbox by
+  a shell reading the file, since no argv assertion can catch a path the walk never visited.
+- A missing opaque list warns rather than refusing, unlike the denylist, whose absence must
+  stop the server. Two files rather than one so that a slow scan is never fixable by editing
+  the security list (ADR-0041).
+- `tests/regression/test_a_project_with_a_virtualenv_is_scannable.py`: scans a
+  project-shaped tree with the shipped lists and a budget just above what the project is
+  worth without its virtualenv, so it passes only while the shipped file still names one.
+  Deleting that line fails three tests.
+
+### Changed
+- `secret_shadow_max_entries`' description carries the measured numbers and says that
+  raising it is almost never the right answer. Raising it is worse than slow: inside a
+  virtualenv `*secret*` and `*credential*` match ordinary library filenames —
+  `keyring/credentials.py`, `certifi/cacert.pem` — and the scan mounts `/dev/null` over
+  each, so a raised cap spends a minute and then breaks the imports and TLS roots of the
+  environment it just read. Twenty of twenty-two matches here were of that kind.
+- The refusal message now names the opaque list as the lever, instead of only the cap.
+- `node_modules` is on the default list, from measurement rather than principle: a
+  32,184-entry project here is refused on every call without it and scans in 3s with it,
+  while raising the cap instead means a ~3 minute walk before every command. `npm test`
+  inside the sandbox is therefore not something the entry costs -- it is unreachable at
+  any setting. The tmpfs covering a directory is writable, so a command that writes into
+  one appears to succeed and leaves nothing behind.
+
 ## #43 — 2026-08-30 — feat: admission counts every server process, not just this one
 
 ### Added

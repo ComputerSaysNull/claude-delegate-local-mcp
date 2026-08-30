@@ -31,6 +31,7 @@ import shutil
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .config import Config
 from .paths import load_secret_globs, secret_match
@@ -238,6 +239,64 @@ def _dir_match(path: str, globs: Sequence[str]) -> str | None:
     return secret_match(path, globs) or secret_match(f"{path}/{_DIR_PROBE}", globs)
 
 
+def load_opaque_globs(cfg: Config) -> tuple[str, ...]:
+    """The bulk-directory list, or an empty one. Never fatal. ADR-0041.
+
+    Deliberately not `load_secret_globs`, and deliberately not the same file. That list is
+    a security control and a missing one is fatal, because a denylist matching nothing
+    reads exactly like a denylist that passed. This one only decides what the walk skips,
+    so an absent file costs time and nothing else -- and refusing to start over it would
+    turn a performance aid into an outage.
+
+    Kept apart from the denylist for a second reason: sharing the file would let a slow
+    scan be "fixed" by editing the security list, which is the one edit nobody should make
+    for a performance reason.
+    """
+    raw = cfg.opaque_globs_file.strip()
+    if not raw:
+        return ()
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        log.warning(
+            "no opaque-directory list at %s; every directory will be walked, which is "
+            "slow on a tree carrying a virtualenv or node_modules",
+            path,
+        )
+        return ()
+    return tuple(
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
+def _dir_shadow(
+    path: str, globs: Sequence[str], opaque: Sequence[str]
+) -> ShadowTarget | None:
+    """The mount that should cover this directory, or None to walk into it.
+
+    The denylist is asked first, so a directory on both lists is reported as the secret it
+    is rather than as bulk -- the `matched` field is what an operator reads to tell whether
+    the security list fired, and it must not claim credit for a speed measure.
+
+    Both answers are the same mount. That is the point: an opaque directory is covered
+    exactly as a matched secret one is, so skipping its contents costs no coverage. A
+    secret inside it is hidden by the mount over its parent whether or not this walk ever
+    looks. Pruning without covering is the hole, and it is the tempting shape. (ADR-0041)
+    """
+    glob = _dir_match(path, globs)
+    if glob is not None:
+        return ShadowTarget(path=path, kind="dir", matched=glob)
+    bulk = _dir_match(path, opaque)
+    if bulk is not None:
+        return ShadowTarget(path=path, kind="dir", matched=f"opaque:{bulk}")
+    return None
+
+
 def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTarget, ...]:
     """Every denylist match under the bound roots, as a mount that will cover it up. I/O.
 
@@ -288,6 +347,7 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
     roots.extend(b for b in req.extra_binds if b not in roots)
 
     globs = load_secret_globs(cfg)
+    opaque = load_opaque_globs(cfg)
     found: list[ShadowTarget] = []
     seen: set[str] = set()
     budget = cfg.secret_shadow_max_entries
@@ -308,8 +368,11 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
                 raise SecretShadowIncomplete(
                     f"the secret scan visited more than {cfg.secret_shadow_max_entries} "
                     f"entries under {root} and stopped. run_bash is refused rather than "
-                    "run with a denylist that covered only part of the tree. Raise "
-                    "DELEGATE_SECRET_SHADOW_MAX_ENTRIES, or bind a narrower workdir."
+                    "run with a denylist that covered only part of the tree. Usually the "
+                    "tree carries a machine-generated directory nobody needs to scan: name "
+                    "it in the opaque list (DELEGATE_OPAQUE_GLOBS_FILE) and it is covered "
+                    "and skipped, which is both faster and no less safe. Raising "
+                    "DELEGATE_SECRET_SHADOW_MAX_ENTRIES makes every call walk it instead."
                 )
 
             kept: list[str] = []
@@ -317,8 +380,8 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
                 full = posixpath.join(dirpath, name)
                 if os.path.islink(full):
                     continue  # never descended, never shadowed; see the docstring
-                glob = _dir_match(full, globs)
-                if glob is None:
+                shadow = _dir_shadow(full, globs, opaque)
+                if shadow is None:
                     kept.append(name)
                     continue
                 # Matched: shadow it and do not descend. Pruning is what keeps `.git/**`
@@ -327,7 +390,7 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
                 # the inner op needs to exist.
                 if full not in seen:
                     seen.add(full)
-                    found.append(ShadowTarget(path=full, kind="dir", matched=glob))
+                    found.append(shadow)
             dirnames[:] = kept
 
             for name in filenames:

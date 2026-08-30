@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from claude_delegate_local import sandbox
 from claude_delegate_local.config import Config
+from claude_delegate_local.paths import PathPolicyError
 from claude_delegate_local.sandbox import SandboxRequest, SandboxUnavailable
 
 needs_bwrap = pytest.mark.skipif(
@@ -807,3 +808,128 @@ def test_a_shadowed_secret_is_never_readable_however_early_it_is_read(tmp_path):
     ]
 
     assert leaked == []
+
+
+# ---- opaque directories (ADR-0041) ------------------------------------------------
+def opaque_file(tmp_path: Path, *patterns: str) -> str:
+    p = tmp_path / "opaque_globs.txt"
+    p.write_text("\n".join(patterns) + "\n", encoding="utf-8")
+    return str(p)
+
+
+@posix_only
+def test_an_opaque_directory_is_covered_and_not_walked(tmp_path):
+    """Both halves in one assertion, because either alone is the wrong feature.
+
+    Covered but walked is merely slow. Walked but uncovered -- pruning without a mount --
+    is the hole: a secret inside the directory would then be visible from a shell with
+    nothing reporting that it was never looked at.
+    """
+    home = tmp_path / "home"
+    (home / ".venv" / "deep").mkdir(parents=True)
+    (home / ".venv" / "deep" / ".env").write_text("SECRET=1", encoding="utf-8")
+    (home / "src.py").write_text("x", encoding="utf-8")
+
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=globs_file(tmp_path, ".env"),
+            opaque_globs_file=opaque_file(tmp_path, ".venv/**")),
+        req(home=str(home)))
+
+    assert [t.path for t in found] == [f"{home}/.venv"], (
+        "the opaque directory itself must be the only shadow: a second op for the .env "
+        "inside it would mean the walk descended, and no op at all would mean it was "
+        "skipped without being covered")
+    assert found[0].kind == "dir"
+    assert found[0].matched.startswith("opaque:"), (
+        "an opaque match must be attributable as one; reporting it as a denylist hit "
+        "would make the security list look like it fired when it did not")
+
+
+@posix_only
+def test_an_opaque_directory_costs_no_budget(tmp_path):
+    """The bug this feature exists for: a real project workdir refused outright.
+
+    The tree here is larger than the budget and would refuse if walked, exactly as this
+    repository's own checkout did once it carried a virtualenv.
+    """
+    home = tmp_path / "home"
+    bulk = home / ".venv"
+    bulk.mkdir(parents=True)
+    for i in range(40):
+        (bulk / f"f{i}").write_text("x", encoding="utf-8")
+    (home / "src.py").write_text("x", encoding="utf-8")
+
+    tight = cfg(secret_globs_file=globs_file(tmp_path, ".env"),
+                opaque_globs_file=opaque_file(tmp_path, ".venv/**"),
+                secret_shadow_max_entries=10)
+    found = sandbox.discover_secret_shadows(tight, req(home=str(home)))
+    assert [t.path for t in found] == [f"{home}/.venv"]
+
+    # The control: the same tree, the same budget, without the opaque list. If this did
+    # not refuse, the test above would prove nothing about the walk being skipped.
+    with pytest.raises(sandbox.SecretShadowIncomplete):
+        sandbox.discover_secret_shadows(
+            cfg(secret_globs_file=globs_file(tmp_path, ".env"),
+                opaque_globs_file=opaque_file(tmp_path, "matches-nothing/**"),
+                secret_shadow_max_entries=10),
+            req(home=str(home)))
+
+
+@posix_only
+def test_the_denylist_wins_over_the_opaque_list(tmp_path):
+    """A directory on both lists is reported as the secret it is, not as bulk."""
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "id_rsa").write_text("x", encoding="utf-8")
+
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=globs_file(tmp_path, ".ssh/**"),
+            opaque_globs_file=opaque_file(tmp_path, ".ssh/**")),
+        req(home=str(home)))
+
+    assert [(t.path, t.matched) for t in found] == [(f"{home}/.ssh", ".ssh/**")]
+
+
+@posix_only
+def test_a_missing_opaque_list_is_not_fatal(tmp_path):
+    """Unlike the denylist, whose absence must stop the server.
+
+    An empty opaque list costs time. An empty denylist costs the whole control, and the
+    two failures must not be handled the same way.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "id_rsa").write_text("x", encoding="utf-8")
+
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=globs_file(tmp_path, "id_rsa*"),
+            opaque_globs_file=str(tmp_path / "does-not-exist.txt")),
+        req(home=str(home)))
+    assert [t.path for t in found] == [f"{home}/id_rsa"]
+
+    with pytest.raises(PathPolicyError):
+        sandbox.discover_secret_shadows(
+            cfg(secret_globs_file=str(tmp_path / "also-missing.txt"),
+                opaque_globs_file=opaque_file(tmp_path, ".venv/**")),
+            req(home=str(home)))
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_secret_inside_an_opaque_directory_is_unreadable_from_inside(tmp_path):
+    """The claim that makes skipping safe, checked from inside the sandbox.
+
+    The walk never sees this file. If covering the parent did not hide it, the shell would
+    read it -- and no argv assertion would notice, because there is no op for this path.
+    """
+    home = tmp_path / "home"
+    (home / ".venv").mkdir(parents=True)
+    (home / ".venv" / ".env").write_text("PRIVATE-KEY-BODY", encoding="utf-8")
+
+    result = sandbox.run(
+        cfg(secret_globs_file=globs_file(tmp_path, "nothing-matches-this"),
+            opaque_globs_file=opaque_file(tmp_path, ".venv/**")),
+        req(command="cat ~/.venv/.env", home=str(home)))
+
+    assert result.exit_code != 0
+    assert "PRIVATE-KEY-BODY" not in result.stdout

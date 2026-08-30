@@ -29,11 +29,11 @@
 | M6 — Agents, batching, discovery | 4 | 0 | 0 | 0 |
 | M7 — Admission control and polish | 4 | 0 | 0 | 1 |
 | Deferred and cancelled | 0 | 0 | 1 | 5 |
-| Extra — work outside the milestone plan | 6 | 0 | 0 | 0 |
+| Extra — work outside the milestone plan | 7 | 0 | 0 | 0 |
 
-**Overall:** 72 done, 1 open, 7 cancelled.
+**Overall:** 73 done, 1 open, 7 cancelled.
 
 ## Repository
 
-- 53 commit(s), 108 tracked files
-- 43 test file(s), 40 decision record(s)
+- 53 commit(s), 110 tracked files
+- 44 test file(s), 41 decision record(s)

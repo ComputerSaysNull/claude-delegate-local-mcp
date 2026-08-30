@@ -400,6 +400,16 @@ class Config:
         "across the Windows drive boundary is not dependable (ADR-0020).",
     )
 
+    opaque_globs_file: str = _f(
+        "./security/opaque_globs.txt",
+        "Directories covered and not walked, because they hold machine-generated bulk. "
+        "Separate from the secret denylist and matched the same way: a hit is covered with "
+        "the tmpfs a matched secret directory gets, so covering more is never less safe -- "
+        "what the list buys is the walk, which runs per run_bash call. Unlike the secret "
+        "denylist a missing file is not fatal, because an empty list only costs time. "
+        "Never list a directory a sandboxed command needs to read (ADR-0041).",
+    )
+
     # ---- operator transcript (ADR-0024) ------------------------------------------
     transcript_dir: str = _f(
         "",
@@ -434,7 +444,10 @@ class Config:
         10000,
         "Entries the mount-level secret scan may visit before it gives up and refuses the "
         "command. Also a latency ceiling: the scan runs per run_bash call, and the "
-        "workspace lives on /mnt/c. This repository scans in 230.",
+        "workspace lives on /mnt/c, where a walk costs roughly 6ms per entry. This "
+        "repository scans in 248 with the opaque list applied, and in 10586 without it -- "
+        "0.7 seconds against 66. Raising this is almost never the right answer to a "
+        "refusal; naming the bulky directory in the opaque list is (ADR-0041).",
     )
     secret_shadow_max_depth: int = _f(
         24,

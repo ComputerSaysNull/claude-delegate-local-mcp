@@ -322,3 +322,15 @@ five were repository tooling made the backend work look further along than it wa
   installed version. Pinned, fixed, and required in CI — `#8`
 - ✅ 2026-08-26 `git commit --amend` was judged against the wrong parent — both readings
   are evaluated and a pass that relied on the amend reading announces itself (ADR-0028) — `#9`
+- ✅ 2026-08-30 `run_bash` was refused on every real project — the mount-level secret scan
+  walks the workdir before each call and gives up past `secret_shadow_max_entries`, and the
+  default was measured on a checkout with no virtualenv in it. `config.py` said so itself:
+  "This repository scans in 230." With `.venv` present it walks 10,586, in 66 seconds, per
+  call. Fixed with a second list of machine-generated directories, covered with the tmpfs a
+  matched secret directory already gets and pruned from the walk — 248 entries and 0.7s.
+  Covering is what makes skipping safe, and the wrong build was demonstrated: pruned without
+  covering, a real sandboxed shell reads a secret placed inside. Raising the budget was
+  rejected as worse than slow — inside a virtualenv `*secret*` and `*credential*` match
+  library source, so the scan would mount `/dev/null` over the imports of the environment it
+  had just spent a minute reading. Found by running the tool, not the suite: every scan test
+  built twelve files by hand (ADR-0041)
