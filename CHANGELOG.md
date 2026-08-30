@@ -30,7 +30,7 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #43 — 2026-08-30 — feat: the admission budget belongs to the machine, not to one window
+## #43 — 2026-08-30 — feat: admission counts every server process, not just this one
 
 ### Added
 - `slots.py`: the four admission rules now count every server process on this machine,
