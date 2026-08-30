@@ -47,14 +47,19 @@ def test_a_leftover_row_still_carries_its_unit(everything_leftover):
     assert "20.0 seconds" in row, row
 
 
-def test_a_leftover_row_still_carries_its_inert_marker(everything_leftover):
-    """The latent half. kv_token_budget is inert until M7 builds admission control.
+def test_a_leftover_row_still_carries_its_inert_marker(monkeypatch):
+    """The latent half, no longer pinned to whichever setting happens to be unbuilt.
 
-    The specimen was agents_dir until M6's agents.py started reading it. Any still-inert
-    field serves; what must not happen is dropping the assertion because its subject went
-    live, which would leave the leftover path unwatched.
+    This asserted against a real inert field for as long as one existed: agents_dir until
+    M6 read it, then kv_token_budget until M7's admission gate read that. M7 marked the
+    last of them, so the specimen ran out -- and a test whose subject can go live is a
+    test that goes vacuous without failing, which is the one outcome its own docstring
+    said to avoid. The condition is synthesised now instead of borrowed, so the leftover
+    path stays watched whether or not anything is genuinely inert.
     """
-    row = _row_for(everything_leftover, "DELEGATE_KV_TOKEN_BUDGET")
+    monkeypatch.setattr(gen, "SECTIONS", [])
+    monkeypatch.setattr(gen, "_unread_fields", lambda: {"kv_token_budget"})
+    row = _row_for(gen.render(), "DELEGATE_KV_TOKEN_BUDGET")
     assert "**Inert.**" in row, row
 
 
@@ -69,15 +74,35 @@ def test_the_footer_count_matches_the_rows_actually_marked(monkeypatch, sectione
     """The self-contradiction the audit predicted, asserted in both layouts.
 
     Rendering the table and its total through different code is what allowed them to
-    disagree, so this is the invariant that matters more than any single row.
+    disagree, so this is the invariant that matters more than any single row. The inert
+    set is forced rather than observed, for the reason above: with nothing inert the
+    footer omits the clause entirely and the regex below matches nothing, which would
+    read as a passing test of a format that had simply stopped being produced.
     """
     if not sectioned:
         monkeypatch.setattr(gen, "SECTIONS", [])
+    monkeypatch.setattr(gen, "_unread_fields", lambda: {"kv_token_budget", "http_port"})
     text = gen.render()
     marked = text.count("**Inert.**")
     footer = re.search(r"\*\d+ settings, (\d+) of them inert\.\*", text)
     assert footer is not None, "footer went missing; the tail format changed"
     assert marked == int(footer.group(1)), f"{marked} rows marked, footer claims {footer.group(1)}"
+
+
+@pytest.mark.parametrize("sectioned", [True, False])
+def test_nothing_inert_renders_no_count_and_no_marks(monkeypatch, sectioned):
+    """The other side of the same invariant, and the state the project is now in.
+
+    Zero inert fields must mean zero marked rows *and* no inert clause in the footer --
+    "51 settings, 0 of them inert" would be a sentence about a thing that is not there.
+    """
+    if not sectioned:
+        monkeypatch.setattr(gen, "SECTIONS", [])
+    monkeypatch.setattr(gen, "_unread_fields", set)
+    text = gen.render()
+    assert "**Inert.**" not in text
+    assert re.search(r"\*\d+ settings\.\*", text), "the plain footer went missing"
+    assert "of them inert" not in text
 
 
 def test_every_field_has_a_section_so_other_stays_empty():

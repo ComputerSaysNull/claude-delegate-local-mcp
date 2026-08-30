@@ -22,21 +22,39 @@ import gen_config_docs as gen  # noqa: E402
 from claude_delegate_local import config  # noqa: E402
 
 
-def test_a_setting_nothing_reads_is_reported_as_inert():
-    """The positive case: kv_token_budget is declared and no module reads it yet.
+def test_a_setting_nothing_reads_is_reported_as_inert(tmp_path, monkeypatch):
+    """The positive case, against a constructed tree because the real one ran out.
 
     The specimen was sandbox_enabled until M5 deleted that field outright, then agents_dir
-    until M6's agents.py started reading it. Any field for an unbuilt subsystem does here --
-    kv_token_budget waits on M7's admission control -- and when the last of them goes live
-    this test needs a new one rather than a weakened assertion. A version of it that quietly
-    stopped naming a real field would pass forever.
+    until M6 read it, then kv_token_budget until M7's admission gate read that. M7 was the
+    last unbuilt subsystem with settings, so there is no longer any real field to point at
+    -- and the previous docstring's instruction, "a new one rather than a weakened
+    assertion", has no candidate left to name.
 
-    Note what replacing the specimen is *not*: an accommodation. Each time, the field went
-    live because the subsystem was built, which is the marker doing its job. The assertion
-    is rewritten to point at something still unbuilt, never loosened to keep passing.
+    Constructing the subject is not the weakening it warned about. The assertion is the
+    same one, at full strength, and it can now never go vacuous by having its subject
+    built: `_fake_tree` gives it a field that is unread by construction. What the real
+    tree is still asserted against is the opposite direction, below.
     """
-    unread = gen._unread_fields()
-    assert "kv_token_budget" in unread
+    _fake_tree(
+        tmp_path,
+        config_src="class Config:\n    pass\n",
+        caller_src="y = something_else()\n",
+    )
+    monkeypatch.setattr(gen, "ROOT", tmp_path)
+    monkeypatch.setattr(gen.config, "describe", lambda: [{"field": "nobody_reads_this"}])
+    assert gen._unread_fields() == {"nobody_reads_this"}
+
+
+def test_nothing_in_the_real_tree_is_inert_today():
+    """The state M7 left the project in, asserted rather than assumed.
+
+    Every setting is now read by something. This is not a placeholder for the test above:
+    it fails the day a field is added for a subsystem that does not exist yet, which is
+    exactly when the marker has to start working again and someone should be looking at
+    it. Without it, the vanished specimen would leave a hole rather than a check.
+    """
+    assert gen._unread_fields() == set()
 
 
 def test_a_setting_the_server_reads_is_not_reported_as_inert():
@@ -47,17 +65,28 @@ def test_a_setting_the_server_reads_is_not_reported_as_inert():
 
 
 def test_the_scan_does_not_mark_every_setting():
-    """A scan that read nothing would mark every field and still render a believable file."""
+    """A scan that read nothing would mark every field and still render a believable file.
+
+    The lower bound this used to carry moved to the constructed tree above, where a
+    non-empty result is guaranteed by construction rather than by whatever happens to be
+    unbuilt this month.
+    """
     unread = gen._unread_fields()
     total = len(config.describe())
-    assert 0 < len(unread) < total
+    assert len(unread) < total
 
 
-def test_the_marker_reaches_the_rendered_table():
-    """The scan could be correct and the renderer still drop it on the floor."""
+def test_the_marker_reaches_the_rendered_table(monkeypatch):
+    """The scan could be correct and the renderer still drop it on the floor.
+
+    Forced rather than observed, for the same reason as the positive case above: with
+    nothing genuinely inert this would assert against an empty table and pass by
+    describing a path that no longer runs.
+    """
+    monkeypatch.setattr(gen, "_unread_fields", lambda: {"kv_token_budget"})
     block = gen.render()
     assert "**Inert.**" in block
-    assert "of them inert" in block
+    assert "1 of them inert" in block
 
 
 def test_a_field_becomes_live_the_moment_source_mentions_it(tmp_path, monkeypatch):

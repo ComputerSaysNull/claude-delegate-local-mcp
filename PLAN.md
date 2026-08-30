@@ -231,7 +231,20 @@ flag controlling nothing. The design work is not lost — it is recorded under M
 
 ## M7 — Admission control and polish
 
-- ⬜ Token-budget admission, three rules, high-water marks and wait totals
+- ✅ 2026-08-30 Token-budget admission — four rules, high-water marks and wait totals.
+  `admission.py`, one condition variable over plain counters checked as a single atomic
+  predicate rather than semaphores acquired in turn: a request that took a sequence slot
+  and then blocked on the large-prefill cap would hold capacity it is not using for the
+  whole wait, which ADR-0012 makes the normal case for big tasks. The endpoint's own
+  `concurrency` became the fourth rule, replacing the semaphore local to `delegate_batch`
+  that bounded a batch against itself and nothing else — a single `delegate` was never
+  checked against it at all, while `max_inflight_seqs`' own description already said both
+  were checked. A request is sized by two numbers, its KV footprint and its prefill, after
+  classifying on the total was found to make every delegation "large" and silently bound
+  the server at `max_inflight_large_prefills`; caught by the batch test still passing with
+  the endpoint rule deleted. The wait has its own timeout, because `dispatch_timeout`'s
+  deadline is set inside the loop it bounds and does not start until a slot is already
+  granted (ADR-0038)
 - ⬜ Cross-process slots
 - ⬜ Operator-level dispatch transcript to disk, independent of any caller-facing flag and
   stripped from the response. Upstream shipped two bugs here: failure paths losing the

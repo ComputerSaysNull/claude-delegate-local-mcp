@@ -19,6 +19,58 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0038 — 2026-08-30 — Admission is one predicate over four rules, sized by two numbers — Accepted
+
+**Context.** ADR-0012 fixed the policy — three rules, queue rather than fail, report
+high-water marks — and the four settings it implies have sat in `config.py` since M0b
+being read by nothing. Building it raised three questions ADR-0012 does not answer.
+
+**Decision — one predicate, not gates in series.** Four semaphores acquired in turn would
+let a request take the sequence slot and then block on the large-prefill cap, holding
+capacity it is not using for the whole wait and starving smaller requests that fit every
+rule. That is not a corner case: ADR-0012 says the large-prefill cap is what actually
+binds for big tasks, so "admitted under one rule, blocked by another" is the normal case.
+One condition variable over plain counters, checked as a single atomic boolean. Nothing is
+ever partially acquired, so a waiter that does not fit holds nothing.
+
+**Decision — the endpoint's own `concurrency` becomes the fourth rule.** ADR-0037 enforced
+it inside `delegate_batch` with a local semaphore, which bounded a batch against itself and
+nothing else: two batches, or a batch beside a plain `delegate`, could still exceed it, and
+a single `delegate` was never checked at all. `max_inflight_seqs`' own description already
+claimed both were checked. Folding it in makes that true on every path and leaves one gate
+rather than two that can disagree.
+
+**Decision — two numbers size a request.** Its KV footprint is the prompt plus the reply it
+is permitted to generate, and that is what the token budget counts. Its prefill is the
+prompt alone, and that is what classifies it as a large cold prefill. Conflating them is
+not cosmetic: `max_tokens` defaults above `large_prefill_tokens`, so classifying on the
+total makes *every* delegation large and silently bounds the whole server at
+`max_inflight_large_prefills` while every other rule reads as though it were the one
+binding. Found by a test that passed for the wrong reason — the batch bound held with the
+endpoint rule deleted — which is the failure mode CLAUDE.md's negative-testing rule exists
+to catch, caught this time by negative-testing rather than in production.
+
+**Decision — the estimate is fixed when a slot is granted.** A long agentic delegation's
+true footprint can exceed it late in the loop, so the token rule is a floor-time
+approximation. Growing it per turn would couple the gate to the turn loop's internals and
+add a reconciliation path on every abort. ADR-0012's own closing line is the answer:
+`peak_inflight_tokens` is the cheaper way to find out the trade was wrong.
+
+**Decision — the wait has its own timeout.** `dispatch_timeout`'s deadline is computed
+inside `run_one_shot` and `run_agentic_loop`, which do not run until a slot has been
+granted, so it cannot bound a wait that ends before it starts. Reusing it would mean
+threading a caller-supplied deadline through both and every test asserting on their
+deadline maths. `admission_wait_timeout` therefore stacks rather than dividing one budget,
+and defaults well below it: a wait that long means the budget is misconfigured or the
+cluster is wedged, and an error naming the rule that bound is worth more than an hour spent
+queued. A timeout also names its rule and is counted, because a limit nobody can see having
+been hit is a limit nobody revisits.
+
+**Consequences.** Four settings that were inert now change behaviour: work that ran
+immediately may queue. Zero in any of them is refused at load — it does not mean unlimited,
+it means nothing is ever admitted, which presents as congestion rather than as the
+misconfiguration it is.
+
 ## ADR-0037 — 2026-08-30 — `delegate_batch` shares one prefix, bounds itself by the endpoint, and reports per item — Accepted
 
 **Context.** `max_batch_size` existed from M0b and nothing else did: no shape, no failure

@@ -85,11 +85,9 @@ owns = [
   "src/claude_delegate_local/server.py",
   "src/claude_delegate_local/context.py",
   "src/claude_delegate_local/wsl.py",
-  # Not written yet (M5). The claim is kept for the same reason as AGENTS.md's claim on
-  # agents.py below: it is the only thing that will force this document to be updated in
-  # the commit that lands the module. Both warn until then, deliberately.
   "src/claude_delegate_local/sandbox.py",
   "src/claude_delegate_local/main.py",
+  "src/claude_delegate_local/admission.py",
 ]
 covers_not = """
 Environment variable values (CONFIGURATION.md), tool schemas (TOOLS.md), registry file

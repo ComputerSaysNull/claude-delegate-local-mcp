@@ -183,3 +183,30 @@ def test_every_setting_carries_a_description():
 def test_env_names_are_unique():
     names = [r["env"] for r in config.describe()]
     assert len(names) == len(set(names))
+
+
+def test_admission_wait_timeout_must_be_positive():
+    with pytest.raises(
+        config.ConfigError, match="DELEGATE_ADMISSION_WAIT_TIMEOUT must be positive"
+    ):
+        config.load({**ROOTS, "DELEGATE_ADMISSION_WAIT_TIMEOUT": "0"})
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "DELEGATE_MAX_INFLIGHT_SEQS",
+        "DELEGATE_KV_TOKEN_BUDGET",
+        "DELEGATE_LARGE_PREFILL_TOKENS",
+        "DELEGATE_MAX_INFLIGHT_LARGE_PREFILLS",
+    ],
+)
+def test_an_admission_limit_of_zero_is_refused_at_load(name):
+    """Zero does not mean unlimited here; it means nothing is ever admitted.
+
+    A gate whose predicate can never be satisfied does not fail -- it queues every
+    delegation until the wait times out, and reports congestion for a setting that is
+    simply wrong. Refused at load, where the operator is still looking at it.
+    """
+    with pytest.raises(config.ConfigError, match=f"{name} must be positive"):
+        config.load({**ROOTS, name: "0"})

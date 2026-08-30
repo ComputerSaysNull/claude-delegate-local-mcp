@@ -109,10 +109,11 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_MAX_INFLIGHT_SEQS` | 5 | **Inert.** Total concurrent backend requests across all models. Distinct from a registry entry's own `concurrency`, which caps one endpoint; both are checked. |
-| `DELEGATE_KV_TOKEN_BUDGET` | 2400000 tokens | **Inert.** Summed estimated live tokens permitted in flight. Sits just under the measured KV pool. Exceeding the pool queues rather than failing, so this protects latency rather than correctness. |
-| `DELEGATE_LARGE_PREFILL_TOKENS` | 32768 tokens | **Inert.** A request estimated above this counts as a large cold prefill. |
-| `DELEGATE_MAX_INFLIGHT_LARGE_PREFILLS` | 2 | **Inert.** Concurrent large prefills. The engine admits one long prefill at a time, so this is one running plus one staged -- pipelining, not throttling. Raising it makes every large request slower rather than any of them faster. |
+| `DELEGATE_MAX_INFLIGHT_SEQS` | 5 | Total concurrent backend requests across all models. Distinct from a registry entry's own `concurrency`, which caps one endpoint; both are checked. |
+| `DELEGATE_KV_TOKEN_BUDGET` | 2400000 tokens | Summed estimated live tokens permitted in flight. Sits just under the measured KV pool. Exceeding the pool queues rather than failing, so this protects latency rather than correctness. |
+| `DELEGATE_LARGE_PREFILL_TOKENS` | 32768 tokens | A request estimated above this counts as a large cold prefill. |
+| `DELEGATE_MAX_INFLIGHT_LARGE_PREFILLS` | 2 | Concurrent large prefills. The engine admits one long prefill at a time, so this is one running plus one staged -- pipelining, not throttling. Raising it makes every large request slower rather than any of them faster. |
+| `DELEGATE_ADMISSION_WAIT_TIMEOUT` | 600 seconds | Bound on time spent waiting for a slot, before dispatch_timeout starts its own clock. Separate rather than shared, because dispatch_timeout's deadline is set inside the loop it bounds, which does not run until admission has already been granted -- it cannot bound a wait that ends before it begins. The two therefore stack rather than divide one budget. Deliberately well under dispatch_timeout: a wait this long means the budget is misconfigured or the cluster is wedged, and an error naming the rule that bound is worth more than an hour spent queued. backend_status reports the longest wait seen and how many hit this limit. |
 
 ### Sandbox
 
@@ -139,6 +140,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
 
-*50 settings, 4 of them inert.*
+*51 settings.*
 
 <!-- GEN:CONFIG:END -->

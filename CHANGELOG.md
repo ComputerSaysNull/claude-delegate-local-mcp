@@ -30,6 +30,54 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #42 — 2026-08-30 — feat: the admission gate, and the four settings that were inert
+
+### Added
+- `admission.py`: the ADR-0012 gate every delegation now passes before it reaches a
+  backend. `max_inflight_seqs`, `kv_token_budget`, `large_prefill_tokens` and
+  `max_inflight_large_prefills` have been in `config.py` since M0b, rendered into the
+  generated reference, and read by nothing. They now change behaviour: work that used to
+  run immediately may queue.
+- One `asyncio.Condition` over plain counters, checked as a single atomic predicate --
+  not four semaphores acquired in turn. A request that took a sequence slot and then
+  blocked on the large-prefill cap would hold capacity it is not using for the whole
+  wait, starving smaller requests that fit every rule; ADR-0012 makes exactly that the
+  normal case for big tasks. Proven by building the wrong version: parking a waiter with
+  its sequence slot held makes `test_a_blocked_large_prefill_holds_no_other_capacity`
+  fail, and nothing else.
+- `admission_wait_timeout`, defaulting to 600s. `dispatch_timeout` cannot bound the wait:
+  its deadline is computed inside `run_one_shot` and `run_agentic_loop`, which do not run
+  until a slot has been granted. The two stack rather than dividing one budget (ADR-0038).
+- `backend_status` reports live gauges, three high-water marks, the wait totals, the
+  longest single wait and the count of waits that hit the limit. ADR-0012's own reason:
+  oversubscription announces itself as latency where idle capacity is silent, so a
+  ceiling set too low is invisible unless something counts it. A tool description changed,
+  which is a behaviour change to the model-facing contract, not a wording fix.
+- `context.estimate_text_tokens`, for a string with no file behind it.
+
+### Changed
+- The endpoint's own `concurrency` is now the gate's fourth rule instead of a semaphore
+  local to `delegate_batch` (ADR-0037). That semaphore bounded a batch against itself and
+  nothing else: two batches, or a batch beside a plain `delegate`, could exceed the limit
+  it was reading, and a single `delegate` was never checked against it at all --
+  while `max_inflight_seqs`' own description already claimed both were checked. Now true
+  on every path, and there is one gate rather than two that can disagree.
+- Zero in any of the four admission settings is refused at load. It does not mean
+  unlimited; it means nothing is ever admitted, so the gate queues every delegation until
+  the wait times out and reports congestion for a setting that is simply wrong.
+
+### Fixed
+- The large-prefill classification counted the reply allowance, which is decode and not
+  prefill. `max_tokens` defaults to 65536 against a 32768 threshold, so *every*
+  delegation was classified large and rule 3 silently bounded the whole server at
+  `max_inflight_large_prefills` -- while every other rule read as though it were the one
+  binding. Found because the batch-concurrency test still passed with the endpoint rule
+  deleted: it had been measuring the large-prefill cap all along. A request is now sized
+  by two numbers, its KV footprint and its prefill, and both directions are tested.
+- `docs_ownership.toml` described `sandbox.py` as "not written yet (M5)" and explained
+  that the claim was kept to force the document to be updated when the module landed. It
+  landed in `#35`; the comment outlived what it described.
+
 ## #41 — 2026-08-30 — feat: the five tools, and a batch that shares its prompt
 
 ### Added
