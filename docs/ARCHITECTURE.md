@@ -531,6 +531,23 @@ JSON. It is owned by this document rather than its own, because a renderer and t
 it renders are one decision — split across two documents, a renderer ends up describing a
 shape the writer no longer produces.
 
+The list and the follow view are two states of one process, not two runs of it. `q` leaves
+a transcript and comes back to the list; only the list exits. Reaching the `end` event
+deliberately does not return on its own — the last thing a dispatch writes is usually the
+thing that was being waited for, and taking the screen away at that moment is the one
+behaviour a watcher must not have. The list redraws itself every couple of seconds so a
+dispatch started elsewhere appears without a keypress, and `r` forces it.
+
+Two properties of the listing come from the stream format rather than from the filesystem.
+Ordering and the seven-day window are both taken from **when the dispatch started** — the
+`start` event's `at`, falling back to the timestamp `transcript.py` puts in the filename —
+never from mtime, which moves every time a turn lands and would reshuffle the list under a
+reader watching a long dispatch. The window is applied to the filename before any file is
+opened, and unchanged files are then served from a cache keyed on `(mtime, size)`: an
+unattended redraw over `/mnt/c` that re-read every file would make the viewer a load
+generator (ADR-0020). The listing shows the start clock and the last-write clock side by
+side, both converted to local time, because `at` is UTC and an mtime is not.
+
 ## Non-goals
 
 - **No standalone CLI.** The server speaks MCP only. Recorded here so nobody adds an
