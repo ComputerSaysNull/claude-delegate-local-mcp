@@ -30,6 +30,37 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #51 — 2026-09-01 — fix: the gate blocked a correct amend without saying why
+
+### Fixed
+- `git commit --amend -m` was blocked by `owning-doc` even when the commit it produced did
+  update its owning document, and the block said nothing about amends — so the escape
+  hatch got spent on it. One `Docs-Gate-Skip` on `docs/ARCHITECTURE.md` is exactly that.
+  The gate now names the cause and the remedy whenever `owning-doc` blocks, at commit-msg
+  and at a hand-run pre-commit: `git commit --amend` with the editor is reported to the
+  hook as an amend *and* lets the message change, which is the whole of what `--amend -m`
+  was wanted for.
+- The header counted the staged set and called it "changed file(s)", so an amend — which
+  stages only its increment — reported "1 changed file(s)" for a commit holding six. It
+  now names what it compared against, which is what made the number look like a bug.
+
+### Changed
+- No attempt is made to detect the undetectable case, and the measurements saying so are
+  recorded rather than left for someone to redo. Git reports `--amend --no-edit`,
+  `--amend -C HEAD` and an editor amend as source `commit`/`HEAD`; it reports
+  `--amend -m` and `--amend -F` exactly as it reports an ordinary `-m`. `GIT_REFLOG_ACTION`
+  is unset in every one of them. Reading the parent's argv from `/proc` does work under
+  WSL and would close the gap there, but not where these hooks actually run: Git for
+  Windows hands the hook a PPID of 1 with no readable entry. Measured on git 2.43.0.
+
+### Added
+- `tests/regression/test_a_real_amend_reaches_the_gate.py`. The existing amend test plants
+  `.git/docs-gate-reused-message` itself, which proves the gate does the right thing given
+  the marker and nothing at all about whether a real amend produces one — and that was the
+  half that broke. This one installs the hooks and runs real commits through them, pinning
+  each amend form to the reading it gets. Every assertion was negative-tested against the
+  behaviour it replaces.
+
 ## #50 — 2026-09-01 — fix: three documents disagreed about whether the sandbox works
 
 ### Fixed

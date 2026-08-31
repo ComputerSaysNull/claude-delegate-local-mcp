@@ -1048,6 +1048,33 @@ def waivers(mode: str, message_file: str | None = None) -> dict[str, str]:
     return out
 
 
+def amend_hint(mode: str) -> str:
+    """Shown beside an owning-doc block, because the commonest cause is not a missing doc.
+
+    `git commit --amend -m` is the one amend the gate cannot see. Git tells the
+    prepare-commit-msg hook where a message came from, and only an amend that *reuses*
+    the existing message says "commit"/"HEAD"; supplying a new one with `-m` or `-F` is
+    reported exactly like an ordinary commit. Nothing else distinguishes them:
+    GIT_REFLOG_ACTION is unset for both, and reading the parent's argv out of /proc --
+    which does work under WSL -- is not available where these hooks actually run, because
+    Git for Windows gives the hook a PPID of 1 with no readable entry. Both measured.
+
+    So the remedy is a workflow one and belongs where someone hits the wall. `git commit
+    --amend` with an editor is detected *and* lets the message change, which is the whole
+    of what `--amend -m` was wanted for.
+    """
+    hint = ("if this is a `git commit --amend`, git only reports an amend to the hook when "
+            "the message is reused, so `--amend -m` looks exactly like an ordinary commit "
+            "and the commit is judged against HEAD rather than its real parent. Re-run it "
+            "as `git commit --amend` and change the message in the editor -- that form is "
+            "detected. Reach for Docs-Gate-Skip only once that has been tried.")
+    if mode == "pre-commit":
+        hint += (" Run by hand at pre-commit, no amend can be detected at all: the marker "
+                 "is written by prepare-commit-msg, which has not run yet. The binding "
+                 "check is the commit-msg hook.")
+    return hint
+
+
 def ownership_findings(changed: list[str], reused_message: bool, mode: str) -> list[Finding]:
     """Ownership, judged against the parent the resulting commit will actually have.
 
@@ -1065,8 +1092,11 @@ def ownership_findings(changed: list[str], reused_message: bool, mode: str) -> l
     line in every run that used it.
     """
     strict = check_ownership(changed)
-    if not reused_message or not any(f.level == BLOCK for f in strict):
+    if not any(f.level == BLOCK for f in strict):
         return strict
+    if not reused_message:
+        return [*strict, Finding(WARN, "owning-doc", amend_hint(mode))] if mode in (
+            "commit-msg", "pre-commit") else strict
 
     widened = files_against_previous_commit()
     if widened is None:
@@ -1148,7 +1178,12 @@ def main() -> int:
     warns = [f for f in findings if f.level == WARN]
     skips = [f for f in findings if f.level == SKIP]
 
-    print(f"docs gate: mode={args.mode}, {len(changed)} changed file(s)")
+    # Says what was counted, not just how many. An amend stages only its increment, so
+    # "1 changed file(s)" on a commit holding six is accurate and reads as a bug report;
+    # naming the comparison is what makes the number legible. When the ownership check
+    # widened to HEAD~1 it says so in its own finding, which is the only check that does.
+    against = (args.diff_range or "origin/main...HEAD") if args.mode == "ci" else "HEAD"
+    print(f"docs gate: mode={args.mode}, {len(changed)} file(s) changed against {against}")
     for f in blocks + warns:
         print("  " + str(f))
     for f in waived_hits:
