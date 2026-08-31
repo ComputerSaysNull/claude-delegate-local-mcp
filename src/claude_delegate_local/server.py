@@ -763,7 +763,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         )
 
     @mcp.tool(annotations={"readOnlyHint": True})
-    async def delegate_readonly(
+    async def delegate_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
         task: str,
         files: list[str] | None = None,
         model: str | None = None,
