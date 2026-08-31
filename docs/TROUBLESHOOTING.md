@@ -15,10 +15,10 @@ restates a default, a schema or a value. That is not fussiness: restating defaul
 symptom explanations is how the project this descends from ended up documenting one setting
 as three different values in three places. Add the link instead.
 
-**Entries marked *(not built)* describe a symptom you cannot hit yet**, written ahead of the
-subsystem so the index is ready when it lands; until then nothing in the server can produce
-them. [PLAN.md](../PLAN.md) has the roadmap, and a marker outlasting its milestone is a
-defect in itself: the 2026-08-28 audit found four, all of them M4's.
+**Everything below is reachable.** An entry written ahead of its subsystem is marked
+*(not built)* — there are none right now — and such a marker outlasting its milestone is a
+defect in itself: the 2026-08-28 audit found four, all of them M4's. [PLAN.md](../PLAN.md)
+has the roadmap.
 
 ---
 
@@ -186,10 +186,6 @@ Expected. Nearly every delegation will. It does not affect either timeout.
 ---
 
 ## Sandbox
-
-*`sandbox.py` is built; nothing calls it yet.* `run_bash` still refuses every call until the
-secret denylist is enforced at the mount level, so these symptoms reach you today only from
-the sandbox's own tests or from a hand-run `bwrap`. The causes below are real either way.
 
 ### `bwrap not found; run_bash is disabled`
 

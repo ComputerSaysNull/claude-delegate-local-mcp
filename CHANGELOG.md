@@ -30,6 +30,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #50 — 2026-09-01 — fix: three documents disagreed about whether the sandbox works
+
+### Fixed
+- `README.md` claimed *"the sandbox and the agent roster do not [work end to end]"*.
+  `docs/AGENTS.md` said the opposite two files away, and the prose in the README itself
+  described `run_bash` being confined by bubblewrap. The banner is gone rather than
+  corrected: status belongs in `STATUS.md`, which is generated from `PLAN.md`, and a
+  hand-written second copy of it on the first page a reader sees is a copy that goes
+  stale — which is exactly what happened. The pointer to `STATUS.md` and `PLAN.md` that
+  followed it stays.
+- `docs/TROUBLESHOOTING.md` opened its sandbox section with *"`sandbox.py` is built;
+  nothing calls it yet. `run_bash` still refuses every call until the secret denylist is
+  enforced at the mount level"*. That has been false since ADR-0035, and it was a fact
+  restated in the one document that owns no facts — so it was wrong twice over, and the
+  second kind is the reason the rule exists. The symptom entries under it are unchanged;
+  they were always right.
+- The same document told readers that entries marked *(not built)* describe symptoms they
+  cannot hit yet, when no entry carries that marker any more. Reworded to say everything
+  below is reachable, keeping the convention documented for the next subsystem rather than
+  implying it is in use.
+
 ## #49 — unreleased — fix: the delegation viewer is a session, not a single transcript
 
 ### Changed
