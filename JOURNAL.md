@@ -719,3 +719,38 @@ row above changed the plan when it landed. And the price of a killed dispatch is
 tokens, it is that the stream holds only its `start` line — no turns, no `end`, no record —
 so an abandoned delegation is unrecoverable and, until this was fixed, was listed as live
 for ever.
+
+## 2026-08-31 — The per-server `timeout` is a wall clock, not an idle timer
+
+Measured because two plausible readings disagreed and the difference decides whether a
+keepalive can save a call. A third-party summary said a per-server `timeout` acts as a
+*floor* on idleness -- "never kill faster than that value" -- and ADR-0018 filed the same
+field as the knob for the idle timeout. Both are wrong in the same direction.
+
+With `"timeout": 30000` on the server entry and `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=120000`
+set globally, the same delegation twice:
+
+| run | keepalive | died at | client said |
+| --- | --- | --- | --- |
+| A | off | 29.75s | "sent no response or progress for 30s" |
+| B | every 20s | 29.70s | "timed out after 30s" |
+
+Run B sent an `alive` at 20.021s -- confirmed in the transcript -- and died anyway, ten
+seconds later. A progress notification does not extend it. So the field is a **wall-clock
+cap on one tool call**, the two messages are one mechanism with different diagnostics, and
+120000 lost to 30000 rather than flooring it. A floor would have given 120s.
+
+`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` remains undemonstrated: at 120000 it never fired, and a
+silent one-shot ran 1645s straight through it. Whatever governs idleness here, that variable
+did not, and no reading of it has been confirmed by anything.
+
+The consolation is that none of it leaks. Every abandonment measured today -- explicit stop,
+wall-clock timeout, silent-run timeout -- arrives as `CancelledError`, releases the admission
+slot inside two seconds, and writes its record. Only a killed *process* loses work.
+
+**The incident that started this is still unexplained.** 3616 seconds of a held slot needs a
+path where cancellation does not arrive, and every path tried today cancels. One difference
+has not been tested: that was a `delegate_batch`, whose items run concurrently under
+`asyncio.gather`, and everything here was a single `delegate_readonly`. If cancelling the
+outer call does not reach gathered items, that would explain it and nothing above would have
+caught it. Next thing to try.
