@@ -666,3 +666,47 @@ The general lesson is not about pytest. Two figures for the same quantity, in th
 commit, and nobody noticed until the number had to be used for something. A measurement
 recorded without saying what was measured decays into a number that looks authoritative and
 cannot be checked.
+
+## 2026-08-31 — What a client actually does when it abandons a delegation
+
+`#45` fixed a batch that looked dead. The open question it left was whether a client
+giving up ever reaches the running dispatch, and the honest answer written down at the
+time was "no evidence either way". Five paths, four measured against the live server and
+one still inferred:
+
+| the client | cancel sent | server process | slot | the work |
+| --- | --- | --- | --- | --- |
+| Esc, or stopping the task | yes | survives | freed in <2s | record written |
+| its tool timeout fires | yes | survives | freed at 119.7s | record written |
+| its window is closed | no | killed with the tree | orphaned, inert | lost |
+| its terminal is closed | no | killed with the tree | orphaned, inert | lost |
+| its stdio idle timeout | *inferred* no | *survives* | *held to `dispatch_timeout`* | ? |
+
+Cancellation works, completely. `notifications/cancelled` reaches the coroutine as
+`CancelledError`, so `Admission.admit`'s `finally` releases and `transcript.write` runs:
+one record read `ok: false, error_type: CancelledError, elapsed_seconds: 119.714` with the
+cancel attributed to `ServerSession._receive_loop`. Nothing needs building for that.
+
+A disconnect, separately, reaches the coroutine as **nothing at all** — no exception, no
+`finally`. FastMCP does notice the EOF and starts shutting down, but waits for the
+in-flight tool first: idle it exits in ~0.2s, with a 6s tool running it exits the instant
+that tool returns. `ctx.report_progress` also keeps succeeding after the pipes are closed,
+so it is not a liveness signal and guarding it buys nothing. Probed with a throwaway
+one-tool stdio server, which is the only way to see any of this.
+
+**The conclusion that matters is a negative one.** A capacity leak needs the server to stay
+alive while nobody is waiting, and every measured way a client departs *kills* the server —
+so no EOF ever arrives at a surviving process, and the drain above cannot bite. Killing it
+is clean besides: the backend stops generating, and the orphaned slot record is inert
+because readers drop dead records, with the next real admission rewriting the file.
+
+So the only shape that can still leak is a client that lives and stops caring, which is the
+idle timeout alone — and the reason a one-shot can reach it is that `run_one_shot` sends no
+progress at all, unlike the batch and turn paths `#45` covered.
+
+Two things this cost, worth not repeating. Reasoning about which of `--amend`'s forms, or
+which disconnect, "obviously" behaves like another was wrong every time it was tried; each
+row above changed the plan when it landed. And the price of a killed dispatch is not the
+tokens, it is that the stream holds only its `start` line — no turns, no `end`, no record —
+so an abandoned delegation is unrecoverable and, until this was fixed, was listed as live
+for ever.
