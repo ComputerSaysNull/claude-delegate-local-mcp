@@ -295,8 +295,10 @@ so it looks cosmetic and is not: it resets Claude Code's stdio idle timer. That 
 delegation is abandoned by the client while the server is still working on it. (ADR-0018)
 
 The one-shot path has no turns to hang that on, so it reports on a timer instead, every
-[`keepalive_interval`](CONFIGURATION.md) -- measured as the only remaining shape that could
-reach the idle timeout, since every other way a client departs kills the server outright.
+[`keepalive_interval`](CONFIGURATION.md). It is the only shape that goes silent at all --
+one was measured running 1645s with nothing sent between its start and its answer. Whether
+a client abandons such a call was not reproduced, so this guards a measured silence rather
+than a measured abandonment.
 The same heartbeat writes an `alive` event to the stream, a silent stream and a silent wire
 being one problem from two sides. It carries elapsed and the deadline it is measured
 against, and **not** what the model is doing: there is no streaming, so the server does not
