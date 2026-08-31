@@ -1103,3 +1103,113 @@ def test_a_single_attempt_is_capped_by_what_is_left_of_the_deadline():
             )
         )
     assert Hanging.calls == 1
+
+
+# --- the one-shot keepalive -----------------------------------------------------------
+
+class SleepingBackend(SpyBackend):
+    """Takes its time, so a heartbeat beside it has something to beat through."""
+
+    def __init__(self, response, seconds: float) -> None:
+        super().__init__(response)
+        self._seconds = seconds
+
+    async def complete(self, request):
+        await asyncio.sleep(self._seconds)
+        return await super().complete(request)
+
+
+def a_reply():
+    return ok_response("ok")
+
+
+def test_the_heartbeat_task_does_not_outlive_the_dispatch():
+    """It is the only concurrency in the module, so the risk it introduces is a task left
+    running. Counting notifications through the MCP wire cannot see this: once the request
+    is finished a stray `report_progress` goes nowhere, so a leaked task beats silently.
+    Asking asyncio directly is what actually catches it.
+    """
+    beats: list[float] = []
+
+    async def on_alive(elapsed, of):
+        beats.append(elapsed)
+
+    async def go():
+        await loop.run_one_shot(
+            cfg(keepalive_interval=1), entry(), SleepingBackend(a_reply(), 2.5),
+            loop.Delegation("hello"), on_alive=on_alive,
+        )
+        during = len(beats)
+        others = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        await asyncio.sleep(2.5)
+        return during, len(beats), others
+
+    during, after, others = asyncio.run(go())
+    assert during >= 2, f"the heartbeat did not beat during a 2.5s dispatch: {beats}"
+    assert not others, f"a task outlived the dispatch: {others}"
+    assert after == during, f"it went on beating after the dispatch ended: {beats}"
+
+
+def test_a_heartbeat_that_raises_stops_beating_and_nothing_else():
+    """It exists to protect a long delegation from being abandoned. One that instead
+    killed the delegation -- because a notification could not be delivered, which is not
+    even evidence the client is gone -- would be strictly worse than not having it.
+
+    Driven through `run_one_shot` rather than through a client, because a progress handler
+    that raises on the *client* side never reaches the server's callback at all, and a test
+    written that way passes whatever the server does with the failure.
+    """
+    calls: list[int] = []
+
+    async def on_alive(elapsed, of):
+        calls.append(1)
+        raise RuntimeError("nowhere to send it")
+
+    async def go():
+        result = await loop.run_one_shot(
+            cfg(keepalive_interval=1), entry(), SleepingBackend(a_reply(), 2.5),
+            loop.Delegation("hello"), on_alive=on_alive,
+        )
+        return result.response.text
+
+    assert asyncio.run(go()) == "ok", "a failing heartbeat took the delegation with it"
+    assert len(calls) == 1, (
+        f"it kept calling a callback that had already failed: {len(calls)} times")
+
+
+class CountingBackend(SpyBackend):
+    """Counts the tasks alive around it, from inside the await they run beside."""
+
+    def __init__(self, response) -> None:
+        super().__init__(response)
+        self.others = -1
+
+    async def complete(self, request):
+        await asyncio.sleep(0.05)
+        me = asyncio.current_task()
+        self.others = len([t for t in asyncio.all_tasks() if t is not me])
+        return await super().complete(request)
+
+
+def test_without_a_callback_no_heartbeat_task_is_started():
+    """Every other caller of `run_one_shot` passes nothing, so the common path must not
+    pay for a task nobody reads. Counted against the same dispatch with a callback rather
+    than against a fixed number, so the assertion measures the heartbeat and not whatever
+    else the runtime happens to have running.
+    """
+    async def go(on_alive):
+        backend = CountingBackend(a_reply())
+        await loop.run_one_shot(
+            cfg(keepalive_interval=30), entry(), backend,
+            loop.Delegation("hello"), on_alive=on_alive,
+        )
+        return backend.others
+
+    async def beat(elapsed, of):
+        pass
+
+    without = asyncio.run(go(None))
+    with_one = asyncio.run(go(beat))
+    assert with_one == without + 1, (
+        f"a callback added {with_one - without} task(s), not one -- so this cannot tell "
+        "whether the no-callback path starts one")

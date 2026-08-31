@@ -140,6 +140,24 @@ class Stream:
             "text": text,
         })
 
+    def alive(self, *, elapsed_seconds: float, of_seconds: int) -> None:
+        """A one-shot is still running. The only event that reports no work done.
+
+        Every other event marks something that happened. This one exists because on the
+        one-shot path nothing happens between `start` and `end` -- one backend call, no
+        turns -- so a delegation that is working perfectly writes nothing for as long as
+        it takes, and a reader cannot tell it from a delegation whose server was killed.
+
+        It carries elapsed and the deadline it is elapsed against, and deliberately not a
+        description of what the model is doing: there is no streaming (ADR-0018), so the
+        server genuinely does not know. Reporting a guess would be worse than reporting
+        the two numbers it actually has.
+        """
+        self._put({
+            "t": "alive", "at": datetime.now(UTC).isoformat(),
+            "elapsed_seconds": round(elapsed_seconds, 3), "of_seconds": of_seconds,
+        })
+
     def end(  # noqa: PLR0913 -- one event's fields, all keyword-only
             self, *, ok: bool, turns: int | None, elapsed_seconds: float,
             output_tokens: int | None = None, backend_ms: int | None = None,

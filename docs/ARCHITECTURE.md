@@ -548,6 +548,15 @@ unattended redraw over `/mnt/c` that re-read every file would make the viewer a 
 generator (ADR-0020). The listing shows the start clock and the last-write clock side by
 side, both converted to local time, because `at` is UTC and an mtime is not.
 
+A one-shot writes a fourth kind of event, `alive`, and it is the only one that reports no
+work done. The other three mark something that happened; this one exists because on the
+one-shot path nothing happens between `start` and `end` — a single backend call, no turns —
+so a delegation working perfectly writes nothing for as long as it takes. It carries
+elapsed and the deadline elapsed is measured against, and deliberately not a description of
+what the model is doing: there is no streaming, so the server does not know. The same
+heartbeat sends the client's progress notification, because a silent stream and a silent
+wire are the same problem seen from two sides (ADR-0018).
+
 A stream ends by writing an `end` event, so the listing has three states rather than two:
 `ok`/`fail` for one that ended, `live` for one written to recently, and `quiet <age>` for
 one that has neither ended nor been written to for `STALL_SECONDS`. The third exists

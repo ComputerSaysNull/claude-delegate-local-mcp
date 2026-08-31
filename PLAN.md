@@ -290,6 +290,13 @@ flag controlling nothing. The design work is not lost — it is recorded under M
 - ❌ 2026-08-25 Streaming in v1 — cancelled. MCP tool calls are request/response, so
   Claude sees nothing incrementally either way. Progress notifications, which are
   required for the idle timeout, cover the part that actually matters. ADR-0018
+  — **worth revisiting: the premise moved.** That reasoning weighed one consumer, the
+  caller, and it still holds for the caller. ADR-0043 added a second one six days later:
+  the transcript stream, which a person reads *while* the delegation runs. Streaming
+  would let it carry tokens as they are generated rather than a heartbeat saying only
+  how long it has been. Not reopened here, because nobody has yet wanted it enough —
+  recorded so the next reader knows the cancellation was decided without this consumer
+  in view rather than despite it.
 - ❌ 2026-08-25 Run Claude Code inside WSL — cancelled on workflow grounds, not
   engineering ones. It would delete the path-translation module outright and remove the
   12x test penalty. ADR-0002 keeps the trigger: if development moves onto Linux for
