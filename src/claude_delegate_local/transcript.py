@@ -66,6 +66,115 @@ _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _COUNTER = {"n": 0}
 
 
+def _rate(tokens: int | None, ms: int | None) -> float | None:
+    """Tokens per second, or None when either half is missing or the interval is zero."""
+    if not tokens or not ms or ms <= 0:
+        return None
+    return round(tokens / (ms / 1000), 1)
+
+
+class Stream:
+    """The same dispatch, written as it happens rather than once it is over.
+
+    `write` below produces the record an operator audits afterwards. This produces the one
+    a person watches during, which is a different question and cannot be answered by the
+    same file: a record that exists only once the work is finished cannot say whether the
+    work is stuck. Both are written; neither is derived from the other, because the stream
+    must survive a dispatch that never reaches its end.
+
+    Append-only, one JSON object per line, flushed per line. A reader tailing the file
+    therefore sees a turn the moment it lands, and a half-written line is never possible
+    for it to parse. Every method swallows its own errors for the reason `write` does: a
+    transcript is an operator convenience and must never be able to fail a delegation.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._broken = False
+
+    def _put(self, event: dict[str, Any]) -> None:
+        if self._broken:
+            return
+        try:
+            with self.path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(event, default=str, ensure_ascii=False) + "\n")
+        except OSError:
+            # Once, not per turn: a directory that cannot be written to will not start
+            # working mid-delegation, and a failing write per turn is its own problem.
+            self._broken = True
+
+    def start(self, *, tool: str, task: str, agent: str | None,
+              model_key: str | None, effort: str | None) -> None:
+        self._put({
+            "t": "start", "at": datetime.now(UTC).isoformat(), "tool": tool,
+            "task": task, "agent": agent, "model_key": model_key, "effort": effort,
+        })
+
+    def turn(self, diagnostic: Any, text: str, *, ms: int | None = None,
+             backend_ms: int | None = None) -> None:
+        """One completed turn, including what the model actually said in it.
+
+        The text is here and not in `write`'s record on purpose. ADR-0039 excluded file
+        *bodies* because they are bulky and recoverable from the repository by path; a
+        reply is neither, and is in the same category as the task string that ADR already
+        writes verbatim -- it exists nowhere else. See ADR-0043.
+        """
+        self._put({
+            "t": "turn", "at": datetime.now(UTC).isoformat(),
+            "turn": getattr(diagnostic, "turn", None),
+            "input_tokens": getattr(diagnostic, "input_tokens", None),
+            "output_tokens": getattr(diagnostic, "output_tokens", None),
+            "effort": getattr(diagnostic, "effort", None),
+            "attempts": getattr(diagnostic, "attempts", None),
+            "tool_calls": [
+                {"name": name, "outcome": outcome}
+                for name, outcome in getattr(diagnostic, "tool_calls", ()) or ()
+            ],
+            "ms": ms,
+            "backend_ms": backend_ms,
+            # Decode rate, over the backend call alone. `ms` is the turn's wall clock and
+            # includes tool execution, so dividing by it would report the cluster as
+            # slower than it is. Both are kept because they answer different questions:
+            # is the cluster slow, and is this delegation making progress.
+            "out_tok_s": _rate(getattr(diagnostic, "output_tokens", None), backend_ms),
+            "text": text,
+        })
+
+    def end(  # noqa: PLR0913 -- one event's fields, all keyword-only
+            self, *, ok: bool, turns: int | None, elapsed_seconds: float,
+            output_tokens: int | None = None, backend_ms: int | None = None,
+            error: str | None = None) -> None:
+        """The totals, which are a different figure from any turn's rate.
+
+        `out_tok_s` here is over summed backend time across turns, so it is the rate the
+        cluster actually sustained for this delegation. `elapsed_seconds` is everything,
+        including waiting for an admission slot -- the gap between the two is what the
+        delegation spent not generating.
+        """
+        self._put({
+            "t": "end", "at": datetime.now(UTC).isoformat(), "ok": ok,
+            "turns": turns, "elapsed_seconds": round(elapsed_seconds, 3),
+            "output_tokens": output_tokens,
+            "backend_ms": backend_ms,
+            "out_tok_s": _rate(output_tokens, backend_ms),
+            **({"error": error} if error else {}),
+        })
+
+
+def open_stream(cfg: Config, agent_name: str | None) -> Stream | None:
+    """A stream for this dispatch, or None when transcripts are switched off."""
+    if not enabled(cfg):
+        return None
+    try:
+        directory = Path(os.path.expanduser(cfg.transcript_dir.strip()))
+        directory.mkdir(parents=True, exist_ok=True)
+        _COUNTER["n"] += 1
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%f")[:-3]
+        return Stream(directory / f"{stamp}-{_COUNTER['n']:04d}-{_slug(agent_name)}.jsonl")
+    except OSError:
+        return None
+
+
 def enabled(cfg: Config) -> bool:
     """Whether a transcript is being written at all.
 

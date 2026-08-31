@@ -266,6 +266,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]],
+    on_turn_done: Callable[[Any, str], Awaitable[None]] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
 
@@ -280,6 +281,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
                 max_turns=max_turns, policy=policy,
                 diagnostics=diagnostics, report_progress=report_progress,
+                on_turn_done=on_turn_done,
             )
         # An explicitly empty toolset. Not the loop with nothing declared: the one-shot
         # prompt tells the model plainly that it cannot open anything and has no second
@@ -393,7 +395,30 @@ def _refuse(e: Exception) -> ToolError:
     return ToolError(str(e))
 
 
-async def run_delegation(  # noqa: PLR0913, PLR0915 -- one tool's arguments, one dispatch
+class _OneShotTurn:
+    """A one-shot dispatch, shaped like the per-turn record the stream expects.
+
+    Not a `TurnDiagnostic`: the loop builds those and a one-shot never enters the loop.
+    Rather than teach the stream about two shapes, the one shape it knows is presented
+    here -- turn one, the tokens the dispatch reported, and no tool calls, because there
+    were none to make.
+    """
+
+    __slots__ = ("attempts", "effort", "input_tokens", "output_tokens", "tool_calls",
+                 "turn")
+
+    def __init__(self, dispatched: Any) -> None:
+        self.turn = 1
+        self.input_tokens = dispatched.response.input_tokens
+        self.output_tokens = dispatched.response.output_tokens
+        self.effort = dispatched.effort
+        self.attempts = dispatched.attempts
+        self.tool_calls = ()
+
+
+async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's arguments,
+    # one dispatch. The branches are the paths a dispatch can end on, and each one has
+    # to close the transcript stream as well as write the record.
     cfg: Config,
     registry: Registry,
     cache: BackendCache,
@@ -524,6 +549,37 @@ async def run_delegation(  # noqa: PLR0913, PLR0915 -- one tool's arguments, one
         cfg.max_tokens if max_tokens is None else max_tokens
     )
 
+    stream = transcript.open_stream(cfg, agent.name if agent else None)
+    turns_streamed = 0
+    turn_clock = time.monotonic()
+    streamed_out_tokens = 0
+    streamed_backend_ms = 0
+
+    async def streamed_turn(diagnostic: Any, text: str, backend_seconds: float) -> None:
+        """Each finished turn, appended while the delegation is still running.
+
+        Timing is measured here rather than taken from the loop because what a watcher
+        wants is wall-clock between turns landing -- including the wait for a slot and the
+        tool execution -- not the backend call alone.
+        """
+        nonlocal turns_streamed, turn_clock, streamed_out_tokens, streamed_backend_ms
+        now = time.monotonic()
+        turns_streamed += 1
+        backend_ms = int(backend_seconds * 1000)
+        streamed_out_tokens += getattr(diagnostic, "output_tokens", 0) or 0
+        streamed_backend_ms += backend_ms
+        if stream is not None:
+            stream.turn(diagnostic, text, ms=int((now - turn_clock) * 1000),
+                        backend_ms=backend_ms)
+        turn_clock = now
+
+    if stream is not None:
+        stream.start(
+            tool=("delegate_to_agent" if agent else "delegate"),
+            task=task, agent=agent.name if agent else None,
+            model_key=entry.key, effort=effort,
+        )
+
     async def ticked() -> None:
         """ADR-0018 again, one layer earlier.
 
@@ -561,6 +617,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915 -- one tool's arguments, one
                 # session having asked would not be an operator record.
                 diagnostics=diagnostics or transcript.enabled(cfg),
                 report_progress=progress,
+                on_turn_done=streamed_turn,
             )
     except AdmissionError as e:
         # Not routed through `_refuse`, for the same reason `DispatchTimedOut` is not:
@@ -574,6 +631,27 @@ async def run_delegation(  # noqa: PLR0913, PLR0915 -- one tool's arguments, one
         # A side effect whose result nothing reads. The other upstream bug was the record
         # reaching the response through a dict merge, so there is deliberately no value
         # here for the return below to pick up.
+        if stream is not None:
+            # A one-shot delegation runs no turns, so nothing streamed the answer. Without
+            # this the common read-only case would show a start and an end with nothing
+            # between them -- which is exactly the shape of a delegation that produced
+            # nothing, and indistinguishable from one.
+            if turns_streamed == 0 and dispatched is not None:
+                stream.turn(
+                    _OneShotTurn(dispatched), dispatched.response.text,
+                    ms=int((time.monotonic() - turn_clock) * 1000),
+                    backend_ms=int((time.monotonic() - turn_clock) * 1000),
+                )
+                streamed_out_tokens = dispatched.response.output_tokens or 0
+                streamed_backend_ms = int((time.monotonic() - turn_clock) * 1000)
+            stream.end(
+                ok=failure is None,
+                turns=getattr(dispatched, "turns", 1) if dispatched else None,
+                elapsed_seconds=time.monotonic() - started,
+                output_tokens=streamed_out_tokens or None,
+                backend_ms=streamed_backend_ms or None,
+                error=str(failure) if failure is not None else None,
+            )
         transcript.write(
             cfg,
             agent_name=agent.name if agent else None,

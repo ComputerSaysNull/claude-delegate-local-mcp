@@ -1266,7 +1266,9 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     return results, tuple(outcomes)
 
 
-async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
+async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are test
+    # seams, and the statement count is the turn lifecycle: dispatch, observe, decide,
+    # run tools, report. Splitting it would move steps out of the order they happen in.
     cfg: Config,
     entry: ModelEntry,
     backend: Backend,
@@ -1279,6 +1281,7 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
     policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
+    on_turn_done: Callable[[TurnDiagnostic, str, float], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> AgenticDispatch:
@@ -1326,6 +1329,22 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
     nudge_pending = False
     turn = 0
 
+    async def turn_done(text: str, backend_seconds: float) -> None:
+        """One finished turn, for anything watching this delegation as it runs.
+
+        Called from two places because a turn ends in two ways: with tool calls, once
+        their outcomes are attached, and without them, at the break. A single call site
+        would have to choose one and would silently omit the other -- and the turn that
+        ends without tool calls is the one carrying the final answer, so omitting it
+        would drop the part a reader most wants.
+
+        The text is a parameter rather than read from the enclosing `dispatch`, which is
+        rebound every iteration: closing over it would be correct only for as long as
+        every call stayed inside the turn that set it.
+        """
+        if on_turn_done is not None and watch.turns:
+            await on_turn_done(watch.turns[-1], text, backend_seconds)
+
     while turn < turns:
         turn += 1
         watch.turn = turn
@@ -1354,11 +1373,18 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
                 tools=() if _final else specs,
             )
 
+        backend_started = clock()
         dispatch = await dispatch_with_recovery(
             cfg, entry, backend, build,
             effort=resolved_effort, max_tokens=max_tokens,
             sleep=sleep, deadline=deadline, clock=clock,
         )
+        # The backend call alone, separate from the turn's wall clock. Tokens per second
+        # over the whole turn would fold tool execution and any retry wait into the
+        # divisor and report the cluster as slower than it is -- and a throughput number
+        # that is quietly measuring the wrong interval is worse than none, because it
+        # gets believed.
+        backend_seconds = max(clock() - backend_started, 0.0)
         watch.turn_cost(dispatch, evicted=dropped)
         guard.observe(
             dispatch.response, evicted_this_turn=dropped, turn=turn, turns=turns,
@@ -1367,6 +1393,7 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
 
         calls = dispatch.response.tool_uses
         if final or not calls:
+            await turn_done(dispatch.response.text, backend_seconds)
             break
 
         assistant = Message("assistant", _assistant_blocks(cfg, dispatch.response))
@@ -1375,6 +1402,7 @@ async def run_agentic_loop(  # noqa: PLR0913 -- three of the nine are test seams
 
         results, outcomes = _run_calls(cfg, calls, allowed, cached, watch, policy=bash_policy)
         watch.turn_tools(outcomes)
+        await turn_done(dispatch.response.text, backend_seconds)
         results.append(TextBlock(countdown_line(turns - turn)))
 
         nudge_pending = guard.nudge_due(turn=turn)

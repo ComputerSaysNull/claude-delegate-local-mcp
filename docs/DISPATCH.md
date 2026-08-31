@@ -21,6 +21,24 @@ explains the shape they produced.
 Both paths are here: the one-shot dispatch, and the turn loop above it. They share the
 retry and empty-answer machinery, which is why they share a document.
 
+## The loop reports a finished turn as well as a starting one
+
+`report_progress` fires as a turn begins and carries a counter, because its job is resetting
+the client's idle timer (ADR-0018). `on_turn_done` fires as one ends and carries what the
+turn produced: its ledger entry and the model's reply. They are separate hooks because they
+answer to different callers — one to the MCP session, one to whatever is recording the
+dispatch — and because the useful moments are not the same moment.
+
+It is called from both places a turn can end: after tool outcomes are attached, and at the
+break taken when a turn returns no tool calls. A single call site would have to pick one,
+and the turn that ends without tool calls is the one carrying the final answer, so picking
+the other would silently drop the part a reader most wants. (ADR-0043)
+
+The backend call is timed separately from the turn, so a throughput figure divides by the
+interval that was actually spent generating rather than by one that also contains tool
+execution.
+
+
 ## One wire format, behind a seam
 
 Only the OpenAI-compatible adapter ships. But the *canonical* message shape kept

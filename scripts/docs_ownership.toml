@@ -90,6 +90,10 @@ owns = [
   "src/claude_delegate_local/admission.py",
   "src/claude_delegate_local/slots.py",
   "src/claude_delegate_local/transcript.py",
+  # The viewer belongs to the same document as the stream it reads: the file format and
+  # the thing that renders it are one decision, and splitting them across two documents is
+  # how a renderer ends up describing a shape the writer no longer produces.
+  "scripts/watch_delegations.py",
 ]
 covers_not = """
 Environment variable values (CONFIGURATION.md), tool schemas (TOOLS.md), registry file
