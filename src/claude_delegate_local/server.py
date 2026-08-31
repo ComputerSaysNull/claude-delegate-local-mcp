@@ -266,6 +266,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]],
+    on_alive: Callable[[float, int], Awaitable[None]] | None = None,
     on_turn_done: Callable[[Any, str], Awaitable[None]] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
@@ -286,8 +287,12 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
         # An explicitly empty toolset. Not the loop with nothing declared: the one-shot
         # prompt tells the model plainly that it cannot open anything and has no second
         # turn, which is true here and is not true in the loop.
+        # `on_alive` and not `report_progress`: the loop reports a turn number out of a
+        # turn budget, and a one-shot has neither. What it can report is how long it has
+        # been waiting and what it is waiting against, which is a different shape.
         return await run_one_shot(
-            cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens
+            cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens,
+            on_alive=on_alive,
         )
     except ContextOverflowAborted as e:
         # Before the plain InvalidDelegation branch, which is its base class. The report is
@@ -589,6 +594,23 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         """
         await progress(0, 0)
 
+    async def alive(elapsed_seconds: float, of_seconds: int) -> None:
+        """ADR-0018 once more, for the path that has no turns to hang it on.
+
+        A one-shot is a single backend call, so nothing lands between `start` and `end`
+        and the client hears nothing for however long that takes -- measured as the only
+        remaining shape that can reach the 1800s stdio idle timeout and be abandoned
+        while working perfectly.
+
+        It writes to the transcript as well as the wire, and for the same reason in a
+        different place: a stream that is silent for forty minutes is indistinguishable
+        from one whose server was killed, and the viewer was calling both of them live.
+        One heartbeat answers both, because both are the same question.
+        """
+        await progress(0, 0)
+        if stream is not None:
+            stream.alive(elapsed_seconds=elapsed_seconds, of_seconds=of_seconds)
+
     # Captured before anything is attempted, and never re-derived afterwards. The upstream
     # bug this shape exists to prevent is a failure path with no agent name to report, so
     # the very dispatches the transcript explains logged as unknown -- and the only place
@@ -617,6 +639,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 # session having asked would not be an operator record.
                 diagnostics=diagnostics or transcript.enabled(cfg),
                 report_progress=progress,
+                on_alive=alive,
                 on_turn_done=streamed_turn,
             )
     except AdmissionError as e:

@@ -176,6 +176,16 @@ def render(event: dict, width: int) -> list[str]:
             lines.extend(_wrap(text, width, "  "))
         return lines
 
+    if kind == "alive":
+        # One line, dim, no rule. It reports that nothing has happened, which is worth
+        # knowing during a one-shot and worth not shouting about.
+        secs = event.get("elapsed_seconds")
+        of = event.get("of_seconds")
+        spent = f"{secs / 60:.0f}m" if isinstance(secs, (int, float)) and secs >= 90 else (
+            f"{secs:.0f}s" if isinstance(secs, (int, float)) else "?")
+        budget = f" of {of // 60}m" if isinstance(of, int) else ""
+        return [f"{stamp}  {DIM}still running · {spent}{budget}{R}"]
+
     if kind == "end":
         ok = event.get("ok")
         verdict = f"{GREEN}done{R}" if ok else f"{RED}failed{R}"
