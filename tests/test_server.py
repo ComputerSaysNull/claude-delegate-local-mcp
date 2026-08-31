@@ -1315,7 +1315,7 @@ def test_backend_status_reports_the_admission_gate():
         assert key in gate, f"backend_status lost {key}"
 
 
-def test_backend_status_says_whether_the_budget_is_machine_wide():
+def test_backend_status_says_whether_the_budget_is_machine_wide(tmp_path):
     """ADR-0040's reporting half, and the reason it is reported rather than assumed.
 
     A gate that has quietly narrowed to a single process looks exactly like a working one
@@ -1323,8 +1323,17 @@ def test_backend_status_says_whether_the_budget_is_machine_wide():
     them. So `active` is answered by whether the shared file can actually be read, and it
     has to survive into a real response rather than existing only in the module that
     computes it.
+
+    `slots_dir` is isolated because the default is the real one. Left at the default this
+    reads the machine's live counters, so the gauges below assert that nothing anywhere
+    on the box is delegating -- which is false whenever another session is, and the
+    failure then describes the machine rather than the code. What is under test is that
+    the block is reported and internally consistent, and that holds in a directory of
+    this test's own.
     """
-    result = called(ok_handler("served-id-1"), "backend_status")
+    result = called(
+        ok_handler("served-id-1"), "backend_status", config=cfg(slots_dir=str(tmp_path))
+    )
     shared = result["admission"]["cross_process"]
 
     assert "active" in shared, "backend_status lost the cross-process block entirely"

@@ -410,6 +410,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915 -- one tool's arguments, one
     workdir: str | None = None,
     diagnostics: bool = False,
     ctx: Context | None = None,
+    on_turn: Callable[[], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     """One delegation, from arguments to the result dict. Shared by every tool that runs one.
 
@@ -491,7 +492,15 @@ async def run_delegation(  # noqa: PLR0913, PLR0915 -- one tool's arguments, one
         so without a per-turn notification a long delegation is dropped by the caller
         while the server works on. Nothing renders it and it cannot be cancelled through
         -- resetting that timer is the whole of its job.
+
+        `on_turn` exists because a caller can need the timer reset while wanting nothing
+        to do with this delegation's turn numbers -- `delegate_batch` runs several at
+        once, where interleaved counts describe nothing. It reports what it likes; what
+        matters is that something is sent on every turn of every item.
         """
+        if on_turn is not None:
+            await on_turn()
+            return
         if ctx is not None:
             await ctx.report_progress(progress=turn, total=of)
 
@@ -881,6 +890,21 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
 
         done = 0
 
+        async def beat() -> None:
+            """ADR-0018's keepalive, restored to the batch.
+
+            The count reported is the batch's own -- items finished out of items asked
+            for -- so nothing a reader sees interleaves. What it costs is one
+            notification per turn per item instead of one per item, and that is the
+            point: the client's idle timer is reset by the notification arriving, not by
+            the number in it. Reporting only on completion left a batch whose items each
+            run longer than the 1800s idle timeout sending nothing at all, and the caller
+            abandoned work the cluster then carried on doing for the rest of
+            `dispatch_timeout`, holding the machine-wide budget the whole time.
+            """
+            if ctx is not None:
+                await ctx.report_progress(progress=done, total=len(tasks))
+
         async def run(index: int, one: str) -> dict[str, Any]:
             nonlocal done
             try:
@@ -889,10 +913,11 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
                     task=one, files=files, model=model, effort=effort,
                     allowed_tools=allowed_tools, max_tokens=max_tokens,
                     agent=agent, workdir=resolved_workdir,
-                    # No `ctx`: progress is reported per finished item below, not per
-                    # turn. Turn counts interleaved from items running at once would
-                    # describe nothing a reader could act on.
-                    diagnostics=False, ctx=None,
+                    # No `ctx`, so this delegation's own turn numbers never reach the
+                    # client -- interleaved counts from items running at once would
+                    # describe nothing a reader could act on. `on_turn` keeps the
+                    # notification itself, which is what holds the idle timer open.
+                    diagnostics=False, ctx=None, on_turn=beat,
                 )
             except ToolError as e:
                 # Caught rather than raised, which is the whole contract: an item that
