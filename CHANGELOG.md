@@ -30,6 +30,47 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #45 — 2026-08-31 — fix: delegate_batch reports progress every turn, not only when an item lands
+
+### Fixed
+- `delegate_batch` reported progress only when an item finished, so a batch whose items
+  each ran longer than the client's 1800s stdio idle timeout sent nothing at all across
+  the turns that took the time. The client aborted; the server does not learn that the
+  caller has gone, so it carried on to `dispatch_timeout` and held
+  `max_inflight_large_prefills` at its ceiling of 2 for the remainder. Measured on a real
+  two-item batch: 3616 seconds from admission to release, of which the last half hour was
+  spent generating an answer nobody was listening for, while every other session on the
+  machine was locked out of large delegations.
+- The cause was a deliberate choice with one half right. `ctx=None` was passed into each
+  item because interleaved turn counts from items running at once "would describe nothing
+  a reader could act on" — true, and irrelevant to what the notification is for.
+  `run_delegation`'s own docstring already said resetting the client's idle timer "is the
+  whole of its job", so withholding the notification to protect the number it carries
+  traded the mechanism for the display.
+- `run_delegation` now takes an `on_turn` hook that displaces the turn numbers without
+  displacing the notification. `delegate_batch` passes one that reports its own
+  completed-item count, so the client is notified on every turn of every item and never
+  sees a turn number. The constraint the original `ctx=None` protected is kept.
+
+### Changed
+- `test_backend_status_says_whether_the_budget_is_machine_wide` now runs against an
+  isolated `slots_dir`. At the default it read the machine's live counters and asserted
+  that nothing anywhere on the box was delegating, so it failed whenever another session
+  was — describing the machine rather than the code. It was found failing exactly that
+  way, mid-session, by the batch this entry is about. What it tests is that the
+  cross-process block is reported and internally consistent, and that holds in a
+  directory of its own; `active` is asserted true there, so the gauge checks still run
+  rather than passing through the inactive branch.
+
+### Added
+- `tests/regression/test_a_batch_delegation_loses_its_keepalive.py`, named after the bug.
+  Shown failing against the unfixed code before being kept — two notifications for two
+  items, both arriving after the turns that would have timed out. Its handler answers
+  from the conversation rather than a scripted list, because two concurrent items popping
+  one shared sequence make the count under test a function of interleaving. A second case
+  guards the constraint rather than the bug: every number the client sees is a
+  completed-item count, never a turn.
+
 ## #44 — 2026-08-30 — fix: run_bash was refused on every project carrying a virtualenv
 
 ### Fixed

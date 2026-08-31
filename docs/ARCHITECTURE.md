@@ -143,7 +143,15 @@ is unbuilt, so it is never declared and cannot be asked back in. That does not r
 refusal at execution, which stays: a model can call a tool it was never offered.
 
 The per-turn progress notification is wired here, the only layer holding an MCP session:
-`loop.py` takes it as an injected callable and stays free of MCP imports (ADR-0018). Effort resolves
+`loop.py` takes it as an injected callable and stays free of MCP imports (ADR-0018). What the
+notification *carries* is separable from the fact that it is sent, and `delegate_batch` needs
+both halves separately: interleaved turn counts from items running at once would describe
+nothing, but a batch that reports only when an item lands sends nothing across the turns that
+take the time. So `run_delegation` takes an `on_turn` hook that displaces the turn numbers
+without displacing the notification, and the batch reports its own completed-item count on
+every turn of every item. Withholding the notification instead is what let a client abandon a
+batch at the idle timeout while the server carried on to `dispatch_timeout`, holding the
+machine-wide budget for the remainder. Effort resolves
 explicit argument → registry row → global default and is always sent, never inherited from
 whatever the cluster was booted with (ADR-0013). The reply budget resolves the same way,
 caller first and the configured default last, and is
