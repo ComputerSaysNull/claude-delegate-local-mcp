@@ -1020,6 +1020,12 @@ def test_the_ledger_agrees_with_the_model_when_the_model_is_right():
 # --- delegate_to_agent, delegate_batch, list_agents ---------------------------------------
 
 
+def build_default():
+    """A server on the default config, for tests that only read the declared tool surface."""
+    config = cfg()
+    return server.build(config, registry(entry()), DoubleCache(config, ok_handler("served-id-1")))
+
+
 def called(handler, tool, *, entries=None, config=None, **kwargs):
     """Call any tool over a real MCP session against a transport double."""
     config = config or cfg()
@@ -1410,3 +1416,35 @@ def test_a_delegation_that_fails_still_gives_its_slot_back():
     assert gate["per_entry"]["flash"]["inflight"] == 0
     # The marks are what the operator tunes from, so a failure must not erase them either.
     assert gate["peak_inflight_seqs"] >= 1
+
+
+
+# --- the read-only surface -----------------------------------------------------------------
+
+
+def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
+    """The false-claim guard, and the reason it is worth more than the annotations.
+
+    `delegate`, `delegate_to_agent` and `delegate_batch` hand the model `write_file` and
+    `run_bash` whenever `allowed_tools` is unset. Marking any of them read-only would let
+    a client that gates writes on the annotation run one while believing nothing could be
+    written -- the failure mode is silent, and the annotation is trusted precisely because
+    it is rarely checked.
+    """
+    async def go():
+        async with Client(build_default()) as client:
+            return {t.name: t.annotations for t in await client.list_tools()}
+
+    seen = asyncio.run(go())
+
+    for name in ("backend_status", "list_agents"):
+        assert seen[name] is not None and seen[name].readOnlyHint is True, (
+            f"{name} cannot write and must say so"
+        )
+    for name in ("delegate", "delegate_to_agent", "delegate_batch"):
+        annotations = seen[name]
+        claimed = annotations is not None and annotations.readOnlyHint is True
+        assert not claimed, (
+            f"{name} can be given write_file and run_bash, so it must never declare "
+            "itself read-only"
+        )

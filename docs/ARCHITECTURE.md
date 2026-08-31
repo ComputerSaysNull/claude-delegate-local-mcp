@@ -482,6 +482,22 @@ a data file as for a source file, which is backwards. Budgets are denominated in
 tokens instead, from ratios measured per extension. The measurements and what they buy are
 in [AGENTS.md](AGENTS.md). (ADR-0019)
 
+## Read-only tools say so, and the ones that can write must not
+
+An MCP tool annotation is a claim made to the client before the call runs, so a client can
+act on it without asking. `backend_status` and `list_agents` carry `readOnlyHint` because
+neither can change anything; a caller gating writes on that declaration -- plan mode in
+Claude Code does -- runs them without stopping. Measured rather than assumed: the same call
+prompts for approval without the annotation and does not with it.
+
+The delegate tools carry no such hint and must not. With `allowed_tools` unset a delegation
+hands the local model `write_file` and `run_bash`, so a read-only claim there would be false
+in the way that is hardest to notice -- the client stops asking, the write still happens, and
+nothing anywhere reports a contradiction. The permission layer matches on tool name and never
+inspects arguments, so the claim is a property of the tool or it is worth nothing. Holding
+that asymmetry is what the guard in `tests/test_server.py` is for, and it is worth more than
+the annotations themselves.
+
 ## Non-goals
 
 - **No standalone CLI.** The server speaks MCP only. Recorded here so nobody adds an

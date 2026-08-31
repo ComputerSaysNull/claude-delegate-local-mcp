@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #47 — 2026-08-31 — feat: read-only tools declare themselves to the client
+
+### Added
+- `backend_status` and `list_agents` carry the MCP `readOnlyHint` and `idempotentHint`
+  annotations. Claude Code's plan mode gates MCP calls regardless of an allow-list, because
+  a permission rule matches on tool name and cannot know whether a given call writes. With
+  the annotation it does know, and stops asking. Verified by measurement in both directions:
+  the same call in the same mode prompts without the annotation and does not with it.
+- A guard that the three delegate tools never carry that annotation. They hand the local
+  model `write_file` and `run_bash` whenever `allowed_tools` is unset, so a read-only claim
+  would be false in the way hardest to notice -- the client stops asking, the write still
+  happens, and nothing reports the contradiction. The guard was shown failing against a
+  deliberately mis-annotated `delegate` before being kept.
+
 ## #46 — 2026-08-31 — feat: an ADR heading may name more than one successor
 
 ### Changed
@@ -52,6 +66,7 @@ Older entries, in the previous flat format, are in
   the real function could only be exercised by mutating a tracked file — and the price was
   that those tests passed whether or not the rule they described still worked. In the file
   named after checks that cannot fail, that was one.
+
 
 ## #45 — 2026-08-31 — fix: delegate_batch reports progress every turn, not only when an item lands
 

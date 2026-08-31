@@ -939,7 +939,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
             **({"agent": agent.name} if agent else {}),
         }
 
-    @mcp.tool
+    @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
     async def list_agents(workdir: str | None = None) -> dict[str, Any]:
         """List the agents available to `delegate_to_agent`, and where each was found.
 
@@ -970,7 +970,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
             "count": len(found),
         }
 
-    @mcp.tool
+    @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
     async def backend_status() -> dict[str, Any]:
         """Report whether each configured local model is reachable and serving what it should.
 
