@@ -19,6 +19,10 @@ ROOT = Path(__file__).resolve().parents[2]
 GATE = ROOT / "scripts" / "docs_gate.py"
 GEN = ROOT / "scripts" / "gen_config_docs.py"
 
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import docs_gate  # noqa: E402  -- needs the path line above
+
 
 def _run(script: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
@@ -33,25 +37,26 @@ def _run(script: Path, *args: str) -> subprocess.CompletedProcess:
 # ---------------------------------------------------------------------------
 
 def _adr_check(text: str) -> list[str]:
-    """Reimplements the gate's declared-number logic against arbitrary text.
+    """Drives the gate's own check over synthetic headings.
 
-    Testing the rule directly rather than mutating the real DECISIONS.md keeps this
-    hermetic -- a test that edits a tracked file in place will eventually lose a race
-    with something else and leave the repo dirty.
+    This used to reimplement the rule, for hermeticity: `check_adr_format` read
+    DECISIONS.md and nothing else, so exercising it meant mutating a tracked file. The
+    cost was that these tests validated a copy -- they would pass whether or not the real
+    check still worked, which is the exact shape this file is named after. The function
+    now takes its text as an argument, so the copy is gone and these drive the real thing.
     """
-    heads = re.findall(r"^## (.+)$", text, re.MULTILINE)
-    declared = {
-        int(m.group(1))
-        for h in heads
-        if (m := re.match(r"^(?:~~)?ADR-(\d{4}) ", h.strip()))
-    }
     problems = []
-    for h in heads:
-        m = re.match(r"^(?:~~)?ADR-(\d{4}) ", h.strip())
-        ref = re.search(r"[Ss]uperseded by ADR-(\d{4})", h)
-        if m and ref and int(ref.group(1)) not in declared:
-            problems.append(f"ADR-{m.group(1)} -> ADR-{ref.group(1)}")
+    for finding in docs_gate.check_adr_format(text):
+        if (m := re.search(r"ADR-(\d{4}) points at ADR-(\d{4})", finding.message)):
+            problems.append(f"ADR-{m.group(1)} -> ADR-{m.group(2)}")
     return problems
+
+
+def _adr_malformed(text: str) -> list[str]:
+    """The headings the gate rejected outright, as opposed to dangling references."""
+    return [
+        f.message for f in docs_gate.check_adr_format(text) if "malformed" in f.message
+    ]
 
 
 def test_supersede_pointing_at_a_nonexistent_adr_is_caught():
@@ -85,6 +90,46 @@ def test_a_struck_through_heading_still_counts_as_declared():
         ## ADR-0001 — 2026-08-24 — Oldest — Superseded by ADR-0002
     """)
     assert _adr_check(text) == []
+
+
+def test_a_heading_may_name_more_than_one_successor():
+    """ADR-0005 was overtaken twice, on different clauses, and must be able to say so."""
+    text = textwrap.dedent("""
+        ## ADR-0003 — 2026-08-24 — Newest — Accepted
+
+        ## ADR-0002 — 2026-08-24 — Middle — Accepted
+
+        ## ADR-0001 — 2026-08-24 — Oldest — Partially superseded by ADR-0002 and ADR-0003
+    """)
+    assert _adr_malformed(text) == []
+    assert _adr_check(text) == []
+
+
+def test_every_reference_in_a_heading_is_validated_not_just_the_first():
+    """The trap the widened grammar opens, and the reason this test exists at all.
+
+    The reference check used `re.search`, which stops at one match. Admitting a list
+    without widening the lookup would leave the second and later targets unvalidated --
+    the first reference real, the rest anything at all, and the gate silent. That is the
+    same shape as the two bugs above: a check that runs, reports success, and cannot fail.
+    """
+    text = textwrap.dedent("""
+        ## ADR-0002 — 2026-08-24 — Later thing — Accepted
+
+        ## ADR-0001 — 2026-08-24 — Earlier — Partially superseded by ADR-0002 and ADR-0099
+    """)
+    assert _adr_check(text) == ["ADR-0001 -> ADR-0099"]
+
+
+def test_a_list_of_successors_is_still_a_grammar_not_free_text():
+    """Widening is not the same as opening. A status the gate cannot parse must still
+    block, or the heading stops being an index."""
+    text = textwrap.dedent("""
+        ## ADR-0002 — 2026-08-24 — Later thing — Accepted
+
+        ## ADR-0001 — 2026-08-24 — Earlier — Superseded by ADR-0002 and also some others
+    """)
+    assert _adr_malformed(text), "an unparseable status must still be rejected"
 
 
 def test_the_real_decisions_file_has_no_dangling_supersede_references():

@@ -712,19 +712,31 @@ def check_budgets() -> list[Finding]:
     return out
 
 
-def check_adr_format() -> list[Finding]:
-    """The ADR headings ARE the index, so their shape is load-bearing."""
-    p = ROOT / "DECISIONS.md"
-    if not p.exists():
-        return [Finding(SKIP, "adr", "DECISIONS.md not written yet.")]
-    text = p.read_text(encoding="utf-8")
+def check_adr_format(text: str | None = None) -> list[Finding]:
+    """The ADR headings ARE the index, so their shape is load-bearing.
+
+    `text` is injectable so a test can drive *this* function over synthetic headings
+    instead of reimplementing it. The reimplementation is the trap: a copy of the rule in
+    the test file passes whether or not the rule here still works, which is the same shape
+    as the bugs this check was written for.
+    """
+    if text is None:
+        p = ROOT / "DECISIONS.md"
+        if not p.exists():
+            return [Finding(SKIP, "adr", "DECISIONS.md not written yet.")]
+        text = p.read_text(encoding="utf-8")
     heads = re.findall(r"^## (.+)$", text, re.MULTILINE)
     if not heads:
         return [Finding(BLOCK, "adr", "DECISIONS.md declares no ADR headings.")]
+    # A decision can be overtaken by more than one later one, on different clauses:
+    # ADR-0005 lost its portability claim to ADR-0031 and its tool count to ADR-0042.
+    # Admitting only a single reference meant the heading could name just the newest, and
+    # the earlier correction survived only in whatever prose happened to mention it.
+    ref_list = r"ADR-\d{4}(?:(?:, | and )ADR-\d{4})*"
     pattern = re.compile(
         r"^(?:~~)?ADR-(\d{4}) — \d{4}-\d{2}-\d{2} — .+?(?:~~)? — "
-        r"(Accepted|Proposed|Rejected|Superseded by ADR-\d{4}|"
-        r"Partially superseded by ADR-\d{4})$"
+        rf"(Accepted|Proposed|Rejected|Superseded by {ref_list}|"
+        rf"Partially superseded by {ref_list})$"
     )
     out, numbers = [], []
     # Collect DECLARED numbers first. Searching the file text for "ADR-0099" cannot
@@ -744,11 +756,15 @@ def check_adr_format() -> list[Finding]:
                                f"'ADR-NNNN — YYYY-MM-DD — title — Status'."))
             continue
         numbers.append(int(m.group(1)))
-        ref = re.search(r"[Ss]uperseded by ADR-(\d{4})", h)
-        if ref and int(ref.group(1)) not in declared:
-            out.append(Finding(BLOCK, "adr",
-                               f"ADR-{m.group(1)} points at ADR-{ref.group(1)}, which "
-                               f"is not declared by any heading in this file."))
+        # Every reference, not the first. `re.search` stopped at one, so widening the
+        # grammar above without widening this would leave the second and later targets
+        # unvalidated -- a heading could point at ADR-9999 and pass.
+        if (tail := re.search(r"[Ss]uperseded by (.+)$", h)) is not None:
+            for target in re.findall(r"ADR-(\d{4})", tail.group(1)):
+                if int(target) not in declared:
+                    out.append(Finding(BLOCK, "adr",
+                                       f"ADR-{m.group(1)} points at ADR-{target}, which "
+                                       f"is not declared by any heading in this file."))
         if "~~" in h and "Superseded by" not in h:
             out.append(Finding(BLOCK, "adr",
                                f"ADR-{m.group(1)} is struck through but names no "

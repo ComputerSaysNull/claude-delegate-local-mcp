@@ -30,6 +30,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #46 — 2026-08-31 — feat: an ADR heading may name more than one successor
+
+### Changed
+- The ADR status grammar accepts a list: `Superseded by ADR-0002 and ADR-0003`, and the
+  same for `Partially superseded by`. One decision can be overtaken by several later ones
+  on different clauses -- ADR-0005 lost its portability claim to ADR-0031 and its tool
+  count to ADR-0042 -- and a heading admitting one reference could name only the newest,
+  leaving the earlier correction to survive in whatever prose happened to mention it.
+  Widened, not opened: a status the gate cannot parse still blocks, and a test says so.
+
+### Fixed
+- The dangling-reference check validated only the first ADR named in a heading. It used
+  `re.search`, which stops at one match, so widening the grammar without widening this
+  would have left every later target unvalidated -- first reference real, the rest
+  anything at all, gate silent. Found while making the grammar change rather than after,
+  and it would have been a fifth check that runs, reports success and cannot fail.
+- `check_adr_format` takes its text as an argument instead of only ever reading
+  `DECISIONS.md`, and `tests/regression/test_gate_self_defeating_checks.py` now drives
+  that function rather than a reimplementation of it. The copy existed for hermeticity —
+  the real function could only be exercised by mutating a tracked file — and the price was
+  that those tests passed whether or not the rule they described still worked. In the file
+  named after checks that cannot fail, that was one.
+
 ## #45 — 2026-08-31 — fix: delegate_batch reports progress every turn, not only when an item lands
 
 ### Fixed
