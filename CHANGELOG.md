@@ -66,6 +66,20 @@ Older entries, in the previous flat format, are in
   sequence throws exactly that away.
 
 ### Fixed
+- A stream with no `end` event was shown as `live`, which is a claim the file cannot
+  support. Found by measurement: closing the editor mid-dispatch takes the whole process
+  tree with it, including the server, so the stream simply stops — and the viewer went on
+  calling it live long after the cluster had finished with it. There are now three states.
+  `ok`/`fail` for a stream that ended, `live` for one written to within `STALL_SECONDS`,
+  and `quiet <age>` for one that has neither.
+- It deliberately does not try to say "dead". A writer pid in the stream would be
+  meaningful only on the machine that wrote it, and a transcript directory is routinely
+  synchronised; and a one-shot delegation is legitimately silent between its start and its
+  end, so silence alone condemns nothing. The state reports what is known and names the
+  age, which is the part a reader can actually judge.
+- The state column padded a string that already contained colour escapes, so the width
+  counted the escape bytes and the column did not line up. The plain word is padded now
+  and coloured after.
 - An arrow key intermittently quit the viewer instead of moving the highlight. Keys were
   read through `sys.stdin`, which fills its own buffer from the descriptor and hands back
   one character: the three bytes of an arrow key arrived together, `[A` stayed in that

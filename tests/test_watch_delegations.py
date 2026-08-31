@@ -177,6 +177,40 @@ def test_created_at_falls_back_when_the_name_was_not_written_here(viewer, tmp_pa
     assert viewer.created_at(odd) == pytest.approx(1_700_000_000)
 
 
+def test_an_unfinished_stream_stops_claiming_live_once_it_goes_quiet(viewer, tmp_path):
+    """A killed server leaves a stream with no `end` event. Measured on 2026-08-31:
+    closing the editor took the whole process tree down mid-dispatch, and the viewer went
+    on calling it live long after the cluster had finished with it."""
+    now = datetime.now(UTC)
+    path = stream(tmp_path, now - timedelta(minutes=30), "abandoned", turns=1)
+    os.utime(path, (time.time() - 600, time.time() - 600))
+    rows, _ = viewer.scan(tmp_path)
+    word, _ = viewer.state_of(rows[0])
+    assert word.startswith("quiet"), f"still claiming {word!r}"
+    assert "10m" in word, f"the age is the whole point of saying quiet: {word!r}"
+
+
+def test_a_stream_written_moments_ago_is_still_live(viewer, tmp_path):
+    """The negative half. A one-shot is silent between its start and its end, so silence
+    alone must not condemn it -- only silence for longer than a dispatch usually pauses."""
+    path = stream(tmp_path, datetime.now(UTC) - timedelta(minutes=1), "working", turns=1)
+    os.utime(path, (time.time(), time.time()))
+    rows, _ = viewer.scan(tmp_path)
+    assert viewer.state_of(rows[0])[0] == "live"
+
+
+def test_a_finished_stream_is_never_called_quiet(viewer, tmp_path):
+    """An `end` event settles it, however long ago it was written."""
+    now = datetime.now(UTC)
+    good = stream(tmp_path, now - timedelta(hours=20), "done", ended=True)
+    bad = stream(tmp_path, now - timedelta(hours=19), "failed", ended=False)
+    for p in (good, bad):
+        os.utime(p, (time.time() - 60_000, time.time() - 60_000))
+    rows, _ = viewer.scan(tmp_path)
+    by_task = {r["task"]: viewer.state_of(r)[0] for r in rows}
+    assert by_task == {"done": "ok", "failed": "fail"}
+
+
 # --- driven through a real terminal -------------------------------------------------
 
 class Session:

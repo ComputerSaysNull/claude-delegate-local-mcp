@@ -548,6 +548,17 @@ unattended redraw over `/mnt/c` that re-read every file would make the viewer a 
 generator (ADR-0020). The listing shows the start clock and the last-write clock side by
 side, both converted to local time, because `at` is UTC and an mtime is not.
 
+A stream ends by writing an `end` event, so the listing has three states rather than two:
+`ok`/`fail` for one that ended, `live` for one written to recently, and `quiet <age>` for
+one that has neither ended nor been written to for `STALL_SECONDS`. The third exists
+because a dispatch whose server was killed — closing the editor takes the whole process
+tree with it — leaves a file that is byte-for-byte indistinguishable from one still being
+written, and calling that `live` is a claim the file cannot support. It cannot be resolved
+by looking harder: a writer pid in the stream would mean nothing on another machine, and
+this directory is routinely synchronised. So the state says only what is known, and names
+the age — a one-shot delegation is legitimately silent between its start and its end, and
+must not be called dead for it.
+
 ## Non-goals
 
 - **No standalone CLI.** The server speaks MCP only. Recorded here so nobody adds an

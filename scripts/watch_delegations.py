@@ -65,6 +65,7 @@ WINDOW_DAYS = 7          # how far back the list reaches
 MAX_ROWS = 200           # backstop under the window, for a runaway day
 REFRESH_SECONDS = 2.0    # unattended redraw of the list
 POLL_SECONDS = 0.3       # how often a live stream is checked for new lines
+STALL_SECONDS = 120      # silence after which an unfinished stream stops claiming "live"
 
 # Home, then erase forward. `ESC[2J` and `ESC[3J` both cost scrollback in some terminals,
 # and scrollback is how you read back over a transcript you have just watched.
@@ -289,6 +290,37 @@ def _cached(path: Path) -> dict:
     return row
 
 
+def _ago(seconds: float) -> str:
+    if seconds < 90:
+        return f"{int(seconds)}s"
+    if seconds < 5400:
+        return f"{int(seconds / 60)}m"
+    return f"{int(seconds / 3600)}h"
+
+
+def state_of(row: dict) -> tuple[str, str]:
+    """What the stream is doing, and the colour to say it in.
+
+    A stream ends by writing an `end` event, so anything without one used to be shown as
+    `live`. That is a claim the file cannot support: a dispatch whose server was killed --
+    a closed editor takes the whole process tree with it -- stops mid-stream and leaves a
+    file that is indistinguishable from one still being written. Measured on 2026-08-31,
+    and it showed as live in the viewer while the cluster had long since finished with it.
+
+    Nor can it be resolved by looking harder. A pid in the stream would only be meaningful
+    on the machine that wrote it, and this directory is routinely synchronised. So the
+    third state says what is actually known -- nothing has been written for a while -- and
+    names the age, because a one-shot delegation is legitimately silent between its start
+    and its end and must not be called dead for it.
+    """
+    if row["done"]:
+        return ("ok", GREEN) if row.get("ok") else ("fail", RED)
+    idle = max(time.time() - row.get("mtime", 0), 0)
+    if idle < STALL_SECONDS:
+        return "live", YELLOW
+    return f"quiet {_ago(idle)}", DIM
+
+
 @contextlib.contextmanager
 def terminal():
     """Single-keypress input for as long as the viewer runs, restored on the way out.
@@ -346,13 +378,14 @@ def pick(directory: Path) -> Path | None:
         head += f" · last {WINDOW_DAYS} days"
         head += f", newest {MAX_ROWS} of {len(rows) + trimmed}" if trimmed else ""
         print(f"{head}{R}")
-        print(f"{DIM} started   last      state           turns  task{R}")
+        print(f"{DIM} started   last      state        turns  task{R}")
         for n, row in enumerate(rows):
-            live = not row["done"]
-            state = (f"{YELLOW}live{R}" if live
-                     else (f"{GREEN}ok{R}" if row.get("ok") else f"{RED}fail{R}"))
+            word, colour = state_of(row)
             task = row["task"][:60] or "(no task recorded)"
-            line = (f" {_clock(started_at(row))}  {_clock(row['mtime'])}  {state:<14} "
+            # Pad the plain word, then colour it. Padding the coloured string counts the
+            # escape bytes as width and the column stops lining up.
+            state = f"{colour}{word:<11}{R}"
+            line = (f" {_clock(started_at(row))}  {_clock(row['mtime'])}  {state} "
                     f"{DIM}{row['turns']:>5}{R}  {task}")
             print(f"{INVERT}{line}{R}" if n == i else line)
         if not rows:
