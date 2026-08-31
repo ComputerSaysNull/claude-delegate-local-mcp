@@ -36,10 +36,15 @@ Older entries, in the previous flat format, are in
 - A one-shot now reports itself on a timer, to the client as a progress notification and
   to the transcript as an `alive` event carrying elapsed and the deadline elapsed is
   measured against. ADR-0018 hangs its notification on a turn, and a one-shot is a single
-  backend call with no turns — so it was silent for its whole duration, which measurement
-  identified as the only remaining call shape that can reach the client's 1800s stdio idle
-  timeout and be abandoned while working perfectly. `run_one_shot`'s own docstring had
-  named this gap since M4.
+  backend call with no turns — so it is silent for its whole duration. Measured: one ran
+  1645s with nothing on the wire and nothing in its transcript between `start` and its
+  answer, which is also 27 minutes of a healthy delegation that the viewer would have
+  shown as `quiet`. `run_one_shot`'s own docstring had named this gap since M4.
+- **Not** measured, and the wording here was corrected to stop claiming otherwise: whether
+  a client actually abandons such a call. A shortened `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`
+  had no observable effect, and the run finished 155s short of the 1800s default, so the
+  timeout was never reached in either direction. What justifies this feature is the
+  silence, which is measured, plus the 3616s incident behind PR #45 — not a reproduction.
 - `DELEGATE_KEEPALIVE_INTERVAL`, default 60s. Not a deadline: nothing is cancelled when it
   passes.
 - The `alive` event deliberately does not describe what the model is doing. There is no

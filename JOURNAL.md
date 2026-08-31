@@ -680,7 +680,7 @@ one still inferred:
 | its tool timeout fires | yes | survives | freed at 119.7s | record written |
 | its window is closed | no | killed with the tree | orphaned, inert | lost |
 | its terminal is closed | no | killed with the tree | orphaned, inert | lost |
-| its stdio idle timeout | *inferred* no | *survives* | *held to `dispatch_timeout`* | ? |
+| its stdio idle timeout | *never reached* | — | — | — |
 
 Cancellation works, completely. `notifications/cancelled` reaches the coroutine as
 `CancelledError`, so `Admission.admit`'s `finally` releases and `transcript.write` runs:
@@ -703,6 +703,15 @@ because readers drop dead records, with the next real admission rewriting the fi
 So the only shape that can still leak is a client that lives and stops caring, which is the
 idle timeout alone — and the reason a one-shot can reach it is that `run_one_shot` sends no
 progress at all, unlike the batch and turn paths `#45` covered.
+
+**The idle timeout resisted being measured**, and the attempt is worth recording so the
+next one starts further along. `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` set to 120000 had no
+observable effect: a one-shot went 1645s with nothing on the wire and finished normally,
+155s short of the 1800s default. One hypothesis, from a third-party summary rather than a
+probe, is that a per-server `timeout` acts as a *floor* so idleness cannot kill sooner —
+though this server's entry sets no such field, which would make it a default floor rather
+than a configured one. Unresolved. What is certain is that the 3616s incident happened, and
+that nothing reproduced here explains it yet.
 
 Two things this cost, worth not repeating. Reasoning about which of `--amend`'s forms, or
 which disconnect, "obviously" behaves like another was wrong every time it was tried; each
