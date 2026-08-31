@@ -1418,12 +1418,61 @@ def test_a_delegation_that_fails_still_gives_its_slot_back():
     assert gate["peak_inflight_seqs"] >= 1
 
 
-
 # --- the read-only surface -----------------------------------------------------------------
 
 
+def test_delegate_readonly_offers_the_model_no_tools():
+    """The annotation is only true if the model is genuinely given nothing to call.
+
+    Asserted on the wire rather than on the resolved set, because what the model can ask
+    for is what was declared to it -- an empty set that still rendered a tool block would
+    be a read-only tool advertising a write.
+    """
+    sent: list[dict] = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(content="an answer"))
+
+    config = cfg()
+    mcp = server.build(config, registry(entry()), DoubleCache(config, handler))
+
+    async def go():
+        async with Client(mcp) as client:
+            return (
+                await client.call_tool("delegate_readonly", {"task": "explain this"})
+            ).data
+
+    asyncio.run(go())
+
+    assert sent, "nothing was dispatched"
+    assert not sent[0].get("tools"), (
+        f"delegate_readonly declared tools to the model: {sent[0].get('tools')}"
+    )
+
+
+def test_delegate_readonly_has_no_argument_that_could_widen_it():
+    """`allowed_tools` is fixed, not defaulted.
+
+    An annotation a caller could falsify by passing an argument is the check that cannot
+    fail: the client gates on the declaration, which is per tool, while the permission
+    layer never inspects arguments. So the parameter must not exist at all.
+    """
+    async def go():
+        async with Client(build_default()) as client:
+            return {t.name: t for t in await client.list_tools()}
+
+    tools = asyncio.run(go())
+    schema = tools["delegate_readonly"].inputSchema
+
+    assert "allowed_tools" not in schema.get("properties", {}), (
+        "delegate_readonly must not accept allowed_tools; it would let a caller widen "
+        "a tool the client has been told is read-only"
+    )
+
+
 def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
-    """The false-claim guard, and the reason it is worth more than the annotations.
+    """The false-claim guard, and the reason this test is worth more than the feature.
 
     `delegate`, `delegate_to_agent` and `delegate_batch` hand the model `write_file` and
     `run_bash` whenever `allowed_tools` is unset. Marking any of them read-only would let
@@ -1437,7 +1486,7 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
 
     seen = asyncio.run(go())
 
-    for name in ("backend_status", "list_agents"):
+    for name in ("backend_status", "list_agents", "delegate_readonly"):
         assert seen[name] is not None and seen[name].readOnlyHint is True, (
             f"{name} cannot write and must say so"
         )

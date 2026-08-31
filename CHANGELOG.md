@@ -38,6 +38,17 @@ Older entries, in the previous flat format, are in
   a permission rule matches on tool name and cannot know whether a given call writes. With
   the annotation it does know, and stops asking. Verified by measurement in both directions:
   the same call in the same mode prompts without the annotation and does not with it.
+- `delegate_readonly`: `delegate` with `allowed_tools` fixed at `[]` rather than accepted
+  as an argument, declared `readOnlyHint` truthfully. One turn, `files[]` and nothing else,
+  no `write_file` and no `run_bash`. It exists because the annotation is per tool and the
+  permission layer never inspects arguments, so a read-only *call* cannot be expressed --
+  only a read-only tool. Sixth tool on the model-facing contract, paid because the
+  alternative was annotating something untrue.
+- Two tests for it, both shown failing against deliberate breakage first: that it declares
+  no tools on the wire, checked in the dispatched request rather than in the resolved set;
+  and that its schema exposes no `allowed_tools`, since a parameter that could widen it
+  would make the annotation falsifiable by the caller.
+
 - A guard that the three delegate tools never carry that annotation. They hand the local
   model `write_file` and `run_bash` whenever `allowed_tools` is unset, so a read-only claim
   would be false in the way hardest to notice -- the client stops asking, the write still

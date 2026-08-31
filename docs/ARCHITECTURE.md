@@ -490,6 +490,14 @@ neither can change anything; a caller gating writes on that declaration -- plan 
 Claude Code does -- runs them without stopping. Measured rather than assumed: the same call
 prompts for approval without the annotation and does not with it.
 
+`delegate_readonly` is what that asymmetry leaves room for: `delegate` with
+`allowed_tools` fixed at `[]` rather than accepted as an argument. What it can do is
+identical to `delegate` called the same way; what differs is that a caller can promise it
+in advance. `[]` resolves to the empty set where `None` resolves to everything available,
+and no parameter exists to widen it back -- an annotation a caller could falsify by passing
+an argument would be precisely the check that cannot fail. The cost is a sixth tool on the
+model-facing contract, paid because the alternative is annotating something untrue.
+
 The delegate tools carry no such hint and must not. With `allowed_tools` unset a delegation
 hands the local model `write_file` and `run_bash`, so a read-only claim there would be false
 in the way that is hardest to notice -- the client stops asking, the write still happens, and
