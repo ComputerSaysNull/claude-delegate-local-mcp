@@ -19,6 +19,52 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0043 — 2026-08-31 — A delegation is also written as it happens, and that stream carries what the model said — Accepted
+
+**Context.** ADR-0024 adopted an operator transcript and ADR-0039 settled what a record
+holds. Both describe a record written once the dispatch is over. That answers what
+happened and cannot answer what is happening: a file that appears at the end is silent
+during the only period when the question "is this stuck, or is it working" can be asked.
+The gap showed up in practice — a delegation that had in fact been running for half an
+hour was indistinguishable, from outside, from one that had died.
+
+**Decision — a second file, appended per turn.** Alongside the record, a dispatch appends
+one JSON object per line as it runs: a `start` when it begins, a `turn` as each completes,
+an `end` whatever ends it. Append-only and flushed per line, so a reader tailing it sees a
+turn the moment it lands and can never read half of one. It is not derived from the record
+and the record is not derived from it: the stream must survive a dispatch that never
+reaches an end, which is exactly the case the record cannot describe.
+
+**Decision — the stream carries the reply text.** This is the part ADR-0039 appears to
+forbid and does not. That decision excluded file *bodies*, for two stated reasons: they
+are the overwhelming majority of the bytes, and they are recoverable from the repository
+by path. A reply is neither. It is small, and it exists nowhere else — which is the exact
+argument ADR-0039 used to write the task verbatim. The same reasoning reaches the same
+answer, so this extends that decision rather than reversing it, and ADR-0039 stands.
+
+**What this does newly expose.** A model may quote a file in its reply, so bodies can
+reach the stream indirectly, in fragments, where they could not reach the record at all.
+This is accepted rather than mitigated: the alternative is withholding the thing the
+stream exists to show. Two properties bound it. The model has already passed the
+secret-glob and gitignore layers before it sees anything, so a quote cannot contain what
+those layers refused. And the operator chooses the directory — as ADR-0039 put it,
+whoever configures it owns what lands in it. That choice now carries more weight than it
+did, and one case deserves naming: a transcript directory inside a synchronised or
+backed-up location is a directory whose contents leave the machine, on someone else's
+schedule and to someone else's storage. Where the record held paths and accounting that
+was a modest consequence. With replies in the stream it is no longer modest, and it is
+the operator's decision to make knowingly rather than by default.
+
+**Decision — throughput is measured over the backend call.** A turn's wall clock includes
+tool execution and any wait for an admission slot. Dividing output tokens by it would
+report the cluster as slower than it is, and a throughput figure that is quietly measuring
+the wrong interval is worse than none because it gets believed. Both intervals are
+written, so the difference between them is visible rather than hidden inside one number.
+
+Review point: the stream has no retention cap, on the same reasoning ADR-0039 gave for
+the record. Replies are larger than accounting. Revisit once there is evidence about size
+rather than before.
+
 ## ADR-0042 — 2026-08-31 — A sixth tool, because a read-only delegation cannot be expressed as an argument — Accepted
 
 ADR-0005 fixed the surface at five and asked that a sixth be argued for. This is the

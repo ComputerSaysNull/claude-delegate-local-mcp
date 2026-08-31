@@ -30,6 +30,56 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #48 — 2026-08-31 — feat: watch a delegation while it runs, not only after
+
+### Added
+- A dispatch now appends a JSON line per event as it happens — `start`, one `turn` per
+  completed turn, `end` — beside the record it already wrote at the finish. A record that
+  appears only once the work is over cannot answer the question worth asking during it,
+  and the two files are independent because the stream has to survive a dispatch that
+  never reaches an end. (ADR-0043)
+- The stream carries the model's reply text, which the finished record does not. That
+  extends ADR-0039 rather than reversing it: that decision excluded file *bodies* as bulky
+  and recoverable from the repository by path, and a reply is neither — it is small and
+  exists nowhere else, the same argument ADR-0039 used to write the task verbatim. What is
+  newly exposed is named in ADR-0043 rather than left implicit: a model may quote a file,
+  so fragments can reach the stream, and a transcript directory that is synchronised or
+  backed up is one whose contents leave the machine.
+- `scripts/watch_delegations.py`: lists what is in the transcript directory, follows the
+  one you choose with arrow keys, and renders turns as a conversation with timestamps and
+  colour rather than as JSON. Standard library only, no lock, writes nothing — so a second
+  terminal can watch a second delegation.
+- The viewer resolves the transcript directory the way the server does: the environment
+  first, then `<repo>/.env`. The server reads that file itself, so a directory configured
+  there is set for the server and for nothing else -- not for a shell. Requiring the
+  variable to be exported by hand would have made the viewer a second place to configure
+  the path, and the second place is the one that goes stale. Found by running it.
+- Fenced code in a reply is rendered verbatim rather than re-wrapped on whitespace. The
+  first live delegation through the viewer asked the model to quote a function and the
+  viewer flattened it into prose, which is the one thing a reader of quoted code cannot
+  use.
+- `on_turn_done` in the agentic loop, called from both places a turn can end. A single call
+  site would have to pick one, and the turn ending without tool calls is the one carrying
+  the final answer.
+
+### Changed
+- Tokens per second is measured over the backend call, not the turn. The turn's wall clock
+  includes tool execution and any wait for a slot, so a rate taken from it reports the
+  cluster as slower than it is — and a throughput figure quietly measuring the wrong
+  interval is worse than none, because it gets believed. Both intervals are written so the
+  gap between them stays visible.
+- A one-shot delegation, which runs no turns, emits a synthetic one carrying its answer.
+  Without it the common read-only case streamed a start and an end with nothing between —
+  the exact shape of a delegation that produced nothing, and indistinguishable from one.
+
+### Fixed
+- `test_nothing_is_streamed_when_no_transcript_directory_is_set` was written so it could
+  not fail: with the setting empty there is no configured directory, so asserting that
+  nothing appeared in a temporary one checked somewhere the stream was never going to be
+  written, and it passed with the switch removed. It now asserts the switch directly, both
+  ways. Found by negative-testing the five new tests rather than by reading them, which is
+  the fifth time that has been the difference here.
+
 ## #47 — 2026-08-31 — feat: read-only tools declare themselves to the client
 
 ### Added

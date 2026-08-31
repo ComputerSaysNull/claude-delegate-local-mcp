@@ -506,6 +506,31 @@ inspects arguments, so the claim is a property of the tool or it is worth nothin
 that asymmetry is what the guard in `tests/test_server.py` is for, and it is worth more than
 the annotations themselves.
 
+## A dispatch is written twice, because "what happened" and "what is happening" are different questions
+
+`transcript.write` produces the record an operator reads afterwards: paths, accounting, the
+task, and the per-turn ledger, written once the dispatch is over. `transcript.Stream`
+produces the file a person watches during it — `start`, one `turn` per completed turn, then
+`end` — appended and flushed a line at a time. Neither is derived from the other. A record
+that exists only once the work is finished cannot say whether the work is stuck, and a
+stream has to survive a dispatch that never reaches an end. (ADR-0043)
+
+The stream carries the model's reply text, which the record does not. That is an extension
+of ADR-0039 rather than a reversal of it: that decision excluded file *bodies* as bulky and
+recoverable from the repository by path, and a reply is neither — it is small and exists
+nowhere else, which is the same argument ADR-0039 used to write the task verbatim.
+
+Two intervals are recorded per turn and the difference between them is the point. `ms` is
+the turn's wall clock, including tool execution and any wait for a slot; `backend_ms` is the
+backend call alone. Tokens per second is taken from the second, because a rate divided by
+the first would blame the cluster for time it did not spend generating.
+
+`scripts/watch_delegations.py` reads that stream: it lists what is in the transcript
+directory, follows the one you pick, and renders turns as a conversation rather than as
+JSON. It is owned by this document rather than its own, because a renderer and the format
+it renders are one decision — split across two documents, a renderer ends up describing a
+shape the writer no longer produces.
+
 ## Non-goals
 
 - **No standalone CLI.** The server speaks MCP only. Recorded here so nobody adds an
