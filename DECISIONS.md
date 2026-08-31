@@ -19,6 +19,43 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0042 — 2026-08-31 — A sixth tool, because a read-only delegation cannot be expressed as an argument — Accepted
+
+ADR-0005 fixed the surface at five and asked that a sixth be argued for. This is the
+argument.
+
+It is the second partial supersession of ADR-0005; ADR-0031 was the first, correcting the
+claim that agent files are portable. ADR-0005's heading names both.
+
+A client decides whether to stop and ask *before* a call runs, and the only thing it can
+read at that point is the tool's own annotation. MCP permission rules match on tool name
+and never inspect arguments, so `delegate(allowed_tools=[])` -- which is genuinely
+read-only -- is indistinguishable from `delegate()`, which hands the local model
+`write_file` and `run_bash`. A read-only *call* therefore cannot be expressed. Only a
+read-only *tool* can.
+
+That gap is not theoretical. Approving the prompt in plan mode approves the call, not its
+contents: the server is never told which mode the client is in, and a plain `delegate`
+approved during planning will write to the repository. Demonstrated before this was
+written, by delegating a write and finding the file.
+
+ADR-0005's reasoning survives whole. A new *kind* of delegated task -- review, migration,
+test-writing -- is still a markdown file, and `delegate_readonly` is not a new kind of
+task. It is the same task under a constraint the caller must be able to state in advance.
+No agent file can carry that constraint, because the annotation belongs to the tool the
+agent is reached through, and that tool can write.
+
+`allowed_tools` is fixed at `[]` rather than defaulted to it, and is not a parameter at
+all. An annotation a caller could falsify by passing an argument would be exactly the
+check that cannot fail, which this repository has already found four of.
+
+What this does not buy: it does not make plan mode read-only. It makes one tool read-only,
+so that anything which ran without approval wrote nothing. Approving a plain `delegate`
+still permits writes, and should.
+
+Review point: if MCP ever grows per-call annotations, or a client learns to gate on
+arguments, this tool becomes redundant and should go.
+
 ## ADR-0041 — 2026-08-30 — Bulk directories are covered and skipped, not the denylist — Accepted
 
 **Context.** `run_bash` was refused on every real project. The mount-level secret scan
@@ -1052,7 +1089,7 @@ The reference implementation of this feature has no validation whatsoever and wi
 read a private SSH key on request. Every refusal here returns an actionable message so
 the caller can retry with a valid path.
 
-## ADR-0005 — 2026-08-24 — Task shaping lives in agent definition files, not in more MCP tools — Partially superseded by ADR-0031
+## ADR-0005 — 2026-08-24 — Task shaping lives in agent definition files, not in more MCP tools — Partially superseded by ADR-0031 and ADR-0042
 
 Five tools total. A new kind of delegated task is a markdown file, not a code change
 and a release, and Claude is not shown a tool list that grows without bound. The files

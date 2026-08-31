@@ -30,6 +30,40 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #47 — 2026-08-31 — feat: read-only tools declare themselves to the client
+
+### Added
+- `backend_status` and `list_agents` carry the MCP `readOnlyHint` and `idempotentHint`
+  annotations. Claude Code's plan mode gates MCP calls regardless of an allow-list, because
+  a permission rule matches on tool name and cannot know whether a given call writes. With
+  the annotation it does know, and stops asking. Verified by measurement in both directions:
+  the same call in the same mode prompts without the annotation and does not with it.
+- `delegate_readonly`: `delegate` with `allowed_tools` fixed at `[]` rather than accepted
+  as an argument, declared `readOnlyHint` truthfully. One turn, `files[]` and nothing else,
+  no `write_file` and no `run_bash`. It exists because the annotation is per tool and the
+  permission layer never inspects arguments, so a read-only *call* cannot be expressed --
+  only a read-only tool. Sixth tool on the model-facing contract, paid because the
+  alternative was annotating something untrue.
+- ADR-0042, the argument ADR-0005 asked for before a sixth tool could arrive, and the
+  reason the count moved rather than the rule. `test_exactly_five_tools_are_declared`
+  became `test_exactly_six_tools_are_declared`; ADR-0005's heading records the
+  supersession and its body is untouched. The gap being closed is that approving a
+  delegation in plan mode approves the *call*, not its contents -- the server is never
+  told which mode the client is in, and a plain `delegate` approved during planning
+  writes to the repository. Demonstrated by delegating a write and finding the file,
+  before the ADR was written.
+
+- Two tests for it, both shown failing against deliberate breakage first: that it declares
+  no tools on the wire, checked in the dispatched request rather than in the resolved set;
+  and that its schema exposes no `allowed_tools`, since a parameter that could widen it
+  would make the annotation falsifiable by the caller.
+
+- A guard that the three delegate tools never carry that annotation. They hand the local
+  model `write_file` and `run_bash` whenever `allowed_tools` is unset, so a read-only claim
+  would be false in the way hardest to notice -- the client stops asking, the write still
+  happens, and nothing reports the contradiction. The guard was shown failing against a
+  deliberately mis-annotated `delegate` before being kept.
+
 ## #46 — 2026-08-31 — feat: an ADR heading may name more than one successor
 
 ### Changed
@@ -52,6 +86,7 @@ Older entries, in the previous flat format, are in
   the real function could only be exercised by mutating a tracked file — and the price was
   that those tests passed whether or not the rule they described still worked. In the file
   named after checks that cannot fail, that was one.
+
 
 ## #45 — 2026-08-31 — fix: delegate_batch reports progress every turn, not only when an item lands
 

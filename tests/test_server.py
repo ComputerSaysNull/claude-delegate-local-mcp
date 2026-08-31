@@ -403,13 +403,19 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_exactly_five_tools_are_declared():
-    """docs/AGENTS.md:17 promises five and no more, and this is what holds it to that.
+def test_exactly_six_tools_are_declared():
+    """docs/AGENTS.md promises this exact set, and this is what holds it to that.
 
-    The promise is the design: a new *kind* of delegated task is a markdown file, not a
-    sixth tool. Asserting the exact set rather than membership is deliberate -- a sixth
-    tool added without argument would otherwise pass, and the cost of that is paid by
-    every caller whose tool list grows, not by whoever added it.
+    The promise is the design: a new *kind* of delegated task is a markdown file, not
+    another tool. Asserting the exact set rather than membership is deliberate -- one
+    added without argument would otherwise pass, and the cost of that is paid by every
+    caller whose tool list grows, not by whoever added it.
+
+    It said five until `delegate_readonly`, which is the argument ADR-0005 asked this test
+    to force rather than a way around it: a read-only call cannot be expressed where
+    permission rules match on tool name and never inspect arguments, so the constraint has
+    to be a tool. Changing this number is the moment to write that argument down, and
+    ADR-0042 is where it went.
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -419,7 +425,8 @@ def test_exactly_five_tools_are_declared():
             return [t.name for t in await client.list_tools()]
 
     assert set(asyncio.run(go())) == {
-        "delegate", "delegate_to_agent", "delegate_batch", "list_agents", "backend_status",
+        "delegate", "delegate_readonly", "delegate_to_agent", "delegate_batch",
+        "list_agents", "backend_status",
     }
 
 
@@ -1020,6 +1027,12 @@ def test_the_ledger_agrees_with_the_model_when_the_model_is_right():
 # --- delegate_to_agent, delegate_batch, list_agents ---------------------------------------
 
 
+def build_default():
+    """A server on the default config, for tests that only read the declared tool surface."""
+    config = cfg()
+    return server.build(config, registry(entry()), DoubleCache(config, ok_handler("served-id-1")))
+
+
 def called(handler, tool, *, entries=None, config=None, **kwargs):
     """Call any tool over a real MCP session against a transport double."""
     config = config or cfg()
@@ -1410,3 +1423,84 @@ def test_a_delegation_that_fails_still_gives_its_slot_back():
     assert gate["per_entry"]["flash"]["inflight"] == 0
     # The marks are what the operator tunes from, so a failure must not erase them either.
     assert gate["peak_inflight_seqs"] >= 1
+
+
+# --- the read-only surface -----------------------------------------------------------------
+
+
+def test_delegate_readonly_offers_the_model_no_tools():
+    """The annotation is only true if the model is genuinely given nothing to call.
+
+    Asserted on the wire rather than on the resolved set, because what the model can ask
+    for is what was declared to it -- an empty set that still rendered a tool block would
+    be a read-only tool advertising a write.
+    """
+    sent: list[dict] = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(content="an answer"))
+
+    config = cfg()
+    mcp = server.build(config, registry(entry()), DoubleCache(config, handler))
+
+    async def go():
+        async with Client(mcp) as client:
+            return (
+                await client.call_tool("delegate_readonly", {"task": "explain this"})
+            ).data
+
+    asyncio.run(go())
+
+    assert sent, "nothing was dispatched"
+    assert not sent[0].get("tools"), (
+        f"delegate_readonly declared tools to the model: {sent[0].get('tools')}"
+    )
+
+
+def test_delegate_readonly_has_no_argument_that_could_widen_it():
+    """`allowed_tools` is fixed, not defaulted.
+
+    An annotation a caller could falsify by passing an argument is the check that cannot
+    fail: the client gates on the declaration, which is per tool, while the permission
+    layer never inspects arguments. So the parameter must not exist at all.
+    """
+    async def go():
+        async with Client(build_default()) as client:
+            return {t.name: t for t in await client.list_tools()}
+
+    tools = asyncio.run(go())
+    schema = tools["delegate_readonly"].inputSchema
+
+    assert "allowed_tools" not in schema.get("properties", {}), (
+        "delegate_readonly must not accept allowed_tools; it would let a caller widen "
+        "a tool the client has been told is read-only"
+    )
+
+
+def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
+    """The false-claim guard, and the reason this test is worth more than the feature.
+
+    `delegate`, `delegate_to_agent` and `delegate_batch` hand the model `write_file` and
+    `run_bash` whenever `allowed_tools` is unset. Marking any of them read-only would let
+    a client that gates writes on the annotation run one while believing nothing could be
+    written -- the failure mode is silent, and the annotation is trusted precisely because
+    it is rarely checked.
+    """
+    async def go():
+        async with Client(build_default()) as client:
+            return {t.name: t.annotations for t in await client.list_tools()}
+
+    seen = asyncio.run(go())
+
+    for name in ("backend_status", "list_agents", "delegate_readonly"):
+        assert seen[name] is not None and seen[name].readOnlyHint is True, (
+            f"{name} cannot write and must say so"
+        )
+    for name in ("delegate", "delegate_to_agent", "delegate_batch"):
+        annotations = seen[name]
+        claimed = annotations is not None and annotations.readOnlyHint is True
+        assert not claimed, (
+            f"{name} can be given write_file and run_bash, so it must never declare "
+            "itself read-only"
+        )

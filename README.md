@@ -8,7 +8,7 @@ refactors, first-pass review — costs cloud tokens even when the reasoning requ
 modest. This moves that class of work onto your own hardware, where it is effectively
 free, and keeps Claude for the parts that need it.
 
-**Status: early.** `delegate()`, `backend_status()`, `files[]` prefetch and the agentic
+**Status: early.** `delegate()`, `delegate_readonly()`, `backend_status()`, `files[]` prefetch and the agentic
 loop work end to end against a real endpoint. The sandbox and the agent roster do not.
 See [STATUS.md](STATUS.md) for where things stand and [PLAN.md](PLAN.md) for the route.
 
@@ -18,7 +18,9 @@ Two shapes of delegation, and the second is the interesting one:
 
 - **One-shot** — file contents are read *server-side* and inlined into a single prompt.
   The model answers; the bytes never enter Claude's context. Good for review, summary,
-  explanation.
+  explanation. `delegate_readonly()` is this shape guaranteed rather than chosen: it has
+  no tools at all and says so to the client, which is what lets a caller run it somewhere
+  a write would not be allowed.
 - **Agentic** — the local model gets its own `read_file`, `write_file` and `run_bash`, and
   iterates. It writes code, runs your test suite, reads the real failure, fixes it, and
   runs again — for as many turns as it needs, at **zero cloud token cost** — then hands

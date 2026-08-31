@@ -762,6 +762,47 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
             diagnostics=diagnostics, ctx=ctx,
         )
 
+    @mcp.tool(annotations={"readOnlyHint": True})
+    async def delegate_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
+        task: str,
+        files: list[str] | None = None,
+        model: str | None = None,
+        effort: str | None = None,
+        *,
+        max_tokens: int | None = None,
+        diagnostics: bool = False,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        """Hand one self-contained task to a local model that has no tools at all.
+
+        `delegate` with `allowed_tools=[]`, fixed rather than asked for. What it can do is
+        identical; what differs is what a caller can promise about it *before* it runs. It
+        is declared read-only, so a client that gates writes on that declaration can run it
+        where `delegate` has to stop and ask.
+
+        Use it for the read-heavy majority: explaining, summarising, first-pass review,
+        drafting an answer about code named in `files[]`. The model answers in one turn
+        from `files[]` and nothing else, so name everything it needs -- it cannot go
+        looking, and a gap shows up as a worse answer rather than as a request.
+
+        Reach for `delegate` when the work needs the model to read further on its own,
+        write a file, or run a command. This is not a cheaper `delegate`; it is a
+        narrower one, and asking it to edit something will produce a description of the
+        edit instead.
+        """
+        return await run_delegation(
+            cfg, registry, cache, windows, admission,
+            task=task, files=files, model=model, effort=effort,
+            # Fixed, never defaulted, and not exposed as an argument. `[]` resolves to the
+            # empty set where `None` resolves to everything available, and a caller has no
+            # way to widen it back. That is what makes the annotation above a property of
+            # the tool rather than a claim about how it is usually called -- an annotation
+            # a caller could falsify by passing an argument would be exactly the check
+            # that cannot fail.
+            allowed_tools=[], max_tokens=max_tokens,
+            diagnostics=diagnostics, ctx=ctx,
+        )
+
     def _load(agent_name: str, workdir: str | None) -> AgentSpec:
         try:
             return load_agent(cfg, agent_name, workdir)
@@ -939,7 +980,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
             **({"agent": agent.name} if agent else {}),
         }
 
-    @mcp.tool
+    @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
     async def list_agents(workdir: str | None = None) -> dict[str, Any]:
         """List the agents available to `delegate_to_agent`, and where each was found.
 
@@ -970,7 +1011,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
             "count": len(found),
         }
 
-    @mcp.tool
+    @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
     async def backend_status() -> dict[str, Any]:
         """Report whether each configured local model is reachable and serving what it should.
 
