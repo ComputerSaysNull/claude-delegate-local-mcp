@@ -403,13 +403,19 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_exactly_five_tools_are_declared():
-    """docs/AGENTS.md:17 promises five and no more, and this is what holds it to that.
+def test_exactly_six_tools_are_declared():
+    """docs/AGENTS.md promises this exact set, and this is what holds it to that.
 
-    The promise is the design: a new *kind* of delegated task is a markdown file, not a
-    sixth tool. Asserting the exact set rather than membership is deliberate -- a sixth
-    tool added without argument would otherwise pass, and the cost of that is paid by
-    every caller whose tool list grows, not by whoever added it.
+    The promise is the design: a new *kind* of delegated task is a markdown file, not
+    another tool. Asserting the exact set rather than membership is deliberate -- one
+    added without argument would otherwise pass, and the cost of that is paid by every
+    caller whose tool list grows, not by whoever added it.
+
+    It said five until `delegate_readonly`, which is the argument ADR-0005 asked this test
+    to force rather than a way around it: a read-only call cannot be expressed where
+    permission rules match on tool name and never inspect arguments, so the constraint has
+    to be a tool. Changing this number is the moment to write that argument down, and
+    ADR-0042 is where it went.
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -419,7 +425,8 @@ def test_exactly_five_tools_are_declared():
             return [t.name for t in await client.list_tools()]
 
     assert set(asyncio.run(go())) == {
-        "delegate", "delegate_to_agent", "delegate_batch", "list_agents", "backend_status",
+        "delegate", "delegate_readonly", "delegate_to_agent", "delegate_batch",
+        "list_agents", "backend_status",
     }
 
 

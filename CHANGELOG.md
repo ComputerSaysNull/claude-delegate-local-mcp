@@ -44,6 +44,15 @@ Older entries, in the previous flat format, are in
   permission layer never inspects arguments, so a read-only *call* cannot be expressed --
   only a read-only tool. Sixth tool on the model-facing contract, paid because the
   alternative was annotating something untrue.
+- ADR-0042, the argument ADR-0005 asked for before a sixth tool could arrive, and the
+  reason the count moved rather than the rule. `test_exactly_five_tools_are_declared`
+  became `test_exactly_six_tools_are_declared`; ADR-0005's heading records the
+  supersession and its body is untouched. The gap being closed is that approving a
+  delegation in plan mode approves the *call*, not its contents -- the server is never
+  told which mode the client is in, and a plain `delegate` approved during planning
+  writes to the repository. Demonstrated by delegating a write and finding the file,
+  before the ADR was written.
+
 - Two tests for it, both shown failing against deliberate breakage first: that it declares
   no tools on the wire, checked in the dispatched request rather than in the resolved set;
   and that its schema exposes no `allowed_tools`, since a parameter that could widen it
