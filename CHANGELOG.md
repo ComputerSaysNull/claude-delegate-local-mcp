@@ -30,6 +30,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #59 — 2026-09-01 — fix: refuse a keepalive that cannot hold the client's idle timer off
+
+### Fixed
+- `DELEGATE_KEEPALIVE_INTERVAL` above half the client's stdio idle timeout is now refused at
+  startup, beside the existing `turn_timeout`/`dispatch_timeout` rule. A one-shot sends
+  nothing but this heartbeat, and `#57` measured what happens when it does not arrive: the
+  caller abandons the call, **nothing reaches the server**, and the dispatch runs on holding
+  its admission slot until the work ends on its own. The server cannot detect that, so the
+  interval is the only thing standing between a long delegation and the lockout — which
+  makes it a correctness setting and startup the only place it can be checked.
+- Half rather than all of the timeout, so a beat lands twice inside every window and a late
+  one is still early. Both directions are tested: the largest legal value is accepted, since
+  a check that also refused it would be one nobody could satisfy by reading its error.
+
+### Added
+- `CLIENT_STDIO_IDLE_TIMEOUT`, a constant rather than a setting. It is a property of the
+  client, not of this server, and it was measured rather than read off a document.
+
 ## #58 — 2026-09-01 — docs: the stdio idle timeout, measured, and what the server never learns
 
 ### Added
