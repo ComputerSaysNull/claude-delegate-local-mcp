@@ -34,6 +34,43 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #67 — 2026-09-01 — feat: the documentation audit, in the format the local model can load
+
+- `.claude/agents/docs-audit.md` is Claude Code's format and this server cannot load it —
+  ADR-0031 names this repository's own agent files as the counter-example to portability.
+  Running the audit on the local model therefore meant restating its criteria in every call.
+  `docs-audit-local` is the same job in this server's format, so the criteria live in a file
+  that is reviewed once instead of retyped.
+- `effort: high`, which is not the obvious setting for comparison work. An A/B on the same
+  four documents, same prompt, only effort differing: both runs quoted accurately, but `low`
+  returned four instances of one violation while `high` returned three classes across three
+  documents, including a configuration default restated in prose. Comparison is retrieval
+  and `low` does it well; an audit is a search across violation types.
+- `allowed_tools: [read_file, run_bash]` so it can run the gate and check its own
+  quotations. It is told to match on normalised whitespace, because a passage wrapped
+  across a line break is invisible to a search for the contiguous phrase — the mistake that
+  turned four true quotations into a fabrication claim during the 2026-09-01 audit.
+- It is told to cite by quotation and not by line number. Neither route shows it one:
+  prefetch inlines raw text, and `read_file` paginates by character offset. Measured, the
+  numbers it estimates run 20-30% low and drift further with depth, while the quoted text
+  was exact every time.
+- Two corrections carried in from that audit: `docs/TROUBLESHOOTING.md`'s contract forbids
+  only a default, a schema or a value — reading it as "owns zero facts" produced seven false
+  positives — and the waiver count is anchored per commit rather than grepped over the log.
+- Both formats now sit in one directory, and **the two readers fail differently, both
+  quietly**. This server skips what it cannot parse, which is how the delegated route looked
+  unavailable to begin with. Claude Code does not skip this server's format: it loads the
+  file and ignores the frontmatter it does not know, so `allowed_tools` goes unapplied and
+  the named model is not the one that runs — the agent appears to work while running with a
+  budget and a toolset nobody chose. The agent body says to stop if it finds itself holding
+  tools it did not ask for. `CONTRIBUTING.md` records both failure modes, that the caller
+  says which agent they want, and that the arrangement is temporary. Its budget rises for
+  that note, with the reason in the header — which the check can read again since #62.
+- Smoke-tested through `delegate_to_agent` rather than only parsed: three turns, two shell
+  calls, and the server-captured ledger agreeing with the model's own account. One of those
+  calls failed, which is how the example in the agent came to say `python3` — the sandbox
+  has no `python` on PATH, and the first run spent a turn discovering it.
+
 ## #66 — 2026-09-01 — docs: two documents that restated what another one owns
 
 - README's "How it works" carried five product-plane facts in the words their owners use —
