@@ -34,6 +34,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #65 — 2026-09-01 — docs: three instructions that told an agent something false
+
+- CLAUDE.md said the head-node rule was enforced "on all four" surfaces "by one scanner",
+  and named `scan_text` as the thing to extend. There are five surfaces, and two scanners:
+  `scan_text` reads the commit message and a pull request title and body, while
+  `check_host_identifiers` reads files with its own matching loops. An agent following the
+  instruction literally would add a rule that never runs against code, docs or tests and
+  believe the opposite. The shared primitives are now named as the extension point, since
+  they are the only edit that reaches both.
+- CLAUDE.md gains the citation convention this audit needed and did not have. The
+  `host:port` predicate matches a four- or five-digit port, so citing a line in a file long
+  enough to have one is refused. The tempting fix — exempting names that end in a source
+  suffix — is refused here too, and the reason is written down: `.py` is a live TLD, so the
+  exemption would admit exactly the shape the predicate exists to catch. The convention is
+  the cheap side of that trade, and the entry cannot show the shape it forbids.
+- The docs-audit agent's waiver count was an unanchored `grep -c` over two hundred commit
+  bodies. It counted prose *about* the trailer as a trailer — six reported against three
+  written — and a total could not answer the question it was asked, which is per document.
+  Now read one commit at a time, anchored to the start of a line, and grouped.
+
 ## #64 — 2026-09-01 — fix: the delegate tool told the model it had no shell
 
 - `delegate`'s description said "It cannot run shell commands." `resolve_allowed(None, cfg)`
