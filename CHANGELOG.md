@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #60 — 2026-09-01 — docs: file the loop's missing heartbeat where a plan can be read
+
+### Added
+- `PLAN.md` records the one hole this week's measurements found and did not close: the
+  agentic loop reports at the top of each turn, so a single turn is silent for its whole
+  duration, bounded only by `turn_timeout` — which defaults to exactly the client's idle
+  timeout. It was written down in `#59`'s description and nowhere a plan can be read from,
+  which is the same mistake that raised this file's own budget once before.
+- The entry names the fix and the trap in it. Lowering the default would kill legitimate
+  work — one call has been measured generating for 1645s — so the answer is to give the
+  loop the one-shot's heartbeat, not a smaller budget. `#59`'s guard bounds an interval and
+  this path has no heartbeat to bound, so it cannot reach it.
+
 ## #59 — 2026-09-01 — fix: refuse a keepalive that cannot hold the client's idle timer off
 
 ### Fixed
