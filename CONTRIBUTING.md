@@ -147,7 +147,7 @@ catching what reaches GitHub even if a local hook was skipped.
 
 `.claude/agents/` holds the subagents used while working *on* this repository. Not shipped,
 and not the delegation agents in [docs/AGENTS.md](docs/AGENTS.md) — different thing, same
-file format.
+file format. A recipe inside one is run and believed, so it earns a check's scrutiny.
 
 <!-- GEN:AGENTS:START -->
 <!-- Generated from .claude/agents/*.md by scripts/gen_agents_docs.py. Change the frontmatter, not this. -->

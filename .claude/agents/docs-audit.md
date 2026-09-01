@@ -36,9 +36,15 @@ already catches. Your value is entirely in the judgements a script cannot make.
    product plane (`docs/`).
 5. **MISSING** — a module or behaviour with no documentation coverage at all. Check
    `PLAN.md` first: not-yet-built is not the same as undocumented.
-6. **ESCAPE ABUSE** — `git log --format=%B -200 | grep -c 'Docs-Gate-Skip'`. Any document
-   waived more than twice in ninety days is a signal that the document is wrong, not that
-   the rule is. Name it.
+6. **ESCAPE ABUSE** — read the trailers, one commit at a time, anchored to the start of a
+   line:
+   `git log --format=%H -200 | while read h; do git log -1 --format=%B "$h" |`
+   `grep -E '^Docs-Gate-Skip:'; done`
+   An unanchored `grep -c` over the whole log counts prose *about* the trailer as if it
+   were one — it reported six where three had been written — and a total count cannot
+   answer the question anyway, which is per document. Group what comes back by the
+   document each waiver names. Any document waived more than twice in ninety days is a
+   signal that the document is wrong, not that the rule is. Name it.
 7. **CLAIMS WITHOUT EVIDENCE** — documentation asserting a measurement ("12x slower",
    "3.9 bytes per token") that no ADR or JOURNAL entry substantiates. Numbers decay; an
    unsourced one cannot be rechecked.

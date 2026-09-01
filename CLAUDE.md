@@ -1,4 +1,4 @@
-<!-- BUDGET: 135 -->
+<!-- BUDGET: 144 -->
 # CLAUDE.md
 
 Traps and invariants for anyone — human or agent — editing this repository. Terse on
@@ -101,8 +101,17 @@ Rules a machine cannot check, so they land here:
 - `bwrap` needs `--symlink usr/lib64 /lib64`; without it nothing dynamically linked runs
   and the error blames the executable rather than the missing loader. (ADR-0021)
 - The head node is configuration. Never a literal in code, docs, tests, a commit message
-  or a pull request: addresses, private-network hostnames and `host:port` shapes are all
-  blocked on all four, by **one scanner**. Extend `scan_text`, never copy beside it.
+  or a pull request: addresses, private-network hostnames and `host:port` shapes are
+  blocked on all five. **By two scanners over shared primitives, not by one scanner.**
+  `check_host_identifiers` reads files; `scan_text` reads the commit message and a pull
+  request title and body. Extending either alone covers half of what this rule promises.
+  The primitives both call — the pattern table, the `host:port` predicate, the literal
+  splitter — are the place a new rule belongs, and the only place one edit reaches both.
+- **Cite a source line as the file name, the word `line`, then the number.** Joining the
+  two with a colon reads as a host and a port once the number reaches four digits, and is
+  refused — this rule cannot show you the shape it forbids, which is the point. Do not fix
+  it by exempting names ending in a source suffix: `.py` is a live TLD, so the exemption
+  would admit the exact shape the predicate exists to catch.
 - Local literals in `security/forbidden_strings.txt` match case-insensitively and as
   substrings. A multi-word entry matches only the contiguous phrase, so **list the
   distinctive parts separately too** — a full name alone will not catch a surname
