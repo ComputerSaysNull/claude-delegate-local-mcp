@@ -1243,14 +1243,29 @@ def test_a_batch_never_exceeds_the_endpoints_declared_concurrency():
     same assertion covers every path rather than this one.
     """
     live = {"now": 0, "peak": 0}
+    overlapped = asyncio.Event()
 
     async def handler(request):
         # `await`, not `time.sleep`: a blocking sleep pins the event loop, and every item
         # then runs one at a time whatever the semaphore does -- so the test would report
         # a bound that was really just a stalled loop.
+        #
+        # And an Event rather than a fixed sleep, because a sleep only *probably* overlaps.
+        # Each item waits here until a second one has arrived, which makes the overlap a
+        # fact rather than a race the scheduler usually wins. It stopped winning on CI the
+        # moment the suite went parallel: with workers competing for two cores, 0.02s
+        # elapsed before the next item was scheduled and this read peak == 1.
         live["now"] += 1
         live["peak"] = max(live["peak"], live["now"])
-        await asyncio.sleep(0.02)
+        if live["now"] >= 2:
+            overlapped.set()
+        try:
+            # Bounded, so a gate that really does admit one at a time fails on the
+            # assertion below rather than hanging the suite. The wait is then abandoned
+            # for every later item too, so the failure costs one timeout and not eight.
+            await asyncio.wait_for(overlapped.wait(), timeout=2)
+        except TimeoutError:
+            overlapped.set()
         live["now"] -= 1
         return httpx.Response(200, json=chat_reply(content="done"))
 
