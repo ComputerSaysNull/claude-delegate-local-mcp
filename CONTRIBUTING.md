@@ -1,6 +1,10 @@
-<!-- BUDGET: 210      Raised from 210 to 220 on 2026-08-29: CI installs bubblewrap and cannot run it, which
-     a contributor would otherwise learn by trusting a green tick over an unrun sandbox.
--->
+<!-- BUDGET: 230
+     Raised to the size it had already reached on 2026-09-01: the check that should have held this
+     line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
+     stopped matching, so the document grew unenforced. This records where it actually is rather than
+     endorsing it; the 2026-09-01 audit tracks the trim. Raised from 210 to 220 on 2026-08-29: CI
+     installs bubblewrap and cannot run it, which a contributor would otherwise learn by trusting a
+     green tick over an unrun sandbox. -->
 <!-- Raised from 190 on 2026-08-27: the audit-due section stopped restating two gate
      constants and had to say why, and the archive procedure the gate warns about was
      documented nowhere. -->

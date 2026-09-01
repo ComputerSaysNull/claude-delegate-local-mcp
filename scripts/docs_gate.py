@@ -677,7 +677,7 @@ def check_budgets() -> list[Finding]:
         text = p.read_text(encoding="utf-8", errors="replace")
         total = len(text.splitlines())
 
-        per_entry = re.search(r"<!--\s*BUDGET-PER-ENTRY:\s*(\d+)\s*-->", text)
+        per_entry = re.search(r"<!--\s*BUDGET-PER-ENTRY:\s*(\d+)", text)
         if per_entry:
             seen += 1
             cap = int(per_entry.group(1))
@@ -694,7 +694,7 @@ def check_budgets() -> list[Finding]:
                         f"same commit."))
             continue
 
-        m = re.search(r"<!--\s*BUDGET:\s*(\d+)\s*-->", text)
+        m = re.search(r"<!--\s*BUDGET:\s*(\d+)", text)
         if not m:
             continue
         seen += 1

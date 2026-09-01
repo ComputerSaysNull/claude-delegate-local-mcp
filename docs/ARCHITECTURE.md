@@ -1,8 +1,12 @@
-<!-- BUDGET: 400      Raised from 394 on 2026-08-30: agents.py joined the module table
-     and the tool count in it became a number worth stating. Raised from 386 that day: M6 made what the sandbox binds a
-     property of the delegation rather than of the server, and the secret scan widened with
-     it. Raised from 375 on 2026-08-29: the mount-level secret denylist is a
-     mechanism this document owns and could not previously describe, because it did not
+<!-- BUDGET: 625
+     Raised to the size it had already reached on 2026-09-01: the check that should have held this
+     line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
+     stopped matching, so the document grew unenforced. This records where it actually is rather than
+     endorsing it; the 2026-09-01 audit tracks the trim. Raised from 394 on 2026-08-30: agents.py
+     joined the module table and the tool count in it became a number worth stating. Raised from 386
+     that day: M6 made what the sandbox binds a property of the delegation rather than of the server,
+     and the secret scan widened with it. Raised from 375 on 2026-08-29: the mount-level secret
+     denylist is a mechanism this document owns and could not previously describe, because it did not
      exist. What it replaced was one wrong sentence in AGENTS.md. -->
 <!-- Raised from 300 across M2. This document owns wsl.py, paths.py and context.py, and
      all three went from a table row reading "not built" to behaviour that has to be

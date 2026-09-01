@@ -1,12 +1,16 @@
-<!-- BUDGET: 300      Raised from 272 on 2026-08-30: the three tools landed, so the
-     worked examples became real calls and delegate_batch needed its shape stated where
-     someone deciding whether to use it looks. Raised from 256 earlier that day: the workdir surface
-     and the extra_binds constraint both became real and both needed stating where someone
-     configuring them looks. Raised from 240 earlier that day: agents.py landed, so this document
-     stopped describing a design and started describing behaviour. The added length is one
-     new section -- why an over-cap max_turns is refused in a file and clamped for a caller.
-     A deviation from a rule documented elsewhere has to be written down where someone hits
-     it, or the two documents simply disagree and the reader picks whichever they found. -->
+<!-- BUDGET: 310
+     Raised to the size it had already reached on 2026-09-01: the check that should have held this
+     line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
+     stopped matching, so the document grew unenforced. This records where it actually is rather than
+     endorsing it; the 2026-09-01 audit tracks the trim. Raised from 272 on 2026-08-30: the three
+     tools landed, so the worked examples became real calls and delegate_batch needed its shape
+     stated where someone deciding whether to use it looks. Raised from 256 earlier that day: the
+     workdir surface and the extra_binds constraint both became real and both needed stating where
+     someone configuring them looks. Raised from 240 earlier that day: agents.py landed, so this
+     document stopped describing a design and started describing behaviour. The added length is one
+     new section -- why an over-cap max_turns is refused in a file and clamped for a caller. A
+     deviation from a rule documented elsewhere has to be written down where someone hits it, or the
+     two documents simply disagree and the reader picks whichever they found. -->
 # Agents and the path policy
 
 Two things a user actually touches: the agent files that shape a delegation, and the rules

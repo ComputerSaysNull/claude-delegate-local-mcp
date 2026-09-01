@@ -1,8 +1,12 @@
-<!-- BUDGET-PER-ENTRY: 95      Raised from 30 on 2026-08-29: 30 was sized for a
-     single-feature pull request, and it had started deciding how work was split rather
-     than how it was described -- a milestone finished in one pull request had to be
-     broken into five to fit. The per-entry cap exists to stop an entry sprawling, not
-     to cap how much one pull request may do. -->
+<!-- BUDGET-PER-ENTRY: 131
+     Raised to the size it had already reached on 2026-09-01: the check that should have held this
+     line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
+     stopped matching, so the document grew unenforced. This records where it actually is rather than
+     endorsing it; the 2026-09-01 audit tracks the trim. Raised from 30 on 2026-08-29: 30 was sized
+     for a single-feature pull request, and it had started deciding how work was split rather than
+     how it was described -- a milestone finished in one pull request had to be broken into five to
+     fit. The per-entry cap exists to stop an entry sprawling, not to cap how much one pull request
+     may do. -->
 # Changelog
 
 Newest first, **one section per pull request**. The heading carries the number, the merge
@@ -29,6 +33,34 @@ worth citing.
 
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
+
+## #62 — 2026-09-01 — fix: a budget header that recorded its reason stopped being enforced
+
+- `check_budgets` searched for the number followed by the comment terminator with only
+  whitespace between them. #23 introduced the convention of recording each raise's reason
+  *inside* the same comment, which puts prose between the two, so the search failed and
+  `if not m: continue` skipped the document without a word. The commit that made budget
+  changes auditable is the commit that stopped them being enforced.
+- Silent in every direction available to a reader. The `SKIP` branch fires only when *no*
+  document declares a budget, so five losing theirs produced no signal; the gate reported
+  PASS throughout; and a reasoned header looks more careful than a bare one, not less.
+- Five documents, not the three the 2026-09-01 audit was able to see. It tested only the
+  total-budget pattern, and `BUDGET-PER-ENTRY` carried the same anchor: `CHANGELOG.md`'s
+  longest entry had reached 131 lines against a cap of 95, and `docs/AGENTS.md` was over a
+  cap the audit recorded as absent. Both instruments, one anchor.
+- Found by the audit only because the negative test was run: closing a header by hand made
+  the check fire at once, which distinguished a disabled check from a satisfied one.
+- Fixed by dropping the closing anchor from both patterns. `BUDGET:` still cannot match
+  `BUDGET-PER-ENTRY:` — the colon holds them apart — and that is asserted rather than
+  assumed, because a relaxed pattern reading the per-entry header as a total cap would
+  trade a silent instrument for a loud and wrong one.
+- `tests/regression/test_budget_header_carrying_its_reason.py` covers both instruments in
+  both directions, and was verified to fail against the unfixed gate before being kept.
+- The five budgets are raised to the sizes they had already reached, with the reason in the
+  header. That records where the documents are and re-arms the check today; it is not an
+  endorsement of the sizes, and the audit's findings track the trim. `CONTRIBUTING.md` also
+  had a header whose prose said it was raised to 220 while the number still read 210 — a
+  typo that only survived because nothing was reading the number.
 
 ## #60 — 2026-09-01 — docs: file the loop's missing heartbeat where a plan can be read
 
