@@ -31,6 +31,15 @@ from typing import Any
 EFFORT_LEVELS = ("off", "low", "high", "max")
 TRANSPORTS = ("stdio", "streamable-http")
 
+# The client's stdio idle timeout, in seconds. Not ours to set and not a setting: it is a
+# property of Claude Code, measured on 2026-09-01 rather than read off a document. At this
+# many seconds of silence the client abandons the tool call and **nothing reaches the
+# server** -- no cancellation, no EOF -- so the dispatch runs on holding its admission slot
+# until it finishes on its own. The server cannot detect the condition; only sending
+# something prevents it, which is what makes the interval below a correctness setting.
+# (JOURNAL 2026-09-01, docs/DISPATCH.md)
+CLIENT_STDIO_IDLE_TIMEOUT = 1800
+
 # Fractions of the model's context window at which the agentic loop changes behaviour:
 # tighten retention, nudge the model to wrap up, then abort. Constants rather than
 # settings, for the same reason EFFORT_LEVELS is one -- they name three points on a single
@@ -334,9 +343,11 @@ class Config:
         "as a progress notification and to the transcript as an `alive` event. The loop "
         "reports once per turn (ADR-0018) and a one-shot has no turns, so without this it "
         "is silent for its whole duration -- which is the one call shape that can still "
-        "reach the client's 1800s stdio idle timeout and be abandoned while working. Must "
-        "stay well under that idle timeout; it is not a deadline and nothing is cancelled "
-        "when it passes.",
+        "reach the client's stdio idle timeout and be abandoned while working. That "
+        "abandonment was measured on 2026-09-01: nothing reaches the server, so it keeps "
+        "the admission slot until the work ends on its own. Refused at startup above half "
+        "the idle timeout for that reason. It is not a deadline, and nothing is cancelled "
+        "when the interval passes.",
         unit="seconds",
     )
     retry_max_attempts: int = _f(3, "Attempts on a retryable backend status.")
@@ -546,6 +557,19 @@ class Config:
                 f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}) exceeds "
                 f"DELEGATE_DISPATCH_TIMEOUT ({self.dispatch_timeout}): a single turn "
                 "could outlive the delegation containing it."
+            )
+        if self.keepalive_interval * 2 > CLIENT_STDIO_IDLE_TIMEOUT:
+            # Refused at startup rather than warned about, because the symptom it causes
+            # is invisible from here: the caller is told the call failed, the server keeps
+            # working, and the slot stays held until the work ends on its own. Half the
+            # timeout rather than all of it, so a beat lands twice inside every window and
+            # a late one is still early.
+            raise ConfigError(
+                f"DELEGATE_KEEPALIVE_INTERVAL ({self.keepalive_interval}) leaves no margin "
+                f"under the client's {CLIENT_STDIO_IDLE_TIMEOUT}s stdio idle timeout. A "
+                "one-shot sends nothing else, so at this interval the caller abandons the "
+                "call while the server works on, holding its admission slot. Use at most "
+                f"{CLIENT_STDIO_IDLE_TIMEOUT // 2}."
             )
         self._validate_retry()
         self._validate_overflow()

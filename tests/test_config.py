@@ -100,6 +100,30 @@ def test_a_turn_cannot_outlive_the_delegation_containing_it():
                      "DELEGATE_DISPATCH_TIMEOUT": "3600"})
 
 
+def test_a_keepalive_that_cannot_hold_the_idle_timer_off_is_refused():
+    """The interval is a correctness setting, and the failure it causes is invisible from
+    inside the server.
+
+    Measured 2026-09-01: at the client's idle timeout the caller abandons the call and
+    nothing reaches the server -- no cancellation, no EOF -- so the dispatch runs on
+    holding its admission slot until the work ends on its own. A one-shot sends nothing
+    but this heartbeat, so an interval that cannot beat inside the window silently buys
+    the lockout. Refusing at startup is the only place it can be caught.
+    """
+    with pytest.raises(config.ConfigError, match="leaves no margin"):
+        config.load({**ROOTS, "DELEGATE_KEEPALIVE_INTERVAL": "1700"})
+
+
+def test_a_keepalive_with_room_to_beat_twice_is_accepted():
+    """The other direction, and the boundary itself. Half the idle timeout is the rule, so
+    exactly half must pass -- a check that also refused the largest legal value would be
+    one nobody could satisfy by reading the error."""
+    half = config.CLIENT_STDIO_IDLE_TIMEOUT // 2
+    cfg = config.load({**ROOTS, "DELEGATE_KEEPALIVE_INTERVAL": str(half)})
+    assert cfg.keepalive_interval == half
+    assert config.load(dict(ROOTS)).keepalive_interval < half, "the default must pass too"
+
+
 def test_the_connect_phase_cannot_outlast_the_call_it_belongs_to():
     with pytest.raises(config.ConfigError, match="outlast"):
         config.load({**ROOTS,
