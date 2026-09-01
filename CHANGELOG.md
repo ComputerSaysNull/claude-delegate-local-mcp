@@ -34,6 +34,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #64 — 2026-09-01 — fix: the delegate tool told the model it had no shell
+
+- `delegate`'s description said "It cannot run shell commands." `resolve_allowed(None, cfg)`
+  returns everything available, which includes `run_bash` wherever bubblewrap is present, so
+  a plain `delegate()` call always could. The tool descriptions are the model-facing
+  contract, so this was a behaviour defect and not a wording one: a model that believes it
+  has no shell does not ask for one, and the turn it would have spent proving a change works
+  is spent describing it instead.
+- The description now says what the shell is and what it costs to use — a sandbox holding
+  nothing of the caller's and no network unless asked, `workdir` to bind something real to
+  build in, `allowed_tools` to take it away again, and absent entirely on a host without
+  bubblewrap. `delegate_readonly` is unaffected; it fixes an empty tool set by construction.
+- `docs/ARCHITECTURE.md` was right about the code and is unchanged on that point. Its
+  transcript section was not: it said nothing happens between `start` and `end` on the
+  one-shot path, which stopped being true when #54 began writing a synthetic turn so the
+  record could not be mistaken for the empty shape a failed delegation leaves.
+
 ## #63 — 2026-09-01 — fix: the turn limit was reported as unreached in the case it reports
 
 - The last turn is declared with no tools so the model cannot end on a call nobody will

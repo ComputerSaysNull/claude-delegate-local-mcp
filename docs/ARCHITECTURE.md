@@ -579,9 +579,9 @@ their reason: a file the caller believes it passed and the model never saw is th
 in that block worth interrupting a reader for.
 
 A one-shot writes a fourth kind of event, `alive`, and it is the only one that reports no
-work done. The other three mark something that happened; this one exists because on the
-one-shot path nothing happens between `start` and `end` — a single backend call, no turns —
-so a delegation working perfectly writes nothing for as long as it takes. It carries
+work done. The other three mark something that happened; this one exists because a one-shot
+is a single backend call with no turns, and a synthetic `turn` is written when the answer
+arrives so the record is never the empty shape a failed delegation has. It carries
 elapsed and the deadline elapsed is measured against, and deliberately not a description of
 what the model is doing: there is no streaming, so the server does not know. The same
 heartbeat sends the client's progress notification, because a silent stream and a silent
