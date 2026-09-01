@@ -808,9 +808,13 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
 
         The model works in turns, and can read and write files in the workspace itself.
         So `files[]` is a head start rather than the whole world: name what it obviously
-        needs, and let it find the rest. It cannot run shell commands. Path rules are the
-        same ones that govern `files[]`, and a write it is refused comes back to it as a
-        refusal it can correct, not as a failed call.
+        needs, and let it find the rest. It can also run shell commands, confined to a
+        sandbox that holds nothing of yours and has no network unless an agent asks for
+        one -- pass `workdir` to bind a directory it can actually build or test in. Narrow
+        that with `allowed_tools` when you want it reading only, and expect the shell to be
+        absent on a host without bubblewrap. Path rules are the same ones that govern
+        `files[]`, and a write it is refused comes back to it as a refusal it can correct,
+        not as a failed call.
 
         `model` names a registered model, defaulting to the configured one; `effort` sets
         reasoning effort explicitly, one of "off", "low", "high", "max". `allowed_tools`
