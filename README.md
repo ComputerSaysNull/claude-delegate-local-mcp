@@ -8,8 +8,6 @@ refactors, first-pass review — costs cloud tokens even when the reasoning requ
 modest. This moves that class of work onto your own hardware, where it is effectively
 free, and keeps Claude for the parts that need it.
 
-**Status: early.** `delegate()`, `delegate_readonly()`, `backend_status()`, `files[]` prefetch and the agentic
-loop work end to end against a real endpoint. The sandbox and the agent roster do not.
 See [STATUS.md](STATUS.md) for where things stand and [PLAN.md](PLAN.md) for the route.
 
 ## How it works
