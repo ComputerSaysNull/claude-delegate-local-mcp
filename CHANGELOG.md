@@ -34,6 +34,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #66 — 2026-09-01 — docs: two documents that restated what another one owns
+
+- README's "How it works" carried five product-plane facts in the words their owners use —
+  the server-side read, the agentic tool list and its zero cloud cost, the empty-root
+  sandbox and default-denied network, the refusal when bubblewrap is missing, and the
+  server-captured exit codes. Every copy agreed with its owner, so nothing was stale and no
+  reader was misled; the cost was drift, which is the whole reason the ownership scheme
+  exists. The manifest lets README name a fact and forbids restating it, so it now names
+  them and links. Three lines of headroom come back with it.
+- PLAN.md argued three decisions it does not own: why a condition variable rather than
+  semaphores acquired in turn (ADR-0038), why keying the slots file by endpoint digest was
+  rejected (ADR-0040), and why four items moved out of M3. Its contract is what is
+  intended, done or dropped, plus a pointer to the decision that explains it. Each now
+  points. What landed is still recorded — only the argument moved to where it is owned.
+
 ## #65 — 2026-09-01 — docs: three instructions that told an agent something false
 
 - CLAUDE.md said the head-node rule was enforced "on all four" surfaces "by one scanner",

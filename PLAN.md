@@ -87,9 +87,8 @@ Throwaway scripts, deliberately not shipped.
 
 Scoped down 2026-08-27 to what a one-shot dispatch can actually own. The four
 context-economics items moved to M4: they read conversation history, evictions and an
-action ledger, none of which exist until the turn loop and `tools.py` do, so building them
-here would have meant four commits whose only caller was a test and an `off by default`
-flag controlling nothing. The design work is not lost — it is recorded under M4.
+action ledger, none of which exist until the turn loop and `tools.py` do. The design work
+is not lost — it is recorded under M4.
 
 - ✅ 2026-08-27 Retry and backoff, honouring `Retry-After` — PR #15
 - ✅ 2026-08-27 Empty-answer detection, retry at the floor, effort step-down — PR #15
@@ -237,9 +236,7 @@ flag controlling nothing. The design work is not lost — it is recorded under M
 
 - ✅ 2026-08-30 Token-budget admission — four rules, high-water marks and wait totals.
   `admission.py`, one condition variable over plain counters checked as a single atomic
-  predicate rather than semaphores acquired in turn: a request that took a sequence slot
-  and then blocked on the large-prefill cap would hold capacity it is not using for the
-  whole wait, which ADR-0012 makes the normal case for big tasks. The endpoint's own
+  predicate; ADR-0038 records why that rather than semaphores acquired in turn. The endpoint's own
   `concurrency` became the fourth rule, replacing the semaphore local to `delegate_batch`
   that bounded a batch against itself and nothing else — a single `delegate` was never
   checked against it at all, while `max_inflight_seqs`' own description already said both
@@ -258,10 +255,9 @@ flag controlling nothing. The design work is not lost — it is recorded under M
   that was true only within a process. The predicate is evaluated *inside* the lock, since
   reading totals and deciding afterwards lets two processes see the same room and both take
   it. Records are keyed by `(pid, start_time)` and reclaimed on liveness, so a `kill -9`d
-  window leaks nothing and a recycled PID inherits nothing. Keying the file by endpoint
-  digest was designed and rejected: it stops sharing silently when a registry drifts, which
-  is this same bug with no symptom. Tested with two real processes and negative-tested
-  against a build with sharing removed (ADR-0040)
+  window leaks nothing and a recycled PID inherits nothing. Tested with two real processes
+  and negative-tested against a build with sharing removed; ADR-0040 carries the rejected
+  alternative and why it was rejected
 - ✅ 2026-08-30 Operator-level dispatch transcript to disk, independent of any caller-facing
   flag and stripped from the response. Both upstream bugs are defended by structure rather
   than by care: the record is assembled from identity captured before the attempt and

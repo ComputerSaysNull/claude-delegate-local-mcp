@@ -14,24 +14,23 @@ See [STATUS.md](STATUS.md) for where things stand and [PLAN.md](PLAN.md) for the
 
 Two shapes of delegation, and the second is the interesting one:
 
-- **One-shot** — file contents are read *server-side* and inlined into a single prompt.
-  The model answers; the bytes never enter Claude's context. Good for review, summary,
-  explanation. `delegate_readonly()` is this shape guaranteed rather than chosen: it has
-  no tools at all and says so to the client, which is what lets a caller run it somewhere
-  a write would not be allowed.
-- **Agentic** — the local model gets its own `read_file`, `write_file` and `run_bash`, and
-  iterates. It writes code, runs your test suite, reads the real failure, fixes it, and
-  runs again — for as many turns as it needs, at **zero cloud token cost** — then hands
-  back a result for Claude to review.
+- **One-shot** — the server reads the files you name and answers from them in a single
+  prompt, so their contents never reach your context. Good for review, summary and
+  explanation. `delegate_readonly()` is this shape guaranteed rather than chosen, which is
+  what lets a caller run it where a write would not be allowed.
+- **Agentic** — the local model gets its own tools and iterates: write, run the tests,
+  read the real failure, try again, at no cloud token cost, then hand back a result for
+  Claude to review.
 
-That second loop is why the shell exists, and why `run_bash` is confined by
-[bubblewrap](https://github.com/containers/bubblewrap) in an empty-root sandbox with the
-network off by default. If bubblewrap is unavailable the server **refuses** to run shell
-commands rather than running them unconfined.
+That second loop is why a shell exists, why it is confined by
+[bubblewrap](https://github.com/containers/bubblewrap), and why it is refused outright
+rather than run unconfined when bubblewrap is missing. The server also captures process
+exit codes itself rather than believing the model's account of them, which is what makes
+the loop's self-verification worth anything.
 
-The server also captures real process exit codes itself and reports them separately from
-whatever the model claims in its answer. Models misreport command outcomes; the whole
-self-verification idea collapses without a ground truth.
+How each of those works is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+[docs/DISPATCH.md](docs/DISPATCH.md); this file names them and links, and deliberately
+does not restate them.
 
 ## What it is not
 
