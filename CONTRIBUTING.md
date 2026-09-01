@@ -35,6 +35,15 @@ gate there scans the *previous* commit's message and carries its waiver into thi
 amend gets judged against its real parent -- see ADR-0028 for why that cannot simply be
 detected, and why a pass relying on it announces itself.
 
+**Amend with the editor, not with `-m`.** Git tells that hook where a message came from,
+and only an amend that *reuses* the existing one reports itself; `git commit --amend -m`
+is byte-for-byte indistinguishable from an ordinary `git commit -m`, so the commit is
+judged against HEAD and a commit that did update its owning document is blocked anyway.
+`git commit --amend` on its own is detected *and* lets the message change, which is the
+whole of what `--amend -m` was wanted for. The gate says this when it blocks, so nobody
+has to remember it -- but a `Docs-Gate-Skip` spent on that block is spent on a limitation
+rather than an exception, and one already was.
+
 ## Commits
 
 **One feature per commit: code, tests, documentation and CHANGELOG together.** Not
