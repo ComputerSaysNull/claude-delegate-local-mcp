@@ -290,15 +290,18 @@ dynamic content is free, because the tool results beside it were never cacheable
 
 Separately, and for a different reason, the server emits one **progress notification per
 turn**. Nothing renders it and the client cannot cancel a synchronous tool call through it,
-so it looks cosmetic and is not: it resets Claude Code's stdio idle timer. That timer is
-1800s against a `dispatch_timeout` defaulting to 3600s, so without the notification a long
-delegation is abandoned by the client while the server is still working on it. (ADR-0018)
+so it looks cosmetic and is not: it resets Claude Code's stdio idle timer, 1800s against a
+`dispatch_timeout` defaulting to 3600s. (ADR-0018)
 
 The one-shot path has no turns to hang that on, so it reports on a timer instead, every
 [`keepalive_interval`](CONFIGURATION.md). It is the only shape that goes silent at all --
-one was measured running 1645s with nothing sent between its start and its answer. Whether
-a client abandons such a call was not reproduced, so this guards a measured silence rather
-than a measured abandonment.
+one was measured running 1645s with nothing sent between its start and its answer.
+
+**Measured on 2026-09-01**, against a deliberately silenced two-item batch: at 1800s the
+client aborts and **nothing reaches the server** -- no cancellation, no EOF. It held both
+admission slots for 300s longer, until the work finished on its own, then carried on serving
+the same session. So `keepalive_interval` is a correctness setting rather than a convenience:
+the server cannot discover that nobody is listening, and sending something is the only guard.
 The same heartbeat writes an `alive` event to the stream, a silent stream and a silent wire
 being one problem from two sides. It carries elapsed and the deadline it is measured
 against, and **not** what the model is doing: there is no streaming, so the server does not

@@ -30,6 +30,52 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #58 — 2026-09-01 — docs: the stdio idle timeout, measured, and what the server never learns
+
+### Added
+- `tests/regression/test_a_cancelled_batch_holds_its_slots.py`. The incident behind `#45`
+  held two slots for 3616 seconds, and the abort measured clean on 2026-08-31 was a single
+  one-shot — the incident's shape was a batch, whose items run concurrently under
+  `asyncio.gather`, and nothing tested whether a cancellation reaches them. It does. Three
+  things make it work — `gather` is unshielded, the item wrapper catches only `ToolError`,
+  and `Admission.admit` releases in a `finally` — and shielding the items would look like a
+  fix for interleaved failures while silently restoring the lockout.
+
+### Changed
+- `docs/DISPATCH.md` no longer says a client abandoning a silent delegation is unreproduced.
+  It was reproduced on 2026-09-01 with a slow loopback stub standing in for the model, so
+  the wall clock was exact rather than a guess at how long a real model would choose to
+  talk — two earlier attempts missed at 1645s and 744s, the second because the model simply
+  finished the job. At 1800s the client aborts and **nothing reaches the server**: not a
+  cancellation, not an EOF. It held both admission slots for 304 seconds more until the work
+  finished on its own, then carried on serving the same session. So `keepalive_interval` is
+  a correctness setting rather than a convenience — the server cannot discover that nobody
+  is listening, and sending something is the only guard. Two journal entries carry the
+  detail, along with a third on a `.wslconfig` that answers a recurring `0xc0000142` on
+  unrelated Windows programs while WSL exhausts the commit limit.
+- `DELEGATE_TURN_TIMEOUT` defaults to 1800s, which is the quantity under test, so a one-shot
+  would be cut at the same instant the client gives up. Recorded in the journal because it
+  would have sunk a sixth attempt as quietly as it nearly sank the fifth.
+
+### Fixed
+- The first version of the cancellation test passed against a cancellation that never
+  reached the server. Cancelling the *client's* task looks like an abort but sends nothing:
+  the MCP SDK emits `notifications/cancelled` only from an explicit `Client.cancel`, never
+  on task cancellation and never on a read timeout — measured, both slots still held six
+  seconds later, the items cancelled only during event-loop shutdown, after the assertions
+  had been satisfied. The test now sends a real cancelled notification and snapshots every
+  fact inside the running loop. Every check in both of these sections was negative-tested
+  against the bug it names, per `CLAUDE.md`.
+- A negative test invalidated by its own bytecode cache, recorded in `JOURNAL.md`. The
+  harness that proves a check can fail edits a file in place and reverts it; one mutation
+  came to exactly the same byte count as the line it replaced and the revert landed inside
+  the same mtime tick, so Python validated the mutated `.pyc` against the restored source.
+  A test that had passed twenty minutes earlier then failed against a file that was correct
+  on disk. The verdicts were as suspect as the failure, so the whole negative-test result
+  was taken again with a fresh `PYTHONPYCACHEPREFIX` per run. It is the `(mtime, size)`
+  trap of `JOURNAL 2026-08-25` in a new place: anything that mutates a file and restores it
+  belongs in that category, not only generators comparing an artefact against its source.
+
 ## #56 — 2026-09-01 — feat: a transcript says which call it came from and what it was handed
 
 ### Added

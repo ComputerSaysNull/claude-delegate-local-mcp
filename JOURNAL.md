@@ -754,3 +754,106 @@ has not been tested: that was a `delegate_batch`, whose items run concurrently u
 `asyncio.gather`, and everything here was a single `delegate_readonly`. If cancelling the
 outer call does not reach gathered items, that would explain it and nothing above would have
 caught it. Next thing to try.
+
+## 2026-09-01 — A Windows program that will not start is this project's memory footprint
+
+A popup appeared claiming `curl.exe` "was unable to start correctly (0xc0000142)", at a
+moment when VS Code had also just died. Nothing in this repository invokes `curl.exe` —
+the only `curl` here is POSIX examples in `docs/` and the sandbox tests, and WSL is
+configured `appendWindowsPath=false` with `/usr/bin/curl` present, so `curl` inside WSL
+cannot reach the Windows binary. It was still this project's fault.
+
+The Windows System log named it directly. `Microsoft-Windows-Resource-Exhaustion-Detector`,
+event 2004, "low virtual memory", four times in an hour — 09:39, 09:56, 10:17:56, 10:34 —
+and every one of the four named **`vmmemWSL` as the top consumer**, 1.4–1.9 GB, ahead of
+two browsers. The 10:17:56 one lands 2m42s before the popup. Commit limit was 47.69 GB
+with 2.61 GB free, against 31.69 GB of RAM and a page file pinned at 16 GB rather than
+system-managed, so the limit could not grow under pressure.
+
+**The mechanism is that a newly launched process is the one that fails.** When free commit
+approaches zero, a process that is already running keeps running; one starting up cannot
+map what it needs and Windows reports exactly `0xc0000142`. So the program in the error
+message is not the cause — it is whatever started next. `curl.exe` was a bystander, and
+the editor dying in the same window is the same condition hitting something bigger. Any
+diagnosis that starts from the named program starts in the wrong place.
+
+There was no `%USERPROFILE%\.wslconfig` at all, so WSL2 ran on defaults: up to half of RAM
+and no reclaim of pages it has finished with. Capping it fixed the pressure —
+`memory=8GB`, `swap=8GB`, and `autoMemoryReclaim=gradual` with `sparseVhd=true`.
+
+**Two of those four keys are rejected under `[wsl2]`** on WSL 2.7.12 and belong under
+`[experimental]`. The rejection is one line on stderr from `wsl.exe`, easy to miss and
+easy to never see at all if the config is written between shutdowns; the cap then applies
+and the reclaim silently does not. Verify a `.wslconfig` by asking the VM what it got —
+`free -m` shows the cap took — rather than by reading the file back. It is the same shape
+as every other check here that could not fail.
+
+## 2026-09-01 — A negative test can be invalidated by its own bytecode cache
+
+The rule "negative-test every check" now has a trap of its own, and it is the 2026-08-25
+one wearing a different hat.
+
+The harness that proves a check can fail edits the file in place, runs the one test, and
+puts the original back. One mutation replaced
+
+    if isinstance(read := event.get("files_read"), list):
+
+with a two-line `if True:` equivalent that came to **exactly the same byte count**, and the
+revert landed inside the same mtime tick. Python validates a `.pyc` on `(mtime, size)`, so
+the bytecode compiled from the mutated source stayed valid against the restored file. The
+harness reported `FIRES`, correctly. Every later run in that interpreter then loaded the
+mutation instead of the code on disk, and a test that had passed twenty minutes earlier
+failed against a source file that was, and looked, correct.
+
+Two things worth keeping. **The verdict was as suspect as the failure** — a run that says
+`FIRES` from a stale cache proves nothing, so the whole negative-test result had to be
+thrown away and taken again. And the fix is the one already written down: give each child
+run a fresh `PYTHONPYCACHEPREFIX`. `-B` does not help; it stops writing bytecode, not
+reading a stale cache.
+
+Any tool that mutates a file and restores it belongs in this category, not just generators
+comparing an artefact against its source.
+
+## 2026-09-01 — The stdio idle timeout, reached at last, and what the server does not learn
+
+Five attempts across two days. The fifth row of the 2026-08-31 table is now filled in, and
+it is the row that explains the 3616-second incident.
+
+**What made it work was giving up on making a real model talk for long enough.** Two more
+attempts failed that way first: one asked for exhaustive per-symbol documentation of sixteen
+modules and finished in 744s at 42,033 output tokens with `finish_reason: stop`, having
+simply done the job. Generation time is the corpus times the rate, not the wording of the
+demand -- 1645s at 74,930 tokens once, 744s at 42,033 another, 45.5 and 63.7 tok/s. The
+throughput also caps the trick: at the fast end, `max_tokens_cap` of 131,072 buys about
+2058s, four minutes past the timeout.
+
+So the backend became a twenty-line loopback server that answers `/v1/models` at once and
+holds every completion for a fixed 2100 seconds. Everything under test stays real -- the
+client, the pipe, the server, admission, the transcript -- and only the token generator is
+fake. `DELEGATE_TURN_TIMEOUT` has to be raised for this: its default is **1800s, the very
+quantity being measured**, so a one-shot would be cut at the same instant the client gives
+up and the two would be indistinguishable. That alone would have sunk a sixth attempt.
+
+The measurement, from a two-item `delegate_batch` with `allowed_tools=[]` and the keepalive
+disabled, watched from outside the session every two seconds:
+
+| clock | what happened |
+| --- | --- |
+| 09:40:30 | both items admitted, `seqs=2`, both silent |
+| 10:10:30 | client aborts: "sent no response or progress for 1800s" |
+| 10:10:42 | server alive, **both slots still held**, backend still generating |
+| 10:15:30 | the stub answers, 2100s as instructed |
+| 10:15:34 | slots released, dispatch complete |
+| 10:16:34 | server still alive, and still serving this session |
+
+**Nothing reaches the server. Not a cancellation, not an EOF.** Five minutes of capacity
+held for a caller that had already been told the call failed, and the process then carried
+on normally -- `backend_status` answered on the same session immediately afterwards. So the
+fix is not "cancel in-flight work when the pipe closes", because the pipe does not close.
+The server cannot discover this condition at all; only sending something can prevent it.
+
+Two smaller things settled. The client's own error text names both knobs -- a per-server
+`timeout` in ms, or `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`, `0` to disable -- so the variable
+is real, and yesterday's "it had no observable effect at 120000" needs some other
+explanation. And a 744s silent call was not abandoned, which puts the floor on that timer
+above 744s and matches the documented 1800s exactly.
