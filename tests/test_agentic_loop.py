@@ -234,8 +234,16 @@ def test_the_turn_before_the_last_one_does_declare_them(registered):
 
 
 def test_an_answer_given_freely_does_not_report_the_turn_limit(registered):
+    """The answer must land *before* the last turn, or this tests nothing it claims.
+
+    It used to answer on turn 2 of 2 -- the final turn, whose toolset is withdrawn -- which
+    is the opposite of freely given, and it passed only because the flag then also required
+    a tool call the backend could not make. Three turns, answering on the second.
+    """
     backend = ScriptedTurns(wants(("echo", {})), says("done"))
-    assert run(backend, max_turns=2).hit_turn_limit is False
+    result = run(backend, max_turns=3)
+    assert result.turns == 2
+    assert result.hit_turn_limit is False
 
 
 # --- allowed_tools, both sites --------------------------------------------------------------
