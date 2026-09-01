@@ -159,7 +159,7 @@ Older entries, in the previous flat format, are in
   below is reachable, keeping the convention documented for the next subsystem rather than
   implying it is in use.
 
-## #49 — unreleased — fix: the delegation viewer is a session, not a single transcript
+## #49 — 2026-09-01 — fix: the delegation viewer is a session, not a single transcript
 
 ### Changed
 - `q` now leaves a transcript and returns to the list instead of ending the process. The
