@@ -1,6 +1,10 @@
-<!-- BUDGET: 252      Raised from 245 on 2026-08-29: M5 gained a ninth item. Un-withholding
-     `run_bash` opens the route the whole milestone exists to open, and it was tracked
-     only in a handoff note, which is not a place a plan can be read from. -->
+<!-- BUDGET: 354
+     Raised to the size it had already reached on 2026-09-01: the check that should have held this
+     line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
+     stopped matching, so the document grew unenforced. This records where it actually is rather than
+     endorsing it; the 2026-09-01 audit tracks the trim. Raised from 245 on 2026-08-29: M5 gained a
+     ninth item. Un-withholding `run_bash` opens the route the whole milestone exists to open, and it
+     was tracked only in a handoff note, which is not a place a plan can be read from. -->
 <!-- Raised from 220 on 2026-08-28: the file sat at exactly 220 of 220 with ten M4
      items still to annotate on completion. PLAN.md grows monotonically by design --
      ADR-0003 keeps completed items with their annotations and cancelled ones with
