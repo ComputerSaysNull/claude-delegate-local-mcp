@@ -520,6 +520,20 @@ of ADR-0039 rather than a reversal of it: that decision excluded file *bodies* a
 recoverable from the repository by path, and a reply is neither — it is small and exists
 nowhere else, which is the same argument ADR-0039 used to write the task verbatim.
 
+Both halves say **which call they came from and what it was handed**: `tool` is the tool the
+caller invoked, `tools` is the set that call resolved to, and the files are the prefetch
+accounting — paths and cost, never text. Two fields rather than one, because neither answers
+the other's question. `delegate_readonly` is `delegate` with the tool set fixed empty, so the
+two run an identical path and the shape cannot say which was called; and `delegate` alone
+does not say whether a loop ran, because a caller may pass `allowed_tools=[]` and get a
+one-shot. Until both were recorded, a read-only call, a `delegate_batch` item and a plain
+`delegate` wrote byte-identical transcripts — so a directory of them could not be counted by
+kind, which is what the records exist for. **Absent and empty are not interchangeable
+anywhere downstream:** a missing `tools` is a transcript written before the field existed and
+is reported as unknown, while an empty one is a one-shot. The files are in the stream as well
+as the record because the record is written when the work is over, and a reader asking what a
+delegation is chewing on is asking while it runs.
+
 Two intervals are recorded per turn and the difference between them is the point. `ms` is
 the turn's wall clock, including tool execution and any wait for a slot; `backend_ms` is the
 backend call alone. Tokens per second is taken from the second, because a rate divided by
@@ -547,6 +561,18 @@ opened, and unchanged files are then served from a cache keyed on `(mtime, size)
 unattended redraw over `/mnt/c` that re-read every file would make the viewer a load
 generator (ADR-0020). The listing shows the start clock and the last-write clock side by
 side, both converted to local time, because `at` is UTC and an mtime is not.
+
+The listing also names the **kind** of each call in one word — `delegate`, `readonly`,
+`agent`, `batch`, or `one-shot` for a `delegate` that was handed no tools — because that is
+the difference between two rows that otherwise look alike, and it decides which one is worth
+opening. Two facts share the column, since only one of them is ever a surprise: a read-only
+call is a one-shot by construction, so the shape is worth naming only where a `delegate`
+quietly ran as one. A transcript from before the field existed reads `?`. That is the point
+rather than a gap — every call once wrote `delegate` whether or not it was one, so defaulting
+an old row to `delegate` would reproduce exactly the confusion the column ends. Opening a
+transcript then shows the resolved tools and every file it was given, skipped ones named with
+their reason: a file the caller believes it passed and the model never saw is the one thing
+in that block worth interrupting a reader for.
 
 A one-shot writes a fourth kind of event, `alive`, and it is the only one that reports no
 work done. The other three mark something that happened; this one exists because on the

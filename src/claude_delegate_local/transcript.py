@@ -45,6 +45,7 @@ import logging
 import os
 import re
 import time
+from collections.abc import Iterable
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -103,11 +104,29 @@ class Stream:
             # working mid-delegation, and a failing write per turn is its own problem.
             self._broken = True
 
-    def start(self, *, tool: str, task: str, agent: str | None,
-              model_key: str | None, effort: str | None) -> None:
+    def start(  # noqa: PLR0913 -- one head of one stream, and every field of it is a
+        # separate fact about the call. Grouping them into an object would put the
+        # shape of the event in two places.
+        self, *, tool: str, task: str, agent: str | None,
+        model_key: str | None, effort: str | None,
+        tools: Iterable[str] = (), prefetched: Prefetch | None = None,
+    ) -> None:
+        """The head of the stream: which call this was, and what it was given.
+
+        `tool` is the tool the caller actually invoked, and `tools` is what that call
+        resolved to -- empty for a one-shot. Both are needed: `delegate_readonly` and
+        `delegate(allowed_tools=[])` run the identical path, so the shape does not say
+        which was called, and `delegate` alone does not say whether a loop ran.
+
+        The files are here rather than only in the record because the record is written
+        when the work is over. A reader asking "what is this delegation chewing on" is
+        asking while it runs, which is the one moment the record cannot answer.
+        """
         self._put({
             "t": "start", "at": datetime.now(UTC).isoformat(), "tool": tool,
             "task": task, "agent": agent, "model_key": model_key, "effort": effort,
+            "tools": sorted(tools),
+            **_files(prefetched),
         })
 
     def turn(self, diagnostic: Any, text: str, *, ms: int | None = None,
@@ -299,6 +318,8 @@ def write(  # noqa: PLR0913 -- one record's worth of facts, from four different 
     dispatched: Dispatch | AgenticDispatch | None,
     error: BaseException | None,
     started: float,
+    tool: str = "delegate",
+    tools: Iterable[str] = (),
 ) -> None:
     """Write one record. Never raises, never returns anything a response could carry.
 
@@ -319,6 +340,13 @@ def write(  # noqa: PLR0913 -- one record's worth of facts, from four different 
 
         record: dict[str, Any] = {
             "at": datetime.now(UTC).isoformat(),
+            # Which of the four delegating tools this was, and what it resolved to. Until
+            # these were recorded, a `delegate_readonly` call, a `delegate_batch` item and
+            # a plain `delegate` all wrote the identical record, so a directory of them
+            # could not be counted by kind -- and the totalling is what the records exist
+            # for.
+            "tool": tool,
+            "tools": sorted(tools),
             "agent": agent_name,
             "model_key": entry.key if entry else None,
             "served_model_id": entry.served_model_id if entry else None,

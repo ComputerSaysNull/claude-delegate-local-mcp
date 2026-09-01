@@ -45,13 +45,24 @@ def viewer():
     return mod
 
 
-def stream(directory: Path, started: datetime, task: str = "a task",
-           turns: int = 0, ended: bool | None = None) -> Path:
-    """One `.jsonl` named the way transcript.py names it, with events to match."""
+def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is a field
+    directory: Path, started: datetime, task: str = "a task",
+    turns: int = 0, ended: bool | None = None, *,
+    tool: str = "delegate", tools: list[str] | None = None,
+) -> Path:
+    """One `.jsonl` named the way transcript.py names it, with events to match.
+
+    `tools` defaults to absent rather than empty, which is what a transcript written
+    before the field existed looks like. The two are not interchangeable: absent means
+    unknown, empty means a one-shot.
+    """
     stamp = started.astimezone(UTC).strftime("%Y%m%dT%H%M%S.%f")[:-3]
     path = directory / f"{stamp}-0001-none.jsonl"
-    lines = [{"t": "start", "at": started.astimezone(UTC).isoformat(),
-              "tool": "delegate", "model_key": "m", "task": task}]
+    start = {"t": "start", "at": started.astimezone(UTC).isoformat(),
+             "tool": tool, "model_key": "m", "task": task}
+    if tools is not None:
+        start["tools"] = tools
+    lines = [start]
     for n in range(1, turns + 1):
         lines.append({"t": "turn", "at": started.astimezone(UTC).isoformat(), "turn": n})
     if ended is not None:
@@ -122,6 +133,75 @@ def test_a_row_carries_the_state_the_picker_renders(viewer, tmp_path):
     assert by_task["live one"]["turns"] == 2
     assert by_task["failed one"]["done"] is True and by_task["failed one"]["ok"] is False
     assert by_task["good one"]["done"] is True and by_task["good one"]["ok"] is True
+
+
+def test_the_list_says_which_kind_of_call_each_stream_was(viewer, tmp_path):
+    """The column exists because every kind used to render identically. A `readonly`, a
+    batch item and an agent run are different amounts of trust and different amounts of
+    money, and the list is where you choose which one to open."""
+    now = datetime.now(UTC)
+    stream(tmp_path, now - timedelta(minutes=5), "plain", tools=["read_file"])
+    stream(tmp_path, now - timedelta(minutes=4), "readonly",
+           tool="delegate_readonly", tools=[])
+    stream(tmp_path, now - timedelta(minutes=3), "agent", tool="delegate_to_agent")
+    stream(tmp_path, now - timedelta(minutes=2), "batch", tool="delegate_batch")
+    stream(tmp_path, now - timedelta(minutes=1), "silent one-shot", tools=[])
+
+    rows, _ = viewer.scan(tmp_path)
+    kinds = {row["task"]: viewer.kind_of(row) for row in rows}
+    assert kinds == {
+        "plain": "delegate",
+        "readonly": "readonly",
+        "agent": "agent",
+        "batch": "batch",
+        # A `delegate` handed no tools ran the one-shot path, whatever it was called.
+        "silent one-shot": "one-shot",
+    }
+
+
+def test_a_stream_from_before_the_tool_was_recorded_is_not_guessed_at(viewer, tmp_path):
+    """The negative direction, and the whole reason the column is trustworthy. Every
+    call once wrote `delegate` whether or not it was one, so defaulting an old row to
+    `delegate` would reproduce exactly the confusion this ends."""
+    path = tmp_path / "20260101T000000.000-0001-none.jsonl"
+    path.write_text(json.dumps(
+        {"t": "start", "at": "2026-01-01T00:00:00+00:00", "model_key": "m",
+         "task": "written before the field existed"}) + "\n", encoding="utf-8")
+
+    row = viewer.summarise(path)
+    assert viewer.kind_of(row) == "?"
+
+
+def test_opening_a_transcript_lists_the_files_it_was_given(viewer):
+    """What a delegation was handed was recorded only in the `.json` record, which the
+    viewer never opens -- and which does not exist until the work is over."""
+    lines = viewer.render({
+        "t": "start", "at": "2026-01-01T00:00:00+00:00", "tool": "delegate_readonly",
+        "task": "review this", "model_key": "m", "tools": [],
+        "files_read": [{"path": "/mnt/c/w/a.py", "given": r"C:\w\a.py",
+                        "bytes": 40, "est_tokens": 1200}],
+        "files_skipped": [{"path": "/mnt/c/w/b.py", "given": r"C:\w\b.py",
+                           "reason": "not text", "kind": "binary"}],
+        "prefetch_tokens": 1200,
+    }, 100)
+    screen = "\n".join(lines)
+
+    assert r"C:\w\a.py" in screen, "the path the caller wrote, not only the resolved one"
+    assert "1.2k" in screen, screen
+    assert "skipped" in screen and "not text" in screen
+    assert "none · one-shot" in screen, "a read-only call resolved to no tools"
+
+
+def test_a_transcript_with_no_files_recorded_shows_no_file_block(viewer):
+    """Absent is not empty. A delegation given no files and one whose files were never
+    written down are different facts, and rendering the second as the first would be a
+    quiet lie about an old transcript."""
+    screen = "\n".join(viewer.render(
+        {"t": "start", "at": "2026-01-01T00:00:00+00:00", "tool": "delegate",
+         "task": "no files here", "model_key": "m"}, 100))
+
+    assert "files:" not in screen
+    assert "tools:" not in screen
 
 
 def test_an_unchanged_file_is_not_read_twice(viewer, tmp_path, monkeypatch):

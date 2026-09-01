@@ -30,6 +30,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #56 — 2026-09-01 — feat: a transcript says which call it came from and what it was handed
+
+### Added
+- Both halves of a transcript — the stream and the record — now carry `tool`, the tool the
+  caller actually invoked, and `tools`, the set that call resolved to. Two fields because
+  neither answers the other's question: `delegate_readonly` is `delegate` with the tool set
+  fixed empty, so the two run an identical path and the shape cannot say which was called,
+  while `delegate` alone does not say whether a loop ran. Before this, a read-only call, a
+  `delegate_batch` item and a plain `delegate` wrote byte-identical transcripts, so a
+  directory of them could not be counted by kind — which is what the records exist for.
+- The stream's `start` event also carries the prefetch accounting: every file read with its
+  cost, and every file skipped with its reason. The record has held this since M4, and the
+  record is written when the work is over; a reader asking what a delegation is chewing on
+  is asking while it runs. Paths and cost only, never text (ADR-0039).
+- The viewer names the kind of each call in the listing — `delegate`, `readonly`, `agent`,
+  `batch`, or `one-shot` for a `delegate` handed no tools — and, on opening one, prints the
+  resolved tools and every file it was given. A skipped file is the one line in that block
+  rendered loud rather than dim: a file the caller believes it passed and the model never
+  saw is worth interrupting a reader for.
+
+### Changed
+- A stream's `tool` was derived from whether an agent was bound, so `delegate(agent_name=…)`
+  reported itself as `delegate_to_agent`. Each of the four tools now passes its own name and
+  the agent is recorded separately, which it always was.
+- Absent and empty are kept apart everywhere downstream. A missing `tools` is a transcript
+  written before the field existed and reads `?` in the listing; an empty one is a one-shot.
+  Defaulting an old row to `delegate` would have reproduced exactly the confusion the column
+  ends, since every call once wrote `delegate` whether or not it was one.
+
 ## #52 — 2026-09-01 — chore: the test suite runs in parallel by default
 
 ### Changed

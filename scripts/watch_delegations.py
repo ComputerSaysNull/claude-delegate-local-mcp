@@ -137,6 +137,63 @@ def _wrap(text: str, width: int, indent: str) -> list[str]:
     return out
 
 
+_KINDS = {
+    "delegate": "delegate",
+    "delegate_readonly": "readonly",
+    "delegate_to_agent": "agent",
+    "delegate_batch": "batch",
+}
+
+
+def kind_of(row: dict) -> str:
+    """What kind of call this was, in one word narrow enough for a column.
+
+    Two facts, one column, because only one of them is ever a surprise: `readonly` is a
+    one-shot by construction, so the shape is worth naming only when a `delegate` was
+    given no tools and quietly ran as one.
+
+    A transcript written before the tool was recorded says `?` rather than `delegate`.
+    Every call used to write `delegate` whether or not it was one, so guessing here would
+    reproduce the exact confusion this column exists to end.
+    """
+    tool = row.get("tool") or ""
+    if not tool:
+        return "?"
+    if tool == "delegate" and row.get("tools") == []:
+        return "one-shot"
+    return _KINDS.get(tool, tool)
+
+
+def _given(event: dict) -> list[str]:
+    """What the delegation was handed: the tools it resolved to, and every file.
+
+    Rendered only from fields that are present. An older transcript shows nothing here
+    rather than an invented "none" -- a delegation given no files and one whose files
+    were never written down are different facts, and the second must not read as the
+    first.
+    """
+    out: list[str] = []
+    if isinstance(tools := event.get("tools"), list):
+        named = ", ".join(tools) if tools else "none · one-shot"
+        out.append(f"{DIM}          tools: {named}{R}")
+    if isinstance(read := event.get("files_read"), list):
+        total = event.get("prefetch_tokens")
+        head = f"{len(read)} file{'' if len(read) == 1 else 's'}"
+        head += f" · {_tokens(total)} tokens" if isinstance(total, int) else ""
+        out.append(f"{DIM}          files: {head}{R}")
+        for item in read:
+            est = item.get("est_tokens")
+            out.append(f"{DIM}            {item.get('given') or item.get('path', '?')}"
+                       f"{'  ' + _tokens(est) if isinstance(est, int) else ''}{R}")
+    for item in event.get("files_skipped") or []:
+        # Loud, in a block that is otherwise dim. A file the caller believes it passed and
+        # the model never saw is the one thing here worth interrupting a reader for.
+        out.append(f"          {YELLOW}skipped{R} "
+                   f"{item.get('given') or item.get('path', '?')} "
+                   f"{DIM}{item.get('reason', 'no reason recorded')}{R}")
+    return out
+
+
 def render(event: dict, width: int) -> list[str]:
     """One event, as a block a person reads rather than a line a machine parses."""
     kind = event.get("t")
@@ -150,6 +207,7 @@ def render(event: dict, width: int) -> list[str]:
         head = f"{stamp}  {BOLD}{BLUE}{who}{R} {DIM}· {model} · effort {effort}{R}"
         return ["", f"{DIM}{'─' * width}{R}", head,
                 *_wrap(event.get("task", ""), width, "          "),
+                *_given(event),
                 f"{DIM}{'─' * width}{R}"]
 
     if kind == "turn":
@@ -243,7 +301,7 @@ def started_at(row: dict) -> float:
 def summarise(path: Path) -> dict:
     """One row for the picker, read cheaply: the head of the file plus its mtime."""
     row = {"path": path, "task": "", "model": "", "turns": 0, "done": False,
-           "created": created_at(path)}
+           "tool": "", "tools": None, "created": created_at(path)}
     try:
         with path.open(encoding="utf-8") as fh:
             for line in fh:
@@ -255,6 +313,10 @@ def summarise(path: Path) -> dict:
                     row["task"] = (event.get("task") or "").replace("\n", " ")
                     row["model"] = event.get("model_key", "")
                     row["at"] = event.get("at")
+                    row["tool"] = event.get("tool", "")
+                    # Absent and empty are kept apart on purpose: `kind_of` reports the
+                    # first as unknown and the second as a one-shot.
+                    row["tools"] = event.get("tools")
                 elif event.get("t") == "turn":
                     row["turns"] = event.get("turn", row["turns"])
                 elif event.get("t") == "end":
@@ -388,15 +450,16 @@ def pick(directory: Path) -> Path | None:
         head += f" · last {WINDOW_DAYS} days"
         head += f", newest {MAX_ROWS} of {len(rows) + trimmed}" if trimmed else ""
         print(f"{head}{R}")
-        print(f"{DIM} started   last      state        turns  task{R}")
+        print(f"{DIM} started   last      state        kind      turns  task{R}")
         for n, row in enumerate(rows):
             word, colour = state_of(row)
             task = row["task"][:60] or "(no task recorded)"
             # Pad the plain word, then colour it. Padding the coloured string counts the
             # escape bytes as width and the column stops lining up.
             state = f"{colour}{word:<11}{R}"
+            kind = f"{DIM}{kind_of(row):<8}{R}"
             line = (f" {_clock(started_at(row))}  {_clock(row['mtime'])}  {state} "
-                    f"{DIM}{row['turns']:>5}{R}  {task}")
+                    f"{kind} {DIM}{row['turns']:>5}{R}  {task}")
             print(f"{INVERT}{line}{R}" if n == i else line)
         if not rows:
             print(f"\n{DIM} nothing in the last {WINDOW_DAYS} days. "
