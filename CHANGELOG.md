@@ -54,6 +54,13 @@ Older entries, in the previous flat format, are in
   than a probability. Bounded, so a gate that genuinely serialises still fails the
   assertion instead of hanging. Exactly the latent flakiness the pyproject note said
   parallelism exists to surface — found by turning it on.
+- Three tests shared the machine's real `slots_dir`, which is the deeper cause and the one
+  that actually broke CI. Admission slots are counted machine-wide on purpose, so once the
+  suite runs in parallel the other pytest workers are competing for them: a batch that
+  should overlap two items saw a peak of one, and a delegation made to wait emitted an
+  extra `progress(0, 0)` from `ticked` that an exact-sequence assertion counted. Each now
+  runs in a directory of its own, the way the `backend_status` test already did — that
+  test's docstring had explained the hazard, and three others had not taken it.
 
 ## #54 — 2026-09-01 — feat: a one-shot delegation says it is still running
 

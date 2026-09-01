@@ -880,15 +880,20 @@ def test_a_host_without_bubblewrap_is_not_offered_run_bash(monkeypatch):
     assert declared == {"read_file", "write_file"}
 
 
-def test_progress_is_notified_to_the_client_once_per_turn():
+def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
     """ADR-0018, end to end. The client's stdio idle timer is what this resets, so a
     notification the loop emits but the session never sends would be no use at all.
 
     The tool call is one the path policy refuses, which is deliberate: a refusal is still a
     turn, it costs no filesystem, and what is under test here is the notification rather
     than the tool. Two turns must produce two notifications either way.
+
+    `slots_dir` is isolated for the same reason the batch-concurrency test isolates it:
+    the default is the machine's real one. A delegation that waits for a slot emits an
+    extra `progress(0, 0)` from `ticked`, so sharing the file with the other pytest
+    workers turns an exact-sequence assertion into a coin flip. Seen once under load.
     """
-    config = cfg(max_turns_default=4)
+    config = cfg(max_turns_default=4, slots_dir=str(tmp_path))
     mcp = server.build(
         config,
         registry(entry()),
@@ -916,10 +921,13 @@ def test_progress_is_notified_to_the_client_once_per_turn():
     assert {total for _, total in seen} == {4}, "the budget reported is the turn budget"
 
 
-def test_a_one_turn_delegation_still_notifies():
+def test_a_one_turn_delegation_still_notifies(tmp_path):
     """The other direction is not 'no notification' -- it is that the turn doing all the
-    waiting is exactly the one that must not be skipped."""
-    config = cfg()
+    waiting is exactly the one that must not be skipped.
+
+    `slots_dir` is isolated as above: a wait for a slot adds a notification this counts.
+    """
+    config = cfg(slots_dir=str(tmp_path))
     mcp = server.build(config, registry(entry()), DoubleCache(config, chat_handler(content="x")))
     seen = []
 
@@ -1234,13 +1242,20 @@ def test_an_empty_batch_is_refused():
         called(chat_handler(), "delegate_batch", tasks=[])
 
 
-def test_a_batch_never_exceeds_the_endpoints_declared_concurrency():
+def test_a_batch_never_exceeds_the_endpoints_declared_concurrency(tmp_path):
     """`concurrency` is one of the four rules the admission gate checks (ADR-0012).
 
     It used to be a semaphore local to this tool, which bounded a batch against itself
     and nothing else -- two batches, or a batch beside a plain `delegate`, could still
     exceed the limit it was reading. The bound now comes from the shared gate, so the
     same assertion covers every path rather than this one.
+
+    `slots_dir` is isolated for the reason the backend_status test gives: the default is
+    the machine's real one. Sharing it means this test's batch competes for the endpoint's
+    two slots with whatever else on the box is delegating -- and once the suite runs in
+    parallel, that includes the other pytest workers. Left at the default it read a peak
+    of one on CI and reported the code broken when the truth was that its slots had been
+    taken by a sibling process.
     """
     live = {"now": 0, "peak": 0}
     overlapped = asyncio.Event()
@@ -1271,7 +1286,7 @@ def test_a_batch_never_exceeds_the_endpoints_declared_concurrency():
 
     called(handler, "delegate_batch",
            entries=(entry(concurrency=2),),
-           config=cfg(max_batch_size=8),
+           config=cfg(max_batch_size=8, slots_dir=str(tmp_path)),
            tasks=[f"task {i}" for i in range(8)])
 
     assert live["peak"] <= 2, f"ran {live['peak']} at once against an endpoint declaring 2"
