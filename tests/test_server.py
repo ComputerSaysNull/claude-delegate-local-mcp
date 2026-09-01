@@ -1504,3 +1504,121 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
             f"{name} can be given write_file and run_bash, so it must never declare "
             "itself read-only"
         )
+
+
+# --- the one-shot keepalive ---------------------------------------------------------
+
+
+def slow_chat_handler(seconds: float, **over):
+    """A backend that takes its time, so a heartbeat has something to beat through."""
+    async def handler(request):
+        await asyncio.sleep(seconds)
+        return httpx.Response(200, json=chat_reply(**over))
+    return handler
+
+
+def one_shot_progress(config, *, seconds=0.35):
+    """Run delegate_readonly against a slow backend and collect what the client saw."""
+    mcp = server.build(config, registry(entry()),
+                       DoubleCache(config, slow_chat_handler(seconds)))
+    seen: list[tuple[float, float | None]] = []
+
+    async def on_progress(progress, total, message):
+        seen.append((progress, total))
+
+    async def go():
+        async with Client(mcp, progress_handler=on_progress) as client:
+            await client.call_tool("delegate_readonly", {"task": "q"})
+
+    asyncio.run(go())
+    return seen
+
+
+def test_a_slow_one_shot_keeps_the_client_informed():
+    """The gap ADR-0018 left open and `run_one_shot`'s own docstring named.
+
+    A one-shot is a single backend call with no turns, so the per-turn notification has
+    nothing to hang on and the call is silent for its whole duration. Measured on
+    2026-08-31 as the only remaining shape that can reach the client's stdio idle timeout
+    and be abandoned while working perfectly.
+    """
+    seen = one_shot_progress(cfg(keepalive_interval=1), seconds=2.5)
+    assert len(seen) >= 2, (
+        f"a one-shot lasting 2.5s past a 1s keepalive sent {len(seen)} notification(s)")
+
+
+def test_a_one_shot_that_returns_promptly_sends_nothing():
+    """The other direction. A notification per fast call is noise on the wire, and a
+    test that only asserted 'some progress' would pass on a heartbeat that never stopped.
+    """
+    assert one_shot_progress(cfg(keepalive_interval=30), seconds=0.05) == []
+
+
+def test_the_heartbeat_stops_when_the_dispatch_does():
+    """It runs beside the dispatch rather than inside it, so the risk is a task that
+    outlives what it was reporting on.
+
+    The waiting happens inside the event loop deliberately. Sleeping after `asyncio.run`
+    returns would prove nothing at all -- the loop is closed by then, so a leaked task
+    could not fire even if one had been left behind.
+    """
+    config = cfg(keepalive_interval=1)
+    mcp = server.build(config, registry(entry()),
+                       DoubleCache(config, slow_chat_handler(2.5)))
+    seen: list[float] = []
+
+    async def on_progress(progress, total, message):
+        seen.append(progress)
+
+    async def go():
+        async with Client(mcp, progress_handler=on_progress) as client:
+            await client.call_tool("delegate_readonly", {"task": "q"})
+            during = len(seen)
+            await asyncio.sleep(2.5)
+            return during, len(seen)
+
+    during, after = asyncio.run(go())
+    assert during, "nothing beat at all, so this cannot detect one that never stops"
+    assert after == during, "the heartbeat was still running after the dispatch ended"
+
+
+def test_the_heartbeat_reaches_the_transcript_as_well_as_the_wire(tmp_path):
+    """One mechanism, two readers. A stream silent for the whole of a long one-shot is
+    indistinguishable from one whose server was killed, which is how the viewer came to
+    call an abandoned delegation live."""
+    config = cfg(keepalive_interval=1, transcript_dir=str(tmp_path))
+    mcp = server.build(config, registry(entry()),
+                       DoubleCache(config, slow_chat_handler(2.5)))
+
+    async def go():
+        async with Client(mcp) as client:
+            await client.call_tool("delegate_readonly", {"task": "q"})
+
+    asyncio.run(go())
+    streams = list(tmp_path.glob("*.jsonl"))
+    assert len(streams) == 1
+    events = [json.loads(line) for line in streams[0].read_text(encoding="utf-8").splitlines()]
+    alive = [e for e in events if e.get("t") == "alive"]
+    assert alive, f"no alive event was written; got {[e.get('t') for e in events]}"
+    assert alive[0]["of_seconds"] == config.dispatch_timeout, (
+        "elapsed without the deadline it is measured against says nothing")
+    assert alive[0]["elapsed_seconds"] > 0
+    assert events[-1]["t"] == "end", "the heartbeat displaced the end event"
+
+
+def test_a_failing_heartbeat_does_not_take_the_delegation_with_it():
+    """It exists to protect a long delegation from being abandoned. One that instead
+    killed one -- because a notification could not be delivered, which is not even
+    evidence the client is gone -- would be strictly worse than not having it."""
+    config = cfg(keepalive_interval=1)
+    mcp = server.build(config, registry(entry()),
+                       DoubleCache(config, slow_chat_handler(2.5)))
+
+    async def exploding(progress, total, message):
+        raise RuntimeError("the client hung up")
+
+    async def go():
+        async with Client(mcp, progress_handler=exploding) as client:
+            return (await client.call_tool("delegate_readonly", {"task": "q"})).data
+
+    assert asyncio.run(go())["answer"] == "ok"

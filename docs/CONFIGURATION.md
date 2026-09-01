@@ -105,6 +105,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_CONNECT_TIMEOUT` | 30 seconds | Bound on the TCP-connect phase alone, separate from turn_timeout. A refused connection sends RST and fails in milliseconds without this, but a dropped or blackholed route sends nothing and would otherwise stall for the whole of turn_timeout before httpx gives up. |
 | `DELEGATE_DISPATCH_TIMEOUT` | 3600 seconds | Whole-delegation timeout, spanning every retry and every empty-answer recovery stage. Claude Code's own wall-clock MCP timeout defaults to about 28 hours so it is not the binding limit; its stdio IDLE timeout of 30 minutes is lower than this default, and the per-turn progress notification that answers that is ADR-0018, arriving with the turn loop. This bounds the wait, not the client's patience. |
 | `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 seconds | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, turn_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
+| `DELEGATE_KEEPALIVE_INTERVAL` | 60 seconds | How often a one-shot delegation reports that it is still running, to the client as a progress notification and to the transcript as an `alive` event. The loop reports once per turn (ADR-0018) and a one-shot has no turns, so without this it is silent for its whole duration -- which is the one call shape that can still reach the client's 1800s stdio idle timeout and be abandoned while working. Must stay well under that idle timeout; it is not a deadline and nothing is cancelled when it passes. |
 | `DELEGATE_RETRY_MAX_ATTEMPTS` | 3 | Attempts on a retryable backend status. |
 | `DELEGATE_RETRY_BASE_DELAY` | 1.0 seconds | Exponential backoff base. |
 | `DELEGATE_RETRY_MAX_DELAY` | 20.0 seconds | Cap on a single wait between attempts, including one the endpoint asked for via Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past anything turn_timeout was meant to bound, and the wait happens between requests where no HTTP timeout applies to it. Kept well under the stdio idle timeout even though ADR-0018's notification now holds that off: it fires once at the top of a turn, and this wait sits inside one, unobserved. |
@@ -153,6 +154,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
 | `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
 
-*55 settings.*
+*56 settings.*
 
 <!-- GEN:CONFIG:END -->

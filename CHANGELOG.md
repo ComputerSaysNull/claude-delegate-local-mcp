@@ -30,6 +30,51 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #54 — 2026-09-01 — feat: a one-shot delegation says it is still running
+
+### Added
+- A one-shot now reports itself on a timer, to the client as a progress notification and
+  to the transcript as an `alive` event carrying elapsed and the deadline elapsed is
+  measured against. ADR-0018 hangs its notification on a turn, and a one-shot is a single
+  backend call with no turns — so it is silent for its whole duration. Measured: one ran
+  1645s with nothing on the wire and nothing in its transcript between `start` and its
+  answer, which is also 27 minutes of a healthy delegation that the viewer would have
+  shown as `quiet`. `run_one_shot`'s own docstring had named this gap since M4.
+- **Not** measured, and the wording here was corrected to stop claiming otherwise: whether
+  a client actually abandons such a call. A shortened `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`
+  had no observable effect, and the run finished 155s short of the 1800s default, so the
+  timeout was never reached in either direction. What justifies this feature is the
+  silence, which is measured, plus the 3616s incident behind PR #45 — not a reproduction.
+- `DELEGATE_KEEPALIVE_INTERVAL`, default 60s. Not a deadline: nothing is cancelled when it
+  passes.
+- The `alive` event deliberately does not describe what the model is doing. There is no
+  streaming, so the server does not know, and a guess would be worse than the two numbers
+  it actually has. Recorded in `PLAN.md` against the cancelled streaming item: that
+  decision weighed only what the *caller* sees, and the transcript stream — a second
+  consumer, read while the delegation runs — was decided six days later.
+
+### Changed
+- `dispatch_delegation` was already given `report_progress` and dropped it on the one-shot
+  branch. It now forwards `on_alive` instead, which is a different shape on purpose: the
+  loop reports a turn number out of a turn budget, and a one-shot has neither.
+- One heartbeat serves the wire and the transcript, because a stream silent for forty
+  minutes and a wire silent for forty minutes are the same problem from two sides — and
+  the first is how the viewer came to call an abandoned delegation live.
+
+### Fixed
+- The heartbeat is the only concurrency in `loop.py`, and everything from `run_one_shot`
+  to the backend call is one sequential chain of awaits, so it runs beside that chain and
+  is torn down with it in a `finally`. A callback that raises stops the heartbeat and
+  nothing else: it exists to stop a long delegation being abandoned, and one that killed a
+  delegation instead — over a notification that could not be delivered, which is not even
+  evidence the client has gone — would be strictly worse than none.
+- Three of the six tests written for this passed against deliberately broken code before
+  being rewritten. Counting notifications through the MCP wire cannot see a leaked
+  heartbeat, because a stray `report_progress` after the request finishes goes nowhere; a
+  progress handler that raises on the *client* side never reaches the server's callback at
+  all; and the third asserted nothing whatsoever. All three now drive `run_one_shot`
+  directly and were confirmed to fire against the behaviour they replace.
+
 ## #51 — 2026-09-01 — fix: the gate blocked a correct amend without saying why
 
 ### Fixed

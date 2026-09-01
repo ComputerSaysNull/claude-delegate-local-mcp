@@ -666,3 +666,91 @@ The general lesson is not about pytest. Two figures for the same quantity, in th
 commit, and nobody noticed until the number had to be used for something. A measurement
 recorded without saying what was measured decays into a number that looks authoritative and
 cannot be checked.
+
+## 2026-08-31 — What a client actually does when it abandons a delegation
+
+`#45` fixed a batch that looked dead. The open question it left was whether a client
+giving up ever reaches the running dispatch, and the honest answer written down at the
+time was "no evidence either way". Five paths, four measured against the live server and
+one still inferred:
+
+| the client | cancel sent | server process | slot | the work |
+| --- | --- | --- | --- | --- |
+| Esc, or stopping the task | yes | survives | freed in <2s | record written |
+| its tool timeout fires | yes | survives | freed at 119.7s | record written |
+| its window is closed | no | killed with the tree | orphaned, inert | lost |
+| its terminal is closed | no | killed with the tree | orphaned, inert | lost |
+| its stdio idle timeout | *never reached* | — | — | — |
+
+Cancellation works, completely. `notifications/cancelled` reaches the coroutine as
+`CancelledError`, so `Admission.admit`'s `finally` releases and `transcript.write` runs:
+one record read `ok: false, error_type: CancelledError, elapsed_seconds: 119.714` with the
+cancel attributed to `ServerSession._receive_loop`. Nothing needs building for that.
+
+A disconnect, separately, reaches the coroutine as **nothing at all** — no exception, no
+`finally`. FastMCP does notice the EOF and starts shutting down, but waits for the
+in-flight tool first: idle it exits in ~0.2s, with a 6s tool running it exits the instant
+that tool returns. `ctx.report_progress` also keeps succeeding after the pipes are closed,
+so it is not a liveness signal and guarding it buys nothing. Probed with a throwaway
+one-tool stdio server, which is the only way to see any of this.
+
+**The conclusion that matters is a negative one.** A capacity leak needs the server to stay
+alive while nobody is waiting, and every measured way a client departs *kills* the server —
+so no EOF ever arrives at a surviving process, and the drain above cannot bite. Killing it
+is clean besides: the backend stops generating, and the orphaned slot record is inert
+because readers drop dead records, with the next real admission rewriting the file.
+
+So the only shape that can still leak is a client that lives and stops caring, which is the
+idle timeout alone — and the reason a one-shot can reach it is that `run_one_shot` sends no
+progress at all, unlike the batch and turn paths `#45` covered.
+
+**The idle timeout resisted being measured**, and the attempt is worth recording so the
+next one starts further along. `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` set to 120000 had no
+observable effect: a one-shot went 1645s with nothing on the wire and finished normally,
+155s short of the 1800s default. One hypothesis, from a third-party summary rather than a
+probe, is that a per-server `timeout` acts as a *floor* so idleness cannot kill sooner —
+though this server's entry sets no such field, which would make it a default floor rather
+than a configured one. Unresolved. What is certain is that the 3616s incident happened, and
+that nothing reproduced here explains it yet.
+
+Two things this cost, worth not repeating. Reasoning about which of `--amend`'s forms, or
+which disconnect, "obviously" behaves like another was wrong every time it was tried; each
+row above changed the plan when it landed. And the price of a killed dispatch is not the
+tokens, it is that the stream holds only its `start` line — no turns, no `end`, no record —
+so an abandoned delegation is unrecoverable and, until this was fixed, was listed as live
+for ever.
+
+## 2026-08-31 — The per-server `timeout` is a wall clock, not an idle timer
+
+Measured because two plausible readings disagreed and the difference decides whether a
+keepalive can save a call. A third-party summary said a per-server `timeout` acts as a
+*floor* on idleness -- "never kill faster than that value" -- and ADR-0018 filed the same
+field as the knob for the idle timeout. Both are wrong in the same direction.
+
+With `"timeout": 30000` on the server entry and `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=120000`
+set globally, the same delegation twice:
+
+| run | keepalive | died at | client said |
+| --- | --- | --- | --- |
+| A | off | 29.75s | "sent no response or progress for 30s" |
+| B | every 20s | 29.70s | "timed out after 30s" |
+
+Run B sent an `alive` at 20.021s -- confirmed in the transcript -- and died anyway, ten
+seconds later. A progress notification does not extend it. So the field is a **wall-clock
+cap on one tool call**, the two messages are one mechanism with different diagnostics, and
+120000 lost to 30000 rather than flooring it. A floor would have given 120s.
+
+`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` remains undemonstrated: at 120000 it never fired, and a
+silent one-shot ran 1645s straight through it. Whatever governs idleness here, that variable
+did not, and no reading of it has been confirmed by anything.
+
+The consolation is that none of it leaks. Every abandonment measured today -- explicit stop,
+wall-clock timeout, silent-run timeout -- arrives as `CancelledError`, releases the admission
+slot inside two seconds, and writes its record. Only a killed *process* loses work.
+
+**The incident that started this is still unexplained.** 3616 seconds of a held slot needs a
+path where cancellation does not arrive, and every path tried today cancels. One difference
+has not been tested: that was a `delegate_batch`, whose items run concurrently under
+`asyncio.gather`, and everything here was a single `delegate_readonly`. If cancelling the
+outer call does not reach gathered items, that would explain it and nothing above would have
+caught it. Next thing to try.

@@ -544,6 +544,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     *,
     effort: str | None = None,
     max_tokens: int | None = None,
+    on_alive: Callable[[float, int], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
@@ -561,10 +562,11 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     bound the timeout times the number of stages.
 
     What this bounds is a wait, not the client's idle timeout. The default is 3600s against
-    Claude Code's 1800s stdio idle timeout, so a delegation can still be abandoned by the
-    client while this is perfectly happy. ADR-0018's per-turn progress notification is what
-    addresses that, and there are no turns here to report -- which is the honest reason this
-    path cannot hold the client open, and a reason to prefer the loop for long work.
+    Claude Code's 1800s stdio idle timeout, so a delegation could be abandoned by the client
+    while this is perfectly happy. ADR-0018's per-turn progress notification is what answers
+    that on the loop path, and there are no turns here to report -- so `on_alive` reports on
+    a timer instead. Without one supplied this path is silent for its whole duration, which
+    is the one call shape measured as still able to reach that idle timeout.
     """
     resolved = resolve_effort(cfg, entry, effort)
     deadline = clock() + cfg.dispatch_timeout
@@ -577,11 +579,59 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
             temperature=cfg.one_shot_temperature,
         )
 
-    return await dispatch_with_recovery(
-        cfg, entry, backend, request_at,
-        effort=resolved, max_tokens=max_tokens,
-        sleep=sleep, deadline=deadline, clock=clock,
-    )
+    async def dispatch() -> Dispatch:
+        return await dispatch_with_recovery(
+            cfg, entry, backend, request_at,
+            effort=resolved, max_tokens=max_tokens,
+            sleep=sleep, deadline=deadline, clock=clock,
+        )
+
+    if on_alive is None:
+        return await dispatch()
+
+    # The only concurrency in this module. Everything from here down to the backend call
+    # is one sequential chain of awaits, so a heartbeat cannot be another `await` inside
+    # it -- it has to run beside the chain and be torn down with it. The `finally` is what
+    # makes that safe: cancel, then await the cancellation, so no task outlives the
+    # dispatch it was reporting on.
+    beat = asyncio.create_task(_keepalive(cfg, on_alive, clock))
+    try:
+        return await dispatch()
+    finally:
+        beat.cancel()
+        try:
+            await beat
+        except asyncio.CancelledError:
+            # Ours, not the caller's. A cancelled dispatch reaches this `finally` too, and
+            # re-raising here would replace whatever actually ended the delegation.
+            pass
+
+
+async def _keepalive(
+    cfg: Config,
+    on_alive: Callable[[float, int], Awaitable[None]],
+    clock: Callable[[], float],
+) -> None:
+    """Say the delegation is still running, on a timer, until cancelled.
+
+    Sleeps on `asyncio.sleep` rather than the injected `sleep` seam the retry path uses.
+    That seam is stubbed instantly in tests, which would turn this into a busy loop
+    hammering the callback while the test waited on something else.
+
+    A failing callback stops the heartbeat and nothing else. It exists to protect a long
+    delegation from being abandoned, and a heartbeat that instead killed one -- because a
+    notification could not be delivered, which is not even evidence the client is gone --
+    would be strictly worse than not having it.
+    """
+    started = clock()
+    while True:
+        await asyncio.sleep(cfg.keepalive_interval)
+        try:
+            await on_alive(clock() - started, cfg.dispatch_timeout)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return
 
 
 # --- the turn loop ------------------------------------------------------------------------

@@ -328,6 +328,17 @@ class Config:
         "arriving with the turn loop. This bounds the wait, not the client's patience.",
         unit="seconds",
     )
+    keepalive_interval: int = _f(
+        60,
+        "How often a one-shot delegation reports that it is still running, to the client "
+        "as a progress notification and to the transcript as an `alive` event. The loop "
+        "reports once per turn (ADR-0018) and a one-shot has no turns, so without this it "
+        "is silent for its whole duration -- which is the one call shape that can still "
+        "reach the client's 1800s stdio idle timeout and be abandoned while working. Must "
+        "stay well under that idle timeout; it is not a deadline and nothing is cancelled "
+        "when it passes.",
+        unit="seconds",
+    )
     retry_max_attempts: int = _f(3, "Attempts on a retryable backend status.")
     retry_base_delay: float = _f(1.0, "Exponential backoff base.", unit="seconds")
     retry_max_delay: float = _f(
@@ -509,6 +520,7 @@ class Config:
             "dispatch_timeout",
             "run_bash_timeout",
             "status_probe_timeout",
+            "keepalive_interval",
             "admission_wait_timeout",
             "max_inflight_seqs",
             "kv_token_budget",

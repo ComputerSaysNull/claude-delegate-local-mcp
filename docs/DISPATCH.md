@@ -1,4 +1,10 @@
-<!-- BUDGET: 400 -->
+<!-- BUDGET: 415 -->
+<!-- Raised from 400 on 2026-08-31: the one-shot keepalive, which is a mechanism this
+     document owns and did not previously exist. Two paragraphs of duplication were
+     removed first -- the 3600s/1800s pair had been stated in two sections -- and the
+     addition still did not fit. Weighed against a split and rejected: the keepalive is
+     the same subject as the per-turn notification it stands in for, and separating them
+     would put one idle-timeout answer in each of two documents. -->
 <!-- Raised from 180 on 2026-08-28: the turn loop landed and brought five
      mechanisms with it -- turns, eviction, dedup, countdown, progress. The room the
      2026-08-27 split left was measured against a loop that had not been written.
@@ -120,12 +126,10 @@ still outlived what the operator allows. Sending someone to check the cluster ov
 deadline is the wrong diagnosis, and the message names the elapsed time, the setting, and
 which stage was running.
 
-**What this does not do** is keep a delegation inside the client's idle timeout. The default
-is 3600s against Claude Code's 1800s stdio idle timeout, so the client can abandon a
-delegation this bound is still happy with. The per-turn progress notification is what
-addresses that (ADR-0018), and it is emitted by the turn loop below -- so the one-shot path,
-having no turns, cannot hold the client open at all. This bound turns an unbounded wait into
-a bounded one, attributed to the setting that caused it, and claims nothing more.
+**What this does not do** is keep a delegation inside the client's idle timeout -- the
+client can abandon one this bound is still happy with. That is what the notification and
+keepalive below are for. This turns an unbounded wait into a bounded one, attributed to the
+setting that caused it, and claims nothing more.
 
 ## The reply budget is resolved once, most specific first
 
@@ -288,9 +292,23 @@ Separately, and for a different reason, the server emits one **progress notifica
 turn**. Nothing renders it and the client cannot cancel a synchronous tool call through it,
 so it looks cosmetic and is not: it resets Claude Code's stdio idle timer. That timer is
 1800s against a `dispatch_timeout` defaulting to 3600s, so without the notification a long
-delegation is abandoned by the client while the server is still working on it. This is what
-the one-shot path above cannot do, and the reason to prefer the loop for long work.
-(ADR-0018)
+delegation is abandoned by the client while the server is still working on it. (ADR-0018)
+
+The one-shot path has no turns to hang that on, so it reports on a timer instead, every
+[`keepalive_interval`](CONFIGURATION.md). It is the only shape that goes silent at all --
+one was measured running 1645s with nothing sent between its start and its answer. Whether
+a client abandons such a call was not reproduced, so this guards a measured silence rather
+than a measured abandonment.
+The same heartbeat writes an `alive` event to the stream, a silent stream and a silent wire
+being one problem from two sides. It carries elapsed and the deadline it is measured
+against, and **not** what the model is doing: there is no streaming, so the server does not
+know. Nothing is cancelled when the interval passes.
+
+It is the only concurrency in `loop.py`, the path from `run_one_shot` to the backend call
+being one sequential chain of awaits: it runs beside that chain, cancelled and awaited in a
+`finally`, so none outlives its dispatch. A callback that raises stops the heartbeat alone
+-- one that killed a delegation over an undeliverable notification would be worse than
+none.
 
 The notification is injected into `loop.py` as a callable rather than imported, so the
 dispatch layer holds no MCP imports and a test can watch the calls without a client — the
