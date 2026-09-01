@@ -2,24 +2,40 @@
 """Pick a delegation from the transcript directory and follow it as it happens.
 
 Run it with no arguments: it lists what is there, newest first, live ones marked. Arrow
-keys and Enter choose one; Ctrl-C stops following and exits. Open a second terminal tab
-and run it again to watch two at once -- it holds no lock and writes nothing.
+keys and Enter choose one; `q` leaves a transcript and comes back to the list, so one run
+watches a whole session rather than one dispatch. Ctrl-C quits from anywhere. Open a
+second terminal tab and run it again to watch two at once -- it holds no lock and writes
+nothing.
 
 Reads the `.jsonl` stream a dispatch appends to while it runs. The `.json` record beside
 it is the finished summary and is not what this follows: a record that exists only once
 the work is over cannot answer "is it stuck".
+
+The follow view prints and never repaints, so the terminal's own scrollback holds
+everything you have watched -- including after you return to the list. That is why
+nothing here uses the alternate screen buffer or `ESC[3J`, both of which would throw
+that away.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import select
 import sys
-import termios
 import time
-import tty
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
+
+try:
+    import termios
+    import tty
+except ImportError:
+    # Windows. The viewer is run through WSL like everything else that touches the
+    # server, and guarding here rather than at the top is what lets the test suite --
+    # which runs on the Windows interpreter -- import the parsing functions at all.
+    termios = tty = None
 
 def _transcript_dir() -> str:
     """Where the server writes, found the way the server finds it.
@@ -45,6 +61,16 @@ def _transcript_dir() -> str:
 
 TRANSCRIPT_DIR = _transcript_dir()
 
+WINDOW_DAYS = 7          # how far back the list reaches
+MAX_ROWS = 200           # backstop under the window, for a runaway day
+REFRESH_SECONDS = 2.0    # unattended redraw of the list
+POLL_SECONDS = 0.3       # how often a live stream is checked for new lines
+STALL_SECONDS = 120      # silence after which an unfinished stream stops claiming "live"
+
+# Home, then erase forward. `ESC[2J` and `ESC[3J` both cost scrollback in some terminals,
+# and scrollback is how you read back over a transcript you have just watched.
+CLEAR = "\033[H\033[0J"
+
 R = "\033[0m"
 DIM = "\033[2m"
 BOLD = "\033[1m"
@@ -57,15 +83,21 @@ INVERT = "\033[7m"
 
 
 def _clock(value: str | float | None) -> str:
-    """Wall-clock time of an event, which is what a watcher is actually asking for."""
+    """Wall-clock time of an event, which is what a watcher is actually asking for.
+
+    Local time in every case. The stream writes `at` as UTC and a file's mtime is a plain
+    timestamp, so rendering the two side by side without converting would put an hour or
+    two between columns that describe the same dispatch.
+    """
     if value is None:
         return "--:--:--"
     if isinstance(value, (int, float)):
         return datetime.fromtimestamp(value).strftime("%H:%M:%S")
     try:
-        return datetime.fromisoformat(value).strftime("%H:%M:%S")
+        moment = datetime.fromisoformat(value)
     except ValueError:
         return str(value)[:8]
+    return moment.astimezone().strftime("%H:%M:%S")
 
 
 def _tokens(n: int | None) -> str:
@@ -167,9 +199,41 @@ def render(event: dict, width: int) -> list[str]:
     return [f"{stamp}  {DIM}{json.dumps(event)[:width]}{R}"]
 
 
+def created_at(path: Path) -> float:
+    """When the dispatch started, from the name its writer chose.
+
+    `transcript.py` stamps the filename at creation, so this needs no stat and cannot be
+    confused by a later append. Neither `st_ctime` nor `st_mtime` would do: on Linux the
+    first is the inode-change time rather than a birth time, and the second moves every
+    time a turn lands. Falling back to mtime is only for a name this did not write.
+    """
+    stamp = path.name.split("-", 1)[0]
+    try:
+        return datetime.strptime(stamp, "%Y%m%dT%H%M%S.%f").replace(tzinfo=UTC).timestamp()
+    except ValueError:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+
+def started_at(row: dict) -> float:
+    """Sort key: the start event's own clock, or the filename when it cannot be read."""
+    value = row.get("at")
+    if isinstance(value, str):
+        try:
+            moment = datetime.fromisoformat(value)
+        except ValueError:
+            moment = None
+        if moment is not None:
+            return (moment if moment.tzinfo else moment.replace(tzinfo=UTC)).timestamp()
+    return row.get("created", 0.0)
+
+
 def summarise(path: Path) -> dict:
     """One row for the picker, read cheaply: the head of the file plus its mtime."""
-    row = {"path": path, "task": "", "model": "", "turns": 0, "done": False}
+    row = {"path": path, "task": "", "model": "", "turns": 0, "done": False,
+           "created": created_at(path)}
     try:
         with path.open(encoding="utf-8") as fh:
             for line in fh:
@@ -192,42 +256,156 @@ def summarise(path: Path) -> dict:
     return row
 
 
-def _key() -> str:
-    """One keypress, raw, so the picker needs no dependency and no Enter after arrows."""
+_CACHE: dict[Path, tuple[tuple[float, int], dict]] = {}
+
+
+def scan(directory: Path) -> tuple[list[dict], int]:
+    """Every stream inside the window, newest start first, plus how many were trimmed.
+
+    The window is applied from the filename, before anything is opened. That is the point:
+    the list redraws unattended every couple of seconds, `summarise` reads a whole file,
+    and this workspace lives on `/mnt/c` where that is roughly 12x the cost it would be on
+    ext4 (ADR-0020). Unchanged files are then served from `_CACHE`, so a quiet refresh
+    stats each candidate and reads none of them.
+    """
+    cutoff = time.time() - WINDOW_DAYS * 86400
+    paths = [p for p in directory.glob("*.jsonl") if created_at(p) >= cutoff]
+    for gone in set(_CACHE) - set(paths):
+        del _CACHE[gone]
+    rows = [_cached(p) for p in paths]
+    rows.sort(key=started_at, reverse=True)
+    return rows[:MAX_ROWS], max(len(rows) - MAX_ROWS, 0)
+
+
+def _cached(path: Path) -> dict:
+    try:
+        stat = path.stat()
+    except OSError:
+        return summarise(path)
+    key = (stat.st_mtime, stat.st_size)
+    if (hit := _CACHE.get(path)) and hit[0] == key:
+        return hit[1]
+    row = summarise(path)
+    _CACHE[path] = (key, row)
+    return row
+
+
+def _ago(seconds: float) -> str:
+    if seconds < 90:
+        return f"{int(seconds)}s"
+    if seconds < 5400:
+        return f"{int(seconds / 60)}m"
+    return f"{int(seconds / 3600)}h"
+
+
+def state_of(row: dict) -> tuple[str, str]:
+    """What the stream is doing, and the colour to say it in.
+
+    A stream ends by writing an `end` event, so anything without one used to be shown as
+    `live`. That is a claim the file cannot support: a dispatch whose server was killed --
+    a closed editor takes the whole process tree with it -- stops mid-stream and leaves a
+    file that is indistinguishable from one still being written. Measured on 2026-08-31,
+    and it showed as live in the viewer while the cluster had long since finished with it.
+
+    Nor can it be resolved by looking harder. A pid in the stream would only be meaningful
+    on the machine that wrote it, and this directory is routinely synchronised. So the
+    third state says what is actually known -- nothing has been written for a while -- and
+    names the age, because a one-shot delegation is legitimately silent between its start
+    and its end and must not be called dead for it.
+    """
+    if row["done"]:
+        return ("ok", GREEN) if row.get("ok") else ("fail", RED)
+    idle = max(time.time() - row.get("mtime", 0), 0)
+    if idle < STALL_SECONDS:
+        return "live", YELLOW
+    return f"quiet {_ago(idle)}", DIM
+
+
+@contextlib.contextmanager
+def terminal():
+    """Single-keypress input for as long as the viewer runs, restored on the way out.
+
+    `cbreak` rather than `raw`: raw clears `OPOST` too, and every line the follow view
+    prints would then stair-step down the screen. It also leaves `ISIG` alone, so Ctrl-C
+    stays a signal and reaches the handler in `main` from inside a blocking read.
+    """
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     try:
-        tty.setraw(fd)
-        ch = sys.stdin.read(1)
-        if ch == "\x1b":                      # arrow keys arrive as an escape sequence
-            return {"A": "up", "B": "down"}.get(sys.stdin.read(2)[-1:], "esc")
-        if ch in ("\r", "\n"):
-            return "enter"
-        if ch == "\x03":
-            raise KeyboardInterrupt
-        return ch
+        tty.setcbreak(fd)
+        yield
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
-def pick(rows: list[dict]) -> Path | None:
+def read_key() -> str:
+    """One keypress. Assumes `terminal()` is held.
+
+    Reads the descriptor rather than `sys.stdin`, and that is not a style choice.
+    `sys.stdin.read(1)` pulls a whole chunk into Python's own buffer and hands back one
+    character of it, while `select` below can only see the descriptor -- so an arrow key,
+    whose three bytes arrive together, left `[A` in the buffer with the descriptor looking
+    idle. The escape was then read as a bare Escape and the viewer quit instead of moving
+    the highlight. Intermittent, timing-dependent, and invisible to any test that does not
+    drive a real terminal.
+    """
+    data = os.read(sys.stdin.fileno(), 8)
+    if not data:
+        return "eof"
+    if data[:1] == b"\x1b":               # arrow keys arrive as an escape sequence
+        return {b"A": "up", b"B": "down"}.get(data[2:3], "esc") if len(data) > 1 else "esc"
+    if data[:1] in (b"\r", b"\n"):
+        return "enter"
+    if data[:1] == b"\x03":
+        raise KeyboardInterrupt
+    return data[:1].decode("utf-8", "replace")
+
+
+def wait_key(timeout: float | None) -> str | None:
+    """A keypress, or None once `timeout` passes with nothing typed."""
+    if timeout is not None and not select.select([sys.stdin.fileno()], [], [], timeout)[0]:
+        return None
+    return read_key()
+
+
+def pick(directory: Path) -> Path | None:
     """Newest first, live ones marked. A finished delegation is still worth reading."""
+    rows, trimmed = scan(directory)
     i = 0
     while True:
-        print("\033[2J\033[H", end="")
-        print(f"{BOLD}delegations{R} {DIM}· ↑↓ select · enter follow · q quit{R}\n")
+        print(CLEAR, end="")
+        head = f"{BOLD}delegations{R} {DIM}· ↑↓ select · enter follow · r refresh · q quit"
+        head += f" · last {WINDOW_DAYS} days"
+        head += f", newest {MAX_ROWS} of {len(rows) + trimmed}" if trimmed else ""
+        print(f"{head}{R}")
+        print(f"{DIM} started   last      state        turns  task{R}")
         for n, row in enumerate(rows):
-            live = not row["done"]
-            state = (f"{YELLOW}live{R}" if live
-                     else (f"{GREEN}ok{R}" if row.get("ok") else f"{RED}fail{R}"))
+            word, colour = state_of(row)
             task = row["task"][:60] or "(no task recorded)"
-            line = (f" {_clock(row.get('at'))}  {state:<14} "
-                    f"{DIM}turn {row['turns']}{R}  {task}")
+            # Pad the plain word, then colour it. Padding the coloured string counts the
+            # escape bytes as width and the column stops lining up.
+            state = f"{colour}{word:<11}{R}"
+            line = (f" {_clock(started_at(row))}  {_clock(row['mtime'])}  {state} "
+                    f"{DIM}{row['turns']:>5}{R}  {task}")
             print(f"{INVERT}{line}{R}" if n == i else line)
-        key = _key()
-        if key in ("q", "esc"):
+        if not rows:
+            print(f"\n{DIM} nothing in the last {WINDOW_DAYS} days. "
+                  f"Run a delegation and it appears here.{R}")
+
+        key = wait_key(REFRESH_SECONDS)
+        if key in ("q", "esc", "eof"):
             return None
-        if key == "up":
+        if key is None or key == "r":
+            # Unattended redraw, or `r`. Hold the highlight on the same stream where it
+            # survived the rescan, so a list that grows underneath you does not move the
+            # row you were about to open.
+            here = rows[i]["path"] if rows else None
+            rows, trimmed = scan(directory)
+            i = next((n for n, row in enumerate(rows) if row["path"] == here),
+                     min(i, len(rows) - 1) if rows else 0)
+        elif not rows:
+            continue
+        elif key == "up":
             i = (i - 1) % len(rows)
         elif key == "down":
             i = (i + 1) % len(rows)
@@ -236,35 +414,38 @@ def pick(rows: list[dict]) -> Path | None:
 
 
 def follow(path: Path) -> None:
-    """Print what is already there, then whatever arrives, until Ctrl-C."""
+    """Print what is already there, then whatever arrives, until you leave.
+
+    Reaching the `end` event deliberately does not return on its own: the last thing a
+    dispatch writes is usually the thing you were waiting to read, and yanking the screen
+    away at that exact moment is the one behaviour a watcher must not have.
+    """
     width = min(os.get_terminal_size().columns, 100)
-    print("\033[2J\033[H", end="")
+    print(CLEAR, end="")
+    finished = False
     with path.open(encoding="utf-8") as fh:
         while True:
             where = fh.tell()
             line = fh.readline()
-            if not line:
-                if line_is_final(path):
-                    print(f"\n{DIM}(finished — Ctrl-C to exit){R}")
-                    while True:
-                        time.sleep(3600)
-                fh.seek(where)
-                time.sleep(0.3)
+            if line.endswith("\n"):
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                for out in render(event, width):
+                    print(out)
+                if event.get("t") == "end":
+                    finished = True
+                    print(f"\n{DIM}(finished — q to return, Ctrl-C to quit){R}")
                 continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
+            # No newline yet: either nothing new, or the writer is mid-append and this is
+            # half a line. Rewind either way -- parsing the half would drop a whole event,
+            # because the remainder arrives as its own unparseable fragment.
+            fh.seek(where)
+            if (key := wait_key(None if finished else POLL_SECONDS)) is None:
                 continue
-            for out in render(event, width):
-                print(out)
-
-
-def line_is_final(path: Path) -> bool:
-    try:
-        last = path.read_text(encoding="utf-8").rstrip().rsplit("\n", 1)[-1]
-        return json.loads(last).get("t") == "end"
-    except (OSError, ValueError, IndexError):
-        return False
+            if key in ("q", "esc", "enter", "eof"):
+                return
 
 
 def main() -> int:
@@ -276,16 +457,17 @@ def main() -> int:
     if not directory.is_dir():
         print(f"{TRANSCRIPT_DIR} is not a directory.", file=sys.stderr)
         return 2
-    streams = sorted(directory.glob("*.jsonl"), key=lambda p: p.stat().st_mtime,
-                     reverse=True)[:25]
-    if not streams:
-        print("No delegation streams yet. Run one and try again.", file=sys.stderr)
-        return 1
-    rows = [summarise(p) for p in streams]
+    if termios is None:
+        print("This needs a POSIX terminal. Run it under WSL, where the server runs.",
+              file=sys.stderr)
+        return 2
+    if not sys.stdin.isatty():
+        print("This needs a terminal: it reads single keypresses.", file=sys.stderr)
+        return 2
     try:
-        chosen = pick(rows)
-        if chosen is not None:
-            follow(chosen)
+        with terminal():
+            while (chosen := pick(directory)) is not None:
+                follow(chosen)
     except KeyboardInterrupt:
         print(f"\n{DIM}stopped{R}")
     return 0

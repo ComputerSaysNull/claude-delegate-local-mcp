@@ -30,6 +30,84 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #49 — unreleased — fix: the delegation viewer is a session, not a single transcript
+
+### Changed
+- `q` now leaves a transcript and returns to the list instead of ending the process. The
+  viewer was built to watch one dispatch: choosing a transcript was a one-way door, and
+  watching a second meant re-running the command and losing the list. One run now watches
+  a whole session, and only the list exits.
+- Reaching the `end` event no longer parks in `while True: sleep(3600)` waiting for
+  Ctrl-C. It stays on the finished transcript and takes a keypress — deliberately not an
+  automatic return, because the last thing a dispatch writes is usually the thing that was
+  being waited for, and taking the screen away at that moment is the one behaviour a
+  watcher must not have.
+- The list is ordered by when each dispatch **started**, not by mtime. mtime moves every
+  time a turn lands, so a long-running older dispatch climbed back to the top on every
+  turn and reshuffled the list under someone reading it. The start clock comes from the
+  `start` event's `at`, falling back to the timestamp `transcript.py` already puts in the
+  filename. Neither `st_ctime` nor `st_birthtime` was an option: on Linux the first is the
+  inode-change time, and the second is not there at all.
+- The list is capped at the last seven days rather than the newest twenty-five, and shows
+  the last-write clock beside the start clock — which is the end time once a dispatch has
+  finished. Both are rendered in local time; `at` is UTC and an mtime is not, so the two
+  columns would otherwise have sat an hour or two apart while describing one dispatch.
+- The list redraws itself every two seconds, and `r` forces it. A watcher that only
+  learned about a new dispatch when you pressed a key was the wrong shape for the thing
+  it watches.
+- Terminal input moved from `raw` to `cbreak`, held for the whole run rather than set and
+  restored per keypress. `raw` also clears `OPOST`, which is survivable while only the
+  picker reads keys but stair-steps every line down the screen once the follow view does.
+  `cbreak` also leaves `ISIG` alone, so Ctrl-C stays a signal and still quits from a
+  blocking read.
+- The screen is cleared with `ESC[H ESC[0J` rather than `ESC[2J`, and never `ESC[3J`. The
+  follow view prints and never repaints, so the terminal's own scrollback is how a
+  transcript is read back — including after returning to the list — and the wrong clear
+  sequence throws exactly that away.
+
+### Fixed
+- A stream with no `end` event was shown as `live`, which is a claim the file cannot
+  support. Found by measurement: closing the editor mid-dispatch takes the whole process
+  tree with it, including the server, so the stream simply stops — and the viewer went on
+  calling it live long after the cluster had finished with it. There are now three states.
+  `ok`/`fail` for a stream that ended, `live` for one written to within `STALL_SECONDS`,
+  and `quiet <age>` for one that has neither.
+- It deliberately does not try to say "dead". A writer pid in the stream would be
+  meaningful only on the machine that wrote it, and a transcript directory is routinely
+  synchronised; and a one-shot delegation is legitimately silent between its start and its
+  end, so silence alone condemns nothing. The state reports what is known and names the
+  age, which is the part a reader can actually judge.
+- The state column padded a string that already contained colour escapes, so the width
+  counted the escape bytes and the column did not line up. The plain word is padded now
+  and coloured after.
+- An arrow key intermittently quit the viewer instead of moving the highlight. Keys were
+  read through `sys.stdin`, which fills its own buffer from the descriptor and hands back
+  one character: the three bytes of an arrow key arrived together, `[A` stayed in that
+  buffer, and the `select` used to tell an arrow from a bare Escape — which can only see
+  the descriptor — reported nothing waiting. The escape was therefore read as Escape, and
+  Escape quits. Keys now come from `os.read` on the descriptor, so the thing being polled
+  and the thing being read are the same thing. Found by driving the viewer through a real
+  pty; no test that stubs stdin can see it, and it survived a hand-run because it depends
+  on how the terminal happens to batch the bytes.
+- A line still being appended when the viewer read it was parsed as JSON, failed, and was
+  discarded — and its remainder then arrived as a second unparseable fragment, so a whole
+  event vanished from the view rather than arriving late. The reader now rewinds unless it
+  has a complete line.
+- Following a finished transcript re-read the entire file every 300ms to ask whether it
+  had ended, having already rendered the `end` event it was looking for.
+
+### Added
+- `tests/test_watch_delegations.py`, in two halves. One calls the file-reading functions
+  directly — the window, the ordering, the cache. The other spawns the viewer on a pty and
+  types at it, because the seam between a terminal and the code is where the failures
+  above lived and nothing that stubs stdin reaches it; that half skips on Windows and runs
+  under WSL and in CI, which is both places the viewer is used. Every check was
+  negative-tested by restoring the behaviour it replaces and confirming it fires. The
+  local-time assertion skips rather than passes on a machine set to UTC, where it could
+  not tell a converted clock from a raw one.
+- The POSIX-only imports are guarded so the module imports on Windows, where the suite
+  also runs; `main` refuses there with a message naming WSL rather than an `ImportError`.
+
 ## #48 — 2026-08-31 — feat: watch a delegation while it runs, not only after
 
 ### Added
