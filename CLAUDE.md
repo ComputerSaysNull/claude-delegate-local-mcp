@@ -17,7 +17,7 @@ This lists what will bite you.
     python scripts/gen_agents_docs.py               # after touching .claude/agents/
     python scripts/gen_tools_docs.py                # after touching tools.py
     python scripts/gen_status.py                    # after touching PLAN.md
-    .venv/Scripts/python.exe -m pytest -q           # Windows
+    .venv/Scripts/python.exe -m pytest -q           # Windows; parallel, `-n 0` for serial
     wsl -d Ubuntu-24.04 -e bash -lc '...'           # anything needing bwrap or ext4
 
 ## Documentation ownership

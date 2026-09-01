@@ -20,11 +20,9 @@ claude-delegate-local-mcp = "claude_delegate_local.main:run"
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
-    # Opt-in parallelism. `-n 8` takes the suite from about three minutes to under one on
-    # Windows, where process spawning rather than the tests is the dominant cost. Left out
-    # of addopts so a plain `pytest` still runs serially and reads normally; the speed is
-    # there when it is wanted. Parallelism is also a check in its own right: it fails on
-    # any test that mutates shared state, which is how the agent-roster one was found.
+    # Parallelism, now on by default in addopts below rather than opt-in. It is also a
+    # check in its own right: it fails on any test that mutates shared state, which is how
+    # the agent-roster one was found.
     "pytest-xdist>=3.8,<4",
     "ruff>=0.16,<0.17",
 ]
@@ -37,6 +35,12 @@ build-backend = "hatchling.build"
 packages = ["src/claude_delegate_local"]
 
 [tool.pytest.ini_options]
+# Parallel by default. This was opt-in until 2026-08-31, on the reasoning that a plain
+# `pytest` should read normally and the speed was there when wanted -- and the speed then
+# went unwanted for a whole session, at 488s serial against 183s with workers, because
+# remembering a flag is not a default. Anything that relies on being remembered is not a
+# rule. The readable serial run is still one flag away: `-n 0`.
+addopts = ["-n", "auto"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

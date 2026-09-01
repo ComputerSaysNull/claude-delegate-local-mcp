@@ -30,6 +30,38 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #52 — 2026-09-01 — chore: the test suite runs in parallel by default
+
+### Changed
+- `-n auto` moved into `addopts`. Parallelism was deliberately opt-in, on the reasoning
+  that a plain `pytest` should read normally and the speed was there when wanted. It then
+  went unwanted for a whole session — 488s serial against 183s with workers, the same
+  suite, run the slow way four times — because remembering a flag is not a default.
+  Anything that depends on being remembered is not a rule.
+- The trade the old decision was protecting is real and is now inverted rather than
+  denied: one small file costs about 7s of worker startup where it used to be instant.
+  `-n 0` restores the serial, readable run and is the documented way to work on a single
+  test. The default now favours the case where getting it wrong is expensive over the
+  case where it is cheap.
+- CI picks this up with no change to its command, so it stops paying the serial cost too.
+
+### Fixed
+- `test_a_batch_never_exceeds_the_endpoints_declared_concurrency` inferred overlap from a
+  0.02s sleep, which is a race the scheduler usually wins and, on CI with workers
+  competing for two cores, stopped winning: the second item was not scheduled inside the
+  window, so the test read `peak == 1` and failed on both Python versions. It now holds
+  each item on an `Event` until a second has arrived, making the overlap a fact rather
+  than a probability. Bounded, so a gate that genuinely serialises still fails the
+  assertion instead of hanging. Exactly the latent flakiness the pyproject note said
+  parallelism exists to surface — found by turning it on.
+- Three tests shared the machine's real `slots_dir`, which is the deeper cause and the one
+  that actually broke CI. Admission slots are counted machine-wide on purpose, so once the
+  suite runs in parallel the other pytest workers are competing for them: a batch that
+  should overlap two items saw a peak of one, and a delegation made to wait emitted an
+  extra `progress(0, 0)` from `ticked` that an exact-sequence assertion counted. Each now
+  runs in a directory of its own, the way the `backend_status` test already did — that
+  test's docstring had explained the hazard, and three others had not taken it.
+
 ## #54 — 2026-09-01 — feat: a one-shot delegation says it is still running
 
 ### Added
