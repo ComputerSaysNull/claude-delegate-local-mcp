@@ -285,6 +285,13 @@ flag controlling nothing. The design work is not lost — it is recorded under M
 
 ## Deferred and cancelled
 
+- ⬜ A heartbeat for the agentic loop — it reports at the top of each turn, so one turn is
+  silent for its whole duration, bounded only by `turn_timeout`, which defaults to exactly
+  the client's 1800s idle timeout. `#58` measured what that silence costs: the caller
+  abandons the call, nothing reaches the server, and the slot is held to the end. Lowering
+  the default would kill legitimate work — one call generated for 1645s — so the fix is to
+  give the loop the one-shot's heartbeat, not a smaller budget. `#59`'s guard cannot reach
+  this path: it bounds the interval, and this path has no heartbeat to bound
 - ⬜ Anthropic-compatible adapter — the seam and canonical shape are kept so this is
   additive, roughly 150 to 220 lines in one new file (ADR-0008)
 - ❌ 2026-08-25 Streaming in v1 — cancelled. MCP tool calls are request/response, so
