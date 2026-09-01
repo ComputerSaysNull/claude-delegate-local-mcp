@@ -441,6 +441,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     diagnostics: bool = False,
     ctx: Context | None = None,
     on_turn: Callable[[], Awaitable[None]] | None = None,
+    tool_name: str = "delegate",
 ) -> dict[str, Any]:
     """One delegation, from arguments to the result dict. Shared by every tool that runs one.
 
@@ -580,9 +581,10 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
 
     if stream is not None:
         stream.start(
-            tool=("delegate_to_agent" if agent else "delegate"),
+            tool=tool_name,
             task=task, agent=agent.name if agent else None,
             model_key=entry.key, effort=effort,
+            tools=allowed, prefetched=prefetched,
         )
 
     async def ticked() -> None:
@@ -686,6 +688,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             dispatched=dispatched,
             error=failure,
             started=started,
+            tool=tool_name,
+            tools=allowed,
         )
 
     response = dispatched.response
@@ -860,7 +864,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
             cfg, registry, cache, windows, admission,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens,
-            diagnostics=diagnostics, ctx=ctx,
+            diagnostics=diagnostics, ctx=ctx, tool_name="delegate",
         )
 
     @mcp.tool(annotations={"readOnlyHint": True})
@@ -901,7 +905,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
             # a caller could falsify by passing an argument would be exactly the check
             # that cannot fail.
             allowed_tools=[], max_tokens=max_tokens,
-            diagnostics=diagnostics, ctx=ctx,
+            diagnostics=diagnostics, ctx=ctx, tool_name="delegate_readonly",
         )
 
     def _load(agent_name: str, workdir: str | None) -> AgentSpec:
@@ -968,7 +972,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens,
             agent=agent, workdir=resolved_workdir,
-            diagnostics=diagnostics, ctx=ctx,
+            diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent",
         )
 
     @mcp.tool
@@ -1060,6 +1064,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
                     # describe nothing a reader could act on. `on_turn` keeps the
                     # notification itself, which is what holds the idle timer open.
                     diagnostics=False, ctx=None, on_turn=beat,
+                    tool_name="delegate_batch",
                 )
             except ToolError as e:
                 # Caught rather than raised, which is the whole contract: an item that
