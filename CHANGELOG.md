@@ -34,6 +34,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #63 — 2026-09-01 — fix: the turn limit was reported as unreached in the case it reports
+
+- The last turn is declared with no tools so the model cannot end on a call nobody will
+  run. `hit_turn_limit` also required a tool call on that reply — which a backend offered
+  no tools does not make. It was false whenever the backend behaved, and true only when one
+  ignored the withdrawal, so a delegation truncated by its budget reported that it was not
+  and a caller had nothing to tell a partial answer from a complete one.
+- Three documents stated the intended meaning and all three were wrong about the code, one
+  a troubleshooting entry indexing a string a reader would never see.
+- The suite could not have caught it. Every scripted backend replied from a list without
+  reading the request, so none could honour the withdrawal the bug depended on; the test
+  covering the flag scripted tool calls on both turns, including the tool-less one, and
+  asserted true — exercising only the path where a backend misbehaves.
+- A second test was misnamed rather than wrong: "an answer given freely" answered on the
+  final turn, under a withdrawn toolset, which is the opposite of freely. Its scenario now
+  answers before the last turn, which is what its name always claimed.
+- Now `turn == turns` and nothing else. A delegation that would have finished on its last
+  turn anyway reports the limit too; that costs a reader one look at `max_turns`, where the
+  old reading cost them a truncated answer read as a whole one.
+- `tests/regression/test_turn_limit_unreported_to_a_compliant_backend.py` supplies the
+  backend the suite lacked — one that answers when offered no tools — and keeps the
+  ignored-withdrawal case so the fix cannot quietly drop what the old flag did catch.
+  Verified to fail against the unfixed flag first.
+- `docs/DISPATCH.md`'s budget rises to fit the corrected description. Its header stays on
+  one line deliberately: a reasoned multi-line header is unreadable to the check until #61
+  lands, and this branch must not depend on merge order to stay enforced.
+
 ## #62 — 2026-09-01 — fix: a budget header that recorded its reason stopped being enforced
 
 - `check_budgets` searched for the number followed by the comment terminator with only
@@ -61,6 +88,7 @@ Older entries, in the previous flat format, are in
   endorsement of the sizes, and the audit's findings track the trim. `CONTRIBUTING.md` also
   had a header whose prose said it was raised to 220 while the number still read 210 — a
   typo that only survived because nothing was reading the number.
+
 
 ## #60 — 2026-09-01 — docs: file the loop's missing heartbeat where a plan can be read
 

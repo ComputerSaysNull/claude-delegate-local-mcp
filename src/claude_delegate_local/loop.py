@@ -1343,6 +1343,13 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     run. `hit_turn_limit` says which of the two happened, because an answer written under a
     withdrawn toolset is worth reading differently from one the model chose to give.
 
+    It is `turn == turns` and nothing else. It once also required a tool call on that final
+    reply, which a backend offered no tools does not produce -- so the flag was false in
+    exactly the case it exists to report, and true only when a backend ignored the
+    withdrawal. A delegation that finishes on its last turn now reports the limit even if it
+    would have stopped there anyway; that direction costs a reader one look at `max_turns`,
+    where the other cost them a truncated answer read as a complete one.
+
     Recovery from an answer that came back empty is `dispatch_with_recovery`'s, per turn,
     unchanged from the one-shot path. The loop does not reimplement retry, backoff or
     step-down; it supplies a builder and counts what came back.
@@ -1480,7 +1487,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         tool_errors=watch.tool_errors,
         deduped=watch.deduped,
         evicted=watch.evictions,
-        hit_turn_limit=turn == turns and bool(dispatch.response.tool_uses),
+        hit_turn_limit=turn == turns,
         bash_calls=watch.bash_calls,
         bash_failures=watch.bash_failures,
         last_bash_exit=watch.last_bash_exit,

@@ -1,4 +1,4 @@
-<!-- BUDGET: 415 -->
+<!-- BUDGET: 420 -->
 <!-- Raised from 400 on 2026-08-31: the one-shot keepalive, which is a mechanism this
      document owns and did not previously exist. Two paragraphs of duplication were
      removed first -- the 3600s/1800s pair had been stated in two sections -- and the
@@ -232,7 +232,12 @@ can end on a tool call nobody will run, having spent its whole budget and return
 readable. Withdrawing the tools leaves the model one thing it can still do, which is answer.
 The result reports `hit_turn_limit` so the caller can tell the two endings apart: an answer
 written under a withdrawn toolset is a partial one, and worth reading differently from an
-answer the model chose to give.
+answer the model chose to give. It is exactly "the loop reached its last turn". It once also
+required a tool call on that final reply, which a backend offered no tools does not make, so
+it was false in precisely the case it names and true only for a backend that ignored the
+withdrawal. A delegation that would have finished on its last turn anyway now reports the
+limit too; that costs a reader one look at `max_turns`, where the old reading cost them a
+truncated answer read as a whole one.
 
 Recovery from an empty answer is per turn and is the same code as the one-shot path — the
 cascade below lives in one function that both call. Two copies would be two diagnoses of
