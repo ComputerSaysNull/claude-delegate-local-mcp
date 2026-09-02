@@ -34,6 +34,91 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #74 — 2026-09-02 — docs: split the plan's backlog from what is on hold and what was dropped
+
+### Changed
+- `PLAN.md`'s single `Deferred and cancelled` section becomes three: `Open — hardening,
+  testing and troubleshooting`, `Deferred`, and `Cancelled`. Of the thirteen open items filed
+  under it, twelve were not deferred at all -- seven were findings from the 2026-09-02 review,
+  three were documentation-accuracy gaps and two were improvements. Only the
+  Anthropic-compatible adapter is on hold. One heading was serving three purposes because the
+  milestone plan closing left the live work with nowhere else to go, and `PLAN.md` is this
+  project's only forward-looking tracker.
+- The symptom was in the generated file: `STATUS.md` read `Current phase: all planned work
+  complete` two lines above `Overall: 73 done, 13 open, 7 cancelled`. `NOT_A_PHASE` excludes
+  any heading starting `Deferred`, so with every milestone closed there was no phase left to
+  point at. `Open` is deliberately not excluded, and the phase pointer now names it with its
+  count, and `Next up` fills from it instead of saying nothing is queued.
+- No change to how `gen_status.py` selects a phase, which is what made the split cheap.
+  `NOT_A_PHASE` matches by prefix, so the shortened `Deferred` stays excluded; `Cancelled`
+  holds only cancelled items and the selector tests the mark before the prefix, so it can
+  never be chosen. Its two comments described the old arrangement and are corrected -- they
+  had `Deferred` as the backlog, which is now what `Open` is.
+- Items moved verbatim, and it was checked rather than eyeballed: 93 item lines before and
+  after, and the sorted multiset of item and continuation lines is byte-identical. Within
+  each group they are ordered by what their own annotations say they cost, so the operator
+  allowlist -- the one the review left with a plausible end-to-end attack -- leads, and
+  `Next up` shows the three that matter rather than the three that were typed first.
+- Subgroups use `###`, which the parser cannot see: it matches `^## `, and `###` fails that
+  on the third character. So `Security review, 2026-09-02`, `Documentation accuracy` and
+  `Improvements` organise the section for a reader without creating phantom rows in the
+  progress table.
+- `PLAN.md`'s budget rises 413 to 439. It was at exactly 413 of 413, so the split breached it
+  before a single item moved. Raised rather than skipped, because a budget has a legitimate
+  raise path and a `Docs-Gate-Skip` trailer would have been the wrong instrument for a change
+  that genuinely needs the lines. The open item asking for the trim the 2026-09-01 audit
+  listed stays open: this is headroom for a restructure, not that trim, and closing it here
+  would have retired an item nobody did.
+
+- Five items added under `Open`, all of them about the surface the local model is given.
+  `read_file`, `write_file` and `run_bash` are the whole registry (`tools.py` line 387), with
+  no search, no globbing and no line addressing, and `delegate_readonly` fixes `allowed_tools`
+  at `[]` so it has none of them -- which is why a repository-mapping task in this session went
+  to a Claude subagent rather than to the free local model. Filed as: globs and a search term
+  in `files[]` expanded server-side; a read-only search tool; line addressing in `read_file`;
+  `edit_file`; and a measurement of whether the tool schemas sit inside ADR-0011's cached
+  prefix.
+- Two of them carry findings rather than just intentions. The line-addressing gap was found in
+  review and never reached this file, because it was absorbed as a workaround instead --
+  `.claude/agents/docs-audit-local.md` tells that one agent to cite by quotation and warns it
+  is never shown a line number, which closed the symptom for one caller and left the tool gap
+  open for every other. And `edit_file` is sequenced behind the inode item deliberately:
+  `_one_path` returns a resolved string while each handler opens for itself, so a
+  read-modify-write tool would validate once and use the path twice across two `open` calls,
+  against an adversary who holds a read-write bind under `run_bash` and can retry. It converts
+  a filed finding into an enabling condition, and one validate-and-open helper closes both.
+- `PLAN.md`'s budget rises 439 to 477, the second raise in a day. Recorded as the signal it is:
+  the header comment has said since 2026-08-28 that the answer to a recurrence is `archive/`,
+  which `check_budgets` skips, rather than another raise. Every milestone is now closed, so
+  that option is available for the first time and the instrument is measuring nothing until
+  someone takes it.
+
+### Fixed
+- `PLAN.md`'s legend promised `✅ done, with date and commit` when it has been date-only for
+  some time -- commit hashes caused more trouble than they were worth, and the fifteen items
+  that still cite one are all from 2026-08-25. It now says so and points at `CHANGELOG.md`'s
+  header for the reason rather than restating it, since per-PR provenance lives there. Six M4
+  items carry no date at all; that was not recoverable after the fact, so the legend says
+  that too instead of implying every item has one.
+- `STATUS.md`'s queued lists rendered an item's first physical line rather than its name,
+  so the first real queue put three sentences cut mid-clause into a generated file
+  `README.md` points a new reader at: "Operator allowlist for an agent's `network` and
+  `extra_binds` -- the only validation is". `parse_plan` reads one line per item while
+  `PLAN.md` wraps its annotations, so `text` has only ever been as much as fitted on the
+  marker line. Latent because it was unreachable: `In progress` has never had an entry and
+  `Next up` reads from the current phase, which had nothing queued between M7 closing and
+  this pull request. `name_of` splits on the em dash `PLAN.md` uses throughout, including
+  the case where the line wraps immediately after it and there is no trailing space to
+  split on. Negative-tested: reintroducing the bug fails four of the five new tests, and
+  the fifth -- an item that is only a name -- is meant to pass either way.
+
+- Two section leads described states the project has since left. M3's said the four
+  context-economics items it shed "read conversation history, evictions and an action ledger,
+  none of which exist until the turn loop and `tools.py` do" -- all four are done in M4 and
+  both modules exist, so it asserted in the present tense something that stopped being true.
+  M0a's "Run before any scaffolding" read as an instruction for four spikes that all carry a
+  2026-08-25 completion date.
+
 ## #73 — 2026-09-02 — docs: record the review findings not being built yet
 
 ### Added
