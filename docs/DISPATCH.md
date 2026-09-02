@@ -121,10 +121,10 @@ that can be walked past:
   report a deadline reached by a wait this server chose rather than by the work.
 
 `DispatchTimedOut` is deliberately not one of the backend failures. Those say the endpoint
-did not answer; this says the endpoint may be answering perfectly and the delegation has
-still outlived what the operator allows. Sending someone to check the cluster over their own
-deadline is the wrong diagnosis, and the message names the elapsed time, the setting, and
-which stage was running.
+did not answer; this says it may be answering perfectly and the delegation has still
+outlived what the operator allows — so sending someone to check the cluster is the wrong
+diagnosis. The message names the stage, the setting, and the elapsed time, which is the
+*delegation's*, derived from the deadline, so it can never read as less than that limit.
 
 **What this does not do** is keep a delegation inside the client's idle timeout -- the
 client can abandon one this bound is still happy with. That is what the notification and

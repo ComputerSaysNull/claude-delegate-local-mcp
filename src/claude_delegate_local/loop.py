@@ -161,13 +161,15 @@ class DispatchTimedOut(Exception):
     for server-captured truth applies to *which* failure this was as much as to exit codes.
     """
 
-    def __init__(self, elapsed: float, limit: int, stage: str) -> None:
+    def __init__(self, elapsed: float, limit: int, stage: str,
+                 setting: str = "DELEGATE_DISPATCH_TIMEOUT") -> None:
         self.elapsed = elapsed
         self.limit = limit
         self.stage = stage
+        self.setting = setting
         super().__init__(
             f"Delegation abandoned after {elapsed:.1f}s, past the "
-            f"DELEGATE_DISPATCH_TIMEOUT of {limit}s, while {stage}. Raise that setting if "
+            f"{setting} of {limit}s, while {stage}. Raise that setting if "
             "the work legitimately takes this long, or shorten the task."
         )
 
@@ -387,7 +389,22 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
         return None if deadline is None else deadline - clock()
 
     def spent() -> float:
-        return clock() - started
+        """How much of the *delegation's* budget is gone -- not how long this call ran.
+
+        On the loop path this function is entered fresh per turn (`run_agentic_loop`
+        calls it once per turn) against a deadline taken once for the whole delegation.
+        Measuring from `started` therefore reported one turn's elapsed time beside the
+        whole delegation's limit: "abandoned after 1372.8s, past the ... of 3600s" --
+        a number that is not past it, under a remedy ("raise that setting") the number
+        does not support.
+
+        Derived from the deadline itself, so there is no second origin to disagree with
+        it. `started` remains the only thing available when there is no deadline at all,
+        which is what the empty-answer stages pass once they have spent the budget.
+        """
+        if deadline is None:
+            return max(clock() - started, 0.0)
+        return max(cfg.dispatch_timeout - (deadline - clock()), 0.0)
 
     while True:
         left = remaining()
@@ -403,6 +420,14 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
             # overshot by a whole turn.
             return await asyncio.wait_for(backend.complete(request), timeout=left), attempts
         except TimeoutError as e:
+            if deadline is None:
+                # Nothing bounded this attempt but the adapter's own client budget, so
+                # the delegation deadline is not what expired. Naming it would send an
+                # operator to raise a setting that had no part in this.
+                raise DispatchTimedOut(
+                    spent(), cfg.turn_timeout, "waiting on one turn",
+                    setting="DELEGATE_TURN_TIMEOUT",
+                ) from e
             raise DispatchTimedOut(
                 spent(), cfg.dispatch_timeout, "waiting on the backend"
             ) from e
