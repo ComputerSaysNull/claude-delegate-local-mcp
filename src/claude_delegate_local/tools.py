@@ -139,9 +139,31 @@ def _one_path(cfg: Config, given: str, *, must_exist: bool) -> str:
 def _read_file(cfg: Config, args: dict[str, object]) -> str:
     real = _one_path(cfg, _text_arg(args, "path"), must_exist=True)
     offset = _int_arg(args, "offset", 0)
+
+    # stat() before read(), which is what `max_file_read_bytes` already says it does:
+    # "Hard byte ceiling checked by stat() BEFORE reading, so a multi-gigabyte file is
+    # never loaded into memory just to discover it is too big." `context.prefetch` honoured
+    # that; this path did not, and read the whole file to hand back a 50k-character window.
+    # One setting, one meaning, both consumers -- rather than a second knob for the same
+    # idea.
+    try:
+        nbytes = os.stat(real).st_size
+    except OSError as e:
+        raise ToolRefused(f"could not read it: {e.strerror or e}") from e
+
+    if nbytes > cfg.max_file_read_bytes:
+        # Refused rather than paged. At `max_read_chars` a file this size needs more calls
+        # than the turn budget allows, so offering pagination would spend the delegation
+        # getting nowhere; a shell that can cut the part actually wanted is the real answer.
+        raise ToolRefused(
+            f"it is {nbytes} bytes, over the {cfg.max_file_read_bytes}-byte ceiling, so it "
+            f"was not read at all. Use run_bash with sed, head or grep to cut out the part "
+            f"you need."
+        )
+
     try:
         with open(real, "rb") as fh:
-            raw = fh.read()
+            raw = fh.read(cfg.max_file_read_bytes)
     except OSError as e:
         raise ToolRefused(f"could not read it: {e.strerror or e}") from e
 
