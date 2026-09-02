@@ -1,4 +1,8 @@
-<!-- BUDGET: 439
+<!-- BUDGET: 477
+     Raised from 439 on 2026-09-02: five tool-surface items -- globs in `files[]`, a
+     read-only search tool, line addressing, `edit_file`, and measuring whether the tool
+     schemas are inside the cached prefix. Second raise in a day, which is the signal the
+     header below already answers: the recurrence wants archive/, not another raise.
      Raised from 413 on 2026-09-02: the one Deferred and cancelled section became Open,
      Deferred and Cancelled, because twelve live items were being filed as deferred. Three
      headings and their leads; no new items.
@@ -358,6 +362,12 @@ group by what the item's own annotation says it costs.
   per-extension and every entry is rounded **down**, so estimates over-count and the
   conservative direction survives a different tokenizer unless it is denser than the
   densest entry. A sentence, not a project
+- ⬜ Measure whether the tool schemas sit inside the cached prefix, and record it in
+  ADR-0011's terms — the ADR fixes the prompt order and requires the leading tokens to be
+  bit-identical, naming timestamps and counters as what breaks it. It never says whether a
+  tool description is inside that region. If it is, rewording one costs prefill on every
+  later call; if it is not, it costs nothing, and the difference decides how freely the
+  model-facing contract can be edited. Reasoned about so far, never measured
 
 ### Improvements
 
@@ -373,6 +383,34 @@ group by what the item's own annotation says it costs.
   so `delegate_to_agent` can reach one of five agents in this repository. `docs-audit-local`
   is the shape to copy (`#67`). CONTRIBUTING.md already records the two-format arrangement
   as temporary; this is what it costs
+- ⬜ Globs and a search term in `files[]`, expanded server-side — `delegate_readonly` fixes
+  `allowed_tools` at `[]`, so it can look for nothing and every file must be named in
+  advance. Expanding before the call keeps that promise literally true: no tools, no loop,
+  and the static prefix ADR-0011 protects untouched. The work is in the budget rather than
+  the matching — a glob hitting two hundred files has to skip and account for them the way
+  `context.prefetch` already does, not spend `prefetch_budget` silently
+- ⬜ A read-only search tool, for the research a glob cannot do — grep, read a hit, grep
+  again. This is the half that needs iteration, so it means giving `delegate_readonly` tools
+  and with them the agentic loop, which ADR-0016 already prefers and which no ADR argues
+  against; the one-shot is a consequence of the empty toolset being falsy, not a decision.
+  ADR-0042's promise survives, because it is that nothing the tool can do will write rather
+  than that it has no tools — MCP matches permissions on the name and never on the
+  arguments. Its annotation and heading both need rewording, which is the behaviour change
+- ⬜ Line addressing in `read_file` — `offset` counts characters, so the model can neither be
+  pointed at lines 400 to 460 nor cite what it read. Found in review and never filed here,
+  because it was absorbed as a workaround instead: `.claude/agents/docs-audit-local.md`
+  tells that one agent to cite by quotation and warns it is never shown a line number. Every
+  other caller still asks for line numbers and gets hand-counted ones
+- ⬜ `edit_file`, on a helper that validates and opens together — `write_file` replaces a
+  file whole, so changing three lines in a long module means reading it back in
+  `max_read_chars` windows and rewriting every line, with any hallucinated character landing
+  silently. Together with no search and no line addressing, this is the likeliest reason no
+  code-writing task has been delegated yet. It must not land before the inode item above:
+  `_one_path` returns a string and each handler opens for itself, so a read-modify-write
+  tool validates once and uses the path twice across two `open` calls, against an adversary
+  holding a read-write bind under `run_bash` who can retry until the swap lands. One
+  `open_resolved` helper closes that item and makes the third tool safe by construction
+  rather than by review
 
 ## Deferred
 

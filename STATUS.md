@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** Open — hardening, testing and troubleshooting — 0 of 12 items done
+**Current phase:** Open — hardening, testing and troubleshooting — 0 of 17 items done
 
 ## In progress
 
@@ -30,14 +30,14 @@
 | M5 — Sandbox | 9 | 0 | 0 | 0 |
 | M6 — Agents, batching, discovery | 4 | 0 | 0 | 0 |
 | M7 — Admission control and polish | 4 | 0 | 0 | 1 |
-| Open — hardening, testing and troubleshooting | 0 | 0 | 12 | 0 |
+| Open — hardening, testing and troubleshooting | 0 | 0 | 17 | 0 |
 | Deferred | 0 | 0 | 1 | 0 |
 | Cancelled | 0 | 0 | 0 | 5 |
 | Extra — work outside the milestone plan | 7 | 0 | 0 | 0 |
 
-**Overall:** 73 done, 13 open, 7 cancelled.
+**Overall:** 73 done, 18 open, 7 cancelled.
 
 ## Repository
 
-- 82 commit(s), 122 tracked files
-- 53 test file(s), 43 decision record(s)
+- 83 commit(s), 123 tracked files
+- 54 test file(s), 43 decision record(s)

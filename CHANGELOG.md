@@ -70,6 +70,29 @@ Older entries, in the previous flat format, are in
   listed stays open: this is headroom for a restructure, not that trim, and closing it here
   would have retired an item nobody did.
 
+- Five items added under `Open`, all of them about the surface the local model is given.
+  `read_file`, `write_file` and `run_bash` are the whole registry (`tools.py` line 387), with
+  no search, no globbing and no line addressing, and `delegate_readonly` fixes `allowed_tools`
+  at `[]` so it has none of them -- which is why a repository-mapping task in this session went
+  to a Claude subagent rather than to the free local model. Filed as: globs and a search term
+  in `files[]` expanded server-side; a read-only search tool; line addressing in `read_file`;
+  `edit_file`; and a measurement of whether the tool schemas sit inside ADR-0011's cached
+  prefix.
+- Two of them carry findings rather than just intentions. The line-addressing gap was found in
+  review and never reached this file, because it was absorbed as a workaround instead --
+  `.claude/agents/docs-audit-local.md` tells that one agent to cite by quotation and warns it
+  is never shown a line number, which closed the symptom for one caller and left the tool gap
+  open for every other. And `edit_file` is sequenced behind the inode item deliberately:
+  `_one_path` returns a resolved string while each handler opens for itself, so a
+  read-modify-write tool would validate once and use the path twice across two `open` calls,
+  against an adversary who holds a read-write bind under `run_bash` and can retry. It converts
+  a filed finding into an enabling condition, and one validate-and-open helper closes both.
+- `PLAN.md`'s budget rises 439 to 477, the second raise in a day. Recorded as the signal it is:
+  the header comment has said since 2026-08-28 that the answer to a recurrence is `archive/`,
+  which `check_budgets` skips, rather than another raise. Every milestone is now closed, so
+  that option is available for the first time and the instrument is measuring nothing until
+  someone takes it.
+
 ### Fixed
 - `PLAN.md`'s legend promised `✅ done, with date and commit` when it has been date-only for
   some time -- commit hashes caused more trouble than they were worth, and the fifteen items
