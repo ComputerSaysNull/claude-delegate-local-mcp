@@ -155,18 +155,18 @@ file format. A recipe inside one is run and believed, so it earns a check's scru
 **Two formats live here at once, and that is temporary.** Most of these files are Claude
 Code's format; `docs-audit-local` is this server's, for running the audit on the local model
 through `delegate_to_agent`. **The two readers fail differently, and both failures are
-quiet.** This server skips a file it cannot parse and says nothing, so a malformed agent
-simply is not there, and `list_agents` returning nothing is what a typo looks like. Claude
-Code does not skip this server's format at all: it loads the file and ignores the
-frontmatter it does not recognise, so `allowed_tools` goes unapplied and the named model is
-not the one that runs. That is the worse of the two, because the agent appears to work.
-After editing an agent file, confirm it against the consumer you meant — `list_agents`
-here, the roster there — and read neither as evidence the other is happy.
+quiet.** This server skips a file it cannot parse silently, so a malformed agent is simply
+not there and `list_agents` returning nothing is what a typo looks like. Claude Code does
+not skip this server's format at all: it loads the file and ignores frontmatter it does not
+recognise, so `allowed_tools` goes unapplied and the named model is not the one that runs —
+the worse of the two, because the agent appears to work. Confirm an edit against the
+consumer you meant; neither is evidence the other is happy.
 
 Say which one you want when asking for an audit. The duplication ends when the local route
-is dependable enough to be the only one, and the Claude Code copy is deleted then rather
-than left to rot — an unrun file is not a backup, it is a second copy drifting, and git
-holds the real history. This audit found a broken command inside exactly such a file.
+is dependable enough to be the only one; the copy is then deleted, not left to rot.
+
+**A body can work around a server limitation, and nothing links them.** `docs-audit-local`
+cited by quotation because `read_file` had no line numbers; adding them made that stale.
 
 <!-- GEN:AGENTS:START -->
 <!-- Generated from .claude/agents/*.md by scripts/gen_agents_docs.py. Change the frontmatter, not this. -->

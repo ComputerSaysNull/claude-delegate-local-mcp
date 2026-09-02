@@ -27,15 +27,16 @@ manifest consistency, secrets and commit authorship.
 Run it first — `python3 scripts/docs_gate.py --mode pre-commit` — and report nothing it
 already catches. Your value is entirely in the judgements a script cannot make.
 
-## Cite by quotation, never by line number
+## Cite a line number only when `read_file` gave you one
 
-**You are never shown a line number.** Files arrive as raw text between `BEGIN FILE` and
-`END FILE` markers, and `read_file` paginates by *character* offset. Any line number you
-produce is you counting newlines from memory, and measurement says that estimate drifts
-further the deeper into a file it goes — reported positions ran 20% to 30% low, worsening
-with depth, while the quoted text was exact every time.
+`read_file` now numbers every line it returns, and takes `start_line` to go straight at a
+range. A number that came from it is real and worth citing.
 
-So quote the text and let the reader find it. If a number helps, mark it approximate.
+**A number you did not read is not.** Files arriving in the `files[]` block between
+`BEGIN FILE` and `END FILE` markers carry no numbering at all, so any position you give for
+those is you counting newlines from memory — measured as drifting 20% to 30% low, worsening
+with depth, while the quoted text was exact every time. For those, quote the text and let
+the reader find it, or call `read_file` and cite what it showed you.
 
 **Check every quotation before you report it.** You have `run_bash`: match on normalised
 whitespace, because a passage wrapped across a line break will not be found by a literal
