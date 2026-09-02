@@ -1,6 +1,6 @@
 """The transcript viewer: which streams it lists, in what order, and how it navigates.
 
-Two halves. The first calls the file-reading functions directly -- the window, the
+Two halves. The first calls the file-reading functions directly -- the cap, the
 ordering and the cache, where a wrong answer is quiet rather than obvious. The second
 drives the whole thing through a real pty, because the interesting failures live in the
 seam between the terminal and the code and are invisible to anything that stubs stdin.
@@ -71,22 +71,32 @@ def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is 
     return path
 
 
-def test_the_window_hides_a_stream_older_than_seven_days(viewer, tmp_path):
+def test_a_stream_older_than_a_week_is_still_listed(viewer, tmp_path):
+    """The seven-day cutoff is gone: age no longer decides, only the cap does.
+
+    Negative test for that removal -- it passes only because the cutoff went. Against
+    the previous version the eight-day-old stream is missing and this fails.
+    """
     now = datetime.now(UTC)
     fresh = stream(tmp_path, now - timedelta(days=1), task="fresh")
     stale = stream(tmp_path, now - timedelta(days=8), task="stale")
     rows, trimmed = viewer.scan(tmp_path)
-    assert [row["path"] for row in rows] == [fresh]
+    assert [row["path"] for row in rows] == [fresh, stale]
     assert trimmed == 0
-    assert stale.exists(), "the viewer must never delete what it declines to list"
 
 
-def test_the_window_is_judged_on_the_name_not_the_mtime(viewer, tmp_path):
-    """An old dispatch touched today is still old. mtime would have said otherwise."""
-    stale = stream(tmp_path, datetime.now(UTC) - timedelta(days=8))
+def test_an_old_stream_touched_today_still_sorts_as_old(viewer, tmp_path):
+    """The cutoff read the name rather than the mtime, and the ordering still does.
+
+    Removing the cutoff must not take that with it: an eight-day-old dispatch that
+    wrote a turn a moment ago belongs at the bottom of the list, not the top.
+    """
+    now = datetime.now(UTC)
+    recent = stream(tmp_path, now - timedelta(hours=1), task="recent")
+    stale = stream(tmp_path, now - timedelta(days=8), task="stale")
     os.utime(stale, (time.time(), time.time()))
     rows, _ = viewer.scan(tmp_path)
-    assert rows == []
+    assert [row["path"] for row in rows] == [recent, stale]
 
 
 def test_streams_are_ordered_by_start_not_by_last_write(viewer, tmp_path):
@@ -111,8 +121,7 @@ def test_ordering_falls_back_to_the_filename_when_the_start_event_is_unreadable(
     assert [row["path"] for row in rows] == [broken, good]
 
 
-def test_trimmed_counts_what_the_window_kept_but_the_cap_dropped(viewer, tmp_path,
-                                                                 monkeypatch):
+def test_trimmed_counts_what_the_cap_dropped(viewer, tmp_path, monkeypatch):
     monkeypatch.setattr(viewer, "MAX_ROWS", 2)
     now = datetime.now(UTC)
     for n in range(5):
@@ -120,6 +129,21 @@ def test_trimmed_counts_what_the_window_kept_but_the_cap_dropped(viewer, tmp_pat
     rows, trimmed = viewer.scan(tmp_path)
     assert len(rows) == 2
     assert trimmed == 3, "a silently truncated list is the kind that gets trusted"
+
+
+def test_the_list_is_capped_at_twenty_without_being_asked(viewer, tmp_path):
+    """The cap, at its real value rather than a monkeypatched one.
+
+    The test above proves the cap works; this one proves it is 20. Separate because a
+    default nothing asserts is a default that drifts -- and 20 is the whole request.
+    """
+    now = datetime.now(UTC)
+    for n in range(25):
+        stream(tmp_path, now - timedelta(minutes=n))
+    rows, trimmed = viewer.scan(tmp_path)
+    assert viewer.MAX_ROWS == 20
+    assert len(rows) == 20
+    assert trimmed == 5
 
 
 def test_a_row_carries_the_state_the_picker_renders(viewer, tmp_path):
@@ -355,7 +379,7 @@ def session(tmp_path):
 
 
 @posix_only
-def test_the_list_paints_what_the_window_kept(session, tmp_path):
+def test_the_list_paints_every_stream_newest_first(session, tmp_path):
     now = datetime.now(UTC)
     ancient = stream(tmp_path, now - timedelta(days=9), "ANCIENT", ended=True)
     os.utime(ancient, (time.time(), time.time()))
@@ -364,8 +388,10 @@ def test_the_list_paints_what_the_window_kept(session, tmp_path):
 
     screen = session(tmp_path).read()
     assert "delegations" in screen
-    assert "ANCIENT" not in screen
-    assert screen.index("NEWER") < screen.index("OLDER")
+    # Painted now, and painted last: nine days old but touched a moment ago, so a list
+    # ordered by write time would have put it first instead.
+    assert screen.index("NEWER") < screen.index("OLDER") < screen.index("ANCIENT")
+    assert "last 7 days" not in screen
     assert "r refresh" in screen and "q quit" in screen
 
 

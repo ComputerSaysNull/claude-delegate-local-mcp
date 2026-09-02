@@ -556,15 +556,15 @@ thing that was being waited for, and taking the screen away at that moment is th
 behaviour a watcher must not have. The list redraws itself every couple of seconds so a
 dispatch started elsewhere appears without a keypress, and `r` forces it.
 
-Two properties of the listing come from the stream format rather than from the filesystem.
-Ordering and the seven-day window are both taken from **when the dispatch started** — the
-`start` event's `at`, falling back to the timestamp `transcript.py` puts in the filename —
-never from mtime, which moves every time a turn lands and would reshuffle the list under a
-reader watching a long dispatch. The window is applied to the filename before any file is
-opened, and unchanged files are then served from a cache keyed on `(mtime, size)`: an
-unattended redraw over `/mnt/c` that re-read every file would make the viewer a load
-generator (ADR-0020). The listing shows the start clock and the last-write clock side by
-side, both converted to local time, because `at` is UTC and an mtime is not.
+Ordering comes from the stream format rather than the filesystem: from **when the dispatch
+started** — the `start` event's `at`, falling back to the timestamp `transcript.py` puts in the
+filename — never from mtime, which moves every turn and would reshuffle the list under a reader
+watching a long dispatch. **The list is then the newest twenty**, a count rather than the
+seven-day window it replaces: an age left a busy day unreadable and a quiet week nearly empty.
+Nothing is deleted, and an older stream still opens by path. Unchanged files come from a cache
+keyed on `(mtime, size)`: an unattended redraw over `/mnt/c` that re-read every one would make
+the viewer a load generator (ADR-0020). Start and last-write clocks sit side by side in local
+time, because `at` is UTC and an mtime is not.
 
 The listing also names the **kind** of each call in one word — `delegate`, `readonly`,
 `agent`, `batch`, or `one-shot` for a `delegate` that was handed no tools — because that is
