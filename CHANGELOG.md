@@ -34,7 +34,7 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## Unreleased — docs: measure whether a tool description sits in the cached prefix
+## #78 — 2026-09-02 — docs: measure whether a tool description sits in the cached prefix
 
 ### Fixed
 - `declared_tools` asserted that tool schemas sit in the cluster's cached prefix and cited
