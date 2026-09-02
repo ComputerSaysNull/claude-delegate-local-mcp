@@ -34,7 +34,7 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## Unreleased — feat!: effort must be stated on every delegation
+## #76 — 2026-09-02 — feat!: effort must be stated on every delegation
 
 ### Changed
 - `effort` is required on `delegate`, `delegate_readonly`, `delegate_to_agent` and
