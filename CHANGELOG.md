@@ -34,6 +34,28 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #73 — 2026-09-02 — docs: record the review findings not being built yet
+
+### Added
+- The eleven findings from the 2026-09-02 review that are not being built are now deferred
+  items in `PLAN.md`, each carrying the reason. Kept there rather than restated here or in
+  the pull request: that document owns them, and several are security items, for which a
+  surface read while it is recent is the wrong place for a list of gaps nobody has closed.
+  Three entries record where the review's own recommended fix would have been the wrong
+  one; two items it never raised are recorded beside them.
+- Two operational facts worth a plan rather than a conversation: four of five agents in this
+  repository load only in Claude Code, so `delegate_to_agent` reaches one — `#72` made that
+  visible rather than caused it — and the 2026-09-01 audit's documentation trim is overdue,
+  this series having needed three budget raises across two documents to state facts the
+  code had just acquired.
+
+### Changed
+- `PLAN.md`'s budget rises to 413, and `STATUS.md` is regenerated: deferred goes 2 to 13.
+  Worth knowing for the trim: that check *does* fire on `PLAN.md`. The audit recorded it as
+  disabled and a delegated summary repeated that, but `#62` repaired the anchor exactly as
+  the file's header claims — established by adding the lines and watching the gate block,
+  not by reading either account.
+
 ## #72 — 2026-09-02 — feat: list_agents separates a broken agent from one in the other format
 
 ### Fixed
