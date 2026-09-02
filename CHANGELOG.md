@@ -34,6 +34,57 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #75 — 2026-09-02 — docs: archive the closed roadmap and retire the generated status file
+
+### Changed
+- M0a through M7 and `Extra` move verbatim to `archive/PLAN-milestones.md`, following
+  `archive/CHANGELOG-2026-08.md`. `check_budgets` skips any path with an `archive` component,
+  which is what `PLAN.md`'s own header has prescribed for a recurrence since 2026-08-28 —
+  and two budget raises in one day, 413 to 439 to 477, made the recurrence undeniable.
+  `PLAN.md` goes from 477 lines to 171 and its budget resets from 477 to 200. `Extra` is
+  archived too: it was held apart so a milestone's counts meant what they said, and with the
+  milestones gone there is nothing left for it to be apart from. Checked rather than
+  eyeballed — 98 item lines before and after, and the sorted multiset of item and
+  continuation lines across both files is byte-identical to the one file it came from.
+- `PLAN.md`'s header drops its accumulated raise history, because the reason for each raise is
+  already in the `CHANGELOG.md` section for the pull request that made it. Completed items stay
+  in `PLAN.md` as a record of recent work; passing the budget is now a prompt to ask whether any
+  are ready to archive rather than a requirement to move them. The hash note goes with the items
+  it described —
+  all fifteen commit-citing items are 2026-08-25 and now live in the archive.
+
+### Removed
+- `STATUS.md` and `scripts/gen_status.py` are retired (ADR-0044). The file answered a real
+  question while `PLAN.md` was 477 lines; at 171 lines of open work `PLAN.md` is its own
+  snapshot, and a generated summary of a short document is the second copy this project's
+  ownership rule exists to prevent. Retired with them: the generator pair in
+  `docs_gate.py`, the `--check` step in `.github/workflows/ci.yml`, and three regression
+  tests, 19 tests in total.
+- One of those tests is the reason this is a retirement rather than a repair.
+  `test_status_no_vcs_position.py` existed because a *generated* file had recorded a branch
+  name and a commit hash, which a squash merge deletes, and because `gen_status --check`
+  compared only the region above `## Repository`, so nothing examined the rest. That hazard
+  belonged to the artefact rather than to the plan. `test_next_up_shows_the_item_name.py`
+  went too, one pull request after it was written: the truncation it fixed was real, and
+  finding it was what showed the file had not been read in long enough for three cut
+  sentences to sit there unnoticed.
+- The counts are gone with it. 73 done and 7 cancelled are no longer stated anywhere
+  derived, and live in `CHANGELOG.md`, the archive and git. Accepted deliberately rather
+  than replaced with a hand-maintained number, which would drift — the failure this
+  repository's generators exist to prevent.
+
+### Fixed
+- The three agent definitions that read `PLAN.md` to tell built from not-yet-built now name
+  `archive/PLAN-milestones.md` as well. This would have broken quietly: "not in `PLAN.md`"
+  stopped meaning "not built" the moment completed items left it, so `researcher` would have
+  begun reporting shipped modules as missing, in the one answer it exists to get right.
+- `README.md` sent a new reader to `STATUS.md` first and `PLAN.md` second. It now points at
+  the open plan and the archive.
+- `CONTRIBUTING.md`'s "When this document splits" section said its budget was "now 210" when
+  it was 249, two lines below a sentence warning that this very sentence had gone stale twice
+  before. Third time. The count is removed rather than corrected, which is what the sentence
+  itself already recommended and did not do.
+
 ## #74 — 2026-09-02 — docs: split the plan's backlog from what is on hold and what was dropped
 
 ### Changed
