@@ -34,6 +34,41 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #71 — 2026-09-02 — fix: a default written twice and a deadline measured from the wrong clock
+
+### Fixed
+- `DispatchTimedOut` reported one turn's elapsed time against the whole delegation's limit.
+  A saturated cluster returned "abandoned after 1372.8s, past the DELEGATE_DISPATCH_TIMEOUT
+  of 3600s", which it is not. `complete_with_retry` measured from its own entry while the
+  deadline is taken once per delegation, and the turn loop enters that function fresh every
+  turn. The message is the whole value of this exception — ADR-0007's server-captured truth
+  is what makes it believable — and its remedy, "raise that setting", is advice the number
+  did not support. Elapsed is derived from the deadline now, so there is no second origin
+  to disagree with it. Found by running delegations, not by reading code.
+- A `TimeoutError` where `deadline is None` blamed `DELEGATE_DISPATCH_TIMEOUT`, though only
+  the adapter's own client budget bounded that attempt. It names `DELEGATE_TURN_TIMEOUT`.
+- `131072` was written twice in `registry.py`, as the dataclass default and as the parser's
+  fallback — two copies of a default drift, and the one that drifts is whichever the reader
+  did not check. One `DEFAULT_CONTEXT_WINDOW` now.
+- An omitted `context_window` was adopted silently, which `docs/MODELS.md` had already
+  called "the local form of the same bug". The overflow mismatch report therefore said
+  "models.toml gives context_window=131072" about a file with no such key — advice to
+  correct a line that was never there, and the default is 8x below the window this cluster
+  serves. `ModelEntry` records `context_window_defaulted`, and the report branches on it:
+  a stated window is the operator's to correct, while an assumed one is not a claim at all,
+  and the endpoint has just reported the value the remedy can now name.
+
+### Changed
+- `backend_status` rows carry `context_window_defaulted` beside the window: the same class
+  of fact as `id_confirmed`, where the endpoint is healthy and the registry's account of it
+  may still not be what anyone meant. A result-shape change.
+
+### Added
+- `tests/regression/test_timeout_reported_against_the_wrong_clock.py`. It records why the
+  suite missed this: every existing test set `deadline = clock() + dispatch_timeout` at the
+  moment of the call, so both origins coincided and agreed by construction. Nothing set a
+  deadline *before* entering, which is exactly what the turn loop does.
+
 ## #70 — 2026-09-02 — fix: transcripts took the default umask and read_file took the whole file
 
 ### Fixed
