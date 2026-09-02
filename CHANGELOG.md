@@ -34,7 +34,7 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## Unreleased — feat: the agentic loop keeps the client informed within a turn
+## #77 — 2026-09-02 — feat: the agentic loop keeps the client informed within a turn
 
 ### Fixed
 - The turn loop now runs the same keepalive `run_one_shot` has had since ADR-0018.
