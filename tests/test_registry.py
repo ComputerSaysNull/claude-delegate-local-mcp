@@ -192,3 +192,48 @@ def test_zero_concurrency_is_refused(tmp_path):
             'concurrency=0\ndefault=true\n')
     with pytest.raises(registry.RegistryError, match="at least 1"):
         build(tmp_path, body)
+
+
+# ---- the context_window default, and knowing when it was used ------------------------
+
+MINIMAL = """
+[models.bare]
+base_url = "http://head:8888"
+served_model_id = "served-id-1"
+default = true
+"""
+
+
+def test_the_context_window_default_is_one_value_not_two(tmp_path):
+    """It was written out twice: the dataclass default and the parser's fallback.
+
+    Two copies of a default drift, and the one that drifts is whichever the reader did
+    not check -- the same reasoning that makes `BYTES_PER_TOKEN_DEFAULT` derived rather
+    than written down again. This fails if either copy is edited alone.
+    """
+    reg, _ = build(tmp_path, MINIMAL)
+    parsed = reg.resolve(None).context_window
+    declared = registry.ModelEntry(
+        key="k", base_url="http://head:8888", served_model_id="s").context_window
+    assert parsed == declared == registry.DEFAULT_CONTEXT_WINDOW
+
+
+def test_an_omitted_context_window_is_recorded_as_assumed(tmp_path):
+    """`probe_window` exists "to CHECK the operator's context_window, never to supply it",
+    so whether they supplied one is a fact the server has to keep.
+
+    Without it the overflow mismatch report told an operator that models.toml gives a
+    context_window, about a file that does not mention one -- advice to correct a line
+    that was never there.
+    """
+    reg, _ = build(tmp_path, MINIMAL)
+    assert reg.resolve(None).context_window_defaulted is True
+
+
+def test_a_stated_context_window_is_not_recorded_as_assumed(tmp_path):
+    """The other direction. A flag that were always true would pass the test above, and
+    would then misreport every correctly configured entry."""
+    reg, _ = build(tmp_path, GOOD)
+    entry = reg.resolve(None)
+    assert entry.context_window == 1048576
+    assert entry.context_window_defaulted is False

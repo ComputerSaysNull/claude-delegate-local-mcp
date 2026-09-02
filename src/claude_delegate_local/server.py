@@ -220,11 +220,27 @@ class WindowCheck:
         if reported is not None and reported != entry.context_window:
             # Never adopted. The mismatch is reported and the feature stays off, because a
             # threshold computed against the wrong window is the bug this exists to avoid.
+            # Which of the two numbers came from the operator decides the advice, so
+            # the report has to distinguish them. It used to say "models.toml gives
+            # context_window=..." even when models.toml gives no such key, sending
+            # someone to correct a line that was not there. When it was defaulted the
+            # endpoint has just told us the right value, so the remedy can name it.
+            if entry.context_window_defaulted:
+                source = (
+                    f"models.toml sets no context_window for {entry.key!r}, so the "
+                    f"default of {entry.context_window} was assumed"
+                )
+                remedy = f"Set context_window={reported} in models.toml to arm it."
+            else:
+                source = (
+                    f"models.toml gives context_window={entry.context_window} for "
+                    f"{entry.key!r}"
+                )
+                remedy = "Correct models.toml to arm it."
             reason = (
-                f"models.toml gives context_window={entry.context_window} for "
-                f"{entry.key!r}, but the endpoint reports {reported}. Overflow handling "
+                f"{source}, but the endpoint reports {reported}. Overflow handling "
                 "stays off rather than compute every threshold against a number one of "
-                "the two disagrees with. Correct models.toml to arm it."
+                f"the two disagrees with. {remedy}"
             )
             self._verdicts[entry.key] = (reason, self._clock())
             return False, reason
@@ -328,6 +344,10 @@ async def probe_entry(
         "api_format": entry.api_format,
         "served_model_id": entry.served_model_id,
         "context_window": entry.context_window,
+        # Whether that number is the operator's claim or this server's
+        # assumption. Same class of fact as id_confirmed: the endpoint is fine,
+        # and what the registry says about it may still not be what was meant.
+        "context_window_defaulted": entry.context_window_defaulted,
         "concurrency": entry.concurrency,
         "status": STATUS_OK,
         "id_confirmed": None,

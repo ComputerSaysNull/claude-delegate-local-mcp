@@ -39,6 +39,12 @@ IMPLEMENTED_FORMATS = ("openai",)
 
 _REQUIRED = ("base_url", "served_model_id")
 
+# One definition, referenced twice below. It was written out at both the dataclass
+# default and the parser's fallback, which is the duplicated-literal shape this project
+# derives BYTES_PER_TOKEN_DEFAULT to avoid: two copies of a default drift, and the one
+# that drifts is whichever the reader did not check.
+DEFAULT_CONTEXT_WINDOW = 131072
+
 
 @dataclass(frozen=True, slots=True)
 class ModelEntry:
@@ -49,10 +55,16 @@ class ModelEntry:
     served_model_id: str
     api_format: str = "openai"
     api_key_env: str = ""
-    context_window: int = 131072
+    context_window: int = DEFAULT_CONTEXT_WINDOW
     default_effort: str = ""          # "" means fall back to Config.thinking_default
     max_tokens_cap: int = 0           # 0 means no per-model cap
     concurrency: int = 5              # this endpoint's own limit, checked alongside the global one
+    # True when models.toml said nothing and the default above was assumed. Recorded
+    # because the two cases need different advice: a window the operator set and got
+    # wrong is corrected, while one they never set was never a claim at all. Without
+    # this, the mismatch report told an operator their file gave a number it does not
+    # mention anywhere.
+    context_window_defaulted: bool = False
     is_default: bool = False
 
     @property
@@ -134,7 +146,8 @@ def _validate(key: str, raw: dict, path: Path) -> ModelEntry:
         served_model_id=str(raw["served_model_id"]),
         api_format=api_format,
         api_key_env=str(raw.get("api_key_env", "")),
-        context_window=int(raw.get("context_window", 131072)),
+        context_window=int(raw.get("context_window", DEFAULT_CONTEXT_WINDOW)),
+        context_window_defaulted="context_window" not in raw,
         default_effort=effort,
         max_tokens_cap=int(raw.get("max_tokens_cap", 0)),
         concurrency=int(raw.get("concurrency", 5)),

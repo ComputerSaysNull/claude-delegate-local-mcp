@@ -185,12 +185,12 @@ so one blackholed endpoint cannot stall the report on the others. Each probe ret
 failure as data rather than raising: a dead model is a finding, and must not take down the
 report for every healthy one.
 
-Reachability is the easy half. The half worth having is `id_confirmed`: whether the
-endpoint actually serves the `served_model_id` the registry names, compared exactly, the
-way `Registry.resolve()` compares it. An endpoint that is up and serving *something else*
-is invisible to every other check — the delegation either gets refused, or gets answered by
-a model nobody chose. That case reports `status: "ok"` with `id_confirmed: false`, because
-the endpoint really is healthy; it is the configuration that is wrong.
+Reachability is the easy half. The half worth having is `id_confirmed`: whether the endpoint
+serves the `served_model_id` the registry names, compared exactly as `Registry.resolve()` does.
+An endpoint up and serving *something else* is invisible to every other check — the delegation
+is refused, or answered by a model nobody chose — so it reports `status: "ok"` with
+`id_confirmed: false`: healthy endpoint, wrong configuration. `context_window_defaulted` is
+the same class of fact, marking a window this server assumed rather than one an operator set.
 
 Six status words, chosen so that each sends the reader somewhere different:
 
