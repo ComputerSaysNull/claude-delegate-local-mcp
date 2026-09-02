@@ -105,7 +105,7 @@ Everything below the frontmatter is the system prompt.
 | Field | Effect |
 |---|---|
 | `model` | Registry key. **Actually binds the dispatch** — see below |
-| `effort` | `off`, `low`, `high`, `max`. Refused loudly if misspelt |
+| `effort` | `off`, `low`, `high`, `max`. Refused loudly if misspelt, and `inherit` is not one of them — a file is a tier that word defers *to* (ADR-0045). Reached only when the caller passes `inherit` |
 | `max_turns` | Round trips. Above the server's hard ceiling the **file is refused**, not clamped — see below |
 | `max_tokens` | Per-reply budget, clamped by the model's cap |
 | `keep_tool_results` | How many recent tool results survive history eviction — [DISPATCH.md](DISPATCH.md) |

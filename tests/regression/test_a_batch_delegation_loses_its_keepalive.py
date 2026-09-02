@@ -67,7 +67,9 @@ def run_batch() -> tuple[dict, list[tuple[float, float | None]]]:
 
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
-            return (await client.call_tool("delegate_batch", {"tasks": TASKS})).data
+            call = client.call_tool(
+                "delegate_batch", {"tasks": TASKS, "effort": "inherit"})
+            return (await call).data
 
     return asyncio.run(go()), seen
 

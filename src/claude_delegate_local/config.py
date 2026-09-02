@@ -29,6 +29,17 @@ from typing import Any
 # set, which has its own vocabulary. `backends/openai_compat.py` owns the translation, and
 # docs/ARCHITECTURE.md says why validating here is not redundant. See ADR-0013.
 EFFORT_LEVELS = ("off", "low", "high", "max")
+
+# The fifth thing a *caller* may say, and deliberately not a fifth level. The tool argument
+# is required, so there is no longer an absent value for the precedence chain to fall
+# through on; this is how a caller states that it is deferring to the agent file, then the
+# registry row, then `thinking_default`. Normalised to `None` at the tool boundary, so
+# nothing inside the server ever sees it -- internally "no explicit effort" is still spelled
+# `None`, and `resolve_effort` still refuses this string, correctly: reaching it means the
+# boundary was bypassed. Never valid for `default_effort` or `thinking_default`, which are
+# the ends of that chain and have nothing left to defer to. See ADR-0045.
+EFFORT_INHERIT = "inherit"
+
 TRANSPORTS = ("stdio", "streamable-http")
 
 # The client's stdio idle timeout, in seconds. Not ours to set and not a setting: it is a

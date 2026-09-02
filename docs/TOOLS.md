@@ -13,7 +13,7 @@ What the local model can do inside a delegation. Generated from the registry; se
      regenerates this block and fails the build if it differs. A description is
      the model-facing contract, so edit it in the code and regenerate. -->
 
-These are the tools the **delegated model** may call inside a delegation. They are not the MCP tools Claude calls -- those are `delegate` and `backend_status`, described in [ARCHITECTURE.md](ARCHITECTURE.md).
+These are the tools the **delegated model** may call inside a delegation. They are not the MCP tools Claude calls, which are described in [ARCHITECTURE.md](ARCHITECTURE.md) -- this sentence used to name two of them and had been wrong since ADR-0042 added a third, so it now points instead.
 
 Which of them a given delegation actually gets is its resolved `allowed_tools` set, enforced both when the list is declared to the model and again when a call arrives, because a model can call a tool it was never offered.
 

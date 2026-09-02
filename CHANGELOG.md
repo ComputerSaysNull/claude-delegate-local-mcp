@@ -34,6 +34,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #76 — 2026-09-02 — feat!: effort must be stated on every delegation
+
+### Changed
+- `effort` is required on `delegate`, `delegate_readonly`, `delegate_to_agent` and
+  `delegate_batch`. **Symptom:** effort was being chosen by omission on almost every call,
+  and a research delegation rerun at `high` found a defect that four earlier ones at the
+  silent default had all missed. **Cause:** the argument was optional, and an absent value
+  fell four links down a precedence chain — call argument, agent file, registry row,
+  `thinking_default` — to `low`, so a caller who never considered the question and one who
+  wanted the default looked identical. **Fix:** drop the default so the schema marks it
+  required, and add `inherit` as the way a caller states that it is deferring. ADR-0045.
+- `inherit` is accepted as an argument only, and refused as a value for `default_effort` in
+  `models.toml` and for `DELEGATE_THINKING_DEFAULT`. Those are the two ends of the chain it
+  defers along, so a value there would resolve to itself. It is normalised to `None` at the
+  tool boundary, before the agent merge — a non-empty string is truthy, so leaving it in
+  place would have skipped the agent file it exists to reach.
+- The four tool descriptions now say what effort to pick, not only which words are legal.
+  Model-facing contract, so this is a behaviour change rather than a wording one.
+
+### Added
+- Tests that the requirement can actually fail: every tool refuses a call naming no effort,
+  and each of the three layers refuses `inherit` where it is not a level. Verified by
+  restoring the default on one tool and watching the refusal test fail.
+
 ## #75 — 2026-09-02 — docs: archive the closed roadmap and retire the generated status file
 
 ### Changed

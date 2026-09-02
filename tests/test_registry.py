@@ -120,6 +120,15 @@ def test_bad_effort_value_is_refused(tmp_path):
         build(tmp_path, body)
 
 
+def test_inherit_is_not_a_registry_default(tmp_path):
+    """Same reason as the config end: a row saying `inherit` would defer to itself, since
+    the row is one of the two tiers `"inherit"` names (ADR-0045)."""
+    body = ('[models.a]\nbase_url="http://h:1"\nserved_model_id="s"\n'
+            'default_effort="inherit"\ndefault=true\n')
+    with pytest.raises(registry.RegistryError, match="not one of"):
+        build(tmp_path, body)
+
+
 def test_declared_but_unimplemented_api_format_fails_clearly(tmp_path):
     """ADR-0008 keeps the seam so an Anthropic adapter is additive, but the adapter does
     not exist yet -- so resolving one must say so rather than misbehave."""

@@ -91,7 +91,9 @@ def cancel_a_running_batch(tmp_path) -> dict:
             # test needs the same id; were it ever wrong the cancel would land nowhere and
             # every assertion below would fail rather than quietly pass.
             request_id = client.session._request_id
-            call = asyncio.create_task(client.call_tool("delegate_batch", {"tasks": TASKS}))
+            call = asyncio.create_task(
+                client.call_tool(
+                    "delegate_batch", {"tasks": TASKS, "effort": "inherit"}))
             await asyncio.wait_for(blocked.all_started.wait(), timeout=10)
 
             await client.cancel(request_id)

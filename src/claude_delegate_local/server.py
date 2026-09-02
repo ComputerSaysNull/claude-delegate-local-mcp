@@ -38,7 +38,7 @@ from .backends.openai_compat import OpenAICompatBackend
 from .admission import Admission, AdmissionError, AdmissionLease
 from .agents import AgentError, AgentSpec, load_agent
 from .agents import survey_agents as discover_agents
-from .config import Config, ConfigError
+from .config import EFFORT_INHERIT, EFFORT_LEVELS, Config, ConfigError
 from .context import estimate_text_tokens, prefetch
 from .loop import (
     AgenticDispatch,
@@ -474,6 +474,21 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     does not go looking for it. `workdir` arrives already resolved and root-checked.
     """
     max_turns: int | None = None
+    # The tool boundary, and the only place `"inherit"` exists. It has to be spent *before*
+    # the agent merge below, not inside `resolve_effort`: that merge is `effort or
+    # agent.effort`, and a non-empty string is truthy, so leaving `"inherit"` in place would
+    # skip the very tier it means to defer to. Refused here rather than four calls later,
+    # where the message would name the levels without naming this one (ADR-0045).
+    if effort is not None and effort != EFFORT_INHERIT and effort not in EFFORT_LEVELS:
+        raise ToolError(
+            f"effort={effort!r} is not one of {EFFORT_LEVELS}, and is not "
+            f"{EFFORT_INHERIT!r}. These are this project's levels, which the adapter "
+            "translates into the server's own vocabulary, and an unlisted one has no "
+            f"translation. Pass {EFFORT_INHERIT!r} to defer to the agent file, the "
+            "registry row and then the configured default, in that order."
+        )
+    if effort == EFFORT_INHERIT:
+        effort = None
     # Precedence, once, here: explicit call argument, then the agent file, then the
     # registry row, then the global default (docs/AGENTS.md). Resolved to a single
     # `ModelEntry` that is then used for everything -- the backend cache key, the dispatch,
@@ -793,9 +808,14 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
     @mcp.tool
     async def delegate(  # noqa: PLR0913 -- ctx is injected, not an argument the caller sees
         task: str,
+        # Required, and sitting here only because a parameter without a default cannot
+        # follow one that has it. Effort changes both what a call costs and how good the
+        # answer is, and it was previously chosen by saying nothing -- four links down a
+        # precedence chain to `thinking_default`, without the caller ever seeing the
+        # decision. `"inherit"` is how a caller defers on purpose (ADR-0045).
+        effort: str,
         files: list[str] | None = None,
         model: str | None = None,
-        effort: str | None = None,
         *,
         # Keyword-only from here, and not merely to satisfy a lint: MCP passes every
         # argument by name, so positional order is a promise to nobody.
@@ -836,8 +856,15 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         `files[]`, and a write it is refused comes back to it as a refusal it can correct,
         not as a failed call.
 
-        `model` names a registered model, defaulting to the configured one; `effort` sets
-        reasoning effort explicitly, one of "off", "low", "high", "max". `allowed_tools`
+        `effort` is required, because it changes both what the call costs and how good the
+        answer is, and there is no sensible value to pick on your behalf: one of "off",
+        "low", "high", "max", or "inherit" to defer to the configured default. Match it to
+        the task -- "low" for summarising, quoting, or anything mechanical; "high" when the
+        answer depends on reasoning across what it was given, such as a review, a trace
+        through several files, or a design question. "max" is for the rare case that has
+        already come back thin at "high".
+
+        `model` names a registered model, defaulting to the configured one. `allowed_tools`
         narrows what the model may use -- omit it for everything available, or pass an
         empty list for a single-turn answer with no tools at all, which is the cheapest
         shape when the task is self-contained and `files[]` already holds everything.
@@ -894,9 +921,9 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
     @mcp.tool(annotations={"readOnlyHint": True})
     async def delegate_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
         task: str,
+        effort: str,
         files: list[str] | None = None,
         model: str | None = None,
-        effort: str | None = None,
         *,
         max_tokens: int | None = None,
         diagnostics: bool = False,
@@ -918,6 +945,12 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         write a file, or run a command. This is not a cheaper `delegate`; it is a
         narrower one, and asking it to edit something will produce a description of the
         edit instead.
+
+        `effort` is required: one of "off", "low", "high", "max", or "inherit" to defer to
+        the configured default. Read-only does not mean undemanding -- "low" suits
+        summarising and quoting, but a review or a trace across several files needs "high",
+        and answering it at "low" spends the call for a worse answer rather than a cheaper
+        one.
         """
         return await run_delegation(
             cfg, registry, cache, windows, admission,
@@ -957,7 +990,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         workdir: str | None = None,
         *,
         model: str | None = None,
-        effort: str | None = None,
+        effort: str,
         allowed_tools: list[str] | None = None,
         max_tokens: int | None = None,
         diagnostics: bool = False,
@@ -979,6 +1012,11 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         Every explicit argument here wins over the agent file, so you can send one hard case
         to `test-writer` at a larger model without editing the file. Omit them and the file
         decides.
+
+        `effort` is the exception: it cannot be omitted, because a value chosen by silence
+        is what this argument exists to stop. Pass "inherit" to let the agent file decide --
+        which is usually right here, since a well-written agent binds the effort its kind of
+        work needs -- or one of "off", "low", "high", "max" to overrule it for this call.
 
         The reply is `delegate`'s, plus `agent` naming the file that was used. Read
         `bash_failures` and `last_bash_exit` over the model's own prose: those are real
@@ -1007,7 +1045,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         workdir: str | None = None,
         *,
         model: str | None = None,
-        effort: str | None = None,
+        effort: str,
         allowed_tools: list[str] | None = None,
         max_tokens: int | None = None,
         ctx: Context | None = None,
@@ -1028,6 +1066,11 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
 
         Items run concurrently, bounded by what the model's registry entry says its endpoint
         will take, so a large batch queues rather than swamping it.
+
+        `effort` is required and applies to every item: one of "off", "low", "high", "max",
+        or "inherit" to defer to `agent_name`'s file and then the configured default. It is
+        one value for the whole batch, so tasks needing different depths belong in different
+        batches -- which is the same rule as `files[]`, for the same reason.
 
         **One item failing does not fail the batch.** Each result carries its own `ok`, and a
         failed one carries `error` instead of an answer, with the `index` and `task` that

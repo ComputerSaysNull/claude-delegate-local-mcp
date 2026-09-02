@@ -28,6 +28,12 @@ def _run(tmp_path: Path, handler, tool: str, args: dict) -> list[dict]:
     config = cfg(transcript_dir=str(tmp_path), max_turns_default=4)
     mcp = server.build(config, registry(entry()), DoubleCache(config, handler))
 
+    # `effort` is required on every delegation tool, and "inherit" is the value that
+    # preserves the pre-ADR-0045 behaviour exactly: it falls through to the agent, the
+    # registry row and then `thinking_default`. A test that cares about the level sets
+    # it itself; that it is *refused* when absent is asserted directly, not here.
+    args = {"effort": "inherit", **args}
+
     async def go():
         async with Client(mcp) as client:
             return (await client.call_tool(tool, args)).data

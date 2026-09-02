@@ -158,8 +158,11 @@ without displacing the notification, and the batch reports its own completed-ite
 every turn of every item. Withholding the notification instead is what let a client abandon a
 batch at the idle timeout while the server carried on to `dispatch_timeout`, holding the
 machine-wide budget for the remainder. Effort resolves
-explicit argument → registry row → global default and is always sent, never inherited from
-whatever the cluster was booted with (ADR-0013). The reply budget resolves the same way,
+explicit argument → agent file → registry row → global default and is always sent, never
+inherited from whatever the cluster was booted with (ADR-0013). The argument is required,
+and `inherit` is how a caller enters that chain rather than skipping it — spent at the
+boundary before the agent merge, refused as a registry or configured default (ADR-0045).
+The reply budget resolves the same way,
 caller first and the configured default last, and is
 [described with the rest of resolution](DISPATCH.md#the-reply-budget-is-resolved-once-most-specific-first). An unlisted effort is refused before dispatch: it has no translation into
 the server's vocabulary, and discovering that mid-call wastes the call.
@@ -419,10 +422,6 @@ delegation the token rule is a floor-time approximation rather than a running to
 Growing it per turn would couple the gate to the turn loop's internals and add a
 reconciliation path on every abort; the high-water marks are the cheaper way to find out
 whether that trade was wrong.
-
-A wait is bounded separately from the dispatch it precedes, because the dispatch deadline
-is set inside the loop it bounds and does not start until a slot has already been granted.
-The two stack rather than dividing one budget.
 
 Oversubscription announces itself as latency; idle capacity is silent. So the status tool
 reports high-water marks, admission-wait totals and the count of waits that hit their

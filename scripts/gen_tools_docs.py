@@ -59,8 +59,9 @@ def render() -> str:
         "     the model-facing contract, so edit it in the code and regenerate. -->",
         "",
         ("These are the tools the **delegated model** may call inside a delegation. They "
-         "are not the MCP tools Claude calls -- those are `delegate` and `backend_status`, "
-         "described in [ARCHITECTURE.md](ARCHITECTURE.md)."),
+         "are not the MCP tools Claude calls, which are described in "
+         "[ARCHITECTURE.md](ARCHITECTURE.md) -- this sentence used to name two of them and "
+         "had been wrong since ADR-0042 added a third, so it now points instead."),
         "",
         ("Which of them a given delegation actually gets is its resolved `allowed_tools` "
          "set, enforced both when the list is declared to the model and again when a call "
