@@ -34,6 +34,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## Unreleased — feat!: read_file addresses and numbers lines
+
+### Changed
+- `read_file` takes `start_line` instead of `offset`, and numbers every line it returns.
+  **Symptom:** the model could neither be pointed at lines 400 to 460 nor cite what it read.
+  **Cause:** `offset` counted characters of the decoded text. **Fix:** 1-based line
+  addressing, with the number rendered beside each line. `offset` is replaced rather than
+  redefined — a silently changed unit is unreadable to a model that learned the old one, and
+  the description is the contract. Model-facing change, and one that costs a fresh prefill
+  on the cluster; measured in the entry above.
+- The window is still bounded by `max_read_chars`, because that is what bounds a reply, but
+  it now ends on a whole line and the footer names the next `start_line`. A numbered half
+  line would be worse than no numbering: the number would be a claim about a line the caller
+  was not given.
+- Lines are split and rejoined, so a CRLF file reads the same on either side of the
+  boundary, and a file with no trailing newline is not reported as one line longer than it
+  is — `split("\n")` would have invented an empty final line for every file that ends in
+  one, which is most of them.
+- `.claude/agents/docs-audit-local.md` no longer tells its agent to avoid line numbers. That
+  instruction existed because this limitation did; it is now advice against a capability the
+  agent has. `CONTRIBUTING.md` records the trap that produced it — an agent body can encode
+  a workaround for a server limitation, and nothing links the two.
+
 ## #78 — 2026-09-02 — docs: measure whether a tool description sits in the cached prefix
 
 ### Fixed

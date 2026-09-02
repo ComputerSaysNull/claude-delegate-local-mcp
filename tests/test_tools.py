@@ -107,7 +107,7 @@ def test_an_allowed_tool_does_reach_its_handler(workspace):
         cfg(workspace), call("read_file", path=str(workspace / "a.py")),
         tools.ALL_TOOL_NAMES)
     assert not result.is_error
-    assert result.content == "x = 1\n"
+    assert result.content == "1  x = 1"
 
 
 def test_an_unknown_tool_name_is_an_error_not_a_crash(workspace):
@@ -131,10 +131,13 @@ def test_a_refusal_is_an_error_result_and_keeps_the_call_id(workspace):
 
 @posix_only
 def test_read_file_returns_the_whole_file_when_it_fits(workspace):
+    """Numbered, and with no truncation footer. The trailing newline is not preserved --
+    lines are split and rejoined so a CRLF file reads the same as an LF one, which makes
+    this a numbered view of a file rather than a byte-exact copy of it."""
     result = tools.execute_tool(
         cfg(workspace), call("read_file", path=str(workspace / "a.py")),
         tools.ALL_TOOL_NAMES)
-    assert result.content == "x = 1\n"
+    assert result.content == "1  x = 1"
 
 
 @posix_only
@@ -158,43 +161,119 @@ def test_read_file_refuses_a_file_over_the_byte_ceiling(workspace):
 @posix_only
 def test_read_file_still_pages_a_file_under_the_ceiling(workspace):
     """The other direction. A ceiling that refused everything would pass the test above."""
-    (workspace / "fine.py").write_text("z" * 900, encoding="utf-8")
+    (workspace / "fine.py").write_text("z\n" * 400, encoding="utf-8")
     result = tools.execute_tool(
         cfg(workspace, max_file_read_bytes=1000, max_read_chars=100),
         call("read_file", path=str(workspace / "fine.py")), tools.ALL_TOOL_NAMES)
     assert not result.is_error
-    assert "characters 0 to 100 of 900" in result.content
+    assert "of 400" in result.content and "start_line=" in result.content
 
 
 @posix_only
-def test_read_file_pages_and_reports_the_true_total(workspace):
-    (workspace / "big.py").write_text("abcdefghij" * 10, encoding="utf-8")
-    c = cfg(workspace, max_read_chars=30)
+def test_read_file_numbers_every_line_it_returns(workspace):
+    """The whole point of the change. Without a number in the output the model can read a
+    range but cannot cite it, which is how one agent file came to be told to quote instead
+    and warned that it is never shown a line number."""
+    (workspace / "n.py").write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace), call("read_file", path=str(workspace / "n.py")),
+        tools.ALL_TOOL_NAMES)
+    assert not result.is_error
+    assert result.content == "1  alpha\n2  beta\n3  gamma"
+
+
+@posix_only
+def test_read_file_starts_where_it_is_asked_to(workspace):
+    """The other half: being pointed at a range, rather than paging to it."""
+    (workspace / "n.py").write_text("".join(f"line {i}\n" for i in range(1, 11)),
+                                    encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace), call("read_file", path=str(workspace / "n.py"), start_line=8),
+        tools.ALL_TOOL_NAMES)
+    assert not result.is_error
+    assert result.content == " 8  line 8\n 9  line 9\n10  line 10"
+
+
+@posix_only
+def test_read_file_pages_on_whole_lines_and_reports_the_next_one(workspace):
+    """`max_read_chars` still bounds the reply, but the window now ends on a line boundary.
+
+    Half a line carrying a line number would be worse than no number at all: the number
+    would be a claim about a line the caller was not actually given.
+    """
+    (workspace / "big.py").write_text("".join(f"line {i}\n" for i in range(1, 21)),
+                                      encoding="utf-8")
+    c = cfg(workspace, max_read_chars=40)
     first = tools.execute_tool(
         c, call("read_file", path=str(workspace / "big.py")), tools.ALL_TOOL_NAMES)
     assert not first.is_error
-    assert "characters 0 to 30 of 100" in first.content
-    assert "offset=30" in first.content
+    body, _, footer = first.content.partition("\n\n[truncated:")
+    assert footer, "a file over the window must say so"
+    assert "of 20" in footer
+    for line in body.split("\n"):
+        # Every returned line is complete: a number, two spaces, then the whole line.
+        number, _, rest = line.strip().partition("  ")
+        assert rest == f"line {number}"
 
 
 @posix_only
-def test_read_file_continues_from_the_offset_it_reported(workspace):
-    (workspace / "big.py").write_text("abcdefghij" * 10, encoding="utf-8")
-    c = cfg(workspace, max_read_chars=30)
+def test_read_file_continues_from_the_line_it_reported(workspace):
+    """The footer is only useful if following it works, and lands exactly where it said."""
+    (workspace / "big.py").write_text("".join(f"line {i}\n" for i in range(1, 21)),
+                                      encoding="utf-8")
+    c = cfg(workspace, max_read_chars=40)
+    first = tools.execute_tool(
+        c, call("read_file", path=str(workspace / "big.py")), tools.ALL_TOOL_NAMES)
+    resume = int(first.content.split("start_line=")[1].split(" ")[0])
     tail = tools.execute_tool(
-        c, call("read_file", path=str(workspace / "big.py"), offset=90),
+        c, call("read_file", path=str(workspace / "big.py"), start_line=resume),
         tools.ALL_TOOL_NAMES)
-    assert tail.content == "abcdefghij"
-    assert "truncated" not in tail.content
+    assert tail.content.split("\n")[0].strip().startswith(f"{resume}  line {resume}")
 
 
 @posix_only
-def test_read_file_refuses_an_offset_past_the_end(workspace):
+def test_read_file_refuses_a_start_line_past_the_end(workspace):
     result = tools.execute_tool(
-        cfg(workspace), call("read_file", path=str(workspace / "a.py"), offset=999),
+        cfg(workspace), call("read_file", path=str(workspace / "a.py"), start_line=999),
         tools.ALL_TOOL_NAMES)
     assert result.is_error
     assert "past the end" in result.content
+
+
+@posix_only
+def test_read_file_refuses_a_start_line_below_one(workspace):
+    """Lines are counted from 1, so 0 is not "the beginning" -- and negative indices would
+    silently read from the end, which is the reading nobody meant."""
+    result = tools.execute_tool(
+        cfg(workspace), call("read_file", path=str(workspace / "a.py"), start_line=0),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "counted from 1" in result.content
+
+
+@posix_only
+def test_a_file_without_a_trailing_newline_is_not_one_line_longer(workspace):
+    """`split("\n")` would invent an empty final line for every file that ends in a
+    newline, and the count reported to the model would be wrong by one for most files."""
+    (workspace / "no_nl.py").write_text("one\ntwo", encoding="utf-8")
+    (workspace / "with_nl.py").write_text("one\ntwo\n", encoding="utf-8")
+    c = cfg(workspace)
+    without = tools.execute_tool(
+        c, call("read_file", path=str(workspace / "no_nl.py")), tools.ALL_TOOL_NAMES)
+    withit = tools.execute_tool(
+        c, call("read_file", path=str(workspace / "with_nl.py")), tools.ALL_TOOL_NAMES)
+    assert without.content == withit.content == "1  one\n2  two"
+
+
+@posix_only
+def test_crlf_lines_are_numbered_the_same_as_lf_ones(workspace):
+    """The boundary crosses Windows and WSL, so a file written on one side is read on the
+    other. A carriage return left on the end of each line would reach the model as content."""
+    (workspace / "crlf.py").write_bytes(b"one\r\ntwo\r\nthree\r\n")
+    result = tools.execute_tool(
+        cfg(workspace), call("read_file", path=str(workspace / "crlf.py")),
+        tools.ALL_TOOL_NAMES)
+    assert result.content == "1  one\n2  two\n3  three"
 
 
 @posix_only

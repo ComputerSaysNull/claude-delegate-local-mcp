@@ -284,9 +284,9 @@ before its own overwrite. Refusals are never cached either, since several are tr
 nature — a file that does not exist yet is the obvious one — and caching one would make it
 permanent for the rest of the delegation.
 
-Known gap, recorded rather than papered over: a re-read of the same file at a different
-offset is a different argument set and is not caught. Closing it needs range tracking, which
-is its own piece of work. Upstream's version has the same hole.
+Known gap, recorded rather than papered over: a re-read of the same file from a different
+`start_line` is a different argument set and is not caught. Closing it needs range tracking,
+which is its own piece of work. Upstream's version has the same hole.
 
 ## The countdown is in the tail, and the progress notification is not decoration
 

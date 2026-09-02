@@ -138,7 +138,14 @@ def _one_path(cfg: Config, given: str, *, must_exist: bool) -> str:
 
 def _read_file(cfg: Config, args: dict[str, object]) -> str:
     real = _one_path(cfg, _text_arg(args, "path"), must_exist=True)
-    offset = _int_arg(args, "offset", 0)
+    # 1-based, because every other thing that cites a line is: an editor, a traceback, a
+    # reviewer. `offset` counted characters, which meant the model could neither be pointed
+    # at lines 400 to 460 nor cite what it had read, and one agent file worked around it by
+    # being told to quote instead and warned that it is never shown a line number.
+    start = _int_arg(args, "start_line", 1)
+    if start < 1:
+        raise ToolRefused(
+            f"start_line {start} is not a line number; lines are counted from 1.")
 
     # stat() before read(), which is what `max_file_read_bytes` already says it does:
     # "Hard byte ceiling checked by stat() BEFORE reading, so a multi-gigabyte file is
@@ -171,21 +178,44 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
     if text is None:
         raise ToolRefused(why)
 
-    total = len(text)
-    if offset >= total and total:
+    # `splitlines()` and not `split("\n")`: the latter invents a trailing empty line for
+    # every file that ends in a newline, which is most of them, and the model would be told
+    # the file is one line longer than it is. Line endings are dropped here and re-joined
+    # with "\n" below, so a CRLF file reads the same on either side of the boundary -- the
+    # numbering is what the caller asked for, not a byte-exact echo.
+    lines = text.splitlines()
+    total = len(lines)
+    if start > total and total:
         raise ToolRefused(
-            f"offset {offset} is past the end; the file is {total} characters.")
+            f"start_line {start} is past the end; the file has {total} lines.")
 
-    window = text[offset:offset + cfg.max_read_chars]
-    end = offset + len(window)
-    if end >= total:
-        return window
-    # The true total and the next offset, so a continuation is a second range rather than a
-    # second whole read. Appended to the result, never to the system prompt: the prefix must
-    # stay byte-identical across calls (ADR-0011).
+    # The window is still bounded in characters by `max_read_chars`, because that is what
+    # bounds a *reply*, and a file of very long lines would otherwise blow past it. What
+    # changed is that it now stops on a line boundary: half a line, numbered, would be
+    # worse than no numbering at all, because the number would be a lie about what follows.
+    out: list[str] = []
+    width = len(str(total))
+    used = 0
+    index = start
+    for index in range(start, total + 1):
+        rendered = f"{index:>{width}}  {lines[index - 1]}"
+        if out and used + len(rendered) + 1 > cfg.max_read_chars:
+            break
+        out.append(rendered)
+        used += len(rendered) + 1
+    else:
+        # Ran to the end without breaking, so `index` is the last line, not the next one.
+        index = total + 1
+
+    body = "\n".join(out)
+    if index > total:
+        return body
+    # The true total and the next `start_line`, so a continuation is a second range rather
+    # than a second whole read. Appended to the result, never to the system prompt: the
+    # prefix must stay byte-identical across calls (ADR-0011).
     return (
-        f"{window}\n\n[truncated: characters {offset} to {end} of {total}. "
-        f"Call read_file again with offset={end} for the rest.]"
+        f"{body}\n\n[truncated: lines {start} to {index - 1} of {total}. "
+        f"Call read_file again with start_line={index} for the rest.]"
     )
 
 
@@ -292,19 +322,22 @@ READ_FILE = RegisteredTool(
     spec=ToolSpec(
         name="read_file",
         description=(
-            "Read a UTF-8 text file from the workspace. Paths must be absolute. Long files "
-            "come back in one range at a time: the result states the total length and the "
-            "offset to continue from, so read the next range rather than the file again. "
-            "Refused for a path outside the workspace, an unlisted extension, a file git "
-            "ignores, or anything that is not text."
+            "Read a UTF-8 text file from the workspace, with every line numbered, so you "
+            "can cite what you read as a file name and a line number. Paths must be "
+            "absolute. Long files come back one range at a time: the result states the "
+            "total number of lines and the line to continue from, so read the next range "
+            "rather than the file again, and use start_line to go straight to the part you "
+            "want. Refused for a path outside the workspace, an unlisted extension, a file "
+            "git ignores, or anything that is not text."
         ),
         input_schema={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Absolute path to the file."},
-                "offset": {
+                "start_line": {
                     "type": "integer",
-                    "description": "Character offset to start at. Omit to start at 0.",
+                    "description": "First line to read, counting from 1. Omit to start at "
+                                   "the beginning.",
                 },
             },
             "required": ["path"],
