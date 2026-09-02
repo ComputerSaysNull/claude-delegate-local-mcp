@@ -19,6 +19,50 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0044 — 2026-09-02 — A generated status file stops earning its place once the plan is short — Accepted
+
+**Context.** `STATUS.md` was rendered from `PLAN.md` plus git from the first week, and it
+answered a real question: `PLAN.md` reached 477 lines, and a fixed-size snapshot of where
+the work stood was cheaper to read than the document it summarised. Closing M7 removed the
+premise from both ends. `PLAN.md` had stopped describing intent and started holding
+history, so its length tracked what was finished rather than what anyone was going to do;
+and the snapshot itself went wrong in the direction that matters, reporting `Current phase:
+all planned work complete` two lines above `Overall: 73 done, 13 open, 7 cancelled`.
+
+**Decision — archive the closed roadmap.** M0a through M7 and `Extra` move verbatim to
+`archive/PLAN-milestones.md`. `check_budgets` skips any path with an `archive` component,
+which is what the header of `PLAN.md` had prescribed for a recurrence since 2026-08-28 and
+what two budget raises in a single day on 2026-09-02 finally made unavoidable. `Extra` goes
+too: it was held apart so a milestone's counts meant what they said, and with the
+milestones archived there is nothing left for it to be apart from.
+
+**Decision — retire `STATUS.md` and its generator.** `PLAN.md` is now roughly 170 lines of
+open work, which is its own snapshot; a summary of it would be a second copy of a short
+document, which this project's own ownership rule exists to prevent. Deleted with it:
+`scripts/gen_status.py`, the generator pair in `docs_gate.py`, the `--check` step in CI, and
+three regression tests.
+
+**What this removes besides a file.** One of those tests,
+`test_status_no_vcs_position.py`, existed because a *generated* file had recorded a branch
+name and a commit hash — things a squash merge deletes — and because `gen_status --check`
+compared only the region above `## Repository`, so nothing looked at the rest. That hazard
+belonged to the artefact, not to the plan, and it goes with it. This is the argument for
+retiring rather than fixing: the fix would have been a fourth test guarding a file nobody
+reads.
+
+**Consequences.** The three agent definitions that read `PLAN.md` to tell built from
+not-yet-built now name the archive as well, because "not in `PLAN.md`" stopped meaning "not
+built" the moment completed items left it. `README.md` no longer sends a new reader to a
+summary before the thing summarised. The counts are gone: 73 done and 7 cancelled are no
+longer stated anywhere derived, and live in `CHANGELOG.md`, the archive and git instead.
+That is accepted — the number was the least-read part of the least-read file.
+
+**Review.** Completed items stay in `PLAN.md` deliberately, as a record of what a recent
+session did; nothing here prescribes moving them. Passing the budget is a prompt to ask
+whether any of them are ready to archive, not a requirement that they be moved and not on
+its own a reason to raise. If `PLAN.md` ever grows long enough that it stops being its own
+snapshot, that is the condition under which retiring a summary was the wrong call.
+
 ## ADR-0043 — 2026-08-31 — A delegation is also written as it happens, and that stream carries what the model said — Accepted
 
 **Context.** ADR-0024 adopted an operator transcript and ADR-0039 settled what a record

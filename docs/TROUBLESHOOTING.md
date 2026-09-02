@@ -266,7 +266,7 @@ run. See [../CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ### `STALE:` on a generated document
 
-It is rendered from code or from PLAN.md, and is never edited by hand. Run the matching
+It is rendered from code, and is never edited by hand. Run the matching
 generator and commit the result — [../CLAUDE.md](../CLAUDE.md) lists which one renders
 which, and is the only place that mapping lives.
 

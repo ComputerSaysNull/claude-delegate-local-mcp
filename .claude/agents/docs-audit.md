@@ -35,7 +35,8 @@ already catches. Your value is entirely in the judgements a script cannot make.
 4. **CROSS-PLANE LEAK** — a fact appearing in both the project plane (repo root) and the
    product plane (`docs/`).
 5. **MISSING** — a module or behaviour with no documentation coverage at all. Check
-   `PLAN.md` first: not-yet-built is not the same as undocumented.
+   `PLAN.md` and `archive/PLAN-milestones.md` first: not-yet-built is not the same as
+   undocumented, and completed work moved out of `PLAN.md` on 2026-09-02.
 6. **ESCAPE ABUSE** — read the trailers, one commit at a time, anchored to the start of a
    line:
    `git log --format=%H -200 | while read h; do git log -1 --format=%B "$h" |`

@@ -16,7 +16,6 @@ This lists what will bite you.
     python scripts/gen_config_docs.py               # after touching config.py
     python scripts/gen_agents_docs.py               # after touching .claude/agents/
     python scripts/gen_tools_docs.py                # after touching tools.py
-    python scripts/gen_status.py                    # after touching PLAN.md
     .venv/Scripts/python.exe -m pytest -q           # Windows; parallel, `-n 0` for serial
     wsl -d Ubuntu-24.04 -e bash -lc '...'           # anything needing bwrap or ext4
 
@@ -41,9 +40,8 @@ Rules a machine cannot check, so they land here:
   whichever document owns the answer and never restates it. Restating a default inside a
   symptom explanation is exactly how the project this descends from ended up documenting
   one setting three different ways.
-- **Generated documents are never hand-edited.** `docs/CONFIGURATION.md`,
-  `docs/TOOLS.md` and `STATUS.md` are rendered from code or from `PLAN.md`. Edit the
-  source, run the generator.
+- **Generated documents are never hand-edited.** `docs/CONFIGURATION.md` and
+  `docs/TOOLS.md` are rendered from code. Edit the source, run the generator.
 - Blocked by the gate and genuinely right anyway? Add a trailer:
   `Docs-Gate-Skip: owning-doc -- pure rename, no behaviour change`. It is echoed in every
   run and audited, so it is visible rather than quiet. Two skips on one document in ninety

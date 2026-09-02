@@ -620,7 +620,6 @@ def generator_targets() -> list[tuple[str, str]]:
     """The (script, rendered document) pairs. One copy, read by two checks."""
     return [
         ("scripts/gen_config_docs.py", "docs/CONFIGURATION.md"),
-        ("scripts/gen_status.py", "STATUS.md"),
         ("scripts/gen_gitleaks_config.py", ".gitleaks.toml"),
         ("scripts/gen_agents_docs.py", "CONTRIBUTING.md"),
         ("scripts/gen_tools_docs.py", "docs/TOOLS.md"),
@@ -651,7 +650,7 @@ def check_generated_docs_are_all_checked() -> list[Finding]:
     looked. The manifest already records which documents are generated, so the two can be
     compared instead of both being trusted.
 
-    One-way on purpose. The freshness list also covers STATUS.md, .gitleaks.toml and
+    One-way on purpose. The freshness list also covers .gitleaks.toml and
     CONTRIBUTING.md, which are generated in part and own no code, so they carry no
     `generated` flag; requiring the sets to match would flag those forever.
     """

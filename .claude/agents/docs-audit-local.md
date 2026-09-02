@@ -73,7 +73,8 @@ agent spent a turn and a failed command finding that out. The gate is `python3` 
    and the product plane (`docs/`). A link or a cross-reference is not a leak. A shared term
    of art is not a leak. Only a restatement of the same substance counts.
 5. **MISSING** — a module or behaviour with no documentation coverage at all. Check
-   `PLAN.md` first: not-yet-built is not the same as undocumented.
+   `PLAN.md` and `archive/PLAN-milestones.md` first: not-yet-built is not the same as
+   undocumented, and completed work moved out of `PLAN.md` on 2026-09-02.
 6. **ESCAPE ABUSE** — read the waivers one commit at a time, anchored to the start of a
    line, and group them by the document each names:
 

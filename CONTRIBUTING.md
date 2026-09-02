@@ -118,6 +118,7 @@ Security-sensitive work — `sandbox.py`, `paths.py`, `wsl.py` — gets a short 
 **tests** (3.11 and 3.12), and **gitleaks**. `pyproject.toml` pins the ruff version *and*
 the rule set: unpinned, findings went 3 to 45 across releases with no code change, and a
 lint job on a moving rule set fails builds nobody broke. Workflow comments explain the rest.
+The generated-document step now checks `docs/CONFIGURATION.md` alone (ADR-0044).
 
 Two things that live outside it and are easy to miss:
 
@@ -230,10 +231,9 @@ a committed file listing what must not be committed is itself the leak.
 
 ## When this document splits
 
-Raised, trimmed, raised again — 130, 175, 190, 215, back to 190, now 210. Twice the
-sentence here has gone stale about its own subject, which is the failure it exists to warn
-about, so it now says where to look rather than counting: the 215→190 trim moved
-branch-protection reasoning to ADR-0026, and the header records every raise with its cause.
+Raised, trimmed, raised again. The count that stood here went stale three times — the
+failure this section warns about — so it is gone rather than corrected. The header records
+every raise with its cause, and ADR-0026 holds the 215→190 trim's branch-protection move.
 
 If it needs raising again, split instead: the operational half — CI and the agent roster —
 moves to its own document owning `.github/**` and `.claude/agents/**`, leaving the
