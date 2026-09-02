@@ -1,4 +1,7 @@
-<!-- BUDGET: 420 -->
+<!-- BUDGET: 430 -->
+<!-- Raised from 420 on 2026-09-02: the turn loop's half of the keepalive the raise below
+     was for. Duplication removed first, here and in ARCHITECTURE.md; the split is rejected
+     again for the reason below. Second raise this feature needed in one session. -->
 <!-- Raised from 400 on 2026-08-31: the one-shot keepalive, which is a mechanism this
      document owns and did not previously exist. Two paragraphs of duplication were
      removed first -- the 3600s/1800s pair had been stated in two sections -- and the
@@ -298,9 +301,11 @@ turn**. Nothing renders it and the client cannot cancel a synchronous tool call 
 so it looks cosmetic and is not: it resets Claude Code's stdio idle timer, 1800s against a
 `dispatch_timeout` defaulting to 3600s. (ADR-0018)
 
-The one-shot path has no turns to hang that on, so it reports on a timer instead, every
-[`keepalive_interval`](CONFIGURATION.md). It is the only shape that goes silent at all --
-one was measured running 1645s with nothing sent between its start and its answer.
+One per turn is not enough, and the one-shot path has no turns to hang it on at all, so
+both report on a timer as well, every [`keepalive_interval`](CONFIGURATION.md). A turn's own
+duration is bounded only by `turn_timeout`, which defaults to exactly the client's idle
+timeout, so one slow turn outlasts it unaided -- a one-shot was measured running 1645s with
+nothing sent between its start and its answer, and a turn may do the same.
 
 **Measured on 2026-09-01**, against a deliberately silenced two-item batch: at 1800s the
 client aborts and **nothing reaches the server** -- no cancellation, no EOF. It held both
@@ -312,11 +317,16 @@ being one problem from two sides. It carries elapsed and the deadline it is meas
 against, and **not** what the model is doing: there is no streaming, so the server does not
 know. Nothing is cancelled when the interval passes.
 
-It is the only concurrency in `loop.py`, the path from `run_one_shot` to the backend call
-being one sequential chain of awaits: it runs beside that chain, cancelled and awaited in a
-`finally`, so none outlives its dispatch. A callback that raises stops the heartbeat alone
--- one that killed a delegation over an undeliverable notification would be worse than
-none.
+Each runs beside the work rather than inside it, cancelled and awaited in a `finally`
+covering every exit including the raised ones, so none outlives its dispatch. A callback
+that raises stops the heartbeat alone: one that killed a delegation over an undeliverable
+notification would be worse than none.
+
+A timer fires only while the event loop is free, which is why the turn loop runs its tool
+calls through `asyncio.to_thread`. `_run_calls` is synchronous and `run_bash` reaches
+`subprocess.run`, so a command held the loop for its whole duration -- no heartbeat, no
+per-turn notification, no stdio traffic for anything admitted alongside it -- while looking
+present in any test that only slows the backend.
 
 The notification is injected into `loop.py` as a callable rather than imported, so the
 dispatch layer holds no MCP imports and a test can watch the calls without a client — the

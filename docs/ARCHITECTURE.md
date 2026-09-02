@@ -583,14 +583,12 @@ transcript then shows the resolved tools and every file it was given, skipped on
 their reason: a file the caller believes it passed and the model never saw is the one thing
 in that block worth interrupting a reader for.
 
-A one-shot writes a fourth kind of event, `alive`, and it is the only one that reports no
-work done. The other three mark something that happened; this one exists because a one-shot
-is a single backend call with no turns, and a synthetic `turn` is written when the answer
-arrives so the record is never the empty shape a failed delegation has. It carries
-elapsed and the deadline elapsed is measured against, and deliberately not a description of
-what the model is doing: there is no streaming, so the server does not know. The same
-heartbeat sends the client's progress notification, because a silent stream and a silent
-wire are the same problem seen from two sides (ADR-0018).
+Both paths write a fourth kind of event, `alive`, and it is the only one that reports no
+work done. The other three mark something that happened; this one exists because either
+shape can be silent for a long time — a one-shot has no turns at all, and one turn can
+outlast the client's idle timer unaided. A synthetic `turn` is written when a one-shot's
+answer arrives, so the record is never the empty shape a failed delegation has.
+[DISPATCH.md](DISPATCH.md) owns what the heartbeat carries and why (ADR-0018).
 
 A stream ends by writing an `end` event, so the listing has three states rather than two:
 `ok`/`fail` for one that ended, `live` for one written to recently, and `quiet <age>` for

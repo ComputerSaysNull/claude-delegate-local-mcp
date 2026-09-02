@@ -298,7 +298,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
                 max_turns=max_turns, policy=policy,
                 diagnostics=diagnostics, report_progress=report_progress,
-                on_turn_done=on_turn_done,
+                on_alive=on_alive, on_turn_done=on_turn_done,
             )
         # An explicitly empty toolset. Not the loop with nothing declared: the one-shot
         # prompt tells the model plainly that it cannot open anything and has no second
