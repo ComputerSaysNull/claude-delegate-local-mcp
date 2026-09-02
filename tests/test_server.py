@@ -918,7 +918,9 @@ def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
 
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
-            return (await client.call_tool("delegate", {"task": "read it", "effort": "inherit"})).data
+            call = client.call_tool(
+                "delegate", {"task": "read it", "effort": "inherit"})
+            return (await call).data
 
     result = asyncio.run(go())
     assert result["turns"] == 2
@@ -1459,7 +1461,8 @@ def test_a_single_delegate_is_bounded_by_the_endpoints_concurrency_too():
     async def go():
         async with Client(mcp) as client:
             await asyncio.gather(
-                *(client.call_tool("delegate", {"task": f"t{i}", "effort": "inherit"}) for i in range(4))
+                *(client.call_tool("delegate", {"task": f"t{i}", "effort": "inherit"})
+                  for i in range(4))
             )
 
     asyncio.run(go())
@@ -1521,7 +1524,8 @@ def test_delegate_readonly_offers_the_model_no_tools():
     async def go():
         async with Client(mcp) as client:
             return (
-                await client.call_tool("delegate_readonly", {"task": "explain this", "effort": "inherit"})
+                await client.call_tool(
+                    "delegate_readonly", {"task": "explain this", "effort": "inherit"})
             ).data
 
     asyncio.run(go())
@@ -1693,7 +1697,9 @@ def test_a_failing_heartbeat_does_not_take_the_delegation_with_it():
 
     async def go():
         async with Client(mcp, progress_handler=exploding) as client:
-            return (await client.call_tool("delegate_readonly", {"task": "q", "effort": "inherit"})).data
+            call = client.call_tool(
+                "delegate_readonly", {"task": "q", "effort": "inherit"})
+            return (await call).data
 
     assert asyncio.run(go())["answer"] == "ok"
 
