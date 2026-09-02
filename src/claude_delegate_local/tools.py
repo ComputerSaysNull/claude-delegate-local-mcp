@@ -427,8 +427,14 @@ def declared_tools(allowed: Iterable[str]) -> tuple[ToolSpec, ...]:
     """Site one: what the model is offered.
 
     Registry order, not the caller's and not sorted, so the same resolved set always renders
-    the same bytes. Tool schemas sit in the cached prefix, and an order that varied per call
-    would cost a fresh prefill for nothing (ADR-0011).
+    the same bytes. Tool schemas sit in the cached prefix, so an order that varied per call
+    would cost a fresh prefill for nothing.
+
+    That was asserted here against ADR-0011, which fixes the prompt order but never says
+    where a tool schema sits in it. Measured on 2026-09-02 and the assertion holds: sent
+    cold, a request with one tool *description* reworded cached zero tokens, exactly like
+    one with the system prompt reworded, where the unchanged prefix cached 4096. So editing
+    a description below is a prefill bill as well as a contract change (JOURNAL 2026-09-02).
     """
     permitted = set(allowed)
     return tuple(t.spec for name, t in REGISTRY.items() if name in permitted)

@@ -34,6 +34,31 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## Unreleased — docs: measure whether a tool description sits in the cached prefix
+
+### Fixed
+- `declared_tools` asserted that tool schemas sit in the cluster's cached prefix and cited
+  ADR-0011 for it. **Symptom:** a claim in a docstring that no measurement supported.
+  **Cause:** ADR-0011 fixes the prompt order and requires the leading tokens to be
+  bit-identical, naming timestamps and counters as what breaks that; it says nothing about
+  where a tool schema sits. **Fix:** measured, and the assertion holds — sent cold, a request
+  with one tool description reworded cached zero tokens, exactly like one with the system
+  prompt reworded, where the unchanged prefix cached 4096 of 5946. The docstring now cites
+  the measurement rather than the ADR. ADR-0011's body is untouched, per the rule that a
+  decision's reasoning at the time is the point; the numbers are in `JOURNAL.md`.
+
+### Added
+- A journal entry recording two things worth more than the answer. Latency cannot measure
+  this on our cluster: with a tiny reply budget every case landed within 20ms of every
+  other, including the deliberately cold positive control, so without that control the
+  flatness would have read as "rewording is free". And the first token-based run was wrong
+  in the flattering direction, because the reworded variant had been sent minutes earlier by
+  an older version of the probe and was measuring its own echo.
+- The practical consequence, for anyone weighing an edit: the delegated model's tools sit in
+  the cluster's prefix, so rewording one costs a full prefill. The MCP tool descriptions are
+  read by Claude Code and never reach the cluster, so those cost nothing there. Both remain
+  contract changes.
+
 ## #77 — 2026-09-02 — feat: the agentic loop keeps the client informed within a turn
 
 ### Fixed
