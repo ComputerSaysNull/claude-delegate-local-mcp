@@ -484,3 +484,69 @@ def test_a_delegation_with_the_feature_off_is_untouched_at_any_usage(registered)
     assert result.overflow_tightened_at == 0
     assert result.response.text == "done"
     assert loop.WRAP_UP_LINE not in tail_text(backend.requests[-1])
+
+
+# ---- what the mismatch report says, and to whom ---------------------------------------
+
+
+class _WindowEndpoint:
+    """Answers the window probe with a number, and nothing else."""
+
+    def __init__(self, reported: int) -> None:
+        self.reported = reported
+
+    async def probe_window(self):
+        return self.reported
+
+    async def complete(self, request):
+        raise AssertionError("not used")
+
+    async def probe(self):
+        return ("served-id-1",)
+
+    async def aclose(self):
+        pass
+
+
+def _verdict(entry: ModelEntry, reported: int) -> str:
+    """The reason a mismatch gave for leaving overflow handling off."""
+    import asyncio
+
+    from claude_delegate_local import server
+
+    check = server.WindowCheck(
+        Config(workspace_roots=(".",), context_overflow_enabled=True),  # type: ignore[arg-type]
+        clock=lambda: 1000.0,
+    )
+    _armed, reason = asyncio.run(check.armed(_WindowEndpoint(reported), entry))
+    return reason
+
+
+def test_a_mismatch_on_an_assumed_window_does_not_blame_the_operators_file():
+    """It said "models.toml gives context_window=..." about a file that gives no such key.
+
+    That sent someone to correct a line which was never there. When the number was
+    assumed rather than stated, the endpoint has just reported the right one, so the
+    remedy can name it outright.
+    """
+    entry = ModelEntry(
+        key="flash", base_url=HOST, served_model_id="served-id-1",
+        context_window_defaulted=True,
+    )
+    reason = _verdict(entry, reported=1_048_576)
+    assert "sets no context_window" in reason
+    assert "gives context_window" not in reason
+    assert "Set context_window=1048576" in reason
+
+
+def test_a_mismatch_on_a_stated_window_still_says_to_correct_it():
+    """The other direction. A number the operator did state is theirs to fix, and the
+    report must keep saying so rather than telling everyone they set nothing."""
+    entry = ModelEntry(
+        key="flash", base_url=HOST, served_model_id="served-id-1",
+        context_window=200_000,
+    )
+    reason = _verdict(entry, reported=1_048_576)
+    assert "gives context_window=200000" in reason
+    assert "sets no context_window" not in reason
+    assert "Correct models.toml" in reason

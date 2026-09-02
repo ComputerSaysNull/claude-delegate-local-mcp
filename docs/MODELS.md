@@ -134,6 +134,11 @@ to compute every threshold against a model file's architecture maximum rather th
 window being served. An endpoint that reports no window is fine and blocks nothing; vLLM
 reports one as `max_model_len` (JOURNAL 2026-08-29).
 
-An entry that omits `context_window` inherits the dataclass default silently. That is the
-local form of the same bug, and it is why overflow handling is off by default rather than
-on: arming it against a number nobody chose is worse than not arming it.
+An entry that omits `context_window` gets the default, and the server now records that it
+did. It was silent until 2026-09-02 — the local form of the same bug — and the cost was a
+mismatch report that told an operator their file *gives* a number it does not mention
+anywhere, advice to correct a line that was never there. The report now says the window was
+assumed and names the one the endpoint served, and `backend_status` carries
+`context_window_defaulted` beside the number, so the two cases are distinguishable before
+anything disagrees. Overflow handling stays off by default regardless: arming it against a
+number nobody chose is worse than not arming it.
