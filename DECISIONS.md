@@ -19,6 +19,56 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0045 — 2026-09-02 — Effort is always stated, and `inherit` is how deference is stated — Accepted
+
+`effort` was optional on all four delegation tools, and the value a caller got by saying
+nothing was four links away: the call argument, then the agent file, then the registry
+row's `default_effort`, then `Config.thinking_default`, which is `low`. Every link is
+sound; the problem is the entry to the chain. A caller that never considered the question
+and a caller that deliberately wanted the default were indistinguishable, and in practice
+almost every call was the first kind. Effort changes what a call costs *and* how good the
+answer is, so a value reached by omission is the one argument least able to afford being
+chosen by accident. Observed rather than theorised: four consecutive research delegations
+in one session ran at `low` because none of them named a level, and the one rerun at
+`high` found a blocking-subprocess defect the others had missed.
+
+**Decision — the argument is required.** Dropping the default makes fastmcp mark it
+required in the schema, so the model is asked the question rather than allowed past it.
+This is the same move ADR-0042 made for `allowed_tools` from the other direction: there,
+fixing a value made an annotation honest; here, refusing to supply one makes a choice
+visible. Both rest on the same rule — the schema is where a promise about a call can
+actually be kept.
+
+**Decision — `inherit` is a fifth accepted value, and not a fifth level.** Making the
+argument required deletes the absent value the precedence chain runs on: the merge is
+`effort or agent.effort`, so there is no longer a falsy case to fall through, and an agent
+file binding `effort: high` would become unreachable through the tool that exists to use
+agent files. `inherit` restores that path as a statement rather than a silence. A reusable
+agent still carries the effort its kind of work needs, and the call site has to say it is
+deferring.
+
+It is normalised to `None` at the tool boundary, before the agent merge, and for a reason
+worth writing down: a non-empty string is truthy, so leaving it in place would skip the
+very tier it names. Nothing inside the server ever sees the word — internally "no explicit
+effort" is still `None`, and `resolve_effort` still refuses the string, correctly, because
+reaching it means the boundary was bypassed.
+
+It is deliberately invalid for `default_effort` and `thinking_default`. Those are the two
+ends of the chain `inherit` defers along, and a value there would defer to itself. Three
+refusals, one per layer, each with a test that feeds it a real violation.
+
+**Not a contradiction of ADR-0013**, which refused a fourth level because it would make
+this project's enum disagree with the backend's documented values. `inherit` is not a
+level and never reaches the adapter: it is spent at the boundary, and the backend still
+sees exactly one of the four words it knows. What ADR-0013 protects is the translation
+table; this adds nothing to it.
+
+**Cost, stated plainly.** Sixty tests failed on the first run, every one of them a call
+site that had been passing nothing. That number *is* the finding — it measures how much of
+this repository was choosing effort by silence. They were fixed by passing `inherit`,
+which preserves the old behaviour exactly, so the diff is honest about which calls were
+never really decisions.
+
 ## ADR-0044 — 2026-09-02 — A generated status file stops earning its place once the plan is short — Accepted
 
 **Context.** `STATUS.md` was rendered from `PLAN.md` plus git from the first week, and it

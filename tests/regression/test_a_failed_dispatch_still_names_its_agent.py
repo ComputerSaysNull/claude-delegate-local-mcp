@@ -53,7 +53,12 @@ def with_agent(tmp_path: Path, handler, **over) -> tuple[dict | None, list[dict]
         async with Client(mcp) as client:
             return (
                 await client.call_tool(
-                    "delegate_to_agent", {"agent_name": "reviewer", "task": "look at this"}
+                    "delegate_to_agent",
+                    {
+                        "agent_name": "reviewer",
+                        "task": "look at this",
+                        "effort": "inherit",
+                    },
                 )
             ).data
 

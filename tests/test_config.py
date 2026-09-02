@@ -88,6 +88,16 @@ def test_bad_effort_is_refused_at_load_naming_the_accepted_set():
         config.load({**ROOTS, "DELEGATE_THINKING_DEFAULT": "maxx"})
 
 
+def test_inherit_is_not_a_configurable_default():
+    """It is a caller's word, not a level, and this is the end of the chain it defers to.
+
+    Accepting it here would make the fallback point at itself -- `thinking_default` is what
+    `"inherit"` resolves *to*, so a config set to it has nothing left to resolve (ADR-0045).
+    """
+    with pytest.raises(config.ConfigError, match="not one of"):
+        config.load({**ROOTS, "DELEGATE_THINKING_DEFAULT": config.EFFORT_INHERIT})
+
+
 def test_turn_budget_cannot_exceed_the_hard_cap():
     with pytest.raises(config.ConfigError, match="exceeds"):
         config.load({**ROOTS, "DELEGATE_MAX_TURNS_DEFAULT": "500"})

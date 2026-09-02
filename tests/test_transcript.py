@@ -41,6 +41,12 @@ def run(handler, *, config: Config, tool: str = "delegate", **kwargs) -> dict:
         config, registry(*entries, default=entries[0].key), DoubleCache(config, handler)
     )
 
+    # `effort` is required on every delegation tool, and "inherit" is the value that
+    # preserves the pre-ADR-0045 behaviour exactly: it falls through to the agent, the
+    # registry row and then `thinking_default`. A test that cares about the level sets
+    # it itself; that it is *refused* when absent is asserted directly, not here.
+    kwargs.setdefault("effort", "inherit")
+
     async def go():
         async with Client(mcp) as client:
             return (await client.call_tool(tool, kwargs)).data

@@ -189,6 +189,15 @@ def test_claude_codes_own_effort_spelling_is_refused(tmp_path):
         agents.load_agent(c, "m2")
 
 
+def test_inherit_is_not_an_agent_effort(tmp_path):
+    """An agent file is one of the tiers `"inherit"` defers to, so it cannot itself defer
+    with that word -- it either binds a level or says nothing at all (ADR-0045)."""
+    c = cfg(tmp_path)
+    write(Path(c.agents_dir) / "i.md", "---\nname: i\neffort: inherit\n---\nbody\n")
+    with pytest.raises(AgentError, match="is not one of"):
+        agents.load_agent(c, "i")
+
+
 def test_a_tool_this_server_does_not_implement_is_refused(tmp_path):
     c = cfg(tmp_path)
     write(Path(c.agents_dir) / "t.md",

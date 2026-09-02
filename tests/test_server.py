@@ -396,6 +396,12 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
         config, registry(*entries, default=entries[0].key), DoubleCache(config, handler)
     )
 
+    # `effort` is required on every delegation tool, and "inherit" is the value that
+    # preserves the pre-ADR-0045 behaviour exactly: it falls through to the agent, the
+    # registry row and then `thinking_default`. A test that cares about the level sets
+    # it itself; that it is *refused* when absent is asserted directly, not here.
+    kwargs.setdefault("effort", "inherit")
+
     async def go():
         async with Client(mcp) as client:
             return (await client.call_tool("delegate", kwargs)).data
@@ -912,7 +918,7 @@ def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
 
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
-            return (await client.call_tool("delegate", {"task": "read it"})).data
+            return (await client.call_tool("delegate", {"task": "read it", "effort": "inherit"})).data
 
     result = asyncio.run(go())
     assert result["turns"] == 2
@@ -936,7 +942,7 @@ def test_a_one_turn_delegation_still_notifies(tmp_path):
 
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
-            await client.call_tool("delegate", {"task": "q"})
+            await client.call_tool("delegate", {"task": "q", "effort": "inherit"})
 
     asyncio.run(go())
     assert len(seen) == 1
@@ -1048,6 +1054,10 @@ def called(handler, tool, *, entries=None, config=None, **kwargs):
     mcp = server.build(
         config, registry(*entries, default=entries[0].key), DoubleCache(config, handler)
     )
+
+    # This helper also drives `backend_status`, which has no `effort` and refuses one.
+    if tool.startswith("delegate"):
+        kwargs.setdefault("effort", "inherit")
 
     async def go():
         async with Client(mcp) as client:
@@ -1449,7 +1459,7 @@ def test_a_single_delegate_is_bounded_by_the_endpoints_concurrency_too():
     async def go():
         async with Client(mcp) as client:
             await asyncio.gather(
-                *(client.call_tool("delegate", {"task": f"t{i}"}) for i in range(4))
+                *(client.call_tool("delegate", {"task": f"t{i}", "effort": "inherit"}) for i in range(4))
             )
 
     asyncio.run(go())
@@ -1478,7 +1488,7 @@ def test_a_delegation_that_fails_still_gives_its_slot_back():
         async with Client(mcp) as client:
             for _ in range(3):
                 with pytest.raises(Exception, match="backend_refused"):
-                    await client.call_tool("delegate", {"task": "x"})
+                    await client.call_tool("delegate", {"task": "x", "effort": "inherit"})
             return (await client.call_tool("backend_status", {})).data
 
     gate = asyncio.run(go())["admission"]
@@ -1511,7 +1521,7 @@ def test_delegate_readonly_offers_the_model_no_tools():
     async def go():
         async with Client(mcp) as client:
             return (
-                await client.call_tool("delegate_readonly", {"task": "explain this"})
+                await client.call_tool("delegate_readonly", {"task": "explain this", "effort": "inherit"})
             ).data
 
     asyncio.run(go())
@@ -1592,7 +1602,7 @@ def one_shot_progress(config, *, seconds=0.35):
 
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
-            await client.call_tool("delegate_readonly", {"task": "q"})
+            await client.call_tool("delegate_readonly", {"task": "q", "effort": "inherit"})
 
     asyncio.run(go())
     return seen
@@ -1636,7 +1646,7 @@ def test_the_heartbeat_stops_when_the_dispatch_does():
 
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
-            await client.call_tool("delegate_readonly", {"task": "q"})
+            await client.call_tool("delegate_readonly", {"task": "q", "effort": "inherit"})
             during = len(seen)
             await asyncio.sleep(2.5)
             return during, len(seen)
@@ -1656,7 +1666,7 @@ def test_the_heartbeat_reaches_the_transcript_as_well_as_the_wire(tmp_path):
 
     async def go():
         async with Client(mcp) as client:
-            await client.call_tool("delegate_readonly", {"task": "q"})
+            await client.call_tool("delegate_readonly", {"task": "q", "effort": "inherit"})
 
     asyncio.run(go())
     streams = list(tmp_path.glob("*.jsonl"))
@@ -1683,6 +1693,120 @@ def test_a_failing_heartbeat_does_not_take_the_delegation_with_it():
 
     async def go():
         async with Client(mcp, progress_handler=exploding) as client:
-            return (await client.call_tool("delegate_readonly", {"task": "q"})).data
+            return (await client.call_tool("delegate_readonly", {"task": "q", "effort": "inherit"})).data
 
     assert asyncio.run(go())["answer"] == "ok"
+
+
+# --- effort is always stated (ADR-0045) ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("delegate", {"task": "q"}),
+        ("delegate_readonly", {"task": "q"}),
+        ("delegate_to_agent", {"agent_name": "helper", "task": "q"}),
+        ("delegate_batch", {"tasks": ["q"]}),
+    ],
+)
+def test_a_delegation_that_names_no_effort_is_refused(tool, args):
+    """The negative test the requirement rests on.
+
+    Making a parameter required is only worth anything if omitting it actually fails, and
+    "required" here is a property of a schema fastmcp derives from a signature -- not
+    something this repository writes down. So assert the refusal, on all four tools, rather
+    than trusting that dropping a default had the effect it looks like it has.
+    """
+    config = cfg()
+    mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler("served-id-1")))
+
+    async def go():
+        async with Client(mcp) as client:
+            await client.call_tool(tool, args)
+
+    with pytest.raises(Exception, match="effort"):
+        asyncio.run(go())
+
+
+def _effort_on_the_wire(handler_box, **called_kwargs):
+    """Call a tool and return the `reasoning_effort` the backend was actually sent.
+
+    Asserted on the wire, not on the resolved variable: the precedence chain has four tiers
+    and the only place all four have finished resolving is the request that leaves.
+    """
+    def handler(request):
+        handler_box.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(content="ok"))
+
+    called(handler, **called_kwargs)
+    return handler_box[0]["reasoning_effort"]
+
+
+def _agent_in(directory, name: str, frontmatter: str) -> None:
+    """An agent file in `agents_dir`, so no workdir is needed. A workdir would have to cross
+    the path boundary, which is a different subject and is tested where it belongs."""
+    (directory / f"{name}.md").write_text(
+        f"---\nname: {name}\n{frontmatter}\n---\nYou help.\n", encoding="utf-8"
+    )
+
+
+def test_an_explicit_level_is_what_gets_sent():
+    seen: list[dict] = []
+    assert _effort_on_the_wire(seen, tool="delegate", task="q", effort="high") == "high"
+
+
+def test_inherit_reaches_the_configured_default_when_nothing_else_says():
+    """`"inherit"` is the whole chain, not a synonym for one tier of it: with no agent and
+    no registry row, it must land on `thinking_default` exactly as an absent value used to."""
+    seen: list[dict] = []
+    got = _effort_on_the_wire(seen, tool="delegate", task="q", effort="inherit",
+                              config=cfg(thinking_default="max"))
+    assert got == "max"
+
+
+def test_inherit_stops_at_the_registry_row_before_the_configured_default():
+    seen: list[dict] = []
+    got = _effort_on_the_wire(seen, tool="delegate", task="q", effort="inherit",
+                              config=cfg(thinking_default="max"),
+                              entries=(entry(default_effort="low"),))
+    assert got == "low"
+
+
+def test_inherit_defers_to_the_agent_file(tmp_path):
+    """The tier that would have been lost. The merge is `effort or agent.effort`, and a
+    non-empty string is truthy -- so had `"inherit"` been left in place instead of
+    normalised at the boundary, it would have skipped the very file it means to defer to."""
+    _agent_in(tmp_path, "helper", "effort: high")
+    seen: list[dict] = []
+    got = _effort_on_the_wire(
+        seen, tool="delegate_to_agent", agent_name="helper", task="q", effort="inherit",
+        config=cfg(agents_dir=str(tmp_path), thinking_default="off"),
+    )
+    assert got == "high"
+
+
+def test_an_explicit_level_still_overrules_the_agent_file(tmp_path):
+    """Unchanged precedence: the argument has always won, and adding `"inherit"` must not
+    quietly turn the agent file into the winner for callers who did name a level."""
+    _agent_in(tmp_path, "helper", "effort: high")
+    seen: list[dict] = []
+    got = _effort_on_the_wire(
+        seen, tool="delegate_to_agent", agent_name="helper", task="q", effort="off",
+        config=cfg(agents_dir=str(tmp_path)),
+    )
+    assert got == "none"
+
+
+def test_an_unknown_effort_is_refused_and_the_message_names_inherit():
+    """Refused at the boundary rather than four calls deeper in `resolve_effort`, whose
+    message names the four levels and cannot mention the fifth word this tool accepts."""
+    config = cfg()
+    mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler("served-id-1")))
+
+    async def go():
+        async with Client(mcp) as client:
+            await client.call_tool("delegate", {"task": "q", "effort": "medium"})
+
+    with pytest.raises(Exception, match="inherit"):
+        asyncio.run(go())
