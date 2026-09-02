@@ -37,7 +37,7 @@ from .backends.base import (
 from .backends.openai_compat import OpenAICompatBackend
 from .admission import Admission, AdmissionError, AdmissionLease
 from .agents import AgentError, AgentSpec, load_agent
-from .agents import list_agents as discover_agents
+from .agents import survey_agents as discover_agents
 from .config import Config, ConfigError
 from .context import estimate_text_tokens, prefetch
 from .loop import (
@@ -1123,10 +1123,23 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         the same `workdir` you intend to delegate with, or this list will not match what a
         delegation would actually find.
 
-        A file that does not parse is left out rather than breaking the list. Ask for it by
-        name with `delegate_to_agent` to see exactly what is wrong with it.
+        Three lists, because "not there", "there and broken" and "there but not mine" need
+        different answers and used to give the same one -- a file that did not parse was
+        simply left out, which is indistinguishable from a name that does not exist.
+
+        `skipped` is what needs fixing: a file meant for this server that could not be read
+        as an agent, with the name it claimed and why it failed. Non-empty always means
+        something is wrong.
+
+        `other_format` is Claude Code's own agent format sharing the directory. Those files
+        are not broken and are not for this server -- the tool list is spelled `tools`
+        there and `allowed_tools` here -- so they are named rather than either hidden or
+        called faulty. `delegate_to_agent` cannot run one.
+
+        A name absent from all three does not exist.
         """
-        found = discover_agents(cfg, _workdir(workdir))
+        listing = discover_agents(cfg, _workdir(workdir))
+        found, skipped = listing.agents, listing.skipped
         return {
             "agents": [
                 {
@@ -1139,6 +1152,17 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
                 for a in found
             ],
             "count": len(found),
+            "skipped": [
+                {"name": s.name, "source": s.source_path, "reason": s.reason}
+                for s in skipped
+            ],
+            "skipped_count": len(skipped),
+            "other_format": [
+                {"name": f.name, "source": f.source_path,
+                 "keys": list(f.foreign_keys)}
+                for f in listing.other_format
+            ],
+            "other_format_count": len(listing.other_format),
         }
 
     @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})

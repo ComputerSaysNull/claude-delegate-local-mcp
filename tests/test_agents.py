@@ -294,7 +294,82 @@ def test_one_broken_definition_does_not_hide_the_others(tmp_path):
         agents.load_agent(c, "broken")
 
 
-# --- the prompt slot (ADR-0011) -----------------------------------------------------------
+def test_a_broken_definition_is_named_rather_than_merely_absent(tmp_path):
+    """Skipping it is right; skipping it silently was not.
+
+    "No such agent" and "that agent is broken" were the same answer, and the standing
+    advice for the first -- ask by name and read the error -- needs the name that the
+    omission hides.
+    """
+    c = cfg(tmp_path)
+    write(Path(c.agents_dir) / "good.md", "---\nname: good\n---\nfine\n")
+    write(Path(c.agents_dir) / "broken.md",
+          "---\nname: broken\nnonsense: 1\n---\nb\n")
+
+    listing = agents.survey_agents(c)
+    assert {a.name for a in listing.agents} == {"good"}
+    assert [s.name for s in listing.skipped] == ["broken"]
+    assert "unknown frontmatter key" in listing.skipped[0].reason
+    assert listing.skipped[0].source_path.endswith("broken.md")
+    assert listing.other_format == ()
+
+
+def test_nothing_is_reported_as_skipped_when_every_file_parses(tmp_path):
+    """The other direction. A list that always reported something would pass the test
+    above while making every healthy directory look broken."""
+    c = cfg(tmp_path)
+    write(Path(c.agents_dir) / "good.md", "---\nname: good\n---\nfine\n")
+    listing = agents.survey_agents(c)
+    assert {a.name for a in listing.agents} == {"good"}
+    assert listing.skipped == ()
+    assert listing.other_format == ()
+
+
+def test_a_shadowed_name_is_not_reported_as_skipped(tmp_path):
+    """Being overridden is not being broken. The lookup really does offer only one, so
+    reporting the loser would describe a choice that does not exist."""
+    c = cfg(tmp_path)
+    work = tmp_path / "proj"
+    write(work / ".claude" / "agents" / "dup.md", "---\nname: dup\n---\nnear\n")
+    write(Path(c.agents_dir) / "dup.md", "---\nname: dup\n---\nfar\n")
+
+    listing = agents.survey_agents(c, str(work))
+    assert [a.name for a in listing.agents] == ["dup"]
+    assert "near" in listing.agents[0].body
+    assert listing.skipped == ()
+    assert listing.other_format == ()
+
+
+def test_a_claude_code_agent_is_reported_as_the_other_format_not_as_broken(tmp_path):
+    """Measured on this repository, 2026-09-02: four of its five agent files carry `tools`.
+
+    They are Claude Code's, deliberately (ADR-0031), so calling them broken would leave
+    the broken list permanently non-empty here -- and a list that is never empty is one
+    nobody reads, which would cost exactly the visibility this reporting was added for.
+    """
+    c = cfg(tmp_path)
+    write(Path(c.agents_dir) / "theirs.md",
+          "---\nname: theirs\ntools: Read, Grep\n---\nbody\n")
+    write(Path(c.agents_dir) / "mine.md", "---\nname: mine\n---\nbody\n")
+
+    listing = agents.survey_agents(c)
+    assert [a.name for a in listing.agents] == ["mine"]
+    assert listing.skipped == (), "a foreign format is not a fault"
+    assert [f.name for f in listing.other_format] == ["theirs"]
+    assert listing.other_format[0].foreign_keys == ("tools",)
+
+
+def test_a_file_in_this_format_with_a_typo_is_still_broken(tmp_path):
+    """The other direction for that split. Suppressing every unknown key as "someone
+    else's format" would re-hide the typo this whole report exists to surface."""
+    c = cfg(tmp_path)
+    write(Path(c.agents_dir) / "typo.md",
+          "---\nname: typo\nallowd_tools: [read_file]\n---\nbody\n")
+
+    listing = agents.survey_agents(c)
+    assert listing.agents == ()
+    assert [s.name for s in listing.skipped] == ["typo"]
+    assert listing.other_format == ()
 
 
 def test_the_agent_body_never_enters_the_system_prompt():

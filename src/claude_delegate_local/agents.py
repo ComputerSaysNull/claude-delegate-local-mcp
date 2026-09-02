@@ -350,15 +350,80 @@ def load_agent(cfg: Config, name: str, workdir: str | None = None) -> AgentSpec:
     return validate(cfg, raw, body, name=name, where=str(path))
 
 
-def list_agents(cfg: Config, workdir: str | None = None) -> tuple[AgentSpec, ...]:
-    """Every agent visible from here, nearest tier first, shadowed ones dropped.
+# Frontmatter keys that belong to Claude Code's agent format and never to this one. A file
+# carrying one is *that* format's file rather than a malformed version of this one, and
+# ADR-0031 is explicit that the two are not portable -- Claude Code spells the tool list
+# `tools` where this format spells it `allowed_tools`. Keeping the two answers apart is not
+# tidiness: four of this repository's own five agent files carry `tools`, deliberately, so
+# folding them into "broken" would leave that list permanently non-empty here and therefore
+# unread -- the same reason `scan-coverage` stays silent about binary files.
+FOREIGN_KEYS = frozenset({"tools"})
 
-    A name found in more than one tier appears once, from the tier that would actually be
-    used -- reporting both would describe a choice the lookup does not offer. A file that
-    does not validate is skipped rather than fatal: one broken definition in a personal
-    directory should not make the others impossible to discover.
+
+@dataclass(frozen=True, slots=True)
+class SkippedAgent:
+    """A file that meant to be an agent for this server and could not be read as one.
+
+    `name` is what the filename claimed, so it is the name a caller would have typed --
+    which is the whole point. The old advice for a missing agent was to ask for it by name
+    with `delegate_to_agent` and read the error; that needs the name, and an omission is
+    exactly what hides it.
+
+    Non-empty means something needs fixing. That is the property worth protecting, and it
+    is why a file in the other format is reported as `ForeignAgent` instead.
+    """
+
+    name: str
+    source_path: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ForeignAgent:
+    """A file in Claude Code's agent format, which this server is not meant to load.
+
+    Reported rather than hidden, because "this exists but belongs to the other reader" is
+    a third answer and a useful one: it tells a caller the name is taken and where to look,
+    without claiming anything is wrong.
+    """
+
+    name: str
+    source_path: str
+    foreign_keys: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AgentListing:
+    """What one walk of the agent directories found, in three categories.
+
+    A named result rather than a wider tuple: three parallel sequences at a call site is
+    the shape where the caller eventually unpacks them in the wrong order.
+    """
+
+    agents: tuple[AgentSpec, ...]
+    skipped: tuple[SkippedAgent, ...]
+    other_format: tuple[ForeignAgent, ...]
+
+
+def survey_agents(cfg: Config, workdir: str | None = None) -> AgentListing:
+    """Every visible agent, everything broken, and everything in the other format.
+
+    Skipping a broken definition is still right -- one bad file in a personal directory
+    must not make the others undiscoverable -- but skipping it *silently* made "no such
+    agent" and "that agent is broken" the same answer.
+
+    Two things are deliberately not skips. A name shadowed by a nearer tier is not broken:
+    the lookup really does offer only one, so reporting the loser would describe a choice
+    that does not exist. Nor is a filename that could never be an agent name -- `_NAME_RE`
+    governs what may be typed, and a file nobody could address was never a candidate.
+
+    A file in Claude Code's format is its own category. A `tools` key is not a typo for
+    `allowed_tools`; it is a different format's file sitting in a shared directory, which
+    ADR-0031 says is expected and CONTRIBUTING.md records as temporary.
     """
     seen: dict[str, AgentSpec] = {}
+    skipped: dict[str, SkippedAgent] = {}
+    foreign: dict[str, ForeignAgent] = {}
     directories: list[tuple[Path, str]] = []
     if workdir:
         directories.append((Path(workdir) / ".claude" / "agents", "*.md"))
@@ -370,12 +435,51 @@ def list_agents(cfg: Config, workdir: str | None = None) -> tuple[AgentSpec, ...
             continue
         for path in sorted(directory.glob(pattern)):
             name = path.parent.name if path.name == "SKILL.md" else path.stem
-            if name in seen or not _NAME_RE.match(name):
+            if name in seen or name in skipped or name in foreign:
+                continue
+            if not _NAME_RE.match(name):
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
                 raw, body = parse_frontmatter(text, where=str(path))
-                seen[name] = validate(cfg, raw, body, name=name, where=str(path))
-            except (AgentError, OSError):
+            except OSError as e:
+                # Reported, and separately worth having: an unreadable file is a
+                # permissions or encoding problem rather than a malformed definition, and
+                # the two are fixed differently.
+                skipped[name] = SkippedAgent(
+                    name, str(path), f"it could not be read: {e.strerror or e}"
+                )
                 continue
-    return tuple(seen.values())
+            except AgentError as e:
+                skipped[name] = SkippedAgent(name, str(path), str(e))
+                continue
+
+            # Checked before validation, because validation would refuse the foreign key
+            # as an unknown one and report the file as broken -- which is the conflation
+            # this category exists to undo.
+            claimed = FOREIGN_KEYS & set(raw)
+            if claimed:
+                foreign[name] = ForeignAgent(name, str(path), tuple(sorted(claimed)))
+                continue
+
+            try:
+                seen[name] = validate(cfg, raw, body, name=name, where=str(path))
+            except AgentError as e:
+                skipped[name] = SkippedAgent(name, str(path), str(e))
+
+    return AgentListing(
+        tuple(seen.values()), tuple(skipped.values()), tuple(foreign.values())
+    )
+
+
+def list_agents(cfg: Config, workdir: str | None = None) -> tuple[AgentSpec, ...]:
+    """Every agent visible from here, nearest tier first, shadowed ones dropped.
+
+    A name found in more than one tier appears once, from the tier that would actually be
+    used -- reporting both would describe a choice the lookup does not offer.
+
+    The specs alone, for callers that resolve an agent rather than report on the
+    directory. `survey_agents` is the same walk and also reports what it could not read and
+    what belongs to the other format.
+    """
+    return survey_agents(cfg, workdir).agents

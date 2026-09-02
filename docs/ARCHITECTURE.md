@@ -1,4 +1,5 @@
-<!-- BUDGET: 630
+<!-- BUDGET: 633
+     Raised from 630 on 2026-09-02: list_agents reports what it skipped and what belongs to the other format, which is the discovery case of a rule this document already states.
      Raised from 625 on 2026-09-02: nothing set the transcript's file permissions, so this document could not state them.
      Raised to the size it had already reached on 2026-09-01: the check that should have held this
      line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
@@ -623,7 +624,9 @@ it, rather than by passing the loop a switch and a verdict to combine. `arm_over
 returns a *new* config; the server's own is never mutated, so one model whose endpoint was
 briefly unreachable cannot disarm the feature for every other model in the registry. When
 the server declines to use a feature the operator armed, the reply says so — silence there
-is indistinguishable from the feature working.
+is indistinguishable from the feature working. `list_agents` applies the same rule to
+discovery: a file it could not read is named in `skipped` rather than omitted, and one in
+Claude Code's format in `other_format` rather than called faulty.
 
 `dispatch_delegation` holds the two dispatch paths and the translation of every failure they
 can raise into a `ToolError`. It is out of `build()` because it is the only part of that
