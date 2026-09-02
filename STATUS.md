@@ -28,12 +28,12 @@
 | M5 — Sandbox | 9 | 0 | 0 | 0 |
 | M6 — Agents, batching, discovery | 4 | 0 | 0 | 0 |
 | M7 — Admission control and polish | 4 | 0 | 0 | 1 |
-| Deferred and cancelled | 0 | 0 | 2 | 5 |
+| Deferred and cancelled | 0 | 0 | 13 | 5 |
 | Extra — work outside the milestone plan | 7 | 0 | 0 | 0 |
 
-**Overall:** 73 done, 2 open, 7 cancelled.
+**Overall:** 73 done, 13 open, 7 cancelled.
 
 ## Repository
 
-- 67 commit(s), 117 tracked files
-- 50 test file(s), 43 decision record(s)
+- 80 commit(s), 122 tracked files
+- 53 test file(s), 43 decision record(s)

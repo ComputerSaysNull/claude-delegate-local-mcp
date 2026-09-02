@@ -1,4 +1,5 @@
-<!-- BUDGET: 354
+<!-- BUDGET: 413
+     Raised from 354 on 2026-09-02: eleven deferred items from the 2026-09-02 review, each carrying the reason it was not built and, where the review's own recommendation was wrong, why.
      Raised to the size it had already reached on 2026-09-01: the check that should have held this
      line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
      stopped matching, so the document grew unenforced. This records where it actually is rather than
@@ -294,6 +295,68 @@ is not lost — it is recorded under M4.
   this path: it bounds the interval, and this path has no heartbeat to bound
 - ⬜ Anthropic-compatible adapter — the seam and canonical shape are kept so this is
   additive, roughly 150 to 220 lines in one new file (ADR-0008)
+- ⬜ Content-level detection for a renamed secret — every path-policy layer inspects the
+  path and none the bytes, so `config.json` holding a private key passes all of them and is
+  inlined, and `run_bash` can read one the mount-level scan did not match by name. One
+  finding, not two: fixing the detection fixes both ends. **Not** by pointing `scan_text` at
+  it, which the 2026-09-02 review recommended — that scanner looks for RFC1918 addresses,
+  private-DNS suffixes and non-allowlisted emails, and would false-positive on the source a
+  review delegation exists to read. A narrow, high-precision check for key material instead
+  (PEM armour, `BEGIN OPENSSH PRIVATE KEY`, cloud key prefixes)
+- ⬜ Escape a file's own END marker in the files block — `context.py` wraps each file in
+  `--- BEGIN FILE <path> ---` / `--- END FILE <path> ---`, deliberately not a markdown
+  fence, but the body is not escaped against those markers. A hostile file being reviewed
+  can forge an end-of-file boundary and speak as the prompt. Concrete and testable, unlike
+  prompt injection in general; the tool-level policy remains the real defence
+- ⬜ Operator allowlist for an agent's `network` and `extra_binds` — the only validation is
+  `os.path.isabs` and a boolean parse, so a markdown file in a repository you delegate over
+  can bind any absolute host path read-only and turn on egress for that call. The
+  mount-level secret scan covers matches afterwards (ADR-0036) rather than refusing the
+  bind. Of everything the 2026-09-02 review raised this is the one with a plausible
+  end-to-end attack, and `workdir_roots` is the pattern to copy
+- ⬜ Validate the opened inode, not the path — `resolve_all` then `open` is check-then-use
+  in both file tools and in prefetch, with no re-validation. The adversary is the delegated
+  model itself, which holds a read-write workdir bind under `run_bash` and can retry, so
+  this is not the passive window the review described. `O_NOFOLLOW` is the wrong fix: it
+  would refuse legitimate symlinked checkouts, since `realpath` has already collapsed them
+  by design. Compare `realpath("/proc/self/fd/N")` against the roots after opening
+- ⬜ Refuse a non-stdio transport outright — `config.py` already says adding the HTTP
+  transport "is a real integration task, not a flag flip", yet setting it runs a server. A
+  knob advertised as unfinished that still starts is the shape ADR-0034 deleted
+  `sandbox_enabled` for. The review called it unauthenticated *and* unbound; measured,
+  FastMCP defaults its host to loopback and `main.py` passes only a port, so the reachable
+  surface is other local processes rather than the network, and no token is the true half
+- ⬜ Resource limits inside the sandbox — `build_argv` emits no `--rlimit`, no process cap
+  and no `--size` on either tmpfs, and the module never imports `resource`. A fork bomb or
+  a runaway allocation is bounded only by `run_bash_timeout` and `--die-with-parent`. This
+  machine's page file is capped by choice, so a demand-side OOM is the live failure mode
+  rather than a theoretical one
+- ⬜ Say in `docs/DISPATCH.md` that the admission wait stacks on the dispatch deadline —
+  the deadline is taken after a slot is granted (ADR-0038), so the caller-visible worst
+  case is both settings added. `admission_wait_timeout` does not appear in that document at
+  all, and its deadline section enumerates three enforcement points without mentioning
+  admission. Recorded in M7 and in the ADR, which is not where a reader looks
+- ⬜ Re-measure `BYTES_PER_TOKEN` per tokenizer and say so in `docs/MODELS.md` — measured
+  against one model. Lower priority than the 2026-09-02 review implied: the table is
+  per-extension and every entry is rounded **down**, so estimates over-count and the
+  conservative direction survives a different tokenizer unless it is denser than the
+  densest entry. A sentence, not a project
+- ⬜ `security/secret_globs.txt` claims a reach it does not have — its header calls the list
+  the single source of truth for "never let a model see this, never let git take it", and
+  CLAUDE.md repeats "one list, two enforcers". The git half is a hardcoded `NEVER_TRACK`
+  set in the gate, not derived from the globs, so the second copy the rule warns about
+  already exists. Demonstrated: `.env.example` is tracked and matches `.env.*`, and the list
+  matches its own `*secret*` — the path policy refuses both and the gate objects to neither
+- ⬜ Server-format twins for the four Claude Code agents — `#72` made it visible that
+  `code-reviewer`, `docs-audit`, `researcher` and `test-writer` load only in Claude Code,
+  so `delegate_to_agent` can reach one of five agents in this repository. `docs-audit-local`
+  is the shape to copy (`#67`). CONTRIBUTING.md already records the two-format arrangement
+  as temporary; this is what it costs
+- ⬜ The documentation trim the 2026-09-01 audit listed — `docs/ARCHITECTURE.md`,
+  `docs/DISPATCH.md`, `docs/AGENTS.md` and `PLAN.md` all sit at their ceilings, and the
+  review fixes of 2026-09-02 needed three budget raises across two documents to state facts
+  the code had just acquired. Each feature now pays interest on it. Worth doing before the
+  next one rather than after
 - ❌ 2026-08-25 Streaming in v1 — cancelled. MCP tool calls are request/response, so
   Claude sees nothing incrementally either way. Progress notifications, which are
   required for the idle timeout, cover the part that actually matters. ADR-0018
