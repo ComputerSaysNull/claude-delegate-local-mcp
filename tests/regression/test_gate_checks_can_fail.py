@@ -17,9 +17,11 @@ either broken one.
 `check_secret_paths` had exactly that half-test before this file: one case asserting it
 does *not* flag the policy list. Nothing asserted it flags anything.
 
-`check_env_example` joins them for the same reason: it exists *because* a
-deleted setting went on being advertised, so shipping it without a negative
-test would repeat the mistake that created it.
+Two later checks join them here for the same reason. `check_env_example` and
+`check_scan_coverage` were both written *because* something had been passing
+unseen -- a deleted setting still advertised, and files the content scanners
+declined to open -- so shipping either without a negative test would have
+repeated the mistake that created them.
 
 Named after the bug, per the project's convention.
 """
@@ -390,3 +392,31 @@ def test_env_example_refuses_to_pass_with_nothing_to_check_against(repo: Path):
         encoding="utf-8")
     (repo / ".env.example").write_text("DELEGATE_ANYTHING=1\n", encoding="utf-8")
     assert fired(gate(repo), "env-example", "would pass whatever")
+
+
+# ----------------------------------------------------------------------- scan coverage
+
+def test_scan_coverage_fires_on_a_file_over_the_byte_cap(repo: Path):
+    """The gap: `scannable_files` skipped an oversized file with a bare `continue`.
+
+    So `email-content` and `host-identifier` reported a clean pass over a file they had
+    never opened. One byte past the cap is enough -- the point is that it is announced.
+    """
+    (repo / "docs" / "bulk.md").write_bytes(b"a" * 2_000_001)
+    assert fired(gate(repo), "scan-coverage", "docs/bulk.md", "over the")
+
+
+def test_scan_coverage_is_silent_on_a_file_under_the_cap(repo: Path):
+    """A check that announced every file would pass the test above."""
+    (repo / "docs" / "small.md").write_bytes(b"a" * 64)
+    assert not fired(gate(repo), "scan-coverage", "docs/small.md")
+
+
+def test_scan_coverage_says_nothing_about_a_binary_file(repo: Path):
+    """Binary is a deliberate exclusion, not a coverage gap, and must stay quiet.
+
+    Reporting it would make the warning routine, and a routine warning is read past --
+    costing exactly the visibility this check was added for.
+    """
+    (repo / "docs" / "blob.md").write_bytes(bytes([0]) * 32 + b"text")
+    assert not fired(gate(repo), "scan-coverage", "docs/blob.md")
