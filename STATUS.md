@@ -13,9 +13,9 @@
 
 ## Next up
 
-- Operator allowlist for an agent's `network` and `extra_binds` — the only validation is
-- Validate the opened inode, not the path — `resolve_all` then `open` is check-then-use
-- Content-level detection for a renamed secret — every path-policy layer inspects the
+- Operator allowlist for an agent's `network` and `extra_binds`
+- Validate the opened inode, not the path
+- Content-level detection for a renamed secret
 
 ## Progress by phase
 
@@ -39,5 +39,5 @@
 
 ## Repository
 
-- 81 commit(s), 122 tracked files
+- 82 commit(s), 122 tracked files
 - 53 test file(s), 43 decision record(s)

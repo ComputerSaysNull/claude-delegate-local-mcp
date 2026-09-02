@@ -77,6 +77,18 @@ Older entries, in the previous flat format, are in
   header for the reason rather than restating it, since per-PR provenance lives there. Six M4
   items carry no date at all; that was not recoverable after the fact, so the legend says
   that too instead of implying every item has one.
+- `STATUS.md`'s queued lists rendered an item's first physical line rather than its name,
+  so the first real queue put three sentences cut mid-clause into a generated file
+  `README.md` points a new reader at: "Operator allowlist for an agent's `network` and
+  `extra_binds` -- the only validation is". `parse_plan` reads one line per item while
+  `PLAN.md` wraps its annotations, so `text` has only ever been as much as fitted on the
+  marker line. Latent because it was unreachable: `In progress` has never had an entry and
+  `Next up` reads from the current phase, which had nothing queued between M7 closing and
+  this pull request. `name_of` splits on the em dash `PLAN.md` uses throughout, including
+  the case where the line wraps immediately after it and there is no trailing space to
+  split on. Negative-tested: reintroducing the bug fails four of the five new tests, and
+  the fifth -- an item that is only a name -- is meant to pass either way.
+
 - Two section leads described states the project has since left. M3's said the four
   context-economics items it shed "read conversation history, evictions and an action ledger,
   none of which exist until the turn loop and `tools.py` do" -- all four are done in M4 and

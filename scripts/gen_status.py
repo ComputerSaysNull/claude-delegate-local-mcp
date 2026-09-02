@@ -47,6 +47,19 @@ def git(*args: str) -> str:
 NOT_A_PHASE = ("Deferred", "Extra")
 
 
+def name_of(text: str) -> str:
+    """An item's name, without the annotation that follows it.
+
+    An item's `text` is its first physical line and nothing more, because the parser reads
+    one line per item while PLAN.md wraps its annotations over several. Rendered whole, a
+    wrapped item therefore arrives cut mid-clause -- which stayed invisible for as long as
+    no phase had anything queued. PLAN.md separates name from annotation with an em dash
+    throughout, so splitting on it recovers the name; an item written without one is
+    already only a name.
+    """
+    return text.split(" —", 1)[0].strip()
+
+
 def parse_plan() -> list[dict]:
     """Flatten PLAN.md into items tagged with their milestone heading."""
     items: list[dict] = []
@@ -103,9 +116,9 @@ def render() -> str:
         "## In progress",
         "",
     ]
-    out += [f"- {i['text']}" for i in active] or ["- *nothing marked in progress*"]
+    out += [f"- {name_of(i['text'])}" for i in active] or ["- *nothing marked in progress*"]
     out += ["", "## Next up", ""]
-    out += [f"- {i['text']}" for i in nxt] or ["- *nothing queued in this phase*"]
+    out += [f"- {name_of(i['text'])}" for i in nxt] or ["- *nothing queued in this phase*"]
 
     out += ["", "## Progress by phase", "",
             "| Phase | Done | Active | To do | Cancelled |",
