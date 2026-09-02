@@ -97,7 +97,13 @@ class Stream:
         if self._broken:
             return
         try:
-            with self.path.open("a", encoding="utf-8") as fh:
+            # os.open with an explicit mode, not Path.open: the mode has to be applied
+            # by the creating syscall. A chmod afterwards leaves a window in which the
+            # file exists at whatever the umask allowed, and since ADR-0043 this stream
+            # carries full model replies. umask can only clear bits, so 0o600 is a
+            # ceiling rather than a target.
+            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            with open(fd, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(event, default=str, ensure_ascii=False) + "\n")
         except OSError:
             # Once, not per turn: a directory that cannot be written to will not start
@@ -204,7 +210,7 @@ def open_stream(cfg: Config, agent_name: str | None) -> Stream | None:
         return None
     try:
         directory = Path(os.path.expanduser(cfg.transcript_dir.strip()))
-        directory.mkdir(parents=True, exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         _COUNTER["n"] += 1
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%f")[:-3]
         return Stream(directory / f"{stamp}-{_COUNTER['n']:04d}-{_slug(agent_name)}.jsonl")
@@ -331,7 +337,7 @@ def write(  # noqa: PLR0913 -- one record's worth of facts, from four different 
         return
     try:
         directory = Path(os.path.expanduser(cfg.transcript_dir.strip()))
-        directory.mkdir(parents=True, exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
 
         _COUNTER["n"] += 1
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%f")[:-3]
@@ -368,10 +374,10 @@ def write(  # noqa: PLR0913 -- one record's worth of facts, from four different 
             record["error"] = str(error)
             record["error_type"] = type(error).__name__
 
-        path.write_text(
-            json.dumps(record, indent=2, default=str, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        # Same reason as the stream: created at 0o600 rather than chmod-ed into it.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with open(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, indent=2, default=str, ensure_ascii=False))
     except Exception:
         # Deliberately broad, and deliberately silent to the caller. The delegation has
         # already done its work; losing its record is worth strictly less than failing it,

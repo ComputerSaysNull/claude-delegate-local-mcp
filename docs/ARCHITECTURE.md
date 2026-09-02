@@ -1,4 +1,5 @@
-<!-- BUDGET: 625
+<!-- BUDGET: 630
+     Raised from 625 on 2026-09-02: nothing set the transcript's file permissions, so this document could not state them.
      Raised to the size it had already reached on 2026-09-01: the check that should have held this
      line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
      stopped matching, so the document grew unenforced. This records where it actually is rather than
@@ -523,6 +524,10 @@ The stream carries the model's reply text, which the record does not. That is an
 of ADR-0039 rather than a reversal of it: that decision excluded file *bodies* as bulky and
 recoverable from the repository by path, and a reply is neither — it is small and exists
 nowhere else, which is the same argument ADR-0039 used to write the task verbatim.
+
+Both files are created at `0o600` and the directory at `0o700`, by `os.open` with an
+explicit mode rather than a `chmod` afterwards — that would leave a window in which the
+file existed at whatever the umask allowed. umask only clears bits, so this is a ceiling.
 
 Both halves say **which call they came from and what it was handed**: `tool` is the tool the
 caller invoked, `tools` is the set that call resolved to, and the files are the prefetch

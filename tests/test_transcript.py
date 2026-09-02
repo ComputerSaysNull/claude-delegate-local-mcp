@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import httpx
+import pytest
 from fastmcp import Client
 
 from claude_delegate_local import server
@@ -192,3 +194,32 @@ def test_per_turn_records_reach_the_transcript_though_the_caller_never_asked(tmp
     assert one["turns"] >= 1
     assert one["per_turn"], "the transcript recorded no per-turn detail"
     assert one["per_turn"][0]["input_tokens"] == 7
+
+
+posix_only = pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX mode bits. Windows has no 0o600, and the server runs in WSL anyway.",
+)
+
+
+@posix_only
+def test_a_transcript_is_not_readable_by_anyone_but_its_owner(tmp_path):
+    """Both files were created at whatever the umask happened to allow.
+
+    ADR-0043 put full model replies in the stream, and a record carries the task and the
+    paths it was handed, so on a shared machine or under a loose umask this was at-rest
+    exposure left to chance. Asserted as a property -- no group or other bits -- rather
+    than as the literal 0o600: umask can only clear bits, so a stricter umask must not
+    read as a failure while a laxer one still must.
+    """
+    directory = tmp_path / "t"
+    run(ok(), config=cfg(transcript_dir=str(directory)), task="x")
+
+    written = sorted(directory.glob("*.json")) + sorted(directory.glob("*.jsonl"))
+    assert written, "expected a record and a stream to have been written"
+    for f in written:
+        mode = f.stat().st_mode & 0o777
+        assert mode & 0o077 == 0, f"{f.name} is {oct(mode)}, readable beyond its owner"
+        assert mode & 0o400, f"{f.name} is {oct(mode)}, unreadable by its own owner"
+
+    assert directory.stat().st_mode & 0o077 == 0, "the directory itself is not private"
