@@ -34,6 +34,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #70 — 2026-09-02 — fix: transcripts took the default umask and read_file took the whole file
+
+### Fixed
+- Transcripts were created at whatever the umask allowed, measured at `0o644`. Since
+  ADR-0043 the stream carries the model's full reply text, and a record carries the task
+  and the paths it was handed, so this was at-rest exposure left to chance. Both files are
+  now created at `0o600` and both directories at `0o700`, by `os.open` with an explicit
+  mode rather than a `chmod` afterwards — a `chmod` leaves a window in which the file
+  already exists at the umask's permissions, and for an append-per-turn stream that window
+  reopens every turn. `mkdir` applies its mode to the leaf only, so intermediate parents of
+  a nested `transcript_dir` keep the default, and an existing directory is left alone
+  rather than re-permissioned under the operator.
+- `read_file` called `fh.read()` with no argument and applied `max_read_chars` afterwards,
+  as a slice of an already-decoded string, so a file inside a workspace root was loaded
+  whole on every call to return a 50k window. `max_file_read_bytes` already describes
+  itself as "checked by stat() BEFORE reading" and `context.prefetch` honoured it; this
+  consumer did not. It now stats first and refuses past that same ceiling — one setting,
+  one meaning, both consumers, rather than a second knob for the same idea. Refused rather
+  than paged: above the ceiling a file needs more calls than `max_turns` allows, so
+  pagination would spend the delegation getting nowhere, and the refusal points at
+  `run_bash` with `sed`, `head` or `grep` instead. The tool description is deliberately
+  unchanged, so `docs/TOOLS.md` regenerates byte-identical: the refusal carries its own
+  remedy, and descriptions sit in the cached prefix where each line is paid for per call.
+
+### Changed
+- `docs/ARCHITECTURE.md`'s budget rises to 630 to state the permission fact, which it
+  could not before because nothing set it. Noted for whoever trims next: the budget counts
+  its own reason lines, so a verbose justification inflates what it is justifying.
+
 ## #69 — 2026-09-02 — fix: the gate advertised a deleted knob and skipped files silently
 
 ### Fixed
