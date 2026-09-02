@@ -35,9 +35,15 @@ def git(*args: str) -> str:
                           text=True, check=False).stdout.strip()
 
 
-# Headings that record work but are not phases: one is a backlog, the other is work done
-# outside the plan. Either would be reported as the milestone in progress -- Extra silently,
-# because it only hijacks the pointer once someone records unfinished work under it.
+# Headings that record work but are not phases. `Deferred` is work on hold for weeks or
+# months; `Extra` is work done outside the plan. Either would otherwise be reported as the
+# milestone in progress -- Extra silently, because it sits after the milestones and only
+# hijacks the pointer once someone records unfinished work under it.
+#
+# `Open` is deliberately not here. It is the live backlog, and once the milestones closed it
+# *is* the phase the project is in, so STATUS.md should say so rather than claim the plan is
+# finished while items sit open. Matching is by prefix, which is what keeps `Deferred`
+# excluded independently of what the rest of its heading says.
 NOT_A_PHASE = ("Deferred", "Extra")
 
 
@@ -64,11 +70,8 @@ def render() -> str:
 
     by_mark = {k: [i for i in items if i["mark"] == k] for k in MARKS}
 
-    # The current milestone is the first with anything unfinished. Deferred and Extra are
-    # excluded: one is a backlog and the other a record of work done outside the plan.
-    # Neither is a phase, and either would otherwise be reported as the one in progress --
-    # Extra silently, because it sits after the milestones and only hijacks the pointer
-    # once someone adds an unfinished item to it.
+    # The current milestone is the first with anything unfinished, skipping the headings
+    # NOT_A_PHASE excludes and the reasons recorded there.
     current = None
     for i in items:
         if i["mark"] in (ACTIVE, TODO) and not i["milestone"].startswith(NOT_A_PHASE):

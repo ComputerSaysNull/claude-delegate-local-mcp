@@ -5,7 +5,7 @@
 
 # Status
 
-**Current phase:** all planned work complete
+**Current phase:** Open — hardening, testing and troubleshooting — 0 of 12 items done
 
 ## In progress
 
@@ -13,7 +13,9 @@
 
 ## Next up
 
-- *nothing queued in this phase*
+- Operator allowlist for an agent's `network` and `extra_binds` — the only validation is
+- Validate the opened inode, not the path — `resolve_all` then `open` is check-then-use
+- Content-level detection for a renamed secret — every path-policy layer inspects the
 
 ## Progress by phase
 
@@ -28,12 +30,14 @@
 | M5 — Sandbox | 9 | 0 | 0 | 0 |
 | M6 — Agents, batching, discovery | 4 | 0 | 0 | 0 |
 | M7 — Admission control and polish | 4 | 0 | 0 | 1 |
-| Deferred and cancelled | 0 | 0 | 13 | 5 |
+| Open — hardening, testing and troubleshooting | 0 | 0 | 12 | 0 |
+| Deferred | 0 | 0 | 1 | 0 |
+| Cancelled | 0 | 0 | 0 | 5 |
 | Extra — work outside the milestone plan | 7 | 0 | 0 | 0 |
 
 **Overall:** 73 done, 13 open, 7 cancelled.
 
 ## Repository
 
-- 80 commit(s), 122 tracked files
+- 81 commit(s), 122 tracked files
 - 53 test file(s), 43 decision record(s)

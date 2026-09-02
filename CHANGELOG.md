@@ -34,6 +34,56 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #74 — 2026-09-02 — docs: split the plan's backlog from what is on hold and what was dropped
+
+### Changed
+- `PLAN.md`'s single `Deferred and cancelled` section becomes three: `Open — hardening,
+  testing and troubleshooting`, `Deferred`, and `Cancelled`. Of the thirteen open items filed
+  under it, twelve were not deferred at all -- seven were findings from the 2026-09-02 review,
+  three were documentation-accuracy gaps and two were improvements. Only the
+  Anthropic-compatible adapter is on hold. One heading was serving three purposes because the
+  milestone plan closing left the live work with nowhere else to go, and `PLAN.md` is this
+  project's only forward-looking tracker.
+- The symptom was in the generated file: `STATUS.md` read `Current phase: all planned work
+  complete` two lines above `Overall: 73 done, 13 open, 7 cancelled`. `NOT_A_PHASE` excludes
+  any heading starting `Deferred`, so with every milestone closed there was no phase left to
+  point at. `Open` is deliberately not excluded, and the phase pointer now names it with its
+  count, and `Next up` fills from it instead of saying nothing is queued.
+- No change to how `gen_status.py` selects a phase, which is what made the split cheap.
+  `NOT_A_PHASE` matches by prefix, so the shortened `Deferred` stays excluded; `Cancelled`
+  holds only cancelled items and the selector tests the mark before the prefix, so it can
+  never be chosen. Its two comments described the old arrangement and are corrected -- they
+  had `Deferred` as the backlog, which is now what `Open` is.
+- Items moved verbatim, and it was checked rather than eyeballed: 93 item lines before and
+  after, and the sorted multiset of item and continuation lines is byte-identical. Within
+  each group they are ordered by what their own annotations say they cost, so the operator
+  allowlist -- the one the review left with a plausible end-to-end attack -- leads, and
+  `Next up` shows the three that matter rather than the three that were typed first.
+- Subgroups use `###`, which the parser cannot see: it matches `^## `, and `###` fails that
+  on the third character. So `Security review, 2026-09-02`, `Documentation accuracy` and
+  `Improvements` organise the section for a reader without creating phantom rows in the
+  progress table.
+- `PLAN.md`'s budget rises 413 to 439. It was at exactly 413 of 413, so the split breached it
+  before a single item moved. Raised rather than skipped, because a budget has a legitimate
+  raise path and a `Docs-Gate-Skip` trailer would have been the wrong instrument for a change
+  that genuinely needs the lines. The open item asking for the trim the 2026-09-01 audit
+  listed stays open: this is headroom for a restructure, not that trim, and closing it here
+  would have retired an item nobody did.
+
+### Fixed
+- `PLAN.md`'s legend promised `✅ done, with date and commit` when it has been date-only for
+  some time -- commit hashes caused more trouble than they were worth, and the fifteen items
+  that still cite one are all from 2026-08-25. It now says so and points at `CHANGELOG.md`'s
+  header for the reason rather than restating it, since per-PR provenance lives there. Six M4
+  items carry no date at all; that was not recoverable after the fact, so the legend says
+  that too instead of implying every item has one.
+- Two section leads described states the project has since left. M3's said the four
+  context-economics items it shed "read conversation history, evictions and an action ledger,
+  none of which exist until the turn loop and `tools.py` do" -- all four are done in M4 and
+  both modules exist, so it asserted in the present tense something that stopped being true.
+  M0a's "Run before any scaffolding" read as an instruction for four spikes that all carry a
+  2026-08-25 completion date.
+
 ## #73 — 2026-09-02 — docs: record the review findings not being built yet
 
 ### Added
