@@ -1,4 +1,5 @@
-<!-- BUDGET: 310
+<!-- BUDGET: 327
+     Raised from 310 on 2026-09-02: list_agents now separates a broken agent file from one in Claude Code's format, and what a caller is told about each is a fact this document owns.
      Raised to the size it had already reached on 2026-09-01: the check that should have held this
      line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
      stopped matching, so the document grew unenforced. This records where it actually is rather than
@@ -60,6 +61,22 @@ Three locations, first match wins:
 Project-local agents therefore override personal ones, which is usually what you want. The
 name is validated against `^[A-Za-z0-9_-]+$` — an agent name is not a path, and allowing it
 to look like one would make it a traversal.
+
+`list_agents` gives **three** answers, because "not there", "there and broken" and "there
+but not mine" need different ones and until 2026-09-02 gave the same one — a file that did
+not parse was simply left out. The standing advice for a missing agent, ask by name and read
+the error, needs the very name an omission hides.
+
+- `skipped` is what needs fixing, with the name each file claimed and why it failed. A
+  broken definition is still skipped rather than fatal.
+- `other_format` is Claude Code's format sharing the directory (ADR-0031) — `tools` where
+  this format says `allowed_tools`. Not broken, not for this server, and named rather than
+  hidden. Four of this repository's own five agent files are in it, deliberately, which is
+  why the split exists: folding them into `skipped` would leave that list permanently
+  non-empty here, and a list that is never empty is one nobody reads.
+- Absent from all three means it does not exist.
+
+A name shadowed by a nearer tier is in none of them: the lookup really does offer only one.
 
 ## Frontmatter
 

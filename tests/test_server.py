@@ -1329,9 +1329,43 @@ def test_a_broken_agent_file_is_left_out_rather_than_breaking_the_list(tmp_path)
     listed = called(chat_handler(), "list_agents", config=config, workdir=str(tmp_path))
     assert [a["name"] for a in listed["agents"]] == ["good"]
 
+    # Named, not merely missing: a caller cannot ask by name for a name it never saw.
+    assert listed["skipped_count"] == 1
+    assert listed["skipped"][0]["name"] == "broken"
+    assert "unknown frontmatter key" in listed["skipped"][0]["reason"]
+    assert listed["skipped"][0]["source"].endswith("broken.md")
+    assert listed["other_format_count"] == 0
+
     with pytest.raises(Exception, match="unknown frontmatter key"):
         called(chat_handler(), "delegate_to_agent", config=config,
                agent_name="broken", task="t", workdir=str(tmp_path))
+
+
+@files_posix_only
+def test_the_three_answers_are_distinguishable_in_one_call(tmp_path):
+    """"Not there", "there and broken", and "there but not mine" through the real tool.
+
+    Measured on this repository the day this landed: four of its five agent files are
+    Claude Code's, so folding that case into `skipped` would leave the broken list
+    permanently non-empty here -- and a list that is never empty is one nobody reads.
+    """
+    agent_file(tmp_path, "mine")
+    d = tmp_path / ".claude" / "agents"
+    (d / "broken.md").write_text(
+        "---\nname: broken\nnonsense: 1\n---\nb\n", encoding="utf-8")
+    (d / "theirs.md").write_text(
+        "---\nname: theirs\ntools: Read, Grep\n---\nt\n", encoding="utf-8")
+
+    config = cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere"))
+    listed = called(chat_handler(), "list_agents", config=config, workdir=str(tmp_path))
+
+    assert [a["name"] for a in listed["agents"]] == ["mine"]
+    assert [s["name"] for s in listed["skipped"]] == ["broken"]
+    assert [f["name"] for f in listed["other_format"]] == ["theirs"]
+    assert listed["other_format"][0]["keys"] == ["tools"]
+    # The property worth protecting: non-empty `skipped` always means something to fix.
+    assert listed["skipped_count"] == 1
+    assert "absent" not in str(listed), "no name should be reported as missing here"
 
 
 # --- admission control (ADR-0012) ----------------------------------------------------------

@@ -34,6 +34,42 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #72 — 2026-09-02 — feat: list_agents separates a broken agent from one in the other format
+
+### Fixed
+- Agent discovery skipped any file it could not read and said nothing — one `except
+  (AgentError, OSError): continue`, in a module importing no logging at all — so "no such
+  agent" and "that agent is broken" were one answer. The advice for the first case needed
+  the name that the omission hid: ask for it by name and read the error.
+- `AgentError` and `OSError` are caught separately. A malformed definition and an
+  unreadable file are fixed differently, and the reason now says which.
+
+### Added
+- `list_agents` returns `skipped` (what needs fixing, with each file's claimed name and
+  reason) and `other_format` (Claude Code's format sharing the directory — `tools` where
+  this format says `allowed_tools`), beside `agents`. Absent from all three means it does
+  not exist. Skipping stays non-fatal. A result-shape and description change, so a
+  behaviour change rather than a wording fix.
+- The `other_format` split came from running the tool, not from planning it. Against this
+  repository it reported five skips, four being its own agents — `code-reviewer`,
+  `docs-audit`, `researcher`, `test-writer` all carry `tools`, deliberately, as ADR-0031
+  predicted and #67 worked around. Nothing regressed; they were never loadable here. But
+  folding them into "broken" leaves that list permanently non-empty in this repository, and
+  a list that is never empty is one nobody reads — the failure mode #69 argued against a
+  pull request earlier by keeping `scan-coverage` silent about binary files. The split
+  protects one property: a non-empty `skipped` always means something to fix.
+- The foreign-key check runs before validation, which would otherwise refuse `tools` as an
+  unknown key and report the file as broken — the conflation the category undoes. A typo in
+  a file that is otherwise this format is still broken, asserted in the other direction.
+
+### Changed
+- `survey_agents` returns a named `AgentListing` rather than three parallel tuples, the
+  shape a caller eventually unpacks in the wrong order. `list_agents` keeps its name and
+  signature for callers that only want specs.
+- `docs/AGENTS.md` rises to 327 and `docs/ARCHITECTURE.md` to 633. That is three documents
+  at their ceiling across this series and the second raise to ARCHITECTURE today; the
+  2026-09-01 audit's trim is overdue.
+
 ## #71 — 2026-09-02 — fix: a default written twice and a deadline measured from the wrong clock
 
 ### Fixed
