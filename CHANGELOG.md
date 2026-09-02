@@ -34,7 +34,7 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## Unreleased — feat!: read_file addresses and numbers lines
+## #79 — 2026-09-02 — feat!: read_file addresses and numbers lines
 
 ### Changed
 - `read_file` takes `start_line` instead of `offset`, and numbers every line it returns.
