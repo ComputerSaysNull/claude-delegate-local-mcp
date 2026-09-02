@@ -34,7 +34,7 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## Unreleased — docs: reconcile the plan with what this session settled and landed
+## #80 — 2026-09-02 — docs: reconcile the plan with what this session settled and landed
 
 ### Changed
 - `PLAN.md`'s Improvements group had never been read against itself, and two of its items
