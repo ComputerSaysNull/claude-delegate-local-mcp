@@ -72,70 +72,86 @@ group by what the item's own annotation says it costs.
 
 ### Documentation accuracy
 
-- ⬜ The documentation trim the 2026-09-01 audit listed — `docs/ARCHITECTURE.md`,
-  `docs/DISPATCH.md`, `docs/AGENTS.md` and `PLAN.md` all sit at their ceilings, and the
-  review fixes of 2026-09-02 needed three budget raises across two documents to state facts
-  the code had just acquired. Each feature now pays interest on it. Worth doing before the
-  next one rather than after
+- 🔄 The documentation trim the 2026-09-01 audit listed — `docs/ARCHITECTURE.md`,
+  `docs/DISPATCH.md`, `docs/AGENTS.md`, `CONTRIBUTING.md` and `PLAN.md` all sit at their
+  ceilings, and the review fixes of 2026-09-02 needed three budget raises across two
+  documents to state facts the code had just acquired. **Now the thing blocking the queue
+  rather than an item in it:** the three improvements of 2026-09-02 hit the ceiling on three
+  different documents, and paid for two of them by deleting duplication found on the spot —
+  ARCHITECTURE.md was restating the generated cell for `admission_wait_timeout` and
+  DISPATCH.md's `alive` paragraph. Both were real, and finding them while blocked was luck
+  rather than method: that is the item being done opportunistically, a paragraph at a time,
+  to land something else. Each feature pays interest; do this deliberately, and first
 - ⬜ Say in `docs/DISPATCH.md` that the admission wait stacks on the dispatch deadline —
   the deadline is taken after a slot is granted (ADR-0038), so the caller-visible worst
   case is both settings added. `admission_wait_timeout` does not appear in that document at
   all, and its deadline section enumerates three enforcement points without mentioning
-  admission. Recorded in M7 and in the ADR, which is not where a reader looks
+  admission. Recorded in M7 and in the ADR, which is not where a reader looks. More pressing
+  since 2026-09-02: ARCHITECTURE.md's copy of the rationale was deleted as duplication, so
+  the only prose statement of it now lives in a generated config cell
 - ⬜ Re-measure `BYTES_PER_TOKEN` per tokenizer and say so in `docs/MODELS.md` — measured
   against one model. Lower priority than the 2026-09-02 review implied: the table is
   per-extension and every entry is rounded **down**, so estimates over-count and the
   conservative direction survives a different tokenizer unless it is denser than the
   densest entry. A sentence, not a project
-- ⬜ Measure whether the tool schemas sit inside the cached prefix, and record it in
-  ADR-0011's terms — the ADR fixes the prompt order and requires the leading tokens to be
-  bit-identical, naming timestamps and counters as what breaks it. It never says whether a
-  tool description is inside that region. If it is, rewording one costs prefill on every
-  later call; if it is not, it costs nothing, and the difference decides how freely the
-  model-facing contract can be edited. Reasoned about so far, never measured
+- ✅ 2026-09-02 Measure whether the tool schemas sit inside the cached prefix — they are.
+  Sent cold, one reworded tool *description* cached zero tokens, exactly like a reworded
+  system prompt, where the unchanged prefix cached 4096 of 5946. So rewording one costs a
+  full prefill. Two things worth more than the answer: latency could not measure it at all,
+  every case landing within 20ms including the cold control, and the first token-based run
+  was wrong in the flattering direction because the variant had been sent minutes earlier
+  and was measuring its own echo. ADR-0011's body is untouched; JOURNAL 2026-09-02 has it,
+  and `declared_tools` now cites the measurement rather than the ADR
 
 ### Improvements
 
-- ⬜ A heartbeat for the agentic loop — it reports at the top of each turn, so one turn is
-  silent for its whole duration, bounded only by `turn_timeout`, which defaults to exactly
-  the client's 1800s idle timeout. `#58` measured what that silence costs: the caller
-  abandons the call, nothing reaches the server, and the slot is held to the end. Lowering
-  the default would kill legitimate work — one call generated for 1645s — so the fix is to
-  give the loop the one-shot's heartbeat, not a smaller budget. `#59`'s guard cannot reach
-  this path: it bounds the interval, and this path has no heartbeat to bound
+- ✅ 2026-09-02 A heartbeat for the agentic loop — `#58`'s silence closed, and the timer
+  alone would not have closed it: `_run_calls` is synchronous and `run_bash` reaches
+  `subprocess.run`, so a command held the event loop and no timer could be scheduled during
+  exactly the window a long delegation spends there. Tool calls now go through
+  `asyncio.to_thread`, which also stops one command freezing the transport for every
+  delegation admitted beside it. The regression test asserts a beat *during* a tool call and
+  was verified to fail without that half while the slow-backend test passed
+- ✅ 2026-09-02 Line addressing in `read_file` — `start_line`, and every returned line
+  numbered. `docs-audit-local`'s instruction to cite by quotation is withdrawn, and
+  CONTRIBUTING.md now records the trap it came from: an agent body can encode a workaround
+  for a server limitation, and nothing links the two
+- ✅ 2026-09-02 `effort` is required on all four delegation tools — not previously filed
+  here, and found in use rather than in review: four research delegations in one session ran
+  at the silent default because none named a level, and the one rerun at `high` found the
+  blocking-subprocess defect above that the others had missed. `inherit` is how a caller
+  defers on purpose, which is what keeps an agent file's own `effort:` reachable now that
+  the argument cannot be omitted. ADR-0045
 - ⬜ Server-format twins for the four Claude Code agents — `#72` made it visible that
   `code-reviewer`, `docs-audit`, `researcher` and `test-writer` load only in Claude Code,
   so `delegate_to_agent` can reach one of five agents in this repository. `docs-audit-local`
   is the shape to copy (`#67`). CONTRIBUTING.md already records the two-format arrangement
   as temporary; this is what it costs
-- ⬜ Globs and a search term in `files[]`, expanded server-side — `delegate_readonly` fixes
-  `allowed_tools` at `[]`, so it can look for nothing and every file must be named in
-  advance. Expanding before the call keeps that promise literally true: no tools, no loop,
-  and the static prefix ADR-0011 protects untouched. The work is in the budget rather than
-  the matching — a glob hitting two hundred files has to skip and account for them the way
-  `context.prefetch` already does, not spend `prefetch_budget` silently
 - ⬜ A read-only search tool, for the research a glob cannot do — grep, read a hit, grep
-  again. This is the half that needs iteration, so it means giving `delegate_readonly` tools
-  and with them the agentic loop, which ADR-0016 already prefers and which no ADR argues
-  against; the one-shot is a consequence of the empty toolset being falsy, not a decision.
-  ADR-0042's promise survives, because it is that nothing the tool can do will write rather
-  than that it has no tools — MCP matches permissions on the name and never on the
-  arguments. Its annotation and heading both need rewording, which is the behaviour change
-- ⬜ Line addressing in `read_file` — `offset` counts characters, so the model can neither be
-  pointed at lines 400 to 460 nor cite what it read. Found in review and never filed here,
-  because it was absorbed as a workaround instead: `.claude/agents/docs-audit-local.md`
-  tells that one agent to cite by quotation and warns it is never shown a line number. Every
-  other caller still asks for line numbers and gets hand-counted ones
+  again. **Direction settled 2026-09-02:** one-shot is not a requirement for read-only, so
+  this wins over the glob item below rather than competing with it. Giving `delegate_readonly`
+  tools gives it the agentic loop, which ADR-0016 already prefers; the one-shot is a
+  consequence of the empty toolset being falsy, not a decision. ADR-0042's promise survives,
+  because it is that nothing the tool can do will write rather than that it has no tools.
+  Its prerequisite is now met — the loop has a heartbeat, so a read-only delegation moving
+  onto it no longer moves onto the silent path. The annotation to reword is the tool
+  docstring in `server.py`; `docs/TOOLS.md` describes the delegated model's tools and has
+  never mentioned `delegate_readonly`
+- ⬜ Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
+  way to look for anything. Its original justification, that expanding before the call keeps
+  `delegate_readonly` toolless and loopless, no longer holds now the fork is settled the
+  other way, so this is a convenience and ranks below the search tool. The work is in the
+  budget rather than the matching — a glob hitting two hundred files has to skip and account
+  for them the way `context.prefetch` already does, not spend `prefetch_budget` silently
 - ⬜ `edit_file`, on a helper that validates and opens together — `write_file` replaces a
-  file whole, so changing three lines in a long module means reading it back in
-  `max_read_chars` windows and rewriting every line, with any hallucinated character landing
-  silently. Together with no search and no line addressing, this is the likeliest reason no
-  code-writing task has been delegated yet. It must not land before the inode item above:
-  `_one_path` returns a string and each handler opens for itself, so a read-modify-write
-  tool validates once and uses the path twice across two `open` calls, against an adversary
-  holding a read-write bind under `run_bash` who can retry until the swap lands. One
-  `open_resolved` helper closes that item and makes the third tool safe by construction
-  rather than by review
+  file whole, so changing three lines in a long module means reading it back and rewriting
+  every line, with any hallucinated character landing silently. Line addressing has landed,
+  which removes one of the three reasons no code-writing task has been delegated yet. It
+  must not land before the inode item above: `_one_path` returns a string and each handler
+  opens for itself, so a read-modify-write tool validates once and uses the path twice
+  across two `open` calls, against an adversary holding a read-write bind under `run_bash`
+  who can retry until the swap lands. One `open_resolved` helper closes that item and makes
+  the third tool safe by construction rather than by review
 
 ## Deferred
 

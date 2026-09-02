@@ -34,6 +34,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #80 — 2026-09-02 — docs: reconcile the plan with what this session settled and landed
+
+### Changed
+- `PLAN.md`'s Improvements group had never been read against itself, and two of its items
+  justified themselves in opposite directions: globs in `files[]` rested on
+  `delegate_readonly` having no tools and no loop, while the search tool gives it both. The
+  fork is decided the other way — one-shot is not a requirement for read-only — so the
+  search tool wins and the glob item survives as a convenience ranked below it, with its old
+  rationale removed rather than left standing.
+- Three items are marked done, one of which was never filed there at all: the required
+  `effort` argument, which surfaced in use rather than in review.
+- The heartbeat and cached-prefix annotations record what the work taught rather than what
+  was expected of it — that a timer alone would not have fixed the silence, and that a
+  reworded tool description costs a full prefill.
+- The documentation-trim item moves to in-progress. Three improvements hit the ceiling on
+  three different documents; two were paid for by duplication found while blocked, which is
+  luck rather than method. It is now what blocks the queue rather than an item in it.
+- The admission-wait item is more pressing for a reason this branch created: ARCHITECTURE.md's
+  copy of that rationale was deleted as duplication, so the only prose statement of it now
+  sits in a generated config cell.
+
 ## #79 — 2026-09-02 — feat!: read_file addresses and numbers lines
 
 ### Changed
