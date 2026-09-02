@@ -34,6 +34,39 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #69 — 2026-09-02 — fix: the gate advertised a deleted knob and skipped files silently
+
+### Fixed
+- `.env.example` offered `DELEGATE_SANDBOX_ENABLED`, described as "an explicit choice to run
+  shell commands with no confinement" — very nearly the words ADR-0034 used while deleting
+  that field, on the grounds that a control switchable from outside the code is one whose
+  state has to be checked to be believed. `config.py` defines 56 settings and no sandbox
+  toggle, so the line was advice nobody could follow and a foot-gun already removed. To
+  every other check the example file is prose, which is why nothing caught it.
+- `scannable_files` skipped anything over `MAX_SCAN_BYTES` and anything `open()` refused,
+  both with a bare `continue`, so `email-content` and `host-identifier` reported a clean
+  pass over files they had never read — a check that cannot fail, the fifth found here.
+  The skips are returned and reported now. Binary stays silent, excluding it being the
+  intent rather than a gap, and a warning on every image would be read past.
+
+### Added
+- An `env-example` check: every `DELEGATE_*` name in `.env.example` must be a setting that
+  exists. The allowed set is read from `docs/CONFIGURATION.md` rather than from a list in
+  the gate or an import of `config.py` — this CI job installs no package, and a list here
+  would be the second copy that caused the drift. That document is generated from the
+  dataclass and `check_generated_docs` blocks while it is stale. It refuses to pass when
+  that document yields no names at all, an empty allowed set otherwise meaning "nothing is
+  known, so nothing is wrong".
+- A `scan-coverage` check reporting what the content scanners left out. WARN, not BLOCK:
+  the byte cap is a defensible cost decision and only its invisibility was the fault. No
+  tracked file is over it today, so it stays quiet until one is.
+
+### Changed
+- Six negative tests, each direction asserted separately as that file requires. All six
+  were run against the previous gate first: the three fires-on-violation cases fail there,
+  while the three silent-on-clean cases pass vacuously against a check that does not exist
+  — which is exactly why one direction is not a test.
+
 ## #68 — 2026-09-02 — fix: the transcript list showed a week instead of the newest twenty
 
 ### Fixed
