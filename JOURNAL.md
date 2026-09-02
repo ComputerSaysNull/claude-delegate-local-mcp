@@ -857,3 +857,41 @@ Two smaller things settled. The client's own error text names both knobs -- a pe
 is real, and yesterday's "it had no observable effect at 120000" needs some other
 explanation. And a 744s silent call was not abandoned, which puts the floor on that timer
 above 744s and matches the documented 1800s exactly.
+
+---
+
+## 2026-09-02 — A tool description is inside the cached prefix, and the first measurement said the opposite
+
+ADR-0011 fixes the prompt order and requires the leading tokens to be bit-identical, naming
+timestamps and counters as what breaks it. It never says whether a tool schema is inside
+that region. `declared_tools` in `tools.py` had asserted it was, citing that ADR for a claim
+the ADR does not make. Measured now, and the docstring is right.
+
+**Latency is not the instrument here.** With `max_tokens=16` so prefill dominates, every
+case landed within 20ms of every other -- 1.28s -- including the deliberately-cold positive
+control. Had the control been left out, that flatness would have read as "rewording is
+free". The endpoint answers directly instead: `usage.prompt_tokens_details.cached_tokens`,
+which `_from_wire` currently discards.
+
+**The first run of the token measurement was wrong, and wrong in the flattering
+direction.** A ~5946-token prompt cached 4096 tokens; a variant with one tool description
+reworded also showed 4096 on what looked like its first call, which reads as "the tool block
+is outside the cached region". It was not a first call: the same variant had been sent by an
+earlier version of the script minutes before, so it was measuring its own echo.
+
+Sent genuinely cold, once each, against an established prefix:
+
+    establish     prompt=5946  cached=4096
+    tool text     prompt=5950  cached=0
+    system text   prompt=5947  cached=0
+    first message prompt=5946  cached=0
+
+All three lose the whole prefix. So rewording one tool description costs exactly what
+rewording the system prompt costs, and the cache is block-granular -- 4096 of 5946, not all
+of it -- so a long prompt never caches its tail regardless.
+
+**The distinction that matters when applying this.** It is the *delegated model's* tools --
+`read_file`, `write_file`, `run_bash` in `tools.py` -- that sit in the cluster's prefix. The
+MCP tool descriptions in `server.py` are read by Claude Code and never reach the cluster at
+all, so editing those costs nothing here. CLAUDE.md already treats both as a behaviour
+change; only the first also carries a prefill bill.
