@@ -1006,12 +1006,56 @@ def check_split_dodge() -> list[Finding]:
     return out
 
 
+ENV_EXAMPLE = ROOT / ".env.example"
+ENV_NAME_RE = re.compile(r"DELEGATE_[A-Z0-9_]+")
+
+
+def check_env_example() -> list[Finding]:
+    """Every DELEGATE_* name in .env.example must be a setting that exists.
+
+    `.env.example` advertised `DELEGATE_SANDBOX_ENABLED` long after ADR-0034 deleted the
+    field, describing it as "an explicit choice to run shell commands with no confinement"
+    -- very nearly the words the ADR quoted while removing exactly that foot-gun. Nothing
+    could have caught it, because to every other check the example file is prose.
+
+    The allowed set is read from `docs/CONFIGURATION.md`, not from a list kept here and not
+    by importing `config.py`. This job does not install the package, and a list here would
+    be the same second copy that let the example drift from the code in the first place.
+    That document is generated from the dataclass and `check_generated_docs` blocks while it
+    is stale, so its names are `config.py`'s names by the time this runs.
+    """
+    if not ENV_EXAMPLE.exists():
+        return [Finding(SKIP, "env-example", ".env.example is not present.")]
+    reference = ROOT / "docs" / "CONFIGURATION.md"
+    if not reference.exists():
+        return [Finding(SKIP, "env-example",
+                        "docs/CONFIGURATION.md is absent, so no name list can be derived.")]
+
+    known = set(ENV_NAME_RE.findall(reference.read_text(encoding="utf-8")))
+    if not known:
+        return [Finding(BLOCK, "env-example",
+                        "no DELEGATE_* names found in docs/CONFIGURATION.md, so this check "
+                        "would pass whatever .env.example said. Refusing to be a check that "
+                        "cannot fail.")]
+
+    out = []
+    for name in sorted(set(ENV_NAME_RE.findall(ENV_EXAMPLE.read_text(encoding="utf-8")))):
+        if name not in known:
+            out.append(Finding(BLOCK, "env-example",
+                               f".env.example advertises {name}, which is not a setting "
+                               f"docs/CONFIGURATION.md knows. Either it was renamed or it "
+                               f"was deleted -- a removed knob left in a tracked example is "
+                               f"still advice, and someone will follow it."))
+    return out
+
+
 CHECKS = {
     "identity": check_commit_identity,
     "email-content": check_emails_in_files,
     "host-identifier": check_host_identifiers,
     "secret-path": check_secret_paths,
     "never-track": check_never_tracked,
+    "env-example": check_env_example,
     "commit-message": check_commit_message,
     "generated-doc": check_generated_docs,
     "generated-coverage": check_generated_docs_are_all_checked,

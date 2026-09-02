@@ -17,6 +17,10 @@ either broken one.
 `check_secret_paths` had exactly that half-test before this file: one case asserting it
 does *not* flag the policy list. Nothing asserted it flags anything.
 
+`check_env_example` joins them for the same reason: it exists *because* a
+deleted setting went on being advertised, so shipping it without a negative
+test would repeat the mistake that created it.
+
 Named after the bug, per the project's convention.
 """
 
@@ -344,3 +348,45 @@ def test_contributing_lists_exactly_the_gated_types():
     block = line + " " + prose.splitlines()[prose.splitlines().index(line) + 1]
     named = set(re.findall(r"`(\w+):`", block))
     assert named == set(mod.CONVENTIONAL_TYPES), (named, mod.CONVENTIONAL_TYPES)
+
+
+# ------------------------------------------------------------------- .env.example names
+
+def _config_doc(repo: Path, *names: str) -> None:
+    """A stand-in for the generated reference, carrying only the names that matter."""
+    rows = "".join(f"| `{n}` | x | a setting. |\n" for n in names)
+    (repo / "docs" / "CONFIGURATION.md").write_text(
+        "<!-- BUDGET: 99 -->\n# Configuration\n\n"
+        "| Variable | Default | Notes |\n|---|---|---|\n" + rows,
+        encoding="utf-8")
+
+
+def test_env_example_fires_on_a_setting_that_no_longer_exists(repo: Path):
+    """The regression itself: ADR-0034 deleted a field and the example kept offering it."""
+    _config_doc(repo, "DELEGATE_REAL_ONE")
+    (repo / ".env.example").write_text(
+        "DELEGATE_REAL_ONE=1\n# DELEGATE_DELETED_KNOB=1\n", encoding="utf-8")
+    assert fired(gate(repo), "env-example", "DELEGATE_DELETED_KNOB")
+
+
+def test_env_example_is_silent_when_every_name_is_real(repo: Path):
+    """The other direction, including a commented-out line, which is still advice."""
+    _config_doc(repo, "DELEGATE_REAL_ONE", "DELEGATE_REAL_TWO")
+    (repo / ".env.example").write_text(
+        "DELEGATE_REAL_ONE=1\n# DELEGATE_REAL_TWO=2\n", encoding="utf-8")
+    assert not fired(gate(repo), "env-example")
+
+
+def test_env_example_refuses_to_pass_with_nothing_to_check_against(repo: Path):
+    """A reference document holding no names would make this check vacuous.
+
+    It reads its allowed set out of a generated document. If that document ever stops
+    carrying `DELEGATE_*` names -- renamed, restructured or replaced -- the comparison
+    silently becomes "nothing is known, so nothing is wrong", which is exactly the shape
+    CLAUDE.md says is worse than no check at all. It must block instead.
+    """
+    (repo / "docs" / "CONFIGURATION.md").write_text(
+        "<!-- BUDGET: 99 -->\n# Configuration\n\nNo names here at all.\n",
+        encoding="utf-8")
+    (repo / ".env.example").write_text("DELEGATE_ANYTHING=1\n", encoding="utf-8")
+    assert fired(gate(repo), "env-example", "would pass whatever")
