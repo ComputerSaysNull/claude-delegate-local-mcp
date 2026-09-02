@@ -614,11 +614,11 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     if on_alive is None:
         return await dispatch()
 
-    # The only concurrency in this module. Everything from here down to the backend call
-    # is one sequential chain of awaits, so a heartbeat cannot be another `await` inside
-    # it -- it has to run beside the chain and be torn down with it. The `finally` is what
-    # makes that safe: cancel, then await the cancellation, so no task outlives the
-    # dispatch it was reporting on.
+    # Everything from here down to the backend call is one sequential chain of awaits, so a
+    # heartbeat cannot be another `await` inside it -- it has to run beside the chain and be
+    # torn down with it. The `finally` is what makes that safe: cancel, then await the
+    # cancellation, so no task outlives the dispatch it was reporting on. `run_agentic_loop`
+    # now does the same around its turn loop; this was once the only concurrency here.
     beat = asyncio.create_task(_keepalive(cfg, on_alive, clock))
     try:
         return await dispatch()
@@ -1356,6 +1356,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
+    on_alive: Callable[[float, int], Awaitable[None]] | None = None,
     on_turn_done: Callable[[TurnDiagnostic, str, float], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
@@ -1389,6 +1390,11 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     it a long delegation is abandoned by the client while the server is still working. It is
     injected rather than imported for the reason `sleep` and `clock` are -- `loop.py` holds
     no MCP imports, and a test needs to see the calls without a client.
+
+    `on_alive` is the same protection *within* a turn, and one per turn was not enough: a
+    turn's own duration is bounded only by `turn_timeout`, so a single slow one outlasts the
+    idle timer on its own. It runs on a timer beside the loop rather than at a point inside
+    it, because there is no point inside a turn that is guaranteed to be reached.
 
     Effort reported is the level of the *last* turn, which is the one that produced the
     answer. A step-down on turn three does not persist into turn four: the next turn is a
@@ -1427,97 +1433,131 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         if on_turn_done is not None and watch.turns:
             await on_turn_done(watch.turns[-1], text, backend_seconds)
 
-    while turn < turns:
-        turn += 1
-        watch.turn = turn
-        await report_progress(turn, turns)
-        final = turn == turns
+    # The heartbeat, beside the loop rather than inside it. `run_one_shot` has had one
+    # since ADR-0018; this path reported only at the top of each turn, so a single long
+    # turn was silent for its whole duration -- bounded by `turn_timeout`, which defaults
+    # to exactly the client's stdio idle timeout. At that point the client abandons the
+    # call, nothing reaches the server, and the slot is held to the end (#58).
+    #
+    # Created as `None` rather than early-returning the way the one-shot does, because
+    # there the guarded part is one `await` and here it is the whole loop: duplicating it
+    # to avoid a nullable task would be two copies of the turn lifecycle.
+    beat = asyncio.create_task(_keepalive(cfg, on_alive, clock)) if on_alive else None
+    try:
+        while turn < turns:
+            turn += 1
+            watch.turn = turn
+            await report_progress(turn, turns)
+            final = turn == turns
 
-        guard.begin_turn(turn=turn, turns=turns, ledger=watch.calls)
-        before = tuple(history)
-        trimmed, dropped = evict_stale_tool_results(before, guard.keep)
-        history = list(trimmed)
-        watch.evicted(before, trimmed, dropped)
+            guard.begin_turn(turn=turn, turns=turns, ledger=watch.calls)
+            before = tuple(history)
+            trimmed, dropped = evict_stale_tool_results(before, guard.keep)
+            history = list(trimmed)
+            watch.evicted(before, trimmed, dropped)
 
-        def build(
-            level: str, budget: int, *, _msgs: tuple[Message, ...] = tuple(history),
-            _final: bool = final,
-        ) -> CanonicalRequest:
-            return CanonicalRequest(
-                system=SYSTEM_PROMPT_AGENTIC,
-                messages=_msgs,
-                max_tokens=budget,
-                effort=level,
-                temperature=cfg.tool_call_temperature,
-                # Withdrawn on the final turn, so the only thing left to produce is an
-                # answer. A model that ends on a tool call nobody will run has spent the
-                # whole delegation and returned nothing readable.
-                tools=() if _final else specs,
+            def build(
+                level: str, budget: int, *, _msgs: tuple[Message, ...] = tuple(history),
+                _final: bool = final,
+            ) -> CanonicalRequest:
+                return CanonicalRequest(
+                    system=SYSTEM_PROMPT_AGENTIC,
+                    messages=_msgs,
+                    max_tokens=budget,
+                    effort=level,
+                    temperature=cfg.tool_call_temperature,
+                    # Withdrawn on the final turn, so the only thing left to produce is an
+                    # answer. A model that ends on a tool call nobody will run has spent the
+                    # whole delegation and returned nothing readable.
+                    tools=() if _final else specs,
+                )
+
+            backend_started = clock()
+            dispatch = await dispatch_with_recovery(
+                cfg, entry, backend, build,
+                effort=resolved_effort, max_tokens=max_tokens,
+                sleep=sleep, deadline=deadline, clock=clock,
+            )
+            # The backend call alone, separate from the turn's wall clock. Tokens per second
+            # over the whole turn would fold tool execution and any retry wait into the
+            # divisor and report the cluster as slower than it is -- and a throughput number
+            # that is quietly measuring the wrong interval is worse than none, because it
+            # gets believed.
+            backend_seconds = max(clock() - backend_started, 0.0)
+            watch.turn_cost(dispatch, evicted=dropped)
+            guard.observe(
+                dispatch.response, evicted_this_turn=dropped, turn=turn, turns=turns,
+                ledger=watch.calls,
             )
 
-        backend_started = clock()
-        dispatch = await dispatch_with_recovery(
-            cfg, entry, backend, build,
-            effort=resolved_effort, max_tokens=max_tokens,
-            sleep=sleep, deadline=deadline, clock=clock,
-        )
-        # The backend call alone, separate from the turn's wall clock. Tokens per second
-        # over the whole turn would fold tool execution and any retry wait into the
-        # divisor and report the cluster as slower than it is -- and a throughput number
-        # that is quietly measuring the wrong interval is worse than none, because it
-        # gets believed.
-        backend_seconds = max(clock() - backend_started, 0.0)
-        watch.turn_cost(dispatch, evicted=dropped)
-        guard.observe(
-            dispatch.response, evicted_this_turn=dropped, turn=turn, turns=turns,
-            ledger=watch.calls,
-        )
+            calls = dispatch.response.tool_uses
+            if final or not calls:
+                await turn_done(dispatch.response.text, backend_seconds)
+                break
 
-        calls = dispatch.response.tool_uses
-        if final or not calls:
+            assistant = Message("assistant", _assistant_blocks(cfg, dispatch.response))
+            history.append(assistant)
+            guard.added(assistant)
+
+            # Off the event loop, which is what lets the heartbeat above fire at all during
+            # a tool call. `_run_calls` is synchronous and `run_bash` reaches `subprocess.run`
+            # in `sandbox.py`, so a command bounded by `run_bash_timeout` blocked the loop
+            # for its whole duration -- no timer task, no `report_progress`, and no stdio
+            # traffic for any other delegation admitted alongside it. A heartbeat that goes
+            # quiet during the longest blocking operation in the system is the check that
+            # cannot fail, in its heartbeat form.
+            #
+            # One thread for the whole batch, not one per call: `_run_calls` runs them in
+            # order and that order is what the model sees. The only thing now running beside
+            # it is the timer, which touches neither `cached` nor `watch`.
+            results, outcomes = await asyncio.to_thread(
+                _run_calls, cfg, calls, allowed, cached, watch, policy=bash_policy
+            )
+            watch.turn_tools(outcomes)
             await turn_done(dispatch.response.text, backend_seconds)
-            break
+            results.append(TextBlock(countdown_line(turns - turn)))
 
-        assistant = Message("assistant", _assistant_blocks(cfg, dispatch.response))
-        history.append(assistant)
-        guard.added(assistant)
+            nudge_pending = guard.nudge_due(turn=turn)
+            if nudge_pending:
+                # Appended alongside the countdown, never instead of it: one counts turns and
+                # the other counts room, and a delegation can be short of either alone.
+                results.append(TextBlock(WRAP_UP_LINE))
+                text_before_nudge = dispatch.response.text
 
-        results, outcomes = _run_calls(cfg, calls, allowed, cached, watch, policy=bash_policy)
-        watch.turn_tools(outcomes)
-        await turn_done(dispatch.response.text, backend_seconds)
-        results.append(TextBlock(countdown_line(turns - turn)))
+            user_message = Message("user", tuple(results))
+            history.append(user_message)
+            guard.added(user_message)
 
-        nudge_pending = guard.nudge_due(turn=turn)
-        if nudge_pending:
-            # Appended alongside the countdown, never instead of it: one counts turns and
-            # the other counts room, and a delegation can be short of either alone.
-            results.append(TextBlock(WRAP_UP_LINE))
-            text_before_nudge = dispatch.response.text
-
-        user_message = Message("user", tuple(results))
-        history.append(user_message)
-        guard.added(user_message)
-
-    if dispatch is None:  # unreachable: turns >= 1, so the body ran at least once
-        raise InvalidDelegation("max_turns resolved to zero turns.")
-    return AgenticDispatch(
-        response=_preserve_across_nudge(
-            dispatch.response, said_before=text_before_nudge if nudge_pending else ""
-        ),
-        effort=dispatch.effort,
-        attempts=watch.attempts,
-        reasoning_exhausted=dispatch.reasoning_exhausted,
-        turns=turn,
-        tool_calls=watch.tool_calls,
-        tool_errors=watch.tool_errors,
-        deduped=watch.deduped,
-        evicted=watch.evictions,
-        hit_turn_limit=turn == turns,
-        bash_calls=watch.bash_calls,
-        bash_failures=watch.bash_failures,
-        last_bash_exit=watch.last_bash_exit,
-        overflow_tightened_at=guard.tightened_at,
-        overflow_nudged_at=guard.nudged_at,
-        diagnostics=tuple(watch.turns),
-        rereads=tuple(watch.rereads) if diagnostics else (),
-    )
+        if dispatch is None:  # unreachable: turns >= 1, so the body ran at least once
+            raise InvalidDelegation("max_turns resolved to zero turns.")
+        return AgenticDispatch(
+            response=_preserve_across_nudge(
+                dispatch.response, said_before=text_before_nudge if nudge_pending else ""
+            ),
+            effort=dispatch.effort,
+            attempts=watch.attempts,
+            reasoning_exhausted=dispatch.reasoning_exhausted,
+            turns=turn,
+            tool_calls=watch.tool_calls,
+            tool_errors=watch.tool_errors,
+            deduped=watch.deduped,
+            evicted=watch.evictions,
+            hit_turn_limit=turn == turns,
+            bash_calls=watch.bash_calls,
+            bash_failures=watch.bash_failures,
+            last_bash_exit=watch.last_bash_exit,
+            overflow_tightened_at=guard.tightened_at,
+            overflow_nudged_at=guard.nudged_at,
+            diagnostics=tuple(watch.turns),
+            rereads=tuple(watch.rereads) if diagnostics else (),
+        )
+    finally:
+        if beat is not None:
+            beat.cancel()
+            try:
+                await beat
+            except asyncio.CancelledError:
+                # Ours, not the caller's -- as in `run_one_shot`. A cancelled delegation
+                # reaches this `finally` too, and re-raising would replace whatever
+                # actually ended it.
+                pass

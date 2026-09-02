@@ -13,12 +13,14 @@ import asyncio
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 
 import httpx
 import pytest
 from fastmcp import Client
 
+from claude_delegate_local import loop as loop_module
 from claude_delegate_local import sandbox, server
 from claude_delegate_local.backends import openai_compat as oc
 from claude_delegate_local.config import Config
@@ -1816,3 +1818,121 @@ def test_an_unknown_effort_is_refused_and_the_message_names_inherit():
 
     with pytest.raises(Exception, match="inherit"):
         asyncio.run(go())
+
+
+# --- the agentic loop's heartbeat, in both of its silent windows --------------------------
+
+
+def _loop_progress(config, handler, *, before_call=None):
+    """Run a two-turn delegation and collect every progress notification the client saw.
+
+    Returns the notifications, so a test can count them against the per-turn ones it would
+    have got anyway: a two-turn delegation reports twice on its own, and anything beyond
+    that came from the timer.
+    """
+    mcp = server.build(config, registry(entry()), DoubleCache(config, handler))
+    seen: list[float] = []
+
+    async def on_progress(progress, total, message):
+        seen.append(progress)
+
+    async def go():
+        async with Client(mcp, progress_handler=on_progress) as client:
+            await client.call_tool(
+                "delegate", {"task": "q", "effort": "inherit", "allowed_tools": ["read_file"]}
+            )
+
+    if before_call is not None:
+        before_call()
+    asyncio.run(go())
+    return seen
+
+
+def test_a_slow_turn_keeps_the_client_informed():
+    """#58's shape. One turn reports at its top and then says nothing for its whole
+    duration, bounded only by `turn_timeout` -- which defaults to exactly the client's
+    stdio idle timeout, so a single long turn can outlast it on its own. Lowering that
+    default would kill legitimate work, so the fix is the heartbeat.
+    """
+    config = cfg(keepalive_interval=1)
+    seen = _loop_progress(config, slow_chat_handler(2.5))
+    assert len(seen) >= 2, (
+        f"a turn lasting 2.5s past a 1s keepalive sent {len(seen)} notification(s)")
+
+
+def test_the_heartbeat_fires_while_a_tool_is_running(tmp_path, monkeypatch):
+    """The half a timer task alone does not buy, and the reason this test exists at all.
+
+    `_run_calls` is synchronous and `run_bash` reaches `subprocess.run` in `sandbox.py`, so
+    a tool call blocks the event loop for its whole duration -- up to `run_bash_timeout`.
+    A keepalive created with `asyncio.create_task` cannot be scheduled during that window,
+    so a delegation whose long part is a command would stay exactly as silent as before
+    while appearing fixed in every test that only exercises a slow backend.
+
+    The stand-in is `time.sleep` inside the real `_run_calls`, which is what
+    `subprocess.run` is: a synchronous block, on the calling thread. Verified to fail
+    against the same code without `asyncio.to_thread`.
+    """
+    target = tmp_path / "a.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+
+    real = loop_module._run_calls
+
+    def slow(*args, **kwargs):
+        time.sleep(2.5)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(loop_module, "_run_calls", slow)
+
+    config = cfg(keepalive_interval=1, workspace_roots=(str(tmp_path),))
+    handler = turn_handler(
+        tool_call_reply("read_file", {"path": str(target)}),
+        chat_reply(content="done"),
+    )
+    seen = _loop_progress(config, handler)
+    # Two turns report on their own; a third notification can only have come from the timer
+    # beating through the tool call.
+    assert len(seen) > 2, (
+        f"a 2.5s tool call past a 1s keepalive produced {len(seen)} notification(s), which "
+        "is no more than the two turns report by themselves")
+
+
+def test_the_loops_heartbeat_stops_when_the_delegation_fails():
+    """Cancellation on the paths that are not the happy one.
+
+    The `finally` has to cover every exit from the turn loop, not just the `break`: an
+    overflow abort, a backend that refuses, a raising callback. A task left beating after a
+    *failed* delegation is worse than after a successful one -- it reports as alive
+    something that has already ended, which is exactly the reading ADR-0043's stream exists
+    to make possible.
+
+    The waiting happens inside the event loop, as in the one-shot test above: sleeping after
+    `asyncio.run` returns proves nothing, because the loop is closed by then.
+    """
+    config = cfg(keepalive_interval=1)
+
+    async def failing(request):
+        await asyncio.sleep(2.5)
+        return httpx.Response(500, json={"error": "nope"})
+
+    mcp = server.build(config, registry(entry()), DoubleCache(config, failing))
+    seen: list[float] = []
+
+    async def on_progress(progress, total, message):
+        seen.append(progress)
+
+    async def go():
+        async with Client(mcp, progress_handler=on_progress) as client:
+            try:
+                await client.call_tool(
+                    "delegate", {"task": "q", "effort": "inherit", "allowed_tools": ["read_file"]}
+                )
+            except Exception:
+                pass  # the failure is the point; what it is belongs to another test
+            during = len(seen)
+            await asyncio.sleep(2.5)
+            return during, len(seen)
+
+    during, after = asyncio.run(go())
+    assert during, "nothing beat at all, so this cannot detect one that never stops"
+    assert after == during, "the heartbeat outlived a delegation that had already failed"

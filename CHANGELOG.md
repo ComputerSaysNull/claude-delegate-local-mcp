@@ -34,6 +34,37 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## Unreleased — feat: the agentic loop keeps the client informed within a turn
+
+### Fixed
+- The turn loop now runs the same keepalive `run_one_shot` has had since ADR-0018.
+  **Symptom:** `#58` measured a delegation the caller abandoned while the server carried on
+  working — nothing reaches the server when that happens, so the admission slot is held to
+  the end. **Cause:** the loop reported only at the top of each turn, so one turn was silent
+  for its whole duration, bounded only by `turn_timeout`, which defaults to exactly the
+  client's 1800s stdio idle timeout. **Fix:** the heartbeat, not a smaller budget — lowering
+  the default would kill legitimate work, one call having generated for 1645s. `_keepalive`
+  was already reusable and `on_alive` already reached `dispatch_delegation`; it was simply
+  not forwarded on the branch that takes the loop.
+- Tool calls now run through `asyncio.to_thread`. **Symptom:** would have been a heartbeat
+  that passed every test and still went silent in production. **Cause:** `_run_calls` is
+  synchronous and `run_bash` reaches `subprocess.run`, so a command bounded by
+  `run_bash_timeout` — 600s by default — blocked the event loop for its whole duration: no
+  timer task, no per-turn notification, and no stdio traffic for any other delegation
+  admitted alongside it. **Fix:** one thread for the whole batch, preserving the order the
+  model sees. The regression test asserts the heartbeat fires *during a tool call*, and was
+  verified to fail against the same code without this half while the slow-backend test
+  passed — which is exactly the trap.
+
+### Changed
+- `docs/ARCHITECTURE.md` no longer restates what the heartbeat carries, which
+  `docs/DISPATCH.md` owns, and no longer says only a one-shot writes an `alive` event. It
+  also loses the admission-wait rationale, which duplicated the generated cell for
+  `DELEGATE_ADMISSION_WAIT_TIMEOUT` almost verbatim. Both removals paid for the additions;
+  `docs/DISPATCH.md` still needed 420 → 430, the second raise this feature has cost in one
+  session, which is the case for the documentation-trim item rather than an argument
+  against it.
+
 ## #76 — 2026-09-02 — feat!: effort must be stated on every delegation
 
 ### Changed
