@@ -138,6 +138,35 @@ def test_read_file_returns_the_whole_file_when_it_fits(workspace):
 
 
 @posix_only
+def test_read_file_refuses_a_file_over_the_byte_ceiling(workspace):
+    """`max_file_read_bytes` calls itself "checked by stat() BEFORE reading". It was not.
+
+    `read_file` loaded the whole file to hand back a `max_read_chars` window, so a
+    multi-gigabyte file inside a root went into memory on every call -- exactly what the
+    setting's own description promises cannot happen. `context.prefetch` honoured it; this
+    consumer did not.
+    """
+    (workspace / "huge.py").write_text("y" * 5000, encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace, max_file_read_bytes=1000),
+        call("read_file", path=str(workspace / "huge.py")), tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "5000 bytes" in result.content
+    assert "1000-byte ceiling" in result.content
+
+
+@posix_only
+def test_read_file_still_pages_a_file_under_the_ceiling(workspace):
+    """The other direction. A ceiling that refused everything would pass the test above."""
+    (workspace / "fine.py").write_text("z" * 900, encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace, max_file_read_bytes=1000, max_read_chars=100),
+        call("read_file", path=str(workspace / "fine.py")), tools.ALL_TOOL_NAMES)
+    assert not result.is_error
+    assert "characters 0 to 100 of 900" in result.content
+
+
+@posix_only
 def test_read_file_pages_and_reports_the_true_total(workspace):
     (workspace / "big.py").write_text("abcdefghij" * 10, encoding="utf-8")
     c = cfg(workspace, max_read_chars=30)
