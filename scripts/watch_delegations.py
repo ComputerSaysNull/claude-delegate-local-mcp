@@ -61,8 +61,7 @@ def _transcript_dir() -> str:
 
 TRANSCRIPT_DIR = _transcript_dir()
 
-WINDOW_DAYS = 7          # how far back the list reaches
-MAX_ROWS = 200           # backstop under the window, for a runaway day
+MAX_ROWS = 20            # how far back the list reaches: the newest this many, always
 REFRESH_SECONDS = 2.0    # unattended redraw of the list
 POLL_SECONDS = 0.3       # how often a live stream is checked for new lines
 STALL_SECONDS = 120      # silence after which an unfinished stream stops claiming "live"
@@ -332,16 +331,20 @@ _CACHE: dict[Path, tuple[tuple[float, int], dict]] = {}
 
 
 def scan(directory: Path) -> tuple[list[dict], int]:
-    """Every stream inside the window, newest start first, plus how many were trimmed.
+    """The newest `MAX_ROWS` streams, newest start first, plus how many were trimmed.
 
-    The window is applied from the filename, before anything is opened. That is the point:
-    the list redraws unattended every couple of seconds, `summarise` reads a whole file,
-    and this workspace lives on `/mnt/c` where that is roughly 12x the cost it would be on
-    ext4 (ADR-0020). Unchanged files are then served from `_CACHE`, so a quiet refresh
-    stats each candidate and reads none of them.
+    A count rather than an age. A window in days answers "what happened lately", which
+    is not the question the list is for -- it left a busy day unreadable and a quiet week
+    nearly empty. The newest N is the same length whatever the week looked like.
+
+    Dropping the window also drops the cheap pre-filter: it was applied from the filename
+    before anything was opened, and ordering by start time needs the cached row. `_CACHE`
+    is what bounds the cost instead. The list redraws unattended every couple of seconds,
+    `summarise` reads a whole file, and this workspace lives on `/mnt/c` where that is
+    roughly 12x the cost it would be on ext4 (ADR-0020) -- so an unchanged file is served
+    from the cache, and a quiet refresh stats each candidate and reads none of them.
     """
-    cutoff = time.time() - WINDOW_DAYS * 86400
-    paths = [p for p in directory.glob("*.jsonl") if created_at(p) >= cutoff]
+    paths = list(directory.glob("*.jsonl"))
     for gone in set(_CACHE) - set(paths):
         del _CACHE[gone]
     rows = [_cached(p) for p in paths]
@@ -447,8 +450,7 @@ def pick(directory: Path) -> Path | None:
     while True:
         print(CLEAR, end="")
         head = f"{BOLD}delegations{R} {DIM}· ↑↓ select · enter follow · r refresh · q quit"
-        head += f" · last {WINDOW_DAYS} days"
-        head += f", newest {MAX_ROWS} of {len(rows) + trimmed}" if trimmed else ""
+        head += f" · newest {MAX_ROWS} of {len(rows) + trimmed}" if trimmed else ""
         print(f"{head}{R}")
         print(f"{DIM} started   last      state        kind      turns  task{R}")
         for n, row in enumerate(rows):
@@ -462,8 +464,8 @@ def pick(directory: Path) -> Path | None:
                     f"{kind} {DIM}{row['turns']:>5}{R}  {task}")
             print(f"{INVERT}{line}{R}" if n == i else line)
         if not rows:
-            print(f"\n{DIM} nothing in the last {WINDOW_DAYS} days. "
-                  f"Run a delegation and it appears here.{R}")
+            print(f"\n{DIM} no delegations recorded yet. "
+                  f"Run one and it appears here.{R}")
 
         key = wait_key(REFRESH_SECONDS)
         if key in ("q", "esc", "eof"):

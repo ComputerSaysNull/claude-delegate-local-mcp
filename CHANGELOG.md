@@ -34,6 +34,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #68 — 2026-09-02 — fix: the transcript list showed a week instead of the newest twenty
+
+### Fixed
+- The list reached back seven days under a 200-row cap, so its length was set by how busy
+  the week had been rather than by what fits on a screen: a busy week was unreadable, a
+  quiet one nearly empty, and the cap sat far enough above a normal day that it never bound
+  anything. It is now the newest 20, and the count is the only rule. Nothing is deleted — a
+  stream past the twentieth stays on disk and still opens by path.
+- Dropping the window cost the one cheap filter. An age could be read off the filename
+  before any file was opened; ordering cannot, since it comes from the `start` event and
+  needs the parsed row. The `(mtime, size)` cache bounds the work instead, which is already
+  what keeps the unattended redraw from re-reading every file over `/mnt/c`.
+
+### Changed
+- Two tests were inverted rather than deleted, the behaviour they pinned now being the
+  opposite: an eight-day-old stream must appear, and must still sort as old when its mtime
+  says otherwise. A third pins the cap at 20 rather than at a monkeypatched value, because
+  the number is the request. All four were run against the pre-change viewer and fail
+  there — the pty one included, under WSL, where that half of the suite is not skipped.
+
 ## #67 — 2026-09-01 — feat: the documentation audit, in the format the local model can load
 
 - `.claude/agents/docs-audit.md` is Claude Code's format and this server cannot load it —
