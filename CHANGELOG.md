@@ -34,6 +34,39 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #83 — 2026-09-03 — feat: max_turns is overridable per call, and the hard cap is 100
+
+### Added
+- `max_turns` on `delegate`, `delegate_to_agent` and `delegate_batch`. Not on
+  `delegate_readonly`, which is one-shot and has no turns to budget.
+
+### Fixed
+- `max_turns` was the one agent-file setting a caller could not overrule. `run_delegation`
+  read `max_turns = agent.max_turns` where its three neighbours read `x or agent.x`, so the
+  single setting that truncates a run was the single setting that needed the file edited to
+  change — and `delegate_to_agent`'s own description already promised the opposite, that
+  "every explicit argument here wins over the agent file". The description was right and the
+  code was wrong. Found when a documentation audit hit its turn limit having evicted
+  forty-nine tool results, and could not be rescued without editing the agent file it was
+  running as.
+- The regression test asserts both directions, because one alone proves nothing here: a
+  merge written as plain `max_turns` passes any test that only checks the caller's number
+  wins. Verified to fail on the real bug — `assert 2 == 5` — with the other five cases still
+  passing, which is what shows they test different things.
+
+### Changed
+- `max_turns_hard_cap` 40 → 100. The cap exists to refuse an absurd number, not to decide
+  what a hard case may ask for, and 40 was low enough to have become the second. What it
+  guards is unchanged: an agent file over the cap is still refused at load, where a caller's
+  number is still clamped in silence.
+- Three tool schemas gain a property, so the cached prompt prefix changes and the first call
+  after this pays a full prefill. Measured 2026-09-02 (JOURNAL): a reworded tool description
+  cached zero tokens, exactly like a reworded system prompt.
+- `docs/AGENTS.md` states the precedence rule once, after the field table where it governs
+  every row, rather than at the end of the `model` subsection where it read as a remark
+  about model resolution — and it now says which two settings have a registry tier, because
+  `max_turns` does not.
+
 ## #82 — 2026-09-03 — docs: file the limits the audit exposed, and stop the agent asking for the impossible
 
 ### Added

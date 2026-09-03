@@ -1936,3 +1936,75 @@ def test_the_loops_heartbeat_stops_when_the_delegation_fails():
     during, after = asyncio.run(go())
     assert during, "nothing beat at all, so this cannot detect one that never stops"
     assert after == during, "the heartbeat outlived a delegation that had already failed"
+
+
+# --- max_turns is a per-call argument like every other agent-file setting -----------------
+#
+# It was not. `run_delegation` read `max_turns = agent.max_turns` where its three
+# neighbours read `x or agent.x`, so the one setting that truncates a run was the one an
+# agent file could not be overruled on -- while `delegate_to_agent`'s own description
+# already promised that "every explicit argument here wins over the agent file".
+#
+# Asserted on the resolved budget rather than on the variable: a handler that never stops
+# asking for a tool runs until the budget is spent, so the number of backend replies *is*
+# the resolved `max_turns`. That is the only place the whole precedence chain has finished.
+
+
+def _turns_spent(**called_kwargs) -> int:
+    """Drive a delegation that never finishes and return how many turns it actually got."""
+    seen: list[dict] = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=tool_call_reply("read_file", {"path": "/nope"}))
+
+    result = called(handler, allowed_tools=["read_file"], **called_kwargs)
+    assert result["hit_turn_limit"], "the handler must exhaust the budget for this to measure it"
+    return len(seen)
+
+
+def test_a_per_call_max_turns_overrules_the_agent_file(tmp_path):
+    """The bug. The agent file said 2 and the caller asked for 5; the caller used to lose."""
+    _agent_in(tmp_path, "helper", "max_turns: 2")
+    spent = _turns_spent(
+        tool="delegate_to_agent", agent_name="helper", task="q", effort="inherit",
+        max_turns=5, config=cfg(agents_dir=str(tmp_path)),
+    )
+    assert spent == 5
+
+
+def test_the_agent_file_still_decides_when_the_caller_says_nothing(tmp_path):
+    """The other direction, and the one that makes the first test mean something. A merge
+    written as `max_turns or agent.max_turns` could have been written as plain `max_turns`
+    and would still pass the test above."""
+    _agent_in(tmp_path, "helper", "max_turns: 2")
+    spent = _turns_spent(
+        tool="delegate_to_agent", agent_name="helper", task="q", effort="inherit",
+        config=cfg(agents_dir=str(tmp_path)),
+    )
+    assert spent == 2
+
+
+def test_neither_one_means_the_configured_default():
+    spent = _turns_spent(tool="delegate", task="q", effort="inherit",
+                         config=cfg(max_turns_default=3))
+    assert spent == 3
+
+
+def test_a_callers_number_is_clamped_to_the_hard_cap_in_silence():
+    """`resolve_max_turns` clamps rather than refusing, deliberately: the work is
+    legitimate and only the number is not. Raising the cap to 100 must not turn that into
+    an error for a caller who asks for more."""
+    spent = _turns_spent(tool="delegate", task="q", effort="inherit", max_turns=99,
+                         config=cfg(max_turns_default=2, max_turns_hard_cap=4))
+    # 4 and not 2: a broken clamp that fell through to the default would also be under the
+    # cap, so the two numbers are kept apart on purpose.
+    assert spent == 4
+
+
+def test_zero_turns_is_refused_rather_than_clamped_up():
+    """The one number that cannot be honoured at all: a delegation with no turns cannot
+    produce an answer, so it is a refusal and not a clamp."""
+    with pytest.raises(Exception) as e:
+        called(chat_handler(), tool="delegate", task="q", effort="inherit", max_turns=0)
+    assert "at least 1" in str(e.value)
