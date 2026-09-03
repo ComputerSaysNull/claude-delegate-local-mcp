@@ -19,6 +19,52 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0047 — 2026-09-03 — A no-progress deadline, distinct from the whole-delegation ceiling — Accepted
+
+`dispatch_timeout` bounds total time, and total time cannot distinguish a delegation that
+is **merely long** from one that is **wedged**. One must not be killed; the other must be.
+Having only the ceiling meant treating them alike, and the price was measured rather than
+imagined: on 2026-09-03 a research delegation sat for the full 3600s and died "waiting on
+the backend" having completed no turns, while five siblings were refused by admission after
+waiting out `admission_wait_timeout` — because the wedged one held a slot it was not using.
+At `turn_timeout` 1800 and `retry_max_attempts` 3, that hour was two full-length wedged
+attempts back to back.
+
+That also blocked the thing this started as. `dispatch_timeout`'s own description named
+Claude Code's 30-minute stdio idle timeout as the constraint it was sized against, and
+ADR-0018's per-turn notification had stopped that binding long before; nothing re-derived
+the number. But raising a ceiling that cannot see progress makes a stall *strictly* more
+expensive for everyone queued behind it. The re-derivation needed the second deadline
+first, which is why they land together: the ceiling goes to 14400, and `stall_timeout` at
+2100 does the killing.
+
+**The signal is turn completion, and choosing it is the whole correctness of this.** Two
+other signals were available and both are wrong. The per-turn progress notification fires
+at the *top* of a turn, so it would reset the clock on entry to the very turn that then
+wedges. The keepalive fires on a timer regardless of progress — it proves liveness, which
+is exactly what a no-progress deadline must not count as progress.
+
+Both deadlines bound every attempt and the tighter wins. Without that the raised ceiling
+would let one wedged call sit for four hours, which is the failure being fixed rather than
+a smaller version of it. Each enforcement point asks which deadline expired before
+reporting one, because the remedy differs: "raise it or shorten the task" is right for a
+ceiling and actively wrong for a stall, where raising the deadline only lengthens the wait
+for a run that has already stopped progressing.
+
+A one-shot completes no turns, so its deadline runs from entry. That makes its effective
+bound the tighter of the two settings, which matters because otherwise the raised ceiling
+would become its only bound — and it falls out of the same mechanism rather than a special
+case, so the failure still names whichever setting expired.
+
+The lower bound on `stall_timeout` is `turn_timeout` and is deliberately **not strict**.
+A strict one was written first and was wrong: `turn_timeout == dispatch_timeout` is a
+configuration this project permits, and a strict bound leaves it no legal value at all.
+Six existing tests found that within a minute of the check being added.
+
+Rejected: replacing the ceiling with the stall deadline alone. A delegation that keeps
+producing turns would then be bounded only by `max_turns`, which the same session raised
+to a hard cap of 100 — so the two changes together would have removed any absolute bound.
+
 ## ADR-0046 — 2026-09-03 — One prefetch budget, because fairness is admission's job — Accepted
 
 `max_file_tokens` was 40000 against a `max_total_prefetch_tokens` of 140000, and the gap

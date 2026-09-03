@@ -1,4 +1,7 @@
-<!-- BUDGET: 430 -->
+<!-- BUDGET: 463 -->
+<!-- Raised from 430 on 2026-09-03: a second deadline this document owns and that did
+     not previously exist -- the no-progress deadline, plus the admission wait that
+     stacks on both and was stated only in an ADR and a generated cell. -->
 <!-- Raised from 420 on 2026-09-02: the turn loop's half of the keepalive the raise below
      was for. Duplication removed first, here and in ARCHITECTURE.md; the split is rejected
      again for the reason below. Second raise this feature needed in one session. -->
@@ -105,15 +108,31 @@ rest of the delegation still needs.
 The result reports `attempts`: real calls made, counted by the server, while the token
 counts beside it describe the attempt that answered rather than the sum. (ADR-0007)
 
-## One deadline covers the whole delegation
+## Two deadlines: a ceiling, and a no-progress deadline
 
 [`dispatch_timeout`](CONFIGURATION.md) is taken once, at the top of a delegation, and
 passed down. Every stage of the empty-answer recovery and every transport retry inside them
 share it. A fresh budget per stage would mean the setting really bounded three times what it
 says, and no test of a single stage would have seen it.
 
-It is enforced at three points, because a deadline checked in only one of them is a deadline
-that can be walked past:
+It bounds total time, and total time cannot tell a delegation that is **merely long** from
+one that is **wedged** — the case that must not be killed from the case that must be. So it
+is a ceiling, and a second deadline does the killing:
+[`stall_timeout`](CONFIGURATION.md) is how long a delegation may run without *completing a
+turn*. Both bound every attempt and the tighter one wins; without that, the ceiling would
+let a single wedged call sit for its whole duration, which is the failure the pair exists
+to split apart. (ADR-0047)
+
+The progress signal is turn **completion**, and which signal is a real design constraint
+rather than a detail. The per-turn progress notification fires at the *top* of a turn, so
+it would reset the clock on entry to the very turn that then wedges; the keepalive proves
+liveness on a timer regardless of progress, which is precisely what must not count. A
+one-shot completes no turns at all, so its no-progress deadline runs from entry and its
+effective bound becomes the tighter of the two settings — no special case, and the failure
+still names whichever setting actually expired.
+
+Both are enforced at the same three points, because a deadline checked in only one of them
+is a deadline that can be walked past:
 
 - **Before an attempt**, so an expired budget costs nothing.
 - **As a ceiling on the attempt**, from what is left. `turn_timeout` already bounds one call
@@ -123,11 +142,25 @@ that can be walked past:
   ends the delegation instead — sleeping first would spend the rest of the budget and then
   report a deadline reached by a wait this server chose rather than by the work.
 
+Each of the three asks *which* deadline expired before reporting one, and that is not
+symmetry for its own sake: the remedy differs. For the ceiling, "raise it or shorten the
+task" is right. For a stall it is actively wrong — raising a no-progress deadline buys a
+longer wait for a run that has already stopped progressing — so that failure says to check
+the endpoint instead. The retry-wait branch reported the ceiling unconditionally until a
+regression test said otherwise.
+
 `DispatchTimedOut` is deliberately not one of the backend failures. Those say the endpoint
 did not answer; this says it may be answering perfectly and the delegation has still
 outlived what the operator allows — so sending someone to check the cluster is the wrong
 diagnosis. The message names the stage, the setting, and the elapsed time, which is the
 *delegation's*, derived from the deadline, so it can never read as less than that limit.
+
+**The admission wait stacks on top of both**, rather than being contained by either. A
+delegation waits up to [`admission_wait_timeout`](CONFIGURATION.md) for a slot, and only
+then is a deadline taken inside the loop that slot admitted — so the caller-visible worst
+case is that setting plus the ceiling, added (ADR-0038). Recorded here because this is
+where a reader looks for what bounds a delegation, and it was previously stated only in the
+ADR and in a generated config cell.
 
 **What this does not do** is keep a delegation inside the client's idle timeout -- the
 client can abandon one this bound is still happy with. That is what the notification and

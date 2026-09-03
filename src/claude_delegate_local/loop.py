@@ -162,15 +162,20 @@ class DispatchTimedOut(Exception):
     """
 
     def __init__(self, elapsed: float, limit: int, stage: str,
-                 setting: str = "DELEGATE_DISPATCH_TIMEOUT") -> None:
+                 setting: str = "DELEGATE_DISPATCH_TIMEOUT",
+                 remedy: str = "Raise that setting if the work legitimately takes this "
+                               "long, or shorten the task.") -> None:
         self.elapsed = elapsed
         self.limit = limit
         self.stage = stage
         self.setting = setting
+        # The remedy is a parameter because it stopped being one sentence. "Raise that
+        # setting" is right for a ceiling reached by work that was still producing, and
+        # wrong for a stall: raising a no-progress deadline buys a longer wait for a run
+        # that has already stopped progressing, which is the opposite of the fix.
         super().__init__(
             f"Delegation abandoned after {elapsed:.1f}s, past the "
-            f"{setting} of {limit}s, while {stage}. Raise that setting if "
-            "the work legitimately takes this long, or shorten the task."
+            f"{setting} of {limit}s, while {stage}. {remedy}"
         )
 
 
@@ -353,6 +358,7 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     jitter: Callable[[float, float], float] = random.uniform,
     deadline: float | None = None,
+    stall_left: Callable[[], float] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[CanonicalResponse, int]:
     """Send until it answers, a failure is not worth repeating, or the attempts run out.
@@ -376,6 +382,17 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
     past the deadline ends the delegation instead of waking up to find it already gone.
     `None` disables it, which is what the empty-answer stages above use when they have
     already exhausted the budget themselves.
+
+    `stall_left` is the second deadline, and it answers a different question: not "has
+    this delegation run too long" but "has it stopped getting anywhere". It returns the
+    seconds remaining before the no-progress deadline, so a value at or below zero is a
+    stall. A callable and not a number, because the caller owns when progress last
+    happened and resets it -- a float handed down once would stop moving forward while the
+    run kept completing turns, which is a deadline that expires on healthy work.
+
+    Both bound each attempt, and the tighter one wins. Without that the raised ceiling
+    would let a single wedged call sit for the whole of `dispatch_timeout`, which is the
+    failure this pair exists to split apart. `None` disables it, as `deadline` does.
 
     `clock` is injected for the same reason `sleep` and `jitter` are: a test of the
     deadline must not spend the deadline. The ceiling on each attempt is measured with the
@@ -406,20 +423,48 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
             return max(clock() - started, 0.0)
         return max(cfg.dispatch_timeout - (deadline - clock()), 0.0)
 
+    def stalled() -> None:
+        """Raise if the no-progress deadline has passed. Named for what it reports."""
+        if stall_left is None:
+            return
+        s = stall_left()
+        if s > 0:
+            return
+        raise DispatchTimedOut(
+            cfg.stall_timeout - s, cfg.stall_timeout, "with no turn completed",
+            setting="DELEGATE_STALL_TIMEOUT",
+            remedy="The delegation was still alive and had stopped getting anywhere, so "
+                   "raising this would only lengthen the wait. Check the endpoint with "
+                   "backend_status, or send a task that can finish a turn.",
+        )
+
+    def ceiling() -> float | None:
+        """The tighter of the two deadlines, which is what each attempt is given."""
+        s = None if stall_left is None else stall_left()
+        both = [x for x in (remaining(), s) if x is not None]
+        return min(both) if both else None
+
     while True:
         left = remaining()
         if left is not None and left <= 0:
             raise DispatchTimedOut(spent(), cfg.dispatch_timeout, "waiting on the backend")
+        stalled()
         attempts += 1
         try:
-            if left is None:
+            cap = ceiling()
+            if cap is None:
                 return await backend.complete(request), attempts
             # The per-attempt ceiling. `turn_timeout` already bounds one call inside the
             # adapter's client, but it is a fixed budget that knows nothing about how much
             # of the delegation is left, so without this the deadline could still be
             # overshot by a whole turn.
-            return await asyncio.wait_for(backend.complete(request), timeout=left), attempts
+            return await asyncio.wait_for(backend.complete(request), timeout=cap), attempts
         except TimeoutError as e:
+            # Which of the two expired decides the diagnosis, so ask before blaming the
+            # ceiling: a stall inside a raised `dispatch_timeout` would otherwise be
+            # reported as a delegation that ran too long, sending an operator to raise a
+            # setting that had nothing to do with it.
+            stalled()
             if deadline is None:
                 # Nothing bounded this attempt but the adapter's own client budget, so
                 # the delegation deadline is not what expired. Naming it would send an
@@ -435,8 +480,13 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
             if not _is_retryable(e) or attempts >= cfg.retry_max_attempts:
                 raise
             wait = _delay_before_retry(cfg, e, attempts, jitter)
-            left = remaining()
+            left = ceiling()
             if left is not None and wait >= left:
+                # Which deadline made the wait impossible decides the diagnosis, exactly
+                # as it does for a timed-out attempt above. `ceiling()` is the tighter of
+                # the two, so reaching here says nothing about which one it was -- and
+                # this branch used to answer "the ceiling" unconditionally.
+                stalled()
                 # Sleeping first would burn the rest of the budget and then report the
                 # deadline, naming a wait this function chose rather than the work.
                 raise DispatchTimedOut(
@@ -488,6 +538,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     *,
     effort: str,
     deadline: float | None,
+    stall_left: Callable[[], float] | None = None,
     max_tokens: int | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
@@ -523,7 +574,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
 
     response, spent = await complete_with_retry(
         cfg, backend, build(effort, asked_budget),
-        sleep=sleep, deadline=deadline, clock=clock,
+        sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
     )
     attempts += spent
     if not is_empty_at_length(response):
@@ -535,7 +586,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     if floor > asked_budget:
         response, spent = await complete_with_retry(
             cfg, backend, build(effort, floor),
-            sleep=sleep, deadline=deadline, clock=clock,
+            sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
         )
         attempts += spent
         if not is_empty_at_length(response):
@@ -555,7 +606,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
 
     response, spent = await complete_with_retry(
         cfg, backend, build(stepped, resolve_max_tokens(cfg, entry, stepped, max_tokens)),
-        sleep=sleep, deadline=deadline, clock=clock,
+        sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
     )
     attempts += spent
     return Dispatch(response, stepped, attempts, is_empty_at_length(response))
@@ -594,7 +645,18 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     is the one call shape measured as still able to reach that idle timeout.
     """
     resolved = resolve_effort(cfg, entry, effort)
-    deadline = clock() + cfg.dispatch_timeout
+    origin = clock()
+    deadline = origin + cfg.dispatch_timeout
+
+    def stall_left() -> float:
+        """A one-shot has exactly one unit of progress to make, and makes it at the end.
+
+        So there is no turn completion to reset this, and it counts from entry: the
+        effective bound becomes the tighter of `stall_timeout` and `dispatch_timeout`
+        rather than the ceiling alone, which matters because that ceiling is now four
+        hours and this path has nothing else holding it (ADR-0047).
+        """
+        return cfg.stall_timeout - (clock() - origin)
 
     def request_at(level: str, budget: int) -> CanonicalRequest:
         return build_one_shot_request(
@@ -608,7 +670,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         return await dispatch_with_recovery(
             cfg, entry, backend, request_at,
             effort=resolved, max_tokens=max_tokens,
-            sleep=sleep, deadline=deadline, clock=clock,
+            sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
         )
 
     if on_alive is None:
@@ -1405,6 +1467,15 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     turns = resolve_max_turns(cfg, max_turns)
     specs = declared_tools(allowed)
     deadline = clock() + cfg.dispatch_timeout
+    # When a turn last *finished*. Deliberately not when one last started, which is what
+    # `report_progress` reports: that fires at the top of a turn, so it would reset the
+    # clock on entry to the very turn that then wedges. The keepalive is no use either --
+    # it proves liveness on a timer regardless of progress, which is precisely the signal
+    # a no-progress deadline must not count as progress (ADR-0047).
+    last_progress = clock()
+
+    def stall_left() -> float:
+        return cfg.stall_timeout - (clock() - last_progress)
     bash_policy = policy or BashPolicy()
 
     history: list[Message] = [Message("user", (TextBlock(delegation.render()),))]
@@ -1430,6 +1501,12 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         rebound every iteration: closing over it would be correct only for as long as
         every call stayed inside the turn that set it.
         """
+        nonlocal last_progress
+        # Before the guard, and outside it. A turn finished whether or not anybody is
+        # listening, and putting this inside the `on_turn_done` branch would mean the
+        # stall deadline only advanced for callers that happened to pass a callback --
+        # so a delegation with no observer would be killed mid-progress.
+        last_progress = clock()
         if on_turn_done is not None and watch.turns:
             await on_turn_done(watch.turns[-1], text, backend_seconds)
 
@@ -1476,7 +1553,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             dispatch = await dispatch_with_recovery(
                 cfg, entry, backend, build,
                 effort=resolved_effort, max_tokens=max_tokens,
-                sleep=sleep, deadline=deadline, clock=clock,
+                sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
             )
             # The backend call alone, separate from the turn's wall clock. Tokens per second
             # over the whole turn would fold tool execution and any retry wait into the

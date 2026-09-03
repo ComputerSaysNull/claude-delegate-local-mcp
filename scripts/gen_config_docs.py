@@ -63,6 +63,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                           "overflow_min_growth_tokens", "overflow_reserve_fraction",
                           "overflow_tightened_keep_tool_results", "overflow_probe_cache_ttl")),
     ("Timeouts and retries", ("turn_timeout", "connect_timeout", "dispatch_timeout",
+                              "stall_timeout",
                               "status_probe_timeout", "keepalive_interval",
                               "retry_max_attempts",
                               "retry_base_delay", "retry_max_delay")),

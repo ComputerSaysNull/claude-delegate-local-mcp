@@ -34,6 +34,56 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #85 — 2026-09-03 — feat: a stall deadline, and a re-derived dispatch ceiling
+
+### Added
+- `stall_timeout`, a no-progress deadline: how long a delegation may run without
+  *completing a turn*. `dispatch_timeout` bounds total time and cannot tell a delegation
+  that is merely long from one that is wedged — one must not be killed, the other must be.
+  ADR-0047.
+- Measured, not imagined. On 2026-09-03 a research delegation sat for the full 3600s and
+  died "waiting on the backend" having completed no turns, while five siblings were refused
+  by admission after waiting out `admission_wait_timeout` — because the wedged one held a
+  slot it was not using. At `turn_timeout` 1800 and `retry_max_attempts` 3, that hour was
+  two full-length wedged attempts back to back.
+- The signal is turn **completion**, and choosing it is the whole correctness. The per-turn
+  progress notification fires at the *top* of a turn, so it would reset the clock on entry
+  to the very turn that then wedges; the keepalive fires on a timer regardless of progress,
+  which is precisely what must not count as progress.
+
+### Changed
+- `dispatch_timeout` 3600 → 14400, and it is now a ceiling rather than the only bound. Its
+  own description named Claude Code's 30-minute stdio idle timeout as the constraint it was
+  sized against, and ADR-0018's per-turn notification stopped that binding long before;
+  nothing re-derived the number. Raising a ceiling that cannot see progress would have made
+  a stall strictly more expensive for everyone queued behind it, which is why the two land
+  together rather than the raise landing alone.
+- Both deadlines bound every attempt and the tighter wins. Each of the three enforcement
+  points now asks *which* expired before reporting one, because the remedy differs: "raise
+  it or shorten the task" is right for a ceiling and actively wrong for a stall, where
+  raising the deadline only lengthens the wait for a run that has already stopped.
+- The timeout-ordering checks moved into one `_check_deadlines_nest`. Three of them now,
+  and the chain — connect ≤ turn ≤ stall ≤ dispatch — is the point; each reads as arbitrary
+  alone.
+- `docs/DISPATCH.md` describes both deadlines, and while that section was open it gained
+  the sentence that the **admission wait stacks on top of both** (ADR-0038), so the
+  caller-visible worst case is `admission_wait_timeout` plus the ceiling, added. That was
+  previously stated only in an ADR and a generated config cell, which is not where a reader
+  looks.
+
+### Fixed
+- The retry-wait branch reported a stall against the ceiling. It hardcoded
+  `cfg.dispatch_timeout`, so a no-progress deadline expiring while computing a backoff sent
+  an operator to raise a four-hour ceiling that had nothing to do with it. **Found by the
+  regression test**, which is the argument for writing it rather than reasoning about it.
+- The stall clock's reset first sat inside `turn_done`'s `on_turn_done is not None` guard,
+  so a delegation nobody was observing never advanced its progress clock and would have
+  been killed mid-progress. Only a test that completes turns *without* a callback sees
+  that, which is why one does.
+- The lower bound on `stall_timeout` was written strict and was wrong:
+  `turn_timeout == dispatch_timeout` is a configuration this project permits, and a strict
+  bound leaves it no legal value at all. Six existing tests caught it immediately.
+
 ## #84 — 2026-09-03 — feat: one prefetch budget
 
 ### Changed
