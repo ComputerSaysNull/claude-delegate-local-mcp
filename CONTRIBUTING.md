@@ -1,4 +1,6 @@
-<!-- BUDGET: 272      Raised from 262 on 2026-09-03: the commit hook's interpreter search, a fact about install_hooks.py
+<!-- BUDGET: 280      Raised from 272 on 2026-09-03: the agent-capability check, which automates the narrow half of the
+     rule directly above it and needs its limit stated.
+     Raised from 262 on 2026-09-03: the commit hook's interpreter search, a fact about install_hooks.py
      and the reason committing from WSL never ran the gate at all.
      Raised from 249 on 2026-09-03: an agent body requiring what the
      sandbox cannot do is the inverse of the trap recorded directly above it, costs a turn
@@ -187,9 +189,15 @@ That body opened with "run the gate first", which cannot succeed: `.git` is unde
 and `security/secret_globs.txt` under `/dev/null`, both because they match the secret
 denylist, so git exits 128 and the gate dies on a `PermissionError`. A stale workaround
 wastes its own instruction; an impossible requirement burns a turn on every invocation and
-has the model report the sandbox working correctly as a fault. Check a command in a body
-against that agent's `allowed_tools` *and* against what the sandbox binds, and say in the
-body where the caller must supply what the agent cannot fetch.
+has the model report the sandbox working correctly as a fault. Say in the body where the
+caller must supply what the agent cannot fetch.
+
+The `agent-capability` check now does the narrow half of that reading for you: a body
+instructing a command its tool list has no shell for is blocked, and so is one naming a
+command that needs a path the sandbox covers — `git`, because `.git` is on the denylist,
+asked of that file rather than hardcoded. What it cannot see is a command needing something
+*indirectly*, which is the case that prompted all this: `python3 scripts/docs_gate.py`
+looks runnable and shells out to git underneath. Read the pair yourself for that.
 
 <!-- GEN:AGENTS:START -->
 <!-- Generated from .claude/agents/*.md by scripts/gen_agents_docs.py. Change the frontmatter, not this. -->

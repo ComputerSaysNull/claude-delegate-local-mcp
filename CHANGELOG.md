@@ -34,6 +34,50 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #88 — 2026-09-03 — feat: the gate refuses an agent body naming a command it cannot run
+
+### Added
+- `agent-capability`, a gate check over `.claude/agents/*.md`. It blocks a body instructing
+  a command whose agent has no shell, and a body naming a command needing a path the
+  sandbox covers. Second sighting of one class is what made it worth automating: an agent
+  body carrying a workaround for a server limitation, and then the inverse — an instruction
+  the sandbox cannot satisfy at all, which burned a turn and a failed call on every
+  invocation.
+- **The sandbox half is derived, not asserted.** The mapping is command → the path it
+  needs; whether that path is reachable is asked of `security/secret_globs.txt`. Hardcoding
+  "git is unrunnable" would be the second copy that drifts the moment the denylist changes,
+  which is the shared-primitive rule CLAUDE.md states for the two host scanners. A test
+  proves the derivation by removing `.git/**` from the denylist and asserting the check
+  goes quiet.
+- The two agent formats are treated differently, which is the easiest thing here to get
+  wrong. Only a server-format agent (`allowed_tools`) has a confined shell; a Claude Code
+  agent (`tools:`) runs on the host where `.git` is simply there, so flagging it would be a
+  false positive on every reviewer and auditor agent in the repository.
+- **Its limit is stated rather than implied.** A command needing something *indirectly* is
+  invisible from the text — and that is the case that prompted the item:
+  `python3 scripts/docs_gate.py` looks runnable and shells out to git underneath.
+  PLAN.md said a full check is not automatable and asked for the narrow one; this is that,
+  and CONTRIBUTING.md says so where the manual rule lives.
+
+### Fixed
+- `check_generated_docs_are_all_checked` was registered as `generated-coverage` and
+  reported its findings as `generated-doc`. So `Docs-Gate-Skip: generated-coverage` waived
+  nothing at all, a skip aimed at the freshness check silently waived this one too, and the
+  output could not say which of the two had fired.
+- Three gate checks had no negative test anywhere: `generated-doc`, `generated-coverage`
+  and `never-track`. Each now has a pair — one that fires on a real violation, one that
+  stays silent on the nearest thing that is not — and all three were verified by
+  neutering the check and watching only the right test go red. `generated-doc`
+  demonstrably worked, having fired repeatedly during this session's config changes, but
+  "I have seen it fire" is not a test.
+
+### Changed
+- A meta-test asserts every name in `CHECKS` is named by some test. Four checks in this
+  project have been found unable to fail; one with no test at all is the next. Its first
+  draft was wrong twice, which is recorded in it: scoped to one file when eight checks are
+  covered in files named after their own bugs, and matching only the registry key when a
+  test may drive a check by calling its function.
+
 ## #87 — 2026-09-03 — fix: the commit hook could not find an interpreter in WSL
 
 ### Fixed

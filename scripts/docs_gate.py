@@ -656,13 +656,13 @@ def check_generated_docs_are_all_checked() -> list[Finding]:
     """
     manifest = load_manifest()
     if manifest is None:
-        return [Finding(SKIP, "generated-doc", f"{MANIFEST.name} not present.")]
+        return [Finding(SKIP, "generated-coverage", f"{MANIFEST.name} not present.")]
     checked = {target for _, target in generator_targets()}
     out = []
     for doc, meta in manifest["docs"].items():
         if meta.get("generated") and doc not in checked:
             out.append(Finding(
-                BLOCK, "generated-doc",
+                BLOCK, "generated-coverage",
                 f"{MANIFEST.name} marks {doc} as generated, but no generator in "
                 f"check_generated_docs() renders it, so nothing checks it is current. Add "
                 f"the (script, target) pair there in the same commit as the generator."))
@@ -1080,6 +1080,145 @@ def check_env_example() -> list[Finding]:
     return out
 
 
+
+# --- agent bodies that name commands they cannot run ------------------------------------
+
+AGENTS_DIR = ROOT / ".claude" / "agents"
+
+# Tokens treated as a command invocation. A heuristic, and deliberately a short one: this
+# reduces false positives on prose in code spans, and a token outside it is simply not
+# checked. Fail-open on DETECTION, never on the verdict -- a wider list would start
+# flagging `path/to/file.py` written in backticks, and a check that cries wolf is one that
+# stops being read.
+COMMAND_TOKENS = frozenset({
+    "git", "python", "python3", "pytest", "ruff", "pip", "bash", "sh", "make", "wsl",
+})
+
+# What a command needs to exist for it to work at all. The mapping is command -> path;
+# whether that path is REACHABLE is asked of security/secret_globs.txt rather than
+# asserted here, so a change to the denylist changes this check with it. That is the
+# shared-primitive rule CLAUDE.md states for the two host scanners, applied here.
+COMMAND_NEEDS_PATH = {"git": ".git"}
+
+_SHELL_FENCE = re.compile(r"^```(?:bash|sh|shell|console)\s*$", re.IGNORECASE)
+
+
+def _agent_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Split an agent file into its frontmatter mapping and its body.
+
+    Deliberately not a YAML parser: the gate uses only the standard library, which is why
+    the ownership manifest is TOML. Only flat `key: value` lines matter here.
+    """
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, text
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return {}, text
+    front: dict[str, str] = {}
+    for line in lines[1:end]:
+        if ":" in line:
+            key, _, value = line.partition(":")
+            front[key.strip()] = value.strip()
+    return front, "\n".join(lines[end + 1 :])
+
+
+def _agent_can_shell(front: dict[str, str]) -> tuple[bool, bool]:
+    """(can run a command, runs inside the sandbox), from whichever format this file is in.
+
+    The two formats answer differently and the difference matters. A Claude Code agent
+    lists `tools: Read, Bash` and runs on the HOST, where git works. A server-format agent
+    lists `allowed_tools: [read_file, run_bash]` and its shell is confined, so the sandbox
+    is what decides what a command can reach.
+    """
+    if "allowed_tools" in front:
+        names = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", front["allowed_tools"])
+        return "run_bash" in names, True
+    if "tools" in front:
+        names = [n.strip() for n in front["tools"].split(",")]
+        return "Bash" in names, False
+    # Neither key means nothing is narrowed, which for a Claude Code agent is every tool.
+    return True, False
+
+
+def _commands_in(body: str) -> set[str]:
+    """First tokens of command lines in shell fences and inline code spans."""
+    found: set[str] = set()
+    in_shell_fence = False
+    for line in body.splitlines():
+        if line.strip().startswith("```"):
+            in_shell_fence = bool(_SHELL_FENCE.match(line.strip())) and not in_shell_fence
+            continue
+        if in_shell_fence:
+            token = line.strip().lstrip("$ ").split(" ", 1)[0]
+            if token in COMMAND_TOKENS:
+                found.add(token)
+    for span in re.findall(r"`([^`\n]+)`", body):
+        token = span.strip().lstrip("$ ").split(" ", 1)[0]
+        if token in COMMAND_TOKENS:
+            found.add(token)
+    return found
+
+
+def check_agent_capabilities() -> list[Finding]:
+    """An agent body must not instruct a command that agent cannot run.
+
+    Second sighting of one class, which is what made it worth automating. The first was an
+    agent body carrying a workaround for a server limitation with nothing linking the two,
+    so the workaround outlived the limitation. `docs-audit-local` then carried the inverse:
+    "Run it first -- python3 scripts/docs_gate.py", which the sandbox cannot satisfy at
+    all, and every invocation spent a turn and a failed command discovering that.
+
+    **What this catches is the direct form**, and the limit is worth stating because the
+    motivating case sits outside it. A body naming `git` in a sandboxed agent is caught,
+    because `.git` is on the denylist and the walk that shadows it is derived from the same
+    file. A body naming a repo script that shells out to git internally is NOT caught --
+    the dependency is invisible from the text. PLAN.md says a full check is not automatable
+    and asks for the narrow one; this is that, and no more.
+    """
+    if not AGENTS_DIR.is_dir():
+        return [Finding(SKIP, "agent-capability", f"{AGENTS_DIR.name}/ not present.")]
+
+    globs = load_lines(ROOT / "security" / "secret_globs.txt")
+    out: list[Finding] = []
+
+    for path in sorted(AGENTS_DIR.glob("*.md")):
+        rel_path = rel(path)
+        front, body = _agent_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
+        can_shell, sandboxed = _agent_can_shell(front)
+        commands = _commands_in(body)
+        if not commands:
+            continue
+
+        if not can_shell:
+            out.append(Finding(
+                BLOCK, "agent-capability",
+                f"{rel_path} instructs {sorted(commands)} but its tool list has no shell. "
+                f"Every invocation spends a turn discovering that. Give it a shell, or "
+                f"stop asking for the command."))
+            continue
+
+        if not sandboxed:
+            continue  # a Claude Code agent runs on the host; nothing shadows anything
+
+        for command in sorted(commands):
+            needed = COMMAND_NEEDS_PATH.get(command)
+            if needed is None:
+                continue
+            if not any(fnmatch.fnmatch(needed, g) or fnmatch.fnmatch(f"{needed}/x", g)
+                       for g in globs):
+                continue
+            out.append(Finding(
+                BLOCK, "agent-capability",
+                f"{rel_path} instructs {command!r}, which needs {needed!r} -- covered by "
+                f"the sandbox because it matches security/secret_globs.txt. Inside a "
+                f"delegation that command cannot work, so asking for it costs a turn and "
+                f"a failed call. Hand the output in instead, or use a server-process tool."))
+
+    return out
+
+
 CHECKS = {
     "identity": check_commit_identity,
     "email-content": check_emails_in_files,
@@ -1099,6 +1238,7 @@ CHECKS = {
     "manifest": check_manifest_docs_exist,
     "audit-due": check_audit_pressure,
     "public-text": check_pr_text,
+    "agent-capability": check_agent_capabilities,
 }
 
 
