@@ -65,6 +65,11 @@ def registered():
 def cfg(**over) -> Config:
     kw = {"workspace_roots": (".",), "context_overflow_enabled": True}
     kw.update(over)
+    # The per-file prefetch cap defaults to the whole budget (ADR-0046), so a test that
+    # shrinks the total has to bring it down too or `Config` refuses to load -- rightly,
+    # since no file could ever fit. Follow the total down unless the test names it.
+    if "max_total_prefetch_tokens" in kw and "max_file_tokens" not in kw:
+        kw["max_file_tokens"] = kw["max_total_prefetch_tokens"]
     return Config(**kw)  # type: ignore[arg-type]
 
 

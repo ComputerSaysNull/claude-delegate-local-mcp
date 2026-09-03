@@ -34,6 +34,48 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #84 — 2026-09-03 — feat: one prefetch budget
+
+### Changed
+- `max_file_tokens` 40000 → 140000, equal to `max_total_prefetch_tokens`. It stays a
+  **drop** threshold — a file over it is skipped whole, never truncated, because source cut
+  mid-function is worse than absent — and stops being a second fairness control. Fairness
+  between concurrent requests is admission's, over counters `slots.py` shares across every
+  server process on the machine; a copy of it here was a second knob guarding one property,
+  tuned independently, and only one of the two could see the machine-wide picture. ADR-0046.
+- The cost was paid in the worst direction: the largest documents are the ones most likely
+  to have drifted from the code they describe, so the cap dropped exactly what a
+  documentation audit came for while 100K of the budget went unspent. The 2026-09-03 audit
+  worked around it by having its caller hand it sixteen files.
+- The setting keeps one job, which is why it survives rather than being deleted: an
+  operator lowering it can still refuse one huge file while allowing a large total. The
+  relation the code enforces is unchanged and is the only one that must hold — `Config`
+  refuses to load when the total is below the per-file cap, because then no file could fit.
+- `docs/ARCHITECTURE.md` says once, where prefetch is described, that a prefetch cap is a
+  drop threshold and not a fairness control, and points at the admission section rather
+  than restating it.
+
+### Added
+- Four tests. Three are behavioural: a file that fits the total is no longer dropped for
+  being large; an operator can still re-tighten below the total; and one large file may now
+  spend the whole budget, with everything sorted after it skipped *and named* in both the
+  accounting and the prompt — the consequence ADR-0046 accepts rather than hides.
+- The fourth asserts the two defaults are equal, because the decision **is** the two
+  numbers being equal. A behavioural test alone would keep passing if someone re-sized the
+  per-file cap downward, since every file in the suite would still be small enough to fit.
+- Both were verified to fire. The equality test fails on a reverted default; the
+  budget-spending test was **wrong on its first draft** and running it is what said so — a
+  120 KB `.py` file estimates to about 32K tokens, not 40K, so the one-line second file
+  fitted in the remainder and the test proved nothing while passing. Sized by measurement.
+
+### Fixed
+- `test_context_overflow.py` shrinks `max_total_prefetch_tokens` to 50000 without naming
+  `max_file_tokens`, which the new default made an invalid configuration — `Config` refuses
+  to load when the total is below the per-file cap. Its helper now follows the total down
+  unless a test names the cap itself. Caught only by running the whole suite: the two
+  suites this change obviously touched were both green, and the coupling it *created*
+  reaches helpers in files that have nothing to do with prefetch.
+
 ## #83 — 2026-09-03 — feat: max_turns is overridable per call, and the hard cap is 100
 
 ### Added

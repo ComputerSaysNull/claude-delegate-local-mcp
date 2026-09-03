@@ -277,3 +277,78 @@ def test_no_files_produces_no_block_and_no_noise():
     result = prefetch(cfg(), ())
     assert result.block() == ""
     assert result.accounting()["prefetch_tokens"] == 0
+
+
+# ---- one budget, not two (ADR-0046) ------------------------------------------------
+#
+# The per-file cap is still a drop threshold and the tests above still guard that. What
+# changed is that it stopped also being a fairness control: fairness is admission's, over
+# counters shared across every process on the machine, and a second copy here only meant
+# one large file being dropped while the budget it would have fitted in sat unused.
+
+
+def test_the_per_file_cap_defaults_to_the_whole_budget():
+    """Asserted on the defaults themselves, because the decision *is* the two numbers
+    being equal. A behavioural test alone would keep passing if someone re-sized the
+    per-file cap downward, since every file in it would still be small enough to fit."""
+    c = cfg()
+    assert c.max_file_tokens == c.max_total_prefetch_tokens
+
+
+@posix_only
+def test_a_file_that_fits_the_total_is_not_dropped_for_being_large(tmp_path):
+    """The bug this closes. Under the old defaults a 40K-token file was refused outright
+    while 100K of the budget went unspent -- and the largest documents are the ones most
+    likely to have drifted, so the cap removed what an audit came for."""
+    item = write(tmp_path, "big.py", "x = 1\n" * 20000)
+    conf = cfg(max_file_tokens=40000, max_total_prefetch_tokens=40000)
+
+    result = prefetch(conf, (item,))
+
+    assert result.skips == (), f"skipped: {[s.reason for s in result.skips]}"
+    assert len(result.files) == 1
+    assert "x = 1" in result.block()
+
+
+@posix_only
+def test_an_operator_can_still_re_tighten_the_per_file_cap_below_the_total(tmp_path):
+    """The one job the setting has left. The same file, the same total, a lower per-file
+    cap -- and it is refused whole rather than truncated, exactly as before."""
+    item = write(tmp_path, "big.py", "x = 1\n" * 20000)
+    conf = cfg(max_file_tokens=100, max_total_prefetch_tokens=40000)
+
+    result = prefetch(conf, (item,))
+
+    assert result.files == ()
+    assert result.skips[0].kind == SKIP_OVER_FILE_BUDGET
+    assert "x = 1" not in result.block()
+
+
+@posix_only
+def test_one_large_file_may_now_spend_the_whole_budget_and_the_rest_are_still_named(tmp_path):
+    """The consequence ADR-0046 accepts rather than hides.
+
+    With the caps equal, one file can take the lot, and `prefetch` stops at the first file
+    that does not fit instead of continuing -- so everything sorted after it is skipped
+    too. What makes that survivable is that nothing is silent: the skip reaches the
+    accounting *and* the prompt, and the model is told to treat the file as unavailable
+    rather than infer it from its name.
+    """
+    # Two files that each fit the per-file cap alone and cannot both fit the total.
+    # Sorted by resolved path, so "a_" is read first and takes the budget. The sizes
+    # are deliberate: at 3.7 bytes per token for .py, 120 KB estimates to about 32K
+    # tokens, so one fits a 40K budget and two do not. Sized by running it rather than
+    # by reasoning -- the first version used a one-line second file, which fitted in
+    # the remainder and proved nothing.
+    first = write(tmp_path, "a_first.py", "x = 1\n" * 20000)
+    second = write(tmp_path, "b_second.py", "y = 2\n" * 20000)
+    conf = cfg(max_file_tokens=40000, max_total_prefetch_tokens=40000)
+
+    result = prefetch(conf, (first, second))
+
+    assert [f.path for f in result.files] == [first.posix]
+    assert [s.kind for s in result.skips] == [SKIP_OVER_TOTAL_BUDGET]
+    block = result.block()
+    assert second.posix in block, "the model was not told the second file was missing"
+    assert "y = 2" not in block
+    assert result.accounting()["files_skipped"][0]["path"] == second.posix
