@@ -189,6 +189,15 @@ class Config:
     )
 
     # ---- model-facing tool limits ------------------------------------------------
+    search_max_files_scanned: int = _f(
+        2000,
+        "Files search_files will open before it stops looking and says so. Not a "
+        "correctness bound -- the path policy is that -- but a wall-clock one: the "
+        "workspace lives on /mnt/c, which is roughly 12x slower per file than ext4 "
+        "(ADR-0020), so an unbounded walk of three project roots is a delegation spent "
+        "on directory traversal. The result says when the cap was reached, because a "
+        "truncated search that reads like an exhaustive one is worse than a refusal.",
+    )
     max_read_chars: int = _f(
         50000,
         "Cap on one read_file response. The model is told the true total and how to page, "

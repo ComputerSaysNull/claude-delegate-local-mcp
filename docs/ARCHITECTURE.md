@@ -1,4 +1,5 @@
-<!-- BUDGET: 646
+<!-- BUDGET: 655
+     Raised from 646 on 2026-09-03: delegate_readonly stopped being the one-shot path, which is a fact about how a delegation is assembled and this document owns server.py.
      Raised from 638 on 2026-09-03: the per-file prefetch cap stopped being a fairness control, so this document says where fairness actually lives and why a second copy of it here cost an under-used cluster.
      Raised from 633 on 2026-09-03: max_turns became a per-call argument, so this document can state where argument precedence is applied and why there is exactly one such place.
      Raised from 630 on 2026-09-02: list_agents reports what it skipped and what belongs to the other format, which is the discovery case of a rule this document already states.
@@ -120,6 +121,14 @@ The table covers every module; the three marked above live in [DISPATCH.md](DISP
 which owns them, and `agents.py` in [AGENTS.md](AGENTS.md). The ancestor put all of this in one large file; we add two concerns it
 never had — path translation and sandboxing — so the split follows concerns, not line count.
 `server.py` stays thin wiring; the logic lives in `loop.py`, `backends/` and `context.py`.
+
+`delegate_readonly` is no longer the one-shot path. It was given the read-only tools in
+2026-09-03, which puts it on the turn loop like every other delegation — the one-shot
+remains reachable, by `delegate` with an explicitly empty toolset, and is still the honest
+shape when there is genuinely nothing to look up. What made the change safe rather than a
+weakening is that ADR-0042's promise was never "this delegation has no tools" but "nothing
+it can do will write" (ADR-0048), and the prerequisite was the loop's heartbeat: before
+that, moving a delegation onto the loop moved it onto the silent path.
 
 One exception to thin, and it is deliberate: every delegation tool resolves its arguments
 through the single `run_delegation`, which applies the call-argument-then-agent-file

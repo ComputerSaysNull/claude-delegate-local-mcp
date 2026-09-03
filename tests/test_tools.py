@@ -459,7 +459,8 @@ def test_run_bash_is_not_declared_where_bubblewrap_is_absent(workspace, monkeypa
     assert "run_bash" not in tools.resolve_allowed(["run_bash"], c)
     assert "run_bash" not in {s.name for s in tools.declared_tools(tools.resolve_allowed(None, c))}
     # The other two are untouched: this narrows one tool for one reason, not the set.
-    assert tools.available_tool_names(c) == frozenset({"read_file", "write_file"})
+    assert tools.available_tool_names(c) == frozenset(
+        {"read_file", "search_files", "write_file"})
 
 
 def test_the_absent_sandbox_does_not_weaken_the_execution_site(workspace, monkeypatch):
@@ -662,3 +663,211 @@ def test_an_ordinary_command_gets_no_steer_even_with_write_file_available(worksp
     result = tools.execute_tool(
         cfg(workspace), call("run_bash", command="ls -la"), {"run_bash", "write_file"})
     assert "write_file is available" not in result.content
+
+
+# --- search_files -----------------------------------------------------------------------
+#
+# The tool exists because grep-read-grep was the one research shape a delegation could not
+# do: `files[]` needs the caller to already know where to look. What it must never become
+# is a way to read what `read_file` refuses, so most of what follows is the path policy
+# asserted through the new entry point rather than the old one.
+
+
+@pytest.fixture
+def haystack(tmp_path: Path) -> Path:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "core.py").write_text(
+        "def alpha():\n    return 1\n\n\ndef beta():\n    return alpha()\n", encoding="utf-8"
+    )
+    (tmp_path / "pkg" / "helper.py").write_text("# alpha lives elsewhere\n", encoding="utf-8")
+    (tmp_path / "notes.md").write_text("alpha is documented here\n", encoding="utf-8")
+    return tmp_path
+
+
+def _search(root: Path, **args) -> str:
+    result = tools.execute_tool(
+        cfg(root), call("search_files", **args), tools.ALL_TOOL_NAMES)
+    assert not result.is_error, result.content
+    return result.content
+
+
+@posix_only
+def test_a_match_is_reported_with_its_file_and_line_number(haystack):
+    out = _search(haystack, pattern=r"def alpha")
+    assert "core.py line 1: def alpha():" in out
+
+
+@posix_only
+def test_the_citation_never_joins_the_name_and_number_with_a_colon(haystack):
+    """A name joined to a number by a colon reads as a host and a port once the number
+    reaches four digits, and this project refuses that shape wherever text can reach a
+    commit message or a pull request body. The tool's own output is the place to get it
+    right rather than something to remember later.
+
+    Written as a mechanism and not as a specimen, deliberately: the first draft of this
+    docstring spelled the forbidden shape out to explain it, and the gate blocked the
+    commit. CLAUDE.md says this rule cannot show you the shape it forbids, which is the
+    point -- and the check proved it holds on a file arguing for it."""
+    out = _search(haystack, pattern=r"alpha")
+    assert " line " in out
+    assert "core.py:1" not in out
+
+
+@posix_only
+def test_it_searches_the_whole_workspace_when_no_path_is_given(haystack):
+    """The point of the tool. With `path` required it would be a second `read_file`."""
+    out = _search(haystack, pattern=r"alpha")
+    assert "core.py" in out
+    assert "helper.py" in out
+    assert "notes.md" in out
+
+
+@posix_only
+def test_a_path_narrows_the_search(haystack):
+    out = _search(haystack, pattern=r"alpha", path=str(haystack / "pkg"))
+    assert "core.py" in out
+    assert "notes.md" not in out
+
+
+@posix_only
+def test_a_glob_narrows_which_files_are_opened(haystack):
+    out = _search(haystack, pattern=r"alpha", glob="*.md")
+    assert "notes.md" in out
+    assert "core.py" not in out
+
+
+@posix_only
+def test_no_match_says_so_rather_than_returning_nothing(haystack):
+    """An empty string reads like a broken tool. It also has to avoid implying proof of
+    absence, since the policy may simply not allow reading where the answer is."""
+    out = _search(haystack, pattern=r"gamma_never_appears")
+    assert "No line matched" in out
+    assert "policy" in out
+
+
+@posix_only
+def test_an_invalid_regex_is_a_refusal_the_model_can_correct(haystack):
+    result = tools.execute_tool(
+        cfg(haystack), call("search_files", pattern="alpha("), tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "regular expression" in result.content
+
+
+@posix_only
+def test_max_results_bounds_the_reply_and_the_reply_says_it_stopped(haystack):
+    out = _search(haystack, pattern=r"alpha", max_results=1)
+    assert len([ln for ln in out.splitlines() if " line " in ln]) == 1
+    assert "Stopped early" in out
+
+
+@posix_only
+def test_a_path_outside_the_workspace_is_refused(haystack, tmp_path_factory):
+    """Layer 2, through the new entry point. A search that could be pointed anywhere would
+    be a way around the policy that governs every read."""
+    outside = tmp_path_factory.mktemp("outside")
+    (outside / "secret.py").write_text("alpha\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(haystack), call("search_files", pattern="alpha", path=str(outside)),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+
+
+@posix_only
+def test_an_unlisted_extension_is_never_opened(haystack):
+    """Layer 3's neighbour: the extension allowlist. Enumeration must not widen what a
+    delegation can see -- a candidate `read_file` would refuse is not a result."""
+    (haystack / "pkg" / "private.pem").write_text("alpha-key-material\n", encoding="utf-8")
+    out = _search(haystack, pattern=r"alpha")
+    assert "private.pem" not in out
+    assert "key-material" not in out
+
+
+@posix_only
+def test_a_denylisted_file_is_not_searched(haystack):
+    """The secret denylist, which is the same list `read_file` and the sandbox read."""
+    (haystack / "pkg" / ".env").write_text("TOKEN=alpha\n", encoding="utf-8")
+    out = _search(haystack, pattern=r"alpha")
+    assert ".env" not in out
+    assert "TOKEN" not in out
+
+
+@posix_only
+def test_the_two_dispositions_differ_on_the_same_policy(haystack, tmp_path_factory):
+    """Why `resolve_permitted` exists beside `resolve_all` rather than as a flag on it.
+
+    All-or-nothing is right for paths a caller *named*: a delegation that asked for six
+    files and silently got five reads exactly like one that got six. It is wrong for
+    candidates a walk enumerated, where one refused path would fail the whole search. Same
+    four layers either way -- asserted here in both directions over one input, because
+    that is the only way to show the policy is shared and only the disposition differs.
+    """
+    outside = tmp_path_factory.mktemp("outside")
+    (outside / "x.py").write_text("alpha\n", encoding="utf-8")
+    inside = str(haystack / "notes.md")
+    both = [inside, str(outside / "x.py")]
+    conf = cfg(haystack)
+
+    with pytest.raises(tools.PathRefused):
+        tools.resolve_all(conf, both)
+
+    kept = tools.resolve_permitted(conf, both)
+    assert [k.posix for k in kept] == [os.path.realpath(inside)]
+
+
+@posix_only
+def test_the_scan_cap_is_reported_rather_than_passing_as_exhaustive(haystack):
+    """A truncated search that reads like an exhaustive one is the failure worth avoiding:
+    the model concludes a symbol does not exist, and says so confidently."""
+    for i in range(6):
+        (haystack / "pkg" / f"m{i}.py").write_text("filler\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(haystack, search_max_files_scanned=2),
+        call("search_files", pattern="zzz_absent"), tools.ALL_TOOL_NAMES)
+    assert not result.is_error
+    assert "not exhaustive" in result.content
+
+
+# --- the read-only guarantee ------------------------------------------------------------
+
+
+def test_the_read_only_set_is_derived_from_the_registry_not_listed():
+    """ADR-0048's promise is that nothing a read-only delegation can do will write.
+
+    Asserted against the registry rather than against a written-out list, because a list is
+    the shape this project keeps calling a check that cannot fail: add a writing tool,
+    forget to edit the list, and the annotation is still advertised while being false.
+    """
+    assert tools.READ_ONLY_TOOL_NAMES == frozenset(
+        name for name, tool in tools.REGISTRY.items() if not tool.writes
+    )
+    assert tools.READ_ONLY_TOOL_NAMES == {"read_file", "search_files"}
+    for name in tools.READ_ONLY_TOOL_NAMES:
+        assert not tools.REGISTRY[name].writes
+
+
+def test_every_writing_tool_declares_that_it_writes():
+    """The other direction, and the one that matters: a tool that writes and forgot to say
+    so would be silently offered to a delegation declared read-only."""
+    assert {n for n, t in tools.REGISTRY.items() if t.writes} == {"write_file", "run_bash"}
+
+
+@posix_only
+def test_a_write_is_refused_at_execution_for_a_read_only_toolset(workspace):
+    """Site two, not site one. Filtering the declared list is advisory -- a model can call
+    a tool it was never offered, and some do -- so the check that matters is the one at
+    execution, and this asserts that one.
+    """
+    for name, args in (
+        ("write_file", {"path": str(workspace / "new.py"), "content": "x = 2\n"}),
+        ("run_bash", {"command": "echo hi"}),
+    ):
+        result = tools.execute_tool(
+            cfg(workspace), call(name, **args), tools.READ_ONLY_TOOL_NAMES)
+        assert result.is_error, f"{name} was executed for a read-only delegation"
+    assert not (workspace / "new.py").exists(), "the file was written despite the refusal"
+
+
+def test_the_read_only_set_is_what_is_declared_to_the_model(workspace):
+    """Site one, for completeness: offered and executable agree for this set."""
+    names = sorted(s.name for s in tools.declared_tools(tools.READ_ONLY_TOOL_NAMES))
+    assert names == ["read_file", "search_files"]

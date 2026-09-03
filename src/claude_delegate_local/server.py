@@ -54,7 +54,7 @@ from .paths import PathPolicyError, PathRefused, resolve_all, resolve_workdir
 from .registry import ModelEntry, Registry, RegistryError
 from .slots import build_slots, cross_process_status
 from . import transcript
-from .tools import BashPolicy, resolve_allowed
+from .tools import READ_ONLY_TOOL_NAMES, BashPolicy, resolve_allowed
 
 SERVER_NAME = "delegate-local"
 
@@ -937,42 +937,55 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         model: str | None = None,
         *,
         max_tokens: int | None = None,
+        max_turns: int | None = None,
         diagnostics: bool = False,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Hand one self-contained task to a local model that has no tools at all.
+        """Hand a task to a local model that can read the workspace but cannot change it.
 
-        `delegate` with `allowed_tools=[]`, fixed rather than asked for. What it can do is
-        identical; what differs is what a caller can promise about it *before* it runs. It
-        is declared read-only, so a client that gates writes on that declaration can run it
+        `delegate` with a fixed read-only toolset, chosen here rather than asked for. What
+        differs from `delegate` is what a caller can promise *before* it runs: this is
+        declared read-only, so a client that gates writes on that declaration can run it
         where `delegate` has to stop and ask.
 
-        Use it for the read-heavy majority: explaining, summarising, first-pass review,
-        drafting an answer about code named in `files[]`. The model answers in one turn
-        from `files[]` and nothing else, so name everything it needs -- it cannot go
-        looking, and a gap shows up as a worse answer rather than as a request.
+        It gets `search_files` and `read_file`, and nothing else -- so it can go looking.
+        Name the obvious material in `files[]` and let it find the rest: a question like
+        "where is X handled" or "does anything still call Y" is answerable now, and used to
+        need a guess at which files to prefetch. `files[]` is a head start rather than the
+        whole world.
 
-        Reach for `delegate` when the work needs the model to read further on its own,
-        write a file, or run a command. This is not a cheaper `delegate`; it is a
-        narrower one, and asking it to edit something will produce a description of the
-        edit instead.
+        Use it for the read-heavy majority: explaining, summarising, first-pass review,
+        tracing a call path, answering "where" and "what already exists". Reach for
+        `delegate` only when the work needs to write a file or run a command -- asking this
+        one to edit something produces a description of the edit instead.
 
         `effort` is required: one of "off", "low", "high", "max", or "inherit" to defer to
         the configured default. Read-only does not mean undemanding -- "low" suits
         summarising and quoting, but a review or a trace across several files needs "high",
         and answering it at "low" spends the call for a worse answer rather than a cheaper
         one.
+
+        `max_turns` caps how many round trips it gets. It has turns now, which it did not
+        before, so a search that needs to grep, read a hit and grep again has room; read
+        `hit_turn_limit` as the sign it needed more.
         """
         return await run_delegation(
             cfg, registry, cache, windows, admission,
             task=task, files=files, model=model, effort=effort,
-            # Fixed, never defaulted, and not exposed as an argument. `[]` resolves to the
-            # empty set where `None` resolves to everything available, and a caller has no
-            # way to widen it back. That is what makes the annotation above a property of
-            # the tool rather than a claim about how it is usually called -- an annotation
-            # a caller could falsify by passing an argument would be exactly the check
-            # that cannot fail.
-            allowed_tools=[], max_tokens=max_tokens,
+            # Fixed, never defaulted, and still not a caller argument -- `resolve_allowed`
+            # intersects rather than unions, so there is no way to widen it back. That is
+            # what makes the readOnlyHint a property of the tool rather than a claim about
+            # how it is usually called; an annotation a caller could falsify by passing an
+            # argument would be exactly the check that cannot fail.
+            #
+            # The set is DERIVED from which tools declare `writes`, not written out here.
+            # A list at this call site would go stale the first time a writing tool was
+            # added, silently, while the annotation was still advertised. It was `[]` until
+            # 2026-09-03, which gave a read-only delegation no way to look anything up --
+            # and ADR-0042's promise was never that it had no tools, only that nothing it
+            # can do will write (ADR-0048).
+            allowed_tools=sorted(READ_ONLY_TOOL_NAMES), max_tokens=max_tokens,
+            max_turns=max_turns,
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_readonly",
         )
 

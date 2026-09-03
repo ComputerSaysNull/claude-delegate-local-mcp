@@ -19,6 +19,48 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0048 — 2026-09-03 — Read-only means nothing can write, not that nothing is offered — Accepted
+
+`delegate_readonly` passed `allowed_tools=[]`, so a read-only delegation answered in one
+turn from `files[]` and could look nothing up. That made the one research shape this
+project most often needs — grep, read a hit, grep again — reachable only through
+`delegate`, which can write and therefore has to stop and ask in plan mode. The cheap,
+safe tool was the one that could not do the work.
+
+The fix is not a loosening, because the promise was never what the empty list implied.
+ADR-0042 declared the tool read-only so a client gating writes on that declaration could
+run it unattended. That claim is about what the delegation *can do*, not about how many
+tools it holds. `search_files` and `read_file` cannot write, so offering them keeps the
+claim exactly as strong and makes the tool useful.
+
+Two things had to be true first, and both now are. ADR-0016 already prefers the agentic
+loop, so the one-shot was a consequence of the empty toolset being falsy rather than a
+decision anyone defended. And the loop needed its heartbeat (#77): before that, moving a
+delegation onto the loop moved it onto a path that could go silent for a whole turn and
+be abandoned by the client while the server worked on.
+
+**The read-only set is derived, never listed.** Each tool declares `writes`, and
+`READ_ONLY_TOOL_NAMES` is computed from that declaration. A hand-kept list is the shape
+this project keeps finding and naming a check that cannot fail: add a writing tool, forget
+the list, and the annotation stays advertised while being false. Verified by injecting
+exactly that mistake — `write_file` with its declaration removed — which fails four tests
+including the one asserting the executor refuses a write, so the omission cannot ship
+quietly.
+
+The toolset stays fixed and stays out of the tool's signature. `resolve_allowed`
+intersects rather than unions, so there is no argument a caller could pass to widen it
+back; an annotation a caller could falsify would be decoration.
+
+Costs accepted. A read-only delegation now spends turns, so it can hit `max_turns` and
+return partial work — which is why `max_turns` became a per-call argument in the same
+session, reaching this tool too. It is also slower and dearer than a one-shot for a task
+that genuinely needs nothing looked up; `delegate` with an explicitly empty toolset
+remains the honest shape for that, and the one-shot path is kept rather than deleted.
+
+Rejected: a fifth tool, `delegate_readonly_search`, leaving the existing one one-shot.
+That is two tools differing only in a toolset the caller cannot see, on a contract where
+every tool description costs a full prefill to reword.
+
 ## ADR-0047 — 2026-09-03 — A no-progress deadline, distinct from the whole-delegation ceiling — Accepted
 
 `dispatch_timeout` bounds total time, and total time cannot distinguish a delegation that

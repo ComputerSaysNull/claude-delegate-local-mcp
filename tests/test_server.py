@@ -22,6 +22,7 @@ from fastmcp import Client
 
 from claude_delegate_local import loop as loop_module
 from claude_delegate_local import sandbox, server
+from claude_delegate_local import tools as tools_module
 from claude_delegate_local.backends import openai_compat as oc
 from claude_delegate_local.config import Config
 from claude_delegate_local.registry import ModelEntry, Registry
@@ -852,7 +853,7 @@ def test_an_empty_toolset_takes_the_one_shot_path_and_reports_no_ledger():
     assert "last_bash_exit" not in result
 
 
-def test_the_default_delegation_now_offers_all_three_tools(monkeypatch):
+def test_the_default_delegation_offers_every_available_tool(monkeypatch):
     """On a host that can confine a shell. Bubblewrap is stubbed because its presence is a
     property of the machine running the suite, not of the wiring under test, and this test
     should say the same thing on Windows as it does in WSL."""
@@ -865,7 +866,7 @@ def test_the_default_delegation_now_offers_all_three_tools(monkeypatch):
 
     delegated(handler, task="a question")
     declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
-    assert declared == {"read_file", "write_file", "run_bash"}
+    assert declared == {"read_file", "search_files", "write_file", "run_bash"}
 
 
 def test_a_host_without_bubblewrap_is_not_offered_run_bash(monkeypatch):
@@ -885,7 +886,7 @@ def test_a_host_without_bubblewrap_is_not_offered_run_bash(monkeypatch):
 
     delegated(handler, task="a question")
     declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
-    assert declared == {"read_file", "write_file"}
+    assert declared == {"read_file", "search_files", "write_file"}
 
 
 def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
@@ -1507,12 +1508,14 @@ def test_a_delegation_that_fails_still_gives_its_slot_back():
 # --- the read-only surface -----------------------------------------------------------------
 
 
-def test_delegate_readonly_offers_the_model_no_tools():
-    """The annotation is only true if the model is genuinely given nothing to call.
+def test_delegate_readonly_offers_only_tools_that_cannot_write():
+    """The annotation is true if nothing the model is offered can write -- not if it is
+    offered nothing. That was the same claim when the set was empty; ADR-0048 is what made
+    the difference visible.
 
-    Asserted on the wire rather than on the resolved set, because what the model can ask
-    for is what was declared to it -- an empty set that still rendered a tool block would
-    be a read-only tool advertising a write.
+    Still asserted on the wire rather than on the resolved set, because what the model can
+    ask for is what was declared to it, and a set that rendered a writing tool into the
+    block would be a read-only tool advertising a write however it was resolved.
     """
     sent: list[dict] = []
 
@@ -1533,9 +1536,13 @@ def test_delegate_readonly_offers_the_model_no_tools():
     asyncio.run(go())
 
     assert sent, "nothing was dispatched"
-    assert not sent[0].get("tools"), (
-        f"delegate_readonly declared tools to the model: {sent[0].get('tools')}"
-    )
+    declared = {t["function"]["name"] for t in sent[0].get("tools") or ()}
+    assert declared == {"read_file", "search_files"}, declared
+    # The property, not the list: whatever it was offered, none of it writes. Written this
+    # way so adding a read-only tool does not need this test edited, while adding a
+    # writing one to the set fails here as well as in tests/test_tools.py.
+    for name in declared:
+        assert not tools_module.REGISTRY[name].writes, f"{name} can write"
 
 
 def test_delegate_readonly_has_no_argument_that_could_widen_it():
@@ -1598,7 +1605,13 @@ def slow_chat_handler(seconds: float, **over):
 
 
 def one_shot_progress(config, *, seconds=0.35):
-    """Run delegate_readonly against a slow backend and collect what the client saw."""
+    """Run a one-shot against a slow backend and collect what the client saw.
+
+    `delegate` with an explicitly empty toolset, which is what the one-shot path is now.
+    It used to be `delegate_readonly`, until that was given the read-only tools and so the
+    turn loop (ADR-0048) -- at which point this helper was quietly measuring the loop's
+    per-turn notification instead of the keepalive it exists to test.
+    """
     mcp = server.build(config, registry(entry()),
                        DoubleCache(config, slow_chat_handler(seconds)))
     seen: list[tuple[float, float | None]] = []
@@ -1608,7 +1621,8 @@ def one_shot_progress(config, *, seconds=0.35):
 
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
-            await client.call_tool("delegate_readonly", {"task": "q", "effort": "inherit"})
+            await client.call_tool(
+                "delegate", {"task": "q", "effort": "inherit", "allowed_tools": []})
 
     asyncio.run(go())
     return seen
