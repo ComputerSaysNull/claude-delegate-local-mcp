@@ -34,6 +34,42 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #82 — 2026-09-03 — docs: file the limits the audit exposed, and stop the agent asking for the impossible
+
+### Added
+- Six `PLAN.md` items, from the 2026-09-03 audit *run* rather than its findings. Three
+  settings turned out to have been sized against a constraint that later moved, and nothing
+  re-derived them when it did: `max_turns` is the only agent-file setting a caller cannot
+  override, so the one knob that truncates a run needs the agent file edited to change it;
+  `max_file_tokens` drops a large file whole while most of the total budget sits unused, and
+  the fairness argument that sized the total separately belongs to admission, which already
+  counts four rules across every process on the machine; and `dispatch_timeout`'s own
+  description names the client idle timeout as its reason, which ADR-0018's keepalive no
+  longer lets bind. Also a read-only git tool, because `.git` is covered by a tmpfs inside a
+  delegation and audit work is historical.
+- The admission item is the one worth reading. `admission_wait_timeout` cannot simply be
+  raised: `acquire` is a re-test loop and not a queue, with no ticket and no ordering, so a
+  request that has waited almost the whole timeout has no claim ahead of one arriving at
+  that instant. Across processes a release notifies nothing, so waiting is polling a shared
+  file and the winner is whoever polls at the right moment. Raising the timeout alone buys a
+  longer unfair wait and turns a bounded failure into possible starvation, so fairness is
+  filed as its prerequisite rather than as a separate item.
+
+### Fixed
+- `docs-audit-local`'s body opened with "run the gate first", which cannot succeed. The gate
+  reads `security/secret_globs.txt`, which matches its own `*secret*` glob and is therefore
+  covered by a read-only bind of `/dev/null`, so it dies on a `PermissionError`; the waiver
+  check told the agent to read the log, which fails the same way because `.git` is under a
+  tmpfs. Every invocation spent a turn and a failed command discovering this and then
+  reported the sandbox working correctly as a fault. Both now say the caller supplies that
+  evidence, and the body records what the two runs measured: reading the documents itself
+  took 55 tool calls over 20 turns, evicted 49 results and hit the turn limit, while the
+  same audit with everything prefetched finished in one turn with no tool calls at all.
+- `CONTRIBUTING.md` gains the inverse of a trap it already recorded. It had "a body can work
+  around a server limitation, and nothing links them"; this is a body *requiring* what the
+  sandbox cannot do, which costs a turn on every invocation rather than merely going stale.
+  Second sighting of the class, so the pair is recorded together.
+
 ## #81 — 2026-09-03 — docs: register the overdue audit and fix what it found
 
 ### Added

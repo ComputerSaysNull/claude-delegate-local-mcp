@@ -1,4 +1,10 @@
-<!-- BUDGET: 200
+<!-- BUDGET: 265
+     Raised from 200 on 2026-09-03: six new items, not accumulated completed ones. A
+     documentation audit that was truncated by its own turn budget found that three
+     settings had each been sized against a constraint that later moved, and that the
+     history an audit needs is unreachable from a delegation. The 2026-09-02 completed
+     items were checked for archiving first, as the note below asks, and deliberately kept
+     — they are one day old and are the reminder that note describes.
      Reset on 2026-09-02 from 477, when M0a-M7 and Extra moved to
      archive/PLAN-milestones.md. The raise history it replaces described a document more
      than twice this size, and the reason for each raise is in the CHANGELOG.md section for
@@ -74,6 +80,51 @@ group by what the item's own annotation says it costs.
   as a closed entry rather than deleted, because an open item describing a hole that is not
   there invites someone to rederive a check that is already derived
 
+### Limits and admission, 2026-09-03
+
+Raised by a documentation audit that was truncated by its own turn budget, then rerun. The
+three settings below were each sized against a constraint that has since moved, and none of
+them was re-derived when it did.
+
+- ⬜ `max_turns` overridable per call, and `max_turns_hard_cap` raised to 100 — every other
+  agent-file setting can be overruled for one hard case, and `delegate_to_agent`'s own
+  description sells that as the point. `max_turns` cannot, so the one knob that truncates a
+  run is the one that needs the agent file edited to change it. The hard cap keeps doing its
+  job either way: it exists to stop an agent file asking for 500 turns, and 100 stops that
+  just as well as the present value while leaving room for work that legitimately iterates.
+  Found because a truncated audit could not be rescued without editing the agent
+- ⬜ One prefetch budget rather than two — `max_file_tokens` is a *drop* threshold, not a
+  truncation one, and rightly so: source cut mid-function is worse than absent. But a single
+  large file is then dropped while most of the total sits unused, and the largest documents
+  are the ones most likely to have drifted, so the cap removes what an audit most needs. Set
+  the per-file cap equal to the total. The fairness argument that sized the total separately
+  belongs to `admission.py`, which already counts four rules across every server process on
+  the machine: a second fairness control here is two knobs guarding one property, tuned
+  independently, with an under-used cluster as the price. Open question is whether the
+  per-file setting survives as an operator's way of re-tightening below the total
+- ⬜ Admission waits, but it does not queue — the prerequisite for raising
+  `admission_wait_timeout`, not a separate item. `acquire` is a re-test loop: a waiter wakes,
+  calls `_try_take`, and either fits or waits again. No ticket, no ordering, so a request
+  that has waited almost the whole timeout has no claim ahead of one arriving at that
+  instant. Across two sessions on two projects it is worse than unordered — a release in
+  another process notifies nothing, so cross-process waiting is polling a shared file and
+  the winner is whoever polls at the right moment. Raising the timeout alone therefore buys
+  a longer unfair wait and turns a bounded failure into possible starvation. Fairness first,
+  through the same shared file the counters already use; then a timeout long enough that a
+  busy cluster queues instead of refusing. The module docstring's "oversubscription queues
+  rather than fails" is true about waiting and false about a place in line, and is where the
+  wrong expectation comes from — correct it in the same change
+- ⬜ Re-derive `dispatch_timeout`, and consider whether the control wanted is a stall
+  deadline — its own description gives the reason it was sized as it is: the client's stdio
+  idle timeout was lower, and that was the binding limit. ADR-0018's keepalive now holds
+  that off, so the constraint it was sized against no longer binds and nothing re-derived
+  the number. Worth separating two cases it currently treats alike: a delegation that has
+  stalled and one that is merely long. The loop knows when each turn completes, so a
+  no-progress deadline is available, and it kills the case that needs killing without
+  killing work that is still producing. Note this stacks on the admission wait rather than
+  containing it — the deadline is taken after a slot is granted (ADR-0038), which the item
+  below says is undocumented
+
 ### Documentation accuracy
 
 - 🔄 The documentation trim the 2026-09-01 audit listed — `docs/ARCHITECTURE.md`,
@@ -141,6 +192,26 @@ group by what the item's own annotation says it costs.
   onto it no longer moves onto the silent path. The annotation to reword is the tool
   docstring in `server.py`; `docs/TOOLS.md` describes the delegated model's tools and has
   never mentioned `delegate_readonly`
+- ⬜ A read-only git tool, because audit and review work is historical and cannot reach it —
+  `.git/**` is on the secret denylist, so `.git` is covered by a tmpfs and every git command
+  inside a delegation exits 128. Whether a claim is older than the code it describes, when
+  the waivers landed, which document has gone longest untouched: none of it is reachable,
+  and those are the questions an audit is for. The denylist entry is right and stays —
+  `.git` holds everything ever committed, including what was later removed from the
+  worktree, so a read-only bind would expose strictly more than the worktree does. The shape
+  that fits is a server-process tool with a fixed subcommand allowlist, running outside the
+  sandbox as `read_file` already does and putting any path argument through the same path
+  policy. Ranks beside the search tool above and shares its justification. Without it, an
+  audit agent cannot run unsupervised: the caller has to gather the history and hand it over,
+  which is what the 2026-09-03 audit did
+- ⬜ Link an agent body to the server limitations it encodes — second sighting of one class.
+  The `read_file` line-addressing work recorded the first: an agent body carrying a
+  workaround for a server limitation, with nothing connecting the two, so the workaround
+  outlives the limitation. `docs-audit-local` then carried the inverse — an instruction to
+  run the gate first, which the sandbox cannot satisfy at all — and every invocation spent a
+  turn and a failed command discovering that. Both instances are fixed; the pattern is not.
+  A full check is not automatable, but the narrow case is: an agent body naming a command
+  its `allowed_tools` and sandbox cannot run
 - ⬜ Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
   way to look for anything. Its original justification, that expanding before the call keeps
   `delegate_readonly` toolless and loopless, no longer holds now the fork is settled the

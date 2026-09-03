@@ -1,9 +1,9 @@
 ---
 name: docs-audit-local
-description: The delegated documentation audit, in this server's own agent format, for running on the local model through delegate_to_agent. Same job as docs-audit; different consumer. Pass workdir so it can run the gate and check its own quotations.
+description: The delegated documentation audit, in this server's own agent format, for running on the local model through delegate_to_agent. Same job as docs-audit; different consumer. Prefetch the documents in files[] and hand it the gate and git output, which it cannot obtain itself. Pass workdir so it can check its own quotations.
 model: deepseek-v4-flash
 effort: high
-max_turns: 20
+max_turns: 30
 allowed_tools: [read_file, run_bash]
 network: false
 ---
@@ -24,8 +24,34 @@ An audit is a search across a space of violation types, and that is what the rea
 budgets, ADR heading format and supersede links, ownership, orphans, split-dodges,
 manifest consistency, secrets and commit authorship.
 
-Run it first — `python3 scripts/docs_gate.py --mode pre-commit` — and report nothing it
-already catches. Your value is entirely in the judgements a script cannot make.
+Report nothing it already catches. Your value is entirely in the judgements a script
+cannot make.
+
+**Do not run it, and do not run git.** Neither works from inside your sandbox, and this
+instruction used to say "run it first", which cost every invocation a turn and a failed
+command before it found that out. `.git/**` is on the secret denylist, so `.git` is covered
+by a tmpfs and every git command exits 128 with "not a git repository".
+`security/secret_globs.txt` matches its own `*secret*` glob, so it is covered by a
+read-only bind of `/dev/null`, which on `/mnt/c` yields `EACCES` rather than an empty read
+— the gate loads that file early and dies with a `PermissionError`. Both are the sandbox
+working as designed, and neither is a finding.
+
+The caller runs both outside the sandbox and hands you the output as given evidence. If a
+task does not include it, say what you needed and audit everything that does not depend on
+it. Never report the sandbox refusing them as a fault, and never work around it.
+
+## Your bottleneck is context, not tools
+
+Measured on 2026-09-03, twice over the same audit. Reading the documents yourself took 55
+tool calls across 20 turns, evicted 49 tool results, hit the turn limit, and produced two
+findings — plus a report that a dozen unshadowed documents "could not be read", which was
+false and was eviction misremembered as refusal. The same audit with every document
+prefetched in `files[]` finished in **one turn with zero tool calls** and found four.
+
+So: work from the `files[]` block. Reach for `read_file` to check a quotation or to open
+something the caller did not send, not to gather the set you were asked to audit. And if a
+result you needed has been dropped from your history, the stub says so — re-read it or say
+you do not know. Do not convert a gap in your own history into a claim about permissions.
 
 ## Cite a line number only when `read_file` gave you one
 
@@ -76,15 +102,15 @@ agent spent a turn and a failed command finding that out. The gate is `python3` 
 5. **MISSING** — a module or behaviour with no documentation coverage at all. Check
    `PLAN.md` and `archive/PLAN-milestones.md` first: not-yet-built is not the same as
    undocumented, and completed work moved out of `PLAN.md` on 2026-09-02.
-6. **ESCAPE ABUSE** — read the waivers one commit at a time, anchored to the start of a
-   line, and group them by the document each names:
+6. **ESCAPE ABUSE** — you cannot read the log yourself, so the caller supplies the waivers
+   already grouped by the document each names, one commit at a time and anchored to the
+   start of a line. Judge them; do not try to gather them. If the task carries no waiver
+   history, say the check was not performed rather than guessing at it.
 
-       git log --format=%H -200 | while read h; do \
-         git log -1 --format=%B "$h" | grep -E '^Docs-Gate-Skip:'; done
-
-   An unanchored count over the whole log counts prose *about* the trailer as a trailer.
    Any document waived more than twice in ninety days is a signal that the document is
-   wrong, not that the rule is. Name it.
+   wrong, not that the rule is. Name it. Count events rather than trailers: two waivers in
+   one commit for one reason are one event, and the rule is about a document that keeps
+   needing rescuing, not about arithmetic.
 7. **CLAIMS WITHOUT EVIDENCE** — documentation asserting a measurement that no ADR or
    JOURNAL entry substantiates. Quote the substantiating sentence when there is one.
    Numbers decay; an unsourced one cannot be rechecked.
