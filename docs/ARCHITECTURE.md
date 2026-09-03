@@ -374,11 +374,11 @@ just read. (ADR-0041)
 
 ### Ground truth over self-report
 
-Models misreport command outcomes. The server therefore computes `bash_calls`,
-`bash_failures` and `last_bash_exit` from real process exits and reports them as fields
-distinct from the model's prose. What each counts, and why `last_bash_exit` can be `None`
-when `0` would be a lie, is in [DISPATCH.md](DISPATCH.md), which owns the loop that counts
-them.
+Models misreport command outcomes, and also which tools they used. The server therefore
+computes `bash_calls`, `bash_failures`, `last_bash_exit` and a count of every tool call by
+name from what it watched, and reports them as fields distinct from the model's prose. What
+each counts, and why `last_bash_exit` can be `None` when `0` would be a lie, is in
+[DISPATCH.md](DISPATCH.md), which owns the loop that counts them.
 
 Without this, "the tests pass" is an assertion rather than a measurement, and the entire
 self-verification design rests on it. (ADR-0007)

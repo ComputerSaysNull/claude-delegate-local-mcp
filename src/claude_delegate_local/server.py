@@ -80,6 +80,12 @@ def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
     return {
         "turns": dispatched.turns,
         "tool_calls": dispatched.tool_calls,
+        # The same total, split by tool. One number cannot tell a delegation that read two
+        # files from one that overwrote two, and `transcript_dir` is empty by default, so
+        # without this the only record of which is which is the model's own prose -- which
+        # is what the whole ledger exists not to trust. Empty when a loop ran and called
+        # nothing, which is a real answer and the one `tool_calls: 0` already gives here.
+        "tool_calls_by_name": dict(dispatched.tool_calls_by_name),
         "tool_errors": dispatched.tool_errors,
         "tool_calls_deduplicated": dispatched.deduped,
         "tool_results_evicted": dispatched.evicted,

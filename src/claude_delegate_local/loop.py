@@ -25,6 +25,7 @@ import asyncio
 import json
 import random
 import time
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
@@ -1025,6 +1026,12 @@ class _Watch:
         self.tool_errors = 0
         self.deduped = 0
         self.evictions = 0
+        # The same count, split by tool. `calls` already holds every name and this could be
+        # derived from it -- but `calls` is a list per delegation and the caller wants a
+        # total, so deriving it would mean walking that list at the end to recover something
+        # each call already knew. Kept beside `tool_calls` rather than folded into it,
+        # because the total is what a caller reads first and a sum is not a substitute for it.
+        self.by_tool: Counter[str] = Counter()
         # ADR-0007's original subject. Counted from real process exits, never from the
         # model's account of them, and reported beside its prose rather than inside it.
         self.bash_calls = 0
@@ -1039,6 +1046,7 @@ class _Watch:
         """Record one tool call, and correlate it against anything we evicted earlier."""
         is_error = outcome == "error"
         self.tool_calls += 1
+        self.by_tool[call.name] += 1
         self.tool_errors += is_error
         self.deduped += outcome == "repeat"
         if result is not None and result.bash is not None:
@@ -1302,6 +1310,11 @@ class AgenticDispatch:
     reasoning_exhausted: bool = False
     turns: int = 1
     tool_calls: int = 0
+    # `tool_calls` split by tool name, name-sorted. A tuple rather than a dict because this
+    # dataclass is frozen and a dict field would be frozen in name only -- a caller holding
+    # the result could rewrite the ledger it was handed. Sorted so two delegations that made
+    # the same calls render identically, whatever order the model made them in.
+    tool_calls_by_name: tuple[tuple[str, int], ...] = ()
     tool_errors: int = 0
     deduped: int = 0
     evicted: int = 0
@@ -1616,6 +1629,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             reasoning_exhausted=dispatch.reasoning_exhausted,
             turns=turn,
             tool_calls=watch.tool_calls,
+            tool_calls_by_name=tuple(sorted(watch.by_tool.items())),
             tool_errors=watch.tool_errors,
             deduped=watch.deduped,
             evicted=watch.evictions,

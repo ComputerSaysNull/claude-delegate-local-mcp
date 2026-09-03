@@ -34,6 +34,38 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #92 — 2026-09-03 — feat: the ledger says which tools were called, not only how many
+
+### Added
+- `tool_calls_by_name` in the result, beside `tool_calls`. One number cannot tell a
+  delegation that read two files from one that overwrote two, and `transcript_dir` is empty
+  by default — so the only surviving account of which it was was the model's own prose,
+  which is what the whole ledger exists not to trust (ADR-0007). The other half of the item
+  that #91 closed.
+- The data was already collected and thrown away. `_Watch.called` had `call.name` in hand
+  and incremented only scalars; the per-`(name, outcome)` detail existed as `TurnDiagnostic`
+  but surfaces only under `diagnostics=True`, which both batch tools hard-code off — so a
+  batch item, the call whose items a caller is least able to watch, could report a total and
+  nothing else.
+- Carried as a name-sorted tuple rather than a dict, because `AgenticDispatch` is frozen and
+  a dict field would be frozen in name only. Sorted so two delegations that made the same
+  calls render identically whatever order the model made them in. `_loop_ledger` renders it
+  to a map, under the same gate as the rest: absent on the one-shot path, empty when a loop
+  ran and called nothing.
+
+### Fixed
+- `test_a_one_shot_that_returns_promptly_sends_nothing` was a latent flake, surfaced by the
+  load these tests add and then diagnosed rather than reordered around. It asserts an
+  *absence* of progress notifications, and the keepalive is not the only thing that sends
+  `progress(0, 0)` — `ticked` sends the identical shape while a delegation waits for
+  admission. Left on the default `slots_dir` the test took the machine's real slots, so a
+  neighbouring xdist worker holding them made it queue and read its own admission wait as a
+  heartbeat that would not stop. A 30s keepalive cannot fire inside a 0.05s call, which is
+  what made the notification impossible to attribute to the thing it was testing. Both this
+  and the new batch test now isolate `slots_dir`, which
+  `test_a_batch_never_exceeds_the_endpoints_declared_concurrency` already documents and
+  which is worth repeating: the failure surfaced three tests away from its cause.
+
 ## #91 — 2026-09-03 — feat: delegate_batch_readonly, and one shared batch body
 
 ### Added

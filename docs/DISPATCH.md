@@ -367,12 +367,12 @@ same seam as the injected clock and sleep.
 
 ## The loop reports what the server watched, not what the model says it did
 
-`turns`, `tool_calls`, `tool_errors`, the number of calls deduplicated and the number of
-results evicted are all counted where they happen. ADR-0007 argues this for exit codes; the
-same argument covers the economics of the loop, and for the same reason — a model's summary
-of its own work is a claim, and these are observations. They are absent rather than zeroed
-on the one-shot path, where `tool_calls: 0` beside an answer would read as a model that
-chose not to use tools it was in fact never offered.
+`turns`, `tool_calls`, `tool_errors`, the calls deduplicated and the results evicted are all
+counted where they happen, and `tool_calls_by_name` splits `tool_calls` per tool — one number
+cannot tell a delegation that read two files from one that overwrote two. ADR-0007 argues
+this for exit codes and the same argument covers the loop's economics: a model's summary of
+its own work is a claim, these are observations. All are absent rather than zeroed on the
+one-shot path, where `tool_calls: 0` would read as a model that chose not to use its tools.
 
 `bash_calls`, `bash_failures` and `last_bash_exit` are the subject ADR-0007 was written
 about, and are now counted the same way. The exit code reaches the ledger as a field on the
