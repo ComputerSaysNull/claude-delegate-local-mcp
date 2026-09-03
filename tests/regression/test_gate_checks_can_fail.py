@@ -420,3 +420,200 @@ def test_scan_coverage_says_nothing_about_a_binary_file(repo: Path):
     """
     (repo / "docs" / "blob.md").write_bytes(bytes([0]) * 32 + b"text")
     assert not fired(gate(repo), "scan-coverage", "docs/blob.md")
+
+
+# ------------------------------------------------------- agent bodies vs their capabilities
+
+
+def agent(repo: Path, name: str, frontmatter: str, body: str) -> None:
+    d = repo / ".claude" / "agents"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{name}.md").write_text(
+        f"---\nname: {name}\n{frontmatter}---\n{body}\n", encoding="utf-8"
+    )
+
+
+def test_agent_capability_fires_on_a_body_that_needs_a_shell_it_lacks(repo: Path):
+    """The first half of the class. A body instructing a command an agent has no tool for
+    costs a turn and a failed call on every single invocation."""
+    agent(repo, "reader", "tools: Read, Grep\n",
+          "Start by running `pytest -q` to see what is broken.")
+    assert fired(gate(repo), "agent-capability", "reader.md", "no shell")
+
+
+def test_agent_capability_is_silent_when_the_agent_has_a_shell(repo: Path):
+    """The closest thing that is not a violation. Without this the check could refuse
+    every agent that mentions a command and still pass the test above."""
+    agent(repo, "runner", "tools: Read, Bash\n",
+          "Start by running `pytest -q` to see what is broken.")
+    assert not fired(gate(repo), "agent-capability", "runner.md")
+
+
+def test_agent_capability_fires_on_git_inside_a_sandboxed_agent(repo: Path):
+    """The second half, and the one PLAN.md filed. `.git` is on the denylist, so the
+    sandbox covers it with a tmpfs and every git command inside a delegation exits 128.
+
+    Derived rather than asserted: this repo's `secret_globs.txt` fixture is extended with
+    the `.git` entry, and the check reads that file. Hardcoding "git is unrunnable" would
+    be the second copy that drifts the moment the denylist changes.
+    """
+    (repo / "security" / "secret_globs.txt").write_text(
+        ".env\nid_rsa\n.git/**\n", encoding="utf-8")
+    agent(repo, "auditor", "allowed_tools: [read_file, run_bash]\n",
+          "Check the history first:\n\n```bash\ngit log --oneline -20\n```\n")
+    assert fired(gate(repo), "agent-capability", "auditor.md", "git")
+
+
+def test_agent_capability_is_silent_on_git_where_the_denylist_does_not_cover_it(repo: Path):
+    """The direction that proves the derivation is real.
+
+    Same agent, same body -- only `.git/**` removed from the denylist. If the check still
+    fired, it would be reading a hardcoded opinion about git rather than the policy file,
+    and would keep firing after someone changed that file.
+    """
+    (repo / "security" / "secret_globs.txt").write_text(".env\nid_rsa\n", encoding="utf-8")
+    agent(repo, "auditor", "allowed_tools: [read_file, run_bash]\n",
+          "Check the history first:\n\n```bash\ngit log --oneline -20\n```\n")
+    assert not fired(gate(repo), "agent-capability", "auditor.md")
+
+
+def test_agent_capability_leaves_a_host_agent_alone_about_git(repo: Path):
+    """The distinction between the two formats, which is the easiest thing to get wrong.
+
+    Only a server-format agent's shell is confined. A Claude Code agent lists `tools:` and
+    runs on the host, where `.git` is simply there -- flagging it would be a false positive
+    on every reviewer and auditor agent in the repository.
+    """
+    (repo / "security" / "secret_globs.txt").write_text(
+        ".env\nid_rsa\n.git/**\n", encoding="utf-8")
+    agent(repo, "reviewer", "tools: Read, Grep, Bash\n",
+          "Check the history:\n\n```bash\ngit log --oneline -20\n```\n")
+    assert not fired(gate(repo), "agent-capability", "reviewer.md")
+
+
+def test_agent_capability_ignores_prose_that_merely_mentions_a_command(repo: Path):
+    """A code span is an instruction; a sentence is not. The check reads shell fences and
+    inline code, so an agent explaining that something cannot be run must not be flagged --
+    which is exactly what a body documenting this very limitation would look like."""
+    agent(repo, "explainer", "tools: Read\n",
+          "You cannot run git here, and nothing in this repository will let you.")
+    assert not fired(gate(repo), "agent-capability", "explainer.md")
+
+
+def test_every_gate_check_is_exercised_by_some_test():
+    """The meta-check, and the reason this file exists at all.
+
+    Four checks in this project have been found unable to fail, two of them by an audit
+    rather than by a test. A check with no negative test anywhere is the next one.
+
+    Scoped to the whole test tree rather than to this file, which is the correction its
+    first draft needed: eight checks are covered in files named after their own bugs --
+    the amend handling, the commit message, host identifiers, the audit clock -- and
+    demanding they also appear here would either fail for no reason or push a second copy
+    of each into one place. Naming a check is weaker than proving it fires, and it is
+    strong enough to stop a new one arriving with nothing at all.
+    """
+    block = GATE.read_text(encoding="utf-8").split("CHECKS = {", 1)[1].split("}", 1)[0]
+    # Key AND function, because a test may name either: some drive a check directly by
+    # calling it, which never mentions the registry key. Missing that cost the first draft
+    # of this test three false positives.
+    pairs = re.findall(r'"([a-z-]+)":\s*(\w+)', block)
+    assert len(pairs) > 10, f"CHECKS did not parse ({pairs}); this would pass vacuously"
+
+    tests_root = Path(__file__).resolve().parents[1]
+    corpus = "\n".join(
+        f.read_text(encoding="utf-8", errors="replace")
+        for f in sorted(tests_root.rglob("test_*.py"))
+    )
+    missing = sorted(key for key, fn in pairs if f'"{key}"' not in corpus and fn not in corpus)
+    assert not missing, (
+        f"gate checks no test names: {missing}. Add one that fires on a real violation "
+        f"and one that stays silent on the nearest thing that is not."
+    )
+
+
+# ------------------- the three checks the meta-test found with no negative test ---------
+#
+# `generated-doc`, `generated-coverage` and `never-track` were named by nothing. The first
+# demonstrably works -- it fired repeatedly while this session's config changes were being
+# made -- but "I have seen it fire" is not a test, and the other two were unproven.
+
+
+def test_generated_doc_fires_when_a_rendered_block_drifts(repo: Path):
+    """The freshness check, proven on a real generator rather than a stub.
+
+    `gen_config_docs.py --check` is what the gate shells out to, so the violation has to be
+    a document that genuinely disagrees with the dataclass -- which is arranged by editing
+    the rendered block, exactly as a hand-edit of a generated file would.
+    """
+    shutil.copy(ROOT / "scripts" / "gen_config_docs.py", repo / "scripts")
+    shutil.copytree(ROOT / "src" / "claude_delegate_local",
+                    repo / "src" / "claude_delegate_local")
+    shutil.copy(ROOT / "docs" / "CONFIGURATION.md", repo / "docs")
+    text = (repo / "docs" / "CONFIGURATION.md").read_text(encoding="utf-8")
+    (repo / "docs" / "CONFIGURATION.md").write_text(
+        text.replace("| `DELEGATE_MAX_TOKENS`", "| `DELEGATE_MAX_TOKENS_DRIFTED`", 1),
+        encoding="utf-8")
+    assert fired(gate(repo), "generated-doc", "CONFIGURATION.md")
+
+
+def test_generated_doc_is_silent_when_the_block_matches(repo: Path):
+    """Without this, a check that always fired would pass the test above."""
+    shutil.copy(ROOT / "scripts" / "gen_config_docs.py", repo / "scripts")
+    shutil.copytree(ROOT / "src" / "claude_delegate_local",
+                    repo / "src" / "claude_delegate_local")
+    shutil.copy(ROOT / "docs" / "CONFIGURATION.md", repo / "docs")
+    assert not fired(gate(repo), "generated-doc", "CONFIGURATION.md")
+
+
+def test_generated_coverage_fires_on_a_generated_document_nothing_renders(repo: Path):
+    """The check that stops a generator arriving without a freshness entry -- leaving the
+    new document passing for the reason that nothing looked at it.
+
+    It also had the wrong label until this test was written: registered as
+    `generated-coverage` and reporting as `generated-doc`, so a waiver aimed at either one
+    hit the wrong check.
+    """
+    (repo / "docs" / "RENDERED.md").write_text("<!-- BUDGET: 9 -->\n# R\n", encoding="utf-8")
+    manifest = (repo / "scripts" / "docs_ownership.toml").read_text(encoding="utf-8")
+    (repo / "scripts" / "docs_ownership.toml").write_text(
+        manifest + '\n[docs."docs/RENDERED.md"]\naudience = ["contributor"]\n'
+        'plane = "product"\ngenerated = true\nowns = []\ncovers_not = "Nothing."\n',
+        encoding="utf-8")
+    assert fired(gate(repo), "generated-coverage", "RENDERED.md")
+
+
+def test_generated_coverage_is_silent_when_the_document_is_not_generated(repo: Path):
+    """The nearest thing that is not a violation: the same new document, unflagged."""
+    (repo / "docs" / "RENDERED.md").write_text("<!-- BUDGET: 9 -->\n# R\n", encoding="utf-8")
+    manifest = (repo / "scripts" / "docs_ownership.toml").read_text(encoding="utf-8")
+    (repo / "scripts" / "docs_ownership.toml").write_text(
+        manifest + '\n[docs."docs/RENDERED.md"]\naudience = ["contributor"]\n'
+        'plane = "product"\nowns = []\ncovers_not = "Nothing."\n',
+        encoding="utf-8")
+    assert not fired(gate(repo), "generated-coverage", "RENDERED.md")
+
+
+def test_never_track_fires_on_a_staged_file_that_must_never_be_committed(repo: Path):
+    """The second layer under .gitignore, and the one that has to work when .gitignore is
+    edited, when someone uses `git add -f`, and when the file is empty -- an empty one
+    committed today is populated tomorrow in a commit nobody reads twice."""
+    (repo / "security" / "forbidden_strings.txt").write_text("", encoding="utf-8")
+    subprocess.run(["git", "add", "-f", "security/forbidden_strings.txt"],
+                   cwd=repo, capture_output=True)
+    assert fired(gate(repo), "never-track", "forbidden_strings.txt")
+
+
+def test_never_track_is_silent_when_the_file_is_only_on_disk(repo: Path):
+    """Untracked and unstaged is the normal, correct state for every one of these files.
+    A check that flagged it would fire on every clean checkout.
+
+    The `.gitignore` is what makes that state reachable here: `gate()` runs `git add -A`
+    first, so without it the file this check exists to keep out would be re-staged by the
+    harness on the way in -- which is also the first layer this check sits underneath.
+    """
+    (repo / ".gitignore").write_text(
+        "security/forbidden_strings.txt" + "\n", encoding="utf-8")
+    subprocess.run(["git", "rm", "--cached", "-q", "security/forbidden_strings.txt"],
+                   cwd=repo, capture_output=True)
+    assert not fired(gate(repo), "never-track", "forbidden_strings.txt")
