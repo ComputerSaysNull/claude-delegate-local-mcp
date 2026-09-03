@@ -349,12 +349,29 @@ class Config:
         unit="seconds",
     )
     dispatch_timeout: int = _f(
-        3600,
-        "Whole-delegation timeout, spanning every retry and every empty-answer recovery "
-        "stage. Claude Code's own wall-clock MCP timeout defaults to about 28 hours so it "
-        "is not the binding limit; its stdio IDLE timeout of 30 minutes is lower than this "
-        "default, and the per-turn progress notification that answers that is ADR-0018, "
-        "arriving with the turn loop. This bounds the wait, not the client's patience.",
+        14400,
+        "Whole-delegation ceiling, spanning every retry and every empty-answer recovery "
+        "stage. An absolute bound on work that is still producing, and nothing more: a "
+        "delegation that has STOPPED producing is bounded by stall_timeout instead, far "
+        "below this. Raised from 3600 once that existed (ADR-0047). The old value was "
+        "sized against Claude Code's 30-minute stdio idle timeout, which ADR-0018's "
+        "per-turn notification stopped letting bind, and nothing re-derived it when that "
+        "changed -- so an hour was the price of a wedged run, twice over at the default "
+        "turn_timeout. This bounds the wait, not the client's patience.",
+        unit="seconds",
+    )
+    stall_timeout: int = _f(
+        2100,
+        "No-progress deadline: how long a delegation may run without COMPLETING a turn. "
+        "Distinct from dispatch_timeout, which bounds total time and cannot tell a "
+        "delegation that is merely long from one that is wedged -- the case that needs "
+        "killing from the case that must not be. The default sits just above turn_timeout "
+        "on purpose: it permits one full-length attempt and refuses a second with nothing "
+        "to show, which is the exact shape of the failure that prompted it. Refused below "
+        "turn_timeout or above dispatch_timeout -- at or below the former it cuts short a "
+        "call that was merely slow, and above the latter it can never fire. A one-shot "
+        "never completes a turn, so this is measured from its start and becomes its "
+        "effective bound (ADR-0047).",
         unit="seconds",
     )
     keepalive_interval: int = _f(
@@ -513,6 +530,41 @@ class Config:
     http_port: int = _f(8765, "Port, used only by the HTTP transport.")
 
     # ---------------------------------------------------------------------------
+    def _check_deadlines_nest(self) -> None:
+        """The deadlines have to nest: connect <= turn < stall <= dispatch.
+
+        Together rather than scattered through `__post_init__`, because the chain is the
+        point. Each check reads as arbitrary alone; in sequence they say that every
+        deadline is bounded by the one containing it, and that a reader can see where a
+        new one would have to fit. Adding `stall_timeout` was what made that worth
+        extracting -- it belongs strictly between two existing links.
+        """
+        if self.connect_timeout > self.turn_timeout:
+            raise ConfigError(
+                f"DELEGATE_CONNECT_TIMEOUT ({self.connect_timeout}) exceeds "
+                f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}): the connect phase cannot "
+                "be allowed to outlast the whole call it is part of."
+            )
+
+        if self.turn_timeout > self.dispatch_timeout:
+            raise ConfigError(
+                f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}) exceeds "
+                f"DELEGATE_DISPATCH_TIMEOUT ({self.dispatch_timeout}): a single turn "
+                "could outlive the delegation containing it."
+            )
+
+        if not self.turn_timeout <= self.stall_timeout <= self.dispatch_timeout:
+            raise ConfigError(
+                f"DELEGATE_STALL_TIMEOUT ({self.stall_timeout}) must be at least "
+                f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}) and no higher than "
+                f"DELEGATE_DISPATCH_TIMEOUT ({self.dispatch_timeout}). Below the turn "
+                "timeout it would cut short one legitimately slow backend call and report "
+                "a stall where there is none; above the ceiling it could never fire.\n"
+                "Not a strict lower bound, deliberately: turn_timeout may equal "
+                "dispatch_timeout, which the check below permits, and a strict one would "
+                "leave that configuration with no legal value at all."
+            )
+
     def __post_init__(self) -> None:
         if not self.workspace_roots:
             raise ConfigError(
@@ -560,24 +612,13 @@ class Config:
         ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"DELEGATE_{name.upper()} must be positive.")
-        if self.connect_timeout > self.turn_timeout:
-            raise ConfigError(
-                f"DELEGATE_CONNECT_TIMEOUT ({self.connect_timeout}) exceeds "
-                f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}): the connect phase cannot "
-                "be allowed to outlast the whole call it is part of."
-            )
+        self._check_deadlines_nest()
         for name in ("tool_call_temperature", "one_shot_temperature"):
             if not 0.0 <= getattr(self, name) <= 2.0:
                 raise ConfigError(
                     f"DELEGATE_{name.upper()} must be between 0.0 and 2.0; the canonical "
                     "request refuses anything else."
                 )
-        if self.turn_timeout > self.dispatch_timeout:
-            raise ConfigError(
-                f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}) exceeds "
-                f"DELEGATE_DISPATCH_TIMEOUT ({self.dispatch_timeout}): a single turn "
-                "could outlive the delegation containing it."
-            )
         if self.keepalive_interval * 2 > CLIENT_STDIO_IDLE_TIMEOUT:
             # Refused at startup rather than warned about, because the symptom it causes
             # is invisible from here: the caller is told the call failed, the server keeps

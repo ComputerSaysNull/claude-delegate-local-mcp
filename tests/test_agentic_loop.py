@@ -36,6 +36,11 @@ HOST = "http://example.com:8000"  # on the gate's placeholder allowlist
 def cfg(**over) -> Config:
     kw = {"workspace_roots": (".",)}
     kw.update(over)
+    # The deadlines have to nest, and these tests set absurdly small ceilings on purpose so
+    # a fake clock is cheap. Follow the ceiling down unless the test names this itself, so
+    # shrinking `dispatch_timeout` does not silently become a test of the stall deadline.
+    if "dispatch_timeout" in kw and "stall_timeout" not in kw:
+        kw["stall_timeout"] = kw["dispatch_timeout"]
     return Config(**kw)  # type: ignore[arg-type]
 
 
