@@ -1,4 +1,8 @@
-<!-- BUDGET: 249      Raised from 230 on 2026-09-01: a second agent format now lives
+<!-- BUDGET: 262      Raised from 249 on 2026-09-03: an agent body requiring what the
+     sandbox cannot do is the inverse of the trap recorded directly above it, costs a turn
+     on every invocation rather than merely going stale, and is the second sighting of the
+     class. Recorded next to its twin so the pair is read together.
+     Raised from 230 on 2026-09-01: a second agent format now lives
      in .claude/agents/ while the delegated audit route is proven, and a directory whose
      two readers each skip what they cannot parse needs that written down where someone
      editing an agent file will meet it. The note goes when the duplication does. Raised to the size it had already reached on 2026-09-01: the check that should have held this
@@ -167,6 +171,15 @@ is dependable enough to be the only one; the copy is then deleted, not left to r
 
 **A body can work around a server limitation, and nothing links them.** `docs-audit-local`
 cited by quotation because `read_file` had no line numbers; adding them made that stale.
+
+**It can also require what the sandbox cannot do — the same fault inverted, and costlier.**
+That body opened with "run the gate first", which cannot succeed: `.git` is under a tmpfs
+and `security/secret_globs.txt` under `/dev/null`, both because they match the secret
+denylist, so git exits 128 and the gate dies on a `PermissionError`. A stale workaround
+wastes its own instruction; an impossible requirement burns a turn on every invocation and
+has the model report the sandbox working correctly as a fault. Check a command in a body
+against that agent's `allowed_tools` *and* against what the sandbox binds, and say in the
+body where the caller must supply what the agent cannot fetch.
 
 <!-- GEN:AGENTS:START -->
 <!-- Generated from .claude/agents/*.md by scripts/gen_agents_docs.py. Change the frontmatter, not this. -->
