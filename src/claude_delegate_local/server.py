@@ -1062,49 +1062,28 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent",
         )
 
-    @mcp.tool
-    async def delegate_batch(  # noqa: PLR0913 -- ctx is injected, not a caller argument
-        tasks: list[str],
-        agent_name: str | None = None,
-        files: list[str] | None = None,
-        workdir: str | None = None,
+    async def _run_batch(  # noqa: PLR0913 -- one batch's arguments, one dispatch
         *,
-        model: str | None = None,
+        tasks: list[str],
+        agent_name: str | None,
+        files: list[str] | None,
+        workdir: str | None,
+        model: str | None,
         effort: str,
-        allowed_tools: list[str] | None = None,
-        max_tokens: int | None = None,
-        max_turns: int | None = None,
-        ctx: Context | None = None,
+        allowed_tools: list[str] | None,
+        max_tokens: int | None,
+        max_turns: int | None,
+        ctx: Context | None,
+        tool_name: str,
     ) -> dict[str, Any]:
-        """Run several tasks sharing one agent and one set of files, and get all the answers.
+        """The batch, once, for both tools that expose one.
 
-        The point is the sharing. Every task gets the same agent body and the same `files[]`
-        block, and only the task itself differs -- so the whole prompt up to the task is
-        identical between them and the cluster serves it from cache. A batch of eight
-        questions about one module costs roughly one read of that module, not eight. Eight
-        separate `delegate` calls pay for it eight times.
-
-        So use it when the tasks genuinely share context: several questions about the same
-        files, one review applied under different criteria, one migration described once and
-        applied to a list of call sites. When they do not share context, call `delegate` for
-        each -- an unrelated batch saves nothing and delays the first answer until the last
-        one is done.
-
-        Items run concurrently, bounded by what the model's registry entry says its endpoint
-        will take, so a large batch queues rather than swamping it.
-
-        `effort` is required and applies to every item: one of "off", "low", "high", "max",
-        or "inherit" to defer to `agent_name`'s file and then the configured default. It is
-        one value for the whole batch, so tasks needing different depths belong in different
-        batches -- which is the same rule as `files[]`, for the same reason.
-
-        `max_turns` is one value for the whole batch too, and applies to each item
-        separately rather than being shared out between them.
-
-        **One item failing does not fail the batch.** Each result carries its own `ok`, and a
-        failed one carries `error` instead of an answer, with the `index` and `task` that
-        produced it. Work already done is never discarded because a later item was refused.
-        Read `failed` before trusting any summary of the whole thing.
+        `delegate_batch` and `delegate_batch_readonly` differ in exactly two things: the
+        tool set they fix and the name they record. Everything else here -- the guards, the
+        one-off model resolve, the keepalive, and above all the per-item `ok`/`error`
+        contract -- is the same behaviour, and a second copy of it would be two things to
+        keep in step rather than one. That is the same reason `run_delegation` is shared by
+        the four single-task tools.
         """
         if not tasks:
             raise ToolError("tasks[] is empty. There is nothing to delegate.")
@@ -1161,7 +1140,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
                     # describe nothing a reader could act on. `on_turn` keeps the
                     # notification itself, which is what holds the idle timer open.
                     diagnostics=False, ctx=None, on_turn=beat,
-                    tool_name="delegate_batch",
+                    tool_name=tool_name,
                 )
             except ToolError as e:
                 # Caught rather than raised, which is the whole contract: an item that
@@ -1182,6 +1161,125 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
             "failed": [r["index"] for r in results if not r["ok"]],
             **({"agent": agent.name} if agent else {}),
         }
+
+    @mcp.tool
+    async def delegate_batch(  # noqa: PLR0913 -- ctx is injected, not a caller argument
+        tasks: list[str],
+        agent_name: str | None = None,
+        files: list[str] | None = None,
+        workdir: str | None = None,
+        *,
+        model: str | None = None,
+        effort: str,
+        allowed_tools: list[str] | None = None,
+        max_tokens: int | None = None,
+        max_turns: int | None = None,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        """Run several tasks sharing one agent and one set of files, and get all the answers.
+
+        The point is the sharing. Every task gets the same agent body and the same `files[]`
+        block, and only the task itself differs -- so the whole prompt up to the task is
+        identical between them and the cluster serves it from cache. A batch of eight
+        questions about one module costs roughly one read of that module, not eight. Eight
+        separate `delegate` calls pay for it eight times.
+
+        So use it when the tasks genuinely share context: several questions about the same
+        files, one review applied under different criteria, one migration described once and
+        applied to a list of call sites. When they do not share context, call `delegate` for
+        each -- an unrelated batch saves nothing and delays the first answer until the last
+        one is done.
+
+        Items run concurrently, bounded by what the model's registry entry says its endpoint
+        will take, so a large batch queues rather than swamping it.
+
+        `effort` is required and applies to every item: one of "off", "low", "high", "max",
+        or "inherit" to defer to `agent_name`'s file and then the configured default. It is
+        one value for the whole batch, so tasks needing different depths belong in different
+        batches -- which is the same rule as `files[]`, for the same reason.
+
+        `max_turns` is one value for the whole batch too, and applies to each item
+        separately rather than being shared out between them.
+
+        Every item can write, unless `allowed_tools` says otherwise -- reach for
+        `delegate_batch_readonly` when none of them should, because that one is declared
+        read-only before it runs rather than narrowed by an argument.
+
+        **One item failing does not fail the batch.** Each result carries its own `ok`, and a
+        failed one carries `error` instead of an answer, with the `index` and `task` that
+        produced it. Work already done is never discarded because a later item was refused.
+        Read `failed` before trusting any summary of the whole thing.
+        """
+        return await _run_batch(
+            tasks=tasks, agent_name=agent_name, files=files, workdir=workdir,
+            model=model, effort=effort, allowed_tools=allowed_tools,
+            max_tokens=max_tokens, max_turns=max_turns, ctx=ctx,
+            tool_name="delegate_batch",
+        )
+
+    @mcp.tool(annotations={"readOnlyHint": True})
+    async def delegate_batch_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
+        tasks: list[str],
+        agent_name: str | None = None,
+        files: list[str] | None = None,
+        workdir: str | None = None,
+        *,
+        model: str | None = None,
+        effort: str,
+        max_tokens: int | None = None,
+        max_turns: int | None = None,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        """Run several read-only tasks over one shared set of files, and get all the answers.
+
+        `delegate_batch` and `delegate_readonly` at once, and the combination is the point:
+        shared-prefix research used to be reachable only through a tool that can write.
+        Every item gets `read_file` and `search_files`, and nothing else.
+
+        The sharing works the same way. Every task carries the same agent body and the same
+        `files[]` block, and only the task differs, so the prompt up to the task is identical
+        between items and the cluster serves it from cache. Six questions about one module
+        cost roughly one read of it. Ask them of unrelated files and the batch saves nothing.
+
+        This is the one to reach for when a batch is research: several questions about the
+        same module, one review applied under different criteria, tracing where a change
+        would land. Use `delegate_batch` when the items must actually change something --
+        asking this one to edit a file produces a description of the edit instead. `workdir`
+        still chooses which project's agents are searched; there is no shell for it to bind.
+
+        What differs from narrowing `delegate_batch` with `allowed_tools` is *when* the
+        promise is made. This tool is declared read-only, so a client that gates writes on
+        the declaration can run it where `delegate_batch` has to stop and ask.
+
+        `effort` is required and applies to every item: one of "off", "low", "high", "max",
+        or "inherit" to defer to `agent_name`'s file and then the configured default.
+        Read-only does not mean undemanding -- a trace across several files needs "high".
+
+        `max_turns` is one value for the whole batch, applied to each item separately. Each
+        item searches and reads on its own, so read `hit_turn_limit` on an item that came
+        back thin.
+
+        **One item failing does not fail the batch.** Each result carries its own `ok`, and a
+        failed one carries `error` instead of an answer, with the `index` and `task` that
+        produced it. Read `failed` before trusting any summary of the whole thing.
+        """
+        return await _run_batch(
+            tasks=tasks, agent_name=agent_name, files=files, workdir=workdir,
+            model=model, effort=effort,
+            # Fixed, never defaulted, and not a caller argument, for the reason spelled out
+            # on `delegate_readonly`: `resolve_allowed` intersects rather than unions, so
+            # there is no way to widen it back, and an annotation an argument could falsify
+            # would be the check that cannot fail.
+            #
+            # An agent file cannot widen it either, and that is the half worth naming here
+            # because `delegate_readonly` has no agent to be widened by. `run_delegation`
+            # takes `agent.allowed_tools` only when the caller passed none, and this caller
+            # always passes a set -- so a markdown file in a repository being reviewed
+            # cannot hand itself `write_file` (ADR-0042, ADR-0048).
+            allowed_tools=sorted(READ_ONLY_TOOL_NAMES),
+            max_tokens=max_tokens, max_turns=max_turns, ctx=ctx,
+            tool_name="delegate_batch_readonly",
+        )
 
     @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
     async def list_agents(workdir: str | None = None) -> dict[str, Any]:

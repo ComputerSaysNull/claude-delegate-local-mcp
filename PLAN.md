@@ -226,16 +226,16 @@ them was re-derived when it did.
   turn and a failed command discovering that. Both instances are fixed; the pattern is not.
   A full check is not automatable, but the narrow case is: an agent body naming a command
   its `allowed_tools` and sandbox cannot run
-- ⬜ A read-only form of `delegate_batch` — found in use, and by it modifying this
-  repository. `resolve_allowed` treats `allowed_tools=None` as *every available tool*, and
-  its docstring says so; `delegate_batch` has no read-only sibling, so shared-prefix
-  research — the whole reason to batch — is reachable only through a tool that can write.
-  Three research batches this session ran with `write_file` and `run_bash` and came back
-  having edited `config.py` and `context.py`, unasked. `delegate_readonly` exists precisely
-  so a caller can promise something before the call runs; the batch tool cannot. Worth
-  pairing with per-tool counts in the result: `tool_calls` is one number, so a delegation
-  that read two files and one that overwrote two are indistinguishable from the outside,
-  and `transcript_dir` is empty by default
+- ✅ 2026-09-03 A read-only form of `delegate_batch` (#91) — `delegate_batch_readonly`,
+  sharing one `_run_batch` body with the sixth tool. Narrowing `delegate_batch` with
+  `allowed_tools` was never the alternative: ADR-0042 again, since a client decides before
+  the call runs and never sees arguments. What `delegate_readonly` has no equivalent of is
+  the agent — adversary-controlled markdown in the repository being reviewed — which cannot
+  widen the set, now asserted. Two documents still called it `allowed_tools=[]` since #86
+- ⬜ Per-tool counts in the result — the other half of the item above, weaker alone now that
+  a caller can promise read-only in advance. `_Watch.called` holds `call.name` and increments
+  only scalars, so a `Counter`, a field on `AgenticDispatch` and one key in `_loop_ledger`
+  does it — absent rather than empty on the one-shot path, as that docstring already argues
 - ⬜ Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
   way to look for anything. Its original justification, that expanding before the call keeps
   `delegate_readonly` toolless and loopless, no longer holds now the fork is settled the

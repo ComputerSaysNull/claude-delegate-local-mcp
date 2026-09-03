@@ -105,6 +105,20 @@ def test_every_item_of_a_batch_says_it_came_from_a_batch(tmp_path):
     assert [s["tool"] for s in starts] == ["delegate_batch", "delegate_batch"]
 
 
+def test_a_read_only_batch_item_is_told_apart_from_a_writing_one(tmp_path):
+    """Both batch tools share one body, so `tool_name` is the only thing that separates
+    their records -- and separating them is the point of recording it. `tools` cannot: a
+    plain `delegate_batch` narrowed by `allowed_tools` resolves to the same two names."""
+    config = cfg(transcript_dir=str(tmp_path))
+    _call(config, chat_handler(), "delegate_batch_readonly", {"tasks": ["one", "two"]})
+
+    starts = _starts(tmp_path)
+    assert len(starts) == 2, starts
+    assert {s["tool"] for s in starts} == {"delegate_batch_readonly"}
+    for start in starts:
+        assert start["tools"] == ["read_file", "search_files"], start
+
+
 @files_posix_only
 def test_a_stream_says_which_files_the_delegation_was_given(tmp_path):
     """The record carries this already, and the record is written when the work is over.
