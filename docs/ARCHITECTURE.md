@@ -104,7 +104,7 @@ Prefetching removes several such turns from the front of every delegation.
 | `admission.py` | The four-rule gate every delegation passes before it reaches a backend |
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
-| `server.py` | MCP wiring, the five tool declarations, the backend cache |
+| `server.py` | MCP wiring, the six tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run one transport |
 
 The table covers every module; the three marked above live in [DISPATCH.md](DISPATCH.md),

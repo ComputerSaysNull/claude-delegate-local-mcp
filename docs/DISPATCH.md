@@ -298,8 +298,8 @@ dynamic content is free, because the tool results beside it were never cacheable
 
 Separately, and for a different reason, the server emits one **progress notification per
 turn**. Nothing renders it and the client cannot cancel a synchronous tool call through it,
-so it looks cosmetic and is not: it resets Claude Code's stdio idle timer, 1800s against a
-`dispatch_timeout` defaulting to 3600s. (ADR-0018)
+so it looks cosmetic and is not: it resets Claude Code's stdio idle timer, which expires
+well inside [`dispatch_timeout`](CONFIGURATION.md). (ADR-0018)
 
 One per turn is not enough, and the one-shot path has no turns to hang it on at all, so
 both report on a timer as well, every [`keepalive_interval`](CONFIGURATION.md). A turn's own

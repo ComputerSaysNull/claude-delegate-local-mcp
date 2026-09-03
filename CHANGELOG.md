@@ -34,6 +34,41 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #81 — 2026-09-03 — docs: register the overdue audit and fix what it found
+
+### Added
+- `docs/audits/2026-09-03-audit.md`, which resets the gate's `audit-due` warning at 19
+  commits since the last record. It carries an *On method* section, which the previous
+  audits did not need: this one's first attempt failed for reasons that belong to the
+  harness rather than the documents, and a failure nobody wrote down is one that gets
+  repeated.
+
+### Fixed
+- `docs/ARCHITECTURE.md`'s module table called `server.py` "the five tool declarations"
+  when there are six. ADR-0042 added `delegate_readonly` and the row was missed, so the
+  document contradicted itself — 400 lines further down it already said "The cost is a
+  sixth tool on the model-facing contract". A count in a table is exactly the kind of fact
+  that goes stale silently, because nothing reads it.
+- `PLAN.md` carried an open security item that was false when it was filed. It claimed the
+  git half of the secret denylist was a hardcoded `NEVER_TRACK` set rather than derived
+  from the globs, and that the drift the rule warns about therefore already existed. It is
+  derived: `check_secret_paths` loads the globs and blocks any tracked file matching one,
+  and it landed in the first scaffold commit — before the item was written. Both cited
+  demonstrations are deliberate, commented exemptions. The entry is closed in place rather
+  than deleted, because an open item describing a hole that is not there is worse than no
+  item: it invites someone to rederive a check that already exists, and it reads as a live
+  security gap to anyone skimming the section.
+- `docs/DISPATCH.md` restated `dispatch_timeout`'s default in prose, "1800s against a
+  `dispatch_timeout` defaulting to 3600s". The document's own budget header records an
+  earlier pass removing the same pair from two other sections; this third occurrence
+  survived because the removal was done by search-and-read rather than exhaustively. It now
+  links the setting and states the relation, which is what the prose was actually for.
+- `docs/TOOLS.md`'s intro explained its own edit history — "this sentence used to name two
+  of them and had been wrong since ADR-0042 added a third". The gate was right to pass it,
+  because it was not hand-edited: `scripts/gen_tools_docs.py` emits it. A generated
+  reference is the last place that story belongs, so the clause is gone from the generator
+  and the document is regenerated.
+
 ## #80 — 2026-09-02 — docs: reconcile the plan with what this session settled and landed
 
 ### Changed
