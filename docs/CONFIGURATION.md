@@ -63,7 +63,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DELEGATE_MAX_READ_CHARS` | 50000 chars | Cap on one read_file response. The model is told the true total and how to page, so it continues by range rather than re-reading. |
-| `DELEGATE_MAX_WRITE_BYTES` | 8388608 bytes | Cap on one write_file call. |
+| `DELEGATE_MAX_WRITE_BYTES` | 8388608 bytes | Cap on one write_file call, and on the result of one edit_file call. |
 | `DELEGATE_SEARCH_MAX_FILES_SCANNED` | 2000 | Files search_files will open before it stops looking and says so. Not a correctness bound -- the path policy is that -- but a wall-clock one: the workspace lives on /mnt/c, which is roughly 12x slower per file than ext4 (ADR-0020), so an unbounded walk of three project roots is a delegation spent on directory traversal. The result says when the cap was reached, because a truncated search that reads like an exhaustive one is worse than a refusal. |
 | `DELEGATE_RUN_BASH_TIMEOUT` | 600 seconds | Per-command timeout for run_bash. Sized to tell a hung command from a slow one, which means it has to sit above the slowest legitimate command rather than near it. Running a project's test suite is the first thing a delegated model is asked to do once it has a workdir, and this repository's own suite takes 281s serially in WSL -- so 120s, the previous value, was below the median legitimate command and killed real work. A kill is reported as a non-zero exit, and the model then reasons about it as a test failure and 'fixes' passing code, which corrupts the ground truth the whole self-verification design rests on (ADR-0007). The opposite error only wastes wall clock, and dispatch_timeout bounds it anyway. |
 

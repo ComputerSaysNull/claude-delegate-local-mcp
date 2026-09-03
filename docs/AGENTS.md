@@ -195,8 +195,8 @@ in order to read credentials out of it. (ADR-0036)
 ## The path policy
 
 Four layers, checked in order, cheapest first, and then a fifth check when the file is
-actually opened. They apply to `files[]` *and* to the model's own `read_file` and
-`write_file`.
+actually opened. They apply to `files[]` *and* to the model's own `read_file`,
+`write_file` and `edit_file`.
 
 `write_file` creates, so for it — and only for it — layer 1's existence test is relaxed: a
 missing file is allowed, while the directory to write into must still exist and an existing
@@ -292,7 +292,7 @@ source file, which is backwards — data files are the ones worth trimming. (ADR
 
 ### What the policy does not cover
 
-`read_file` and `write_file` are governed by the policy and run in the server process. The
+The three file tools are governed by the policy and run in the server process. The
 `workdir` argument is checked as its own surface, against
 [`workdir_roots`](CONFIGURATION.md), which falls back to the workspace roots when unset —
 reading a project and being able to work in it are separable grants, and a workdir is bound

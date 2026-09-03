@@ -457,6 +457,96 @@ def _write_file(cfg: Config, args: dict[str, object]) -> str:
     return f"{verb} {entry.posix} ({len(encoded)} bytes)."
 
 
+def _edit_file(cfg: Config, args: dict[str, object]) -> str:
+    """Replace one exact occurrence of `old_string`, or refuse and change nothing.
+
+    `write_file` replaces a file whole, so changing three lines of a long module meant
+    reading it back and rewriting every line, with any hallucinated character landing
+    silently in a part of the file nobody was looking at.
+
+    **Refusing an ambiguous or absent match is the feature, not a limitation of it.** A
+    stale quotation matches nothing and a common one matches twice, and both mean the model
+    is not editing what it thinks it is; saying so costs a turn, while guessing costs a
+    corrupted file nobody notices. That self-check is why this addresses text rather than
+    line numbers: line 151 is whatever line 151 now is, and a stale number overwrites the
+    wrong region with no way to tell.
+
+    One descriptor for the whole read-modify-write, held by `open_resolved`. Two opens
+    against one check is exactly the gap ADR-0049 closed, and a tool that has to read
+    before it writes is where it would otherwise come straight back.
+    """
+    entry = _one_path(cfg, _text_arg(args, "path"), must_exist=True)
+    old = _text_arg(args, "old_string")
+    new = _text_arg(args, "new_string")
+    if not old:
+        raise ToolRefused(
+            "'old_string' is empty, which matches everywhere and identifies nothing. Quote "
+            "the text to replace, including enough of its surroundings to be unique."
+        )
+    if old == new:
+        raise ToolRefused(
+            "'old_string' and 'new_string' are identical, so this call would change "
+            "nothing. Nothing was written."
+        )
+
+    try:
+        opened = open_resolved(entry, "r+b")
+    except OSError as e:
+        raise ToolRefused(f"could not read it: {e.strerror or e}") from e
+
+    with opened.handle as fh:
+        try:
+            nbytes = os.fstat(fh.fileno()).st_size
+            if nbytes > cfg.max_file_read_bytes:
+                raise ToolRefused(
+                    f"it is {nbytes} bytes, over the {cfg.max_file_read_bytes}-byte "
+                    f"ceiling, so it was not read at all and nothing was written. Use "
+                    f"run_bash with sed to edit a file this size."
+                )
+            raw = fh.read()
+        except OSError as e:
+            raise ToolRefused(f"could not read it: {e.strerror or e}") from e
+
+        text, why = decode_text(raw)
+        if text is None:
+            raise ToolRefused(why)
+
+        found = text.count(old)
+        if found == 0:
+            raise ToolRefused(
+                "'old_string' does not appear in the file, so nothing was written. Read the "
+                "file again -- what you quoted is either stale or not exactly what is "
+                "there, and whitespace counts."
+            )
+        if found > 1:
+            raise ToolRefused(
+                f"'old_string' appears {found} times, so which one to replace is ambiguous "
+                f"and nothing was written. Quote more of the surrounding lines until the "
+                f"text appears exactly once."
+            )
+
+        edited = text.replace(old, new, 1).encode("utf-8")
+        if len(edited) > cfg.max_write_bytes:
+            # The same limit `write_file` uses, and refused for the same reason: a silently
+            # shortened file is a corrupted one, and the model would have no way to know.
+            raise ToolRefused(
+                f"the result would be {len(edited)} bytes, over the "
+                f"{cfg.max_write_bytes}-byte limit for one write. Nothing was written."
+            )
+
+        try:
+            fh.seek(0)
+            fh.write(edited)
+            # Truncate to what was written, not to zero beforehand: every refusal above
+            # leaves the file exactly as it was, which is what lets the model retry with a
+            # better quotation instead of a repair.
+            fh.truncate()
+        except OSError as e:
+            raise ToolRefused(f"could not write it: {e.strerror or e}") from e
+
+    return f"Replaced 1 occurrence in {entry.posix} ({len(edited)} bytes)."
+
+
 def _capped(cfg: Config, result: sandbox.SandboxResult) -> str:
     """stdout and stderr, labelled, cut to the cap with the true length stated.
 
@@ -655,8 +745,43 @@ SEARCH_FILES = RegisteredTool(
 )
 
 # Insertion order is the declared order, and it is fixed here rather than sorted at use.
+EDIT_FILE = RegisteredTool(
+    spec=ToolSpec(
+        name="edit_file",
+        description=(
+            "Change part of a UTF-8 text file in the workspace by replacing exact text, "
+            "leaving the rest of the file untouched. Prefer this over write_file for an "
+            "edit to an existing file: write_file replaces the whole file, so it needs you "
+            "to reproduce every line you are not changing. old_string must appear exactly "
+            "once -- if it appears never or more than once the file is left completely "
+            "unchanged and you are told which, so quote enough of the surrounding lines to "
+            "be unique, and read the file first rather than quoting from memory. An empty "
+            "new_string deletes the text. The same path rules as read_file apply."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute path to the file."},
+                "old_string": {
+                    "type": "string",
+                    "description": "The exact text to replace, including whitespace and "
+                                   "indentation. Must occur exactly once in the file.",
+                },
+                "new_string": {
+                    "type": "string",
+                    "description": "What to put in its place. Empty to delete the text.",
+                },
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+    ),
+    handler=_edit_file,
+    writes=True,
+)
+
+
 REGISTRY: dict[str, RegisteredTool] = {
-    t.spec.name: t for t in (READ_FILE, SEARCH_FILES, WRITE_FILE, RUN_BASH)
+    t.spec.name: t for t in (READ_FILE, SEARCH_FILES, WRITE_FILE, EDIT_FILE, RUN_BASH)
 }
 ALL_TOOL_NAMES: frozenset[str] = frozenset(REGISTRY)
 

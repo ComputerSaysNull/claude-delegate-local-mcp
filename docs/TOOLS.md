@@ -53,6 +53,16 @@ Write a UTF-8 text file in the workspace, creating it or replacing it whole. Pat
 | `path` | string | yes | Absolute path to the file. |
 | `content` | string | yes | The complete file contents. |
 
+## `edit_file`
+
+Change part of a UTF-8 text file in the workspace by replacing exact text, leaving the rest of the file untouched. Prefer this over write_file for an edit to an existing file: write_file replaces the whole file, so it needs you to reproduce every line you are not changing. old_string must appear exactly once -- if it appears never or more than once the file is left completely unchanged and you are told which, so quote enough of the surrounding lines to be unique, and read the file first rather than quoting from memory. An empty new_string deletes the text. The same path rules as read_file apply.
+
+| Argument | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | string | yes | Absolute path to the file. |
+| `old_string` | string | yes | The exact text to replace, including whitespace and indentation. Must occur exactly once in the file. |
+| `new_string` | string | yes | What to put in its place. Empty to delete the text. |
+
 ## `run_bash`
 
 Run a shell command, confined: no network, an empty filesystem apart from a scratch HOME and a read-only toolchain, and your real home directory absent rather than merely unreadable. Commands time out and are killed. The server reports the real exit code it observed, so do not describe a command as having succeeded when the result says otherwise. To change a file's text, prefer write_file, which replaces it whole.
@@ -61,7 +71,7 @@ Run a shell command, confined: no network, an empty filesystem apart from a scra
 | --- | --- | --- | --- |
 | `command` | string | yes | The command to run. |
 
-*4 tools.*
+*5 tools.*
 
 <!-- GEN:TOOLS:END -->
 

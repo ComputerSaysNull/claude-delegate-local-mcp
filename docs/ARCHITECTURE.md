@@ -81,7 +81,7 @@ prompt, and returns text. No tools, one request. The point is that the bytes are
 *server-side* — they never enter Claude's context, so a 40K-token file review costs Claude
 almost nothing.
 
-**Agentic.** The local model is given `read_file`, `write_file` and `run_bash` and loops:
+**Agentic.** The local model is given the file tools and `run_bash`, and loops:
 one model reply plus any tool it ran is a *turn*, up to a budget. It can write code, run
 your tests, read the real failure and try again — at no cloud token cost — before handing
 anything back.
@@ -336,7 +336,7 @@ shadows an earlier one at or below the same path, so two rules hold: HOME binds 
 workdir, and read-only toolchain binds come before the read-write workdir. Both matter only
 when paths overlap, which is exactly why they are asserted rather than remembered. (ADR-0034)
 
-The division of labour is easy to get wrong: `read_file` and `write_file` are governed by
+The division of labour is easy to get wrong: the file tools are governed by
 the **path policy** and never enter the sandbox — they run in the server process. Only
 `run_bash` is confined. That is intended. The policy is sufficient for calls the server
 makes itself, and insufficient only once an arbitrary shell exists — which is why the
@@ -533,7 +533,7 @@ by passing an argument would be the check that cannot fail. Nor an agent file, w
 batch form accepts: `run_delegation` reads `agent.allowed_tools` only when nobody passed any.
 
 The three that can write carry no such hint and must not. With `allowed_tools` unset a delegation
-hands the local model `write_file` and `run_bash`, so a read-only claim there would be false
+hands the local model the writing tools and `run_bash`, so a read-only claim would be false
 in the way that is hardest to notice -- the client stops asking, the write still happens, and
 nothing anywhere reports a contradiction. The permission layer matches on tool name and never
 inspects arguments, so the claim is a property of the tool or it is worth nothing. Holding

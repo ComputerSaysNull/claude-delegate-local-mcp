@@ -912,7 +912,13 @@ def test_the_default_delegation_offers_every_available_tool(monkeypatch):
 
     delegated(handler, task="a question")
     declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
-    assert declared == {"read_file", "search_files", "write_file", "run_bash"}
+    assert declared == {
+        "read_file",
+        "search_files",
+        "write_file",
+        "edit_file",
+        "run_bash",
+    }
 
 
 def test_a_host_without_bubblewrap_is_not_offered_run_bash(monkeypatch):
@@ -932,7 +938,7 @@ def test_a_host_without_bubblewrap_is_not_offered_run_bash(monkeypatch):
 
     delegated(handler, task="a question")
     declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
-    assert declared == {"read_file", "search_files", "write_file"}
+    assert declared == {"read_file", "search_files", "write_file", "edit_file"}
 
 
 def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
