@@ -82,7 +82,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DELEGATE_MAX_TURNS_DEFAULT` | 25 | Round trips a delegation gets before the server stops it. One turn is one model reply plus any tool it ran. |
-| `DELEGATE_MAX_TURNS_HARD_CAP` | 40 | Ceiling no agent file or caller may exceed. Stops an agent definition asking for 500 turns and occupying the cluster for hours. |
+| `DELEGATE_MAX_TURNS_HARD_CAP` | 100 | Ceiling no agent file or caller may exceed. Stops an agent definition asking for 500 turns and occupying the cluster for hours. Raised from 40 once max_turns became overridable per call: the cap exists to refuse an absurd number, not to decide what a hard case may ask for, and 40 was low enough to be the second. A caller's number is clamped here silently; an agent file's is refused, so the file is fixed rather than quietly ignored. |
 | `DELEGATE_KEEP_TOOL_RESULTS` | 6 | Most recent tool results kept intact; older ones collapse to a one-line stub. Every turn resends the whole history, so this is what stops quadratic growth. |
 | `DELEGATE_MAX_BATCH_SIZE` | 12 | Largest accepted delegate_batch request. |
 

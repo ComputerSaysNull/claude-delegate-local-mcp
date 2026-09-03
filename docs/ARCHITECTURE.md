@@ -1,4 +1,5 @@
-<!-- BUDGET: 633
+<!-- BUDGET: 638
+     Raised from 633 on 2026-09-03: max_turns became a per-call argument, so this document can state where argument precedence is applied and why there is exactly one such place.
      Raised from 630 on 2026-09-02: list_agents reports what it skipped and what belongs to the other format, which is the discovery case of a rule this document already states.
      Raised from 625 on 2026-09-02: nothing set the transcript's file permissions, so this document could not state them.
      Raised to the size it had already reached on 2026-09-01: the check that should have held this
@@ -111,6 +112,13 @@ The table covers every module; the three marked above live in [DISPATCH.md](DISP
 which owns them, and `agents.py` in [AGENTS.md](AGENTS.md). The ancestor put all of this in one large file; we add two concerns it
 never had — path translation and sandboxing — so the split follows concerns, not line count.
 `server.py` stays thin wiring; the logic lives in `loop.py`, `backends/` and `context.py`.
+
+One exception to thin, and it is deliberate: every delegation tool resolves its arguments
+through the single `run_delegation`, which applies the call-argument-then-agent-file
+precedence [AGENTS.md](AGENTS.md) states. Four tools with four resolution paths is how the
+two halves of one precedence rule drift apart, and precedence is exactly what an agent file
+is. `max_turns` was the standing proof: it alone read the file without consulting the
+argument, inside the function that got every other setting right.
 
 ### stdout belongs to the protocol
 

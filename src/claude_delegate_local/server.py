@@ -456,6 +456,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     effort: str | None = None,
     allowed_tools: list[str] | None = None,
     max_tokens: int | None = None,
+    max_turns: int | None = None,
     agent: AgentSpec | None = None,
     workdir: str | None = None,
     diagnostics: bool = False,
@@ -473,7 +474,6 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     The agent, if there is one, is already loaded and validated -- this applies it, and
     does not go looking for it. `workdir` arrives already resolved and root-checked.
     """
-    max_turns: int | None = None
     # The tool boundary, and the only place `"inherit"` exists. It has to be spent *before*
     # the agent merge below, not inside `resolve_effort`: that merge is `effort or
     # agent.effort`, and a non-empty string is truthy, so leaving `"inherit"` in place would
@@ -501,9 +501,14 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         raise ToolError(str(e)) from e  # already names the registered keys
 
     if agent is not None:
+        # Every one of these is `call argument or agent file`, and `max_turns` was the
+        # exception until it stopped being one. It read `= agent.max_turns`, so the single
+        # setting that truncates a run was the single setting an agent file could not be
+        # overruled on -- while `delegate_to_agent` sells per-call override as the point.
+        # The clamp still binds either way: `resolve_max_turns` caps whatever arrives here.
         effort = effort or agent.effort
         max_tokens = max_tokens or agent.max_tokens
-        max_turns = agent.max_turns
+        max_turns = max_turns or agent.max_turns
         if allowed_tools is None and agent.allowed_tools is not None:
             allowed_tools = list(agent.allowed_tools)
         if agent.keep_tool_results is not None:
@@ -821,6 +826,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         # argument by name, so positional order is a promise to nobody.
         allowed_tools: list[str] | None = None,
         max_tokens: int | None = None,
+        max_turns: int | None = None,
         diagnostics: bool = False,
         # Not an argument at all -- fastmcp injects it by type, and it never appears in
         # the schema the model reads.
@@ -875,6 +881,11 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         headroom rather than saving anything. It is honoured as given, up to whatever the
         model itself accepts.
 
+        `max_turns` caps how many round trips it gets. Raise it for work that genuinely
+        iterates -- a wide audit, a refactor across many files -- and read
+        `hit_turn_limit: true` as the sign you should have. It is clamped to a ceiling the
+        operator sets, silently, so asking for more than that is not an error.
+
         A path in `files[]` that is not allowed fails the whole call before anything is
         sent, and the error names every rejected path, the layer that rejected it, and
         what to do. A file that is allowed but too large or not text is **skipped**: the
@@ -914,7 +925,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         return await run_delegation(
             cfg, registry, cache, windows, admission,
             task=task, files=files, model=model, effort=effort,
-            allowed_tools=allowed_tools, max_tokens=max_tokens,
+            allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate",
         )
 
@@ -993,6 +1004,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         effort: str,
         allowed_tools: list[str] | None = None,
         max_tokens: int | None = None,
+        max_turns: int | None = None,
         diagnostics: bool = False,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
@@ -1032,7 +1044,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         return await run_delegation(
             cfg, registry, cache, windows, admission,
             task=task, files=files, model=model, effort=effort,
-            allowed_tools=allowed_tools, max_tokens=max_tokens,
+            allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             agent=agent, workdir=resolved_workdir,
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent",
         )
@@ -1048,6 +1060,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         effort: str,
         allowed_tools: list[str] | None = None,
         max_tokens: int | None = None,
+        max_turns: int | None = None,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Run several tasks sharing one agent and one set of files, and get all the answers.
@@ -1071,6 +1084,9 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
         or "inherit" to defer to `agent_name`'s file and then the configured default. It is
         one value for the whole batch, so tasks needing different depths belong in different
         batches -- which is the same rule as `files[]`, for the same reason.
+
+        `max_turns` is one value for the whole batch too, and applies to each item
+        separately rather than being shared out between them.
 
         **One item failing does not fail the batch.** Each result carries its own `ok`, and a
         failed one carries `error` instead of an answer, with the `index` and `task` that
@@ -1125,6 +1141,7 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
                     cfg, registry, cache, windows, admission,
                     task=one, files=files, model=model, effort=effort,
                     allowed_tools=allowed_tools, max_tokens=max_tokens,
+                    max_turns=max_turns,
                     agent=agent, workdir=resolved_workdir,
                     # No `ctx`, so this delegation's own turn numbers never reach the
                     # client -- interleaved counts from items running at once would

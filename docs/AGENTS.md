@@ -1,4 +1,5 @@
-<!-- BUDGET: 327
+<!-- BUDGET: 331
+     Raised from 327 on 2026-09-03: max_turns became overridable per call, so the precedence rule moved out of the model subsection to govern the whole field table, which is a net three lines after deleting the copy it replaced.
      Raised from 310 on 2026-09-02: list_agents now separates a broken agent file from one in Claude Code's format, and what a caller is told about each is a fact this document owns.
      Raised to the size it had already reached on 2026-09-01: the check that should have held this
      line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
@@ -113,6 +114,12 @@ Everything below the frontmatter is the system prompt.
 | `network` | `true` re-shares the network namespace for `run_bash`. Default off |
 | `extra_binds` | Extra directories visible inside the sandbox |
 
+**Every row is overridable per call**, and the order is the call argument, then frontmatter,
+then — for the two settings that have one, `model` and `effort` — the registry row, then the
+global default. `max_turns` was the exception until 2026-09-03: it read the file and ignored
+the argument, so the single field that truncates a run was the single field that needed the
+file edited to change.
+
 ### `model` genuinely binds
 
 In the ancestor, frontmatter was loaded and then largely ignored — `model:` did nothing.
@@ -120,9 +127,6 @@ That is a real bug the fork fixed, and it is worth naming because it is easy to 
 resolution must be consistent between the code that picks a concurrency bucket and the code
 that makes the call. If those disagree, the request is counted against one endpoint's limit
 and sent to another.
-
-Precedence: explicit call argument, then frontmatter, then the registry row, then the global
-default.
 
 ### An over-cap `max_turns` is refused, where a caller's is clamped
 
