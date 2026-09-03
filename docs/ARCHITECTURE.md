@@ -520,15 +520,15 @@ neither can change anything; a caller gating writes on that declaration -- plan 
 Claude Code does -- runs them without stopping. Measured rather than assumed: the same call
 prompts for approval without the annotation and does not with it.
 
-`delegate_readonly` is what that asymmetry leaves room for: `delegate` with
-`allowed_tools` fixed at `[]` rather than accepted as an argument. What it can do is
-identical to `delegate` called the same way; what differs is that a caller can promise it
-in advance. `[]` resolves to the empty set where `None` resolves to everything available,
-and no parameter exists to widen it back -- an annotation a caller could falsify by passing
-an argument would be precisely the check that cannot fail. The cost is a sixth tool on the
-model-facing contract, paid because the alternative is annotating something untrue.
+`delegate_readonly` and `delegate_batch_readonly` are what that asymmetry leaves room for:
+their writing twins with the tool set fixed to whatever declares no write, rather than
+accepted as an argument. Each does what its twin does when called the same way; what differs
+is that a caller can promise it in advance. The fixed set intersects where `None` resolves to
+everything available, so no parameter widens it back -- an annotation a caller could falsify
+by passing an argument would be the check that cannot fail. Nor an agent file, which the
+batch form accepts: `run_delegation` reads `agent.allowed_tools` only when nobody passed any.
 
-The delegate tools carry no such hint and must not. With `allowed_tools` unset a delegation
+The three that can write carry no such hint and must not. With `allowed_tools` unset a delegation
 hands the local model `write_file` and `run_bash`, so a read-only claim there would be false
 in the way that is hardest to notice -- the client stops asking, the write still happens, and
 nothing anywhere reports a contradiction. The permission layer matches on tool name and never
@@ -557,8 +557,8 @@ file existed at whatever the umask allowed. umask only clears bits, so this is a
 Both halves say **which call they came from and what it was handed**: `tool` is the tool the
 caller invoked, `tools` is the set that call resolved to, and the files are the prefetch
 accounting — paths and cost, never text. Two fields rather than one, because neither answers
-the other's question. `delegate_readonly` is `delegate` with the tool set fixed empty, so the
-two run an identical path and the shape cannot say which was called; and `delegate` alone
+the other's question. A read-only tool is its writing twin with the tool set fixed, so the
+pair runs one path and `tools` alone cannot say which was called; and `delegate` alone
 does not say whether a loop ran, because a caller may pass `allowed_tools=[]` and get a
 one-shot. Until both were recorded, a read-only call, a `delegate_batch` item and a plain
 `delegate` wrote byte-identical transcripts — so a directory of them could not be counted by

@@ -141,15 +141,18 @@ _KINDS = {
     "delegate_readonly": "readonly",
     "delegate_to_agent": "agent",
     "delegate_batch": "batch",
+    # Eight characters, because the column is eight wide. `kind_of` falls back to the raw
+    # tool name, so an unmapped fifth tool would not break -- it would just push the column.
+    "delegate_batch_readonly": "ro-batch",
 }
 
 
 def kind_of(row: dict) -> str:
     """What kind of call this was, in one word narrow enough for a column.
 
-    Two facts, one column, because only one of them is ever a surprise: `readonly` is a
-    one-shot by construction, so the shape is worth naming only when a `delegate` was
-    given no tools and quietly ran as one.
+    Two facts, one column, because only one of them is ever a surprise: which tool was
+    called is in the name, so the shape is worth naming only when a `delegate` was given
+    no tools and quietly ran as one. `readonly` used to imply that and no longer does.
 
     A transcript written before the tool was recorded says `?` rather than `delegate`.
     Every call used to write `delegate` whether or not it was one, so guessing here would

@@ -34,6 +34,50 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #91 — 2026-09-03 — feat: delegate_batch_readonly, and one shared batch body
+
+### Added
+- `delegate_batch_readonly`, the seventh MCP tool. Found in use rather than in review, and
+  by it modifying this repository: three research batches in one session ran with
+  `write_file` and `run_bash` and came back having edited `config.py` and `context.py`,
+  unasked. The cause is that `resolve_allowed` treats `allowed_tools=None` as *every
+  available tool*, and `delegate_batch` had no read-only sibling — so shared-prefix
+  research, which is the whole reason to batch, was reachable only through a tool that can
+  write.
+- Narrowing `delegate_batch` with `allowed_tools` was never the fix, and this is the point
+  of the tool rather than a detail of it. `readOnlyHint` is a property of the tool; a client
+  gating writes on it decides *before* the call runs and never inspects arguments. So the
+  promise has to be a tool, which is ADR-0042's argument applied a second time — and the
+  tool count test now says seven, with the reason written into it.
+- The fixed set is `sorted(READ_ONLY_TOOL_NAMES)`, derived from which tools declare `writes`
+  rather than listed at the call site (ADR-0048). There is no `allowed_tools` parameter to
+  widen it back, and `resolve_allowed` intersects rather than unions, so naming a writing
+  tool cannot reach one.
+
+### Changed
+- Both batch tools now share one body, `_run_batch`. The guards, the one-off model resolve
+  that makes an unknown model fail the batch rather than every item in it identically, the
+  keepalive and the per-item `ok`/`error` contract exist once. Two copies of that contract
+  would be two things to keep in step, which is the same reasoning that already put the four
+  single-task tools behind `run_delegation`.
+- `docs/ARCHITECTURE.md` and `docs/AGENTS.md` both still said `delegate_readonly` was
+  `delegate` with `allowed_tools` fixed at `[]`. That stopped being true at #86, which gave
+  it `read_file` and `search_files`; the two statements were missed because the change was
+  described where the one-shot path was described, not everywhere the empty set was quoted.
+  Both are corrected in place, line-neutral, alongside the new pair.
+- `scripts/watch_delegations.py` labels the new tool `ro-batch`. `kind_of` falls back to the
+  raw tool name, so an unmapped tool would have worked and simply pushed an eight-wide
+  column. Its docstring also claimed `readonly` implied a one-shot, which #86 ended.
+
+### Fixed
+- An agent file cannot widen a read-only batch, which is the one path `delegate_readonly`
+  has no equivalent of because it takes no agent. An agent body is markdown in whatever
+  repository is being delegated over, so its frontmatter is adversary-controlled in exactly
+  the case this tool is for — reviewing somebody's code. `run_delegation` reads
+  `agent.allowed_tools` only when the caller passed none, and this caller always passes a
+  set. That was already true and is now asserted: the test was watched failing against an
+  agent declaring `write_file`, with the fixed set removed.
+
 ## #88 — 2026-09-03 — feat: the gate refuses an agent body naming a command it cannot run
 
 ### Added

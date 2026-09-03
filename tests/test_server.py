@@ -412,7 +412,7 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_exactly_six_tools_are_declared():
+def test_exactly_seven_tools_are_declared():
     """docs/AGENTS.md promises this exact set, and this is what holds it to that.
 
     The promise is the design: a new *kind* of delegated task is a markdown file, not
@@ -425,6 +425,11 @@ def test_exactly_six_tools_are_declared():
     permission rules match on tool name and never inspect arguments, so the constraint has
     to be a tool. Changing this number is the moment to write that argument down, and
     ADR-0042 is where it went.
+
+    It says seven for the second application of that same argument: a batch could be
+    narrowed to read-only by an argument, and an argument is exactly what the permission
+    layer cannot see. The number will not go up again for a *task* -- that is still a
+    markdown file -- only for a promise a caller must be able to make before the call.
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -435,7 +440,7 @@ def test_exactly_six_tools_are_declared():
 
     assert set(asyncio.run(go())) == {
         "delegate", "delegate_readonly", "delegate_to_agent", "delegate_batch",
-        "list_agents", "backend_status",
+        "delegate_batch_readonly", "list_agents", "backend_status",
     }
 
 
@@ -1189,9 +1194,17 @@ def test_a_workdir_outside_every_root_is_refused_before_anything_is_sent(tmp_pat
 
 # --- delegate_batch -----------------------------------------------------------------------
 
+# Both batch tools, wherever the assertion is about the batch rather than about its tool
+# set. They share one body (`_run_batch`), and a shared body is exactly the thing that can
+# be changed for one caller while silently changing it for the other -- so the guards, the
+# ordering and the per-item `ok`/`error` contract are asserted on both rather than on the
+# one that happened to be written first.
+BATCH_TOOLS = ("delegate_batch", "delegate_batch_readonly")
 
-def test_a_batch_returns_one_result_per_task_in_order():
-    results = called(chat_handler(content="a"), "delegate_batch",
+
+@pytest.mark.parametrize("tool", BATCH_TOOLS)
+def test_a_batch_returns_one_result_per_task_in_order(tool):
+    results = called(chat_handler(content="a"), tool,
                      tasks=["one", "two", "three"])
     assert results["count"] == 3
     assert [r["index"] for r in results["results"]] == [0, 1, 2]
@@ -1222,7 +1235,8 @@ def test_every_item_in_a_batch_shares_the_prefix_and_differs_only_in_the_task(tm
     assert {body[body.rindex("\n\n") + 2 :] for body in seen} == {"alpha", "beta"}
 
 
-def test_one_failing_item_does_not_discard_the_others():
+@pytest.mark.parametrize("tool", BATCH_TOOLS)
+def test_one_failing_item_does_not_discard_the_others(tool):
     """The contract. Work already paid for is never thrown away because a later item was
     refused -- and on a shared cluster a single transient refusal is not rare."""
     calls = {"n": 0}
@@ -1233,7 +1247,7 @@ def test_one_failing_item_does_not_discard_the_others():
             return httpx.Response(503, json={"error": "overloaded"})
         return httpx.Response(200, json=chat_reply(content="fine"))
 
-    results = called(handler, "delegate_batch",
+    results = called(handler, tool,
                      config=cfg(retry_max_attempts=1),
                      tasks=["good one", "poison", "good two"])
 
@@ -1246,15 +1260,17 @@ def test_one_failing_item_does_not_discard_the_others():
     assert by_index[1]["error"]
 
 
-def test_a_batch_over_the_cap_is_refused_naming_the_setting():
+@pytest.mark.parametrize("tool", BATCH_TOOLS)
+def test_a_batch_over_the_cap_is_refused_naming_the_setting(tool):
     with pytest.raises(Exception, match="DELEGATE_MAX_BATCH_SIZE"):
-        called(chat_handler(), "delegate_batch",
+        called(chat_handler(), tool,
                config=cfg(max_batch_size=2), tasks=["a", "b", "c"])
 
 
-def test_an_empty_batch_is_refused():
+@pytest.mark.parametrize("tool", BATCH_TOOLS)
+def test_an_empty_batch_is_refused(tool):
     with pytest.raises(Exception, match="nothing to delegate"):
-        called(chat_handler(), "delegate_batch", tasks=[])
+        called(chat_handler(), tool, tasks=[])
 
 
 def test_a_batch_never_exceeds_the_endpoints_declared_concurrency(tmp_path):
@@ -1545,6 +1561,55 @@ def test_delegate_readonly_offers_only_tools_that_cannot_write():
         assert not tools_module.REGISTRY[name].writes, f"{name} can write"
 
 
+def test_every_item_of_a_read_only_batch_is_offered_only_tools_that_cannot_write():
+    """Per item, not per call. The batch fans out into separate dispatches, so a tool set
+    fixed at the wrapper is only worth anything if it survives the fan-out to every one."""
+    sent: list[dict] = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(content="an answer"))
+
+    results = called(handler, "delegate_batch_readonly", tasks=["one", "two", "three"])
+
+    assert results["count"] == 3
+    assert len(sent) == 3, sent
+    for body in sent:
+        declared = {t["function"]["name"] for t in body.get("tools") or ()}
+        assert declared, "an item was dispatched with no tools at all"
+        for name in declared:
+            assert not tools_module.REGISTRY[name].writes, f"{name} can write"
+
+
+@files_posix_only
+def test_an_agent_file_cannot_widen_a_read_only_batch(tmp_path):
+    """The path `delegate_readonly` has no equivalent of, because it takes no agent.
+
+    An agent body is markdown in whatever repository is being delegated over, so its
+    frontmatter is adversary-controlled in exactly the case this tool is for -- reviewing
+    somebody's code. `run_delegation` reads `agent.allowed_tools` only when the caller
+    passed none, and this caller always passes a set; drop that `sorted(...)` argument and
+    this test fails while every other read-only test still passes.
+    """
+    agent_file(tmp_path, "greedy",
+               frontmatter="allowed_tools: [read_file, write_file]\n")
+    sent: list[dict] = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(content="an answer"))
+
+    called(handler, "delegate_batch_readonly",
+           config=cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere")),
+           tasks=["one", "two"], agent_name="greedy", workdir=str(tmp_path))
+
+    assert len(sent) == 2, sent
+    for body in sent:
+        declared = {t["function"]["name"] for t in body.get("tools") or ()}
+        assert "write_file" not in declared, declared
+        assert declared == {"read_file", "search_files"}, declared
+
+
 def test_delegate_readonly_has_no_argument_that_could_widen_it():
     """`allowed_tools` is fixed, not defaulted.
 
@@ -1557,12 +1622,13 @@ def test_delegate_readonly_has_no_argument_that_could_widen_it():
             return {t.name: t for t in await client.list_tools()}
 
     tools = asyncio.run(go())
-    schema = tools["delegate_readonly"].inputSchema
 
-    assert "allowed_tools" not in schema.get("properties", {}), (
-        "delegate_readonly must not accept allowed_tools; it would let a caller widen "
-        "a tool the client has been told is read-only"
-    )
+    for name in ("delegate_readonly", "delegate_batch_readonly"):
+        schema = tools[name].inputSchema
+        assert "allowed_tools" not in schema.get("properties", {}), (
+            f"{name} must not accept allowed_tools; it would let a caller widen "
+            "a tool the client has been told is read-only"
+        )
 
 
 def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
@@ -1573,24 +1639,34 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
     a client that gates writes on the annotation run one while believing nothing could be
     written -- the failure mode is silent, and the annotation is trusted precisely because
     it is rarely checked.
+
+    The two lists are the whole surface, so a tool added to neither is caught: the third
+    assertion below fails on a name this test has not been told about, which is what stops
+    a fifth delegating tool arriving unannotated in either direction.
     """
     async def go():
         async with Client(build_default()) as client:
             return {t.name: t.annotations for t in await client.list_tools()}
 
     seen = asyncio.run(go())
+    cannot_write = ("backend_status", "list_agents", "delegate_readonly",
+                    "delegate_batch_readonly")
+    can_write = ("delegate", "delegate_to_agent", "delegate_batch")
 
-    for name in ("backend_status", "list_agents", "delegate_readonly"):
+    for name in cannot_write:
         assert seen[name] is not None and seen[name].readOnlyHint is True, (
             f"{name} cannot write and must say so"
         )
-    for name in ("delegate", "delegate_to_agent", "delegate_batch"):
+    for name in can_write:
         annotations = seen[name]
         claimed = annotations is not None and annotations.readOnlyHint is True
         assert not claimed, (
             f"{name} can be given write_file and run_bash, so it must never declare "
             "itself read-only"
         )
+    assert set(seen) == set(cannot_write) | set(can_write), (
+        "a tool was added without deciding which side of the read-only line it sits on"
+    )
 
 
 # --- the one-shot keepalive ---------------------------------------------------------
@@ -1730,6 +1806,7 @@ def test_a_failing_heartbeat_does_not_take_the_delegation_with_it():
         ("delegate_readonly", {"task": "q"}),
         ("delegate_to_agent", {"agent_name": "helper", "task": "q"}),
         ("delegate_batch", {"tasks": ["q"]}),
+        ("delegate_batch_readonly", {"tasks": ["q"]}),
     ],
 )
 def test_a_delegation_that_names_no_effort_is_refused(tool, args):
@@ -1737,8 +1814,9 @@ def test_a_delegation_that_names_no_effort_is_refused(tool, args):
 
     Making a parameter required is only worth anything if omitting it actually fails, and
     "required" here is a property of a schema fastmcp derives from a signature -- not
-    something this repository writes down. So assert the refusal, on all four tools, rather
-    than trusting that dropping a default had the effect it looks like it has.
+    something this repository writes down. So assert the refusal, on every tool that
+    delegates, rather than trusting that dropping a default had the effect it looks like
+    it has.
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler("served-id-1")))

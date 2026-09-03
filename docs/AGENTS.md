@@ -29,18 +29,18 @@ that reach it in M6. Everything below describes behaviour. The roadmap is
 
 ## Why agents are files
 
-There are six MCP tools: `delegate`, `delegate_readonly`, `delegate_to_agent`,
-`delegate_batch`, `list_agents` and `backend_status`. A new *kind* of delegated task —
-review, test-writing, refactoring, migration — is a markdown file, not a new tool. A test
-asserts the exact set, so another cannot arrive without someone arguing for it.
+There are seven MCP tools: `delegate`, `delegate_readonly`, `delegate_to_agent`,
+`delegate_batch`, `delegate_batch_readonly`, `list_agents` and `backend_status`. A new
+*kind* of delegated task — review, test-writing, refactoring, migration — is a markdown
+file, not a new tool. A test asserts the exact set, so another cannot arrive unargued.
 
-It was five until `delegate_readonly`, which is the argument ADR-0005 asked for and not an
-exception to it. That rule is about task *kinds*, and this is not one: it is `delegate`
-with `allowed_tools` fixed at `[]`, existing because a client decides whether to prompt
-before a call runs and can only read the tool's annotation at that point. A read-only call
-cannot be expressed where permission rules never inspect arguments; only a read-only tool
-can. No agent file can carry that constraint, because the tool an agent is reached through
-can write. (ADR-0042)
+It was five until `delegate_readonly` and six until `delegate_batch_readonly`, which are one
+argument ADR-0005 asked for and not an exception to it. That rule is about task *kinds*, and
+these are not: each is its writing twin with the tool set fixed, existing because a client
+decides whether to prompt before a call runs and can only read the tool's annotation then. A
+read-only call cannot be expressed where permission rules never inspect arguments; only a
+read-only tool can. No agent file can carry that constraint, because the tool an agent is
+reached through can write. (ADR-0042)
 
 That keeps the tool list Claude sees from growing without bound, and makes adding a task
 type a file rather than a code change and a release. The format is the one Claude Code
@@ -320,7 +320,7 @@ the lookup reads `<workdir>/.claude/agents/` and a check that runs afterwards is
 Several tasks over the same material go in one call:
 
 ```
-delegate_batch(
+delegate_batch_readonly(
   agent_name = "reviewer",
   files      = ["C:/proj/src/payments/refund.py"],
   tasks      = ["Check the currency rounding.",
@@ -331,10 +331,10 @@ delegate_batch(
 
 Every item shares the agent body and the files block and differs only in the task, which is
 exactly the order [ADR-0011](../DECISIONS.md) fixed the prompt in — so the shared part is
-served from the cluster's prefix cache instead of being paid for three times. Items run
-concurrently up to the endpoint's declared `concurrency`, and **one failing does not fail
-the batch**: each result carries its own `ok`, so read `failed` before trusting a summary.
-(ADR-0037)
+served from the cluster's prefix cache instead of paid for three times. `delegate_batch` is
+the same call for items that must write. Items run concurrently up to the endpoint's declared
+`concurrency`, and **one failing does not fail the batch**: each result carries its own `ok`,
+so read `failed` before trusting a summary. (ADR-0037)
 
 The result reports `bash_failures` and `last_bash_exit` **captured by the server**, not
 claimed by the model. Trust those over the prose: models misreport command outcomes, and
