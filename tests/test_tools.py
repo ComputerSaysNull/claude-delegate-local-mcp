@@ -380,6 +380,189 @@ def needs_bwrap(fn):
         pytest.mark.skipif(shutil.which("bwrap") is None, reason=BWRAP_REASON)(fn))
 
 
+
+# --- edit_file ---------------------------------------------------------------------------
+#
+# The refusals are the tool, not the edge cases of it: a quotation that matches nothing or
+# matches twice means the model is not editing what it thinks it is, and every one of these
+# asserts the file is byte-identical afterwards. A test that only checked the message would
+# pass against a tool that refused and wrote anyway.
+
+MODULE = """def one():
+    return 1
+
+
+def two():
+    return 1
+"""
+
+
+@posix_only
+def test_edit_file_replaces_a_unique_occurrence(workspace):
+    target = workspace / "mod.py"
+    target.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("edit_file", path=str(target), old_string="beta", new_string="BETA"),
+        tools.ALL_TOOL_NAMES)
+    assert not result.is_error, result.content
+    assert target.read_text(encoding="utf-8") == "alpha\nBETA\ngamma\n"
+    assert "Replaced 1 occurrence" in result.content
+
+
+@posix_only
+def test_edit_file_leaves_the_file_alone_when_the_quotation_is_stale(workspace):
+    """Zero matches. The whole reason this addresses text rather than line numbers: a stale
+    line number silently overwrites the wrong region, and a stale quotation cannot."""
+    target = workspace / "mod.py"
+    target.write_text(MODULE, encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("edit_file", path=str(target), old_string="return 3", new_string="return 4"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "does not appear" in result.content
+    assert target.read_text(encoding="utf-8") == MODULE
+
+
+@posix_only
+def test_edit_file_refuses_an_ambiguous_quotation_and_says_how_many(workspace):
+    """Two matches, which is the case that would corrupt a file quietly if it replaced the
+    first one -- the model would be told it succeeded and be looking at the wrong function."""
+    target = workspace / "mod.py"
+    target.write_text(MODULE, encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("edit_file", path=str(target), old_string="return 1", new_string="return 2"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "appears 2 times" in result.content
+    assert target.read_text(encoding="utf-8") == MODULE
+
+
+@posix_only
+def test_edit_file_deletes_when_new_string_is_empty(workspace):
+    target = workspace / "mod.py"
+    target.write_text("keep\ndrop\nkeep\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("edit_file", path=str(target), old_string="drop\n", new_string=""),
+        tools.ALL_TOOL_NAMES)
+    assert not result.is_error, result.content
+    assert target.read_text(encoding="utf-8") == "keep\nkeep\n"
+
+
+@posix_only
+def test_edit_file_shrinking_a_file_truncates_what_is_left_over(workspace):
+    """The descriptor is reused rather than reopened, so a missing truncate would leave the
+    tail of the old contents behind -- a corruption the byte count would not reveal."""
+    target = workspace / "mod.py"
+    target.write_text("aaaaaaaaaaaaaaaaaaaa\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("edit_file", path=str(target), old_string="aaaaaaaaaaaaaaaaaaaa",
+             new_string="a"),
+        tools.ALL_TOOL_NAMES)
+    assert not result.is_error, result.content
+    assert target.read_bytes() == b"a\n"
+
+
+@posix_only
+def test_edit_file_refuses_an_empty_old_string(workspace):
+    """It matches at every position and identifies nothing, so it is a caller error rather
+    than an edit of zero characters."""
+    target = workspace / "mod.py"
+    target.write_text(MODULE, encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("edit_file", path=str(target), old_string="", new_string="x"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "empty" in result.content
+    assert target.read_text(encoding="utf-8") == MODULE
+
+
+@posix_only
+def test_edit_file_refuses_a_no_op(workspace):
+    """A turn spent changing nothing should say so rather than report a success."""
+    target = workspace / "mod.py"
+    target.write_text(MODULE, encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("edit_file", path=str(target), old_string="return 1", new_string="return 1"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "identical" in result.content
+
+
+@posix_only
+def test_edit_file_refuses_a_result_over_the_write_limit(workspace):
+    """The same limit write_file uses, and nothing is written -- the refusal has to come
+    before the seek, not after it."""
+    target = workspace / "mod.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace, max_write_bytes=10),
+        call("edit_file", path=str(target), old_string="1", new_string="1" * 50),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "over the 10-byte limit" in result.content
+    assert target.read_text(encoding="utf-8") == "x = 1\n"
+
+
+@posix_only
+def test_edit_file_refuses_a_file_that_is_not_text(workspace):
+    """decode_text, shared with read_file, so a binary file gets one answer from both."""
+    target = workspace / "blob.py"
+    target.write_bytes(b"\x00\x01binary")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("edit_file", path=str(target), old_string="binary", new_string="text"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert target.read_bytes() == b"\x00\x01binary"
+
+
+@posix_only
+def test_edit_file_obeys_the_path_policy_like_every_other_file_tool(workspace, tmp_path):
+    """It goes through `_one_path`, so this asserts the layers reach it rather than
+    re-testing them: a path outside every root, and an unlisted extension."""
+    outside = tmp_path.parent / "elsewhere.py"
+    outside.write_text("x = 1\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("edit_file", path=str(outside), old_string="x = 1", new_string="x = 2"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert outside.read_text(encoding="utf-8") == "x = 1\n"
+
+    blocked = workspace / "bundle.wasm"
+    blocked.write_text("x = 1\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("edit_file", path=str(blocked), old_string="x = 1", new_string="x = 2"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert blocked.read_text(encoding="utf-8") == "x = 1\n"
+
+
+@posix_only
+def test_edit_file_refuses_a_missing_file_rather_than_creating_one(workspace):
+    """`must_exist=True`, unlike write_file: an edit to a file that is not there is a
+    mistake about which file, and creating it would hide that."""
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("edit_file", path=str(workspace / "nope.py"), old_string="a", new_string="b"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert not (workspace / "nope.py").exists()
+
+
+def test_edit_file_is_not_offered_to_a_read_only_delegation():
+    """Derived from `writes`, so this cannot pass by anyone remembering to update a list."""
+    assert "edit_file" not in tools.READ_ONLY_TOOL_NAMES
+    assert "edit_file" not in {s.name for s in tools.declared_tools(tools.READ_ONLY_TOOL_NAMES)}
+
 # --- run_bash ---------------------------------------------------------------------------
 
 
@@ -460,7 +643,7 @@ def test_run_bash_is_not_declared_where_bubblewrap_is_absent(workspace, monkeypa
     assert "run_bash" not in {s.name for s in tools.declared_tools(tools.resolve_allowed(None, c))}
     # The other two are untouched: this narrows one tool for one reason, not the set.
     assert tools.available_tool_names(c) == frozenset(
-        {"read_file", "search_files", "write_file"})
+        {"read_file", "search_files", "write_file", "edit_file"})
 
 
 def test_the_absent_sandbox_does_not_weaken_the_execution_site(workspace, monkeypatch):
@@ -848,7 +1031,11 @@ def test_the_read_only_set_is_derived_from_the_registry_not_listed():
 def test_every_writing_tool_declares_that_it_writes():
     """The other direction, and the one that matters: a tool that writes and forgot to say
     so would be silently offered to a delegation declared read-only."""
-    assert {n for n, t in tools.REGISTRY.items() if t.writes} == {"write_file", "run_bash"}
+    assert {n for n, t in tools.REGISTRY.items() if t.writes} == {
+        "write_file",
+        "edit_file",
+        "run_bash",
+    }
 
 
 @posix_only
@@ -859,6 +1046,14 @@ def test_a_write_is_refused_at_execution_for_a_read_only_toolset(workspace):
     """
     for name, args in (
         ("write_file", {"path": str(workspace / "new.py"), "content": "x = 2\n"}),
+        (
+            "edit_file",
+            {
+                "path": str(workspace / "mod.py"),
+                "old_string": "x = 1",
+                "new_string": "x = 2",
+            },
+        ),
         ("run_bash", {"command": "echo hi"}),
     ):
         result = tools.execute_tool(

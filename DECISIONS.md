@@ -19,6 +19,52 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0050 — 2026-09-03 — `edit_file` addresses text, and refuses anything but one match — Accepted
+
+`write_file` replaces a file whole, so changing three lines of a long module meant reading
+it back and rewriting every line. Every line the model reproduces is a line it can get
+wrong, and a hallucinated character lands in a part of the file nobody was looking at — the
+tool reports a successful write either way. That is why no code-writing task had been
+delegated here yet.
+
+**Exact text, not a line range.** Line addressing landed in #79 and made a range the
+obvious shape, and it is the wrong one: line 151 is whatever line 151 now is, so a number
+that has gone stale overwrites a different region and nothing can tell. A quotation carries
+its own check. It either appears where the model thinks it does or it does not, and the
+tool can say so before touching anything.
+
+**Zero matches and two matches are both refusals, and that is the feature.** Refusing an
+ambiguous edit costs a turn; guessing costs a corrupted file that the model is told was
+written successfully and will not read again. Every refusal leaves the file byte-identical,
+which is what lets a model retry with a better quotation rather than attempt a repair — and
+every test asserts the bytes, not the message, because a tool that refused and wrote anyway
+would pass on the message alone.
+
+**One descriptor for the whole read-modify-write.** `open_resolved` with `"r+b"`, so there
+is no second `open` to race and the tool is safe by construction rather than by review.
+This is why ADR-0049 had to land first: a read-modify-write is exactly where a validated
+string gets used twice, and it would have arrived with the gap that ADR closed. The
+truncation happens after the write and is sized to it, never to zero beforehand — the same
+open-prove-then-destroy ordering, for the same reason.
+
+Nothing new is configured. Reading in is bounded by `max_file_read_bytes` and the result by
+`max_write_bytes`, which is `write_file`'s existing cap; a third limit for the same idea is
+a setting an operator has to reason about for no gain. `writes=True` is declared and
+`cacheable` left false, so the read-only set derived in ADR-0048 excludes it without anyone
+editing a list — verified by removing the declaration, which fails six tests.
+
+Costs accepted. The model must read before it edits, and a quotation from memory will be
+refused; that is the same discipline the numbered `read_file` output was added to support.
+Long unique quotations cost tokens in the request, which is cheaper than a whole file in
+both directions. And a file whose text genuinely repeats needs more context quoted, which
+the refusal says.
+
+Rejected: a line range, above. Rejected: replacing *all* occurrences on request, which
+turns the ambiguity refusal into a flag the model can switch off, and the check exists
+precisely for the case where it does not know how many there are. Rejected: a diff or patch
+format, which fails on fuzz and offset and puts a second parser in the trust boundary for a
+tool whose whole value is being unambiguous.
+
 ## ADR-0049 — 2026-09-03 — Validating a path and opening it are one operation — Accepted
 
 `resolve_all` handed back a string and three handlers opened it later: `read_file` after a

@@ -34,6 +34,51 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #94 — 2026-09-03 — feat: edit_file, on the descriptor open_resolved proves
+
+### Added
+- `edit_file`, the sixth tool the local model is offered. `write_file` replaces a file
+  whole, so changing three lines of a long module meant reading it back and rewriting every
+  line — and every line reproduced is a line that can be got wrong, with the tool reporting
+  a successful write either way. This is the reason no code-writing task had been delegated
+  here yet, and the last of the three the item named.
+- Exact text rather than a line range, which was the obvious shape after #86 gave
+  `read_file` line numbers and is the wrong one: line 151 is whatever line 151 now is, so a
+  stale number overwrites a different region silently. A quotation carries its own check
+  (ADR-0050).
+- `old_string` must appear exactly once. Zero matches and two matches are both refusals
+  that leave the file byte-identical, and the tests assert the bytes rather than the
+  message — a tool that refused and wrote anyway would pass on the message alone. Refusing
+  costs a turn; guessing costs a corrupted file the model is told was written and will not
+  read again.
+- One descriptor for the whole read-modify-write, `open_resolved(entry, "r+b")`, so there is
+  no second `open` to race. This is why #93 had to land first: a read-modify-write is
+  exactly where a validated string gets used twice, and without it this tool would have
+  arrived carrying the gap that pull request closed.
+- No new setting. Reading in is bounded by `max_file_read_bytes` and the result by
+  `max_write_bytes`, which is `write_file`'s existing cap — a third limit for the same idea
+  is one more thing an operator has to reason about for no gain.
+
+### Changed
+- `delegate_to_agent`'s description said a model without a `workdir` can "write through
+  `write_file`", which is now half the story. An MCP tool description is the model-facing
+  contract, so this is a behaviour change rather than a wording fix, recorded here as
+  CLAUDE.md asks.
+- `max_write_bytes` says it caps `edit_file`'s result as well, and `docs/CONFIGURATION.md`
+  is regenerated from it.
+- Three documents each carried their own prose list of which tools the local model is given,
+  none of which owns `tools.py`, and all three were made incomplete by one addition. That is
+  the drift the ownership scheme exists to prevent and it bit here; they now say "the file
+  tools" and leave the enumeration to the generated document that owns it.
+
+### Fixed
+- Four existing enumerations noticed the new tool and had to be updated, which is the
+  derivation of ADR-0048 earning its keep: `READ_ONLY_TOOL_NAMES` needed no edit and still
+  came out as `{read_file, search_files}`, while the sets that are genuinely lists —
+  `available_tool_names` and what is declared on the wire — failed until they were told.
+  Removing `writes=True` from the new tool fails six tests, watched before the claim was
+  made.
+
 ## #93 — 2026-09-03 — feat: validating a path and opening it are one operation
 
 ### Fixed

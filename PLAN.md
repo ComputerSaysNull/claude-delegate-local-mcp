@@ -254,15 +254,15 @@ them was re-derived when it did.
   other way, so this is a convenience and ranks below the search tool. The work is in the
   budget rather than the matching — a glob hitting two hundred files has to skip and account
   for them the way `context.prefetch` already does, not spend `prefetch_budget` silently
-- ⬜ `edit_file`, on a helper that validates and opens together — `write_file` replaces a
-  file whole, so changing three lines in a long module means reading it back and rewriting
-  every line, with any hallucinated character landing silently. Line addressing has landed,
-  which removes one of the three reasons no code-writing task has been delegated yet. It
-  must not land before the inode item above: `_one_path` returns a string and each handler
-  opens for itself, so a read-modify-write tool validates once and uses the path twice
-  across two `open` calls, against an adversary holding a read-write bind under `run_bash`
-  who can retry until the swap lands. One `open_resolved` helper closes that item and makes
-  the third tool safe by construction rather than by review
+- ✅ 2026-09-03 `edit_file`, addressing text rather than lines (#94, ADR-0050) — the
+  ordering held: #93 landed first, so this tool holds one `"r+b"` descriptor for the whole
+  read-modify-write and there was never a second `open` to make safe. The shape changed from
+  what was filed. Line addressing had made a line range look obvious and it is the worse
+  half of the choice, because a stale line number overwrites a different region silently
+  while a stale quotation cannot — so `old_string` must match exactly once, and zero or two
+  matches are refusals that leave the file byte-identical. The find was elsewhere: three
+  documents each kept their own prose list of the tools the local model gets, none of them
+  the document that owns `tools.py`, and one addition made all three wrong at once
 
 ## Deferred
 

@@ -204,7 +204,11 @@ class Config:
         "so it continues by range rather than re-reading.",
         unit="chars",
     )
-    max_write_bytes: int = _f(8388608, "Cap on one write_file call.", unit="bytes")
+    max_write_bytes: int = _f(
+        8388608,
+        "Cap on one write_file call, and on the result of one edit_file call.",
+        unit="bytes",
+    )
     run_bash_timeout: int = _f(
         600,
         "Per-command timeout for run_bash. Sized to tell a hung command from a slow one, "

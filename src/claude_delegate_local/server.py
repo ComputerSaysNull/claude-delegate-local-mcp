@@ -1036,9 +1036,9 @@ def build(  # noqa: PLR0915 -- the statement count is the tool count; see the do
 
         `workdir` is what makes an agent able to work rather than only read. It binds that
         directory into the sandbox, writable, so `run_bash` can run the project's tests or
-        its linter there. Without it the model can still read files you name and write
-        through `write_file`, but a shell has nothing of yours to run against. Give the
-        repository root, in whatever path form you already have.
+        its linter there. Without it the model can still read files you name and change
+        them through `write_file` and `edit_file`, but a shell has nothing of yours to run
+        against. Give the repository root, in whatever path form you already have.
 
         Every explicit argument here wins over the agent file, so you can send one hard case
         to `test-writer` at a larger model without editing the file. Omit them and the file
