@@ -835,6 +835,7 @@ def test_a_delegation_that_calls_a_tool_runs_more_than_one_turn(tmp_path):
     assert result["answer"] == "it says hello"
     assert result["turns"] == 2
     assert result["tool_calls"] == 1
+    assert result["tool_calls_by_name"] == {"read_file": 1}
     assert result["tool_errors"] == 0
     assert result["hit_turn_limit"] is False
     # Present at zero once a loop ran, sharing the gate with the counters above rather than
@@ -853,9 +854,49 @@ def test_an_empty_toolset_takes_the_one_shot_path_and_reports_no_ledger():
     assert result["answer"] == "the answer"
     assert "turns" not in result
     assert "tool_calls" not in result
+    # And the breakdown with it. An empty map beside an answer says the same wrong thing the
+    # zero would: that the model was offered tools and declined them.
+    assert "tool_calls_by_name" not in result
     # The bash counters share that gate rather than getting one of their own.
     assert "bash_calls" not in result
     assert "last_bash_exit" not in result
+
+
+@files_posix_only
+def test_the_ledger_says_which_tools_were_called_not_only_how_many(tmp_path):
+    """The distinction the total cannot carry. `tool_calls: 3` is the same number whether a
+    delegation read three files or overwrote three, and `transcript_dir` is empty by default
+    -- so without this the only surviving account of which it was is the model's own prose,
+    which is exactly what the ledger exists not to trust (ADR-0007).
+
+    Asserted as a sum as well as a map: the two are rendered from one counter and must not be
+    able to drift, because a breakdown that disagreed with the total would be worse than no
+    breakdown at all.
+    """
+    one = tmp_path / "one.py"
+    one.write_text("# one\n", encoding="utf-8")
+    two = tmp_path / "two.py"
+    two.write_text("# two\n", encoding="utf-8")
+    config = cfg(workspace_roots=(str(tmp_path),))
+
+    result = delegated(
+        turn_handler(
+            tool_call_reply("read_file", {"path": str(one)}, call_id="c0"),
+            tool_call_reply("read_file", {"path": str(two)}, call_id="c1"),
+            tool_call_reply(
+                "write_file",
+                {"path": str(tmp_path / "three.py"), "content": "# three\n"},
+                call_id="c2",
+            ),
+            chat_reply(content="done"),
+        ),
+        config=config,
+        task="read both and write a third",
+    )
+
+    assert result["tool_calls"] == 3
+    assert result["tool_calls_by_name"] == {"read_file": 2, "write_file": 1}
+    assert sum(result["tool_calls_by_name"].values()) == result["tool_calls"]
 
 
 def test_the_default_delegation_offers_every_available_tool(monkeypatch):
@@ -1211,6 +1252,43 @@ def test_a_batch_returns_one_result_per_task_in_order(tool):
     assert [r["task"] for r in results["results"]] == ["one", "two", "three"]
     assert results["failed"] == []
     assert all(r["ok"] for r in results["results"])
+
+
+@files_posix_only
+def test_a_batch_item_carries_the_per_tool_breakdown_without_diagnostics(tmp_path):
+    """Where the breakdown is worth most, and the one place the old answer was unreachable.
+
+    `diagnostics` already held per-turn `(name, outcome)` pairs, but both batch tools
+    hard-code it off -- deliberately, since interleaved per-turn detail from items running at
+    once describes nothing. So a batch item could report `tool_calls: 3` and nothing else,
+    which is exactly the call whose items a caller is least able to watch.
+
+    One item, not two: `turn_handler` serves canned replies in order, and two concurrent
+    items would pair them by whichever request arrived first.
+
+    `slots_dir` is isolated for the reason the concurrency test below gives, and this test
+    is why that reason is worth repeating: left at the default it took real slots from the
+    machine-wide budget for two turns, and a one-shot test running on another xdist worker
+    queued behind it and emitted the admission-wait ticks it asserts it never sends. The
+    failure surfaced three tests away from its cause and only under parallel load.
+    """
+    target = tmp_path / "note.py"
+    target.write_text("# hello\n", encoding="utf-8")
+
+    results = called(
+        turn_handler(
+            tool_call_reply("read_file", {"path": str(target)}),
+            chat_reply(content="it says hello"),
+        ),
+        "delegate_batch",
+        config=cfg(workspace_roots=(str(tmp_path),), slots_dir=str(tmp_path / "slots")),
+        tasks=["what does the file say"],
+    )
+
+    item = results["results"][0]
+    assert item["ok"] and item["tool_calls"] == 1
+    assert item["tool_calls_by_name"] == {"read_file": 1}
+    assert "diagnostics" not in item, "the batch must not have started sending per-turn detail"
 
 
 @files_posix_only
@@ -1717,11 +1795,19 @@ def test_a_slow_one_shot_keeps_the_client_informed():
         f"a one-shot lasting 2.5s past a 1s keepalive sent {len(seen)} notification(s)")
 
 
-def test_a_one_shot_that_returns_promptly_sends_nothing():
+def test_a_one_shot_that_returns_promptly_sends_nothing(tmp_path):
     """The other direction. A notification per fast call is noise on the wire, and a
     test that only asserted 'some progress' would pass on a heartbeat that never stopped.
+
+    `slots_dir` is isolated because this asserts an *absence*, and the keepalive is not the
+    only thing that can send `progress(0, 0)`: `ticked` sends the same shape while a
+    delegation waits for admission. Left at the default this test takes the machine's real
+    slots, so a neighbouring xdist worker holding them made it queue and read its own wait
+    as a heartbeat that would not stop. A 30s keepalive cannot fire inside a 0.05s call, so
+    every notification it can legitimately see is zero -- but only once nothing can queue.
     """
-    assert one_shot_progress(cfg(keepalive_interval=30), seconds=0.05) == []
+    config = cfg(keepalive_interval=30, slots_dir=str(tmp_path))
+    assert one_shot_progress(config, seconds=0.05) == []
 
 
 def test_the_heartbeat_stops_when_the_dispatch_does():

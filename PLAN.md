@@ -232,10 +232,10 @@ them was re-derived when it did.
   the call runs and never sees arguments. What `delegate_readonly` has no equivalent of is
   the agent — adversary-controlled markdown in the repository being reviewed — which cannot
   widen the set, now asserted. Two documents still called it `allowed_tools=[]` since #86
-- ⬜ Per-tool counts in the result — the other half of the item above, weaker alone now that
-  a caller can promise read-only in advance. `_Watch.called` holds `call.name` and increments
-  only scalars, so a `Counter`, a field on `AgenticDispatch` and one key in `_loop_ledger`
-  does it — absent rather than empty on the one-shot path, as that docstring already argues
+- ✅ 2026-09-03 Per-tool counts in the result (#92) — `tool_calls_by_name`, cheaper than
+  filed since `called` already held the name. The find was elsewhere: a one-shot test
+  asserting an *absence* of notifications shared the machine's real slots, so under load it
+  queued and read its own admission wait as a heartbeat that would not stop
 - ⬜ Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
   way to look for anything. Its original justification, that expanding before the call keeps
   `delegate_readonly` toolless and loopless, no longer holds now the fork is settled the
