@@ -5,6 +5,13 @@ What the local model can do inside a delegation. Generated from the registry; se
 [ARCHITECTURE.md](ARCHITECTURE.md) for how a delegation is assembled and
 [AGENTS.md](AGENTS.md) for how an agent narrows the set.
 
+Each tool declares whether it **writes**, and `delegate_readonly` offers exactly the subset
+that does not — currently `read_file` and `search_files`. That set is derived from the
+declaration rather than listed anywhere, which is what makes the tool's read-only
+annotation a property of the table below instead of a claim about how it is usually called
+(ADR-0048). A tool added without declaring it lands in the read-only set, so the
+declaration is the thing to get right.
+
 
 <!-- GEN:TOOLS:START -->
 
@@ -26,6 +33,17 @@ Read a UTF-8 text file from the workspace, with every line numbered, so you can 
 | `path` | string | yes | Absolute path to the file. |
 | `start_line` | integer | no | First line to read, counting from 1. Omit to start at the beginning. |
 
+## `search_files`
+
+Search the workspace for a regular expression and get back the matching lines, each as a file name, the word line, and a line number -- so you can read the part you want with read_file and cite it. This is how you find something whose location you do not know; read_file is for when you do. Omit path to search everywhere, or give a directory to narrow it, and use glob to restrict which file names are opened (a test helper is found far faster with glob=test_*.py than by reading directories). Files the path policy declines are not searched and are not reported: they are not results. The reply says when it stopped early or hit its scan cap -- read that before concluding something does not exist, because a narrowed search that found nothing is not proof of absence.
+
+| Argument | Type | Required | Description |
+| --- | --- | --- | --- |
+| `pattern` | string | yes | Python regular expression, matched per line. Prefix (?i) to ignore case. |
+| `path` | string | no | Absolute path to a directory or file to search. Omit to search the whole workspace. |
+| `glob` | string | no | Only open files whose NAME matches this glob, e.g. *.py or test_*.py. Matches the name, not the path. |
+| `max_results` | integer | no | Most matching lines to return. Defaults to 100. |
+
 ## `write_file`
 
 Write a UTF-8 text file in the workspace, creating it or replacing it whole. Paths must be absolute and the containing directory must already exist. The same path rules as read_file apply. Content over the size limit is refused rather than truncated, so write large files in parts.
@@ -43,7 +61,7 @@ Run a shell command, confined: no network, an empty filesystem apart from a scra
 | --- | --- | --- | --- |
 | `command` | string | yes | The command to run. |
 
-*3 tools.*
+*4 tools.*
 
 <!-- GEN:TOOLS:END -->
 

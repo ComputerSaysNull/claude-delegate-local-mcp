@@ -285,7 +285,8 @@ def test_run_bash_is_declared_now_that_something_confines_it(monkeypatch):
     c = cfg()
     assert "run_bash" in tools.available_tool_names(c)
     assert "run_bash" in {s.name for s in tools.declared_tools(tools.resolve_allowed(None, c))}
-    assert tools.available_tool_names(c) == frozenset({"read_file", "write_file", "run_bash"})
+    assert tools.available_tool_names(c) == frozenset(
+        {"read_file", "search_files", "write_file", "run_bash"})
 
 
 def test_withholding_still_works_although_nothing_is_withheld(monkeypatch):
@@ -299,7 +300,8 @@ def test_withholding_still_works_although_nothing_is_withheld(monkeypatch):
     monkeypatch.setattr(tools, "WITHHELD_TOOL_NAMES", frozenset({"write_file"}))
     monkeypatch.setattr(sandbox, "available", lambda _cfg: True)
     c = cfg()
-    assert tools.available_tool_names(c) == frozenset({"read_file", "run_bash"})
+    assert tools.available_tool_names(c) == frozenset(
+        {"read_file", "search_files", "run_bash"})
     assert tools.resolve_allowed(["write_file"], c) == frozenset()
     assert tools.resolve_allowed(["read_file", "write_file"], c) == frozenset({"read_file"})
     declared = {s.name for s in tools.declared_tools(tools.resolve_allowed(None, c))}

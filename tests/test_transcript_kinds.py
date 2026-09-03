@@ -64,14 +64,20 @@ def _record(directory: Path) -> dict:
 
 
 def test_a_read_only_delegation_says_so_rather_than_calling_itself_delegate(tmp_path):
-    """The pair that motivated this. `delegate_readonly` is `delegate` with the tool set
-    fixed empty, so it runs the identical path and nothing about the shape names it."""
+    """The pair that motivated this. `delegate_readonly` is `delegate` with the toolset
+    fixed, so it runs the same path and nothing about the shape names it -- the record has
+    to carry which tool the caller actually invoked.
+
+    The toolset is no longer empty (ADR-0048), which makes the point sharper rather than
+    weaker: `tools` alone cannot distinguish this from a `delegate` call that happened to
+    name the same two, so `tool` is the only field that says what was invoked.
+    """
     config = cfg(transcript_dir=str(tmp_path))
     _call(config, chat_handler(), "delegate_readonly", {"task": "explain this"})
 
     start = _starts(tmp_path)[0]
     assert start["tool"] == "delegate_readonly", start
-    assert start["tools"] == [], "a read-only call resolves to no tools at all"
+    assert start["tools"] == ["read_file", "search_files"], start
     assert _record(tmp_path)["tool"] == "delegate_readonly"
 
 

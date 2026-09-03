@@ -19,7 +19,9 @@ per-call; a server-wide default would be a config default living outside `config
 
 from __future__ import annotations
 
+import fnmatch
 import os
+import posixpath
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -28,7 +30,16 @@ from . import sandbox
 from .backends.base import BashOutcome, ToolResultBlock, ToolSpec, ToolUseBlock
 from .config import Config
 from .context import decode_text
-from .paths import PathPolicyError, PathRefused, resolve_all
+from .paths import (
+    PathPolicyError,
+    PathRefused,
+    load_secret_globs,
+    resolve_all,
+    resolve_permitted,
+    resolve_search_root,
+    resolved_roots,
+    secret_match,
+)
 
 
 class ToolRefused(Exception):
@@ -60,6 +71,15 @@ class RegisteredTool:
     # somewhere else. Only `run_bash` enters the sandbox, so only `run_bash` sets it, and
     # widening one tool's signature beats adding an ignored parameter to the other two.
     wants_policy: bool = False
+    # Whether this tool can change anything outside the server's own memory. Declared with
+    # the tool, and for a sharper reason than the two above: `READ_ONLY_TOOL_NAMES` is
+    # derived from it, and that set is what makes `delegate_readonly`'s readOnlyHint a
+    # property of the tool rather than a claim about how it is usually called. A hand-kept
+    # list would go stale the first time a writing tool was added, silently, and the
+    # annotation would still be advertised. False is NOT the safe default here -- a new
+    # tool that writes must say so -- so every writing tool sets it explicitly and the
+    # negative-test in tests/test_tools.py asserts the derived set against the registry.
+    writes: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +239,188 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
     )
 
 
+def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[str], bool]:
+    """Enumerate files under `scope` that are worth asking the policy about.
+
+    Enumeration only. Nothing here decides whether a file may be *read* -- that is
+    `resolve_permitted`'s, over the same four layers the file tools use. What this does is
+    avoid handing the policy a hundred thousand candidates: the extension allowlist and the
+    caller's glob are cheap string tests, and pruning a denylisted directory keeps the walk
+    out of `.git` entirely rather than discovering it a loose object at a time.
+
+    Returns the candidates and whether the scan cap was reached.
+    """
+    globs = load_secret_globs(cfg)
+    allowed_exts = {e.lower() for e in cfg.ext_allowlist}
+    found: list[str] = []
+    scanned = 0
+    capped = False
+
+    for dirpath, dirnames, filenames in os.walk(scope):
+        # Prune in place, and skip symlinks rather than following them. `os.walk` does not
+        # follow them by default; the explicit skip is what stops the same tree being
+        # enumerated twice through two names.
+        kept = []
+        for name in sorted(dirnames):
+            full = posixpath.join(dirpath, name)
+            if os.path.islink(full) or secret_match(full, globs) is not None:
+                continue
+            kept.append(name)
+        dirnames[:] = kept
+
+        for name in sorted(filenames):
+            if scanned >= cfg.search_max_files_scanned:
+                capped = True
+                return found, capped
+            full = posixpath.join(dirpath, name)
+            if os.path.islink(full):
+                continue
+            if os.path.splitext(name)[1].lower() not in allowed_exts:
+                continue
+            if name_glob and not fnmatch.fnmatchcase(name, name_glob):
+                continue
+            scanned += 1
+            found.append(full)
+
+    return found, capped
+
+
+@dataclass(frozen=True, slots=True)
+class _Hits:
+    """What a search found, and whether it stopped early. Rendering is separate."""
+
+    lines: tuple[str, ...]
+    files: int
+    truncated: bool
+
+
+def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
+    """Read each permitted file and collect matching lines, bounded twice.
+
+    Bounded by `max_results` because a caller asked, and by `max_read_chars` because that
+    is what bounds any tool reply -- a pattern matching every line of a large file would
+    otherwise return the file.
+    """
+    lines: list[str] = []
+    files = 0
+    used = 0
+    truncated = False
+
+    for item in paths:
+        if len(lines) >= max_results:
+            return _Hits(tuple(lines), files, True)
+        try:
+            with open(item.posix, "rb") as fh:
+                blob = fh.read(cfg.max_file_read_bytes)
+        except OSError:
+            continue  # vanished or unreadable between the walk and here; not a result
+        text, _ = decode_text(blob)
+        if text is None:
+            continue
+
+        hits = 0
+        for number, line in enumerate(text.splitlines(), start=1):
+            if not needle.search(line):
+                continue
+            # "<file> line <n>: <text>", never "<file>:<n>" -- with a four-digit number
+            # that second shape reads as a host and a port, which this project refuses
+            # wherever text can reach a commit message or a pull request body.
+            rendered = f"{item.posix} line {number}: {line.strip()}"
+            if used + len(rendered) + 1 > cfg.max_read_chars or len(lines) >= max_results:
+                truncated = True
+                break
+            lines.append(rendered)
+            used += len(rendered) + 1
+            hits += 1
+        if hits:
+            files += 1
+        if truncated:
+            break
+
+    return _Hits(tuple(lines), files, truncated)
+
+
+def _search_report(cfg: Config, hits: _Hits, *, capped: bool) -> str:
+    """The result, with every reason it might be incomplete stated in it.
+
+    A truncated search that reads like an exhaustive one is the failure worth avoiding:
+    the model will conclude a symbol does not exist, and say so confidently.
+    """
+    tail: list[str] = [f"{len(hits.lines)} matching line(s) in {hits.files} file(s)."]
+    if hits.truncated:
+        tail.append(
+            "Stopped early, so there are more matches than these -- raise max_results, or "
+            "narrow the search with path or glob."
+        )
+    if capped:
+        tail.append(
+            f"Only the first {cfg.search_max_files_scanned} files were opened, so this is "
+            "not exhaustive. Narrow it with path or glob."
+        )
+    return "\n".join(hits.lines) + "\n\n" + " ".join(tail)
+
+
+def _search_files(cfg: Config, args: dict[str, object]) -> str:
+    """Grep the workspace, in the server process and under the same policy as a read.
+
+    Never the sandbox: this reads files, and only `run_bash` is ever confined (ADR-0010).
+    """
+    raw = _text_arg(args, "pattern")
+    try:
+        needle = re.compile(raw)
+    except re.error as e:
+        raise ToolRefused(
+            f"{raw!r} is not a valid regular expression ({e}). Escape any literal "
+            "brackets, braces or parentheses you meant as characters."
+        ) from e
+
+    name_glob = _text_arg(args, "glob") if "glob" in args else ""
+    max_results = _int_arg(args, "max_results", 100)
+    if max_results < 1:
+        raise ToolRefused("max_results must be at least 1; a search for no results is not one.")
+
+    if "path" in args:
+        # `resolve_search_root`, not `_one_path`: the latter refuses a directory at layer 1
+        # because a directory is not a thing to read, and a search scope is exactly that.
+        # A file is accepted too, so pointing this at one narrows to it.
+        scopes = (resolve_search_root(cfg, _text_arg(args, "path")),)
+    else:
+        # No path means the whole workspace, which is what makes this a search rather than
+        # a second `read_file`. The roots arrive translated and symlink-resolved.
+        scopes = resolved_roots(cfg)
+
+    candidates: list[str] = []
+    capped = False
+    for scope in scopes:
+        if os.path.isfile(scope):
+            candidates.append(scope)
+            continue
+        more, hit = _search_candidates(cfg, scope, name_glob)
+        candidates += more
+        capped = capped or hit
+
+    # One policy call for the whole batch, which is also what keeps `gitignored` to one
+    # `check-ignore` per repository rather than one per file. Candidates the policy
+    # declines are dropped rather than reported: nobody named them, so they are not
+    # results -- see `resolve_permitted` on why that is a separate function.
+    permitted = resolve_permitted(cfg, candidates, must_exist=True)
+    hits = _search_hits(cfg, permitted, needle, max_results)
+
+    if not hits.lines:
+        where = str(args["path"]) if "path" in args else "the workspace"
+        scope_note = f" among files matching {name_glob!r}" if name_glob else ""
+        why = (
+            "The scan cap was reached first, so this is not exhaustive -- narrow it with "
+            "path or glob."
+            if capped
+            else "The pattern is absent from everything the path policy lets you read "
+                 "there; it may still exist in a file that policy declines."
+        )
+        return f"No line matched {raw!r} in {where}{scope_note}. {why}"
+
+    return _search_report(cfg, hits, capped=capped)
+
+
 def _write_file(cfg: Config, args: dict[str, object]) -> str:
     given = _text_arg(args, "path")
     content = _text_arg(args, "content")
@@ -366,6 +568,7 @@ WRITE_FILE = RegisteredTool(
         },
     ),
     handler=_write_file,
+    writes=True,
 )
 
 RUN_BASH = RegisteredTool(
@@ -389,13 +592,69 @@ RUN_BASH = RegisteredTool(
     ),
     handler=_run_bash,
     wants_policy=True,
+    writes=True,
+)
+
+SEARCH_FILES = RegisteredTool(
+    spec=ToolSpec(
+        name="search_files",
+        description=(
+            "Search the workspace for a regular expression and get back the matching "
+            "lines, each as a file name, the word line, and a line number -- so you can "
+            "read the part you want with read_file and cite it. This is how you find "
+            "something whose location you do not know; read_file is for when you do. "
+            "Omit path to search everywhere, or give a directory to narrow it, and use "
+            "glob to restrict which file names are opened (a test helper is found far "
+            "faster with glob=test_*.py than by reading directories). Files the path "
+            "policy declines are not searched and are not reported: they are not results. "
+            "The reply says when it stopped early or hit its scan cap -- read that before "
+            "concluding something does not exist, because a narrowed search that found "
+            "nothing is not proof of absence."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Python regular expression, matched per line. Prefix "
+                                   "(?i) to ignore case.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path to a directory or file to search. Omit "
+                                   "to search the whole workspace.",
+                },
+                "glob": {
+                    "type": "string",
+                    "description": "Only open files whose NAME matches this glob, e.g. "
+                                   "*.py or test_*.py. Matches the name, not the path.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Most matching lines to return. Defaults to 100.",
+                },
+            },
+            "required": ["pattern"],
+        },
+    ),
+    handler=_search_files,
+    cacheable=True,
 )
 
 # Insertion order is the declared order, and it is fixed here rather than sorted at use.
 REGISTRY: dict[str, RegisteredTool] = {
-    t.spec.name: t for t in (READ_FILE, WRITE_FILE, RUN_BASH)
+    t.spec.name: t for t in (READ_FILE, SEARCH_FILES, WRITE_FILE, RUN_BASH)
 }
 ALL_TOOL_NAMES: frozenset[str] = frozenset(REGISTRY)
+
+# Derived, never written out. This is the set `delegate_readonly` offers, and it is the
+# whole content of ADR-0042's promise: not that the delegation has no tools, but that
+# nothing it can do will write. A tool added without declaring `writes` lands in here,
+# which is why the guard in tests/test_tools.py checks this against the registry rather
+# than against a list somebody has to remember to edit.
+READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
+    name for name, tool in REGISTRY.items() if not tool.writes
+)
 
 # Empty, as of M5. It held `run_bash` from M4 until the sandbox could confine it and the
 # mount-level denylist could cover secrets inside what it binds; both exist now, so the

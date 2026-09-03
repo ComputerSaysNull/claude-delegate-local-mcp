@@ -1,4 +1,5 @@
-<!-- BUDGET: 331
+<!-- BUDGET: 350
+     Raised from 331 on 2026-09-03: the path policy grew a second disposition and a directory check, both in paths.py, which this document owns.
      Raised from 327 on 2026-09-03: max_turns became overridable per call, so the precedence rule moved out of the model subsection to govern the whole field table, which is a net three lines after deleting the copy it replaced.
      Raised from 310 on 2026-09-02: list_agents now separates a broken agent file from one in Claude Code's format, and what a caller is told about each is a fact this document owns.
      Raised to the size it had already reached on 2026-09-01: the check that should have held this
@@ -139,6 +140,24 @@ The difference is what happens next. A call argument is gone the moment the call
 file is committed, read again, and believed. Clamping there would leave the wrong number in
 the file forever, working correctly and reading as though it were in effect — and the person
 who eventually needs those turns would have no way to tell it never had them.
+
+### One path policy, two dispositions
+
+`resolve_all` refuses the whole call if any path fails, and that is right for anything a
+caller **named**: a delegation that asked for six files and silently got five reads exactly
+like one that got six. `resolve_permitted` drops what fails instead, and is only for paths
+nobody named — the candidates a `search_files` walk enumerates, where a file the policy
+declines is not an error but simply not a result.
+
+Both run the same four layers through the same function, so a pattern cannot come to deny
+`read_file` while leaving the same file findable by search. Two functions rather than a
+flag, because using the lenient one on a caller-supplied path is a silent drop, which is
+the failure the strict one exists to prevent.
+
+A directory is a third case: `resolve_search_root` checks layers 1 and 2 against
+`workspace_roots`, where `resolve_workdir` checks a directory against `workdir_roots`. The
+roots differ because the surfaces do — one governs what may be read, the other a
+read-write bind into a sandbox.
 
 ### `allowed_tools` is enforced twice
 

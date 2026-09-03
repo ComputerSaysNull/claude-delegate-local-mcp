@@ -34,6 +34,49 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #86 — 2026-09-03 — feat: search_files, and a read-only delegation that can use it
+
+### Added
+- `search_files`: a regular expression over the workspace, returning each match as a file
+  name, the word `line`, and a line number — so the model can read the part it wants with
+  `read_file` and cite it. It runs in the server process under the same four-layer path
+  policy as a read, never in the sandbox, because only `run_bash` is ever confined
+  (ADR-0010). Optional `path` and `glob` narrow it; `max_results` bounds the reply.
+- `delegate_readonly` now offers `read_file` and `search_files` instead of nothing, which
+  puts it on the turn loop. Grep, read a hit, grep again was the one research shape a
+  delegation could not do: `files[]` requires the caller to already know where to look.
+  ADR-0048.
+- `writes` on `RegisteredTool`, and `READ_ONLY_TOOL_NAMES` derived from it. A hand-kept
+  read-only list is the shape this project keeps calling a check that cannot fail — add a
+  writing tool, forget the list, and the annotation stays advertised while being false.
+  Verified by injecting exactly that: `write_file` with its declaration removed fails four
+  tests, including the one asserting the executor refuses a write, so it cannot ship quietly.
+- `resolve_permitted` in `paths.py`: the same four layers, dropping what fails instead of
+  refusing the call. Only for paths nobody named — the candidates a walk enumerates, where
+  a declined file is not an error but simply not a result. Two functions over one policy
+  rather than a flag, because using the lenient one on a caller-supplied path is a silent
+  drop, which is the failure `resolve_all` exists to prevent.
+- `resolve_search_root`: layers 1 and 2 for a directory, against `workspace_roots`.
+  `_one_path` refuses a directory outright, correctly, and `resolve_workdir` checks one
+  against `workdir_roots` — a separable surface, since that governs a read-write sandbox
+  bind rather than what may be read.
+- `search_max_files_scanned`, defaulting to 2000. Not a correctness bound — the path policy
+  is that — but a wall-clock one: the workspace is on `/mnt/c`, roughly 12x slower per file
+  than ext4 (ADR-0020). The reply says when the cap was reached, because a truncated search
+  that reads like an exhaustive one makes the model conclude a symbol does not exist.
+
+### Changed
+- `delegate_readonly`'s description no longer promises one turn and no tools; both stopped
+  being true. It gains `max_turns`, since it has turns now. A tool schema change means the
+  next call pays a full prefill (JOURNAL 2026-09-02).
+- `docs/TOOLS.md`'s hand-written intro records the read-only subset and that it is derived.
+  It had never mentioned `delegate_readonly` at all.
+
+### Fixed
+- The scope resolution used `_one_path`, which refuses a directory at layer 1 — so `path`
+  failed for exactly the argument shape the tool exists to accept. Caught by running the
+  tests in WSL, where the path tests actually execute rather than skip.
+
 ## #85 — 2026-09-03 — feat: a stall deadline, and a re-derived dispatch ceiling
 
 ### Added

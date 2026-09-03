@@ -480,6 +480,52 @@ def _check_exists(given: str, real: str, must_exist: bool = True) -> Refusal | N
     return None
 
 
+def resolve_search_root(cfg: Config, given: str) -> str:
+    """Layer 1 and 2 for a directory a search will walk. Returns it resolved, or refuses.
+
+    A third entry point rather than a reuse, and the reason is which roots apply.
+    `_one_path` refuses a directory outright, correctly -- a directory is not a thing to
+    read. `resolve_workdir` does check a directory, but against `workdir_roots`, which
+    governs a read-write bind into a sandbox and is deliberately separable from the files a
+    delegation may read. Searching is reading, so this checks `workspace_roots`.
+
+    Only these two layers apply here, for the same reason they are the only two that apply
+    to a workdir: the extension allowlist, the secret denylist and the gitignore check are
+    about file *contents*, and they are applied per candidate by `resolve_permitted` once
+    the walk has enumerated them. A directory passing this is not permission to read
+    anything inside it.
+
+    **Resolved before it is compared.** A symlink inside a root pointing out of it is a
+    real escape and is invisible to any check that compares the path as written.
+    """
+    posix = to_posix(given)
+    if not posixpath.isabs(posix):
+        raise PathRefused([Refusal(
+            given=given,
+            layer=LAYER_FORM,
+            reason="it is not an absolute path.",
+            remedy=(
+                "The server has its own working directory and will not share yours. Give "
+                "an absolute path, or omit it to search every workspace root."
+            ),
+        )], 1)
+
+    real = os.path.realpath(posix)
+    if not os.path.exists(real):
+        raise PathRefused([Refusal(
+            given=given,
+            layer=LAYER_FORM,
+            reason=f"its real location {real} does not exist.",
+            remedy="Name an existing directory or file, or omit it to search everywhere.",
+        )], 1)
+
+    roots = resolved_roots(cfg)
+    refusal = _check_roots(given, real, roots)
+    if refusal is not None:
+        raise PathRefused([refusal], 1)
+    return real
+
+
 def resolve_workdir(cfg: Config, given: str) -> str:
     """Layer 1 for the `workdir` argument. Returns the resolved POSIX path, or refuses.
 
@@ -547,9 +593,45 @@ def resolve_all(
     are one file, and inlining it twice pays for it twice. Ordering for the prompt is
     `context.py`'s job (ADR-0011), not this module's; sorting here would hide a
     caller-order dependency rather than let the test for it fail.
+
+    All-or-nothing, and that is the point for anything the caller *named*: a delegation
+    that asked for six files and silently got five reads exactly like one that got six.
+    `resolve_permitted` is the other disposition, for paths nobody named.
     """
+    survivors, refusals = _resolve_many(cfg, given, must_exist)
+    if refusals:
+        raise PathRefused(list(refusals), total=len(given))
+    return survivors
+
+
+def resolve_permitted(
+    cfg: Config, given: Sequence[str], *, must_exist: bool = True
+) -> tuple[ResolvedPath, ...]:
+    """The subset the policy allows. The rest are dropped, not refused.
+
+    For paths the caller never named -- the candidates a *search* enumerates, where a file
+    the policy declines is not an error but simply not a result. Refusing the whole call
+    because a walk happened to pass a gitignored file would make the tool unusable, and
+    reporting a hundred refusals to the model would drown the matches it asked for.
+
+    **Never use this for a path a caller supplied.** There it is a silent drop, which is
+    the failure `resolve_all` exists to prevent; that asymmetry is the whole reason these
+    are two functions over one policy rather than a flag on one.
+
+    Both go through `_resolve_many`, so the four layers are implemented once. A second
+    matcher here is how a pattern would come to deny `read_file` while leaving the same
+    file findable by search, with nothing reporting the disagreement.
+    """
+    survivors, _ = _resolve_many(cfg, given, must_exist)
+    return survivors
+
+
+def _resolve_many(
+    cfg: Config, given: Sequence[str], must_exist: bool
+) -> tuple[tuple[ResolvedPath, ...], list[Refusal]]:
+    """The four layers over a list, raising nothing. Both dispositions share this."""
     if not given:
-        return ()
+        return (), []
 
     roots = resolved_roots(cfg)
     globs = load_secret_globs(cfg)
@@ -588,6 +670,4 @@ def resolve_all(
             )
         survivors = kept
 
-    if refusals:
-        raise PathRefused(refusals, total=len(given))
-    return tuple(survivors)
+    return tuple(survivors), refusals
