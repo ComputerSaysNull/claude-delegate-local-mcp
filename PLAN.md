@@ -63,12 +63,16 @@ group by what the item's own annotation says it costs.
   `sandbox_enabled` for. The review called it unauthenticated *and* unbound; measured,
   FastMCP defaults its host to loopback and `main.py` passes only a port, so the reachable
   surface is other local processes rather than the network, and no token is the true half
-- ⬜ `security/secret_globs.txt` claims a reach it does not have — its header calls the list
-  the single source of truth for "never let a model see this, never let git take it", and
-  CLAUDE.md repeats "one list, two enforcers". The git half is a hardcoded `NEVER_TRACK`
-  set in the gate, not derived from the globs, so the second copy the rule warns about
-  already exists. Demonstrated: `.env.example` is tracked and matches `.env.*`, and the list
-  matches its own `*secret*` — the path policy refuses both and the gate objects to neither
+- ✅ 2026-09-03 `security/secret_globs.txt` does have the reach its header claims — this
+  item was wrong when filed and is closed without work. The git half is `check_secret_paths`
+  in `scripts/docs_gate.py`, which loads the globs and blocks any tracked file matching one;
+  it landed in the first scaffold commit, well before this item was written. `NEVER_TRACK`
+  is a separate belt-and-braces set of three files, and the gate says so where it is
+  defined. Both cited demonstrations are deliberate, commented exemptions: `.env.example` is
+  skipped by an `.example` suffix rule, and the list matching its own `*secret*` is skipped
+  by `POLICY_FILES`, annotated there as the gate's first self-inflicted false positive. Left
+  as a closed entry rather than deleted, because an open item describing a hole that is not
+  there invites someone to rederive a check that is already derived
 
 ### Documentation accuracy
 
