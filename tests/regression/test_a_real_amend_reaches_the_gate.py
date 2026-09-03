@@ -112,8 +112,14 @@ def test_the_hooks_are_really_installed(repo):
         assert hook.exists(), f"{name} was not installed"
     code_only(repo, "undocumented")
     done = git(repo, "commit", "-m", "feat: code with no document", check=False)
+    out = done.stdout + done.stderr
+    # A non-zero exit is NOT evidence the gate blocked anything -- a hook that cannot find
+    # an interpreter also fails the commit, and for eight tests in this file that is
+    # exactly what was happening in WSL. So assert the gate ran before asserting what it
+    # decided: its own header proves the script executed, and the refusal is separate.
+    assert "docs gate:" in out, f"the hook never reached the gate:\n{out}"
     assert done.returncode != 0, "the gate did not block an undocumented change at all"
-    assert "owning-doc" in done.stdout + done.stderr
+    assert "owning-doc" in out
 
 
 def test_a_commit_carrying_its_document_passes(repo):

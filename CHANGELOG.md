@@ -34,6 +34,49 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #87 — 2026-09-03 — fix: the commit hook could not find an interpreter in WSL
+
+### Fixed
+- The commit-msg shim tried the Windows venv and then bare `python`. Ubuntu has no
+  unversioned `python`, so committing from inside WSL died with
+  `exec: python: not found` — **the gate did not run**, and the error blamed the hook
+  rather than saying the commit was unchecked. It now searches a POSIX venv, a Windows venv,
+  `python3` and `python`, and refuses the commit with a message naming the problem when it
+  finds none.
+- The Windows venv is now gated on actually being on Windows. The old `[ -x ]` probe cannot
+  tell: `/mnt/c` is DrvFs and reports mode 777 for every file, so it succeeded from WSL for
+  a `.exe` a POSIX shell has no business exec'ing.
+- **The candidate is probed by running it, not by resolving its name**, and the first
+  version of this fix got that wrong in a way worth recording. It used `command -v`, which
+  answers "does this name resolve" — and on Windows `python3` resolves to the Microsoft
+  Store app-execution alias: on PATH, executable, and it prints an advert and exits 49
+  rather than running anything. So the fix made WSL pass and broke Windows, producing the
+  identical eight failures on the other platform. `"$candidate" -c ""` separates them:
+  measured, the stub exits 49 where a real interpreter exits 0.
+- That is the same mistake twice in one shim: `[ -x ]` asked whether a file claims to be
+  executable on a filesystem where everything does, and `command -v` asked whether a name
+  resolves where a resolving name need not be an interpreter. Both answered a different
+  question from the one being asked, and both were only caught by running the thing on both
+  platforms rather than on the one to hand.
+- `verify_installed` checks for `python3` and for the no-interpreter refusal, alongside the
+  mode and message-file needles it already checked. This shim regressed once before by
+  keeping an older body, and the failure it caused this time — a hook that cannot exec — is
+  indistinguishable from a gate that blocked unless something asserts otherwise.
+
+### Changed
+- `test_the_hooks_are_really_installed` asserted `returncode != 0` with the message "the
+  gate did not block an undocumented change at all". **A crashed hook satisfies that**: the
+  commit failed because the shim could not exec, not because anything was checked. It now
+  asserts the gate's own header appears in the output *before* asserting what it decided.
+  That is the fifth instance of this project's "a check that cannot fail" pattern, and the
+  second in a test rather than in a check.
+- Found by running the suite in WSL, where eight of the nine tests in
+  `tests/regression/test_a_real_amend_reaches_the_gate.py` were failing. They were failing
+  before this session's work and are unrelated to it — verified by running the full WSL
+  suite against the previous commit and getting the identical failure set.
+- `docs/TROUBLESHOOTING.md` gains the symptom, linking to CONTRIBUTING.md for the fix
+  rather than restating it.
+
 ## #86 — 2026-09-03 — feat: search_files, and a read-only delegation that can use it
 
 ### Added

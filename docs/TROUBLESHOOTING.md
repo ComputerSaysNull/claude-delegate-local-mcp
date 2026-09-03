@@ -1,4 +1,6 @@
-<!-- BUDGET: 290 -->
+<!-- BUDGET: 293
+     Raised from 290 on 2026-09-03: one symptom entry for a commit hook that could not run the gate.
+     -->
 <!-- Raised from 240 on 2026-08-27: M1 shipped the first server that can fail at
      startup and the first tool that can report a backend, so two symptom classes
      exist that had nowhere to be indexed before.
@@ -249,6 +251,14 @@ Expected on `/mnt/c`, and accepted knowingly. ADR-0020 has the measurements and 
 alternatives that were rejected.
 
 ---
+
+## A commit fails with `exec: python: not found`
+
+The commit-msg hook could not find an interpreter, so **the gate did not run** — the commit
+was refused by the hook crashing, not by any check. Seen when committing from inside WSL,
+which has no unversioned `python`. Reinstall the hook
+([CONTRIBUTING.md](../CONTRIBUTING.md)): a current one searches several interpreters and
+says so plainly when it finds none.
 
 ## Contributing
 

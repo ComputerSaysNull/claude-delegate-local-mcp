@@ -27,15 +27,48 @@ STALE = ROOT / ".git" / "hooks" / "pre-commit"
 # "$1" is the message file git hands a commit-msg hook. Passing it is the whole point of
 # running here rather than at pre-commit, so verify_installed() asserts it is present --
 # a shim that silently kept an older body would reintroduce exactly the bug this fixes.
+#
+# The interpreter search is four candidates in order, and each position is a measurement.
+# It used to be "the Windows venv, else `python`", which does not run in WSL at all:
+# Debian dropped the unversioned `python` long ago, so the hook died with
+# "exec: python: not found" and every commit failed for a reason that blamed the hook
+# rather than saying the gate had not run. Eight tests in
+# tests/regression/test_a_real_amend_reaches_the_gate.py failed on it.
+#
+# The Windows venv is gated on actually being on Windows, which the old `[ -x ]` test
+# could not tell: /mnt/c is DrvFs and reports mode 777 for every file, so that probe
+# succeeds from WSL for a `.exe` a POSIX shell has no business exec'ing.
 BODY = """#!/bin/sh
 # Installed by scripts/install_hooks.py -- edit that, not this.
 # Local feedback only. The same script runs in CI, where --no-verify cannot help.
 root="$(git rev-parse --show-toplevel)"
-if [ -x "$root/.venv/Scripts/python.exe" ]; then
-  py="$root/.venv/Scripts/python.exe"
-else
-  py=python
+
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*) windows=yes ;;
+  *) windows=no ;;
+esac
+
+py=""
+for candidate in "$root/.venv/bin/python" "$root/.venv/Scripts/python.exe" python3 python; do
+  case "$candidate" in
+    *Scripts/python.exe) [ "$windows" = yes ] || continue ;;
+  esac
+  # Probed by RUNNING it. `command -v` only says the name resolves, and on Windows
+  # `python3` resolves to the Store app-execution alias: on PATH, executable, and it
+  # prints an advert and exits 49 instead of running anything.
+  if "$candidate" -c "" >/dev/null 2>&1; then
+    py="$candidate"
+    break
+  fi
+done
+
+if [ -z "$py" ]; then
+  echo "docs gate: NO PYTHON FOUND, SO THE GATE DID NOT RUN." >&2
+  echo "  Tried: a project venv, python3, python." >&2
+  echo "  This commit was not checked. Install python3 or fix PATH." >&2
+  exit 1
 fi
+
 exec "$py" "$root/scripts/docs_gate.py" --mode commit-msg --message-file "$1"
 """
 
@@ -67,7 +100,12 @@ def verify_installed() -> None:
     it was called commit-msg and still ran --mode pre-commit.
     """
     got = HOOK.read_text(encoding="utf-8")
-    for needle in ("--mode commit-msg", '--message-file "$1"'):
+    # `python3` and the no-interpreter refusal are verified for the same reason the mode
+    # is: this shim regressed once by keeping an older body, and the failure it caused --
+    # a hook that cannot exec -- is indistinguishable from a gate that blocked, unless
+    # something asserts the shim can find an interpreter and says so when it cannot.
+    for needle in ("--mode commit-msg", '--message-file "$1"',
+                   "python3", "THE GATE DID NOT RUN", '-c "" >/dev/null'):
         if needle not in got:
             raise SystemExit(f"hook verification failed: {needle!r} missing from {HOOK}")
     if "--mode pre-commit" in got:

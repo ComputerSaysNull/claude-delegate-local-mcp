@@ -1,4 +1,6 @@
-<!-- BUDGET: 262      Raised from 249 on 2026-09-03: an agent body requiring what the
+<!-- BUDGET: 272      Raised from 262 on 2026-09-03: the commit hook's interpreter search, a fact about install_hooks.py
+     and the reason committing from WSL never ran the gate at all.
+     Raised from 249 on 2026-09-03: an agent body requiring what the
      sandbox cannot do is the inverse of the trap recorded directly above it, costs a turn
      on every invocation rather than merely going stale, and is the second sighting of the
      class. Recorded next to its twin so the pair is read together.
@@ -44,6 +46,14 @@ gate there scans the *previous* commit's message and carries its waiver into thi
 **prepare-commit-msg** hook records whether the message came from HEAD, which is how an
 amend gets judged against its real parent -- see ADR-0028 for why that cannot simply be
 detected, and why a pass relying on it announces itself.
+
+The shim looks for an interpreter in four places — a POSIX venv, a Windows venv (only when
+actually on Windows), `python3`, then `python` — and **refuses the commit saying the gate
+did not run** if it finds none. It used to try the Windows venv and then bare `python`,
+which Ubuntu does not have, so committing from inside WSL failed with
+`exec: python: not found`: a hook that never ran, reported as though the hook were broken.
+The Windows venv is gated on the platform because `/mnt/c` reports every file as
+executable, so testing for one proves nothing there.
 
 **Amend with the editor, not with `-m`.** Git tells that hook where a message came from,
 and only an amend that *reuses* the existing one reports itself; `git commit --amend -m`
