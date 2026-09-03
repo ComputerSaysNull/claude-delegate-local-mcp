@@ -1,4 +1,5 @@
-<!-- BUDGET: 286
+<!-- BUDGET: 298
+     Raised from 286 on 2026-09-03: one item ticked, kept beside its original because the original's O_NOFOLLOW judgement turned out to be wrong and that is the part worth keeping.
      Raised from 265 on 2026-09-03: five items ticked with what they turned out to be, one new item, and
      two annotations corrected where they had stopped being true.
      Raised from 200 on 2026-09-03: six new items, not accumulated completed ones. A
@@ -41,7 +42,18 @@ group by what the item's own annotation says it costs.
   mount-level secret scan covers matches afterwards (ADR-0036) rather than refusing the
   bind. Of everything the 2026-09-02 review raised this is the one with a plausible
   end-to-end attack, and `workdir_roots` is the pattern to copy
-- ⬜ Validate the opened inode, not the path — `resolve_all` then `open` is check-then-use
+- ✅ 2026-09-03 `open_resolved`, which opens and proves in one operation (#93, ADR-0049) —
+  it returns a handle rather than a path, so there is no string left for a handler to
+  reopen; that is what closes the item rather than the comparison itself. Three call sites,
+  not two: `prefetch` had the same shape. **The `O_NOFOLLOW` judgement below was wrong** —
+  the objection holds for the path a caller wrote and not for the resolved one, which
+  `realpath` has already collapsed, so it is safe here and each half was asserted to catch
+  the swap without the other. Two things the filing could not have known. The write path
+  needed `O_TRUNC` removed and the truncation moved after the proof, or it detected a
+  destruction it had already performed. And what this catches is redirection, not
+  substitution: every layer is a function of the path, so a different regular file at an
+  approved path fires neither check, measured, and is not a bypass. Original entry follows.
+- ⬜ ~~Validate the opened inode, not the path~~ — `resolve_all` then `open` is check-then-use
   in both file tools and in prefetch, with no re-validation. The adversary is the delegated
   model itself, which holds a read-write workdir bind under `run_bash` and can retry, so
   this is not the passive window the review described. `O_NOFOLLOW` is the wrong fix: it

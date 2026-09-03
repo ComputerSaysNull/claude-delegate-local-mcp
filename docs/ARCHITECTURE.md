@@ -1,4 +1,5 @@
-<!-- BUDGET: 655
+<!-- BUDGET: 660
+     Raised from 655 on 2026-09-03: prefetch now holds one proven descriptor per file from the open to the read, so the size the budgets use and the bytes inlined are the same file (ADR-0049).
      Raised from 646 on 2026-09-03: delegate_readonly stopped being the one-shot path, which is a fact about how a delegation is assembled and this document owns server.py.
      Raised from 638 on 2026-09-03: the per-file prefetch cap stopped being a fairness control, so this document says where fairness actually lives and why a second copy of it here cost an under-used cluster.
      Raised from 633 on 2026-09-03: max_turns became a per-call argument, so this document can state where argument precedence is applied and why there is exactly one such place.
@@ -391,8 +392,11 @@ prompt, agent body, files block, task last, with the file list sorted determinis
 resolved path. That order lives on `Delegation.render`, in one place, because the one-shot
 builder and the turn loop both need it and two copies of an ordering rule is one too many.
 
-Sorted *before* the total budget is accumulated, not after, or the same six files listed
-in a different order would return a different five. The budget also stops at the first
+Each file is opened once and held from the open to the read, so the size the budgets are
+computed from and the bytes that get inlined come from one descriptor, proven to be the
+path the policy approved (ADR-0049). Sorted *before* the total budget is accumulated,
+not after, or the same six files listed in a different order would return a different
+five. The budget also stops at the first
 file that does not fit rather than continuing to pack in whatever is small enough: a
 coherent prefix of what was asked for beats an arbitrary subset of it, and it is the only
 version a caller can predict. A file over a cap is left out **whole** — source cut

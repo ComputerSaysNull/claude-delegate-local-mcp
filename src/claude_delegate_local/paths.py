@@ -18,12 +18,20 @@ and layer 4 shells out to a git that may not be installed. Both raise `PathPolic
 rather than defaulting to "nothing matched", because "nothing matched" is
 indistinguishable from a clean pass in every log and every test.
 
+**Validating a path and opening it are one operation, not two.** `resolve_all` returns
+strings, and a handler that opens one of them later has checked a name and used a file --
+two things that are only the same while nothing changes in between. `open_resolved` is the
+way to open anything this module approved; it opens and then proves the descriptor refers
+to the path that was approved. Reaching for `open()` on a `.posix` reopens the gap, which
+is why no code in this repository does (ADR-0049).
+
 The reference implementation of server-side prefetch had no validation whatsoever and
 would read a private SSH key on request.
 """
 
 from __future__ import annotations
 
+import errno
 import fnmatch
 import os
 import posixpath
@@ -32,6 +40,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 from .config import Config
 from .wsl import UntranslatablePath, to_posix
@@ -43,6 +52,11 @@ LAYER_ROOTS = 1
 LAYER_EXT = 2
 LAYER_SECRET = 3
 LAYER_GITIGNORE = 4
+# Also not one of the four. Layers 1 to 4 decide whether a *path* may be shown; this one
+# decides whether the file that opened is still at that path. It is a re-proof of the four
+# rather than a fifth filter, and it runs at open time instead of resolve time, which is
+# the whole reason it exists (ADR-0049).
+LAYER_OPENED = 5
 
 LAYER_NAMES = {
     LAYER_FORM: "path form",
@@ -50,6 +64,7 @@ LAYER_NAMES = {
     LAYER_EXT: "extension allowlist",
     LAYER_SECRET: "secret denylist",
     LAYER_GITIGNORE: "gitignore",
+    LAYER_OPENED: "the opened file",
 }
 
 
@@ -671,3 +686,186 @@ def _resolve_many(
         survivors = kept
 
     return tuple(survivors), refusals
+
+
+# ---- opening what was resolved -----------------------------------------------------
+
+# Absent on Windows, where both are 0 and fold out of the flag word. That platform has no
+# `run_bash` -- bubblewrap is not there, so `available_tool_names` subtracts it -- and so
+# has no in-sandbox adversary to race us. It also refuses to unlink a file while a
+# descriptor is open, measured, so the post-open half of the attack cannot be staged there
+# either. Stated rather than glossed: on such a platform the proof below is weaker.
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_BINARY = getattr(os, "O_BINARY", 0)
+
+_MODE_FLAGS = {
+    "rb": os.O_RDONLY,
+    "r+b": os.O_RDWR,
+    # No O_TRUNC, deliberately. See `open_resolved`.
+    "wb": os.O_WRONLY | os.O_CREAT,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class OpenedFile:
+    """A descriptor on a file the policy approved, proven to be that file."""
+
+    entry: ResolvedPath
+    handle: BinaryIO
+    created: bool  # this call brought the file into existence; only ever true for "wb"
+
+
+def _opened_path(fd: int) -> str | None:
+    """Where the descriptor actually points, or `None` where the OS will not say.
+
+    Linux answers through procfs, and it answers for DrvFs under `/mnt/c` as well as for
+    ext4 -- both measured, both returning exactly what `os.path.realpath` returned for the
+    path we opened. A file unlinked since the open comes back with a " (deleted)" suffix,
+    which compares unequal and is therefore refused, correctly: we are holding something
+    that is no longer at the approved path.
+    """
+    link = f"/proc/self/fd/{fd}"
+    if not os.path.islink(link):
+        return None
+    return os.path.realpath(link)
+
+
+def _prove_descriptor(entry: ResolvedPath, fd: int) -> None:
+    """Refuse unless the open descriptor is the file the four layers approved.
+
+    **What this catches is redirection, not substitution.** Every one of layers 1 to 4 is
+    a function of the path, so a different *regular* file appearing at an approved path is
+    not a policy bypass -- the same bytes could have arrived through `write_file`. What is
+    a bypass is the path coming to name something outside the approved set: a symlink to a
+    key, a swapped parent directory. That is what this compares for, and measurement
+    confirms the distinction is real -- a pre-open substitution of one regular file for
+    another fires neither check, by design rather than by omission.
+    """
+    actual = _opened_path(fd)
+    if actual is not None:
+        if actual == entry.posix:
+            return
+        raise PathRefused(
+            [Refusal(
+                given=entry.given,
+                layer=LAYER_OPENED,
+                reason=(
+                    "it passed the policy, but the file that opened is somewhere else "
+                    f"now: the descriptor refers to {actual}."
+                ),
+                remedy=(
+                    "The path changed between being approved and being opened. Nothing "
+                    "was read or written. Resolve it again, and if this repeats, "
+                    "something else is moving that path while you work."
+                ),
+            )],
+            1,
+            surface="opened file",
+        )
+
+    # No procfs. Inode identity is what is left: it proves the path still names the file
+    # we hold, which catches a swap after the open but not one before it. Weaker, and the
+    # comment on _NOFOLLOW says why that is accepted here rather than papered over.
+    try:
+        held = os.fstat(fd)
+        onpath = os.lstat(entry.posix)
+    except OSError as e:
+        raise PathRefused(
+            [Refusal(
+                given=entry.given,
+                layer=LAYER_OPENED,
+                reason=f"the file it opened could not be checked ({e.strerror or e}).",
+                remedy="Nothing was read or written. Resolve the path again.",
+            )],
+            1,
+            surface="opened file",
+        ) from e
+
+    if (held.st_dev, held.st_ino) != (onpath.st_dev, onpath.st_ino):
+        raise PathRefused(
+            [Refusal(
+                given=entry.given,
+                layer=LAYER_OPENED,
+                reason=(
+                    "it passed the policy, but the path no longer names the file that "
+                    "opened."
+                ),
+                remedy=(
+                    "The path changed between being approved and being opened. Nothing "
+                    "was read or written. Resolve it again."
+                ),
+            )],
+            1,
+            surface="opened file",
+        )
+
+
+def open_resolved(entry: ResolvedPath, mode: str) -> OpenedFile:
+    """Open a path this module approved, and prove the descriptor is that path.
+
+    The only sanctioned way to open anything `resolve_all` or `resolve_permitted` returned.
+    `mode` is `"rb"`, `"r+b"` or `"wb"`; `"r+b"` exists so a read-modify-write holds one
+    descriptor for the whole operation and never opens twice against one check, which is
+    what makes `edit_file` safe by construction rather than by review.
+
+    Two things are load-bearing and neither is obvious.
+
+    **`O_NOFOLLOW`, despite the usual objection.** The objection is that it refuses
+    legitimate symlinked checkouts, and it would -- on the path a *caller* wrote. This flag
+    goes on `entry.posix`, which `realpath` has already collapsed, so the final component
+    is known not to be a link at the moment the policy approved it. A link there now is the
+    attack, not a checkout. Measured: it refuses with ELOOP, which is translated below into
+    a refusal rather than left to surface as "too many levels of symbolic links".
+
+    **Open, prove, and only then destroy.** `"wb"` sets `O_CREAT` but never `O_TRUNC`,
+    because `O_TRUNC` empties the file at open time -- before any proof can run. A checked
+    truncation after the proof is a guard; a check after `O_TRUNC` is a report of what was
+    already lost. `O_EXCL` is tried first so `created` can be reported without a second
+    `stat` on the same string, which was itself a second use of an unvalidated path.
+    """
+    try:
+        flags = _MODE_FLAGS[mode]
+    except KeyError:
+        raise ValueError(f"unsupported mode {mode!r}; use 'rb', 'r+b' or 'wb'") from None
+
+    flags |= _NOFOLLOW | _BINARY
+    created = False
+    try:
+        if mode == "wb":
+            try:
+                fd = os.open(entry.posix, flags | os.O_EXCL, 0o644)
+                created = True
+            except FileExistsError:
+                fd = os.open(entry.posix, flags)
+        else:
+            fd = os.open(entry.posix, flags)
+    except OSError as e:
+        if e.errno == errno.ELOOP:
+            raise PathRefused(
+                [Refusal(
+                    given=entry.given,
+                    layer=LAYER_OPENED,
+                    reason=(
+                        "it passed the policy as a file, and is a symbolic link now. It "
+                        "was not opened."
+                    ),
+                    remedy=(
+                        "The path changed between being approved and being opened. "
+                        "Nothing was read or written. Resolve it again."
+                    ),
+                )],
+                1,
+                surface="opened file",
+            ) from e
+        raise
+
+    try:
+        _prove_descriptor(entry, fd)
+        if mode == "wb" and not created:
+            # The truncation the caller expected from "wb", moved to after the proof.
+            os.ftruncate(fd, 0)
+    except BaseException:
+        os.close(fd)
+        raise
+
+    return OpenedFile(entry=entry, handle=os.fdopen(fd, mode), created=created)

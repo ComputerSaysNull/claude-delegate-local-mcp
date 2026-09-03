@@ -34,6 +34,64 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #93 — 2026-09-03 — feat: validating a path and opening it are one operation
+
+### Fixed
+- `resolve_all` handed back a string and three handlers opened it later: `read_file` after a
+  `stat`, `write_file` after an `os.path.exists`, `context.prefetch` after a `_stat_size`.
+  Checking a name and using a file are the same thing only for as long as nothing changes in
+  between, and the adversary here can change it — the delegated model holds a read-write
+  bind on its workdir under `run_bash` and can retry until a swap lands. Not the passive
+  window the 2026-09-02 review described.
+- `paths.open_resolved` opens and then proves, and returns a handle rather than a path, so
+  there is no string left for a caller to reopen. `_one_path` returns the `ResolvedPath`
+  instead of its `.posix` for the same reason. `read_file` sizes the file from `fstat` on
+  the descriptor it holds, which is what `max_file_read_bytes` always meant by checking
+  before reading — opening loads none of a file, and the number now describes the file being
+  held rather than whatever the path named a moment earlier.
+- `"wb"` sets `O_CREAT` and never `O_TRUNC`, which is the half that makes the write path a
+  control rather than a detector: `O_TRUNC` empties the file at open time, before any proof
+  can run, so a check after it reports what was already lost. Truncation moved after the
+  proof, and the test for it was watched failing against `O_TRUNC`. `O_EXCL` is tried first
+  so "Created" and "Overwrote" come from that open rather than from a second `stat` on the
+  same string — itself another use of a path checked once.
+
+### Changed
+- `O_NOFOLLOW`, which PLAN.md had recorded as the wrong fix. That objection is true of the
+  path a *caller* wrote and false of this one: the flag goes on the resolved path, which
+  `realpath` has already collapsed, so the final component is known not to be a link at the
+  moment it was approved. A link there now is the attack, not a symlinked checkout. ELOOP is
+  translated into a refusal rather than left to surface as "too many levels of symbolic
+  links". The descriptor proof catches the same swap on its own, asserted separately, so
+  neither half is load-bearing alone.
+- `context.prefetch`'s per-file body moved into `_prefetch_one`, which returns the entry or
+  the `Skip` explaining why there is none. Holding a descriptor across five skip branches
+  inside the loop would have reindented all of them under a `with` for no reason a reader
+  could see. `_stat_size` is deleted: it had one caller, and a helper kept for nobody is a
+  second way to open a validated path waiting to be used.
+- A file that stops being the approved one between resolve and open is a refusal on
+  `read_file`, and a drop on `search_files` and `prefetch` — matching `resolve_permitted`'s
+  disposition for paths nobody named, since a path the caller never asked for is not a
+  result rather than an error.
+
+### Added
+- What the proof catches is redirection, not substitution, and that is stated rather than
+  left to be rediscovered. Every one of layers 1 to 4 is a function of the path, so a
+  different *regular* file at an approved path is not a bypass — those bytes could have
+  arrived through `write_file`. Measured before the code was written: a pre-open
+  substitution of one regular file for another fires neither check, by design.
+- Four injected bugs, each watched turning its test red before the check was claimed to
+  work: `O_TRUNC` on the write path, the proof never running, `O_NOFOLLOW` folded out, and
+  the inode branch always agreeing. The inode branch is the one Windows itself uses, and its
+  negative test runs there — a branch whose only test is skipped on the platform that runs
+  it is a check that cannot fail.
+- Measured rather than assumed, on both DrvFs under `/mnt/c` and ext4: `/proc/self/fd`
+  agrees exactly with `realpath` for the path opened, `O_NOFOLLOW` refuses a link with
+  ELOOP, and a late `ftruncate` does what `O_TRUNC` would have. Windows has neither procfs
+  nor `O_NOFOLLOW` and falls back to inode identity, which is weaker and says so in
+  ADR-0049; it also refuses to unlink a held file at all, so the post-open half of the
+  attack cannot be staged there.
+
 ## #92 — 2026-09-03 — feat: the ledger says which tools were called, not only how many
 
 ### Added

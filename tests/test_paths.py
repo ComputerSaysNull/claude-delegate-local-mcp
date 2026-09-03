@@ -549,3 +549,187 @@ def test_a_workdir_that_is_a_file_or_missing_is_refused(tmp_path):
         resolve_workdir(conf, str(afile))
     with pytest.raises(PathRefused, match="does not exist"):
         resolve_workdir(conf, str(root / "nope"))
+
+
+# ---- opening what was resolved ---------------------------------------------------
+#
+# The gap these close was open until ADR-0049: `resolve_all` returns a string, a handler
+# opened that string later, and in between an adversary holding a read-write workdir bind
+# under `run_bash` could redirect the path. Every test below stages a real violation and
+# asserts the refusal, rather than asserting that a good path opens.
+#
+# `resolve_all` cannot run on Windows at all -- `to_posix` is for the WSL crossing and
+# mangles a native path -- so anything reached through it is POSIX-only, like layers 1 and
+# 4 above. The two tests that drive `_prove_descriptor` with a hand-built entry are not,
+# deliberately: the inode branch is the one Windows itself uses, and a branch whose only
+# negative test is skipped on the platform that runs it is a check that cannot fail.
+
+
+def entry_for(path) -> paths.ResolvedPath:
+    """A `ResolvedPath` built directly, for tests that must not go through layer 1."""
+    return paths.ResolvedPath(given=str(path), posix=os.path.realpath(path))
+
+
+def test_the_proof_refuses_a_descriptor_that_points_somewhere_else(tmp_path, monkeypatch):
+    """The procfs branch, driven where there is no procfs, so the comparison is covered.
+
+    What procfs answers is measured elsewhere; what this pins is that an answer naming
+    anything other than the approved path is refused rather than shrugged at.
+    """
+    target = Path(touch(tmp_path / "a.txt", "x"))
+    monkeypatch.setattr(paths, "_opened_path", lambda fd: "/etc/shadow")
+    fd = os.open(target, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    try:
+        with pytest.raises(PathRefused) as e:
+            paths._prove_descriptor(entry_for(target), fd)
+        assert [r.layer for r in e.value.refusals] == [paths.LAYER_OPENED]
+        assert "/etc/shadow" in str(e.value)
+        # And it passes when procfs names the approved path, so the refusal above is not
+        # this branch refusing everything it is handed.
+        monkeypatch.setattr(paths, "_opened_path", lambda fd: entry_for(target).posix)
+        paths._prove_descriptor(entry_for(target), fd)
+    finally:
+        os.close(fd)
+
+
+def test_the_inode_branch_refuses_when_the_path_stops_naming_the_open_file(
+    tmp_path, monkeypatch
+):
+    """The branch Windows uses, where no procfs can say where a descriptor points.
+
+    Two real files: the descriptor is on one and the entry names the other, which is what
+    a swap looks like to this comparison. Staged this way rather than by unlinking an open
+    file because Windows refuses that outright -- measured -- so the swap cannot be acted
+    out there at all.
+    """
+    held = Path(touch(tmp_path / "held.txt", "held"))
+    named = Path(touch(tmp_path / "named.txt", "named"))
+    monkeypatch.setattr(paths, "_opened_path", lambda fd: None)
+
+    fd = os.open(held, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    try:
+        with pytest.raises(PathRefused) as e:
+            paths._prove_descriptor(entry_for(named), fd)
+        assert [r.layer for r in e.value.refusals] == [paths.LAYER_OPENED]
+        # And it passes for the file it really is holding, so the test above is not
+        # passing because the comparison refuses everything.
+        paths._prove_descriptor(entry_for(held), fd)
+    finally:
+        os.close(fd)
+
+
+@posix_only
+def test_open_resolved_reads_the_file_it_approved(tmp_path):
+    target = tmp_path / "a.txt"
+    touch(target, "hello\n")
+    opened = paths.open_resolved(resolve_all(cfg(tmp_path), [str(target)])[0], "rb")
+    with opened.handle as fh:
+        assert fh.read() == b"hello\n"
+    assert opened.created is False
+
+
+@posix_only
+def test_an_unsupported_mode_is_a_programming_error_not_a_refusal(tmp_path):
+    """A bad mode is our bug, so it must not arrive dressed as the model's fault."""
+    target = touch(tmp_path / "a.txt", "x")
+    entry = resolve_all(cfg(tmp_path), [target])[0]
+    with pytest.raises(ValueError, match="unsupported mode"):
+        paths.open_resolved(entry, "a+")
+
+
+@posix_only
+def test_a_link_planted_after_approval_is_refused_by_the_open_itself(tmp_path):
+    """O_NOFOLLOW, which is safe here because `realpath` already collapsed the path."""
+    outside = tmp_path.parent / "outside.txt"
+    outside.write_text("secret\n", encoding="utf-8")
+    target = tmp_path / "a.txt"
+    touch(target, "legitimate\n")
+    entry = resolve_all(cfg(tmp_path), [str(target)])[0]
+
+    target.unlink()
+    target.symlink_to(outside)
+
+    with pytest.raises(PathRefused) as e:
+        paths.open_resolved(entry, "rb")
+    assert [r.layer for r in e.value.refusals] == [paths.LAYER_OPENED]
+    assert "symbolic link" in str(e.value)
+
+
+@posix_only
+def test_the_descriptor_proof_catches_the_same_link_without_o_nofollow(
+    tmp_path, monkeypatch
+):
+    """The two halves are independent, so neither is load-bearing alone.
+
+    With O_NOFOLLOW folded out the open succeeds and hands us the *target*; procfs says so
+    and the proof refuses. Measured before it was written: without the flag the descriptor
+    reports the link's target rather than the path that was asked for.
+    """
+    outside = tmp_path.parent / "outside.txt"
+    outside.write_text("secret\n", encoding="utf-8")
+    target = tmp_path / "a.txt"
+    touch(target, "legitimate\n")
+    entry = resolve_all(cfg(tmp_path), [str(target)])[0]
+    target.unlink()
+    target.symlink_to(outside)
+
+    monkeypatch.setattr(paths, "_NOFOLLOW", 0)
+    with pytest.raises(PathRefused) as e:
+        paths.open_resolved(entry, "rb")
+    assert [r.layer for r in e.value.refusals] == [paths.LAYER_OPENED]
+    assert os.path.realpath(outside) in str(e.value)
+
+
+@posix_only
+def test_a_refused_write_has_not_truncated_anything(tmp_path, monkeypatch):
+    """The reason "wb" sets O_CREAT and never O_TRUNC.
+
+    O_TRUNC empties the file at open time, before any proof can run, which would leave the
+    write path with a report of what was already destroyed rather than a guard. This test
+    fails against O_TRUNC, which is the only thing that makes it worth having.
+    """
+    outside = tmp_path.parent / "outside.txt"
+    outside.write_text("must survive\n", encoding="utf-8")
+    target = tmp_path / "a.txt"
+    touch(target, "legitimate\n")
+    entry = resolve_all(cfg(tmp_path), [str(target)])[0]
+    target.unlink()
+    target.symlink_to(outside)
+
+    # O_NOFOLLOW off, so the open reaches the swapped target and the *ordering* is what is
+    # under test rather than the flag that would have stopped it one step earlier.
+    monkeypatch.setattr(paths, "_NOFOLLOW", 0)
+    with pytest.raises(PathRefused):
+        paths.open_resolved(entry, "wb")
+    assert outside.read_text(encoding="utf-8") == "must survive\n"
+
+
+@posix_only
+def test_wb_reports_whether_it_created_the_file(tmp_path):
+    target = tmp_path / "new.txt"
+    entry = resolve_all(cfg(tmp_path), [str(target)], must_exist=False)[0]
+    opened = paths.open_resolved(entry, "wb")
+    with opened.handle as fh:
+        fh.write(b"first")
+    assert opened.created is True
+
+    again = paths.open_resolved(resolve_all(cfg(tmp_path), [str(target)])[0], "wb")
+    with again.handle as fh:
+        fh.write(b"xy")
+    assert again.created is False
+    # Shorter than what was there, so a missing truncation would leave "xyrst".
+    assert target.read_bytes() == b"xy"
+
+
+@posix_only
+def test_r_plus_b_holds_one_descriptor_for_the_whole_read_modify_write(tmp_path):
+    """What makes `edit_file` safe by construction: there is no second open to race."""
+    target = tmp_path / "a.txt"
+    touch(target, "one two three\n")
+    opened = paths.open_resolved(resolve_all(cfg(tmp_path), [str(target)])[0], "r+b")
+    with opened.handle as fh:
+        before = fh.read()
+        fh.seek(0)
+        fh.write(before.replace(b"two", b"2"))
+        fh.truncate()
+    assert target.read_text(encoding="utf-8") == "one 2 three\n"
