@@ -19,6 +19,46 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0046 — 2026-09-03 — One prefetch budget, because fairness is admission's job — Accepted
+
+`max_file_tokens` was 40000 against a `max_total_prefetch_tokens` of 140000, and the gap
+was doing two different jobs badly. The per-file cap is a **drop** threshold: a file over
+it is skipped whole rather than truncated, because source cut mid-function is worse than
+absent — the model confidently repairs code it never saw. That part is right and is not
+changing.
+
+What was wrong is the second job the gap was quietly doing. Sized separately, the per-file
+cap read as a fairness control: no single file may take more than a share of the call, so
+one request cannot monopolise a shared KV pool. That reasoning is sound and it is also
+already implemented, once, properly, somewhere else. `admission.py` tests four rules —
+in-flight requests, summed token estimate, concurrent large prefills, and the endpoint's
+own declared concurrency — over counters that `slots.py` shares across every server process
+on the machine. Two knobs guarding one property, tuned independently, with only one of them
+able to see the machine-wide picture.
+
+The cost was paid in the direction that hurts most. The largest documents are the ones most
+likely to have drifted from the code they describe, so a cap that drops them is a cap that
+removes exactly what a documentation audit came for — while most of the total budget sits
+unspent. The 2026-09-03 audit worked around it by being handed sixteen files by its caller.
+
+So the per-file cap now defaults equal to the total, and keeps one job: an operator's way
+of refusing one huge file while still allowing a large total. The relation the code enforces
+is unchanged and is the only one that has to hold — `Config` refuses to load when the total
+is below the per-file cap, because then no file could ever fit.
+
+**The consequence is real and is accepted, not hidden.** With the caps equal, one large
+file can spend the whole budget, and `prefetch` stops at the first file that does not fit
+rather than continuing — so every file sorted after it is skipped too. That stopping rule
+predates this decision and is itself deliberate: carrying on to fit whatever happens to be
+small enough makes the result depend on an unpredictable size mix, and a coherent prefix of
+what was asked for beats an arbitrary subset. What makes it survivable is that nothing is
+silent. `Prefetch.accounting()` names every skipped file and why, in the result and in the
+prompt, and the model is told to treat a skipped file as unavailable rather than infer it.
+
+Rejected: keeping a separate per-file number and merely raising it. That leaves two
+independently tuned controls over one property, which is the thing being fixed, and the
+next person to size either one has to rediscover which of them is the fairness control.
+
 ## ADR-0045 — 2026-09-02 — Effort is always stated, and `inherit` is how deference is stated — Accepted
 
 `effort` was optional on all four delegation tools, and the value a caller got by saying

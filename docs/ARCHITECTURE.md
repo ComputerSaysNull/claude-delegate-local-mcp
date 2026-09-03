@@ -1,4 +1,5 @@
-<!-- BUDGET: 638
+<!-- BUDGET: 646
+     Raised from 638 on 2026-09-03: the per-file prefetch cap stopped being a fairness control, so this document says where fairness actually lives and why a second copy of it here cost an under-used cluster.
      Raised from 633 on 2026-09-03: max_turns became a per-call argument, so this document can state where argument precedence is applied and why there is exactly one such place.
      Raised from 630 on 2026-09-02: list_agents reports what it skipped and what belongs to the other format, which is the discovery case of a rule this document already states.
      Raised from 625 on 2026-09-02: nothing set the transcript's file permissions, so this document could not state them.
@@ -86,6 +87,13 @@ anything back.
 `files[]` is not an alternative to the loop. It is a **prefetch** that seeds it. Measured
 during spikes: given no prefetch, the model's first turn was a wasted directory listing.
 Prefetching removes several such turns from the front of every delegation.
+
+A prefetch cap is a **drop** threshold and never a truncation: a file over it is left out
+whole, because source cut mid-function is worse than absent. It is also not a fairness
+control, and used to be sized as though it were. Fairness between concurrent requests is
+admission's, below, which counts it across every server process on the machine rather than
+per call — so a second control here only meant one large file being dropped while the
+budget it would have fitted in sat unused (ADR-0046).
 
 ## Modules
 

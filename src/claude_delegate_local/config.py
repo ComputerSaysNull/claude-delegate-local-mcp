@@ -157,13 +157,18 @@ class Config:
 
     # ---- files[] prefetch (ADR-0015, revised by ADR-0019) ------------------------
     max_file_tokens: int = _f(
-        40000,
+        140000,
         "Per-file prefetch cap, in ESTIMATED TOKENS rather than bytes. Bytes were the "
         "wrong unit: the same byte limit is worth 2x more tokens for JSON than for "
-        "Python. 40K tokens is roughly 155 KiB of source or 68 KiB of JSON, and costs "
-        "about 20s of prefill. A file over the cap is skipped whole, never truncated -- "
-        "source cut mid-function is worse than absent, because the model will "
-        "confidently repair code it never saw.",
+        "Python. A file over the cap is skipped whole, never truncated -- source cut "
+        "mid-function is worse than absent, because the model will confidently repair "
+        "code it never saw. Equal to max_total_prefetch_tokens by default, so no file is "
+        "dropped for being large while the budget it would have fitted in sits unused "
+        "(ADR-0046): the largest documents are the ones most likely to have drifted, and "
+        "a cap that removes them is a cap that removes what an audit came for. Lower it "
+        "to refuse one huge file while still allowing a large total; that is the only "
+        "job it has left, because fairness between concurrent requests belongs to "
+        "admission control, which counts it across every process on the machine.",
         unit="est. tokens",
     )
     max_total_prefetch_tokens: int = _f(
