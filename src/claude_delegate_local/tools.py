@@ -33,7 +33,9 @@ from .context import decode_text
 from .paths import (
     PathPolicyError,
     PathRefused,
+    ResolvedPath,
     load_secret_globs,
+    open_resolved,
     resolve_all,
     resolve_permitted,
     resolve_search_root,
@@ -140,24 +142,29 @@ def _int_arg(args: dict[str, object], name: str, default: int) -> int:
     return value
 
 
-def _one_path(cfg: Config, given: str, *, must_exist: bool) -> str:
-    """Run the caller's path through the four-layer policy and return the resolved one.
+def _one_path(cfg: Config, given: str, *, must_exist: bool) -> ResolvedPath:
+    """Run the caller's path through the four-layer policy and return the resolved entry.
 
     `paths.py` governs both file tools and the sandbox governs none of them: only `run_bash`
     is ever confined, so this is the whole control for a read or a write (ADR-0010).
+
+    The entry, not its `.posix`. Handing back a string is what let three handlers check
+    a name and then open a file, which are the same thing only for as long as nothing
+    changes in between; `open_resolved` is the only sanctioned way to open what this
+    returns (ADR-0049).
     """
     resolved = resolve_all(cfg, [given], must_exist=must_exist)
     if not resolved:
         # Layer 4 dropped it without a refusal only if the caller passed nothing at all.
         raise ToolRefused(f"{given!r} resolved to no file.")
-    return resolved[0].posix
+    return resolved[0]
 
 
 # --- the tools --------------------------------------------------------------------------
 
 
 def _read_file(cfg: Config, args: dict[str, object]) -> str:
-    real = _one_path(cfg, _text_arg(args, "path"), must_exist=True)
+    entry = _one_path(cfg, _text_arg(args, "path"), must_exist=True)
     # 1-based, because every other thing that cites a line is: an editor, a traceback, a
     # reviewer. `offset` counted characters, which meant the model could neither be pointed
     # at lines 400 to 460 nor cite what it had read, and one agent file worked around it by
@@ -167,29 +174,29 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
         raise ToolRefused(
             f"start_line {start} is not a line number; lines are counted from 1.")
 
-    # stat() before read(), which is what `max_file_read_bytes` already says it does:
-    # "Hard byte ceiling checked by stat() BEFORE reading, so a multi-gigabyte file is
-    # never loaded into memory just to discover it is too big." `context.prefetch` honoured
-    # that; this path did not, and read the whole file to hand back a 50k-character window.
-    # One setting, one meaning, both consumers -- rather than a second knob for the same
-    # idea.
+    # Sized from the descriptor rather than from the path, which is still what
+    # `max_file_read_bytes` means by checking "BEFORE reading": opening a file loads none
+    # of it, so the ceiling refuses a multi-gigabyte file without reading it, and it now
+    # measures the file actually being held rather than whatever the path named a moment
+    # earlier. One setting, one meaning, all three consumers.
     try:
-        nbytes = os.stat(real).st_size
+        opened = open_resolved(entry, "rb")
     except OSError as e:
         raise ToolRefused(f"could not read it: {e.strerror or e}") from e
 
-    if nbytes > cfg.max_file_read_bytes:
-        # Refused rather than paged. At `max_read_chars` a file this size needs more calls
-        # than the turn budget allows, so offering pagination would spend the delegation
-        # getting nowhere; a shell that can cut the part actually wanted is the real answer.
-        raise ToolRefused(
-            f"it is {nbytes} bytes, over the {cfg.max_file_read_bytes}-byte ceiling, so it "
-            f"was not read at all. Use run_bash with sed, head or grep to cut out the part "
-            f"you need."
-        )
-
     try:
-        with open(real, "rb") as fh:
+        with opened.handle as fh:
+            nbytes = os.fstat(fh.fileno()).st_size
+            if nbytes > cfg.max_file_read_bytes:
+                # Refused rather than paged. At `max_read_chars` a file this size needs
+                # more calls than the turn budget allows, so offering pagination would
+                # spend the delegation getting nowhere; a shell that can cut out the
+                # part actually wanted is the real answer.
+                raise ToolRefused(
+                    f"it is {nbytes} bytes, over the {cfg.max_file_read_bytes}-byte "
+                    f"ceiling, so it was not read at all. Use run_bash with sed, head "
+                    f"or grep to cut out the part you need."
+                )
             raw = fh.read(cfg.max_file_read_bytes)
     except OSError as e:
         raise ToolRefused(f"could not read it: {e.strerror or e}") from e
@@ -310,10 +317,14 @@ def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
         if len(lines) >= max_results:
             return _Hits(tuple(lines), files, True)
         try:
-            with open(item.posix, "rb") as fh:
+            with open_resolved(item, "rb").handle as fh:
                 blob = fh.read(cfg.max_file_read_bytes)
-        except OSError:
-            continue  # vanished or unreadable between the walk and here; not a result
+        except (OSError, PathRefused):
+            # Vanished, unreadable, or no longer the file the policy approved, between
+            # the walk and here. Dropped rather than refused, matching
+            # `resolve_permitted`: nobody named this path, so it is not a result rather
+            # than an error.
+            continue
         text, _ = decode_text(blob)
         if text is None:
             continue
@@ -433,15 +444,17 @@ def _write_file(cfg: Config, args: dict[str, object]) -> str:
             f"{len(encoded)} bytes exceeds the {cfg.max_write_bytes}-byte limit for one "
             f"write. Write it in parts.")
 
-    real = _one_path(cfg, given, must_exist=False)
-    existed = os.path.exists(real)
+    entry = _one_path(cfg, given, must_exist=False)
     try:
-        with open(real, "wb") as fh:
+        opened = open_resolved(entry, "wb")
+        with opened.handle as fh:
             fh.write(encoded)
     except OSError as e:
         raise ToolRefused(f"could not write it: {e.strerror or e}") from e
-    verb = "Overwrote" if existed else "Created"
-    return f"{verb} {real} ({len(encoded)} bytes)."
+    # Which verb comes from the open that made the file, not from a second `stat` on
+    # the same string -- which was itself a second use of a path checked once.
+    verb = "Created" if opened.created else "Overwrote"
+    return f"{verb} {entry.posix} ({len(encoded)} bytes)."
 
 
 def _capped(cfg: Config, result: sandbox.SandboxResult) -> str:

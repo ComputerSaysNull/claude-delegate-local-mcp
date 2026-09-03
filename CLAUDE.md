@@ -1,4 +1,5 @@
-<!-- BUDGET: 144 -->
+<!-- BUDGET: 152 -->
+<!-- Raised from 144 on 2026-09-03: one invariant, for the trap ADR-0049 closed. -->
 # CLAUDE.md
 
 Traps and invariants for anyone — human or agent — editing this repository. Terse on
@@ -65,6 +66,13 @@ Rules a machine cannot check, so they land here:
   reading the same denylist does not change that: it covers up matches inside what it binds,
   point-in-time, while a command holds a read-write bind for its whole run. Treating either
   as a backstop for the other is the trap. (ADR-0010, ADR-0035)
+- **Validating a path and opening it are one operation.** `open_resolved` is the only
+  sanctioned way to open what `paths.py` approved: it returns a handle, not a path, so
+  there is no string left for a handler to reopen. A second `open` on a `.posix` puts the
+  check-then-use gap back, against an adversary who holds a read-write workdir bind under
+  `run_bash` and can retry. What it proves is that the file is still *at* the approved
+  path — redirection, not substitution; a different regular file there is not a policy
+  question, and the ADR says why. (ADR-0049)
 - **`allowed_tools` is enforced at two sites**, `declared_tools` and `execute_tool` in
   `tools.py`, and neither trusts the other. Filtering only the declared list is advisory,
   because a model can call a tool it was never offered. Both exist now, which makes the

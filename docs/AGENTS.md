@@ -1,4 +1,5 @@
-<!-- BUDGET: 350
+<!-- BUDGET: 365
+     Raised from 350 on 2026-09-03: the policy gained a check that runs at the open rather than at the resolve, which is a fifth thing a caller can be refused by and so a fact this document owns. Two sentences of the ADR-0010 corollary were deleted to pay for part of it; the subsection they duplicated already owned that.
      Raised from 331 on 2026-09-03: the path policy grew a second disposition and a directory check, both in paths.py, which this document owns.
      Raised from 327 on 2026-09-03: max_turns became overridable per call, so the precedence rule moved out of the model subsection to govern the whole field table, which is a net three lines after deleting the copy it replaced.
      Raised from 310 on 2026-09-02: list_agents now separates a broken agent file from one in Claude Code's format, and what a caller is told about each is a fact this document owns.
@@ -193,9 +194,9 @@ in order to read credentials out of it. (ADR-0036)
 
 ## The path policy
 
-Four layers, checked in order, cheapest first. They apply to `files[]` *and* to the model's
-own `read_file` and `write_file`. None of them involves the sandbox: only `run_bash` is ever
-confined, so these four are the whole control for a read or a write (ADR-0010).
+Four layers, checked in order, cheapest first, and then a fifth check when the file is
+actually opened. They apply to `files[]` *and* to the model's own `read_file` and
+`write_file`.
 
 `write_file` creates, so for it — and only for it — layer 1's existence test is relaxed: a
 missing file is allowed, while the directory to write into must still exist and an existing
@@ -204,7 +205,7 @@ path is worse than reading one rather than better.
 
 | | Layer | Refuses |
 |---|---|---|
-| 1 | Workspace roots | Anything whose **real** path falls outside a configured root. Resolution happens after symlinks, which is what closes escape via a link |
+| 1 | Workspace roots | Anything whose **real** path falls outside a configured root. Resolution happens after symlinks, which closes escape through a link that was already there; one planted afterwards is caught at the open, below |
 | 2 | Extension allowlist | Anything whose extension is not listed |
 | 3 | Secret denylist | `.env*`, `*.pem`, `*.key`, `id_*`, `*credential*`, `*secret*`, `.git/**`, and more |
 | 4 | Gitignore | Anything git ignores |
@@ -228,6 +229,20 @@ suffix; `.gitignore`, `.makefile` and `.dockerfile` are whole filenames written 
 leading dot. A file with no suffix is therefore matched by *name*, which is what makes
 `Makefile` and `.gitignore` readable at all — matching suffixes alone would refuse exactly
 the entries somebody added on purpose.
+
+### Approval is not the open
+
+Layer 1 resolves symlinks at the moment it checks. It cannot close one planted
+afterwards: between a path being approved and the file being opened there is a window,
+and the adversary is the delegated model, which holds a read-write bind on its workdir
+under `run_bash` and can retry until a swap lands.
+
+So the policy hands back an open descriptor and never a path. The open refuses a link at
+the final component outright, then proves the descriptor still refers to the approved
+path, which catches a swapped parent directory too. What it deliberately does not treat
+as a breach is a different *regular* file at an approved path — every layer above is a
+function of the path, so those bytes could have arrived through `write_file` anyway.
+Refused as `layer 5, the opened file`, with nothing read and nothing written. (ADR-0049)
 
 ### Windows paths are accepted, and translated for you
 

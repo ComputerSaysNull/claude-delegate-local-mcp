@@ -19,6 +19,63 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0049 — 2026-09-03 — Validating a path and opening it are one operation — Accepted
+
+`resolve_all` handed back a string and three handlers opened it later: `read_file` after a
+`stat`, `write_file` after an `os.path.exists`, `prefetch` after a `_stat_size`. Checking a
+name and using a file are the same thing only for as long as nothing changes in between,
+and something can: the adversary is the delegated model itself, which holds a read-write
+bind on its workdir under `run_bash` and can retry until a swap lands. Not the passive
+window a review would describe.
+
+`open_resolved` is the only sanctioned way to open what the policy approved. It opens, then
+proves the descriptor, and returns a handle rather than a path — so there is no string for a
+caller to reopen. `read_file` now sizes the file from `fstat` on the descriptor it holds,
+which is what `max_file_read_bytes` always meant by checking before reading; opening loads
+none of a file.
+
+**What it catches is redirection, not substitution.** Every one of layers 1 to 4 is a
+function of the path, so a different *regular* file appearing at an approved path is not a
+bypass — those bytes could have arrived through `write_file`. The bypass is the path coming
+to name something outside the approved set: a symlink to a key, a swapped parent. Measured
+before the code was written: a pre-open substitution of one regular file for another fires
+neither check, by design rather than by omission, and saying so here is the difference
+between a documented limit and a hole someone rediscovers.
+
+**`O_NOFOLLOW`, despite the standing objection to it.** PLAN.md recorded it as the wrong
+fix because it refuses legitimate symlinked checkouts. That is true of the path a *caller*
+wrote and false of this one: the flag goes on the resolved path, which `realpath` has
+already collapsed, so the final component is known not to be a link at the moment the
+policy approved it. A link there now is the attack, not a checkout. It refuses with ELOOP,
+translated into a refusal rather than left to surface as "too many levels of symbolic
+links".
+
+**Open, prove, and only then destroy.** `"wb"` sets `O_CREAT` and never `O_TRUNC`, because
+`O_TRUNC` empties the file at open time — before any proof can run. A check after that is a
+report of what was already lost; a truncation after the proof is a guard. This is the half
+that turns the write path from a detector into a control, and its test fails against
+`O_TRUNC`. `O_EXCL` is tried first so "Created" and "Overwrote" come from the open itself
+rather than from a second `stat` on the same string, which was another use of a path checked
+once.
+
+**The proof is weaker where the OS will not answer, and says so.** Linux reads
+`/proc/self/fd`, measured to agree exactly with `realpath` on both DrvFs under `/mnt/c` and
+ext4. Windows has no procfs and no `O_NOFOLLOW`, and falls back to inode identity, which
+catches a swap after the open but not before it. Accepted rather than papered over: that
+platform has no `run_bash` — bubblewrap is absent, so `available_tool_names` subtracts it —
+and therefore no in-sandbox adversary, and it refuses to unlink a held file at all. The
+negative test for that branch runs there anyway, because a branch whose only test is
+skipped on the platform that uses it is a check that cannot fail.
+
+Costs accepted. A file that vanishes between approval and open is now a refusal on
+`read_file` rather than an `OSError` message, and a drop on `search_files` and `prefetch`,
+matching `resolve_permitted`'s disposition for paths nobody named. `prefetch` opens files it
+then skips on budget, which is an open and no read.
+
+Rejected: comparing inodes alone, which cannot see a redirect; and re-running layers 1 to 4
+on the descriptor's path, which is the same comparison spelled longer, since the approved
+path is exactly what those layers already passed.
+
 ## ADR-0048 — 2026-09-03 — Read-only means nothing can write, not that nothing is offered — Accepted
 
 `delegate_readonly` passed `allowed_tools=[]`, so a read-only delegation answered in one
