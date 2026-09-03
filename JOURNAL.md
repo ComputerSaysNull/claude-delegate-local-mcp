@@ -895,3 +895,52 @@ of it -- so a long prompt never caches its tail regardless.
 MCP tool descriptions in `server.py` are read by Claude Code and never reach the cluster at
 all, so editing those costs nothing here. CLAUDE.md already treats both as a behaviour
 change; only the first also carries a prefill bill.
+
+## 2026-09-03 — A probe can answer a different question from the one asked, twice in nine lines
+
+The commit-msg hook shim picked its interpreter like this:
+
+    if [ -x "$root/.venv/Scripts/python.exe" ]; then py="$root/.venv/Scripts/python.exe"
+    else py=python; fi
+
+Both branches are wrong, in the same way, and neither is visible by reading it.
+
+`[ -x file ]` asks whether a file claims to be executable. On `/mnt/c` that is always
+true: DrvFs reports mode 777 for everything, so from WSL the probe succeeded for a
+Windows `.exe` a POSIX shell has no business exec'ing. The test was not "is there a
+Windows venv" but "does this path exist", which is not what anybody wanted to know.
+
+`py=python` then fails outright in WSL, because Debian dropped the unversioned name.
+Eight of the nine tests in `test_a_real_amend_reaches_the_gate.py` had been failing on
+it, and the consequence outside the tests is worse: committing from inside WSL never
+ran the gate, and the error read `exec: python: not found` — a hook that looks broken
+rather than a commit that was not checked.
+
+So the fix put `python3` in the chain and probed with `command -v`. That made WSL pass
+and broke Windows with the identical eight failures, because **`python3` on Windows
+resolves to the Microsoft Store app-execution alias**: on PATH, executable, and it
+prints an advert and exits 49 instead of running anything. `command -v` asks whether a
+name resolves, which is again not the question.
+
+Measured, not reasoned about: `python3 -c ""` exits 49, `python -c ""` exits 0. So the
+probe is to **run the candidate**, and the shim now does.
+
+Two lessons, and the second is the general one.
+
+A probe must ask the question you actually have. "Is this file executable", "is this
+name on PATH" and "is this a working interpreter" are three different questions, and
+the first two are cheap enough to be tempting.
+
+And one platform proves nothing here. The first mistake needed WSL to see, the second
+needed Windows, and the second was *introduced by fixing the first* — passing on the
+machine to hand while breaking the other one identically. The suite has to run in both
+places, which CONTRIBUTING.md already said and this is the bill for not doing.
+
+A third thing fell out of it, worth its own line. The test that should have caught the
+original bug read:
+
+    assert done.returncode != 0, "the gate did not block an undocumented change at all"
+
+A crashed hook satisfies that. The commit failed either way, and only the following
+assertion about the output told the two apart. Assert that the thing ran before
+asserting what it decided.
