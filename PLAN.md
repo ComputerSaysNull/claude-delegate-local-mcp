@@ -190,13 +190,13 @@ them was re-derived when it did.
   notifications already flow per item, so the missing piece is handing back what is done —
   and the shape has to keep the per-item `ok`/`error` contract that `#45` exists to protect,
   because shielding or restructuring the gather is what silently restored a lockout before
-- ⬜ A stalled delegation reports the deadline but not what it was doing — the failure says
-  which timeout fired and nothing about progress, so at the call site it is indistinguishable
-  from an unreachable endpoint, and the honest response is to stop using the server. Twice on
-  2026-09-04 the endpoint was healthy and the task was merely too big to finish a turn. Turn
-  count and `tool_calls` are already tracked on the dispatch, so "no turn completed in 2100s
-  after N tool calls" is reachable without new plumbing and separates the two cases. Cheap,
-  and it saves the probe being the only thing that can tell them apart (JOURNAL 2026-09-04)
+- ✅ 2026-09-04 A stalled delegation says what it had managed (`#102`) — turns, tool calls
+  and the last tool, so a wedged task shows work behind it where a dead endpoint shows zero
+  of both. **"Reachable without new plumbing" was wrong**: nothing on the error path could
+  see the counters, since `_Watch` is a local of the loop and `AgenticDispatch` is built only
+  on success. One handler wrapping the loop covers all five raise sites. Absent stays
+  distinct from zero, so a one-shot's message is unchanged. The find was elsewhere: the
+  template's literal "while" had been rendering "while with no turn completed" all along
 - ✅ 2026-09-02 A heartbeat for the agentic loop — `#58`'s silence closed, and the timer
   alone would not have closed it: `_run_calls` is synchronous and `run_bash` reaches
   `subprocess.run`, so a command held the event loop and no timer could be scheduled during

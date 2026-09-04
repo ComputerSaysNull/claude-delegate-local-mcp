@@ -1,4 +1,8 @@
-<!-- BUDGET: 463 -->
+<!-- BUDGET: 477 -->
+<!-- Raised from 463 on 2026-09-04: a deadline failure now reports what the delegation
+     had managed, and the paragraph has to say why the loop attaches it rather than the
+     raise sites -- and why a one-shot reports nothing rather than zero. Own text cut by
+     roughly half first. -->
 <!-- Raised from 430 on 2026-09-03: a second deadline this document owns and that did
      not previously exist -- the no-progress deadline, plus the admission wait that
      stacks on both and was stated only in an ADR and a generated cell. -->
@@ -154,6 +158,16 @@ did not answer; this says it may be answering perfectly and the delegation has s
 outlived what the operator allows — so sending someone to check the cluster is the wrong
 diagnosis. The message names the stage, the setting, and the elapsed time, which is the
 *delegation's*, derived from the deadline, so it can never read as less than that limit.
+
+**It also names what the delegation had managed** — turns completed, tool calls, the last
+tool — because that is the distinction a reader must be able to make: a wedged task shows
+work behind it where a dead endpoint shows zero of both. Without it a stall read exactly
+like an unreachable endpoint, whose honest remedy is to stop using the server, and twice on
+2026-09-04 that was the wrong call. The turn loop attaches the counts on the way out, in one
+handler, because the raise sites cannot see its ledger and the dispatch record that also
+carries them exists only on success. A one-shot supplies none and reads as it always did:
+**absent and zero are different facts**, and the one path that cannot stall must not report
+itself as having done so.
 
 **The admission wait stacks on top of both**, rather than being contained by either. A
 delegation waits up to [`admission_wait_timeout`](CONFIGURATION.md) for a slot, and only

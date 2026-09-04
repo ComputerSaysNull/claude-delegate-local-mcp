@@ -34,6 +34,51 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #102 — 2026-09-04 — feat: a deadline failure reports what the delegation had managed
+
+### Fixed
+- **A stalled delegation named the deadline and nothing about its own progress**, so at the
+  call site it was indistinguishable from an endpoint that never answered — and the honest
+  response to *that* is to stop using the server. Twice on 2026-09-04 the endpoint was
+  healthy and the task was merely too large to finish a turn, and both times stopping was
+  the wrong call. `DispatchTimedOut` now carries turns completed, tool calls and the last
+  tool, and the message reports them: a wedged task shows real work behind it where a dead
+  endpoint shows zero of both, which separates the two cases by number rather than by
+  wording.
+
+  **`PLAN.md` was wrong that this needed no new plumbing**, and the item said so explicitly.
+  Nothing on the error path could reach the counters: `_Watch` is a local of
+  `run_agentic_loop`, discarded as the exception propagates, and `AgenticDispatch` — which
+  does carry `turns` and `tool_calls` — is built only when the loop finishes. So the counts
+  are attached by one handler wrapping the turn loop, which covers all five raise sites
+  inside `complete_with_retry` at once and keeps a counter out of signatures that have no
+  way to read one. `with_progress` returns a copy rather than assigning the fields, because
+  the message is built in `__init__` and mutating afterwards would leave `str(e)`
+  disagreeing with the attributes beside it.
+
+  Absent and zero are kept distinct: a one-shot completes no turns by construction, so it
+  supplies no counters and its message is byte-for-byte what it always was. A hardcoded zero
+  would have described the one path that cannot stall as though it had.
+
+- **The stall message was ungrammatical.** The template interpolated the stage after a
+  literal "while", which read correctly for the three waiting stages and produced "while
+  with no turn completed" for the stall — the one message an operator stares at longest.
+  Each stage now carries its own preposition. Two existing tests asserted the old value and
+  were updated; both were found by running the whole suite rather than the files the change
+  obviously touched, which is the only way a coupling a change *creates* shows up.
+
+### Changed
+- **The transcript's `end` event reports turns for a dispatch that died on a deadline.** It
+  recorded `None` for anything that never produced a dispatch, so a timed-out delegation was
+  written down as having run no turns — the same gap as the error text, in the file an
+  operator reads afterwards. It also cost the token-savings accounting, which reads real
+  usage from the transcript and was being handed nothing for every failed run.
+
+- No `docs/TROUBLESHOOTING.md` entry, deliberately. That document owns zero facts and its
+  entry would only link onward, and the change itself is that the failure now answers the
+  question such an entry would exist to answer. Recorded here so the omission reads as a
+  decision rather than an oversight.
+
 ## #101 — 2026-09-04 — docs: queue the two follow-ups the stall finding named
 
 ### Added

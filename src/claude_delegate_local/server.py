@@ -717,7 +717,16 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 streamed_backend_ms = int((time.monotonic() - turn_clock) * 1000)
             stream.end(
                 ok=failure is None,
-                turns=getattr(dispatched, "turns", 1) if dispatched else None,
+                # A timed-out delegation has no `dispatched` and used to record `None`
+                # here, so the transcript said a failed run had done nothing -- the same
+                # gap as the error text, in the file an operator reads afterwards. The
+                # exception now carries what the loop managed, so use it. Still `None` for
+                # every other failure, where nothing counted anything.
+                turns=(
+                    getattr(dispatched, "turns", 1) if dispatched
+                    else failure.turns if isinstance(failure, DispatchTimedOut)
+                    else None
+                ),
                 elapsed_seconds=time.monotonic() - started,
                 output_tokens=streamed_out_tokens or None,
                 backend_ms=streamed_backend_ms or None,

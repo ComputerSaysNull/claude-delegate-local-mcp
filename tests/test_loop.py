@@ -1007,7 +1007,7 @@ def test_a_backoff_that_would_sleep_past_the_deadline_ends_it_instead():
             )
         )
     assert sleep.waits == [], "the 30s backoff must not be slept at all"
-    assert excinfo.value.stage == "waiting to retry"
+    assert excinfo.value.stage == "while waiting to retry"
 
 
 def test_the_refusal_names_the_setting_the_elapsed_time_and_the_stage():

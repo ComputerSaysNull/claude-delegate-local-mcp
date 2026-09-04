@@ -137,7 +137,7 @@ def test_a_deadline_reached_while_waiting_to_retry_counts_the_whole_budget():
         )
 
     e = excinfo.value
-    assert e.stage == "waiting to retry"
+    assert e.stage == "while waiting to retry"
     assert e.elapsed >= e.limit, (
         f"reported {e.elapsed}s as past a limit of {e.limit}s, which it is not"
     )
