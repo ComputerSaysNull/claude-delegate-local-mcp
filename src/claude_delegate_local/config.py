@@ -449,15 +449,20 @@ class Config:
         "every large request slower rather than any of them faster.",
     )
     admission_wait_timeout: int = _f(
-        600,
+        1800,
         "Bound on time spent waiting for a slot, before dispatch_timeout starts its own "
         "clock. Separate rather than shared, because dispatch_timeout's deadline is set "
         "inside the loop it bounds, which does not run until admission has already been "
         "granted -- it cannot bound a wait that ends before it begins. The two therefore "
-        "stack rather than divide one budget. Deliberately well under dispatch_timeout: "
-        "a wait this long means the budget is misconfigured or the cluster is wedged, and "
-        "an error naming the rule that bound is worth more than an hour spent queued. "
-        "backend_status reports the longest wait seen and how many hit this limit.",
+        "stack rather than divide one budget, so the caller-visible worst case is both "
+        "added. Raised from 600 once admission started queueing rather than merely "
+        "waiting: until then a waiter had no place in line, so a longer timeout bought a "
+        "longer unfair wait and risked starvation instead of bounded failure. A wait is "
+        "now the work ahead of you, which a busy cluster can legitimately make minutes "
+        "long -- where 600s refused requests that would have run. Still far under "
+        "dispatch_timeout, and safe against the client's stdio idle timeout only because "
+        "a waiting delegation keeps reporting progress. backend_status reports the "
+        "longest wait seen, how many hit this limit, and how deep the queue is.",
         unit="seconds",
     )
 
