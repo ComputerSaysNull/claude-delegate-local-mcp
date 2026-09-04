@@ -34,6 +34,48 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #96 — 2026-09-04 — feat: a file cannot forge the boundary that says where it ends
+
+### Fixed
+- A prefetched file could close its own boundary. `context.block` wraps each file in
+  `--- BEGIN FILE <path> ---` / `--- END FILE <path> ---` and inlined the body verbatim,
+  so a file being reviewed could contain a line in the marker's own shape and have
+  everything after it read as prompt rather than as file content. The markers were already
+  deliberately not a markdown fence — an inlined `.md` file's own fences would close it —
+  and that reasoning stopped one line short of the case where the file writes the marker
+  itself.
+- Matched by **shape**, and for **any** path rather than the entry's own. A forged marker
+  naming a different file is the worse case: it attributes what follows to a path the
+  server never opened and never vouched for, where a file ending itself early only
+  truncates itself. The matcher is deliberately generous about leading whitespace and dash
+  count, because the model reading the block is not a parser and will not insist on the
+  exact form — so neither can the check that protects it.
+- `BEGIN` is escaped as well as `END`. Only `END` was named in the plan item, and a forged
+  `BEGIN` is what makes the block look as though a second file had been read.
+
+### Changed
+- The offending line is **neutralised, not dropped**: prefixed with a backslash, the usual
+  "this is literal" convention, leaving the rest of the line byte for byte. Deletion would
+  satisfy the security property and break the tool for its own source — a review
+  delegation exists to read code, and this project's own `context.py` contains those marker
+  strings. The tests assert both halves: the line no longer reads as a boundary, *and* the
+  content after it is still there.
+- Not announced in `FILES_HEADER`, deliberately. Explaining the escape would add tokens to
+  the cached prefix of every delegation forever to describe a case that is close to absent
+  in real source, and a backslash before a line of dashes needs no gloss.
+- One consequence worth knowing rather than discovering: if a model is ever asked to
+  `edit_file` a line that was escaped on the way in, it will quote the escaped form and
+  `old_string` will not be found. That is a refusal which leaves the file byte-identical
+  (#94), so the failure is safe and legible rather than a silent bad write.
+
+### Added
+- `tests/regression/test_a_file_can_forge_its_own_end_marker.py`. Most of it needs no
+  filesystem and so runs on both hosts, unlike the rest of the prefetch tests. Proven able
+  to fail: with the escaper neutralised, 12 of its cases fail including both end-to-end
+  ones, while the over-matching guards — ordinary source, a unified diff header, a bare row
+  of dashes, this module's own constants — pass either way, which is what makes them
+  guards.
+
 ## #95 — 2026-09-04 — docs: bytes per token belongs to the tokenizer, and it was measured against two
 
 ### Added

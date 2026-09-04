@@ -29,6 +29,7 @@ five. (ADR-0011)
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 from .config import Config
@@ -48,6 +49,39 @@ SKIP_UNREADABLE = "unreadable"
 # fences of its own, and the model would read the first one as the end of the file.
 BEGIN = "--- BEGIN FILE {path} ---"
 END = "--- END FILE {path} ---"
+
+# A line in a file's own body that would read as one of the boundaries above. Matched by
+# SHAPE and for ANY path, never against the entry's own formatted marker: a forged line
+# naming a *different* file is the worse case, because it attributes what follows to
+# something the server never read. Generous about surrounding whitespace and dash count,
+# because the model reading this is not a parser and will not insist on the exact form.
+MARKER_LINE = re.compile(r"^[ \t]*-{3,}[ \t]*(?:BEGIN|END)[ \t]+FILE\b.*?-{3,}[ \t]*$")
+
+# What a neutralised line is prefixed with. The usual "this is literal" convention, one
+# character, leaving the rest of the line byte for byte.
+MARKER_ESCAPE = "\\"
+
+
+def escape_markers(text: str) -> str:
+    """Neutralise any line in `text` that would parse as a file boundary.
+
+    Prefixed rather than dropped, because a review delegation exists to read source and
+    source legitimately quotes things -- this module's own constants among them. The model
+    can still see what the file said; what it cannot do is mistake the line for the end of
+    the file and read the bytes after it as prompt.
+
+    Deliberately not announced in `FILES_HEADER`. Explaining the escape would add tokens
+    to the cached prefix of every delegation forever to describe a case that is close to
+    absent in real source, and a backslash before a line of dashes needs no gloss.
+    """
+    if "FILE" not in text:  # cheap reject; the pattern cannot match without it
+        return text
+    # `split` and not `splitlines`: the latter drops the distinction between a body that
+    # ends in a newline and one that does not, which `block` depends on just below.
+    return "\n".join(
+        MARKER_ESCAPE + line if MARKER_LINE.match(line) else line
+        for line in text.split("\n")
+    )
 
 FILES_HEADER = (
     "The files below were read from disk by the server, not by you. They are the current "
@@ -101,7 +135,8 @@ class Prefetch:
         if self.files:
             parts.append(FILES_HEADER)
             for entry in self.files:
-                body = entry.text if entry.text.endswith("\n") else entry.text + "\n"
+                escaped = escape_markers(entry.text)
+                body = escaped if escaped.endswith("\n") else escaped + "\n"
                 parts.append(
                     BEGIN.format(path=entry.path) + "\n" + body + END.format(path=entry.path)
                 )
