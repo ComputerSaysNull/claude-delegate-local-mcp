@@ -77,12 +77,12 @@ group by what the item's own annotation says it costs.
   server never opened was the case the item did not name, and the worse one. Neutralised
   rather than dropped, because a review delegation reads source and `context.py` quotes
   those markers itself. The tool-level policy remains the real defence (`#96`)
-- ⬜ Refuse a non-stdio transport outright — `config.py` already says adding the HTTP
-  transport "is a real integration task, not a flag flip", yet setting it runs a server. A
-  knob advertised as unfinished that still starts is the shape ADR-0034 deleted
-  `sandbox_enabled` for. The review called it unauthenticated *and* unbound; measured,
-  FastMCP defaults its host to loopback and `main.py` passes only a port, so the reachable
-  surface is other local processes rather than the network, and no token is the true half
+- ✅ 2026-09-04 Refused a non-stdio transport outright, and deleted the port only it used
+  — the field is **kept** rather than deleted, diverging from ADR-0034's remedy for a
+  measured reason: `load` reads only variables matching a field, so deleting it would turn
+  a configuration error into silence. `sandbox_enabled` differed in that the value being
+  ignored was the one the operator wanted anyway. No token was the true half of the review
+  finding; the loopback default made the rest of it moot (`#97`)
 - ✅ 2026-09-03 `security/secret_globs.txt` does have the reach its header claims — this
   item was wrong when filed and is closed without work. The git half is `check_secret_paths`
   in `scripts/docs_gate.py`, which loads the globs and blocks any tracked file matching one;

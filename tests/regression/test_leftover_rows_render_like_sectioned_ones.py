@@ -81,7 +81,9 @@ def test_the_footer_count_matches_the_rows_actually_marked(monkeypatch, sectione
     """
     if not sectioned:
         monkeypatch.setattr(gen, "SECTIONS", [])
-    monkeypatch.setattr(gen, "_unread_fields", lambda: {"kv_token_budget", "http_port"})
+    monkeypatch.setattr(
+        gen, "_unread_fields", lambda: {"kv_token_budget", "secret_shadow_max_depth"}
+    )
     text = gen.render()
     marked = text.count("**Inert.**")
     footer = re.search(r"\*\d+ settings, (\d+) of them inert\.\*", text)

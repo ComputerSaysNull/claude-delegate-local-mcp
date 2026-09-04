@@ -78,7 +78,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                  "secret_shadow_max_entries", "secret_shadow_max_depth",
                  "opaque_globs_file")),
     ("Agents", ("agents_dir",)),
-    ("Transport", ("transport", "http_port")),
+    ("Transport", ("transport",)),
 ]
 
 

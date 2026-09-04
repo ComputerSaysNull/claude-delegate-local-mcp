@@ -34,6 +34,50 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #97 — 2026-09-04 — feat!: a transport this server does not implement is refused, not started
+
+### Changed
+- **Breaking.** `DELEGATE_TRANSPORT=streamable-http` was an accepted value, so setting it
+  ran a listener. It is now refused at load, with a message naming what is missing. A knob
+  advertised as unfinished that still starts a server is the shape ADR-0034 deleted
+  `sandbox_enabled` for, and `config.py` already said in its own field description that
+  adding the HTTP transport "is a real integration task, not a flag flip".
+- The refusal names **authentication**, not merely "unsupported". The 2026-09-02 review
+  called the transport unauthenticated *and* unbound; measured, FastMCP defaults its host
+  to loopback and `main.py` only ever passed a port, so the reachable surface was other
+  local processes rather than the network. No token is the true half of that finding, and
+  it is enough on its own.
+- `main.py` no longer branches on the value and passes `cfg.transport` rather than a
+  literal `"stdio"`. A second branch could only be reached by a config that can no longer
+  exist, and passing the validated value keeps one copy of it — a literal here would be a
+  second place to change when a transport is finally added. Passing it also keeps the
+  setting genuinely read outside `config.py`: with the literal in place the generated
+  reference marked the row **Inert.**, which is true of what reads it and false about
+  what it does.
+
+### Removed
+- `DELEGATE_HTTP_PORT`, which only the refused transport used. Deleted rather than left
+  inert, which is ADR-0034's remedy applied where it fits: a port nothing can listen on
+  renders in the generated reference as a knob that does something.
+
+### Fixed
+- `transport` itself is **kept**, and that is a deliberate divergence from ADR-0034 rather
+  than an inconsistency. `config.load` reads only variables that match a dataclass field,
+  so an unknown `DELEGATE_*` name is discarded in silence — verified with a deliberate
+  typo, which is the sharper end of the same behaviour. Deleting the field would therefore
+  convert a configuration error into silence: the operator sets the variable, gets stdio,
+  and is told nothing. ADR-0034's case differed in exactly this respect — a `bool` that
+  could only be `True` failed safe *and* legibly, because the value being ignored was the
+  one the operator would have wanted anyway.
+
+### Added
+- Three tests in `tests/test_config.py`, all shown to fail against the previous
+  behaviour: the HTTP value is refused; a stale value is not silently ignored, alongside
+  the typo that is; and `http_port` is gone from the dataclass rather than merely unread.
+- Verified end to end rather than by test alone. `DELEGATE_TRANSPORT=streamable-http`
+  exits 1 with the message on stderr, and a real MCP `initialize` over stdio still gets a
+  well-formed response with the server logging transport `stdio`.
+
 ## #96 — 2026-09-04 — feat: a file cannot forge the boundary that says where it ends
 
 ### Fixed
