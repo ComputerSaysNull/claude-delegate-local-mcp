@@ -142,3 +142,24 @@ assumed and names the one the endpoint served, and `backend_status` carries
 `context_window_defaulted` beside the number, so the two cases are distinguishable before
 anything disagrees. Overflow handling stays off by default regardless: arming it against a
 number nobody chose is worse than not arming it.
+
+## The token estimator is measured against a tokenizer, not against file types
+
+The prefetch and admission budgets are denominated in estimated tokens, from a
+per-extension bytes-per-token table in `config.py`. Those ratios are a property of the
+**tokenizer**, not only of the file type, and the spread between two models is as wide as
+the spread between JSON and prose: measured against one tokenizer and then another, JSON
+moved by 47% while Python source did not move at all. The numbers themselves live in
+JOURNAL 2026-08-25 and 2026-09-04 and are deliberately not repeated here or in
+`config.py`; ADR-0019 has the reasoning.
+
+What this means when you add a model: the table is **not** re-derived per registry entry,
+and there is no per-model field for it. It survives a change of tokenizer only because
+every entry is rounded down from its measurement, so the estimator over-counts — and
+over-counting costs a little admission capacity while under-counting queues a request
+until it times out. A tokenizer denser than the densest entry would break that, silently,
+because nothing compares the table against the model being served.
+
+So if a new model is much denser than the one the table was built against, re-measure
+before trusting the budgets. The endpoint's own `/tokenize` is what both measurements
+used, which makes this a half-hour job rather than a project.

@@ -164,11 +164,11 @@ them was re-derived when it did.
   admission. Recorded in M7 and in the ADR, which is not where a reader looks. More pressing
   since 2026-09-02: ARCHITECTURE.md's copy of the rationale was deleted as duplication, so
   the only prose statement of it now lives in a generated config cell
-- ⬜ Re-measure `BYTES_PER_TOKEN` per tokenizer and say so in `docs/MODELS.md` — measured
-  against one model. Lower priority than the 2026-09-02 review implied: the table is
-  per-extension and every entry is rounded **down**, so estimates over-count and the
-  conservative direction survives a different tokenizer unless it is denser than the
-  densest entry. A sentence, not a project
+- ✅ 2026-09-04 Re-measured `BYTES_PER_TOKEN` per tokenizer and said so in
+  `docs/MODELS.md` — the conservative direction held, and for the predicted reason rather
+  than because ratios are stable: `.json` moved 47% against the first tokenizer and `.py`
+  not at all, yet all five measurable here still sit below their entries. No value changed;
+  the defect was a comment calling the table a property of file types. JOURNAL 2026-09-04
 - ✅ 2026-09-02 Measure whether the tool schemas sit inside the cached prefix — they are.
   Sent cold, one reworded tool *description* cached zero tokens, exactly like a reworded
   system prompt, where the unchanged prefix cached 4096 of 5946. So rewording one costs a

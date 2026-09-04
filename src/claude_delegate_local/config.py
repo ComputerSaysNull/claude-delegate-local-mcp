@@ -61,16 +61,25 @@ OVERFLOW_TIGHTEN_AT = 0.70
 OVERFLOW_NUDGE_AT = 0.85
 OVERFLOW_ABORT_AT = 0.95
 
-# Bytes per token, MEASURED against this model's own tokenizer (ADR-0019). These vary by
-# more than 2x across file types, which is why the prefetch budget is denominated in
-# tokens rather than bytes -- 128 KiB is 33K tokens of Python but 72K tokens of JSON.
+# Bytes per token, MEASURED (ADR-0019). These vary by more than 2x across file types,
+# which is why the prefetch budget is denominated in tokens rather than bytes -- 128 KiB
+# is 33K tokens of Python but 72K tokens of JSON.
 #
-# The measurements themselves live in JOURNAL 2026-08-25 and are not repeated here; the
-# values below are those numbers rounded down, which is a different thing.
+# A ratio here belongs to a file type AND a tokenizer, which the first version of this
+# comment did not say. Re-measured against a second tokenizer on 2026-09-04, JSON moved
+# 47% while Python source did not move at all, so the model matters as much as the
+# extension. The measurements live in JOURNAL 2026-08-25 and 2026-09-04 and are not
+# repeated here; the values below are those numbers rounded down, which is a different
+# thing.
 #
 # Each entry is rounded DOWN from the measurement, so an estimate errs toward
 # over-counting: over-counting wastes a little admission capacity, under-counting queues
 # a request until it times out. The unknown-extension default is the worst case observed.
+#
+# That convention is also the only reason the table survived the second tokenizer, and it
+# would not survive one denser than the densest entry: nothing compares this table against
+# the model actually being served. `.toml` and `.lock` share an entry sized for the
+# lockfile, so TOML source is over-costed by about 45% -- safe direction, real cost.
 BYTES_PER_TOKEN: dict[str, float] = {
     # structured / punctuation-dense: many tokens per byte
     ".json": 1.7, ".lock": 2.0, ".toml": 2.0, ".yaml": 2.2, ".yml": 2.2,
