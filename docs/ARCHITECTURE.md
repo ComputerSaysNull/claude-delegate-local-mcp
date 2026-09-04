@@ -1,4 +1,5 @@
-<!-- BUDGET: 660
+<!-- BUDGET: 669
+     Raised from 660 on 2026-09-04: the files block now escapes a body line shaped like its own boundary, and why it matches any path rather than the file's own is the part a reader needs. Two mid-sentence wraps in the paragraph above were reflowed to pay part of it.
      Raised from 655 on 2026-09-03: prefetch now holds one proven descriptor per file from the open to the read, so the size the budgets use and the bytes inlined are the same file (ADR-0049).
      Raised from 646 on 2026-09-03: delegate_readonly stopped being the one-shot path, which is a fact about how a delegation is assembled and this document owns server.py.
      Raised from 638 on 2026-09-03: the per-file prefetch cap stopped being a fairness control, so this document says where fairness actually lives and why a second copy of it here cost an under-used cluster.
@@ -394,15 +395,24 @@ builder and the turn loop both need it and two copies of an ordering rule is one
 
 Each file is opened once and held from the open to the read, so the size the budgets are
 computed from and the bytes that get inlined come from one descriptor, proven to be the
-path the policy approved (ADR-0049). Sorted *before* the total budget is accumulated,
-not after, or the same six files listed in a different order would return a different
-five. The budget also stops at the first
-file that does not fit rather than continuing to pack in whatever is small enough: a
-coherent prefix of what was asked for beats an arbitrary subset of it, and it is the only
-version a caller can predict. A file over a cap is left out **whole** — source cut
-mid-function is worse than absent, because the model will repair code it never saw — and
-what was left out is named in the prompt as well as the result, since the model cannot
-otherwise tell an omitted file from one that does not exist.
+path the policy approved (ADR-0049). Sorted *before* the total budget is accumulated, not
+after, or the same six files listed in a different order would return a different five.
+The budget also stops at the first file that does not fit rather than continuing to pack
+in whatever is small enough: a coherent prefix of what was asked for beats an arbitrary
+subset of it, and it is the only version a caller can predict. A file over a cap is left
+out **whole** — source cut mid-function is worse than absent, because the model will
+repair code it never saw — and what was left out is named in the prompt as well as the
+result, since the model cannot otherwise tell an omitted file from one that does not
+exist.
+
+Each file is wrapped in `--- BEGIN FILE <path> ---` / `--- END FILE <path> ---` rather
+than a markdown fence, because an inlined `.md` file's own fences would close it early.
+The body is then escaped against those markers, which the fence choice alone did not
+cover: a line in the file matching the marker's *shape* — for any path, not just its own —
+is prefixed so it cannot read as a boundary. Any path, because a forged marker naming a
+file the server never read attributes what follows to something nobody vouched for, which
+is worse than a file merely ending itself early. Neutralised rather than dropped: a review
+delegation exists to read source, and source legitimately quotes things.
 
 One system prompt covers the files and no-files shapes rather than one for each. Two would
 be two prefixes, so a caller alternating between the shapes would miss the cache on every

@@ -72,11 +72,11 @@ group by what the item's own annotation says it costs.
   a runaway allocation is bounded only by `run_bash_timeout` and `--die-with-parent`. This
   machine's page file is capped by choice, so a demand-side OOM is the live failure mode
   rather than a theoretical one
-- ⬜ Escape a file's own END marker in the files block — `context.py` wraps each file in
-  `--- BEGIN FILE <path> ---` / `--- END FILE <path> ---`, deliberately not a markdown
-  fence, but the body is not escaped against those markers. A hostile file being reviewed
-  can forge an end-of-file boundary and speak as the prompt. Concrete and testable, unlike
-  prompt injection in general; the tool-level policy remains the real defence
+- ✅ 2026-09-04 Escaped a file's own boundary markers in the files block — matched by
+  shape and for **any** path, not the entry's own: a forged `BEGIN FILE` naming a file the
+  server never opened was the case the item did not name, and the worse one. Neutralised
+  rather than dropped, because a review delegation reads source and `context.py` quotes
+  those markers itself. The tool-level policy remains the real defence (`#96`)
 - ⬜ Refuse a non-stdio transport outright — `config.py` already says adding the HTTP
   transport "is a real integration task, not a flag flip", yet setting it runs a server. A
   knob advertised as unfinished that still starts is the shape ADR-0034 deleted
