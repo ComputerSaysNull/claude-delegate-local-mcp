@@ -34,6 +34,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #100 — 2026-09-04 — docs: record that a stalled delegation looks like a dead backend
+
+### Added
+- JOURNAL 2026-09-04, on two `delegate_readonly` calls abandoned at
+  `DELEGATE_STALL_TIMEOUT` with *no turn completed* while the endpoint was demonstrably
+  healthy — `backend_status` reported the model `ok` and `id_confirmed`, three of five
+  concurrent slots in use and no admission timeouts. The failure alone does not distinguish
+  a wedged endpoint from a task too big to finish a turn, which is the whole argument for
+  probing before deciding to stop using the server.
+- Recorded as an observation rather than a diagnosis. What the two stalls had in common was
+  shape, not size: five or six numbered sub-questions at high effort over a prefetched
+  module. Re-sent one question per call, at the same effort over the same files, every one
+  returned in a single turn — so the remedy is established even though the mechanism is
+  not.
+- Two follow-ups named in the entry rather than left as a feeling. The stall message says
+  what timed out but nothing about what the delegation was doing, and turn count and tool
+  calls are already tracked, so it could separate the two cases itself. And a batch is the
+  sharper form of the same trap: one item stalling spends the whole deadline while its
+  siblings sit finished.
+
 ## #99 — 2026-09-04 — feat: read_git, because an audit's questions are all historical
 
 ### Added
