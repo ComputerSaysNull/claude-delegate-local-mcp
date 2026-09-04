@@ -34,6 +34,46 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #95 — 2026-09-04 — docs: bytes per token belongs to the tokenizer, and it was measured against two
+
+### Added
+- A section in `docs/MODELS.md` saying that the token estimator's per-extension ratios are
+  a property of the **tokenizer**, not only of the file type, and what that means when a
+  second model is registered. `docs/MODELS.md` had never mentioned bytes per token at all,
+  so the one document a person reads before adding a model said nothing about the table
+  whose accuracy that decision affects.
+- JOURNAL 2026-09-04, holding the new measurements. They live there and nowhere else, for
+  the reason the 2026-08-25 entry gives: a measurement copied is a measurement that drifts.
+  `docs/MODELS.md` and `config.py` both link rather than restate.
+
+### Changed
+- The `BYTES_PER_TOKEN` comment in `config.py` no longer says the ratios were measured
+  "against this model's own tokenizer" without naming the model. That phrasing was the
+  actual defect: it read as a property of file types, so nothing prompted anyone to ask
+  whether it still held for the model being served. It now says a ratio belongs to a file
+  type *and* a tokenizer, and points at both measurement entries.
+- The comment also records the two limits the table has, neither previously written down:
+  nothing compares it against the model actually in use, so a denser tokenizer would break
+  the round-down convention silently; and `.toml` shares an entry sized for `.lock`,
+  over-costing TOML source by about 45% — the safe direction, but a real cost.
+- **No table value changed, deliberately**, and that is the finding rather than an
+  omission. Re-measured through the endpoint's own `/tokenize` — the instrument ADR-0015
+  used — against `deepseek-v4-flash-0731`, every entry is still below its own measurement,
+  so the estimator still over-counts. Retuning to the current tokenizer would trade a
+  table that is correct by convention for one correct against a single model, and the next
+  model would then be silently wrong instead of conservatively wrong.
+- The spread between tokenizers turns out to be as wide as the spread between file types
+  that motivated the table: `.json` moved 47% against the 2026-08-25 figure while Python
+  source did not move in the second decimal place. ADR-0019's safe direction survived a
+  change of tokenizer it never contemplated, and it survived because of the round-down
+  convention rather than because ratios are stable — which is what the plan item predicted
+  and what makes it worth recording rather than assuming next time.
+- Stated as a limit rather than left implied: this repository cannot measure its own table.
+  Only three of its extensions carry enough tracked bytes for the ratio to converge, the
+  punctuation-dense samples came from real package data in a sibling checkout, and most of
+  the table's thirty-odd extensions have never been measured against any tokenizer — they
+  are neighbours' values assigned by eye.
+
 ## #94 — 2026-09-03 — feat: edit_file, on the descriptor open_resolved proves
 
 ### Added

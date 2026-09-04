@@ -944,3 +944,44 @@ original bug read:
 A crashed hook satisfies that. The commit failed either way, and only the following
 assertion about the output told the two apart. Assert that the thing ran before
 asserting what it decided.
+
+## 2026-09-04 — Bytes per token belongs to the tokenizer as much as to the file type
+
+ADR-0019 measured a per-extension ratio table against one tokenizer and the entry above
+presents those numbers as a property of file types. They are a property of a file type
+*and* a model. Re-measured through the same `/tokenize` endpoint against
+`deepseek-v4-flash-0731`, with the 2026-08-25 figures beside them:
+
+| sample | 2026-08-25 | 2026-09-04 |
+|---|---|---|
+| JSON, punctuation-heavy | 1.78 | 2.62 |
+| lockfile | 2.08 | 2.17 |
+| markdown prose | 3.42 | 4.11 |
+| python source | 3.89 | 3.90 |
+| TOML source (not a lockfile) | not measured | 3.63 |
+
+Python source is unchanged in the second decimal place. JSON moved 47%. So what varies
+between tokenizers is not "structured versus prose" but how one vocabulary happens to
+segment one kind of punctuation, and the spread across models is as wide here as the
+spread across file types that motivated the table in the first place.
+
+**The round-down convention is what carried it.** All five sit below their own
+measurement, so the estimator still over-counts and ADR-0019's safe direction survived a
+change of tokenizer it never contemplated. That is a convention earning its keep rather
+than foresight — the direction would not have survived a *denser* tokenizer, and nothing
+would have reported it if it had not.
+
+Two things found on the way, neither a correctness problem:
+
+- `.toml` and `.lock` share an entry, and they are not alike. A lockfile measures 2.17
+  and a hand-written `pyproject.toml` 3.63 — the entry is sized for the lockfile, so TOML
+  source is costed at about 45% more tokens than it uses. Safe direction, real cost.
+- This repository cannot measure its own table. Only three extensions have enough tracked
+  bytes to converge; the dense samples came from real npm package data in a sibling
+  checkout. Most of the table's thirty-odd extensions have never been measured against
+  any tokenizer, and are neighbours' values assigned by eye.
+
+The general lesson, and the reason this is not filed as a fix: a measured constant should
+record *what it was measured against*, not only the number. ADR-0019's did say "the
+model's own tokenizer" — and the one word that mattered, which model, is the one it left
+out.
