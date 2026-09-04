@@ -162,21 +162,69 @@ class DispatchTimedOut(Exception):
     for server-captured truth applies to *which* failure this was as much as to exit codes.
     """
 
-    def __init__(self, elapsed: float, limit: int, stage: str,
+    def __init__(  # noqa: PLR0913 -- one message's fields; the three counters are
+                   # keyword-only and every raise site omits them
+                 self, elapsed: float, limit: int, stage: str,
                  setting: str = "DELEGATE_DISPATCH_TIMEOUT",
                  remedy: str = "Raise that setting if the work legitimately takes this "
-                               "long, or shorten the task.") -> None:
+                               "long, or shorten the task.",
+                 *, turns: int | None = None, tool_calls: int | None = None,
+                 last_tool: str | None = None) -> None:
         self.elapsed = elapsed
         self.limit = limit
+        # `stage` carries its own preposition. It used to be interpolated after a literal
+        # "while", which read correctly for the three waiting stages and produced "while
+        # with no turn completed" for the stall -- the one message a reader is most likely
+        # to be staring at.
         self.stage = stage
         self.setting = setting
         # The remedy is a parameter because it stopped being one sentence. "Raise that
         # setting" is right for a ceiling reached by work that was still producing, and
         # wrong for a stall: raising a no-progress deadline buys a longer wait for a run
         # that has already stopped progressing, which is the opposite of the fix.
+        self.remedy = remedy
+        # What the delegation had managed when the deadline fired. `None` at every raise
+        # site, because not one of them can see it: the counters live on the turn loop's
+        # `_Watch`, a local of `run_agentic_loop`, and `AgenticDispatch` -- which does
+        # carry them -- is built only on the success path. So the loop fills them in on the
+        # way out, via `with_progress`.
+        self.turns = turns
+        self.tool_calls = tool_calls
+        self.last_tool = last_tool
         super().__init__(
             f"Delegation abandoned after {elapsed:.1f}s, past the "
-            f"{setting} of {limit}s, while {stage}. {remedy}"
+            f"{setting} of {limit}s, {stage}.{self._progress()} {remedy}"
+        )
+
+    def _progress(self) -> str:
+        """What it had done, or nothing at all when the counters were never supplied.
+
+        Empty rather than "0 turns" when unknown, because absent and zero are different
+        facts and this message must not merge them: a one-shot completes no turns by
+        construction, so a zero there would describe the one path that cannot stall as
+        though it had stalled.
+        """
+        if self.turns is None or self.tool_calls is None:
+            return ""
+        last = f", last tool {self.last_tool}" if self.last_tool else ""
+        return (
+            f" Progress at that point: {self.turns} "
+            f"turn{'' if self.turns == 1 else 's'} completed, {self.tool_calls} "
+            f"tool call{'' if self.tool_calls == 1 else 's'}{last}."
+        )
+
+    def with_progress(self, *, turns: int, tool_calls: int,
+                      last_tool: str | None) -> DispatchTimedOut:
+        """A copy that also reports progress, for the turn loop to raise in place of this.
+
+        A copy rather than assigning the attributes, because the message is built in
+        `__init__`: setting them afterwards would leave `str(e)` disagreeing with the
+        fields sitting beside it, which is the drift between a report and the thing it
+        reports that ADR-0007 exists to refuse.
+        """
+        return DispatchTimedOut(
+            self.elapsed, self.limit, self.stage, self.setting, self.remedy,
+            turns=turns, tool_calls=tool_calls, last_tool=last_tool,
         )
 
 
@@ -448,7 +496,7 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
     while True:
         left = remaining()
         if left is not None and left <= 0:
-            raise DispatchTimedOut(spent(), cfg.dispatch_timeout, "waiting on the backend")
+            raise DispatchTimedOut(spent(), cfg.dispatch_timeout, "while waiting on the backend")
         stalled()
         attempts += 1
         try:
@@ -471,11 +519,11 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
                 # the delegation deadline is not what expired. Naming it would send an
                 # operator to raise a setting that had no part in this.
                 raise DispatchTimedOut(
-                    spent(), cfg.turn_timeout, "waiting on one turn",
+                    spent(), cfg.turn_timeout, "while waiting on one turn",
                     setting="DELEGATE_TURN_TIMEOUT",
                 ) from e
             raise DispatchTimedOut(
-                spent(), cfg.dispatch_timeout, "waiting on the backend"
+                spent(), cfg.dispatch_timeout, "while waiting on the backend"
             ) from e
         except (BackendUnavailable, BackendRefused) as e:
             if not _is_retryable(e) or attempts >= cfg.retry_max_attempts:
@@ -491,7 +539,7 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
                 # Sleeping first would burn the rest of the budget and then report the
                 # deadline, naming a wait this function chose rather than the work.
                 raise DispatchTimedOut(
-                    spent() + wait, cfg.dispatch_timeout, "waiting to retry"
+                    spent() + wait, cfg.dispatch_timeout, "while waiting to retry"
                 ) from e
             await sleep(wait)
 
@@ -1642,6 +1690,29 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             diagnostics=tuple(watch.turns),
             rereads=tuple(watch.rereads) if diagnostics else (),
         )
+    except DispatchTimedOut as e:
+        # The only place these numbers exist on a failure. `watch` is a local of this
+        # function and is discarded as the exception propagates, and the `AgenticDispatch`
+        # above -- which does carry `turns` and `tool_calls` -- is only ever built when the
+        # loop finishes. So a delegation that ran out of time reported which setting fired
+        # and nothing about what it had achieved, which at the call site is indistinguishable
+        # from an endpoint that never answered: the honest response to that is to stop using
+        # the server, and twice on 2026-09-04 that was the wrong call.
+        #
+        # Wrapped here rather than at the five raise sites inside `complete_with_retry`,
+        # which is one handler instead of five and keeps those signatures free of a counter
+        # they have no way to read.
+        #
+        # `watch.turn` is the turn *now running*, so completed turns is one fewer. It is
+        # deliberately not clamped to the stall window: the stall clock resets on turn
+        # completion, so "no turn completed" means none within `stall_timeout`, not none
+        # ever, and reporting the total is what separates a task too large to finish a turn
+        # from a backend that produced nothing at all.
+        raise e.with_progress(
+            turns=max(watch.turn - 1, 0),
+            tool_calls=watch.tool_calls,
+            last_tool=watch.calls[-1][0] if watch.calls else None,
+        ) from e
     finally:
         if beat is not None:
             beat.cancel()

@@ -1,4 +1,5 @@
-<!-- BUDGET: 698
+<!-- BUDGET: 704
+     Raised from 698 on 2026-09-04: the end event now carries turns for a dispatch that died on a deadline, where it recorded none -- the transcript half of the same gap, and this document owns what that event carries.
      Raised from 669 on 2026-09-04: admission queues in order now, and the two qualifications a reader needs are that a waiter must be feasible to count as ahead (strict order would reintroduce head-of-line blocking) and that a ticket is dropped in a finally (an abandoned one starves the machine).
      Raised from 660 on 2026-09-04: the files block now escapes a body line shaped like its own boundary, and why it matches any path rather than the file's own is the part a reader needs. Two mid-sentence wraps in the paragraph above were reflowed to pay part of it.
      Raised from 655 on 2026-09-03: prefetch now holds one proven descriptor per file from the open to the read, so the size the budgets use and the bytes inlined are the same file (ADR-0049).
@@ -657,6 +658,11 @@ shape can be silent for a long time — a one-shot has no turns at all, and one 
 outlast the client's idle timer unaided. A synthetic `turn` is written when a one-shot's
 answer arrives, so the record is never the empty shape a failed delegation has.
 [DISPATCH.md](DISPATCH.md) owns what the heartbeat carries and why (ADR-0018).
+
+The `end` event reports turns even when the dispatch died on a deadline, where it used to
+carry nothing — recording a timed-out delegation as having run none, which is the same gap
+as its error text in the file read afterwards. [DISPATCH.md](DISPATCH.md) owns what such a
+failure reports and why.
 
 A stream ends by writing an `end` event, so the listing has three states rather than two:
 `ok`/`fail` for one that ended, `live` for one written to recently, and `quiet <age>` for
