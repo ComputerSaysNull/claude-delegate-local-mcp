@@ -985,3 +985,35 @@ The general lesson, and the reason this is not filed as a fix: a measured consta
 record *what it was measured against*, not only the number. ADR-0019's did say "the
 model's own tokenizer" — and the one word that mattered, which model, is the one it left
 out.
+
+## 2026-09-04 — A delegation that stalls looks exactly like a backend that is down
+
+Two `delegate_readonly` calls were abandoned at `DELEGATE_STALL_TIMEOUT`, 2100s each, both
+reporting *no turn completed*. That reads as an outage, and the temptation at the call site
+is to conclude the cluster is unreachable and stop using it.
+
+`backend_status` said otherwise, immediately: the model `ok` and `id_confirmed`, concurrency
+5 against a peak of 3 in flight, `admission_timeouts: 0`. The endpoint was healthy the whole
+time. **That is the entire argument for probing before deciding** — the two states are
+indistinguishable from the failure alone, and only one of them is worth changing behaviour
+over.
+
+What the two had in common was shape rather than size. Each asked five or six numbered
+sub-questions at `effort: "high"` over a prefetched module. The two calls that *succeeded*
+alongside them were the same shape and hit their turn limits with tool results being
+evicted. Re-sent as one question each, at the same effort and over the same files, every one
+came back in a single turn.
+
+So the working hypothesis is that a task with many parts and a high reasoning budget can
+generate for a very long time without ever finishing a turn, and the stall deadline is the
+only thing that ends it. Recorded as an observation, not a diagnosis: nothing here proves
+the mechanism, and the cheap remedy — ask one question per call — removed the symptom
+completely across five subsequent calls.
+
+Two things worth acting on if this recurs. The stall message names the timeout and the
+setting but says nothing about what the delegation was *doing*, and turn count plus
+`tool_calls` are already tracked, so "no turn completed in 2100s after N tool calls" is
+reachable and would separate a wedged endpoint from a task that is merely too big. And a
+batch is the sharper version of the same trap: one item stalling costs the whole 2100s while
+its siblings sit finished, which is why `delegate_batch` reports per-item `ok` and why every
+item failing is the only shape that means an outage.
