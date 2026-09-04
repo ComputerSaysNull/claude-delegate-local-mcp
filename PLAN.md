@@ -1,4 +1,5 @@
-<!-- BUDGET: 298
+<!-- BUDGET: 312
+     Raised from 298 on 2026-09-04: two items JOURNAL 2026-09-04 named while recording a stall that looked like an outage -- a batch withholding finished results, and a stall failure that cannot be told from an unreachable endpoint.
      Raised from 286 on 2026-09-03: one item ticked, kept beside its original because the original's O_NOFOLLOW judgement turned out to be wrong and that is the part worth keeping.
      Raised from 265 on 2026-09-03: five items ticked with what they turned out to be, one new item, and
      two annotations corrected where they had stopped being true.
@@ -181,6 +182,21 @@ them was re-derived when it did.
 
 ### Improvements
 
+- ⬜ A batch returns nothing until its slowest item settles — `asyncio.gather` over the
+  items, so one that stalls for the whole deadline withholds results that finished minutes
+  earlier. Purely latency and usability: slots are released per item as each `admit` context
+  exits, so the cluster gets its capacity back promptly and only the caller waits. Measured
+  on 2026-09-04, where two of three items were ready and unusable for 35 minutes. Progress
+  notifications already flow per item, so the missing piece is handing back what is done —
+  and the shape has to keep the per-item `ok`/`error` contract that `#45` exists to protect,
+  because shielding or restructuring the gather is what silently restored a lockout before
+- ⬜ A stalled delegation reports the deadline but not what it was doing — the failure says
+  which timeout fired and nothing about progress, so at the call site it is indistinguishable
+  from an unreachable endpoint, and the honest response is to stop using the server. Twice on
+  2026-09-04 the endpoint was healthy and the task was merely too big to finish a turn. Turn
+  count and `tool_calls` are already tracked on the dispatch, so "no turn completed in 2100s
+  after N tool calls" is reachable without new plumbing and separates the two cases. Cheap,
+  and it saves the probe being the only thing that can tell them apart (JOURNAL 2026-09-04)
 - ✅ 2026-09-02 A heartbeat for the agentic loop — `#58`'s silence closed, and the timer
   alone would not have closed it: `_run_calls` is synchronous and `run_bash` reaches
   `subprocess.run`, so a command held the event loop and no timer could be scheduled during
