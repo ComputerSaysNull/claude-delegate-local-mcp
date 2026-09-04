@@ -153,9 +153,8 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_TRANSPORT` | stdio | One of ('stdio', 'streamable-http'). Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ. |
-| `DELEGATE_HTTP_PORT` | 8765 | Port, used only by the HTTP transport. |
+| `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting, unlike ADR-0034's sandbox_enabled, because naming another transport should be an error rather than silence -- load() reads only variables matching a field, so deleting this one would make a stale value do nothing without saying so. |
 
-*58 settings.*
+*57 settings.*
 
 <!-- GEN:CONFIG:END -->

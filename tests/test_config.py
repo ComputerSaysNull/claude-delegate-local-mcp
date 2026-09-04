@@ -64,7 +64,7 @@ def test_config_is_frozen_so_nothing_mutates_it_mid_delegation():
     "key,value,expect",
     [
         ("DELEGATE_THINKING_DEFAULT", "maximum", "not one of"),
-        ("DELEGATE_TRANSPORT", "websocket", "not one of"),
+        ("DELEGATE_TRANSPORT", "websocket", "is refused; this server implements"),
         ("DELEGATE_TURN_TIMEOUT", "soon", "not an integer"),
         ("DELEGATE_RESEND_REASONING", "maybe", "not a boolean"),
         ("DELEGATE_RETRY_BASE_DELAY", "slow", "not a number"),
@@ -244,3 +244,42 @@ def test_an_admission_limit_of_zero_is_refused_at_load(name):
     """
     with pytest.raises(config.ConfigError, match=f"{name} must be positive"):
         config.load({**ROOTS, name: "0"})
+
+
+def test_the_http_transport_is_refused_rather_than_started():
+    """A knob advertised as unfinished must not start a server.
+
+    `streamable-http` was an accepted value, so setting it ran a listener that nothing
+    here authenticates -- the shape ADR-0034 deleted `sandbox_enabled` for. Measured, the
+    reachable surface was other local processes rather than the network, because FastMCP
+    defaults its host to loopback and only a port was ever passed; no token is the true
+    half of the finding, and it is enough.
+
+    Refused rather than the field being deleted, which is the divergence from ADR-0034 and
+    the reason `test_a_stale_transport_value_is_not_silently_ignored` exists below.
+    """
+    with pytest.raises(config.ConfigError, match="is refused; this server implements"):
+        config.load({**ROOTS, "DELEGATE_TRANSPORT": "streamable-http"})
+
+
+def test_a_stale_transport_value_is_not_silently_ignored():
+    """Why the field is kept rather than deleted.
+
+    `load` reads only variables that match a dataclass field, so an unknown `DELEGATE_*`
+    name is discarded without a word -- verified here with a deliberate typo, which is
+    also the sharper end of the same behaviour. Deleting `transport` would therefore turn
+    a configuration error into silence: the operator sets the variable, gets stdio, and is
+    told nothing. Keeping it is what makes the refusal above reachable.
+    """
+    # The typo is ignored, which is the behaviour that makes deletion the wrong remedy.
+    assert config.load({**ROOTS, "DELEGATE_TRANSPROT": "streamable-http"}).transport == "stdio"
+    # The real name is not.
+    with pytest.raises(config.ConfigError):
+        config.load({**ROOTS, "DELEGATE_TRANSPORT": "streamable-http"})
+
+
+def test_the_port_only_the_http_transport_used_is_gone():
+    """Deleted rather than kept inert. A port that nothing can listen on renders in the
+    generated reference as a knob that does something (ADR-0034)."""
+    assert not hasattr(config.load(ROOTS), "http_port")
+    assert "http_port" not in {f.name for f in dataclasses.fields(config.Config)}

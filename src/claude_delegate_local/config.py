@@ -40,7 +40,9 @@ EFFORT_LEVELS = ("off", "low", "high", "max")
 # the ends of that chain and have nothing left to defer to. See ADR-0045.
 EFFORT_INHERIT = "inherit"
 
-TRANSPORTS = ("stdio", "streamable-http")
+# The transports this server implements. One, and the tuple stays a tuple so the
+# refusal below has something to name and a second entry is one line to add.
+TRANSPORTS = ("stdio",)
 
 # The client's stdio idle timeout, in seconds. Not ours to set and not a setting: it is a
 # property of Claude Code, measured on 2026-09-01 rather than read off a document. At this
@@ -546,10 +548,14 @@ class Config:
     # ---- transport ---------------------------------------------------------------
     transport: str = _f(
         "stdio",
-        f"One of {TRANSPORTS}. Adding the HTTP transport is a real integration task, not "
-        "a flag flip: session handling and content serialisation differ.",
+        f"One of {TRANSPORTS}, and anything else is refused at load rather than starting "
+        "a server. Adding the HTTP transport is a real integration task, not a flag flip: "
+        "session handling and content serialisation differ, and nothing here issues or "
+        "checks a token, so it would serve unauthenticated. Kept as a setting, unlike "
+        "ADR-0034's sandbox_enabled, because naming another transport should be an error "
+        "rather than silence -- load() reads only variables matching a field, so deleting "
+        "this one would make a stale value do nothing without saying so.",
     )
-    http_port: int = _f(8765, "Port, used only by the HTTP transport.")
 
     # ---------------------------------------------------------------------------
     def _check_deadlines_nest(self) -> None:
@@ -602,8 +608,19 @@ class Config:
                 "unlisted one has no translation."
             )
         if self.transport not in TRANSPORTS:
+            # Refused, not degraded to stdio with a warning. A knob advertised as
+            # unfinished that still starts a server is the shape ADR-0034 deleted
+            # `sandbox_enabled` for, and an HTTP listener here would be unauthenticated:
+            # measured, FastMCP defaults its host to loopback and only a port was ever
+            # passed, so the reachable surface was other local processes rather than the
+            # network -- but no token is the true half of that finding.
             raise ConfigError(
-                f"DELEGATE_TRANSPORT={self.transport!r} is not one of {TRANSPORTS}."
+                f"DELEGATE_TRANSPORT={self.transport!r} is refused; this server "
+                f"implements {TRANSPORTS}. The HTTP transport is a real integration task "
+                "rather than a flag flip -- session handling and content serialisation "
+                "differ -- and nothing here issues or checks a token, so it would serve "
+                "unauthenticated. Starting a listener on that basis is worse than "
+                "refusing to, so unset the variable to use stdio."
             )
         if self.max_turns_default > self.max_turns_hard_cap:
             raise ConfigError(

@@ -117,7 +117,7 @@ budget it would have fitted in sat unused (ADR-0046).
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
 | `server.py` | MCP wiring, the six tool declarations, the backend cache |
-| `main.py` | The console-script entrypoint: load, build, run one transport |
+| `main.py` | The console-script entrypoint: load, build, run over stdio |
 
 The table covers every module; the three marked above live in [DISPATCH.md](DISPATCH.md),
 which owns them, and `agents.py` in [AGENTS.md](AGENTS.md). The ancestor put all of this in one large file; we add two concerns it

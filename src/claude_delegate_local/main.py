@@ -32,7 +32,9 @@ def run() -> None:
     # watches start, and drawing it calls out to PyPI for a version check -- an
     # outbound request on every launch, from a tool whose whole point is that the
     # inference stays on hardware you control.
-    if cfg.transport == "stdio":
-        mcp.run(transport="stdio", show_banner=False)
-    else:
-        mcp.run(transport=cfg.transport, port=cfg.http_port, show_banner=False)
+    #
+    # The validated value rather than the literal "stdio", and no branch on it: anything
+    # else was refused at load, so a second branch here could only be reached by a config
+    # that cannot exist. Passing `cfg.transport` also keeps one copy of the value -- a
+    # literal here would be a second place to change when a transport is finally added.
+    mcp.run(transport=cfg.transport, show_banner=False)
