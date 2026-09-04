@@ -34,6 +34,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #101 — 2026-09-04 — docs: queue the two follow-ups the stall finding named
+
+### Added
+- Two `PLAN.md` items under Improvements, from JOURNAL 2026-09-04, both established by
+  reading the code rather than inferred from the symptom.
+- A batch withholds every result until its slowest item settles: `asyncio.gather` is one
+  await over all items, so a stalled one blocks siblings that finished minutes earlier.
+  Recorded with the distinction that makes it a usability item and not a capacity one —
+  admission slots *are* released per item, as each `admit` context exits, so the cluster
+  gets its capacity back promptly and only the caller waits. The item also carries the
+  constraint on any fix: the per-item `ok`/`error` contract must survive, because
+  restructuring or shielding that gather is what silently restored a slot lockout before
+  (`#45`).
+- A stalled delegation reports which deadline fired and nothing about progress, so at the
+  call site it cannot be told from an unreachable endpoint — and the honest response to that
+  reading is to stop using the server, which is the wrong one. Turn count and `tool_calls`
+  are already tracked, so the message can distinguish the two cases without new plumbing.
+
 ## #100 — 2026-09-04 — docs: record that a stalled delegation looks like a dead backend
 
 ### Added
