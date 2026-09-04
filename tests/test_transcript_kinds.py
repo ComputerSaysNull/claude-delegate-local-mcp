@@ -77,7 +77,7 @@ def test_a_read_only_delegation_says_so_rather_than_calling_itself_delegate(tmp_
 
     start = _starts(tmp_path)[0]
     assert start["tool"] == "delegate_readonly", start
-    assert start["tools"] == ["read_file", "search_files"], start
+    assert start["tools"] == ["read_file", "read_git", "search_files"], start
     assert _record(tmp_path)["tool"] == "delegate_readonly"
 
 
@@ -116,7 +116,7 @@ def test_a_read_only_batch_item_is_told_apart_from_a_writing_one(tmp_path):
     assert len(starts) == 2, starts
     assert {s["tool"] for s in starts} == {"delegate_batch_readonly"}
     for start in starts:
-        assert start["tools"] == ["read_file", "search_files"], start
+        assert start["tools"] == ["read_file", "read_git", "search_files"], start
 
 
 @files_posix_only

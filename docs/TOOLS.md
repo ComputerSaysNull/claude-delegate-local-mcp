@@ -6,7 +6,7 @@ What the local model can do inside a delegation. Generated from the registry; se
 [AGENTS.md](AGENTS.md) for how an agent narrows the set.
 
 Each tool declares whether it **writes**, and `delegate_readonly` offers exactly the subset
-that does not — currently `read_file` and `search_files`. That set is derived from the
+that does not — currently `read_file`, `search_files` and `read_git`. That set is derived from the
 declaration rather than listed anywhere, which is what makes the tool's read-only
 annotation a property of the table below instead of a claim about how it is usually called
 (ADR-0048). A tool added without declaring it lands in the read-only set, so the
@@ -44,6 +44,17 @@ Search the workspace for a regular expression and get back the matching lines, e
 | `glob` | string | no | Only open files whose NAME matches this glob, e.g. *.py or test_*.py. Matches the name, not the path. |
 | `max_results` | integer | no | Most matching lines to return. Defaults to 100. |
 
+## `read_git`
+
+Read a repository's git history: log, show, diff, blame, ls-files, shortlog, rev-list, status and rev-parse -- and rev-list --count is how you count commits. This is the only way to reach history, because run_bash cannot see .git at all -- a git command there fails rather than telling you why. Use it for questions the worktree cannot answer: when a line changed and why, whether a claim in a document predates the code it describes, what a commit touched, which files are untracked. 'repo' is an absolute path inside the repository and the repository must sit in the workspace. Put file paths in 'paths', never in 'args', and never pass '--' yourself. Only subcommands and flags on a fixed allowlist run: nothing that writes, fetches or pushes, and no flag that could name a program or a file to write, so a refusal here is the design rather than a gap. Long output is truncated on a line boundary and says so -- read that before concluding something is absent.
+
+| Argument | Type | Required | Description |
+| --- | --- | --- | --- |
+| `repo` | string | yes | Absolute path to the repository, or any directory inside it. |
+| `command` | string | yes | The git subcommand: log, show, diff, blame, ls-files, shortlog, rev-list, status or rev-parse. |
+| `args` | array | no | Flags and revisions, e.g. ["--oneline", "-n", "20"] or ["HEAD~5..HEAD"]. File paths do not go here. |
+| `paths` | array | no | File paths to limit the command to, relative to the repository root. A path deleted long ago is fine. |
+
 ## `write_file`
 
 Write a UTF-8 text file in the workspace, creating it or replacing it whole. Paths must be absolute and the containing directory must already exist. The same path rules as read_file apply. Content over the size limit is refused rather than truncated, so write large files in parts.
@@ -71,7 +82,7 @@ Run a shell command, confined: no network, an empty filesystem apart from a scra
 | --- | --- | --- | --- |
 | `command` | string | yes | The command to run. |
 
-*5 tools.*
+*6 tools.*
 
 <!-- GEN:TOOLS:END -->
 

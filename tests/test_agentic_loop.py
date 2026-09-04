@@ -282,11 +282,14 @@ def test_run_bash_is_declared_now_that_something_confines_it(monkeypatch):
     same thing on a machine that cannot run a sandbox at all.
     """
     monkeypatch.setattr(sandbox, "available", lambda _cfg: True)
+    # Forced for the same reason `sandbox.available` is: otherwise the set below depends on
+    # whether this host happens to have git, and the assertion stops being about tools.
+    monkeypatch.setattr(tools, "git_available", lambda: True)
     c = cfg()
     assert "run_bash" in tools.available_tool_names(c)
     assert "run_bash" in {s.name for s in tools.declared_tools(tools.resolve_allowed(None, c))}
     assert tools.available_tool_names(c) == frozenset(
-        {"read_file", "search_files", "write_file", "edit_file", "run_bash"})
+        {"read_file", "search_files", "read_git", "write_file", "edit_file", "run_bash"})
 
 
 def test_withholding_still_works_although_nothing_is_withheld(monkeypatch):
@@ -299,9 +302,10 @@ def test_withholding_still_works_although_nothing_is_withheld(monkeypatch):
     """
     monkeypatch.setattr(tools, "WITHHELD_TOOL_NAMES", frozenset({"write_file"}))
     monkeypatch.setattr(sandbox, "available", lambda _cfg: True)
+    monkeypatch.setattr(tools, "git_available", lambda: True)
     c = cfg()
     assert tools.available_tool_names(c) == frozenset(
-        {"read_file", "search_files", "edit_file", "run_bash"})
+        {"read_file", "search_files", "read_git", "edit_file", "run_bash"})
     assert tools.resolve_allowed(["write_file"], c) == frozenset()
     assert tools.resolve_allowed(["read_file", "write_file"], c) == frozenset({"read_file"})
     declared = {s.name for s in tools.declared_tools(tools.resolve_allowed(None, c))}

@@ -21,6 +21,9 @@ Open work, one line per item, status first so the file scans.
 `✅` done, dated · `🔄` in progress · `⬜` not started — queued under **Open**, on hold
 under **Deferred** · `❌` cancelled, with date and **reason** — cancelled items stay,
 because the fact that something was considered and dropped is worth more than a tidy list.
+A struck-through entry with **no marker** is the archived original of the ticked item above
+it, kept where its reasoning turned out to be wrong in an instructive way. Four of them
+carried `⬜` until 2026-09-04, which read as open work and cost a delegation real turns.
 
 Completed items are annotated and stay here (ADR-0003), as a record of recent work.
 [archive/PLAN-milestones.md](archive/PLAN-milestones.md) holds the closed milestone roadmap
@@ -53,7 +56,7 @@ group by what the item's own annotation says it costs.
   destruction it had already performed. And what this catches is redirection, not
   substitution: every layer is a function of the path, so a different regular file at an
   approved path fires neither check, measured, and is not a bypass. Original entry follows.
-- ⬜ ~~Validate the opened inode, not the path~~ — `resolve_all` then `open` is check-then-use
+- ~~Validate the opened inode, not the path~~ — `resolve_all` then `open` is check-then-use
   in both file tools and in prefetch, with no re-validation. The adversary is the delegated
   model itself, which holds a read-write workdir bind under `run_bash` and can retry, so
   this is not the passive window the review described. `O_NOFOLLOW` is the wrong fix: it
@@ -141,7 +144,7 @@ them was re-derived when it did.
   commit that needed it. Still worth doing, still by an audit, and no longer in the way —
   the annotation below described it as the thing blocking the queue, which it has stopped
   being. Original text follows.
-- ⬜ ~~The documentation trim the 2026-09-01 audit listed~~ — `docs/ARCHITECTURE.md`,
+- ~~The documentation trim the 2026-09-01 audit listed~~ — `docs/ARCHITECTURE.md`,
   `docs/DISPATCH.md`, `docs/AGENTS.md`, `CONTRIBUTING.md` and `PLAN.md` all sit at their
   ceilings, and the review fixes of 2026-09-02 needed three budget raises across two
   documents to state facts the code had just acquired. **Now the thing blocking the queue
@@ -155,7 +158,7 @@ them was re-derived when it did.
   deadline (#85) — folded into the deadline section while it was open for the stall work,
   which is the owning document being made correct about code that changed rather than a
   separate errand. Original entry follows.
-- ⬜ ~~Say in `docs/DISPATCH.md` that the admission wait stacks on the dispatch deadline~~ —
+- ~~Say in `docs/DISPATCH.md` that the admission wait stacks on the dispatch deadline~~ —
   the deadline is taken after a slot is granted (ADR-0038), so the caller-visible worst
   case is both settings added. `admission_wait_timeout` does not appear in that document at
   all, and its deadline section enumerates three enforcement points without mentioning
@@ -208,18 +211,15 @@ them was re-derived when it did.
   refuses a write. `paths.py` gained a second *disposition* over one policy, not a second
   policy: `resolve_permitted` drops what fails, and is only for paths nobody named. Widest
   blast radius of the session, eight existing tests across four files
-- ⬜ A read-only git tool, because audit and review work is historical and cannot reach it —
-  `.git/**` is on the secret denylist, so `.git` is covered by a tmpfs and every git command
-  inside a delegation exits 128. Whether a claim is older than the code it describes, when
-  the waivers landed, which document has gone longest untouched: none of it is reachable,
-  and those are the questions an audit is for. The denylist entry is right and stays —
-  `.git` holds everything ever committed, including what was later removed from the
-  worktree, so a read-only bind would expose strictly more than the worktree does. The shape
-  that fits is a server-process tool with a fixed subcommand allowlist, running outside the
-  sandbox as `read_file` already does and putting any path argument through the same path
-  policy. Ranks beside the search tool above and shares its justification. Without it, an
-  audit agent cannot run unsupervised: the caller has to gather the history and hand it over,
-  which is what the 2026-09-03 audit did
+- ✅ 2026-09-04 `read_git`, a read-only git tool in the server process (`#99`) — the
+  denylist entry stays and the sandbox is untouched. Two things the item's shape got wrong.
+  Path *arguments* cannot go through the path policy: it validates a path that exists now,
+  and history is about files that were deleted, so they are checked for not leaving the
+  repository instead. And the repository needs validating **twice** — `-C` makes git
+  discover a repo by walking up, so a validated directory can resolve to one above the
+  root. `open_resolved`'s guarantee is unavailable here by construction and the CHANGELOG
+  says so. Two usability gaps came from running it, not reading it: `git log -1` and
+  `rev-list --count` were both refused, and the model reached for both first
 - ✅ 2026-09-03 Linked an agent body to the limitations it encodes (#88) — the
   `agent-capability` gate check. The sandbox half is derived from the denylist rather than
   hardcoded, and the two agent formats are separated because only a server-format agent's
@@ -228,7 +228,7 @@ them was re-derived when it did.
   *indirectly* and is invisible from the text. Writing its meta-test found more than the
   check did — a mislabelled finding name, and three gate checks with no negative test at
   all. Original entry follows.
-- ⬜ ~~Link an agent body to the server limitations it encodes~~ — second sighting of one class.
+- ~~Link an agent body to the server limitations it encodes~~ — second sighting of one class.
   The `read_file` line-addressing work recorded the first: an agent body carrying a
   workaround for a server limitation, with nothing connecting the two, so the workaround
   outlives the limitation. `docs-audit-local` then carried the inverse — an instruction to
