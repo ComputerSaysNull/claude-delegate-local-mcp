@@ -34,6 +34,68 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #98 — 2026-09-04 — feat: admission queues in order, and the wait timeout is safe to raise
+
+### Fixed
+- Admission waited but did not queue. `acquire` was a re-test loop — a waiter woke, tested
+  the four rules, and either fitted or waited again — so a request that had waited nine
+  minutes had no claim over one arriving that instant. Across processes it was worse than
+  unordered: a release elsewhere notifies nothing, so cross-process waiting is polling, and
+  the slot went to whoever happened to look in the gap after a release. Every waiter now
+  takes a ticket in the same shared file the counters already use, under the lock that
+  already guards it, and the predicate refuses anyone who is not at the front.
+- The module docstring's "oversubscription queues rather than fails" was true about waiting
+  and false about a place in line, and was where the wrong expectation came from. Corrected
+  in the same change, along with the same claim in `docs/ARCHITECTURE.md`.
+- **A waiter counts as ahead of you only if it could be admitted now**, and that
+  qualification is the difference between this and a bug. Strict ticket order reintroduces
+  the head-of-line blocking the four rules are checked as one predicate to avoid: a large
+  request parked on the large-prefill cap would stall every small request behind it for as
+  long as the request ahead of *it* ran. The existing
+  `test_a_blocked_large_prefill_holds_no_other_capacity` failed against a strict-FIFO first
+  attempt, which is how this was caught rather than shipped.
+
+### Changed
+- `DELEGATE_ADMISSION_WAIT_TIMEOUT` raised from 600 to 1800 seconds, which is the change
+  ordering existed to unblock. Until there was a place in line, raising it bought a longer
+  *unfair* wait and turned bounded failure into possible starvation, so the two had to land
+  together. A wait is now the work ahead of the request, which a busy cluster can
+  legitimately make minutes long — 600 was refusing requests that would have run. Safe
+  against the client's 1800s stdio idle timeout only because a waiting delegation keeps
+  reporting progress (`on_wait`), which it already did.
+- The deliberate grace at the top of the wait loop — a request that fits is admitted even
+  if its deadline has just passed — no longer reaches a request the rules would admit but
+  whose turn it is not. That is a behaviour change, and it is the right one: the
+  alternative lets a late arrival overtake on its way out.
+- `AdmissionTimedOut` phrases a queue timeout differently. "The rule still binding was
+  queued_behind_earlier_waiters (limit 3)" is meaningless — the number is how many are
+  ahead, not a limit — so the message now says so and points at the wait timeout rather
+  than at a capacity setting that was never the problem.
+- `backend_status` reports queue depth: `queued_waiters` per process, and machine-wide
+  under `cross_process`. A deep queue was previously invisible, and it is now the first
+  thing that explains a long wait.
+- The shared file gains `next_ticket` and a `waiting` map per record. **Not** a schema
+  break, deliberately: both are optional with defaults, so a file written by a version
+  that predates the queue still loads. Bumping the version and resetting would have zeroed
+  the slots an older server process on the machine is still holding, which is the one
+  outcome worse than not queueing — and `/mcp` Reconnect makes that mixed state normal
+  rather than hypothetical.
+
+### Added
+- `tests/regression/test_admission_waited_without_queueing.py`, using two `Admission`
+  instances over one shared file: each has its own condition, so neither can notify the
+  other and both must poll — the cross-process case without the cost of subprocesses.
+- Both hazards are proven detectable, separately. With ordering disabled, the two ordering
+  tests fail and the failure is the unfairness itself: the later waiter finishes while the
+  earlier one is still pending. With the ticket drop disabled, the timeout and cancellation
+  tests fail. Neither experiment breaks the other's tests, so the two properties are
+  independently guarded.
+- A ticket is dropped from a `finally` rather than on the timeout path, so it is given up
+  on a timeout, a cancellation and any other exception alike. A crashed process's tickets
+  go with its record via the existing liveness check; the one remaining case, a live
+  process that failed to drop one, expires on a timer **and logs** — a backstop that fired
+  silently would hide the defect it compensates for.
+
 ## #97 — 2026-09-04 — feat!: a transport this server does not implement is refused, not started
 
 ### Changed

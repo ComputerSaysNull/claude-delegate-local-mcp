@@ -112,18 +112,16 @@ them was re-derived when it did.
   already reports. Two test helpers had to follow the total down, one of them in a file
   with nothing to do with prefetch — found by running the whole suite rather than the two
   files the change obviously touched, which is how a coupling a change *creates* shows up
-- ⬜ Admission waits, but it does not queue — the prerequisite for raising
-  `admission_wait_timeout`, not a separate item. `acquire` is a re-test loop: a waiter wakes,
-  calls `_try_take`, and either fits or waits again. No ticket, no ordering, so a request
-  that has waited almost the whole timeout has no claim ahead of one arriving at that
-  instant. Across two sessions on two projects it is worse than unordered — a release in
-  another process notifies nothing, so cross-process waiting is polling a shared file and
-  the winner is whoever polls at the right moment. Raising the timeout alone therefore buys
-  a longer unfair wait and turns a bounded failure into possible starvation. Fairness first,
-  through the same shared file the counters already use; then a timeout long enough that a
-  busy cluster queues instead of refusing. The module docstring's "oversubscription queues
-  rather than fails" is true about waiting and false about a place in line, and is where the
-  wrong expectation comes from — correct it in the same change
+- ✅ 2026-09-04 Admission queues in order, and the wait timeout went 600s to 1800s with it
+  (`#98`) — tickets in the same shared file the counters use, dropped from a `finally` so a
+  timeout, a cancellation or any raise gives the place back. Two things the item did not
+  foresee. A waiter counts as ahead of you only if it could be admitted **now**: strict
+  ticket order reintroduces the head-of-line blocking the single predicate exists to
+  prevent, and the existing large-prefill test failed against a first attempt that used it.
+  And the schema is additive rather than versioned — resetting the file would zero the slots
+  an older process on the machine still holds, which `/mcp` Reconnect makes normal. The
+  docstring is corrected, here and in ARCHITECTURE.md. Ordering decides who goes next, not
+  how fast anyone finds out: cross-process waiting is still polling
 - ✅ 2026-09-03 A stall deadline, and a re-derived ceiling (#85, ADR-0047) — `stall_timeout`
   at 2100 does the killing; `dispatch_timeout` rose to 14400 and is now only a ceiling. The
   two had to land together: raising a bound that cannot see progress makes a stall more

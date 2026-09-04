@@ -1,4 +1,5 @@
-<!-- BUDGET: 669
+<!-- BUDGET: 698
+     Raised from 669 on 2026-09-04: admission queues in order now, and the two qualifications a reader needs are that a waiter must be feasible to count as ahead (strict order would reintroduce head-of-line blocking) and that a ticket is dropped in a finally (an abandoned one starves the machine).
      Raised from 660 on 2026-09-04: the files block now escapes a body line shaped like its own boundary, and why it matches any path rather than the file's own is the part a reader needs. Two mid-sentence wraps in the paragraph above were reflowed to pay part of it.
      Raised from 655 on 2026-09-03: prefetch now holds one proven descriptor per file from the open to the read, so the size the budgets use and the bytes inlined are the same file (ADR-0049).
      Raised from 646 on 2026-09-03: delegate_readonly stopped being the one-shot path, which is a fact about how a delegation is assembled and this document owns server.py.
@@ -448,6 +449,34 @@ The four are **one predicate, not four gates in series**. A request that took a 
 slot and then blocked on the large-prefill cap would hold capacity it is not using for the
 whole wait, starving smaller requests that fit every rule. Nothing is ever partially
 acquired: a waiter that does not fit holds nothing.
+
+**Queueing is ordered, which it was not until 2026-09-04.** "Queues" above was true about
+waiting and false about a place in line. `acquire` was a re-test loop, so a request that
+had waited nine minutes had no claim over one arriving that instant, and across processes
+it was worse than unordered: a release elsewhere notifies nothing, so waiting is polling,
+and the slot went to whoever happened to look in the gap. Every waiter now takes a ticket
+in the same shared file the counters use, and the predicate refuses anyone who is not at
+the front. Fairness decides *who* goes next, not how quickly anyone finds out — the
+polling is unchanged, and a broker is what it would take to change it.
+
+A waiter is ahead of you only if it could be admitted **now**, and that qualification is
+load-bearing. Strict ticket order would reintroduce exactly the head-of-line blocking the
+single predicate exists to prevent: a large request parked on the prefill cap would stall
+every small request behind it for as long as the request ahead of *it* kept running. A
+waiter that cannot spend its turn does not hold one, so a ticket orders contention rather
+than serialising the gate.
+
+A ticket is given up on every exit from the wait — admitted, timed out, cancelled, raised
+— from a `finally` rather than from the timeout path, because one abandoned at the front
+starves every later waiter for as long as the process lives. A crashed process's tickets
+go with its record, which the liveness check already reclaims. That leaves one case, a
+live process that somehow failed to drop one, and it expires on a timer and says so in
+the log: a backstop that fired silently would hide the defect it is compensating for.
+
+Ordering is also what made the wait timeout safe to raise. Until there was a place in
+line, a longer wait bought a longer *unfair* wait and turned bounded failure into possible
+starvation, so the two had to land together — the number itself lives in
+[CONFIGURATION.md](CONFIGURATION.md).
 
 Two numbers size a request, and conflating them is a trap. Its KV footprint is the prompt
 plus the reply it is permitted to generate, and that is what the token budget counts. Its
