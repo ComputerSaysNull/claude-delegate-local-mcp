@@ -34,6 +34,75 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #99 — 2026-09-04 — feat: read_git, because an audit's questions are all historical
+
+### Added
+- `read_git`, the seventh tool and the third read-only one. `.git/**` is on the secret
+  denylist, so a tmpfs covers it inside the sandbox and every git command under `run_bash`
+  exits 128 — which meant whether a claim predates the code it describes, when a waiver
+  landed, or which document has gone longest untouched were all unreachable from a
+  delegation. An audit agent could not run unsupervised: the caller had to gather the
+  history and hand it over, which is exactly what the 2026-09-03 audit did.
+- **The denylist entry stays and the sandbox is untouched.** `.git` holds everything ever
+  committed, including what was later removed from the worktree, so a read-write bind
+  would expose strictly more than the worktree does. This is the other way in: a server-
+  process tool in the path-policy layer beside `read_file`, never in the sandbox one
+  (ADR-0010).
+- A fixed subcommand allowlist — `log`, `show`, `diff`, `blame`, `ls-files`, `shortlog`,
+  `rev-list`, `status`, `rev-parse` — and a per-subcommand flag allowlist, both denied by
+  default. A module constant rather than a config field: which subcommands cannot write is
+  a fact about git, and an operator who could widen it could turn a read-only tool into
+  `git push`.
+- No new setting. Output is bounded by `max_read_chars`, which is what bounds a reply
+  anyway, truncated on a line boundary and reported — the reasoning `edit_file` used for
+  `max_write_bytes` in #94, and a third limit for the same idea is one more thing an
+  operator has to reason about for no gain.
+
+### Fixed
+- The repository argument is validated **twice**, and the second time closes a real hole.
+  `-C <dir>` makes git *discover* a repository by walking up, so a validated directory that
+  is not itself a repository could resolve to one above the workspace root — whose history
+  is strictly more than that root exposes. So the discovered top level goes through
+  `resolve_search_root` as well, because it is a path git chose rather than one the caller
+  wrote.
+- Argument validation runs **before** the repository is resolved. Cheap pure checks first,
+  and it also stops a bad flag being reported as a path problem whenever both are wrong,
+  which is the less specific of the two answers.
+- `git shortlog` returned nothing at all on the first real run. It takes its commits from
+  stdin when stdin is not a terminal, so with stdin closed it succeeded and printed
+  nothing — an empty answer that reads exactly like "no commits by anyone". stdin is now
+  closed deliberately (several subcommands would otherwise wait for input that never
+  comes, which inside a server is a 60-second hang) and `shortlog` is handed the revision
+  git does not default to.
+
+### Changed
+- Two usability gaps found by running a real delegation rather than by reading the code,
+  both costing a turn each: `git log -1` was refused because only `-n` and `--max-count`
+  were listed, and `git rev-list --count` — the canonical way to count commits, with no
+  pipe to `wc` available here — was not a permitted subcommand at all. The model reached
+  for both first. Fixed, and the same delegation then went from 4 calls with 2 errors
+  across 3 turns to 2 calls with none across 2.
+- `cacheable=False`, unlike the other read tools. `run_bash` can commit inside the same
+  delegation, so two identical calls may legitimately differ — and a stale answer about
+  history is exactly the kind a model would not think to re-check.
+- Withheld on a host with no git, the way `run_bash` is withheld without bubblewrap:
+  declaring a tool the host cannot run spends a whole turn teaching the model what
+  `available_tool_names` already knows (JOURNAL 2026-08-29).
+- **One guarantee this tool cannot have**, stated rather than implied: `open_resolved`
+  returns a descriptor and `git -C` takes a string, so ADR-0049's check-then-use closure is
+  unavailable here by construction. What is proven is the repository, twice. Path
+  *arguments* also deliberately skip `paths.py` — that policy validates a path that exists
+  now, and the whole point of reading history is files that were deleted or renamed — so
+  they are checked for the property that matters instead: that they cannot address anything
+  outside the repository, with git's own refusal as the second net.
+- `--output` was measured, not assumed: `git log --output=<path>` really does create that
+  file, so the flag allowlist is preventing a write rather than tidying an argument list.
+  Measured too, and the reason the comment no longer claims otherwise: every model-supplied
+  argument lands *after* the subcommand, so git-level options like `-c` cannot be injected
+  at all — `git log -c` parses as the log option `--cc`. They stay refused anyway, because
+  a table listing only what is currently exploitable has to be re-audited whenever the argv
+  changes.
+
 ## #98 — 2026-09-04 — feat: admission queues in order, and the wait timeout is safe to raise
 
 ### Fixed

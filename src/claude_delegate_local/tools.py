@@ -23,6 +23,8 @@ import fnmatch
 import os
 import posixpath
 import re
+import shutil
+import subprocess
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
@@ -623,6 +625,300 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
     )
 
 
+# The git subcommands this server will run, each with the flags it accepts. Denied by
+# default in both directions: a subcommand absent here, and a flag absent from its own set,
+# are refused. A module constant rather than a config field -- which subcommands cannot
+# write is a fact about git, not an operator preference, and an operator who could widen it
+# could turn a read-only tool into `git push`.
+#
+# Every flag here was checked for whether it can write a file or run a program, and the
+# ones deliberately absent are the reason this is an allowlist rather than a filter.
+# `--output` is the one to measure rather than reason about: `git log --output=<path>`
+# really does create that file, verified on 2026-09-04, so the allowlist is preventing a
+# write and not merely tidying an argument list. `--ext-diff` hands the diff to a
+# configured external command.
+#
+# What is NOT reachable here, and the reason is the argv shape rather than this table:
+# every model-supplied argument lands *after* the subcommand, so git-level options -- `-c`,
+# `--exec-path`, `--upload-pack` -- cannot be injected at all. Measured too: `git log -c`
+# is parsed as the log option `--cc`, not as config. They stay refused anyway, because a
+# table that only lists what is currently exploitable has to be re-audited every time the
+# argv changes.
+GIT_SUBCOMMANDS: dict[str, frozenset[str]] = {
+    "log": frozenset({
+        "--oneline", "--stat", "--shortstat", "--numstat", "--name-only", "--name-status",
+        "--max-count", "-n", "--skip", "--since", "--until", "--after", "--before",
+        "--author", "--committer", "--grep", "--no-merges", "--merges", "--first-parent",
+        "--reverse", "--follow", "--all", "--date", "--format", "--pretty", "--graph",
+        "--decorate", "--abbrev-commit", "-i", "--regexp-ignore-case",
+    }),
+    "show": frozenset({
+        "--stat", "--shortstat", "--numstat", "--name-only", "--name-status", "--oneline",
+        "-s", "--no-patch", "--format", "--pretty", "--date", "--abbrev-commit",
+    }),
+    "diff": frozenset({
+        "--stat", "--shortstat", "--numstat", "--name-only", "--name-status", "--cached",
+        "--staged", "-U", "--unified", "-w", "--ignore-all-space", "--find-renames",
+        "-M", "--no-color",
+    }),
+    "blame": frozenset({"-L", "-w", "--porcelain", "--line-porcelain", "-s", "-e"}),
+    "rev-parse": frozenset({
+        "--abbrev-ref", "--short", "--verify", "--is-inside-work-tree", "--show-toplevel",
+        "--git-dir", "HEAD",
+    }),
+    "ls-files": frozenset({
+        "--cached", "--others", "--modified", "--deleted", "--exclude-standard", "--stage",
+    }),
+    "shortlog": frozenset({"-s", "-n", "-e", "--no-merges", "--summary", "--numbered"}),
+    # Added after a live delegation reached for it twice: `rev-list --count` is how you
+    # count commits, and `log` piped to nothing cannot. Read-only like the rest.
+    "rev-list": frozenset({
+        "--count", "--all", "--max-count", "-n", "--skip", "--no-merges", "--merges",
+        "--first-parent", "--reverse", "--since", "--until", "--after", "--before",
+        "--author", "--committer", "--grep",
+    }),
+    "status": frozenset({"--short", "--porcelain", "--branch", "--untracked-files"}),
+}
+
+# Subcommands where a bare `-5` means "five commits". `git log -1` is the idiomatic way
+# to ask for the most recent commit and a live delegation reached for it first, before
+# falling back to `-n 1` -- a refusal there costs a turn to teach the model a synonym it
+# already knew. Not every subcommand: `git shortlog -n` means `--numbered`, so a digit
+# there would be a different thing entirely.
+GIT_COUNT_SHORTHAND = frozenset({"log", "rev-list"})
+
+# Bounded because a `git log` over a large history can run for a while and this holds the
+# server process, not a sandbox. Generous enough that a real repository's whole log is
+# reachable; a module constant because it bounds this tool, not anything an operator tunes.
+GIT_TIMEOUT_SECONDS = 60.0
+
+# Environment keys that redirect git somewhere other than where it was pointed, or hand
+# part of its work to another program. None of these is reachable by the model -- the
+# environment belongs to the server process -- so this is defence in depth rather than a
+# control, and it costs one dict comprehension.
+GIT_ENV_DENY = (
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_EXTERNAL_DIFF", "GIT_PAGER", "GIT_EDITOR",
+    "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_CONFIG", "GIT_CONFIG_GLOBAL",
+)
+
+
+def git_available() -> bool:
+    """Whether this host has git at all. The same shape as `sandbox.available`."""
+    return shutil.which("git") is not None
+
+
+def _git_env() -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DENY}
+    # Never wait for a human: a prompt would hang the server until the timeout, and there
+    # is nobody at the other end of a delegation to answer it.
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    # Read-only means read-only. `git status` takes a lock to refresh the index otherwise,
+    # which writes inside .git for a command the model was told cannot write.
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    return env
+
+
+def _run_git(argv: list[str]) -> tuple[int, str, str]:
+    """One git invocation. Fixed argv, never a shell, never a pager."""
+    try:
+        # Fixed argv from the allowlist above, and no shell: nothing the model wrote
+        # reaches a command interpreter.
+        done = subprocess.run(
+            argv,
+            capture_output=True,
+            # Closed rather than inherited. Several git subcommands read from stdin when it
+            # is not a terminal -- `shortlog` takes its commits that way -- so an inherited
+            # stdin means either a wrong answer or a wait for input nobody will send, and
+            # inside a server the second is a 60-second hang.
+            stdin=subprocess.DEVNULL,
+            timeout=GIT_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except FileNotFoundError as e:
+        raise ToolRefused("git is not installed on this host.") from e
+    except subprocess.TimeoutExpired as e:
+        raise ToolRefused(
+            f"git did not finish within {GIT_TIMEOUT_SECONDS:.0f}s and was stopped. Narrow "
+            f"it -- a revision range, a path, or a smaller max_count."
+        ) from e
+    out, _ = decode_text(done.stdout)
+    err, _ = decode_text(done.stderr)
+    return done.returncode, out or "", err or ""
+
+
+def _git_flag(token: str) -> str:
+    """The flag's name, without any attached value. `--since=yesterday` is `--since`."""
+    return token.split("=", 1)[0]
+
+
+def _checked_args(command: str, raw: object) -> list[str]:
+    """Every argument, refused unless the allowlist admits it.
+
+    Flags are checked by name against this subcommand's own set. A non-flag token is a
+    revision and is passed through -- git cannot be made to leave the repository by one,
+    and the repository is what was validated.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(a, str) for a in raw):
+        raise ToolRefused("'args' must be a list of strings.")
+    permitted = GIT_SUBCOMMANDS[command]
+    out: list[str] = []
+    for token in raw:
+        if token == "--":
+            raise ToolRefused(
+                "Do not pass '--' yourself; put file paths in 'paths' and the separator is "
+                "added for you."
+            )
+        if token.startswith("-"):
+            name = _git_flag(token)
+            if (
+                command in GIT_COUNT_SHORTHAND
+                and len(token) > 1
+                and token[1:].isdigit()
+            ):
+                out.append(token)
+                continue
+            if name not in permitted:
+                raise ToolRefused(
+                    f"{name!r} is not an accepted flag for 'git {command}' here. Accepted: "
+                    f"{', '.join(sorted(permitted))}. The tool runs a fixed argv with no "
+                    f"shell, and flags that can write a file or run a program are refused "
+                    f"rather than filtered."
+                )
+        out.append(token)
+    return out
+
+
+def _checked_paths(raw: object) -> list[str]:
+    """Repo-relative path arguments, or a refusal.
+
+    **Not** through `paths.py`, and the reason is worth stating rather than hiding: that
+    policy validates a path that exists *now*, and the whole point of reading history is
+    files that have been deleted or renamed. So these are checked for the property that
+    actually matters here -- that they cannot address anything outside the repository --
+    and git's own "outside repository" refusal is the second net.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(p, str) for p in raw):
+        raise ToolRefused("'paths' must be a list of strings.")
+    out: list[str] = []
+    for given in raw:
+        if not given:
+            raise ToolRefused("An empty string is not a path.")
+        if posixpath.isabs(given) or (len(given) > 1 and given[1] == ":"):
+            raise ToolRefused(
+                f"{given!r} is absolute; 'paths' are relative to the repository root, "
+                f"because a revision's file may not exist on disk at all."
+            )
+        parts = given.replace("\\", "/").split("/")
+        if ".." in parts:
+            raise ToolRefused(
+                f"{given!r} climbs out of the repository. Paths are relative to its root."
+            )
+        out.append(given)
+    return out
+
+
+def _git_toplevel(cfg: Config, given: str) -> str:
+    """The repository root for `given`, proven to still be inside a workspace root.
+
+    Two resolutions, and the second is the one that closes a real hole. `-C <dir>` makes
+    git *discover* a repository by walking up, so a validated directory that is not itself
+    a repository can resolve to one above the workspace root -- and its history is
+    strictly more than the worktree exposes. So the discovered top level goes through the
+    same check the caller's path did.
+    """
+    scope = resolve_search_root(cfg, given)
+    if not os.path.isdir(scope):
+        raise ToolRefused(f"{given!r} is not a directory, so it is not a repository.")
+    code, out, err = _run_git(["git", "--no-pager", "-C", scope, "rev-parse",
+                               "--show-toplevel"])
+    if code != 0:
+        raise ToolRefused(
+            f"{given!r} is not inside a git repository ({err.strip() or 'no toplevel'})."
+        )
+    top = out.strip()
+    if not top:
+        raise ToolRefused(f"{given!r} is not inside a git repository.")
+    # Re-validated rather than trusted: this is a path git chose, not one the caller wrote,
+    # and layer 1 has never seen it.
+    return resolve_search_root(cfg, top)
+
+
+def _read_git(cfg: Config, args: dict[str, object]) -> str:
+    """Read git history, in the server process and outside the sandbox.
+
+    `.git/**` is on the secret denylist, so a tmpfs covers it inside the sandbox and every
+    git command under `run_bash` exits 128. That entry is right and stays -- `.git` holds
+    everything ever committed, including what was later removed from the worktree, so a
+    read-write bind would expose strictly more than the worktree does. This is the other
+    way in: a fixed subcommand allowlist, no shell, and a repository proven to sit inside a
+    workspace root (ADR-0010 governs which layer applies -- this is a read, so the path
+    policy is the whole control and the sandbox is not involved).
+
+    One guarantee `read_file` has that this cannot: `open_resolved` returns a descriptor,
+    and `git -C` takes a string, so the check-then-use closure of ADR-0049 is unavailable
+    here by construction. What is validated is the repository, twice -- as written and as
+    git resolved it.
+    """
+    command = _text_arg(args, "command")
+    if command not in GIT_SUBCOMMANDS:
+        raise ToolRefused(
+            f"{command!r} is not a git subcommand this tool runs. Accepted: "
+            f"{', '.join(sorted(GIT_SUBCOMMANDS))}. Anything that writes, fetches or "
+            f"pushes is refused by design, not missing by oversight."
+        )
+    # Arguments before the repository, deliberately. These checks are pure and cheap and
+    # they are the security-relevant ones; resolving the repository runs git. Doing it the
+    # other way round also reported a bad flag as a path problem whenever both were wrong,
+    # which is the less specific of the two answers.
+    checked = _checked_args(command, args.get("args"))
+    paths = _checked_paths(args.get("paths"))
+    scope = _git_toplevel(cfg, _text_arg(args, "repo"))
+
+    argv = ["git", "--no-pager", "-C", scope, command, *checked]
+    if command == "shortlog" and not any(not a.startswith("-") for a in checked):
+        # `git shortlog` defaults to reading commits from stdin, not to HEAD, so with stdin
+        # closed it succeeds and prints nothing -- an empty answer that reads like "no
+        # commits by anyone". Measured, not assumed: the first run of this tool returned
+        # exactly that. Supplying the revision git would not is the whole fix.
+        argv.append("HEAD")
+    if paths:
+        argv += ["--", *paths]
+    code, out, err = _run_git(argv)
+
+    if code != 0:
+        raise ToolRefused(
+            f"git {command} exited {code}: {err.strip() or out.strip() or 'no output'}"
+        )
+    if not out.strip():
+        return (
+            f"git {command} produced no output and succeeded, so the answer is empty "
+            f"rather than missing -- no commits, no changes, or nothing matched."
+        )
+
+    # Bounded by `max_read_chars`, which is what bounds a reply, rather than by a third
+    # setting for the same idea (the reasoning `edit_file` used for `max_write_bytes`).
+    # Truncated on a line boundary and told, because a cut-off history that reads like a
+    # complete one is how a model concludes a commit does not exist.
+    lines = out.splitlines()
+    kept: list[str] = []
+    used = 0
+    for index, line in enumerate(lines):
+        if kept and used + len(line) + 1 > cfg.max_read_chars:
+            return (
+                "\n".join(kept)
+                + f"\n\n[truncated: {index} of {len(lines)} lines. Narrow it with a "
+                f"revision range, a path, or --max-count.]"
+            )
+        kept.append(line)
+        used += len(line) + 1
+    return "\n".join(kept)
+
+
 READ_FILE = RegisteredTool(
     spec=ToolSpec(
         name="read_file",
@@ -780,8 +1076,65 @@ EDIT_FILE = RegisteredTool(
 )
 
 
+READ_GIT = RegisteredTool(
+    spec=ToolSpec(
+        name="read_git",
+        description=(
+            "Read a repository's git history: log, show, diff, blame, ls-files, shortlog, "
+            "rev-list, status and rev-parse -- and rev-list --count is how you count "
+            "commits. This is the only way to reach history, because run_bash "
+            "cannot see .git at all -- a git command there fails rather than telling you "
+            "why. Use it for questions the worktree cannot answer: when a line changed and "
+            "why, whether a claim in a document predates the code it describes, what a "
+            "commit touched, which files are untracked. 'repo' is an absolute path inside "
+            "the repository and the repository must sit in the workspace. Put file paths in "
+            "'paths', never in 'args', and never pass '--' yourself. Only subcommands and "
+            "flags on a fixed allowlist run: nothing that writes, fetches or pushes, and no "
+            "flag that could name a program or a file to write, so a refusal here is the "
+            "design rather than a gap. Long output is truncated on a line boundary and says "
+            "so -- read that before concluding something is absent."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Absolute path to the repository, or any directory "
+                                   "inside it.",
+                },
+                "command": {
+                    "type": "string",
+                    "description": "The git subcommand: log, show, diff, blame, ls-files, "
+                                   "shortlog, rev-list, status or rev-parse.",
+                },
+                "args": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Flags and revisions, e.g. [\"--oneline\", \"-n\", "
+                                   "\"20\"] or [\"HEAD~5..HEAD\"]. File paths do not go "
+                                   "here.",
+                },
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "File paths to limit the command to, relative to the "
+                                   "repository root. A path deleted long ago is fine.",
+                },
+            },
+            "required": ["repo", "command"],
+        },
+    ),
+    handler=_read_git,
+    # Not cacheable, unlike the other read tools. `run_bash` can commit inside the same
+    # delegation, so two identical calls may legitimately differ -- and a stale answer
+    # about history is exactly the kind a model would not think to re-check.
+    cacheable=False,
+)
+
+
 REGISTRY: dict[str, RegisteredTool] = {
-    t.spec.name: t for t in (READ_FILE, SEARCH_FILES, WRITE_FILE, EDIT_FILE, RUN_BASH)
+    t.spec.name: t
+    for t in (READ_FILE, SEARCH_FILES, READ_GIT, WRITE_FILE, EDIT_FILE, RUN_BASH)
 }
 ALL_TOOL_NAMES: frozenset[str] = frozenset(REGISTRY)
 
@@ -833,6 +1186,11 @@ def available_tool_names(cfg: Config) -> frozenset[str]:
     names = ALL_TOOL_NAMES - WITHHELD_TOOL_NAMES
     if not sandbox.available(cfg):
         names -= {"run_bash"}
+    if not git_available():
+        # Same reasoning as `run_bash` above, and the same cost if it is skipped: declaring
+        # a tool the host cannot run spends a whole turn teaching the model what this
+        # function already knows.
+        names -= {"read_git"}
     return names
 
 

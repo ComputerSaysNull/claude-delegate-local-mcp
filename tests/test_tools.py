@@ -643,7 +643,7 @@ def test_run_bash_is_not_declared_where_bubblewrap_is_absent(workspace, monkeypa
     assert "run_bash" not in {s.name for s in tools.declared_tools(tools.resolve_allowed(None, c))}
     # The other two are untouched: this narrows one tool for one reason, not the set.
     assert tools.available_tool_names(c) == frozenset(
-        {"read_file", "search_files", "write_file", "edit_file"})
+        {"read_file", "search_files", "read_git", "write_file", "edit_file"})
 
 
 def test_the_absent_sandbox_does_not_weaken_the_execution_site(workspace, monkeypatch):
@@ -1023,7 +1023,7 @@ def test_the_read_only_set_is_derived_from_the_registry_not_listed():
     assert tools.READ_ONLY_TOOL_NAMES == frozenset(
         name for name, tool in tools.REGISTRY.items() if not tool.writes
     )
-    assert tools.READ_ONLY_TOOL_NAMES == {"read_file", "search_files"}
+    assert tools.READ_ONLY_TOOL_NAMES == {"read_file", "search_files", "read_git"}
     for name in tools.READ_ONLY_TOOL_NAMES:
         assert not tools.REGISTRY[name].writes
 
@@ -1065,4 +1065,223 @@ def test_a_write_is_refused_at_execution_for_a_read_only_toolset(workspace):
 def test_the_read_only_set_is_what_is_declared_to_the_model(workspace):
     """Site one, for completeness: offered and executable agree for this set."""
     names = sorted(s.name for s in tools.declared_tools(tools.READ_ONLY_TOOL_NAMES))
-    assert names == ["read_file", "search_files"]
+    assert names == ["read_file", "read_git", "search_files"]
+
+
+# --- read_git ---------------------------------------------------------------------------
+#
+# The refusals are the point. `.git` is on the secret denylist so the sandbox cannot reach
+# history at all, and this tool is the way in -- which makes its allowlist the whole of the
+# control. Every case below asserts a refusal happened *and* names why, because a test that
+# only checked "an error came back" would pass against a tool that ran git and then
+# complained about the exit code.
+
+git_only = pytest.mark.skipif(
+    shutil.which("git") is None, reason="needs git on PATH"
+)
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    """A real repository with several commits, so there is history to read *and* to
+    truncate. One commit would not exercise the cap: the first line is always kept,
+    the way `read_file` never returns an empty window."""
+    import subprocess
+
+    r = tmp_path / "repo"
+    r.mkdir()
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "t@example.com",
+        "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "t@example.com",
+    }
+
+    def run(*argv: str) -> None:
+        subprocess.run(argv, cwd=r, env=env, check=True, capture_output=True)
+
+    run("git", "init", "-q", "-b", "main")
+    for n in range(1, 6):
+        (r / "kept.py").write_text(f"x = {n}\n", encoding="utf-8")
+        run("git", "add", "kept.py")
+        run("git", "commit", "-q", "-m", f"feat: change number {n}")
+    return r
+
+
+def git_call(root: Path, **args):
+    return tools.execute_tool(cfg(root), call("read_git", **args), tools.ALL_TOOL_NAMES)
+
+
+@git_only
+@posix_only
+def test_read_git_returns_real_history(repo):
+    result = git_call(repo.parent, repo=str(repo), command="log", args=["--oneline"])
+    assert not result.is_error, result.content
+    assert "change number 5" in result.content
+
+
+@git_only
+@posix_only
+def test_read_git_accepts_a_path_argument(repo):
+    result = git_call(
+        repo.parent, repo=str(repo), command="log",
+        args=["--oneline"], paths=["kept.py"],
+    )
+    assert not result.is_error, result.content
+    assert "change number 5" in result.content
+
+
+@git_only
+@posix_only
+def test_shortlog_is_given_a_revision_rather_than_reading_stdin(repo):
+    """`git shortlog` takes its commits from stdin when stdin is not a terminal, so with
+    stdin closed it succeeds and prints nothing. Found by running the tool, not by reading
+    it: an empty answer here reads exactly like "no commits by anyone"."""
+    result = git_call(repo.parent, repo=str(repo), command="shortlog", args=["-s"])
+    assert not result.is_error, result.content
+    assert "Test" in result.content, "shortlog returned nothing, so it read stdin"
+
+
+@pytest.mark.parametrize("command", ["commit", "push", "fetch", "gc", "config", "clone"])
+def test_a_subcommand_that_is_not_read_only_is_refused(workspace, command):
+    result = git_call(workspace, repo=str(workspace), command=command)
+    assert result.is_error
+    assert "not a git subcommand this tool runs" in result.content
+
+
+@pytest.mark.parametrize(
+    ("command", "args"),
+    [
+        # Each of these turns a read into a write or into running a program.
+        ("log", ["-c", "core.pager=sh -c id"]),
+        ("log", ["--output=/tmp/pwned"]),
+        ("show", ["--output=/tmp/pwned"]),
+        ("show", ["-o", "/tmp/pwned"]),
+        ("diff", ["--ext-diff"]),
+        ("log", ["--exec-path=/tmp"]),
+        ("log", ["--upload-pack=sh"]),
+        ("blame", ["--exec-path=/tmp"]),
+    ],
+)
+def test_a_flag_that_could_write_or_execute_is_refused(workspace, command, args):
+    result = git_call(workspace, repo=str(workspace), command=command, args=args)
+    assert result.is_error
+    assert "is not an accepted flag" in result.content
+
+
+@pytest.mark.parametrize("given", ["/etc/passwd", "../../../etc/passwd", "a/../../b"])
+def test_a_path_that_leaves_the_repository_is_refused(workspace, given):
+    result = git_call(workspace, repo=str(workspace), command="log", paths=[given])
+    assert result.is_error
+    assert "repository" in result.content
+
+
+def test_the_separator_cannot_be_passed_by_hand(workspace):
+    """`--` is added around `paths` by the tool. Accepting it in `args` would let a path
+    be smuggled in through the channel that is not path-checked."""
+    result = git_call(workspace, repo=str(workspace), command="log", args=["--", "x"])
+    assert result.is_error
+    assert "Do not pass '--' yourself" in result.content
+
+
+@posix_only
+def test_a_repository_outside_the_workspace_is_refused(workspace, tmp_path):
+    outside = tmp_path.parent / "outside-the-roots"
+    outside.mkdir(exist_ok=True)
+    result = git_call(workspace, repo=str(outside), command="log")
+    assert result.is_error
+    assert "workspace roots" in result.content
+
+
+@git_only
+@posix_only
+def test_a_directory_inside_the_repository_resolves_to_its_root(repo):
+    """`-C` makes git discover a repository by walking up, so what it resolves to is
+    checked as well as what the caller wrote -- see the handler's docstring for why that
+    is not paranoia."""
+    inner = repo / "pkg"
+    inner.mkdir()
+    result = git_call(
+        repo.parent, repo=str(inner), command="rev-parse", args=["--show-toplevel"]
+    )
+    assert not result.is_error, result.content
+    assert result.content.strip().endswith("repo")
+
+
+@git_only
+@posix_only
+def test_long_output_is_truncated_on_a_line_boundary_and_says_so(repo):
+    """A cut-off history that reads like a complete one is how a model concludes a commit
+    does not exist."""
+    result = tools.execute_tool(
+        cfg(repo.parent, max_read_chars=40),
+        call("read_git", repo=str(repo), command="log", args=["--format=%H %s"]),
+        tools.ALL_TOOL_NAMES,
+    )
+    assert not result.is_error, result.content
+    assert "[truncated:" in result.content
+
+
+def test_read_git_is_declared_and_executable_from_one_registry_entry():
+    """Both enforcement sites read `REGISTRY`, so a tool cannot be offered without being
+    runnable or the other way round. Asserted rather than assumed, because the asymmetry
+    is the trap CLAUDE.md records for `allowed_tools`."""
+    assert "read_git" in tools.REGISTRY
+    assert "read_git" in {s.name for s in tools.declared_tools({"read_git"})}
+    assert "read_git" not in {s.name for s in tools.declared_tools({"read_file"})}
+    # Withheld from the declared list, it must still be refused by the executor.
+    result = tools.execute_tool(
+        cfg(Path.cwd()), call("read_git", repo=".", command="log"), {"read_file"}
+    )
+    assert result.is_error
+    assert "not available in this delegation" in result.content
+
+
+def test_a_host_without_git_is_not_offered_the_tool(workspace, monkeypatch):
+    """The reasoning `run_bash` established: declaring a tool the host cannot run spends a
+    whole turn teaching the model what this function already knows.
+
+    Only `git` is hidden, not every executable. `shutil` is one module object shared with
+    `sandbox`, so blanking `which` outright would take `run_bash` away too and this would
+    pass for a reason it does not claim -- the broader mechanism would still satisfy the
+    narrower assertion, which is how a test stops testing what its name says.
+    """
+    real = tools.shutil.which
+    monkeypatch.setattr(
+        tools.shutil, "which", lambda name, *a, **k: None if name == "git" else real(name, *a, **k)
+    )
+    names = tools.available_tool_names(cfg(workspace))
+    assert "read_git" not in names
+    assert "read_file" in names, "the whole set went away, so this proves nothing"
+
+
+@git_only
+@posix_only
+def test_the_count_shorthand_is_accepted(repo):
+    """`git log -1` is what a model reaches for first. A live delegation spent a turn
+    being told to write `-n 1` instead, which is a synonym it already knew."""
+    result = git_call(repo.parent, repo=str(repo), command="log", args=["-1", "--format=%s"])
+    assert not result.is_error, result.content
+    assert result.content.strip() == "feat: change number 5"
+
+
+@git_only
+@posix_only
+def test_commits_can_be_counted(repo):
+    """`rev-list --count` is the canonical way, and `log` alone cannot do it -- there is no
+    pipe to `wc` here. The same delegation reached for this and was refused."""
+    result = git_call(
+        repo.parent, repo=str(repo), command="rev-list",
+        args=["--count", "HEAD"], paths=["kept.py"],
+    )
+    assert not result.is_error, result.content
+    assert result.content.strip() == "5"
+
+
+def test_the_shorthand_is_not_a_hole_for_other_flags(workspace):
+    """A digit is a count; anything else after the dash is still checked. And `shortlog -n`
+    means --numbered, so the shorthand deliberately does not apply there."""
+    for args in (["-1x"], ["--output=/tmp/x"], ["-o", "/tmp/x"]):
+        result = git_call(workspace, repo=str(workspace), command="log", args=args)
+        assert result.is_error, f"{args} was accepted"
+    assert "-5" not in tools.GIT_SUBCOMMANDS["shortlog"]
+    assert "shortlog" not in tools.GIT_COUNT_SHORTHAND
