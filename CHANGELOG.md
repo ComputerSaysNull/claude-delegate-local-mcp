@@ -34,6 +34,32 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #105 — 2026-09-05 — feat: carry the four numbers the endpoint already returns
+
+### Added
+- **`cached_tokens`, `total_tokens`, `stop_reason` and `system_fingerprint` reach the
+  caller and the transcript.** The endpoint returned all four on every call and the
+  adapter read `usage.prompt_tokens` and stopped. The symptom was an argument nobody could
+  settle — whether a batch shared a prefix — defended for a fortnight on an effect nothing
+  here could observe; the cause was that the only field saying whether a prefix was reused
+  was discarded on arrival. Confirmed end to end against the cluster: two delegations over
+  the same `files[]`, serialised, report 0 then **26,624 of 26,703** prompt tokens cached,
+  which is the first measurement of prefix reuse through the tool path rather than a
+  direct script. (ADR-0051 is what the blindness cost.)
+- **`system_fingerprint` identifies the engine build and its configuration.** Recording it
+  is what makes a cluster change visible from this side: an unchanged build with a changed
+  configuration hash is a config pull, not an upgrade, and reading it the other way wasted
+  an hour on 2026-09-05.
+
+### Fixed
+- **Absent and zero are kept apart, which the obvious implementation would not do.** The
+  `or 0` idiom the required counts use is wrong for these: a cached count of `0` is a
+  measured miss, while `None` is an endpoint that reports no caching at all, and a sum
+  folding the two claims every call missed. A test asserts both directions and was
+  verified to fail against the `or 0` version. `stop_reason` gets the same treatment —
+  this endpoint sends `null` on a normal stop, which must not become `""`, the value
+  `finish_reason` uses for a wire value that was genuinely empty.
+
 ## #104 — 2026-09-05 — feat: the delegation list says how long and at what effort
 
 ### Changed

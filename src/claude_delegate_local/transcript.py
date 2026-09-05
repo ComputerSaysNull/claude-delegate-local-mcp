@@ -256,6 +256,11 @@ def _usage(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
     The estimate is a guess made before the work; this is what the work cost. Summing
     these across records is the only way to answer what the local cluster has actually
     spent, so an estimate standing in for one here would quietly poison that total.
+
+    `cached_tokens` is the same argument one level down: summing `input_tokens` says what
+    was sent, and only the cached figure says what the cluster had to compute. A `None`
+    here means the endpoint reported no such field, which is not a zero -- do not sum it
+    as one.
     """
     if dispatched is None:
         return {}
@@ -265,6 +270,10 @@ def _usage(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
         "finish_reason": response.finish_reason,
         "input_tokens": response.input_tokens,
         "output_tokens": response.output_tokens,
+        "cached_tokens": response.cached_tokens,
+        "total_tokens": response.total_tokens,
+        "stop_reason": response.stop_reason,
+        "system_fingerprint": response.system_fingerprint,
         "effort": dispatched.effort,
         "attempts": dispatched.attempts,
         "reasoning_exhausted": dispatched.reasoning_exhausted,

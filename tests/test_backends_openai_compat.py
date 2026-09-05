@@ -313,6 +313,57 @@ async def test_text_and_usage_come_back_canonical():
     assert r.model == "served-id-1"
 
 
+async def test_the_four_fields_the_endpoint_reports_are_carried():
+    """What the cluster says about its own work, rather than what we guess about it.
+
+    `cached_tokens` is the one that matters: nothing about prefix reuse is observable
+    without it, and it was discarded for a fortnight while the batch tools were argued
+    over on the strength of it (ADR-0051).
+    """
+    body = reply(
+        system_fingerprint="engine-build-and-config-hash",
+        choices=[{"finish_reason": "stop", "stop_reason": "eos",
+                  "message": {"role": "assistant", "content": "ok"}}],
+        usage={"prompt_tokens": 44905, "completion_tokens": 16, "total_tokens": 44921,
+               "prompt_tokens_details": {"cached_tokens": 44800}},
+    )
+    r = await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+    assert r.cached_tokens == 44800
+    assert r.total_tokens == 44921
+    assert r.stop_reason == "eos"
+    assert r.system_fingerprint == "engine-build-and-config-hash"
+
+
+async def test_a_cache_miss_is_zero_and_an_endpoint_that_cannot_say_is_none():
+    """Opposite answers, and folding them together is the failure this field exists to
+    end. `0` is a measured miss on an endpoint that reports caching; `None` is an
+    endpoint that reports nothing, where a summed zero would silently claim every call
+    missed. `or 0` in the adapter would produce the same value for both.
+    """
+    missed = reply(usage={"prompt_tokens": 7, "completion_tokens": 3,
+                          "prompt_tokens_details": {"cached_tokens": 0}})
+    r = await backend(lambda req: httpx.Response(200, json=missed)).complete(request())
+    assert r.cached_tokens == 0, "a measured miss must not read as absent"
+
+    silent = reply()  # no prompt_tokens_details at all
+    r = await backend(lambda req: httpx.Response(200, json=silent)).complete(request())
+    assert r.cached_tokens is None, "an endpoint that says nothing must not read as a miss"
+    assert r.total_tokens is None
+    assert r.stop_reason is None
+    assert r.system_fingerprint is None
+
+
+async def test_a_null_stop_reason_is_absent_not_the_empty_string():
+    """vLLM sends `stop_reason: null` on a normal stop, which is what this endpoint does
+    on every call measured on 2026-09-05. It must not become `""`, which `finish_reason`
+    uses for a different thing -- a wire value that was genuinely empty."""
+    body = reply(choices=[{"finish_reason": "stop", "stop_reason": None,
+                           "message": {"role": "assistant", "content": "ok"}}])
+    r = await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+    assert r.stop_reason is None
+    assert r.finish_reason == "stop"
+
+
 async def test_null_content_at_length_is_a_response_not_an_error():
     """ADR-0014 reproduced through the adapter. M3 decides what it means; we report it.
 
