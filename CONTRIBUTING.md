@@ -1,4 +1,6 @@
-<!-- BUDGET: 280      Raised from 272 on 2026-09-03: the agent-capability check, which automates the narrow half of the
+<!-- BUDGET: 287
+     Raised from 280 on 2026-09-05: the workaround-outlives-the-limitation pattern got its third sighting, and the rule that would have caught it -- grep the agent bodies when you add a tool -- is the part worth keeping.
+     Raised from 272 on 2026-09-03: the agent-capability check, which automates the narrow half of the
      rule directly above it and needs its limit stated.
      Raised from 262 on 2026-09-03: the commit hook's interpreter search, a fact about install_hooks.py
      and the reason committing from WSL never ran the gate at all.
@@ -182,7 +184,12 @@ Say which one you want when asking for an audit. The duplication ends when the l
 is dependable enough to be the only one; the copy is then deleted, not left to rot.
 
 **A body can work around a server limitation, and nothing links them.** `docs-audit-local`
-cited by quotation because `read_file` had no line numbers; adding them made that stale.
+cited by quotation because `read_file` had no line numbers; adding them made that stale. It
+happened again on 2026-09-05: the same body told the model it could not read git history at
+all and had the caller hand the waiver list in, which `read_git` had made untrue — that
+tool runs in the server process, so the tmpfs over `.git` never applied to it. Three
+sightings now, and the third was found by a reader asking "didn't we add that?", not by any
+check. **When you add a tool, grep the agent bodies for what it makes possible.**
 
 **It can also require what the sandbox cannot do — the same fault inverted, and costlier.**
 That body opened with "run the gate first", which cannot succeed: `.git` is under a tmpfs

@@ -4,7 +4,7 @@ description: The delegated documentation audit, in this server's own agent forma
 model: deepseek-v4-flash
 effort: high
 max_turns: 30
-allowed_tools: [read_file, run_bash]
+allowed_tools: [read_file, read_git, run_bash]
 network: false
 ---
 
@@ -27,18 +27,26 @@ manifest consistency, secrets and commit authorship.
 Report nothing it already catches. Your value is entirely in the judgements a script
 cannot make.
 
-**Do not run it, and do not run git.** Neither works from inside your sandbox, and this
-instruction used to say "run it first", which cost every invocation a turn and a failed
-command before it found that out. `.git/**` is on the secret denylist, so `.git` is covered
-by a tmpfs and every git command exits 128 with "not a git repository".
-`security/secret_globs.txt` matches its own `*secret*` glob, so it is covered by a
-read-only bind of `/dev/null`, which on `/mnt/c` yields `EACCES` rather than an empty read
-— the gate loads that file early and dies with a `PermissionError`. Both are the sandbox
-working as designed, and neither is a finding.
+**Do not run the gate, and never reach for git through `run_bash`.** Neither works from
+inside your sandbox, and this instruction used to say "run it first", which cost every
+invocation a turn and a failed command before it found that out. `.git/**` is on the secret
+denylist, so `.git` is covered by a tmpfs and every shelled git command exits 128 with "not
+a git repository". `security/secret_globs.txt` matches its own `*secret*` glob, so it is
+covered by a read-only bind of `/dev/null`, which on `/mnt/c` yields `EACCES` rather than an
+empty read — the gate loads that file early and dies with a `PermissionError`. Both are the
+sandbox working as designed, and neither is a finding.
 
-The caller runs both outside the sandbox and hands you the output as given evidence. If a
-task does not include it, say what you needed and audit everything that does not depend on
-it. Never report the sandbox refusing them as a fault, and never work around it.
+**Use `read_git` for history.** It runs in the server process, not in your sandbox, so the
+tmpfs over `.git` does not apply to it: `log`, `show`, `diff`, `blame`, `shortlog`,
+`rev-list` and the rest work. This section said you could not read the log at all until
+2026-09-05, which stopped being true when `read_git` landed — the third time a body here
+has outlived the limitation it was written around, and the reason CONTRIBUTING.md tells you
+to read the pair.
+
+The gate is still the caller's to run, because nothing gives you a path to it. If a task
+does not include its output, say what you needed and audit everything that does not depend
+on it. Never report the sandbox refusing a shelled git or the gate as a fault, and never
+work around either.
 
 ## Your bottleneck is context, not tools
 
@@ -102,10 +110,12 @@ agent spent a turn and a failed command finding that out. The gate is `python3` 
 5. **MISSING** — a module or behaviour with no documentation coverage at all. Check
    `PLAN.md` and `archive/PLAN-milestones.md` first: not-yet-built is not the same as
    undocumented, and completed work moved out of `PLAN.md` on 2026-09-02.
-6. **ESCAPE ABUSE** — you cannot read the log yourself, so the caller supplies the waivers
-   already grouped by the document each names, one commit at a time and anchored to the
-   start of a line. Judge them; do not try to gather them. If the task carries no waiver
-   history, say the check was not performed rather than guessing at it.
+6. **ESCAPE ABUSE** — gather the waivers yourself with `read_git`, which reaches the log
+   from the server process. `log` over the last ninety days, looking for `Docs-Gate-Skip:`
+   trailers, then group them by the document each names. A caller may hand you the same
+   list; prefer your own reading and say so if the two disagree. Only if `read_git` is not
+   in your tool list and the task carries no waiver history should you say the check was
+   not performed.
 
    Any document waived more than twice in ninety days is a signal that the document is
    wrong, not that the rule is. Name it. Count events rather than trailers: two waivers in
