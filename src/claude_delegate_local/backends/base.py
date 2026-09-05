@@ -341,6 +341,22 @@ class Backend(Protocol):
         """
         ...
 
+    async def probe_cluster(self) -> dict[str, float | int | str | None] | None:
+        """What the serving stack says about its own load, if it publishes anything.
+
+        `None` is a confirmed absence -- the endpoint answered and offers no such surface
+        -- exactly as in `probe_window`, and for the same reason: a caller must not cache
+        "this backend cannot tell me" because the network blinked. A transport failure
+        raises `BackendUnavailable` instead.
+
+        These are the cluster's numbers, not ours. `admission` estimates queue depth from
+        what this process has dispatched, which is a guess that cannot see other clients;
+        this is the real thing. Values are reported, never interpreted -- the same rule
+        `finish_reason` follows, because deciding that a hit rate is "bad" is a policy
+        question and this layer has no policy.
+        """
+        ...
+
     async def aclose(self) -> None:
         """Release the transport. Safe to call more than once."""
         ...

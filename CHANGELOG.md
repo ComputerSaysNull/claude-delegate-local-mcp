@@ -34,6 +34,42 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #109 — 2026-09-05 — feat: backend_status reports the cluster's numbers, not our guesses
+
+### Added
+- **A `cluster` block on every `backend_status` row**, read from the endpoint's own
+  Prometheus metrics: requests running and waiting with the scheduler's reason, KV cache
+  occupancy as a fraction and its size in tokens, whether prefix caching is on, the
+  lifetime prefix-cache hit rate, and the preemption count. The `admission` block beside
+  it reports what *this process* has dispatched, which cannot see other clients or other
+  server processes; these are what the engine measured. The endpoint published all of it
+  and the server read none of it.
+- **`probe_cluster()` on the backend protocol**, following `probe_window`'s contract:
+  `None` is a confirmed absence and only a transport failure raises, so a caller can tell
+  "this endpoint has no metrics surface" from "the network blinked" and never caches the
+  second as the first. An empty parse folds into `None` too — `{}` would read as *the
+  cluster says it is doing nothing*.
+
+### Changed
+- **A missing `cluster` block never changes a row's status.** An endpoint that publishes
+  no metrics, or times out answering for them, is healthy with nothing to say. Reporting
+  it as degraded would make the monitoring surface a source of false alarms about the
+  thing it monitors.
+
+### Fixed
+- **The metric reader is an allowlist, not a filter, because the risk is labels.**
+  `http_request_*` carry handler paths and `vllm:cache_config_info` carries deployment
+  configuration, while `backend_status` promises never to name an endpoint. Only named
+  metrics are read and only the `reason` label is kept; a test asserts that a handler path
+  and a configuration value cannot reach the result. A metric appearing upstream therefore
+  cannot silently widen what is reported.
+- **The counters are read as tokens, which is what they are.** Measured 2026-09-05: six
+  distinct 45k-token calls moved `prefix_cache_queries_total` by 269,417 against
+  6 × 44,903. Reading them as request counts would understate the denominator by four
+  orders and make the hit rate meaningless rather than merely wrong.
+- **Histograms are skipped rather than averaged.** Their `_sum` and `_count` are cumulative
+  over the process, so a mean derived from them is the mean since boot while looking like a
+  current figure — worse than reporting nothing, because it would be believed.
 ## #108 — 2026-09-05 — docs: reopen streaming with a scope, and file admission's missing anti-starvation
 
 ### Changed

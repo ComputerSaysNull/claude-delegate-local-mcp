@@ -313,6 +313,127 @@ async def test_text_and_usage_come_back_canonical():
     assert r.model == "served-id-1"
 
 
+# --- the cluster's own metrics ---------------------------------------------------------
+
+CACHE_CONFIG_SAMPLE = (
+    'vllm:cache_config_info{block_size="4",enable_prefix_caching="True",'
+    'kv_cache_size_tokens="1444236",num_gpu_blocks="16174",'
+    'gpu_memory_utilization="0.835"} 1.0'
+)
+
+METRICS = "\n".join([
+    "# HELP vllm:num_requests_running Running.",
+    "# TYPE vllm:num_requests_running gauge",
+    "vllm:num_requests_running 1.0",
+    "vllm:num_requests_waiting 2.0",
+    'vllm:num_requests_waiting_by_reason{reason="capacity"} 2.0',
+    'vllm:num_requests_waiting_by_reason{reason="deferred"} 0.0',
+    "vllm:kv_cache_usage_perc 0.0409",
+    "vllm:prefix_cache_hits_total 851200.0",
+    "vllm:prefix_cache_queries_total 1456115.0",
+    "vllm:num_preemptions_total 0.0",
+    CACHE_CONFIG_SAMPLE,
+    # A handler path in a label, which must never reach the result.
+    'http_requests_total{handler="/v1/chat/completions",method="POST"} 12.0',
+    # A histogram, which is skipped rather than averaged.
+    "vllm:e2e_request_latency_seconds_sum 123.0",
+    "vllm:e2e_request_latency_seconds_count 4.0",
+])
+
+
+def test_the_metrics_read_are_the_ones_asked_for_and_no_others():
+    """An allowlist, not a filter. A metric appearing upstream must not silently widen
+    what `backend_status` reports -- noticing a new name is what the capture diff is
+    for."""
+    got = oc.read_metrics(METRICS)
+
+    assert got["requests_running"] == 1.0
+    assert got["requests_waiting"] == 2.0
+    assert got["requests_waiting_capacity"] == 2.0
+    assert got["requests_waiting_deferred"] == 0.0
+    assert got["kv_cache_used_fraction"] == 0.0409
+    assert got["preemptions"] == 0
+    assert "e2e_request_latency_seconds_sum" not in got
+    assert not any("latency" in k for k in got), got
+
+
+def test_a_handler_path_in_a_label_never_reaches_the_result():
+    """`backend_status` promises never to name an endpoint, and `http_request_*` carry
+    handler paths in their labels. The allowlist is what keeps that promise, so this
+    asserts the promise rather than the mechanism."""
+    got = oc.read_metrics(METRICS)
+
+    assert "/v1/chat/completions" not in json.dumps(got)
+    assert "0.835" not in json.dumps(got), "a deployment config value leaked from a label"
+
+
+def test_the_cache_configuration_is_read_out_of_its_labels():
+    """`vllm:cache_config_info` is a labelled metric whose value is always 1.0 -- the
+    figures are in the labels. `kv_cache_size_tokens` is the one that matters: it is the
+    real KV pool, which `kv_token_budget` is supposed to sit just under."""
+    got = oc.read_metrics(METRICS)
+
+    assert got["kv_cache_size_tokens"] == 1444236
+    assert got["kv_cache_gpu_blocks"] == 16174
+    assert got["prefix_caching_enabled"] is True
+
+
+def test_the_hit_rate_is_over_tokens_because_the_counters_are():
+    """Measured 2026-09-05: six distinct 45k calls moved the query counter by 269,417
+    against 6 x 44,903. Reading these as request counts understates the denominator by
+    four orders, so the derived rate would be meaningless rather than merely wrong."""
+    got = oc.read_metrics(METRICS)
+
+    assert got["prefix_cache_hit_tokens"] == 851200
+    assert got["prefix_cache_query_tokens"] == 1456115
+    assert got["prefix_cache_hit_rate_since_boot"] == round(851200 / 1456115, 4)
+
+
+def test_no_queries_yet_means_no_rate_rather_than_a_division():
+    """A freshly booted engine has answered nothing. Reporting 0.0 would claim a measured
+    miss rate where there is no measurement at all."""
+    got = oc.read_metrics(
+        "vllm:prefix_cache_hits_total 0.0\nvllm:prefix_cache_queries_total 0.0\n"
+    )
+
+    assert "prefix_cache_hit_rate_since_boot" not in got
+
+
+async def test_an_endpoint_without_metrics_says_nothing_rather_than_failing():
+    """A 404 is an answer about the endpoint, not a failure to ask. `probe_window`
+    established the distinction and this follows it: a caller must be able to tell "no
+    such surface" from "could not reach it"."""
+    def handler(request):
+        if request.url.path == "/metrics":
+            return httpx.Response(404, text="Not Found")
+        return httpx.Response(200, json=reply())
+
+    assert await backend(handler).probe_cluster() is None
+
+
+async def test_a_200_that_is_not_metrics_is_also_nothing_to_say():
+    """Empty and absent are one answer here. Reporting `{}` would read as "the cluster
+    says it is doing nothing" rather than "the cluster did not say"."""
+    def handler(request):
+        if request.url.path == "/metrics":
+            return httpx.Response(200, text="<html>a proxy error page</html>")
+        return httpx.Response(200, json=reply())
+
+    assert await backend(handler).probe_cluster() is None
+
+
+async def test_an_unreachable_metrics_path_raises_rather_than_reporting_absence():
+    """The distinction that must not collapse: a transport failure is not a confirmed
+    absence, and caching it as one would remember a blink as a fact about the endpoint."""
+    def handler(request):
+        if request.url.path == "/metrics":
+            raise httpx.ConnectError("no route")
+        return httpx.Response(200, json=reply())
+
+    with pytest.raises(base.BackendUnavailable):
+        await backend(handler).probe_cluster()
+
+
 async def test_the_four_fields_the_endpoint_reports_are_carried():
     """What the cluster says about its own work, rather than what we guess about it.
 

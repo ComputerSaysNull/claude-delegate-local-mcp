@@ -213,6 +213,9 @@ def test_protocol_accepts_a_complete_implementation():
         async def probe_window(self):
             ...
 
+        async def probe_cluster(self):
+            ...
+
         async def aclose(self):
             ...
 
