@@ -1,4 +1,5 @@
-<!-- BUDGET: 410
+<!-- BUDGET: 429
+     Raised from 410 on 2026-09-05: the sandbox limits item ticked, kept beside its original because the original named a bwrap flag that does not exist, and because measuring the process cap took three attempts.
      Raised from 392 on 2026-09-05: the allowlist item ticked, kept beside its original because
      three of the four things it turned out to need are ones the filing could not have known --
      including a fix that would have made the filed feature decorative without it.
@@ -100,7 +101,23 @@ group by what the item's own annotation says it costs.
   private-DNS suffixes and non-allowlisted emails, and would false-positive on the source a
   review delegation exists to read. A narrow, high-precision check for key material instead
   (PEM armour, `BEGIN OPENSSH PRIVATE KEY`, cloud key prefixes)
-- ⬜ Resource limits inside the sandbox — `build_argv` emits no `--rlimit`, no process cap
+- ✅ 2026-09-05 Resource limits inside the sandbox (`#111`, ADR-0054) — **"emits no
+  `--rlimit`" presumed a flag bwrap does not have.** bubblewrap 0.9.0 has none, so the caps
+  come from a `prlimit` launcher in front of it; `resource` is still not imported, and
+  should not be, since `preexec_fn` is a deadlock risk once tool calls run in threads. Three
+  things the filing could not have known. `RLIMIT_AS` is address space, not resident memory,
+  so it over-counts and a Go runtime will trip it — the accurate control is a cgroup memory
+  limit, and `systemd-run --user` has no bus here, though the `pids` controller is present
+  and would be the better process cap if it were reachable. The process cap ships
+  compromised on purpose: counted per uid so concurrent delegations share it, unusable below
+  ~64 because bwrap cannot then make its namespaces, and silent when it binds because the
+  shell cannot fork to report it. And measuring it took three attempts — a sequential loop
+  never exceeded two concurrent, then a loop counting iterations rather than successes
+  reported 400 under a cap of 256, because `cmd &` succeeds whether or not the fork did.
+  Two plausible experiments agreed and were both wrong. Mutation testing then caught a
+  fifth check that could not fail: an integration test asserting no core file is left
+  behind passed with `--core=0` removed. Original entry follows.
+- ~~Resource limits inside the sandbox~~ — `build_argv` emits no `--rlimit`, no process cap
   and no `--size` on either tmpfs, and the module never imports `resource`. A fork bomb or
   a runaway allocation is bounded only by `run_bash_timeout` and `--die-with-parent`. This
   machine's page file is capped by choice, so a demand-side OOM is the live failure mode

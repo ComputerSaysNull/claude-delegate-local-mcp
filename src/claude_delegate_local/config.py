@@ -511,6 +511,12 @@ class Config:
 
     # ---- sandbox (ADR-0010) ------------------------------------------------------
     bwrap_bin: str = _f("bwrap", "bubblewrap binary name or path.")
+    prlimit_bin: str = _f(
+        "prlimit",
+        "util-linux prlimit binary name or path. Used only when a sandbox resource limit "
+        "is set; if one is and this is missing, run_bash is refused rather than run "
+        "unbounded.",
+    )
     sandbox_home: str = _f(
         "~/.cache/claude-delegate-local/sandbox-home",
         "Persistent HOME inside the sandbox. The real HOME is never bound, so credential "
@@ -540,6 +546,39 @@ class Config:
         24,
         "Directory depth the mount-level secret scan may descend before it gives up and "
         "refuses the command. Guards against a symlink loop the walk cannot see.",
+    )
+    sandbox_max_memory_mb: int = _f(
+        8192,
+        "Address space one sandboxed process may reserve, applied as RLIMIT_AS. 0 removes "
+        "the limit. Address space is not resident memory, so this over-counts: a Go "
+        "runtime or a sanitiser reserves far more than it uses and will need this raised "
+        "or turned off. It is the approximation available, because the accurate control is "
+        "a cgroup memory limit and no unprivileged process here can set one.",
+        unit="MB",
+    )
+    sandbox_max_file_mb: int = _f(
+        2048,
+        "Largest file a sandboxed command may write, applied as RLIMIT_FSIZE. 0 removes "
+        "the limit. Exceeding it kills the writer with SIGXFSZ and leaves the file "
+        "truncated at exactly this size.",
+        unit="MB",
+    )
+    sandbox_max_processes: int = _f(
+        512,
+        "Concurrent processes the sandbox's user may hold, applied as RLIMIT_NPROC. 0 "
+        "removes the limit. Counted per real uid across the machine rather than per "
+        "sandbox, so concurrent delegations share this budget and a fork bomb in one "
+        "starves the others -- which is still the better failure. Below roughly 64 bwrap "
+        "cannot create its namespaces at all and every command fails at startup; when the "
+        "cap does bind, the shell cannot fork to report it, so the command dies with no "
+        "output rather than a message.",
+    )
+    sandbox_tmpfs_mb: int = _f(
+        1024,
+        "Size of the sandbox's /tmp, applied as bwrap's --size. 0 leaves it unbounded, "
+        "where filling it is filling RAM. A write that overruns it fails with ENOSPC, "
+        "which is an ordinary error a command can report.",
+        unit="MB",
     )
 
     # ---- agents ------------------------------------------------------------------

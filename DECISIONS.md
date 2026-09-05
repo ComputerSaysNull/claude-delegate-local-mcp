@@ -19,6 +19,52 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0054 — 2026-09-05 — Sandbox resource limits come from a launcher, and the process cap is the compromised one — Accepted
+
+`build_argv` bounded nothing: a runaway allocation or a fork bomb was held only by
+`run_bash_timeout`, and this machine's page file is capped by choice, so a demand-side OOM
+was the live failure rather than a theoretical one.
+
+The filed item assumed bwrap would do it. **bubblewrap 0.9.0 has no `--rlimit` flag** —
+measured, first thing. It has `--size` for a tmpfs and nothing else. So the rlimits come
+from a `prlimit` launcher in front of bwrap, which inherits them through. Not `preexec_fn`:
+tool calls run through `asyncio.to_thread`, so this process is multi-threaded, and that
+hook runs between fork and exec where only async-signal-safe calls are legal. The launcher
+also lands in the argv, which keeps every cap assertable by the pure-argv tests that run
+where no bwrap exists.
+
+`RLIMIT_AS` is an approximation and the setting says so: address space is not resident
+memory, so a Go runtime or a sanitiser reserves far more than it uses and will trip it. The
+accurate control is a cgroup memory limit. No unprivileged process here can set one —
+`systemd-run --user` finds no bus under WSL, though `/sys/fs/cgroup/cgroup.controllers`
+does list `pids`, which would be the better process cap if it were reachable.
+
+**The process cap is kept despite three measured defects, because the alternative is an
+OOM.** `RLIMIT_NPROC` counts per real uid across the machine, so concurrent delegations
+share one budget and a bomb in one starves the others. Below roughly 64 bwrap cannot create
+its namespaces and every command fails at startup — 32 failed outright with only eight
+processes owned. And when the cap binds, the shell cannot fork to report it: a bounded fork
+storm against 256 died with no output and a bare exit code.
+
+Getting that measurement right took three attempts, which is the part worth recording. The
+first loop was sequential, so concurrency never passed two and every cap looked inert. The
+second counted iterations, and `cmd &` returns success whether or not the fork happened, so
+a capped run still reported 400. Only counting files written by children that actually ran
+showed the cap binding. Two plausible experiments agreed with each other and were both
+wrong, which is the failure mode reasoning cannot catch.
+
+`RLIMIT_CORE` is pinned to zero rather than inherited, and is honestly a no-op here: this
+host's soft limit is already zero, and the "(core dumped)" a shell prints alongside SIGXFSZ
+comes from the kernel setting WCOREDUMP because `core_pattern` is a pipe, with no file
+written either way. It is kept for a host whose default differs. An integration test
+asserting "no core is left behind" was written, **passed with the flag removed**, and was
+deleted — the fifth check found here that could not fail.
+
+Rejected: sizing the shadow tmpfs by config. A shadow exists to be empty, so it gets a
+small constant and no knob. Rejected: running unbounded when `prlimit` is absent — a
+control that is silently off is what ADR-0034 deleted the last of, so a missing limiter
+refuses the same way a missing bwrap does.
+
 ## ADR-0053 — 2026-09-05 — An agent file's network and binds are operator-gated, and gated differently from each other — Accepted
 
 Two frontmatter fields grant what the sandbox otherwise withholds: `extra_binds` mounts a
