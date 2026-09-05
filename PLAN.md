@@ -1,9 +1,13 @@
-<!-- BUDGET: 374
+<!-- BUDGET: 392
+     Raised from 374 on 2026-09-05: kv_token_budget is 1.66x the real KV pool, filed now
+     that backend_status reads the pool size and the fix has a number to use.
      Raised from 351 on 2026-09-05: admission's missing anti-starvation filed, with the half
      that is now measurable separated from the half that measurement has just closed.
      Raised from 320 on 2026-09-05: streaming moved out of Cancelled with the scope and the
      justification its 2026-08-25 cancellation was decided without -- lost work, and a stall
      deadline that can finally be honest.
+     Raised from 320 on 2026-09-05: kv_token_budget is 1.66x the real KV pool, filed now that
+     backend_status reads the pool size and the fix has a number to use.
      Raised from 312 on 2026-09-05: the batch item closed as wrong when filed, and the wrong
      original is the part worth keeping.
      Raised from 298 on 2026-09-04: two items JOURNAL 2026-09-04 named while recording a stall that looked like an outage -- a batch withholding finished results, and a stall failure that cannot be told from an unreachable endpoint.
@@ -126,6 +130,21 @@ group by what the item's own annotation says it costs.
     over a shared prefix cost the same as three serial ones and hit cache identically, and
     the engine runs one at a time, touching two only at the handoff — which is exactly
     what "one running plus one staged" describes. Keep the setting and the value.
+- ⬜ **`kv_token_budget` is 1.66x the real KV pool, and the number to fix it is now
+  readable.** The setting defaults to 2,400,000 and its help text says it "sits just under
+  the measured KV pool". The endpoint reports `kv_cache_size_tokens = 1,444,236`, so it
+  sits well over. Nothing has failed, because the setting protects latency rather than
+  correctness — over-admitting queues and preempts rather than erroring — which is exactly
+  why it drifted unnoticed. Likely cause is the 2026-09-04 model swap: a vision model
+  carries more weights, so less memory is left for KV and the pool shrank underneath a
+  constant measured against the old model.
+  - **Do not fix it with a new constant.** An `.env` override is right today and drifts on
+    the next swap; changing the default bakes one deployment's hardware into the
+    repository. Derive it from what `backend_status` now reads, the way `WindowCheck`
+    already derives per process — a server guessing at a figure the cluster publishes is
+    the whole argument of the 2026-09-05 session.
+  - Deferred deliberately on 2026-09-05: our delegations run ~45k tokens, so six of them
+    is 19% of the pool and the gap is not currently reachable.
 
 Raised by a documentation audit that was truncated by its own turn budget, then rerun. The
 three settings below were each sized against a constraint that has since moved, and none of

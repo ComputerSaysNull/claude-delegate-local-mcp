@@ -78,6 +78,13 @@ class ModelEntry:
         # wrong path made a healthy server look unreachable.
         return f"{self.base_url.rstrip('/')}/v1/models"
 
+    @property
+    def metrics_url(self) -> str:
+        # Not under /v1: the serving stack publishes Prometheus text at the root, which
+        # is where the metrics were found on 2026-09-05. An endpoint without it answers
+        # 404 and is reported as having nothing to say rather than as unhealthy.
+        return f"{self.base_url.rstrip('/')}/metrics"
+
     def effective_effort(self, cfg: Config) -> str:
         return self.default_effort or cfg.thinking_default
 

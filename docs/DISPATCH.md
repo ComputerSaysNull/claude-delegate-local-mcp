@@ -1,4 +1,5 @@
-<!-- BUDGET: 517 -->
+<!-- BUDGET: 545 -->
+<!-- Raised from 517 on 2026-09-05: the adapter now reads the cluster's own metrics, and the label and denomination rules belong with it. -->
 <!-- Raised from 494 on 2026-09-05: this document now owns the endpoint capture and diff scripts, which record what comes back. -->
 <!-- Raised from 488 on 2026-09-05: the per-turn diagnostic and the end event now carry what the prefix cache saved. -->
 <!-- Raised from 477 on 2026-09-05: the adapter now carries four fields the endpoint always returned and this server discarded. -->
@@ -89,6 +90,33 @@ every call missed. The `or 0` idiom used for the required counts is wrong here, 
 asserts it. Without the cached count nothing about prefix reuse is observable from inside
 this server, which is how a tool came to be argued for on an effect nobody here could see
 (ADR-0051).
+
+## What the cluster says about itself
+
+`probe_cluster()` reads the endpoint's Prometheus text and returns a handful of figures,
+or `None` when the endpoint publishes none. `None` is a confirmed absence — the same
+distinction `probe_window` draws, and for the same reason: only a transport failure
+raises, so a caller can tell "no such surface" from "could not reach it" and never caches
+a blink as a fact. An empty parse is folded into `None` as well, because `{}` would read
+as *the cluster says it is doing nothing* rather than *the cluster did not say*.
+
+**An allowlist, not a filter.** Only named metrics are read, and of their labels only
+`reason`, which is a scheduler word. The risk here is labels rather than names:
+`http_request_*` carry handler paths and `vllm:cache_config_info` carries deployment
+configuration, and `backend_status` promises never to name an endpoint. A metric appearing
+upstream therefore cannot widen what is reported — noticing a new name is what
+`diff_endpoint_captures.py` is for.
+
+**The counters are denominated in tokens, not requests.** Measured 2026-09-05: six
+distinct 45k-token calls moved `prefix_cache_queries_total` by 269,417, against
+6 × 44,903. Reading them as request counts understates the denominator by four orders and
+makes the derived hit rate meaningless rather than merely wrong. The rate is cumulative
+since the engine booted and its name says so; a rate over a window needs two scrapes and a
+clock, which is a different feature.
+
+**Histograms are skipped entirely.** Their `_sum` and `_count` are cumulative over the
+process, so a mean derived from them is the mean since boot while looking like a current
+figure — worse than reporting nothing.
 
 ## What the endpoint returns, recorded
 

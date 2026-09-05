@@ -26,6 +26,7 @@ Not a port. This file is new.
 from __future__ import annotations
 
 import json
+import re
 import os
 from typing import Any
 
@@ -53,6 +54,35 @@ from .base import (
 # configuration, not a literal (see security/forbidden_strings.txt).
 _CHAT_PATH = "/v1/chat/completions"
 _MODELS_PATH = "/v1/models"
+_METRICS_PATH = "/metrics"
+
+# What is read out of the endpoint's Prometheus text, and nothing else. An allowlist
+# rather than a filter, because the risk here is labels: `http_request_*` carry handler
+# paths and `cache_config_info` carries deployment configuration, and `backend_status`
+# promises never to name an endpoint. Only the metrics below are read, and of their
+# labels only `reason`, which is a scheduler word.
+#
+# The counters are denominated in TOKENS, not requests -- measured 2026-09-05, where six
+# distinct 45k calls moved `prefix_cache_queries_total` by 269,417 against 6 x 44,903.
+# Reading them as request counts would understate the denominator by four orders.
+_GAUGES = {
+    "vllm:num_requests_running": "requests_running",
+    "vllm:num_requests_waiting": "requests_waiting",
+    "vllm:kv_cache_usage_perc": "kv_cache_used_fraction",
+}
+_COUNTERS = {
+    "vllm:prefix_cache_hits_total": "prefix_cache_hit_tokens",
+    "vllm:prefix_cache_queries_total": "prefix_cache_query_tokens",
+    "vllm:num_preemptions_total": "preemptions",
+    "vllm:external_prefix_cache_hits_total": "external_prefix_cache_hit_tokens",
+}
+# From `vllm:cache_config_info`, whose values live in its labels. Numeric configuration
+# only: no path, no host, no free-form string.
+_CACHE_CONFIG = {
+    "kv_cache_size_tokens": "kv_cache_size_tokens",
+    "num_gpu_blocks": "kv_cache_gpu_blocks",
+    "enable_prefix_caching": "prefix_caching_enabled",
+}
 
 # Where the server puts reasoning on the way back. This stack uses "reasoning" -- measured,
 # not assumed (JOURNAL 2026-08-26). "reasoning_content" is accepted second because it is
@@ -193,6 +223,32 @@ class OpenAICompatBackend:
                 f"{type(e).__name__} posting to {path} on model {self._entry.key!r}."
             ) from e
         return _decode(r, path)
+
+    async def probe_cluster(self) -> dict[str, float | int | str | None] | None:
+        """The serving stack's own load figures, or `None` if it publishes none.
+
+        A 404 is an answer: this endpoint has no metrics surface, which is a fact about
+        the endpoint and not a failure to ask. Only a transport failure raises, so a
+        caller can tell "nothing to say" from "could not reach it" -- the distinction
+        `probe_window` established and the reason neither is cached across a blip.
+        """
+        try:
+            r = await self._client.get(self._entry.metrics_url, headers=self._headers)
+        except httpx.HTTPError as e:
+            raise BackendUnavailable(
+                f"{type(e).__name__} getting {_METRICS_PATH} on model "
+                f"{self._entry.key!r}."
+            ) from e
+        if r.status_code >= 400:
+            # A 404 is the common case and means no metrics surface. Any other error is
+            # reported the same way on purpose: this is a monitoring extra, and a caller
+            # deciding whether the endpoint is healthy has already been told by `probe`.
+            return None
+        # An empty result and no result are one answer, not two. A 200 carrying something
+        # that is not Prometheus text yields nothing parseable, and reporting `{}` for it
+        # would read as "the cluster says it is doing nothing" rather than "the cluster
+        # did not say".
+        return read_metrics(r.text) or None
 
     async def _get(self, url: str, path: str) -> dict[str, Any]:
         try:
@@ -384,6 +440,71 @@ def _tool_use_from_wire(call: Any) -> ToolUseBlock:
             f"{type(arguments).__name__}, not an object."
         )
     return ToolUseBlock(id=str(call.get("id") or ""), name=str(fn["name"]), input=arguments)
+
+
+def _labels(series: str) -> dict[str, str]:
+    """The label set of one sample line, as written. No unescaping beyond the obvious.
+
+    Prometheus text quotes label values and escapes `\\`, `\"` and `\n` inside them.
+    Nothing here needs more than that, and a parser that tried to be complete would be a
+    second, worse implementation of a format we only read four metrics out of.
+    """
+    inner = series.partition("{")[2].rpartition("}")[0]
+    out: dict[str, str] = {}
+    for part in re.findall(r'(\w+)="((?:[^"\\]|\\.)*)"', inner):
+        out[part[0]] = part[1].replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
+    return out
+
+
+def read_metrics(text: str) -> dict[str, float | int | str | None]:
+    """Prometheus exposition text -> the handful of figures worth reporting.
+
+    Deliberately not a general parser. Histograms are skipped entirely: their `_sum` and
+    `_count` are cumulative over the process, so a mean derived from them is the mean
+    since boot and answers a question nobody asked. Reporting one would be worse than
+    reporting nothing, because it looks like a current figure.
+
+    Unknown names are ignored rather than collected, so a metric appearing upstream
+    cannot silently widen what this returns -- `scripts/diff_endpoint_captures.py` is
+    where a new name is meant to be noticed.
+    """
+    out: dict[str, float | int | str | None] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        series, _, raw = line.rpartition(" ")
+        name = series.split("{", 1)[0]
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        if name in _GAUGES:
+            out[_GAUGES[name]] = value
+        elif name in _COUNTERS:
+            out[_COUNTERS[name]] = int(value)
+        elif name == "vllm:num_requests_waiting_by_reason":
+            reason = _labels(series).get("reason")
+            if reason and reason.isidentifier():
+                out[f"requests_waiting_{reason}"] = value
+        elif name == "vllm:cache_config_info":
+            for label, key in _CACHE_CONFIG.items():
+                got = _labels(series).get(label)
+                if got is None:
+                    continue
+                out[key] = (
+                    got == "True" if key == "prefix_caching_enabled"
+                    else int(got) if got.isdigit() else None
+                )
+
+    hits = out.get("prefix_cache_hit_tokens")
+    queries = out.get("prefix_cache_query_tokens")
+    # Cumulative since the engine booted, so it is a lifetime figure and says so in its
+    # name. A rate over a window would need two scrapes and a clock, which is a different
+    # feature and not one `backend_status` should grow quietly.
+    if isinstance(hits, int) and isinstance(queries, int) and queries > 0:
+        out["prefix_cache_hit_rate_since_boot"] = round(hits / queries, 4)
+    return out
 
 
 def _decode(r: httpx.Response, path: str) -> dict[str, Any]:

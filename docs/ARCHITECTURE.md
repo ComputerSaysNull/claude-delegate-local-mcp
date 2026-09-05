@@ -1,4 +1,6 @@
-<!-- BUDGET: 723
+<!-- BUDGET: 738
+     Raised from 723 on 2026-09-05: backend_status now reports the cluster's own
+     numbers beside this process's estimates of them.
      Raised from 715 on 2026-09-05: the list now shows what the prefix cache saved, and the stream carries it per turn.
      Raised from 710 on 2026-09-05: the result dict and the transcript record now carry the endpoint's own numbers.
      Raised from 704 on 2026-09-05: the delegation list gained a duration and an effort column, and this document owns what the viewer shows and why.
@@ -226,6 +228,19 @@ An endpoint up and serving *something else* is invisible to every other check �
 is refused, or answered by a model nobody chose — so it reports `status: "ok"` with
 `id_confirmed: false`: healthy endpoint, wrong configuration. `context_window_defaulted` is
 the same class of fact, marking a window this server assumed rather than one an operator set.
+
+Each row also carries a **`cluster` block: the serving stack's own numbers**, where the
+`admission` block beside it carries this process's estimates of them. Queue depth, KV cache
+occupancy and the prefix-cache hit rate were all guessed at from what this process had
+dispatched, which cannot see other clients or other server processes; these are measured by
+the engine. What is read and why the reading is an allowlist belongs to
+[DISPATCH.md](DISPATCH.md), which owns the adapter.
+
+**A missing `cluster` block never changes a row's status.** An endpoint that publishes no
+metrics, or times out answering for them, is a healthy endpoint with nothing to say on the
+subject — reporting it as degraded would make the monitoring surface a source of false
+alarms about the thing it monitors. `null` there is a fact about the endpoint, exactly as
+`probe_window` returning nothing is.
 
 Six status words, chosen so that each sends the reader somewhere different:
 

@@ -29,6 +29,7 @@ from fastmcp.exceptions import ToolError
 
 from .backends.base import (
     Backend,
+    BackendError,
     BackendProtocolError,
     BackendRefused,
     BackendUnavailable,
@@ -405,6 +406,18 @@ async def probe_entry(
             f"{len(served)} model(s). Requests to this entry will be refused by the "
             "endpoint, or worse, answered by a different model than the one configured."
         )
+
+    # The cluster's own figures, where `admission` above reports this process's guesses.
+    # Never allowed to change the row's status: a serving endpoint that publishes no
+    # metrics, or times out answering for them, is a healthy endpoint with nothing to say
+    # on the subject. Reporting it as degraded would make a monitoring surface a source
+    # of false alarms about the thing it monitors.
+    try:
+        row["cluster"] = await asyncio.wait_for(
+            backend.probe_cluster(), timeout=cfg.status_probe_timeout
+        )
+    except (TimeoutError, BackendError):
+        row["cluster"] = None
     return row
 
 
@@ -1163,6 +1176,15 @@ def build(
         server process on the machine and what that machine-wide total currently is.
         `active: false` there means each connected client is being bounded separately, so
         the real load on the cluster is higher than this process's numbers suggest.
+
+        Each row also carries a `cluster` block: the serving stack's own numbers, where
+        `admission` carries this process's estimates of them. It reports how many requests
+        the engine is running and how many are waiting, how full the KV cache is as a
+        fraction and how large it is in tokens, whether prefix caching is on, the
+        lifetime prefix-cache hit rate, and the preemption count. `null` means the
+        endpoint publishes no metrics, which is a fact about the endpoint and never a
+        reason to call it unhealthy. The token counters are denominated in tokens rather
+        than requests.
 
         Endpoint addresses are deliberately never included in the result.
         """

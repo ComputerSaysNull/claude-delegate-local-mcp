@@ -42,7 +42,7 @@ The table key (`deepseek-v4-flash`) is the handle callers use. It does not have 
 
 | Field | Required | Notes |
 |---|---|---|
-| `base_url` | yes | **No `/v1` suffix** — the server appends the API path. Including it is refused, with the corrected value in the message |
+| `base_url` | yes | **No `/v1` suffix** — the server appends the API path. Including it is refused, with the corrected value in the message. Three paths are derived from it: `/v1/chat/completions`, `/v1/models`, and `/metrics`, which is at the root rather than under `/v1` |
 | `served_model_id` | yes | Exactly as the server reports it at `GET {base_url}/v1/models` |
 | `api_format` | no | `openai` (default). `anthropic` parses but has no adapter yet and is refused at load, naming ADR-0008 |
 | `api_key_env` | no | *Name* of an environment variable holding a bearer token. Omit when the endpoint needs none. The key itself never appears here |
