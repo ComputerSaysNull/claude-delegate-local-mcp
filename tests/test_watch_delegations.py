@@ -50,6 +50,7 @@ def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is 
     turns: int = 0, ended: bool | None = None, *,
     tool: str = "delegate", tools: list[str] | None = None,
     effort: str | None = None, elapsed_seconds: float | None = None,
+    turn_cached: int | None = None, end_cached: int | None = None,
 ) -> Path:
     """One `.jsonl` named the way transcript.py names it, with events to match.
 
@@ -67,11 +68,16 @@ def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is 
         start["effort"] = effort
     lines = [start]
     for n in range(1, turns + 1):
-        lines.append({"t": "turn", "at": started.astimezone(UTC).isoformat(), "turn": n})
+        event = {"t": "turn", "at": started.astimezone(UTC).isoformat(), "turn": n}
+        if turn_cached is not None:
+            event["cached_tokens"] = turn_cached
+        lines.append(event)
     if ended is not None:
         end = {"t": "end", "at": started.astimezone(UTC).isoformat(), "ok": ended}
         if elapsed_seconds is not None:
             end["elapsed_seconds"] = elapsed_seconds
+        if end_cached is not None:
+            end["cached_tokens"] = end_cached
         lines.append(end)
     path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
     return path
@@ -409,14 +415,17 @@ def test_the_list_paints_a_duration_and_an_effort(session, tmp_path):
     """
     now = datetime.now(UTC)
     stream(tmp_path, now - timedelta(minutes=9), "FINISHED", ended=True,
-           elapsed_seconds=125.0, effort="high")
-    stream(tmp_path, now - timedelta(seconds=200), "RUNNING", turns=2, effort="low")
+           elapsed_seconds=125.0, effort="high", end_cached=44800)
+    stream(tmp_path, now - timedelta(seconds=200), "RUNNING", turns=2, effort="low",
+           turn_cached=1000)
 
     screen = session(tmp_path).read()
-    assert "elapsed" in screen and "effort" in screen
+    assert "duration" in screen and "effort" in screen and "saved" in screen
     assert "2m05s" in screen, "the finished row lost the server's own figure"
     assert "3m2" in screen, "the running row is not counting up from its start"
     assert "high" in screen and "low" in screen
+    assert "44.8k" in screen, "the finished row lost its recorded saving"
+    assert "2.0k" in screen, "the running row is not summing its turns"
 
 
 @posix_only
@@ -562,3 +571,53 @@ def test_a_duration_keeps_two_units_where_a_staleness_keeps_one(viewer):
     assert viewer._duration(7845) == "2h10m"
     assert viewer._duration(None) == "--"
     assert viewer._duration(-5) == "0s"
+
+
+def test_a_running_row_sums_the_saving_its_turns_have_reported(viewer, tmp_path):
+    """Summed, not replaced. Every turn resends the history, so the saving is what
+    accumulated across all of them -- taking the last turn's figure would report one
+    turn's reuse as the whole delegation's."""
+    stream(tmp_path, datetime.now(UTC) - timedelta(minutes=2), "running one",
+           turns=3, turn_cached=1000)
+    (row,) = viewer.scan(tmp_path)[0]
+
+    assert row["done"] is False
+    assert viewer.saved_of(row) == 3000
+    assert viewer._tokens(3000) == "3.0k"
+
+
+def test_a_finished_row_prefers_the_total_the_end_event_recorded(viewer, tmp_path):
+    """The end event carries the delegation's own total. It wins over the running sum for
+    the same reason the duration does: it is the figure the dispatch measured for itself,
+    and a stream can always be missing a turn event it never got to write."""
+    stream(tmp_path, datetime.now(UTC) - timedelta(minutes=2), "done one",
+           turns=2, turn_cached=1000, ended=True, end_cached=44800)
+    (row,) = viewer.scan(tmp_path)[0]
+
+    assert viewer.saved_of(row) == 44800
+    assert viewer._tokens(44800) == "44.8k"
+
+
+def test_nothing_measured_is_not_a_saving_of_zero(viewer, tmp_path):
+    """The distinction the adapter goes to trouble to preserve, kept all the way to the
+    column. An endpoint that reports no caching, or a transcript written before the field
+    existed, must not render as a delegation that saved nothing."""
+    stream(tmp_path, datetime.now(UTC) - timedelta(minutes=2), "old one",
+           turns=2, ended=True)
+    (row,) = viewer.scan(tmp_path)[0]
+
+    assert viewer.saved_of(row) is None
+    assert viewer._tokens(None) == "-"
+    assert viewer._tokens(0) == "0", "a measured zero still renders as a number"
+
+
+def test_a_token_count_is_narrow_enough_for_its_column(viewer):
+    """Read for scale, not for arithmetic: the column is six wide."""
+    for n in (0, 999, 1000, 26624, 999_999, 1_000_000, 12_345_678):
+        assert len(viewer._tokens(n)) <= 6, (n, viewer._tokens(n))
+    assert viewer._tokens(999) == "999"
+    assert viewer._tokens(26624) == "26.6k"
+    assert viewer._tokens(1_000_000) == "1.0M"
+    # The boundary is 999,950, not a million: rounding happens after the unit is chosen,
+    # so a naive `< 1_000_000` renders 999,999 as `1000.0k` and overflows the column.
+    assert viewer._tokens(999_999) == "1.0M"

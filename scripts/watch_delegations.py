@@ -300,7 +300,7 @@ def summarise(path: Path) -> dict:
     """One row for the picker, read cheaply: the head of the file plus its mtime."""
     row = {"path": path, "task": "", "model": "", "turns": 0, "done": False,
            "tool": "", "tools": None, "effort": "", "elapsed_seconds": None,
-           "created": created_at(path)}
+           "turn_cached": None, "end_cached": None, "created": created_at(path)}
     try:
         with path.open(encoding="utf-8") as fh:
             for line in fh:
@@ -319,10 +319,16 @@ def summarise(path: Path) -> dict:
                     row["tools"] = event.get("tools")
                 elif event.get("t") == "turn":
                     row["turns"] = event.get("turn", row["turns"])
+                    # Summed, not replaced: every turn resends the history, so the saving
+                    # is what accumulated across all of them.
+                    cached = event.get("cached_tokens")
+                    if cached is not None:
+                        row["turn_cached"] = (row["turn_cached"] or 0) + cached
                 elif event.get("t") == "end":
                     row["done"] = True
                     row["ok"] = event.get("ok")
                     row["elapsed_seconds"] = event.get("elapsed_seconds")
+                    row["end_cached"] = event.get("cached_tokens")
     except OSError:
         pass
     row["mtime"] = path.stat().st_mtime if path.exists() else 0
@@ -408,6 +414,39 @@ def elapsed_of(row: dict, now: float | None = None) -> float | None:
     if not started:
         return None
     return max((time.time() if now is None else now) - started, 0)
+
+
+def _tokens(n: int | None) -> str:
+    """A token count narrow enough for a column, or `-` when there is none to show.
+
+    Thousands are rounded to one decimal because the column is read for scale, not for
+    arithmetic: 26.6k answers "was the prefix reused" and 26624 does not answer it any
+    better while costing three characters.
+    """
+    if n is None:
+        return "-"
+    if n < 1000:
+        return str(n)
+    # The unit switches at 999,950 rather than 1,000,000, because rounding happens after
+    # the choice: 999,999 divided by a thousand renders as `1000.0k`, which is seven
+    # characters in a six-wide column. Found by the test that asserts the width.
+    if n < 999_950:
+        return f"{n / 1000:.1f}k"
+    return f"{n / 1_000_000:.1f}M"
+
+
+def saved_of(row: dict) -> int | None:
+    """Prompt tokens the cluster served from cache instead of computing.
+
+    A finished row uses the total the `end` event recorded; a running one sums what the
+    turns have reported so far, so the figure grows as the delegation does. `None` is an
+    endpoint that reports no caching, or a transcript written before the field existed --
+    neither is a zero, and rendering them as one would claim a delegation saved nothing
+    when the truth is that nothing was measured.
+    """
+    if row.get("end_cached") is not None:
+        return row["end_cached"]
+    return row.get("turn_cached")
 
 
 def _ago(seconds: float) -> str:
@@ -497,18 +536,20 @@ def pick(directory: Path) -> Path | None:
         head = f"{BOLD}delegations{R} {DIM}· ↑↓ select · enter follow · r refresh · q quit"
         head += f" · newest {MAX_ROWS} of {len(rows) + trimmed}" if trimmed else ""
         print(f"{head}{R}")
-        print(f"{DIM} started   elapsed   effort  state        kind      turns  task{R}")
+        print(f"{DIM} started   duration  effort  state      kind      "
+              f"turns  saved   task{R}")
         for n, row in enumerate(rows):
             word, colour = state_of(row)
             task = row["task"][:60] or "(no task recorded)"
             # Pad the plain word, then colour it. Padding the coloured string counts the
             # escape bytes as width and the column stops lining up.
-            state = f"{colour}{word:<11}{R}"
+            state = f"{colour}{word:<9}{R}"
             kind = f"{DIM}{kind_of(row):<8}{R}"
             spent = f"{DIM}{_duration(elapsed_of(row)):<8}{R}"
             effort = f"{DIM}{(row.get('effort') or '?'):<6}{R}"
+            saved = f"{DIM}{_tokens(saved_of(row)):>6}{R}"
             line = (f" {_clock(started_at(row))}  {spent}  {effort}  {state} "
-                    f"{kind} {DIM}{row['turns']:>5}{R}  {task}")
+                    f"{kind} {DIM}{row['turns']:>5}{R}  {saved}  {task}")
             print(f"{INVERT}{line}{R}" if n == i else line)
         if not rows:
             print(f"\n{DIM} no delegations recorded yet. "

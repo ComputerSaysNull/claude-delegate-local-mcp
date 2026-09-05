@@ -998,6 +998,12 @@ class TurnDiagnostic:
     turn: int
     input_tokens: int
     output_tokens: int
+    # Of `input_tokens`, how many the cluster served from its prefix cache instead of
+    # computing. Per turn rather than per delegation because that is where the story is:
+    # turn one pays for the whole prefix and every turn after it should not, so a flat
+    # figure across a delegation would hide the case worth seeing, a cache going cold
+    # mid-run. `None` means the endpoint reports no caching at all, which is not zero.
+    cached_tokens: int | None
     attempts: int
     effort: str
     evicted: int
@@ -1159,6 +1165,7 @@ class _Watch:
                 turn=self.turn,
                 input_tokens=dispatch.response.input_tokens,
                 output_tokens=dispatch.response.output_tokens,
+                cached_tokens=dispatch.response.cached_tokens,
                 attempts=dispatch.attempts,
                 effort=dispatch.effort,
                 evicted=evicted,

@@ -149,6 +149,7 @@ class Stream:
             "turn": getattr(diagnostic, "turn", None),
             "input_tokens": getattr(diagnostic, "input_tokens", None),
             "output_tokens": getattr(diagnostic, "output_tokens", None),
+            "cached_tokens": getattr(diagnostic, "cached_tokens", None),
             "effort": getattr(diagnostic, "effort", None),
             "attempts": getattr(diagnostic, "attempts", None),
             "tool_calls": [
@@ -185,8 +186,8 @@ class Stream:
 
     def end(  # noqa: PLR0913 -- one event's fields, all keyword-only
             self, *, ok: bool, turns: int | None, elapsed_seconds: float,
-            output_tokens: int | None = None, backend_ms: int | None = None,
-            error: str | None = None) -> None:
+            output_tokens: int | None = None, cached_tokens: int | None = None,
+            backend_ms: int | None = None, error: str | None = None) -> None:
         """The totals, which are a different figure from any turn's rate.
 
         `out_tok_s` here is over summed backend time across turns, so it is the rate the
@@ -198,6 +199,8 @@ class Stream:
             "t": "end", "at": datetime.now(UTC).isoformat(), "ok": ok,
             "turns": turns, "elapsed_seconds": round(elapsed_seconds, 3),
             "output_tokens": output_tokens,
+            # Summed over the delegation's turns: what the cluster did not recompute.
+            "cached_tokens": cached_tokens,
             "backend_ms": backend_ms,
             "out_tok_s": _rate(output_tokens, backend_ms),
             **({"error": error} if error else {}),
@@ -303,6 +306,7 @@ def _ledger(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
                 "turn": t.turn,
                 "input_tokens": t.input_tokens,
                 "output_tokens": t.output_tokens,
+                "cached_tokens": t.cached_tokens,
                 "attempts": t.attempts,
                 "effort": t.effort,
                 "tool_results_evicted": t.evicted,

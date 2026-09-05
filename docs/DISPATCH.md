@@ -1,4 +1,5 @@
-<!-- BUDGET: 488 -->
+<!-- BUDGET: 494 -->
+<!-- Raised from 488 on 2026-09-05: the per-turn diagnostic and the end event now carry what the prefix cache saved. -->
 <!-- Raised from 477 on 2026-09-05: the adapter now carries four fields the endpoint always returned and this server discarded. -->
 <!-- Raised from 463 on 2026-09-04: a deadline failure now reports what the delegation
      had managed, and the paragraph has to say why the loop attaches it rather than the
@@ -87,6 +88,11 @@ every call missed. The `or 0` idiom used for the required counts is wrong here, 
 asserts it. Without the cached count nothing about prefix reuse is observable from inside
 this server, which is how a tool came to be argued for on an effect nobody here could see
 (ADR-0051).
+
+The per-turn diagnostic carries the cached count too, and per turn is the level that
+matters: turn one pays for the whole prefix and every turn after it should not, so a single
+figure for a delegation would hide the case worth seeing — a cache going cold mid-run. The
+`end` event carries their sum, which is what a reader and the savings report both want.
 
 The adapter's single HTTP client bounds **connect and request separately**. One timeout for
 both looks harmless, because the failure everyone pictures is a refused connection — and a

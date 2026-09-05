@@ -125,6 +125,7 @@ def _diagnostics_block(
                     "turn": t.turn,
                     "input_tokens": t.input_tokens,
                     "output_tokens": t.output_tokens,
+                    "cached_tokens": t.cached_tokens,
                     "attempts": t.attempts,
                     "effort": t.effort,
                     "tool_results_evicted": t.evicted,
@@ -435,13 +436,14 @@ class _OneShotTurn:
     were none to make.
     """
 
-    __slots__ = ("attempts", "effort", "input_tokens", "output_tokens", "tool_calls",
-                 "turn")
+    __slots__ = ("attempts", "cached_tokens", "effort", "input_tokens",
+                 "output_tokens", "tool_calls", "turn")
 
     def __init__(self, dispatched: Any) -> None:
         self.turn = 1
         self.input_tokens = dispatched.response.input_tokens
         self.output_tokens = dispatched.response.output_tokens
+        self.cached_tokens = dispatched.response.cached_tokens
         self.effort = dispatched.effort
         self.attempts = dispatched.attempts
         self.tool_calls = ()
@@ -598,6 +600,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     turn_clock = time.monotonic()
     streamed_out_tokens = 0
     streamed_backend_ms = 0
+    # Summed rather than taken from the final turn: every turn resends the history, so
+    # the saving is what accumulated across all of them. `None` until a turn reports one,
+    # so an endpoint that never reports caching ends as absent rather than as a zero
+    # saving, which would read as "measured, and it saved nothing".
+    streamed_cached_tokens: int | None = None
 
     async def streamed_turn(diagnostic: Any, text: str, backend_seconds: float) -> None:
         """Each finished turn, appended while the delegation is still running.
@@ -607,11 +614,15 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         tool execution -- not the backend call alone.
         """
         nonlocal turns_streamed, turn_clock, streamed_out_tokens, streamed_backend_ms
+        nonlocal streamed_cached_tokens
         now = time.monotonic()
         turns_streamed += 1
         backend_ms = int(backend_seconds * 1000)
         streamed_out_tokens += getattr(diagnostic, "output_tokens", 0) or 0
         streamed_backend_ms += backend_ms
+        cached = getattr(diagnostic, "cached_tokens", None)
+        if cached is not None:
+            streamed_cached_tokens = (streamed_cached_tokens or 0) + cached
         if stream is not None:
             stream.turn(diagnostic, text, ms=int((now - turn_clock) * 1000),
                         backend_ms=backend_ms)
@@ -707,6 +718,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 )
                 streamed_out_tokens = dispatched.response.output_tokens or 0
                 streamed_backend_ms = int((time.monotonic() - turn_clock) * 1000)
+                streamed_cached_tokens = dispatched.response.cached_tokens
             stream.end(
                 ok=failure is None,
                 # A timed-out delegation has no `dispatched` and used to record `None`
@@ -721,6 +733,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 ),
                 elapsed_seconds=time.monotonic() - started,
                 output_tokens=streamed_out_tokens or None,
+                cached_tokens=streamed_cached_tokens,
                 backend_ms=streamed_backend_ms or None,
                 error=str(failure) if failure is not None else None,
             )
