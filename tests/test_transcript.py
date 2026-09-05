@@ -166,18 +166,6 @@ def test_a_write_failure_does_not_fail_the_delegation(tmp_path):
     assert result["answer"] == "still fine"
 
 
-def test_a_record_is_written_for_every_item_of_a_batch(tmp_path):
-    """Items run concurrently, which is why this is one file per dispatch and not an
-    appended log -- a batch has as many writers as it has items."""
-    run(
-        ok(),
-        config=cfg(transcript_dir=str(tmp_path), max_batch_size=4),
-        tool="delegate_batch",
-        tasks=["one", "two", "three"],
-    )
-    written = records(tmp_path)
-    assert len(written) == 3
-    assert {r["task"] for r in written} == {"one", "two", "three"}
 
 
 def test_per_turn_records_reach_the_transcript_though_the_caller_never_asked(tmp_path):

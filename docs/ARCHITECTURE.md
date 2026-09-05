@@ -178,15 +178,14 @@ is unbuilt, so it is never declared and cannot be asked back in. That does not r
 refusal at execution, which stays: a model can call a tool it was never offered.
 
 The per-turn progress notification is wired here, the only layer holding an MCP session:
-`loop.py` takes it as an injected callable and stays free of MCP imports (ADR-0018). What the
-notification *carries* is separable from the fact that it is sent, and `delegate_batch` needs
-both halves separately: interleaved turn counts from items running at once would describe
-nothing, but a batch that reports only when an item lands sends nothing across the turns that
-take the time. So `run_delegation` takes an `on_turn` hook that displaces the turn numbers
-without displacing the notification, and the batch reports its own completed-item count on
-every turn of every item. Withholding the notification instead is what let a client abandon a
-batch at the idle timeout while the server carried on to `dispatch_timeout`, holding the
-machine-wide budget for the remainder. Effort resolves
+`loop.py` takes it as an injected callable and stays free of MCP imports (ADR-0018). Every
+delegating tool passes its `ctx` and reports the turn numbers directly. An `on_turn` hook
+once existed to displace those numbers without displacing the notification, because a batch
+running several items at once had no meaningful turn count of its own; it went with the batch
+tools in ADR-0051, having had no other caller. What it protected still holds and is still
+worth stating: withholding the notification is what let a client abandon a call at its idle
+timeout while the server carried on to `dispatch_timeout`, holding the machine-wide budget
+for the remainder. Effort resolves
 explicit argument → agent file → registry row → global default and is always sent, never
 inherited from whatever the cluster was booted with (ADR-0013). The argument is required,
 and `inherit` is how a caller enters that chain rather than skipping it — spent at the
@@ -541,8 +540,8 @@ identity captured *before* the attempt, because the agent's name is in scope onl
 top of a delegation; assembling it any deeper leaves a failure with nothing to name, which
 is how upstream came to log exactly the dispatches it existed to explain as unknown.
 
-One file per dispatch rather than an appended log, because a batch has as many concurrent
-writers as items. Records carry the task, the files with their accounting, real token usage
+One file per dispatch rather than an appended log, because concurrent delegations mean as
+many concurrent writers as calls in flight. Records carry the task, the files with their accounting, real token usage
 as the backend reported it, and the server-captured ledger — but **not file contents**,
 which are recoverable from the repository by path and are the only bulky part. The task is
 written verbatim: it exists nowhere else, and whoever configures the directory owns what
@@ -564,15 +563,16 @@ neither can change anything; a caller gating writes on that declaration -- plan 
 Claude Code does -- runs them without stopping. Measured rather than assumed: the same call
 prompts for approval without the annotation and does not with it.
 
-`delegate_readonly` and `delegate_batch_readonly` are what that asymmetry leaves room for:
-their writing twins with the tool set fixed to whatever declares no write, rather than
-accepted as an argument. Each does what its twin does when called the same way; what differs
-is that a caller can promise it in advance. The fixed set intersects where `None` resolves to
-everything available, so no parameter widens it back -- an annotation a caller could falsify
-by passing an argument would be the check that cannot fail. Nor an agent file, which the
-batch form accepts: `run_delegation` reads `agent.allowed_tools` only when nobody passed any.
+`delegate_readonly` is what that asymmetry leaves room for: `delegate` with the tool set
+fixed to whatever declares no write, rather than accepted as an argument. It does what
+`delegate` does when called the same way; what differs is that a caller can promise it in
+advance. The fixed set intersects where `None` resolves to everything available, so no
+parameter widens it back -- an annotation a caller could falsify by passing an argument would
+be the check that cannot fail. Nor can an agent file widen a set the caller did pass:
+`run_delegation` reads `agent.allowed_tools` only when nobody passed any, which is what
+`delegate_to_agent` is tested against.
 
-The three that can write carry no such hint and must not. With `allowed_tools` unset a delegation
+The two that can write carry no such hint and must not. With `allowed_tools` unset a delegation
 hands the local model the writing tools and `run_bash`, so a read-only claim would be false
 in the way that is hardest to notice -- the client stops asking, the write still happens, and
 nothing anywhere reports a contradiction. The permission layer matches on tool name and never
@@ -604,8 +604,8 @@ accounting — paths and cost, never text. Two fields rather than one, because n
 the other's question. A read-only tool is its writing twin with the tool set fixed, so the
 pair runs one path and `tools` alone cannot say which was called; and `delegate` alone
 does not say whether a loop ran, because a caller may pass `allowed_tools=[]` and get a
-one-shot. Until both were recorded, a read-only call, a `delegate_batch` item and a plain
-`delegate` wrote byte-identical transcripts — so a directory of them could not be counted by
+one-shot. Until both were recorded, a read-only call and a plain `delegate` wrote
+byte-identical transcripts — so a directory of them could not be counted by
 kind, which is what the records exist for. **Absent and empty are not interchangeable
 anywhere downstream:** a missing `tools` is a transcript written before the field existed and
 is reported as unknown, while an empty one is a one-shot. The files are in the stream as well
@@ -641,7 +641,7 @@ the viewer a load generator (ADR-0020). Start and last-write clocks sit side by 
 time, because `at` is UTC and an mtime is not.
 
 The listing also names the **kind** of each call in one word — `delegate`, `readonly`,
-`agent`, `batch`, or `one-shot` for a `delegate` that was handed no tools — because that is
+`agent`, or `one-shot` for a `delegate` that was handed no tools — because that is
 the difference between two rows that otherwise look alike, and it decides which one is worth
 opening. Two facts share the column, since only one of them is ever a surprise: a read-only
 call is a one-shot by construction, so the shape is worth naming only where a `delegate`

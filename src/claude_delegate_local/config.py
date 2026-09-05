@@ -300,7 +300,6 @@ class Config:
         "Most recent tool results kept intact; older ones collapse to a one-line stub. "
         "Every turn resends the whole history, so this is what stops quadratic growth.",
     )
-    max_batch_size: int = _f(12, "Largest accepted delegate_batch request.")
 
     # ---- context overflow (M4) ---------------------------------------------------
     context_overflow_enabled: bool = _f(

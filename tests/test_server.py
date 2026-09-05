@@ -426,10 +426,13 @@ def test_exactly_seven_tools_are_declared():
     to be a tool. Changing this number is the moment to write that argument down, and
     ADR-0042 is where it went.
 
-    It says seven for the second application of that same argument: a batch could be
-    narrowed to read-only by an argument, and an argument is exactly what the permission
-    layer cannot see. The number will not go up again for a *task* -- that is still a
-    markdown file -- only for a promise a caller must be able to make before the call.
+    It said seven while the two batch tools existed, for the second application of that
+    same argument. ADR-0051 cancelled them and it is back to five: a batch and N separate
+    calls present the same prefix to the endpoint, so the batch shape bought nothing that
+    the permission layer could not already see. **What fell was the batch, not the
+    argument** -- `delegate_readonly` stays, and a promise a caller must be able to make
+    before the call is still the only thing that earns a tool. The number will not go up
+    for a *task*; that is still a markdown file.
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -439,8 +442,8 @@ def test_exactly_seven_tools_are_declared():
             return [t.name for t in await client.list_tools()]
 
     assert set(asyncio.run(go())) == {
-        "delegate", "delegate_readonly", "delegate_to_agent", "delegate_batch",
-        "delegate_batch_readonly", "list_agents", "backend_status",
+        "delegate", "delegate_readonly", "delegate_to_agent",
+        "list_agents", "backend_status",
     }
 
 
@@ -951,8 +954,8 @@ def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
     turn, it costs no filesystem, and what is under test here is the notification rather
     than the tool. Two turns must produce two notifications either way.
 
-    `slots_dir` is isolated for the same reason the batch-concurrency test isolates it:
-    the default is the machine's real one. A delegation that waits for a slot emits an
+    `slots_dir` is isolated because the default is the machine's real one. A delegation
+    that waits for a slot emits an
     extra `progress(0, 0)` from `ticked`, so sharing the file with the other pytest
     workers turns an exact-sequence assertion into a coin flip. Seen once under load.
     """
@@ -1097,7 +1100,7 @@ def test_the_ledger_agrees_with_the_model_when_the_model_is_right():
     assert result["last_bash_exit"] == 0
 
 
-# --- delegate_to_agent, delegate_batch, list_agents ---------------------------------------
+# --- delegate_to_agent, list_agents -------------------------------------------------------
 
 
 def build_default():
@@ -1241,175 +1244,6 @@ def test_a_workdir_outside_every_root_is_refused_before_anything_is_sent(tmp_pat
                agent_name="helper", task="t", workdir=str(tmp_path.parent))
 
 
-# --- delegate_batch -----------------------------------------------------------------------
-
-# Both batch tools, wherever the assertion is about the batch rather than about its tool
-# set. They share one body (`_run_batch`), and a shared body is exactly the thing that can
-# be changed for one caller while silently changing it for the other -- so the guards, the
-# ordering and the per-item `ok`/`error` contract are asserted on both rather than on the
-# one that happened to be written first.
-BATCH_TOOLS = ("delegate_batch", "delegate_batch_readonly")
-
-
-@pytest.mark.parametrize("tool", BATCH_TOOLS)
-def test_a_batch_returns_one_result_per_task_in_order(tool):
-    results = called(chat_handler(content="a"), tool,
-                     tasks=["one", "two", "three"])
-    assert results["count"] == 3
-    assert [r["index"] for r in results["results"]] == [0, 1, 2]
-    assert [r["task"] for r in results["results"]] == ["one", "two", "three"]
-    assert results["failed"] == []
-    assert all(r["ok"] for r in results["results"])
-
-
-@files_posix_only
-def test_a_batch_item_carries_the_per_tool_breakdown_without_diagnostics(tmp_path):
-    """Where the breakdown is worth most, and the one place the old answer was unreachable.
-
-    `diagnostics` already held per-turn `(name, outcome)` pairs, but both batch tools
-    hard-code it off -- deliberately, since interleaved per-turn detail from items running at
-    once describes nothing. So a batch item could report `tool_calls: 3` and nothing else,
-    which is exactly the call whose items a caller is least able to watch.
-
-    One item, not two: `turn_handler` serves canned replies in order, and two concurrent
-    items would pair them by whichever request arrived first.
-
-    `slots_dir` is isolated for the reason the concurrency test below gives, and this test
-    is why that reason is worth repeating: left at the default it took real slots from the
-    machine-wide budget for two turns, and a one-shot test running on another xdist worker
-    queued behind it and emitted the admission-wait ticks it asserts it never sends. The
-    failure surfaced three tests away from its cause and only under parallel load.
-    """
-    target = tmp_path / "note.py"
-    target.write_text("# hello\n", encoding="utf-8")
-
-    results = called(
-        turn_handler(
-            tool_call_reply("read_file", {"path": str(target)}),
-            chat_reply(content="it says hello"),
-        ),
-        "delegate_batch",
-        config=cfg(workspace_roots=(str(tmp_path),), slots_dir=str(tmp_path / "slots")),
-        tasks=["what does the file say"],
-    )
-
-    item = results["results"][0]
-    assert item["ok"] and item["tool_calls"] == 1
-    assert item["tool_calls_by_name"] == {"read_file": 1}
-    assert "diagnostics" not in item, "the batch must not have started sending per-turn detail"
-
-
-@files_posix_only
-def test_every_item_in_a_batch_shares_the_prefix_and_differs_only_in_the_task(tmp_path):
-    """The reason the tool exists. If the shared part varied per item there would be no
-    cache to hit and a batch would be N separate calls wearing one name."""
-    agent_file(tmp_path, "helper", body="SHARED AGENT BODY")
-    seen: list[str] = []
-
-    def handler(request):
-        seen.append(json.loads(request.content)["messages"][-1]["content"])
-        return httpx.Response(200, json=chat_reply(content="done"))
-
-    called(handler, "delegate_batch",
-           config=cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere")),
-           tasks=["alpha", "beta"], agent_name="helper", workdir=str(tmp_path))
-
-    assert len(seen) == 2
-    prefixes = {body[: body.rindex("\n\n")] for body in seen}
-    assert len(prefixes) == 1, "the shared prefix differed between items"
-    assert all("SHARED AGENT BODY" in body for body in seen)
-    assert {body[body.rindex("\n\n") + 2 :] for body in seen} == {"alpha", "beta"}
-
-
-@pytest.mark.parametrize("tool", BATCH_TOOLS)
-def test_one_failing_item_does_not_discard_the_others(tool):
-    """The contract. Work already paid for is never thrown away because a later item was
-    refused -- and on a shared cluster a single transient refusal is not rare."""
-    calls = {"n": 0}
-
-    def handler(request):
-        calls["n"] += 1
-        if json.loads(request.content)["messages"][-1]["content"].endswith("poison"):
-            return httpx.Response(503, json={"error": "overloaded"})
-        return httpx.Response(200, json=chat_reply(content="fine"))
-
-    results = called(handler, tool,
-                     config=cfg(retry_max_attempts=1),
-                     tasks=["good one", "poison", "good two"])
-
-    assert results["failed"] == [1]
-    by_index = {r["index"]: r for r in results["results"]}
-    assert by_index[0]["ok"] and by_index[0]["answer"] == "fine"
-    assert by_index[2]["ok"] and by_index[2]["answer"] == "fine"
-    assert not by_index[1]["ok"]
-    assert "answer" not in by_index[1]
-    assert by_index[1]["error"]
-
-
-@pytest.mark.parametrize("tool", BATCH_TOOLS)
-def test_a_batch_over_the_cap_is_refused_naming_the_setting(tool):
-    with pytest.raises(Exception, match="DELEGATE_MAX_BATCH_SIZE"):
-        called(chat_handler(), tool,
-               config=cfg(max_batch_size=2), tasks=["a", "b", "c"])
-
-
-@pytest.mark.parametrize("tool", BATCH_TOOLS)
-def test_an_empty_batch_is_refused(tool):
-    with pytest.raises(Exception, match="nothing to delegate"):
-        called(chat_handler(), tool, tasks=[])
-
-
-def test_a_batch_never_exceeds_the_endpoints_declared_concurrency(tmp_path):
-    """`concurrency` is one of the four rules the admission gate checks (ADR-0012).
-
-    It used to be a semaphore local to this tool, which bounded a batch against itself
-    and nothing else -- two batches, or a batch beside a plain `delegate`, could still
-    exceed the limit it was reading. The bound now comes from the shared gate, so the
-    same assertion covers every path rather than this one.
-
-    `slots_dir` is isolated for the reason the backend_status test gives: the default is
-    the machine's real one. Sharing it means this test's batch competes for the endpoint's
-    two slots with whatever else on the box is delegating -- and once the suite runs in
-    parallel, that includes the other pytest workers. Left at the default it read a peak
-    of one on CI and reported the code broken when the truth was that its slots had been
-    taken by a sibling process.
-    """
-    live = {"now": 0, "peak": 0}
-    overlapped = asyncio.Event()
-
-    async def handler(request):
-        # `await`, not `time.sleep`: a blocking sleep pins the event loop, and every item
-        # then runs one at a time whatever the semaphore does -- so the test would report
-        # a bound that was really just a stalled loop.
-        #
-        # And an Event rather than a fixed sleep, because a sleep only *probably* overlaps.
-        # Each item waits here until a second one has arrived, which makes the overlap a
-        # fact rather than a race the scheduler usually wins. It stopped winning on CI the
-        # moment the suite went parallel: with workers competing for two cores, 0.02s
-        # elapsed before the next item was scheduled and this read peak == 1.
-        live["now"] += 1
-        live["peak"] = max(live["peak"], live["now"])
-        if live["now"] >= 2:
-            overlapped.set()
-        try:
-            # Bounded, so a gate that really does admit one at a time fails on the
-            # assertion below rather than hanging the suite. The wait is then abandoned
-            # for every later item too, so the failure costs one timeout and not eight.
-            await asyncio.wait_for(overlapped.wait(), timeout=2)
-        except TimeoutError:
-            overlapped.set()
-        live["now"] -= 1
-        return httpx.Response(200, json=chat_reply(content="done"))
-
-    called(handler, "delegate_batch",
-           entries=(entry(concurrency=2),),
-           config=cfg(max_batch_size=8, slots_dir=str(tmp_path)),
-           tasks=[f"task {i}" for i in range(8)])
-
-    assert live["peak"] <= 2, f"ran {live['peak']} at once against an endpoint declaring 2"
-    assert live["peak"] > 1, "ran sequentially; the concurrency the registry declares is unused"
-
-
 # --- list_agents ---------------------------------------------------------------------------
 
 
@@ -1545,9 +1379,9 @@ def test_backend_status_says_whether_the_budget_is_machine_wide(tmp_path):
 def test_a_single_delegate_is_bounded_by_the_endpoints_concurrency_too():
     """The gap the gate closed. `max_inflight_seqs`' own help text says the endpoint's
     limit and the global budget are "both checked", and until the gate existed that was
-    false everywhere except inside `delegate_batch`: a plain `delegate` was never checked
-    against `concurrency` at all. Two concurrent `delegate` calls are the case a
-    batch-local semaphore could not see."""
+    false: a plain `delegate` was never checked against `concurrency` at all. Two
+    concurrent `delegate` calls are the case the old tool-local semaphore could not
+    see."""
     live = {"now": 0, "peak": 0}
 
     async def handler(request):
@@ -1647,35 +1481,19 @@ def test_delegate_readonly_offers_only_tools_that_cannot_write():
         assert not tools_module.REGISTRY[name].writes, f"{name} can write"
 
 
-def test_every_item_of_a_read_only_batch_is_offered_only_tools_that_cannot_write():
-    """Per item, not per call. The batch fans out into separate dispatches, so a tool set
-    fixed at the wrapper is only worth anything if it survives the fan-out to every one."""
-    sent: list[dict] = []
-
-    def handler(request):
-        sent.append(json.loads(request.content))
-        return httpx.Response(200, json=chat_reply(content="an answer"))
-
-    results = called(handler, "delegate_batch_readonly", tasks=["one", "two", "three"])
-
-    assert results["count"] == 3
-    assert len(sent) == 3, sent
-    for body in sent:
-        declared = {t["function"]["name"] for t in body.get("tools") or ()}
-        assert declared, "an item was dispatched with no tools at all"
-        for name in declared:
-            assert not tools_module.REGISTRY[name].writes, f"{name} can write"
-
-
 @files_posix_only
-def test_an_agent_file_cannot_widen_a_read_only_batch(tmp_path):
-    """The path `delegate_readonly` has no equivalent of, because it takes no agent.
+def test_an_agent_file_cannot_widen_a_caller_supplied_tool_set(tmp_path):
+    """`delegate_to_agent` is the only tool taking both an agent and `allowed_tools`.
 
     An agent body is markdown in whatever repository is being delegated over, so its
-    frontmatter is adversary-controlled in exactly the case this tool is for -- reviewing
+    frontmatter is adversary-controlled in exactly the case delegating is for -- reviewing
     somebody's code. `run_delegation` reads `agent.allowed_tools` only when the caller
-    passed none, and this caller always passes a set; drop that `sorted(...)` argument and
-    this test fails while every other read-only test still passes.
+    passed none, and this caller always passes a set; drop that argument and this test
+    fails while every other read-only test still passes.
+
+    Written against `delegate_batch_readonly` until ADR-0051 removed it. The tool went;
+    the invariant did not, so the test moved rather than being deleted with it -- it is
+    the only coverage anywhere that agent frontmatter cannot widen a caller's set.
     """
     agent_file(tmp_path, "greedy",
                frontmatter="allowed_tools: [read_file, write_file]\n")
@@ -1685,15 +1503,16 @@ def test_an_agent_file_cannot_widen_a_read_only_batch(tmp_path):
         sent.append(json.loads(request.content))
         return httpx.Response(200, json=chat_reply(content="an answer"))
 
-    called(handler, "delegate_batch_readonly",
+    called(handler, "delegate_to_agent",
            config=cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere")),
-           tasks=["one", "two"], agent_name="greedy", workdir=str(tmp_path))
+           task="one", agent_name="greedy", workdir=str(tmp_path),
+           allowed_tools=["read_file", "search_files"])
 
-    assert len(sent) == 2, sent
+    assert len(sent) == 1, sent
     for body in sent:
         declared = {t["function"]["name"] for t in body.get("tools") or ()}
         assert "write_file" not in declared, declared
-        assert declared == {"read_file", "search_files", "read_git"}, declared
+        assert declared == {"read_file", "search_files"}, declared
 
 
 def test_delegate_readonly_has_no_argument_that_could_widen_it():
@@ -1709,7 +1528,7 @@ def test_delegate_readonly_has_no_argument_that_could_widen_it():
 
     tools = asyncio.run(go())
 
-    for name in ("delegate_readonly", "delegate_batch_readonly"):
+    for name in ("delegate_readonly",):
         schema = tools[name].inputSchema
         assert "allowed_tools" not in schema.get("properties", {}), (
             f"{name} must not accept allowed_tools; it would let a caller widen "
@@ -1720,7 +1539,7 @@ def test_delegate_readonly_has_no_argument_that_could_widen_it():
 def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
     """The false-claim guard, and the reason this test is worth more than the feature.
 
-    `delegate`, `delegate_to_agent` and `delegate_batch` hand the model `write_file` and
+    `delegate` and `delegate_to_agent` hand the model `write_file` and
     `run_bash` whenever `allowed_tools` is unset. Marking any of them read-only would let
     a client that gates writes on the annotation run one while believing nothing could be
     written -- the failure mode is silent, and the annotation is trusted precisely because
@@ -1735,9 +1554,8 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
             return {t.name: t.annotations for t in await client.list_tools()}
 
     seen = asyncio.run(go())
-    cannot_write = ("backend_status", "list_agents", "delegate_readonly",
-                    "delegate_batch_readonly")
-    can_write = ("delegate", "delegate_to_agent", "delegate_batch")
+    cannot_write = ("backend_status", "list_agents", "delegate_readonly")
+    can_write = ("delegate", "delegate_to_agent")
 
     for name in cannot_write:
         assert seen[name] is not None and seen[name].readOnlyHint is True, (
@@ -1899,8 +1717,6 @@ def test_a_failing_heartbeat_does_not_take_the_delegation_with_it():
         ("delegate", {"task": "q"}),
         ("delegate_readonly", {"task": "q"}),
         ("delegate_to_agent", {"agent_name": "helper", "task": "q"}),
-        ("delegate_batch", {"tasks": ["q"]}),
-        ("delegate_batch_readonly", {"tasks": ["q"]}),
     ],
 )
 def test_a_delegation_that_names_no_effort_is_refused(tool, args):

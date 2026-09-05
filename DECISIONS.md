@@ -19,6 +19,66 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0051 — 2026-09-05 — The batch delegation tools are cancelled: a batch buys no prefix that separate calls lack — Accepted
+
+`delegate_batch` existed to run several tasks over the same files under one cached prompt
+prefix, on the reasoning that one call sharing a prefix must beat several that each pay for
+it. That reasoning was never tested, and it is wrong at the only point that matters: the
+prefix is already shared.
+
+**A batch and N separate calls are structurally identical.** `Delegation.render()` builds
+`agent_body + files_block + task` with the task last, under a system prompt ADR-0011 keeps
+byte-constant, and one file-read cache is passed into every `run_delegation`. Two separate
+calls over the same `files[]` therefore present the same leading bytes to the endpoint as
+two items of a batch do. Nothing about the batch shape creates a prefix; it only changes how
+many MCP responses carry the results back.
+
+**The justification was a quantity this server discarded.** The adapter reads
+`usage.prompt_tokens` and stops, so `prompt_tokens_details.cached_tokens` — the only number
+saying whether a prefix was reused — never reached us. A design the system holding it cannot
+measure gets argued about instead.
+
+**On the timing, which is bad and worth stating plainly.** `delegate_batch_readonly` landed
+on 2026-09-03 in #91 and is cancelled two days later. What changed is the measurement, not
+the opinion. Measuring it at all required a 45k-token prefix: an earlier attempt at ~6k found
+no effect and concluded there was none, when in truth everything landed inside 20ms and the
+method could not resolve it. Scale decided the method's validity, which is the transferable
+lesson.
+
+**A measurement that moved twice in two days is a reason not to encode scheduling in a
+document.** On 2026-09-04, three concurrent calls over a shared 45k prefix hit cache once and
+took 48.1s against 29.2s serialised. On 2026-09-05, after the operator pulled a configuration
+change that made the engine serialise prefills exactly, the same arms hit cache twice and
+took 29.5s — indistinguishable from serial, replicated three times with the order alternated.
+Both results were true of their day. **Neither rescues the batch tool**, because both describe
+concurrency, which callers control regardless of whether this tool exists. The first result
+briefly suggested writing "serialise delegations that share a prefix" into the contributor
+guide; the second is why it was not written. A scheduling rule outlives the cluster
+configuration that makes it true.
+
+**What is genuinely lost, and why it does not save the tool.** A batch returned one MCP
+response for several tasks, and `asyncio.gather` held that response until every item settled.
+The withholding was narrower than it looked — each item already streamed its turns live,
+wrote its own transcript and fired its own progress notification as it finished, so only the
+final aggregate dict waited. An as-completed drain was considered and rejected: it would have
+passed its tests and improved nothing observable.
+
+`on_turn` goes with them: it existed so a batch could reset the client's idle timer without
+reporting interleaved turn counts that describe nothing, and had no other caller. What it
+protected cannot be lost on a single path — every remaining tool passes its `ctx` and no
+`on_turn`, so the notification falls through to `ctx.report_progress`.
+
+Costs accepted. A caller with five tasks now makes five calls and five approval prompts
+rather than one. Against a 27s cold prefill, the extra round trips do not register.
+
+`max_batch_size` goes too; a setting bounding a tool that no longer exists is a setting an
+operator has to reason about for nothing.
+
+Rejected: keeping the tools and documenting when to use them, which preserves a model-facing
+contract in order to describe a scheduling property of a cluster we do not control. Rejected:
+keeping `delegate_batch_readonly` alone because it is newer — age is not an argument, and the
+structural finding applies to both identically.
+
 ## ADR-0050 — 2026-09-03 — `edit_file` addresses text, and refuses anything but one match — Accepted
 
 `write_file` replaces a file whole, so changing three lines of a long module meant reading

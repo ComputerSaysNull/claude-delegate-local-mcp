@@ -2,10 +2,9 @@
 
 Split from `test_transcript_stream.py`, which covers the order and timing of the events.
 These cover their contents: the tool that was invoked, the tools it resolved to, and the
-files it was given. Until those were recorded a `delegate_readonly` call, a
-`delegate_batch` item and a plain `delegate` wrote byte-identical transcripts, so a
-directory of them could not be counted by kind and a reader could not see what a
-delegation was actually working on.
+files it was given. Until those were recorded a `delegate_readonly` call and a plain
+`delegate` wrote byte-identical transcripts, so a directory of them could not be counted
+by kind and a reader could not see what a delegation was actually working on.
 """
 
 from __future__ import annotations
@@ -92,31 +91,6 @@ def test_a_plain_delegation_records_the_tools_it_was_given(tmp_path):
     assert start["tools"], "a plain delegate resolves to whatever the host can run"
     assert "read_file" in start["tools"], start["tools"]
 
-
-def test_every_item_of_a_batch_says_it_came_from_a_batch(tmp_path):
-    """A batch item used to be indistinguishable from a standalone call, which is exactly
-    the shape of the incident behind `#45` -- two items holding slots that a directory of
-    records could not attribute to one abandoned call."""
-    config = cfg(transcript_dir=str(tmp_path))
-    _call(config, chat_handler(), "delegate_batch", {"tasks": ["one", "two"]})
-
-    starts = _starts(tmp_path)
-    assert len(starts) == 2, starts
-    assert [s["tool"] for s in starts] == ["delegate_batch", "delegate_batch"]
-
-
-def test_a_read_only_batch_item_is_told_apart_from_a_writing_one(tmp_path):
-    """Both batch tools share one body, so `tool_name` is the only thing that separates
-    their records -- and separating them is the point of recording it. `tools` cannot: a
-    plain `delegate_batch` narrowed by `allowed_tools` resolves to the same two names."""
-    config = cfg(transcript_dir=str(tmp_path))
-    _call(config, chat_handler(), "delegate_batch_readonly", {"tasks": ["one", "two"]})
-
-    starts = _starts(tmp_path)
-    assert len(starts) == 2, starts
-    assert {s["tool"] for s in starts} == {"delegate_batch_readonly"}
-    for start in starts:
-        assert start["tools"] == ["read_file", "read_git", "search_files"], start
 
 
 @files_posix_only

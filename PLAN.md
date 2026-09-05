@@ -1,4 +1,6 @@
-<!-- BUDGET: 312
+<!-- BUDGET: 320
+     Raised from 312 on 2026-09-05: the batch item closed as wrong when filed, and the wrong
+     original is the part worth keeping.
      Raised from 298 on 2026-09-04: two items JOURNAL 2026-09-04 named while recording a stall that looked like an outage -- a batch withholding finished results, and a stall failure that cannot be told from an unreachable endpoint.
      Raised from 286 on 2026-09-03: one item ticked, kept beside its original because the original's O_NOFOLLOW judgement turned out to be wrong and that is the part worth keeping.
      Raised from 265 on 2026-09-03: five items ticked with what they turned out to be, one new item, and
@@ -182,7 +184,13 @@ them was re-derived when it did.
 
 ### Improvements
 
-- ⬜ A batch returns nothing until its slowest item settles — `asyncio.gather` over the
+- ❌ 2026-09-05 A batch returns nothing until its slowest item settles — **wrong when
+  filed**, and moot besides: `#103` removed both batch tools (ADR-0051). `asyncio.gather`
+  withheld only the final dict. Each item's `run_delegation` wrote `stream.end` and its
+  transcript in its own `try/finally` as that item settled, turns streamed live through
+  `on_turn_done`, and per-item progress fired before the gather returned. An as-completed
+  drain would have passed its tests and improved nothing. Original entry follows.
+- ~~A batch returns nothing until its slowest item settles~~ — `asyncio.gather` over the
   items, so one that stalls for the whole deadline withholds results that finished minutes
   earlier. Purely latency and usability: slots are released per item as each `admit` context
   exits, so the cluster gets its capacity back promptly and only the caller waits. Measured

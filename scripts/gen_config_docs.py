@@ -59,7 +59,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                             "thinking_max_tokens_floor", "resend_reasoning",
                             "tool_call_temperature", "one_shot_temperature")),
     ("Agentic loop", ("max_turns_default", "max_turns_hard_cap",
-                      "keep_tool_results", "max_batch_size")),
+                      "keep_tool_results")),
     ("Context overflow", ("context_overflow_enabled", "overflow_plateau_slop_tokens",
                           "overflow_min_growth_tokens", "overflow_reserve_fraction",
                           "overflow_tightened_keep_tool_results", "overflow_probe_cache_ttl")),
