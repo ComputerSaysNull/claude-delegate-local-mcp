@@ -119,8 +119,17 @@ def test_the_command_runs_through_sh_at_the_end():
     assert argv[-4:] == ["--", "/bin/sh", "-c", "pytest -q"]
 
 
-def test_the_configured_bwrap_binary_leads_the_argv():
-    assert sandbox.build_argv(cfg(bwrap_bin="/opt/bwrap"), req())[0] == "/opt/bwrap"
+def test_the_configured_bwrap_binary_leads_the_sandbox_argv():
+    """It no longer leads the whole argv: since 2026-09-05 a `prlimit` launcher runs in
+    front of it, because bwrap 0.9.0 has no --rlimit of its own. With the limits off, bwrap
+    is first again, and both halves are asserted so neither can drift unnoticed."""
+    c = cfg(bwrap_bin="/opt/bwrap")
+    argv = sandbox.build_argv(c, req())
+    assert argv[argv.index("--") + 1] == "/opt/bwrap"
+
+    unlimited = cfg(bwrap_bin="/opt/bwrap", sandbox_max_memory_mb=0,
+                    sandbox_max_file_mb=0, sandbox_max_processes=0)
+    assert sandbox.build_argv(unlimited, req())[0] == "/opt/bwrap"
 
 
 # --- the three HOME/workdir cases --------------------------------------------------------
@@ -194,16 +203,19 @@ def test_readonly_toolchain_binds_come_before_the_writable_workdir():
 # --- bind order rule 2a ------------------------------------------------------------------
 
 
-def base_mount_block(argv: list[str]) -> int:
-    """Where `_BASE_MOUNTS` starts in `argv`.
+def base_mount_block(argv: list[str], c: Config) -> int:
+    """Where the base mount block starts in `argv`.
 
     Anchored on the whole contiguous block rather than on a single flag, and that is the
     point of it. An agent binding /usr emits `--ro-bind /usr /usr`, which is byte-identical
     to the base mount of /usr -- so an assertion phrased as "the first --ro-bind /usr comes
     before the last mention of /usr" is true whichever order they are in, and would pass
     against the very bug these tests exist for. Ask where the block is instead.
+
+    Takes the config because `--size` is spliced in ahead of the tmpfs when one is set, so
+    the emitted block is no longer the static table.
     """
-    block = list(sandbox._BASE_MOUNTS)
+    block = sandbox._base_mounts_argv(c)
     for i in range(len(argv) - len(block) + 1):
         if argv[i:i + len(block)] == block:
             return i
@@ -222,8 +234,9 @@ def test_an_extra_bind_inside_a_base_mount_is_applied_after_it(target):
     case a hand-written list would miss.
     """
     inside = f"{target.rstrip('/')}/toolchain"
-    argv = sandbox.build_argv(cfg(), req(extra_binds=(inside,)))
-    assert index_of(argv, "--ro-bind", inside) > base_mount_block(argv), (
+    c = cfg()
+    argv = sandbox.build_argv(c, req(extra_binds=(inside,)))
+    assert index_of(argv, "--ro-bind", inside) > base_mount_block(argv, c), (
         f"a bind under {target} is applied before the sandbox mounts {target}, so it is lost"
     )
 
@@ -977,3 +990,174 @@ def test_a_secret_inside_an_opaque_directory_is_unreadable_from_inside(tmp_path)
 
     assert result.exit_code != 0
     assert "PRIVATE-KEY-BODY" not in result.stdout
+
+
+# --- resource limits ----------------------------------------------------------------------
+#
+# bwrap 0.9.0 has no --rlimit flag at all -- measured, 2026-09-05 -- so the caps come from
+# a `prlimit` launcher in front of it rather than from bwrap. A launcher rather than
+# subprocess's preexec_fn because tool calls run through asyncio.to_thread, so this process
+# is multi-threaded and preexec_fn is a documented deadlock risk there. Putting it in the
+# argv is also what makes these assertable here, where there is no bwrap.
+
+
+def limiter(argv: list[str]) -> list[str]:
+    """The prlimit prefix, up to and including its `--` terminator. Empty if there is none."""
+    return argv[:argv.index("--") + 1] if argv and argv[0].endswith("prlimit") else []
+
+
+def test_the_limits_are_applied_before_bwrap_not_by_it():
+    """bwrap has no --rlimit, so the caps have to come from something that runs first."""
+    argv = sandbox.build_argv(cfg(), req())
+    prefix = limiter(argv)
+    assert prefix, "no prlimit prefix, so nothing is bounding the command"
+    assert argv[len(prefix)].endswith("bwrap"), "bwrap must run under the limiter, not beside it"
+    assert not [a for a in argv if a.startswith("--rlimit")], "bwrap 0.9.0 has no such flag"
+
+
+def test_each_limit_reaches_the_launcher_and_scales_to_bytes():
+    argv = sandbox.build_argv(cfg(
+        sandbox_max_memory_mb=64, sandbox_max_file_mb=8, sandbox_max_processes=99), req())
+    prefix = limiter(argv)
+    assert f"--as={64 * 1024 * 1024}" in prefix
+    assert f"--fsize={8 * 1024 * 1024}" in prefix
+    assert "--nproc=99" in prefix
+
+
+def test_core_dumps_are_pinned_off_rather_than_inherited():
+    """RLIMIT_FSIZE kills with SIGXFSZ, a core-dumping signal, so a host whose soft limit is
+    not already zero would write a core file per overrun.
+
+    Asserted on the argv and deliberately nowhere else. This machine's inherited limit is
+    already zero, so the flag changes nothing observable here -- the "(core dumped)" a shell
+    prints alongside SIGXFSZ comes from the kernel setting WCOREDUMP, which it does anyway
+    because core_pattern is a pipe, and no file is written either way. An integration test
+    asserting "no core is left behind" was written first, passed with the flag removed, and
+    was deleted: it could not fail, which is worse than not testing it.
+    """
+    assert "--core=0" in limiter(sandbox.build_argv(cfg(), req()))
+
+
+def test_zero_removes_one_limit_without_removing_the_others():
+    argv = sandbox.build_argv(cfg(sandbox_max_memory_mb=0), req())
+    prefix = limiter(argv)
+    assert not [a for a in prefix if a.startswith("--as=")]
+    assert [a for a in prefix if a.startswith("--nproc=")], "the others must survive"
+
+
+def test_zeroing_every_limit_removes_the_launcher_entirely():
+    """The companion. Without it, a build that always emitted the prefix would pass the
+    tests above, and an operator who turned everything off would still need prlimit
+    installed to run anything at all."""
+    argv = sandbox.build_argv(cfg(
+        sandbox_max_memory_mb=0, sandbox_max_file_mb=0, sandbox_max_processes=0), req())
+    assert not limiter(argv)
+    assert argv[0].endswith("bwrap")
+
+
+def test_the_tmpfs_is_sized_and_the_size_precedes_the_mount_it_applies_to():
+    """`--size` applies to the *next* --tmpfs, so the pair is order-sensitive and a size
+    emitted anywhere else silently sizes the wrong mount or nothing at all."""
+    argv = sandbox.build_argv(cfg(sandbox_tmpfs_mb=16), req())
+    i = index_of(argv, "--tmpfs", "/tmp")
+    assert argv[i - 2] == "--size" and argv[i - 1] == str(16 * 1024 * 1024)
+
+
+def test_zero_leaves_the_tmpfs_unsized():
+    argv = sandbox.build_argv(cfg(sandbox_tmpfs_mb=0), req())
+    i = index_of(argv, "--tmpfs", "/tmp")
+    assert argv[i - 2] != "--size"
+
+
+def test_a_secret_shadow_is_a_sized_tmpfs_too():
+    """A shadow is a writable mount placed over every denylist match, so an unbounded one is
+    a way to fill RAM. It exists to be empty, so it is sized small rather than given a knob."""
+    argv = sandbox.build_argv(cfg(), req(), shadows=(
+        sandbox.ShadowTarget(path=f"{HOME}/.ssh", kind="dir", matched=".ssh/**"),))
+    i = index_of(argv, "--tmpfs", f"{HOME}/.ssh")
+    assert argv[i - 2] == "--size"
+    assert int(argv[i - 1]) == sandbox._SHADOW_TMPFS_BYTES
+
+
+def test_a_missing_limiter_is_refused_rather_than_run_unbounded(monkeypatch):
+    """ADR-0034's rule: a control that is silently off is worse than one that is absent."""
+    monkeypatch.setattr(sandbox.shutil, "which",
+                        lambda name: None if "prlimit" in name else "/usr/bin/bwrap")
+    with pytest.raises(SandboxUnavailable, match="cannot be bounded"):
+        sandbox.run(cfg(), req())
+
+
+def test_a_missing_limiter_is_fine_when_nothing_is_being_limited(monkeypatch):
+    """The companion, and the reason `limiter_available` asks about the config rather than
+    only about the binary: an operator who set every limit to 0 said there are none, and
+    should not then need the tool that applies them."""
+    monkeypatch.setattr(sandbox.shutil, "which",
+                        lambda name: None if "prlimit" in name else "/usr/bin/bwrap")
+    assert sandbox.limiter_available(cfg(
+        sandbox_max_memory_mb=0, sandbox_max_file_mb=0, sandbox_max_processes=0))
+    assert not sandbox.limiter_available(cfg())
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_runaway_allocation_is_refused_by_the_memory_cap(tmp_path):
+    """The demand-side OOM this exists for. Bounded on purpose: 256MB cap, 400MB ask."""
+    home = tmp_path / "home"
+    home.mkdir()
+    result = sandbox.run(
+        cfg(sandbox_max_memory_mb=256),
+        req(command="python3 -c 'b = bytearray(400 * 1024 * 1024)' 2>&1 | tail -1",
+            home=str(home)))
+    assert "MemoryError" in result.stdout + result.stderr
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_an_ordinary_allocation_under_the_cap_still_succeeds(tmp_path):
+    """The companion. Without it a cap of zero bytes -- or a launcher that refused
+    everything -- would satisfy the test above while breaking every real command."""
+    home = tmp_path / "home"
+    home.mkdir()
+    result = sandbox.run(
+        cfg(sandbox_max_memory_mb=1024),
+        req(command="python3 -c 'b = bytearray(64 * 1024 * 1024); print(\"allocated\")'",
+            home=str(home)))
+    assert "allocated" in result.stdout
+    assert result.exit_code == 0
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_the_tmpfs_size_stops_a_write_filling_ram(tmp_path):
+    """A 2MB /tmp given an 8MB write. ENOSPC is an ordinary error the command can report,
+    which is why sizing the mount is better than leaving it to the memory cap."""
+    home = tmp_path / "home"
+    home.mkdir()
+    result = sandbox.run(
+        cfg(sandbox_tmpfs_mb=2),
+        req(command="dd if=/dev/zero of=/tmp/big bs=1M count=8 >/dev/null 2>&1; "
+                    "echo exit=$?; wc -c < /tmp/big",
+            home=str(home)))
+    assert "exit=1" in result.stdout, result.stdout
+    assert "2097152" in result.stdout, "the file should stop at exactly the tmpfs size"
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_the_file_size_cap_truncates_the_write(tmp_path):
+    """RLIMIT_FSIZE kills the writer with SIGXFSZ, leaving the file at exactly the cap.
+
+    The tmpfs is sized well above the cap on purpose, so what stops the write is the file
+    limit and not the mount running out of room -- otherwise this would pass with
+    sandbox_max_file_mb doing nothing at all.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    result = sandbox.run(
+        cfg(sandbox_max_file_mb=1, sandbox_tmpfs_mb=64),
+        req(command="dd if=/dev/zero of=/tmp/big bs=1M count=8 >/dev/null 2>&1; "
+                    "echo exit=$?; wc -c < /tmp/big",
+            home=str(home)))
+    out = result.stdout + result.stderr
+    assert "exit=153" in out, f"expected death by SIGXFSZ (128+25), got: {out}"
+    assert "1048576" in out, "the file should stop at exactly the cap"

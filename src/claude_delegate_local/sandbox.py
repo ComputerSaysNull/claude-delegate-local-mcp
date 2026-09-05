@@ -94,6 +94,65 @@ _OP_ARITY: dict[str, int] = {
 }
 
 
+# A shadow tmpfs exists to be empty: it covers a secret so the sandbox sees nothing there.
+# Nothing should ever write to one, so it is sized at the smallest thing a tmpfs can be
+# rather than given an operator knob -- an unbounded writable mount over every denylist
+# match is a way to fill RAM, and a setting here would only ever be set wrong.
+_SHADOW_TMPFS_BYTES = 64 * 1024
+
+
+def resource_argv(cfg: Config) -> list[str]:
+    """The `prlimit` prefix that bounds a sandboxed command, or empty if nothing is capped.
+
+    A launcher rather than `preexec_fn`, and that is not a style choice. Tool calls run
+    through `asyncio.to_thread`, so this process is multi-threaded, and `preexec_fn` runs
+    between fork and exec where only async-signal-safe calls are legal -- CPython documents
+    it as a deadlock risk for exactly that reason. `prlimit` sets the same rlimits in a
+    process that is not ours, and it lands in the argv, so the bounds stay assertable by the
+    pure-argv tests that run where there is no bwrap at all.
+
+    `RLIMIT_CORE` is always zero and is not a setting, and the honest description of it is
+    "pinned rather than inherited". `RLIMIT_FSIZE` kills its process with SIGXFSZ, which is
+    a core-dumping signal, so a machine whose soft limit is not already zero would write a
+    core file per overrun. This one's is zero, so setting it changes nothing measurable
+    here: the "(core dumped)" a shell prints alongside SIGXFSZ comes from the kernel
+    reporting WCOREDUMP, which it does anyway because `core_pattern` is a pipe, and no file
+    lands anywhere. Measured 2026-09-05, after a test asserting the opposite could not fail.
+
+    What none of this bounds is a fork bomb's *memory*: RLIMIT_AS is per process, so sixty
+    small children pass a cap that one large child would fail. The process cap is what
+    covers that, and it is why the two are separate settings rather than one.
+    """
+    limits: list[str] = []
+    if cfg.sandbox_max_memory_mb:
+        limits.append(f"--as={cfg.sandbox_max_memory_mb * 1024 * 1024}")
+    if cfg.sandbox_max_file_mb:
+        limits.append(f"--fsize={cfg.sandbox_max_file_mb * 1024 * 1024}")
+    if cfg.sandbox_max_processes:
+        limits.append(f"--nproc={cfg.sandbox_max_processes}")
+    if not limits:
+        return []
+    return [cfg.prlimit_bin, "--core=0", *limits, "--"]
+
+
+def _base_mounts_argv(cfg: Config) -> list[str]:
+    """`_BASE_MOUNTS`, with `--size` inserted ahead of the /tmp tmpfs when one is set.
+
+    The static table is left alone so `base_mount_targets` keeps deriving from it: a second
+    table carrying the sizes would be the duplicate that stops being true.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(_BASE_MOUNTS):
+        arity = _OP_ARITY[_BASE_MOUNTS[i]]
+        op = list(_BASE_MOUNTS[i:i + arity])
+        if op[0] == "--tmpfs" and cfg.sandbox_tmpfs_mb:
+            out += ["--size", str(cfg.sandbox_tmpfs_mb * 1024 * 1024)]
+        out += op
+        i += arity
+    return out
+
+
 def base_mount_targets() -> frozenset[str]:
     """The in-sandbox paths `_BASE_MOUNTS` occupies, derived from the table itself.
 
@@ -239,6 +298,16 @@ def available(cfg: Config) -> bool:
     pure and assertable where no `bwrap` is installed.
     """
     return shutil.which(cfg.bwrap_bin) is not None
+
+
+def limiter_available(cfg: Config) -> bool:
+    """True if the resource limits can actually be applied, or none were asked for.
+
+    Separate from `available` because the answers differ: a missing bwrap means the command
+    cannot be confined, a missing prlimit means it cannot be bounded. Both refuse, and the
+    messages have to name different things to install.
+    """
+    return not resource_argv(cfg) or shutil.which(cfg.prlimit_bin) is not None
 
 
 def _resolv_conf_target() -> str | None:
@@ -476,7 +545,7 @@ def build_argv(
     Both rules are asserted directly in the tests, because both are invisible until the day
     the paths overlap.
     """
-    argv: list[str] = [cfg.bwrap_bin, *_BASE_ARGV]
+    argv: list[str] = [*resource_argv(cfg), cfg.bwrap_bin, *_BASE_FLAGS, *_base_mounts_argv(cfg)]
 
     # HOME first (rule 1). Note there is no `--dir` here: bwrap creates a bind's mount point
     # inside the sandbox by itself, but it cannot invent the *source*, and `--dir` makes a
@@ -501,7 +570,7 @@ def build_argv(
     # Rule 3: after every bind, so each shadow has something to mount on.
     for shadow in shadows:
         if shadow.kind == "dir":
-            argv += ["--tmpfs", shadow.path]
+            argv += ["--size", str(_SHADOW_TMPFS_BYTES), "--tmpfs", shadow.path]
         else:
             # A tmpfs needs a directory. /dev/null is the file-shaped equivalent: readable
             # as a mount source, and an unreadable empty thing once it is in place.
@@ -553,6 +622,14 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
             f"{cfg.bwrap_bin!r} was not found, so run_bash cannot be confined. This server "
             "does not run shell commands unconfined as a fallback (ADR-0010). Install "
             "bubblewrap, or set DELEGATE_BWRAP_BIN to its path."
+        )
+    if not limiter_available(cfg):
+        raise SandboxUnavailable(
+            f"{cfg.prlimit_bin!r} was not found, and a sandbox resource limit is set, so "
+            "run_bash cannot be bounded. Running it unbounded instead would be a control "
+            "that is silently off, which is what ADR-0034 deleted the last of. Install "
+            "util-linux, set DELEGATE_PRLIMIT_BIN to its path, or set the limits to 0 to "
+            "say deliberately that there are none."
         )
 
     ensure_home(req.home)

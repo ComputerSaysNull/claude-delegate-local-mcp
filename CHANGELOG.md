@@ -34,6 +34,44 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #111 — 2026-09-05 — feat: the sandbox bounds memory, file size, processes and its tmpfs
+
+### Added
+- **Four resource limits on a sandboxed command**, where `build_argv` previously emitted
+  none: a fork bomb or a runaway allocation was held only by `run_bash_timeout`, and this
+  machine's page file is capped by choice, so a demand-side OOM was the live failure rather
+  than a theoretical one. `DELEGATE_SANDBOX_MAX_MEMORY_MB`, `..._MAX_FILE_MB`,
+  `..._MAX_PROCESSES` and `..._TMPFS_MB`, each disabled by setting it to 0. (ADR-0054)
+- **A `prlimit` launcher in front of bwrap**, because the filed item's assumption was wrong:
+  bubblewrap 0.9.0 has no `--rlimit` flag at all. A launcher rather than subprocess's
+  `preexec_fn`, which is a documented deadlock risk in a multi-threaded process and this one
+  runs tool calls through `asyncio.to_thread`. It lands in the argv, so every cap stays
+  assertable by the pure-argv tests that run where there is no bwrap. A missing `prlimit`
+  with limits configured refuses the call rather than running it unbounded.
+- **A size on both tmpfs.** `/tmp` takes the configured one; a secret shadow takes a small
+  constant and no knob, since a shadow exists to be empty and an unbounded writable mount
+  over every denylist match is a way to fill RAM.
+
+### Changed
+- **`RLIMIT_AS` is documented as an over-count, not a memory limit.** Address space is not
+  resident memory, so a Go runtime or a sanitiser reserves far more than it uses and will
+  need it raised. The accurate control is a cgroup memory limit and no unprivileged process
+  here can set one — `systemd-run --user` has no bus under WSL, though the `pids` controller
+  is present and would be the better process cap if it were reachable.
+- **The process cap ships with three measured defects stated in its help text**, because the
+  alternative is an OOM: `RLIMIT_NPROC` counts per real uid so concurrent delegations share
+  one budget; below roughly 64 bwrap cannot create its namespaces and everything fails at
+  startup; and when it binds, the shell cannot fork to report it, so the command dies with
+  no output.
+
+### Fixed
+- **An integration test asserting "no core file is left behind" could not fail.** It passed
+  with `--core=0` removed, found by mutation-testing every new check. The flag is kept as a
+  pin rather than a fix — this host's soft limit is already zero, and the "(core dumped)"
+  printed alongside SIGXFSZ comes from the kernel setting WCOREDUMP because `core_pattern`
+  is a pipe, with no file written either way. The claim is now argv-level only, and the
+  code comment that asserted otherwise is corrected.
+
 ## #110 — 2026-09-05 — feat: an agent file's network and binds need an operator's consent
 
 ### Added

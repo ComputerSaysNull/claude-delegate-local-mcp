@@ -1,4 +1,5 @@
-<!-- BUDGET: 746
+<!-- BUDGET: 770
+     Raised from 746 on 2026-09-05: the sandbox gained resource limits, whose mechanism is not bwrap's and whose process cap has three measured caveats a reader must have before touching it.
      Raised from 738 on 2026-09-05: the sandbox gained a second, independent guard on what an agent may bind -- an ordering property this document owns, distinct from the mount-level scan described beside it.
      Raised from 723 on 2026-09-05: backend_status now reports the cluster's own
      numbers beside this process's estimates of them.
@@ -345,6 +346,29 @@ second is a decision. So an agent's binds are now resolved and checked against o
 roots before they reach here at all. A bind at or above one of the sandbox's own mounts is
 refused separately: `extra_binds` are emitted after them, so naming one replaces it, and
 reordering to prevent that would wipe every bind inside the tmpfs on `/tmp`. (ADR-0053)
+
+### The caps come from in front of bwrap, not from it
+
+bubblewrap 0.9.0 has no `--rlimit` of any kind — measured, not assumed — so a `prlimit`
+launcher runs ahead of it and the rlimits are inherited through. Not `preexec_fn`: tool
+calls run in threads, and that hook runs between fork and exec where only async-signal-safe
+calls are legal. Putting the caps in the argv also keeps them assertable where there is no
+bwrap at all, which is most of what `tests/test_sandbox.py` does.
+
+Three of the four bound a process; the fourth bounds a mount. Memory is `RLIMIT_AS`, which
+is address space rather than resident memory and therefore an over-count — a Go runtime or
+a sanitiser reserves far more than it uses. The accurate control is a cgroup memory limit,
+and no unprivileged process here can set one: `systemd-run --user` has no bus to talk to,
+though the `pids` controller is present and would be the better process cap if it were
+reachable. What we have is the approximation, and the setting says so.
+
+**The process cap is the awkward one, and its shape is measured rather than chosen.**
+`RLIMIT_NPROC` counts per real uid across the machine, not per sandbox, so concurrent
+delegations share one budget and a fork bomb in one starves the others — still better than
+the alternative, which on a machine with a capped page file is an OOM. Below roughly 64,
+bwrap cannot create its namespaces at all and every command fails at startup. And when the
+cap does bind, the shell cannot fork to say so: the call dies with no output and a bare
+exit code. A bounded fork storm against a 256-process cap produced exactly that. (ADR-0054)
 
 ### The route, now open
 
