@@ -299,7 +299,8 @@ def started_at(row: dict) -> float:
 def summarise(path: Path) -> dict:
     """One row for the picker, read cheaply: the head of the file plus its mtime."""
     row = {"path": path, "task": "", "model": "", "turns": 0, "done": False,
-           "tool": "", "tools": None, "created": created_at(path)}
+           "tool": "", "tools": None, "effort": "", "elapsed_seconds": None,
+           "created": created_at(path)}
     try:
         with path.open(encoding="utf-8") as fh:
             for line in fh:
@@ -312,6 +313,7 @@ def summarise(path: Path) -> dict:
                     row["model"] = event.get("model_key", "")
                     row["at"] = event.get("at")
                     row["tool"] = event.get("tool", "")
+                    row["effort"] = event.get("effort") or ""
                     # Absent and empty are kept apart on purpose: `kind_of` reports the
                     # first as unknown and the second as a one-shot.
                     row["tools"] = event.get("tools")
@@ -320,6 +322,7 @@ def summarise(path: Path) -> dict:
                 elif event.get("t") == "end":
                     row["done"] = True
                     row["ok"] = event.get("ok")
+                    row["elapsed_seconds"] = event.get("elapsed_seconds")
     except OSError:
         pass
     row["mtime"] = path.stat().st_mtime if path.exists() else 0
@@ -362,6 +365,49 @@ def _cached(path: Path) -> dict:
     row = summarise(path)
     _CACHE[path] = (key, row)
     return row
+
+
+def _duration(seconds: float | None) -> str:
+    """How long something took, kept comparable between rows.
+
+    Two units, not one: `_ago` answers "how stale is this" and rounds hard, but a duration
+    sits in a column beside other durations and is read against them, where 5m and 5m59s
+    are a different answer. Seconds are zero-padded so the column stays rectangular.
+    """
+    if seconds is None:
+        return "--"
+    seconds = max(seconds, 0)
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m{int(seconds % 60):02d}s"
+    return f"{int(seconds // 3600)}h{int(seconds % 3600 // 60):02d}m"
+
+
+def elapsed_of(row: dict, now: float | None = None) -> float | None:
+    """How long this delegation ran, or has been running.
+
+    A finished row uses the server's own `elapsed_seconds` rather than mtime arithmetic.
+    It is the figure the dispatch measured for itself and it includes the admission wait,
+    where the file's mtime only says when the last line was written -- and this directory
+    is routinely synchronised, so an mtime can move long after the work stopped.
+
+    An unfinished row counts from the start event, which is why the column ticks: the list
+    redraws unattended every couple of seconds. That is a real number even for a dispatch
+    whose server was killed, and `state_of` is what says whether to trust it as live.
+    """
+    if row.get("done"):
+        recorded = row.get("elapsed_seconds")
+        if recorded is not None:
+            return recorded
+        # Written before the field existed, or an end event that lost it: fall back to the
+        # span the file itself describes rather than reporting nothing.
+        started = started_at(row)
+        return max(row.get("mtime", 0) - started, 0) if started else None
+    started = started_at(row)
+    if not started:
+        return None
+    return max((time.time() if now is None else now) - started, 0)
 
 
 def _ago(seconds: float) -> str:
@@ -451,7 +497,7 @@ def pick(directory: Path) -> Path | None:
         head = f"{BOLD}delegations{R} {DIM}· ↑↓ select · enter follow · r refresh · q quit"
         head += f" · newest {MAX_ROWS} of {len(rows) + trimmed}" if trimmed else ""
         print(f"{head}{R}")
-        print(f"{DIM} started   last      state        kind      turns  task{R}")
+        print(f"{DIM} started   elapsed   effort  state        kind      turns  task{R}")
         for n, row in enumerate(rows):
             word, colour = state_of(row)
             task = row["task"][:60] or "(no task recorded)"
@@ -459,7 +505,9 @@ def pick(directory: Path) -> Path | None:
             # escape bytes as width and the column stops lining up.
             state = f"{colour}{word:<11}{R}"
             kind = f"{DIM}{kind_of(row):<8}{R}"
-            line = (f" {_clock(started_at(row))}  {_clock(row['mtime'])}  {state} "
+            spent = f"{DIM}{_duration(elapsed_of(row)):<8}{R}"
+            effort = f"{DIM}{(row.get('effort') or '?'):<6}{R}"
+            line = (f" {_clock(started_at(row))}  {spent}  {effort}  {state} "
                     f"{kind} {DIM}{row['turns']:>5}{R}  {task}")
             print(f"{INVERT}{line}{R}" if n == i else line)
         if not rows:

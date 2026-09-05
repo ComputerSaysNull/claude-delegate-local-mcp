@@ -34,6 +34,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #104 — 2026-09-05 — feat: the delegation list says how long and at what effort
+
+### Changed
+- **The list's second column is a duration rather than a last-write clock.** A running
+  delegation counts up from its `start` event and ticks on every unattended redraw; a
+  finished one reports the `elapsed_seconds` the dispatch measured for itself, which
+  includes the admission wait. Two wall-clock times side by side answered "when", and the
+  question a watcher actually has is "how long" — which is also the one that compares
+  between rows. The duration keeps two units where `_ago` keeps one, because 5m and 5m59s
+  are a different answer when read against a neighbouring row.
+- **Effort is shown, and it is read from the `start` event.** It was already written there,
+  so it is on the row from the first redraw rather than appearing once the call ends, which
+  is when it stops being worth knowing. A transcript written before the field existed shows
+  `?` rather than being defaulted to a level nobody chose — the same treatment the kind
+  column gives a tool it cannot name.
+
+### Fixed
+- **A finished row no longer moves when its file is touched.** Deriving the duration from
+  mtime would have been the obvious implementation and is wrong here: this directory is
+  routinely synchronised, so an mtime moves long after the work stopped. A regression test
+  touches a finished stream and asserts the reported duration does not change; it was
+  verified to fail against the mtime implementation, which reported three hours for a
+  125-second call.
+
 ## #103 — 2026-09-05 — feat: cancel the batch delegation tools
 
 ### Changed

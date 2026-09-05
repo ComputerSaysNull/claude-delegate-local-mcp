@@ -49,6 +49,7 @@ def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is 
     directory: Path, started: datetime, task: str = "a task",
     turns: int = 0, ended: bool | None = None, *,
     tool: str = "delegate", tools: list[str] | None = None,
+    effort: str | None = None, elapsed_seconds: float | None = None,
 ) -> Path:
     """One `.jsonl` named the way transcript.py names it, with events to match.
 
@@ -62,11 +63,16 @@ def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is 
              "tool": tool, "model_key": "m", "task": task}
     if tools is not None:
         start["tools"] = tools
+    if effort is not None:
+        start["effort"] = effort
     lines = [start]
     for n in range(1, turns + 1):
         lines.append({"t": "turn", "at": started.astimezone(UTC).isoformat(), "turn": n})
     if ended is not None:
-        lines.append({"t": "end", "at": started.astimezone(UTC).isoformat(), "ok": ended})
+        end = {"t": "end", "at": started.astimezone(UTC).isoformat(), "ok": ended}
+        if elapsed_seconds is not None:
+            end["elapsed_seconds"] = elapsed_seconds
+        lines.append(end)
     path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
     return path
 
@@ -394,6 +400,26 @@ def test_the_list_paints_every_stream_newest_first(session, tmp_path):
 
 
 @posix_only
+def test_the_list_paints_a_duration_and_an_effort(session, tmp_path):
+    """The columns as a reader actually meets them, through a real terminal.
+
+    A finished row shows what the server measured; a running one shows how long it has
+    been going, counted from its start. Asserting the values rather than the headings is
+    the point -- a header can paint while the column beneath it renders `--`.
+    """
+    now = datetime.now(UTC)
+    stream(tmp_path, now - timedelta(minutes=9), "FINISHED", ended=True,
+           elapsed_seconds=125.0, effort="high")
+    stream(tmp_path, now - timedelta(seconds=200), "RUNNING", turns=2, effort="low")
+
+    screen = session(tmp_path).read()
+    assert "elapsed" in screen and "effort" in screen
+    assert "2m05s" in screen, "the finished row lost the server's own figure"
+    assert "3m2" in screen, "the running row is not counting up from its start"
+    assert "high" in screen and "low" in screen
+
+
+@posix_only
 def test_the_list_refreshes_without_a_keypress(session, tmp_path):
     stream(tmp_path, datetime.now(UTC) - timedelta(minutes=5), "FIRST")
     live = session(tmp_path)
@@ -459,3 +485,80 @@ def test_a_half_written_line_is_not_dropped(session, tmp_path):
         live.read(1.0)
         fh.write("}\n")
     assert "WHOLE" in live.read(2.0)
+
+
+def test_a_finished_row_reports_the_duration_the_server_measured(viewer, tmp_path):
+    """Not mtime arithmetic. `elapsed_seconds` is what the dispatch measured for itself
+    and it includes the admission wait, while an mtime only says when the last line was
+    written -- and this directory is routinely synchronised, so mtime moves long after the
+    work stopped. Touching the file must not change what the row claims it took."""
+    stream(tmp_path, datetime.now(UTC) - timedelta(hours=3), "done one",
+           ended=True, elapsed_seconds=125.0)
+    (row,) = viewer.scan(tmp_path)[0]
+
+    assert viewer.elapsed_of(row) == 125.0
+    assert viewer._duration(viewer.elapsed_of(row)) == "2m05s"
+
+    path = row["path"]
+    path.touch()
+    (again,) = viewer.scan(tmp_path)[0]
+    assert viewer.elapsed_of(again) == 125.0, "mtime moved the duration"
+
+
+def test_a_running_row_counts_up_from_its_start(viewer, tmp_path):
+    """The column ticks, which is the whole request: a running delegation answers "how
+    long has this been going", and the list redraws unattended to keep it honest."""
+    started = datetime.now(UTC) - timedelta(seconds=90)
+    stream(tmp_path, started, "running one")
+    (row,) = viewer.scan(tmp_path)[0]
+
+    at_start = viewer.elapsed_of(row, now=started.timestamp())
+    later = viewer.elapsed_of(row, now=started.timestamp() + 200)
+    assert at_start < 1
+    assert 199 <= later <= 201, later
+    assert viewer._duration(later) == "3m20s"
+
+
+def test_a_finished_row_without_the_field_falls_back_rather_than_reporting_nothing(
+        viewer, tmp_path):
+    """A transcript written before `elapsed_seconds` existed still took some time. The
+    negative direction of the test above: with no recorded figure the file's own span is
+    the best available answer, and it must be used rather than rendering `--`."""
+    stream(tmp_path, datetime.now(UTC) - timedelta(minutes=10), "old one", ended=True)
+    (row,) = viewer.scan(tmp_path)[0]
+
+    assert row["elapsed_seconds"] is None
+    assert viewer.elapsed_of(row) is not None
+
+
+def test_the_effort_is_readable_before_the_call_ends(viewer, tmp_path):
+    """Effort is written in the `start` event, so it is on the row from the first redraw.
+    Reading it from the end event instead would surface it exactly when it has stopped
+    being worth knowing."""
+    stream(tmp_path, datetime.now(UTC) - timedelta(minutes=1), "running one", effort="high")
+    (row,) = viewer.scan(tmp_path)[0]
+
+    assert row["done"] is False
+    assert row["effort"] == "high"
+
+
+def test_a_stream_from_before_effort_was_recorded_says_so(viewer, tmp_path):
+    """Absent is not "off". An empty effort renders as `?`, the same treatment the kind
+    column gives a tool it cannot name, rather than guessing at a level nobody chose."""
+    stream(tmp_path, datetime.now(UTC) - timedelta(minutes=1), "old one")
+    (row,) = viewer.scan(tmp_path)[0]
+
+    assert row["effort"] == ""
+
+
+def test_a_duration_keeps_two_units_where_a_staleness_keeps_one(viewer):
+    """`_ago` rounds hard because it answers "how stale"; a duration sits beside other
+    durations and is read against them, where 5m and 5m59s are a different answer."""
+    assert viewer._duration(9) == "9s"
+    assert viewer._duration(59.4) == "59s"
+    assert viewer._duration(60) == "1m00s"
+    assert viewer._duration(359) == "5m59s"
+    assert viewer._duration(3600) == "1h00m"
+    assert viewer._duration(7845) == "2h10m"
+    assert viewer._duration(None) == "--"
+    assert viewer._duration(-5) == "0s"
