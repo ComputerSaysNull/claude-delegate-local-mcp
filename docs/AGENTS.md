@@ -1,4 +1,5 @@
-<!-- BUDGET: 365
+<!-- BUDGET: 380
+     Raised from 365 on 2026-09-05: the two privilege-granting frontmatter fields became operator-gated, and the paragraph this replaces claimed the opposite invariant -- that a root list was unnecessary because the denylist covered it -- so it had to be corrected rather than extended.
      Raised from 350 on 2026-09-03: the policy gained a check that runs at the open rather than at the resolve, which is a fifth thing a caller can be refused by and so a fact this document owns. Two sentences of the ADR-0010 corollary were deleted to pay for part of it; the subsection they duplicated already owned that.
      Raised from 331 on 2026-09-03: the path policy grew a second disposition and a directory check, both in paths.py, which this document owns.
      Raised from 327 on 2026-09-03: max_turns became overridable per call, so the precedence rule moved out of the model subsection to govern the whole field table, which is a net three lines after deleting the copy it replaced.
@@ -114,10 +115,12 @@ Everything below the frontmatter is the system prompt.
 | `max_tokens` | Per-reply budget, clamped by the model's cap |
 | `keep_tool_results` | How many recent tool results survive history eviction — [DISPATCH.md](DISPATCH.md) |
 | `allowed_tools` | Restricts what this agent may call. Enforced twice |
-| `network` | `true` re-shares the network namespace for `run_bash`. Default off |
-| `extra_binds` | Extra directories visible inside the sandbox |
+| `network` | `true` re-shares the network namespace for `run_bash`. Default off, and an operator grant — see below |
+| `extra_binds` | Extra directories visible inside the sandbox, within operator-set roots |
 
-**Every row is overridable per call**, and the order is the call argument, then frontmatter,
+**Every row is overridable per call except the last two**, which no tool takes an argument
+for: a caller cannot ask for a bind or for egress, only a file can, and that is the surface
+the two checks below exist for. The order is the call argument, then frontmatter,
 then — for the two settings that have one, `model` and `effort` — the registry row, then the
 global default. `max_turns` was the exception until 2026-09-03: it read the file and ignored
 the argument, so the single field that truncates a run was the single field that needed the
@@ -172,8 +175,12 @@ bad call costs more than telling it no.
 
 ### `network: false` is the default, and means absent
 
-Not firewalled: the sandbox does not have a network namespace at all. Set `network: true`
-only for an agent that genuinely needs to fetch something, and prefer prefetching instead.
+Not firewalled: the sandbox does not have a network namespace at all. `network: true` is a
+grant an operator makes rather than one a file takes — it needs the agent named in
+`DELEGATE_AGENT_NETWORK_ALLOWED` *and* the file found in `agents_dir`, and is refused, not
+quietly dropped. The name alone is not enough: the workspace tiers are searched first, so a
+repository can ship a file under any name it likes. Gated harder than `extra_binds` because
+`--share-net` has no destination list to pin egress to, and a bind has a root. (ADR-0053)
 
 Verifying this correctly matters more than it sounds. A hostname request fails whether or
 not the namespace is isolated, so **test denial by address**, never by hostname — otherwise
@@ -187,11 +194,19 @@ but a tool installed under your home directory, `uv` being the common case, is *
 and `uv run pytest` fails with "not found". That is the most likely first-run surprise. The
 server binds the resolved `uv` by default; anything else goes here.
 
-A bind here is **read-only**, and the secret denylist still reaches inside it. The path
-policy's layer 1 does not: requiring an `extra_binds` entry to sit inside a workspace root
-would defeat the field, whose whole purpose is reaching a toolchain that lives outside one.
-So the constraint that remains is the one that matters — no agent file can bind a directory
-in order to read credentials out of it. (ADR-0036)
+A bind here is **read-only**, the secret denylist still reaches inside it, and it must
+resolve inside `DELEGATE_AGENT_BIND_ROOTS`. The *resolved* path is both what is checked and
+what is carried forward, so a link inside a root pointing out of it is refused on where it
+lands rather than approved on where it sits. A bind at or *above* something the sandbox
+mounts itself is refused too — binds are emitted after those mounts, so naming one replaces
+it. Inside one is fine, and is how a toolchain under `/tmp` works at all.
+
+Not the workspace roots, on two counts. The field exists to reach a toolchain living
+outside one, and a list shared with a reading tool would let a root widened for `files[]`
+widen a mount. The reasoning this replaces — that the denylist made a root list unnecessary,
+so *"no agent file can bind a directory in order to read credentials out of it"* — was
+wrong when it was written: that scan matches names, so a credential in a file it does not
+recognise was never covered. (ADR-0036, ADR-0053)
 
 ## The path policy
 

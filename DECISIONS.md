@@ -19,6 +19,66 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0053 — 2026-09-05 — An agent file's network and binds are operator-gated, and gated differently from each other — Accepted
+
+Two frontmatter fields grant what the sandbox otherwise withholds: `extra_binds` mounts a
+host path read-only, `network` re-shares the namespace. Their whole validation was a
+boolean parse and `os.path.isabs`, and two of the three lookup tiers sit inside the
+caller's `workdir` — so a markdown file checked into a repository under review could take
+both. ADR-0036 saw half of this and answered it at the mount, scanning binds for secrets
+afterwards; covering matches afterwards is not the same as deciding what may be bound, and
+only the second is an operator's to decide.
+
+`DELEGATE_AGENT_BIND_ROOTS` is the containment, and deliberately does not fall back to
+`workspace_roots` the way `workdir_roots` does. The first reason is ADR-0036's own, for
+having no root check at all: the field exists to reach a toolchain outside a workspace. The
+second is that a list shared with a reading tool lets a root widened for `files[]` widen a
+mount.
+
+**The two fields are gated differently, and that asymmetry is the decision.** A bind can be
+pinned to a root; `--share-net` cannot — no destination list, no proxy, no filter, so the
+grant is everything the workstation can reach and is unbounded once given. `network`
+therefore needs the agent named in `DELEGATE_AGENT_NETWORK_ALLOWED` *and* the file found in
+`agents_dir`. The name alone is not enough: the workspace tiers are searched first, so a
+repository shipping `.claude/agents/<an-allowlisted-name>.md` shadows the operator's own
+file and would inherit its grant by matching a string an attacker chose. Provenance is what
+that string cannot forge. Do not later "tidy" one field's rule onto the other — a downgrade
+in one direction and pointless in the other.
+
+Checking a path and mounting a different one would have made this decorative, and it did:
+`build_argv` emitted the frontmatter string verbatim, so a link inside a root was resolved
+by the kernel at mount time, inside the sandbox, having never met the check. The resolved
+path is now what is checked *and* what is carried forward, the same shape as
+`resolve_workdir`, so there is no second resolution to disagree with the first. This closes
+redirection, not substitution — a different directory later moved to an approved path is a
+function of the path either way, exactly as ADR-0049 found for reads — and not a symlink
+*underneath* an approved bind, which the secret scan skips by design and still does.
+
+Enforcement is a single site, in `validate()`, which reads the `allowed_tools` two-site rule
+rather than excepting it: that rule exists because a model can call a tool it was never
+offered, so the declared list and the executor are two operations. These fields have one
+producer and one consumer, and `tools.py` merges them with the operator's own
+`toolchain_binds` into one untagged tuple, so a downstream check could not tell whose bind
+it was anyway.
+
+A bind at or above one of the sandbox's own mounts is refused for a second reason.
+`extra_binds` are emitted after `/usr`, `/etc`, `/tmp` and HOME, so naming one replaces it —
+read-only, so trust rather than write access: a `/usr/bin/python3` the sandbox did not
+provide. **Reordering was the obvious fix and is wrong**, which is the part worth recording.
+Emitting the base mounts last stops the shadowing and also wipes every bind *inside* `/tmp`,
+which is a tmpfs and is where every temporary directory on Linux lives. Tried on 2026-09-05;
+an existing integration test said so within one run. So the ordering stays and the narrow
+case is refused: at or above, never merely overlapping, since inside is the ordinary use.
+The reserved set is derived from the mount table rather than listed, so a mount added later
+reaches it without a second edit, and HOME is unioned in because it is a config value the
+static table cannot know. Four of the nine targets are symlinks into `usr/`, so
+canonicalising a bind on one lands it inside `/usr` where it shadows nothing and is
+correctly allowed — which is why their test asserts the outcome rather than a refusal.
+
+Rejected: a per-agent boolean gate with no provenance test, which the name shadowing
+defeats; and refusing a non-canonical bind rather than resolving it, stricter than
+`resolve_workdir` for no gain. Deferred: `model`, a comparable grant, is not addressed.
+
 ## ADR-0052 — 2026-09-05 — Endpoint captures are dated, local and untracked, and that is not the generated-document pattern — Accepted
 
 We need to know what the endpoint returns, and to notice when it changes. An earlier draft

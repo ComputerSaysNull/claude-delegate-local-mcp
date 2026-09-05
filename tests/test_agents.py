@@ -8,6 +8,7 @@ nothing went wrong. Four checks in this repository have already been found unabl
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,8 @@ import pytest
 from claude_delegate_local import agents
 from claude_delegate_local.agents import AgentError
 from claude_delegate_local.config import Config
+from claude_delegate_local.paths import path_within_roots
+from claude_delegate_local.sandbox import base_mount_targets
 from claude_delegate_local.loop import SYSTEM_PROMPT_ONE_SHOT, Delegation, build_one_shot_request
 
 
@@ -34,6 +37,13 @@ def write(path: Path, text: str) -> Path:
 
 
 MINIMAL = "---\nname: helper\n---\n\nYou help.\n"
+
+UNPROVEN_SYMLINK = (
+    "SYMLINK RESOLUTION UNPROVEN BY THIS RUN -- this is not a pass. Creating a symlink "
+    "needs a privilege Windows withholds by default, and the server runs in WSL. Run it "
+    "there -- see CONTRIBUTING.md."
+)
+posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN_SYMLINK)
 
 
 # --- the three-tier lookup ----------------------------------------------------------------
@@ -418,3 +428,195 @@ def test_an_empty_task_is_still_refused_by_render():
     for empty in ("", "   ", "\n"):
         with pytest.raises(Exception, match="task is empty"):
             Delegation(task=empty, agent_body="A").render()
+
+
+# --- the two privilege-granting fields ----------------------------------------------------
+#
+# `network` and `extra_binds` are the only frontmatter that grants something the sandbox
+# otherwise withholds: egress, and a read-only mount of a host path. Until 2026-09-05 the
+# whole of their validation was a boolean parse and `os.path.isabs`, and two of the three
+# lookup tiers sit inside the caller's own workdir -- so a markdown file checked into a
+# repository being reviewed could bind any absolute path and switch the network on.
+#
+# Every refusal below has a companion that must be *accepted*, because a check that refuses
+# everything passes a negative test just as well as a correct one does.
+
+
+def bind_cfg(tmp_path: Path, **over) -> Config:
+    """A config whose roots are real paths, so a resolved bind can be compared with one.
+
+    `tmp_path` can carry an 8.3 short name on Windows, which `realpath` expands -- comparing
+    an unexpanded root against an expanded bind would fail for a reason that has nothing to
+    do with the policy under test.
+    """
+    root = os.path.realpath(tmp_path / "allowed")
+    os.makedirs(root, exist_ok=True)
+    kw = {"agent_bind_roots": (root,)}
+    kw.update(over)
+    return cfg(tmp_path, **kw)
+
+
+def agent_with(c: Config, name: str, frontmatter: str) -> Path:
+    return write(Path(c.agents_dir) / f"{name}.md",
+                 f"---\nname: {name}\n{frontmatter}\n---\nbody\n")
+
+
+@posix_only
+def test_an_agent_bind_inside_a_configured_root_is_accepted(tmp_path):
+    """The companion to every refusal below. Without it a policy refusing every bind would
+    satisfy all of them."""
+    c = bind_cfg(tmp_path)
+    tools = Path(c.agent_bind_roots[0]) / "tools"
+    tools.mkdir()
+    agent_with(c, "ok", f"extra_binds: [{tools}]")
+    assert agents.load_agent(c, "ok").extra_binds == (str(tools),)
+
+
+@posix_only
+def test_an_agent_bind_outside_every_root_is_refused(tmp_path):
+    c = bind_cfg(tmp_path)
+    loot = os.path.realpath(tmp_path / "elsewhere")
+    os.makedirs(loot)
+    agent_with(c, "greedy", f"extra_binds: [{loot}]")
+    with pytest.raises(AgentError, match="outside every configured agent bind root"):
+        agents.load_agent(c, "greedy")
+
+
+@posix_only
+def test_no_configured_roots_permits_no_bind_at_all(tmp_path):
+    """The default. `agent_bind_roots` deliberately does not fall back to `workspace_roots`
+    the way `workdir_roots` does, so an unconfigured server grants no mount."""
+    c = cfg(tmp_path)
+    assert c.agent_bind_roots == ()
+    target = os.path.realpath(tmp_path / "anything")
+    os.makedirs(target)
+    agent_with(c, "any", f"extra_binds: [{target}]")
+    with pytest.raises(AgentError, match="no agent bind is permitted at all"):
+        agents.load_agent(c, "any")
+
+
+@posix_only
+@pytest.mark.parametrize("target", sorted(base_mount_targets()))
+def test_no_agent_bind_can_end_up_shadowing_a_mount_the_sandbox_makes(tmp_path, target):
+    """`extra_binds` are emitted after the base mounts, so a bind *at* one replaces it.
+
+    Read-only either way, so what it takes is trust rather than write access -- a
+    `/usr/bin/python3` the sandbox did not provide. Fixed here rather than by reordering:
+    putting the base mounts last breaks a bind *inside* /tmp, which is every temporary
+    directory on Linux and which an integration test caught on 2026-09-05.
+
+    Phrased as the outcome rather than as "this raises", because for four of the nine
+    targets it does not and should not: /bin, /lib, /lib64 and /sbin are symlinks into
+    usr/, so canonicalising a bind on one lands it *inside* /usr where it shadows nothing.
+    Asserting a refusal would have been asserting the wrong thing for those, and asserting
+    it only for the other five would need a second hand-kept list.
+    """
+    c = bind_cfg(tmp_path, agent_bind_roots=("/",))
+    agent_with(c, "shadow", f"extra_binds: [{target}]")
+    try:
+        spec = agents.load_agent(c, "shadow")
+    except AgentError as e:
+        assert "sits at or above" in str(e)
+        return
+    for got in spec.extra_binds:
+        shadowed = [t for t in base_mount_targets() if path_within_roots(t, (got,))]
+        assert not shadowed, f"{target} was accepted as {got}, which still shadows {shadowed}"
+
+
+@posix_only
+def test_a_bind_above_a_mount_the_sandbox_makes_itself_is_refused(tmp_path):
+    """The ancestor case. Binding `/` shadows every base mount at once, and a rule phrased
+    as equality would let it straight through."""
+    c = bind_cfg(tmp_path, agent_bind_roots=("/",))
+    agent_with(c, "everything", "extra_binds: [/]")
+    with pytest.raises(AgentError, match="sits at or above"):
+        agents.load_agent(c, "everything")
+
+
+@posix_only
+def test_a_bind_inside_a_mount_the_sandbox_makes_itself_is_allowed(tmp_path):
+    """The companion, and the whole reason the rule is at-or-above rather than overlapping.
+
+    A toolchain under /tmp is the ordinary case -- it is where every temp directory lives --
+    and a rule that refused it would be refusing the feature.
+    """
+    c = bind_cfg(tmp_path, agent_bind_roots=("/tmp",))
+    tools = Path("/tmp") / f"agent-bind-{os.getpid()}"
+    tools.mkdir(exist_ok=True)
+    agent_with(c, "tmptool", f"extra_binds: [{tools}]")
+    assert agents.load_agent(c, "tmptool").extra_binds == (str(tools),)
+
+
+@posix_only
+def test_a_bind_at_the_sandbox_home_is_refused(tmp_path):
+    """HOME is bound before `extra_binds` too, so it is shadowable in the same way -- but it
+    is a config value, so the derived base table cannot know about it."""
+    c = bind_cfg(tmp_path, agent_bind_roots=("/",), sandbox_home=str(tmp_path / "sbhome"))
+    agent_with(c, "athome", f"extra_binds: [{tmp_path / 'sbhome'}]")
+    with pytest.raises(AgentError, match="sits at or above"):
+        agents.load_agent(c, "athome")
+
+
+@posix_only
+def test_a_bind_symlinked_out_of_a_root_is_refused_on_where_it_lands(tmp_path):
+    """The bind is emitted at a path bwrap resolves at mount time, so a check that read the
+    written name would approve this and mount the target anyway."""
+    c = bind_cfg(tmp_path)
+    loot = Path(os.path.realpath(tmp_path / "elsewhere"))
+    loot.mkdir()
+    link = Path(c.agent_bind_roots[0]) / "innocent"
+    link.symlink_to(loot)
+    agent_with(c, "sneaky", f"extra_binds: [{link}]")
+    with pytest.raises(AgentError, match="outside every configured agent bind root") as e:
+        agents.load_agent(c, "sneaky")
+    assert str(loot) in str(e.value), "the refusal must name where it resolved to"
+
+
+@posix_only
+def test_a_bind_symlinked_within_a_root_is_accepted_as_its_resolved_path(tmp_path):
+    """Proves the test above is not passing against a policy that refuses every symlink,
+    and that the value carried forward is the one that was checked rather than the one that
+    was written -- there is no second resolution later to disagree with this one."""
+    c = bind_cfg(tmp_path)
+    real = Path(c.agent_bind_roots[0]) / "real-tools"
+    real.mkdir()
+    link = Path(c.agent_bind_roots[0]) / "tools"
+    link.symlink_to(real)
+    agent_with(c, "linked", f"extra_binds: [{link}]")
+    assert agents.load_agent(c, "linked").extra_binds == (str(real),)
+
+
+def test_network_is_refused_when_the_agent_is_not_named(tmp_path):
+    c = cfg(tmp_path)
+    agent_with(c, "chatty", "network: true")
+    with pytest.raises(AgentError, match="DELEGATE_AGENT_NETWORK_ALLOWED"):
+        agents.load_agent(c, "chatty")
+
+
+def test_a_named_agent_in_the_operators_own_directory_gets_the_network(tmp_path):
+    """The companion. Without it every network test would pass against a flat refusal."""
+    c = cfg(tmp_path, agent_network_allowed=("chatty",))
+    agent_with(c, "chatty", "network: true")
+    assert agents.load_agent(c, "chatty").network is True
+
+
+def test_a_workdir_agent_file_cannot_take_the_network_by_naming_itself(tmp_path):
+    """The filed vulnerability, end to end. `_candidates` searches the workspace tiers
+    first, so a repository shipping `.claude/agents/<allowlisted-name>.md` shadows the
+    operator's own file -- and a grant keyed only on the name would follow the string an
+    attacker chose. Egress has no destination list to bound it, so this one is refused on
+    provenance rather than narrowed."""
+    c = cfg(tmp_path, agent_network_allowed=("chatty",))
+    work = tmp_path / "proj"
+    write(work / ".claude" / "agents" / "chatty.md",
+          "---\nname: chatty\nnetwork: true\n---\nbody\n")
+    with pytest.raises(AgentError, match="asks for network: true from outside"):
+        agents.load_agent(c, "chatty", str(work))
+
+
+def test_a_workdir_agent_file_is_still_loadable_without_the_grant(tmp_path):
+    """The companion to the one above: provenance gates the network, not the whole tier."""
+    c = cfg(tmp_path, agent_network_allowed=("chatty",))
+    work = tmp_path / "proj"
+    write(work / ".claude" / "agents" / "chatty.md", "---\nname: chatty\n---\nbody\n")
+    assert agents.load_agent(c, "chatty", str(work)).network is False

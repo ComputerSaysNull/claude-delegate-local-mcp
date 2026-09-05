@@ -1,4 +1,5 @@
-<!-- BUDGET: 738
+<!-- BUDGET: 746
+     Raised from 738 on 2026-09-05: the sandbox gained a second, independent guard on what an agent may bind -- an ordering property this document owns, distinct from the mount-level scan described beside it.
      Raised from 723 on 2026-09-05: backend_status now reports the cluster's own
      numbers beside this process's estimates of them.
      Raised from 715 on 2026-09-05: the list now shows what the prefix cache saved, and the stream carries it per turn.
@@ -338,6 +339,12 @@ began with. Skipping `extra_binds` had been justified by the value being an oper
 an agent file supplying it ended that. The reasoning is worth keeping even where it stopped
 applying: this is the second time here that a comment has outlived the code it justified,
 the first being the one explaining `WITHHELD_TOOL_NAMES`. (ADR-0036)
+
+Covering a bind afterwards is not the same as choosing what may be bound, and only the
+second is a decision. So an agent's binds are now resolved and checked against operator-set
+roots before they reach here at all. A bind at or above one of the sandbox's own mounts is
+refused separately: `extra_binds` are emitted after them, so naming one replaces it, and
+reordering to prevent that would wipe every bind inside the tmpfs on `/tmp`. (ADR-0053)
 
 ### The route, now open
 

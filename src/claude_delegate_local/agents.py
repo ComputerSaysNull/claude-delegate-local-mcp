@@ -37,6 +37,8 @@ from pathlib import Path
 
 from .config import EFFORT_LEVELS, Config
 from .loop import InvalidDelegation
+from .paths import path_within_roots, resolved_agent_bind_roots
+from .sandbox import base_mount_targets, resolve_home
 from .tools import ALL_TOOL_NAMES
 
 
@@ -212,6 +214,93 @@ def _coerce_bool(value: str, *, field: str, where: str) -> bool:
     )
 
 
+def _check_binds(cfg: Config, binds: tuple[str, ...], *, where: str) -> tuple[str, ...]:
+    """Every `extra_binds` rule, returning the resolved paths the sandbox will mount.
+
+    Separate from `validate` because it is the only field with four rules rather than
+    one, and folding them inline pushed that function past what anyone can read at once.
+    """
+    roots = resolved_agent_bind_roots(cfg)
+    # HOME joins the base mounts here because it is bound before `extra_binds` too, and so
+    # is shadowable in exactly the same way -- but it is a config value rather than part of
+    # the static table, so `base_mount_targets` cannot know about it.
+    reserved = base_mount_targets() | {resolve_home(cfg)}
+    resolved: list[str] = []
+    for bind in binds:
+        if not os.path.isabs(bind):
+            raise AgentError(
+                f"{where} extra_binds names {bind!r}, which is not an absolute path. A bind "
+                "is resolved by the server, not by the delegated model's shell, so a "
+                "relative path has nothing to be relative to."
+            )
+        # Resolved once, here, and it is the resolved value that is carried forward -- the
+        # same shape as `resolve_workdir`. Checking one path and mounting another is what
+        # makes a containment check decorative, since bwrap resolves the name it is given
+        # at mount time and a link inside a root can point anywhere. Redirection is what
+        # this closes; substitution -- a different directory later moved to an approved
+        # path -- is a function of the path either way and no layer here can see it.
+        real = os.path.realpath(bind)
+        shadowed = sorted(t for t in reserved if path_within_roots(t, (real,)))
+        if shadowed:
+            raise AgentError(
+                f"{where} extra_binds names {bind!r}, which sits at or above "
+                f"{', '.join(shadowed)} -- mounts the sandbox makes for itself. Bound after "
+                "those, it would replace them with a tree of this file's choosing. "
+                "Read-only, so what it takes is trust rather than write access: a "
+                "/usr/bin/python3 the sandbox did not provide. A bind *inside* one of them "
+                "is fine and is how a toolchain under /tmp works."
+            )
+        if not path_within_roots(real, roots):
+            raise AgentError(
+                f"{where} extra_binds names {bind!r}, whose real location {real} is outside "
+                "every configured agent bind root. An agent file is not an operator "
+                "decision -- a repository can ship one, and this one grants a read-only "
+                "mount of a host path -- so its binds are checked against "
+                "DELEGATE_AGENT_BIND_ROOTS rather than trusted for being absolute. "
+                f"Configured roots: "
+                f"{', '.join(roots) or '(none, so no agent bind is permitted at all)'}."
+            )
+        resolved.append(real)
+    return tuple(resolved)
+
+
+def _check_network_grant(cfg: Config, *, name: str, where: str) -> None:
+    """Refuse `network: true` unless the operator named this agent *and* wrote the file.
+
+    Two conditions, and the second is not decoration. `--share-net` has no destination
+    list, no proxy and no filter: granting it hands the delegated model everything this
+    workstation can reach, so unlike a bind there is no root to pin it to and the grant is
+    unbounded once given. That asymmetry is why the two fields are gated differently, and
+    why copying one rule onto the other would be a downgrade in one direction and pointless
+    in the other.
+
+    A name alone is not enough because `_candidates` searches the workspace tiers *first*:
+    a repository shipping `.claude/agents/<an-allowlisted-name>.md` would shadow the
+    operator's own file and inherit its grant by matching a string an attacker picked. The
+    provenance test is what that string cannot forge.
+    """
+    if name not in cfg.agent_network_allowed:
+        raise AgentError(
+            f"{where} asks for network: true, but {name!r} is not in "
+            "DELEGATE_AGENT_NETWORK_ALLOWED. Egress is all-or-nothing here -- there is no "
+            "destination list to narrow it with -- so it is refused by default rather than "
+            "dropped, because an agent that quietly ran without the network it asked for "
+            "would fail somewhere else entirely."
+        )
+    # `Path.is_relative_to` rather than the POSIX containment `extra_binds` uses. A bind is
+    # a sandbox-side path and always POSIX; an agent *file* is read by this process, which
+    # on Windows means a native path with native separators, and comparing those with "/"
+    # rules would silently answer no to everything.
+    personal = Path(os.path.realpath(os.path.expanduser(cfg.agents_dir)))
+    if not Path(os.path.realpath(where)).is_relative_to(personal):
+        raise AgentError(
+            f"{where} asks for network: true from outside {personal}. Naming an agent in "
+            "DELEGATE_AGENT_NETWORK_ALLOWED grants the network to the file you wrote "
+            "there, not to any file that claims the name: a repository can ship one under "
+            "the same name and it is searched first. Move the file, or drop network: true."
+        )
+
+
 def validate(
     cfg: Config, raw: dict[str, str], body: str, *, name: str, where: str
 ) -> AgentSpec:
@@ -311,13 +400,15 @@ def validate(
         if "extra_binds" in raw
         else ()
     )
-    for bind in extra_binds:
-        if not os.path.isabs(bind):
-            raise AgentError(
-                f"{where} extra_binds names {bind!r}, which is not an absolute path. A bind "
-                "is resolved by the server, not by the delegated model's shell, so a "
-                "relative path has nothing to be relative to."
-            )
+    extra_binds = _check_binds(cfg, extra_binds, where=where)
+
+    network = (
+        _coerce_bool(raw["network"], field="network", where=where)
+        if "network" in raw
+        else False
+    )
+    if network:
+        _check_network_grant(cfg, name=name, where=where)
 
     return AgentSpec(
         name=name,
@@ -329,11 +420,7 @@ def validate(
         max_tokens=max_tokens,
         keep_tool_results=keep,
         allowed_tools=allowed,
-        network=(
-            _coerce_bool(raw["network"], field="network", where=where)
-            if "network" in raw
-            else False
-        ),
+        network=network,
         extra_binds=extra_binds,
         body=body.strip(),
     )

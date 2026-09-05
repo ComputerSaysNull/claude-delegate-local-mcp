@@ -61,9 +61,17 @@ SANDBOX_PATH = "/usr/bin:/usr/sbin"
 # `--unshare-all` drops every namespace including the network; `--share-net` later opts the
 # network back in when, and only when, an agent asked for it. That combination was verified
 # by running it, not read off a manual page.
-_BASE_ARGV: tuple[str, ...] = (
+_BASE_FLAGS: tuple[str, ...] = (
     "--unshare-all",
     "--die-with-parent",
+)
+
+# Split from the flags above so `build_argv` can place a caller's binds *before* these and
+# after nothing. bwrap applies binds in argv order and a later one wins, so emitting these
+# after an agent's binds is what stops an agent file replacing the sandbox's own /usr, /etc
+# or /tmp with a host tree of its choosing. Read-only either way, so the loss would be trust
+# rather than write access -- a `/usr/bin/python3` the sandbox did not provide.
+_BASE_MOUNTS: tuple[str, ...] = (
     "--ro-bind", "/usr", "/usr",
     "--ro-bind", "/etc", "/etc",
     "--proc", "/proc",
@@ -74,6 +82,32 @@ _BASE_ARGV: tuple[str, ...] = (
     "--symlink", "usr/lib64", "/lib64",
     "--symlink", "usr/sbin", "/sbin",
 )
+
+_BASE_ARGV: tuple[str, ...] = _BASE_FLAGS + _BASE_MOUNTS
+
+# How many words each op above takes, so the targets can be *derived* from the table rather
+# than written out a second time. A hand-kept copy is the drift this repository keeps
+# finding: add a mount here and a duplicated list somewhere else stops being true silently.
+_OP_ARITY: dict[str, int] = {
+    "--ro-bind": 3, "--bind": 3, "--symlink": 3,
+    "--proc": 2, "--dev": 2, "--tmpfs": 2,
+}
+
+
+def base_mount_targets() -> frozenset[str]:
+    """The in-sandbox paths `_BASE_MOUNTS` occupies, derived from the table itself.
+
+    What `agents.py` refuses an agent's bind for standing at or above. Not for standing
+    *inside* one: `build_argv` emits these before `extra_binds`, so a bind under /tmp is
+    the case that works, and the case that shadows is the one at or over the target.
+    """
+    targets: list[str] = []
+    i = 0
+    while i < len(_BASE_MOUNTS):
+        arity = _OP_ARITY[_BASE_MOUNTS[i]]
+        targets.append(_BASE_MOUNTS[i + arity - 1])
+        i += arity
+    return frozenset(targets)
 
 
 class SandboxUnavailable(RuntimeError):
@@ -421,6 +455,17 @@ def build_argv(
        a build fails with a read-only-filesystem error inside the very directory the
        operator chose to run it in, which names the wrong cause.
 
+    2a. And *after* `_BASE_MOUNTS`, which is what lets a bind inside one of them work at
+       all. /tmp is a tmpfs, so an extra bind under it emitted earlier is simply wiped --
+       and on Linux every temporary directory lives there, which is most of what anyone
+       binds while testing. The cost of this order is the converse: a bind at or *above* a
+       base target shadows it, an agent file replacing the sandbox's own /usr with a host
+       tree of its choosing. Read-only either way, so trust substitution rather than write
+       access. That case is refused in `agents.py` rather than reordered away, because the
+       reordering that fixes it breaks the far commoner bind inside /tmp -- tried on
+       2026-09-05, and an existing integration test said so. `base_mount_targets` is what
+       the refusal derives from, so a mount added here reaches it without a second edit.
+
     3. Secret shadows come after every bind, because a shadow covers up a path *inside* a
        tree that a bind created, and bwrap would have nothing to mount on if it ran first.
        `shadows` is a parameter rather than something computed here: finding them is a
@@ -440,7 +485,11 @@ def build_argv(
     # directory nobody has created yet. `run` creates it; see `ensure_home`.
     argv += ["--bind", req.home, req.home]
 
-    # Read-only toolchain binds before the workdir (rule 2).
+    # Read-only toolchain binds before the workdir (rule 2) and after the base mounts
+    # (rule 2a). Nothing here resolves the path: `build_argv` is pure, and a realpath call
+    # would make the bind order assertable only where a real filesystem agrees -- which on
+    # Windows, where a contributor's first pytest happens, means not at all. `agents.py`
+    # resolves and checks before the value gets here, so this string is the checked one.
     for bind in req.extra_binds:
         argv += ["--ro-bind", bind, bind]
 

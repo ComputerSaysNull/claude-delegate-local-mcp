@@ -1,4 +1,7 @@
-<!-- BUDGET: 392
+<!-- BUDGET: 410
+     Raised from 392 on 2026-09-05: the allowlist item ticked, kept beside its original because
+     three of the four things it turned out to need are ones the filing could not have known --
+     including a fix that would have made the filed feature decorative without it.
      Raised from 374 on 2026-09-05: kv_token_budget is 1.66x the real KV pool, filed now
      that backend_status reads the pool size and the fix has a number to use.
      Raised from 351 on 2026-09-05: admission's missing anti-starvation filed, with the half
@@ -51,7 +54,22 @@ group by what the item's own annotation says it costs.
 
 ### Security review, 2026-09-02
 
-- ⬜ Operator allowlist for an agent's `network` and `extra_binds` — the only validation is
+- ✅ 2026-09-05 Operator allowlist for an agent's `network` and `extra_binds` (`#110`,
+  ADR-0053) — `workdir_roots` was the pattern to copy for the containment and the wrong
+  pattern for the rest. Three things the filing could not have known. The two fields want
+  **different** gates: a bind pins to a root and `--share-net` has nothing to pin to, so
+  egress needs the agent named *and* the file in `agents_dir` — a name alone is forgeable,
+  since the workspace tiers are searched first and a repository can ship a file under any
+  name. The allowlist would have been **decorative** without a fix underneath it: the bind
+  was emitted as the frontmatter string, so a link inside an approved root was resolved by
+  the kernel at mount time having never met the check. And the reserved-mount half taught
+  the most: reordering the argv so nothing can shadow `/usr` also wipes every bind inside
+  `/tmp`, where every temporary directory lives — an existing integration test caught it in
+  one run, so the narrow case is refused instead, and four of the nine reserved targets are
+  symlinks into `usr/` that are correctly *allowed*. One enforcement site, not two:
+  `tools.py` merges agent binds with the operator's `toolchain_binds` into one untagged
+  tuple, so nothing downstream can tell whose bind it is. Original entry follows.
+- ~~Operator allowlist for `network` and `extra_binds`~~ — the only validation is
   `os.path.isabs` and a boolean parse, so a markdown file in a repository you delegate over
   can bind any absolute host path read-only and turn on egress for that call. The
   mount-level secret scan covers matches afterwards (ADR-0036) rather than refusing the
