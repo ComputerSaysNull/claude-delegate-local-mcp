@@ -1,4 +1,5 @@
-<!-- BUDGET: 710
+<!-- BUDGET: 715
+     Raised from 710 on 2026-09-05: the result dict and the transcript record now carry the endpoint's own numbers.
      Raised from 704 on 2026-09-05: the delegation list gained a duration and an effort column, and this document owns what the viewer shows and why.
      Raised from 698 on 2026-09-04: the end event now carries turns for a dispatch that died on a deadline, where it recorded none -- the transcript half of the same gap, and this document owns what that event carries.
      Raised from 669 on 2026-09-04: admission queues in order now, and the two qualifications a reader needs are that a waiter must be feasible to count as ahead (strict order would reintroduce head-of-line blocking) and that a ticket is dropped in a finally (an abandoned one starves the machine).
@@ -601,7 +602,11 @@ file existed at whatever the umask allowed. umask only clears bits, so this is a
 
 Both halves say **which call they came from and what it was handed**: `tool` is the tool the
 caller invoked, `tools` is the set that call resolved to, and the files are the prefetch
-accounting — paths and cost, never text. Two fields rather than one, because neither answers
+accounting — paths and cost, never text. Both the result dict and the record also carry
+what the endpoint said about its own work: the cached prompt-token count, the total,
+`stop_reason` and `system_fingerprint`, described in [DISPATCH.md](DISPATCH.md), which owns
+the adapter that reads them. They are recorded rather than summed here, because `None` means
+the endpoint reported nothing and is not a zero. Two fields rather than one, because neither answers
 the other's question. A read-only tool is its writing twin with the tool set fixed, so the
 pair runs one path and `tools` alone cannot say which was called; and `delegate` alone
 does not say whether a loop ran, because a caller may pass `allowed_tools=[]` and get a

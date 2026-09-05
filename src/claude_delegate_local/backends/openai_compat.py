@@ -235,12 +235,24 @@ class OpenAICompatBackend:
             blocks.append(_tool_use_from_wire(call))
 
         usage = payload.get("usage") or {}
+        details = usage.get("prompt_tokens_details") or {}
+        # `.get(...) or 0` would fold a real zero into "absent", and for cached_tokens
+        # those are opposite answers: 0 is a measured cache miss. So these four ask
+        # whether the key was there, and coerce only what was.
+        cached = details.get("cached_tokens")
+        total = usage.get("total_tokens")
+        stop = choice.get("stop_reason")
+        fingerprint = payload.get("system_fingerprint")
         return CanonicalResponse(
             content=tuple(blocks),
             finish_reason=str(choice.get("finish_reason") or ""),
             input_tokens=int(usage.get("prompt_tokens") or 0),
             output_tokens=int(usage.get("completion_tokens") or 0),
             model=str(payload.get("model") or self._entry.served_model_id),
+            cached_tokens=int(cached) if isinstance(cached, (int, float)) else None,
+            total_tokens=int(total) if isinstance(total, (int, float)) else None,
+            stop_reason=str(stop) if stop is not None else None,
+            system_fingerprint=str(fingerprint) if fingerprint is not None else None,
         )
 
 

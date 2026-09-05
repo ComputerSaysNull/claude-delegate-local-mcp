@@ -270,6 +270,11 @@ class CanonicalResponse:
     value to make them. The token counts are here for the same reason: reasoning
     exhaustion is diagnosed by comparing spend against the budget (ADR-0014), so the
     layer that spots it needs the numbers rather than a verdict.
+
+    The four optional fields follow that rule rather than bending it. `stop_reason` is
+    vLLM's own answer to "which stop condition fired", distinct from `finish_reason` and
+    absent on backends that do not speak it; `system_fingerprint` identifies the engine
+    build and its configuration. Both are carried and neither is interpreted here.
     """
 
     content: tuple[ContentBlock, ...]
@@ -277,6 +282,16 @@ class CanonicalResponse:
     input_tokens: int
     output_tokens: int
     model: str
+    # Four the endpoint already returns and this server used to discard. All optional,
+    # and `None` means the endpoint did not report the field at all -- which is a
+    # different fact from reporting a zero, and the distinction is the point. A
+    # `cached_tokens` of 0 says the prefix missed; absent says nothing can be said about
+    # caching on this backend, and collapsing the two would recreate exactly the
+    # blindness that made the batch tools arguable for a fortnight (ADR-0051).
+    cached_tokens: int | None = None
+    total_tokens: int | None = None
+    stop_reason: str | None = None
+    system_fingerprint: str | None = None
 
     @property
     def text(self) -> str:

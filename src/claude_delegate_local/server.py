@@ -755,6 +755,13 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         "finish_reason": response.finish_reason,
         "input_tokens": response.input_tokens,
         "output_tokens": response.output_tokens,
+        # What the cluster reported about its own work, rather than what this server
+        # guessed about it. `cached_tokens` of 0 is a measured miss and `None` is an
+        # endpoint that does not report caching -- opposite answers, kept apart.
+        "cached_tokens": response.cached_tokens,
+        "total_tokens": response.total_tokens,
+        "stop_reason": response.stop_reason,
+        "system_fingerprint": response.system_fingerprint,
         "effort": dispatched.effort,
         # Real backend calls made, counted by the server rather than inferred. More
         # than one means something failed and was retried without the caller having to

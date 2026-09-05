@@ -1,4 +1,5 @@
-<!-- BUDGET: 477 -->
+<!-- BUDGET: 488 -->
+<!-- Raised from 477 on 2026-09-05: the adapter now carries four fields the endpoint always returned and this server discarded. -->
 <!-- Raised from 463 on 2026-09-04: a deadline failure now reports what the delegation
      had managed, and the paragraph has to say why the loop attaches it rather than the
      raise sites -- and why a one-shot reports nothing rather than zero. Own text cut by
@@ -76,6 +77,16 @@ retry is only buildable on that distinction. And `finish_reason` and the token c
 back **uninterpreted**: null content with `finish_reason: "length"` is a valid response
 carrying no text, not an error. Deciding what that means belongs to the response state
 machine in M3, which needs the raw value to decide it.
+
+Four more fields ride the same rule, carried and never interpreted: the cached prompt-token
+count, the total, vLLM's `stop_reason` — its own answer to *which* stop condition fired,
+distinct from `finish_reason` and absent on backends that do not speak it — and the engine's
+`system_fingerprint`. **Absent is not zero for any of them:** a cached count of `0` is a
+measured miss, `None` an endpoint that reports nothing, and a sum folding the two claims
+every call missed. The `or 0` idiom used for the required counts is wrong here, and a test
+asserts it. Without the cached count nothing about prefix reuse is observable from inside
+this server, which is how a tool came to be argued for on an effect nobody here could see
+(ADR-0051).
 
 The adapter's single HTTP client bounds **connect and request separately**. One timeout for
 both looks harmless, because the failure everyone pictures is a refused connection — and a
