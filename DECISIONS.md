@@ -19,6 +19,64 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0052 — 2026-09-05 — Endpoint captures are dated, local and untracked, and that is not the generated-document pattern — Accepted
+
+We need to know what the endpoint returns, and to notice when it changes. An earlier draft
+of this made `docs/ENDPOINT.md` a generated document rendered from a committed fixture,
+matching `CONFIGURATION.md` and `TOOLS.md`. **That design is dead deliberately.**
+
+**Why this diverges from the generated-document pattern, which is the most important
+paragraph here.** Those documents render from code in this repository, so CI can re-run the
+generator and prove the document matches its source. The render input here is an *external
+service*. It cannot be tracked without publishing what an endpoint returns, and it cannot be
+re-derived in CI without the cluster being up — which would make a cluster outage
+indistinguishable from a repository failure. A future reader who notices the inconsistency
+and "fixes" it by moving these under `docs/` re-introduces exactly the risk this decision
+was taken to avoid. The asymmetry settles it: publication is unrecoverable, while CI
+verification of a reference document is a small benefit.
+
+**Location and naming.** `local/endpoint-captures/endpoint-<YYYY-MM-DD>-<served_model_id>.json`.
+The date alone cannot tell you two captures straddle a model change, so the model id is in
+the name and the engine fingerprint is inside.
+
+**Two enforcement layers, and the second costs something.** `.gitignore` is a convenience —
+it stops `git add`, and nothing else; `git add -f`, a rename, or a stray `git add -A` on an
+unignored variant all publish silently. `security/secret_globs.txt` is enforcement, and
+`check_secret_paths` blocks any tracked file matching it. Both are used, because relying on
+one layer has already been demonstrated to fail here: an empty `forbidden_strings.txt`
+committed cleanly when only one layer covered it.
+
+The cost is that this file feeds *two* enforcers, so listing the capture directory also
+means **the local model cannot read the captures.** That is correct for this data class and
+it is why `diff_endpoint_captures.py` exists as a script rather than as a delegation. It is
+deliberate, not incidental.
+
+**What may never be captured at all**, as a rule rather than a list of today's fields:
+anything that echoes the prompt, which for this server is repository source; anything that
+could name a host, including a KV transfer target once offloading is enabled; metric label
+values, which carry configuration and handler paths and are stripped as a rule rather than
+as a side effect of wanting names; and error response bodies, which can carry a traceback
+with cluster paths. **No scanner protects these files.** They are never tracked, so the gate
+never sees them, and the probe's allowlist is the only control there is.
+
+**The engine fingerprint is recorded verbatim**, scoped to these local captures. It carries
+build, upstream commit, date, tensor-parallel degree and a configuration hash, and recording
+it whole is what makes it usable: a hash of it would say only *that* something moved, where
+the string says what. The scope does not travel — anything derived from a capture that is
+ever published states the mechanism and never the specimen, which is the standing rule for a
+public surface no hook can gate and is not relaxed by this.
+
+**Accepted cost: no CI check, so staleness is on the operator.** Nothing will tell you a
+capture is a year old. The date in the filename and the fingerprint inside it are the only
+mitigation, and they are enough precisely because the file is read by a person asking a
+question rather than by a check asserting an answer.
+
+Rejected: a committed values-free schema of field paths and types. It is defensible — the
+paths are vLLM's public API surface and all the risk lives in values and labels — but CI
+still could not verify the "the endpoint offers this field" half, so it would be a dated
+observation like `docs/audits/`, not a generated document. Not now, and not without the
+first question being asked again.
+
 ## ADR-0051 — 2026-09-05 — The batch delegation tools are cancelled: a batch buys no prefix that separate calls lack — Accepted
 
 `delegate_batch` existed to run several tasks over the same files under one cached prompt

@@ -1,4 +1,5 @@
-<!-- BUDGET: 494 -->
+<!-- BUDGET: 517 -->
+<!-- Raised from 494 on 2026-09-05: this document now owns the endpoint capture and diff scripts, which record what comes back. -->
 <!-- Raised from 488 on 2026-09-05: the per-turn diagnostic and the end event now carry what the prefix cache saved. -->
 <!-- Raised from 477 on 2026-09-05: the adapter now carries four fields the endpoint always returned and this server discarded. -->
 <!-- Raised from 463 on 2026-09-04: a deadline failure now reports what the delegation
@@ -88,6 +89,28 @@ every call missed. The `or 0` idiom used for the required counts is wrong here, 
 asserts it. Without the cached count nothing about prefix reuse is observable from inside
 this server, which is how a tool came to be argued for on an effect nobody here could see
 (ADR-0051).
+
+## What the endpoint returns, recorded
+
+`scripts/probe_endpoint.py` writes a dated capture of the response surface to
+`local/endpoint-captures/`, which is **untracked and on the secret denylist** (ADR-0052).
+It answers "do we already get this number?" by looking, rather than by re-probing or by
+computing it ourselves. Three shapes are elicited, because the adapter parses all three
+and one plain completion misses two: a normal reply, one truncated at the token cap, and
+one that calls a tool.
+
+`scripts/diff_endpoint_captures.py` compares two captures and reports **structure only** —
+fields added, removed or type-changed, and metric names that appeared or vanished. It
+needs no endpoint, which is the half that keeps a cluster outage from looking like a
+repository failure, and it exists as a script rather than a delegation because the
+denylist that protects the captures also stops the local model reading them. That cost is
+deliberate; ADR-0052 says why.
+
+What may never be recorded is a rule rather than a list of today's big fields: anything
+that echoes the prompt, anything that could name a host, and metric label values, which
+are stripped as a rule rather than as a side effect of wanting names. **No scanner
+protects these files** — they are never tracked, so the gate never sees them — which makes
+the probe's allowlist the only control.
 
 The per-turn diagnostic carries the cached count too, and per turn is the level that
 matters: turn one pays for the whole prefix and every turn after it should not, so a single

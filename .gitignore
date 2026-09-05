@@ -33,3 +33,8 @@ build/
 # root with nothing in the repository referencing them. Root-anchored, so a
 # legitimately tracked tmp_* elsewhere is unaffected.
 /tmp_*
+
+# Dated endpoint captures. Untracked by ADR-0052, because publishing what an endpoint
+# returns is unrecoverable while CI-verifying a reference document is a small benefit.
+# This is the convenience half; security/secret_globs.txt is the half that enforces.
+/local/endpoint-captures/
