@@ -27,8 +27,8 @@ part, and writing it would put every prefetched file on disk at rest indefinitel
 is written verbatim, because it exists nowhere else; that is a deliberate acceptance that
 whoever sets this directory owns what lands in it.
 
-**One file per dispatch, never an appended log.** `delegate_batch` runs its items
-concurrently, so a batch has as many writers as items. Per-file sidesteps append atomicity
+**One file per dispatch, never an appended log.** Delegations run concurrently, so at
+any moment there are as many writers as calls in flight. Per-file sidesteps append atomicity
 entirely rather than reasoning about it -- and the filesystem here may be `/mnt/c`, where
 reasoning about it would be reasoning about the wrong one.
 
@@ -63,7 +63,7 @@ log = logging.getLogger(__name__)
 # disk, and a name is not a promise about path separators.
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
-# Enough to make two records written in the same millisecond by one batch distinct.
+# Enough to make two records written in the same millisecond by concurrent calls distinct.
 _COUNTER = {"n": 0}
 
 
@@ -346,11 +346,10 @@ def write(  # noqa: PLR0913 -- one record's worth of facts, from four different 
 
         record: dict[str, Any] = {
             "at": datetime.now(UTC).isoformat(),
-            # Which of the four delegating tools this was, and what it resolved to. Until
-            # these were recorded, a `delegate_readonly` call, a `delegate_batch` item and
-            # a plain `delegate` all wrote the identical record, so a directory of them
-            # could not be counted by kind -- and the totalling is what the records exist
-            # for.
+            # Which delegating tool this was, and what it resolved to. Until these were
+            # recorded, a `delegate_readonly` call and a plain `delegate` wrote the
+            # identical record, so a directory of them could not be counted by kind -- and
+            # the totalling is what the records exist for.
             "tool": tool,
             "tools": sorted(tools),
             "agent": agent_name,

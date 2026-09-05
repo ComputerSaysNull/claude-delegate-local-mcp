@@ -160,15 +160,14 @@ def test_a_row_carries_the_state_the_picker_renders(viewer, tmp_path):
 
 
 def test_the_list_says_which_kind_of_call_each_stream_was(viewer, tmp_path):
-    """The column exists because every kind used to render identically. A `readonly`, a
-    batch item and an agent run are different amounts of trust and different amounts of
-    money, and the list is where you choose which one to open."""
+    """The column exists because every kind used to render identically. A `readonly` and
+    an agent run are different amounts of trust and different amounts of money, and the
+    list is where you choose which one to open."""
     now = datetime.now(UTC)
     stream(tmp_path, now - timedelta(minutes=5), "plain", tools=["read_file"])
     stream(tmp_path, now - timedelta(minutes=4), "readonly",
            tool="delegate_readonly", tools=[])
     stream(tmp_path, now - timedelta(minutes=3), "agent", tool="delegate_to_agent")
-    stream(tmp_path, now - timedelta(minutes=2), "batch", tool="delegate_batch")
     stream(tmp_path, now - timedelta(minutes=1), "silent one-shot", tools=[])
 
     rows, _ = viewer.scan(tmp_path)
@@ -177,7 +176,6 @@ def test_the_list_says_which_kind_of_call_each_stream_was(viewer, tmp_path):
         "plain": "delegate",
         "readonly": "readonly",
         "agent": "agent",
-        "batch": "batch",
         # A `delegate` handed no tools ran the one-shot path, whatever it was called.
         "silent one-shot": "one-shot",
     }

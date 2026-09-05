@@ -34,6 +34,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #103 — 2026-09-05 — feat: cancel the batch delegation tools
+
+### Changed
+- **`delegate_batch` and `delegate_batch_readonly` are removed**, and with them
+  `max_batch_size` and the `on_turn` hook. This changes the model-facing contract, which is
+  why it is a `Changed` entry and not a cleanup. The symptom was an argument nobody could
+  settle: the tools existed so several tasks over one `files[]` would share a cached prompt
+  prefix, and no measurement here could confirm or deny it. The cause was that the adapter
+  reads `usage.prompt_tokens` and discards `prompt_tokens_details.cached_tokens`, so the
+  effect the design rested on was invisible to the system holding it. Measured directly
+  against the endpoint at a 45k-token prefix, a batch and N separate calls present the same
+  leading bytes, because `Delegation.render()` puts the task last under a byte-constant
+  system prompt and one file-read cache serves every item. The batch conferred nothing.
+  (ADR-0051)
+- **`docs/AGENTS.md` now shows several questions over one `files[]` as several calls**, and
+  says plainly that keeping `files[]` stable across a series is what makes the prefix cache
+  work. That advice is worth more than any tuning the server exposes.
+
+### Fixed
+- **A security test was pinned to the tool being deleted.** The only coverage anywhere that
+  an adversary-controlled agent file cannot widen a caller-supplied `allowed_tools` was
+  written against `delegate_batch_readonly`. It moved to `delegate_to_agent`, now the only
+  tool taking both an agent and a tool set, rather than being deleted with the feature —
+  and it was verified to fail against a deliberately broken precedence check before being
+  kept. The two batch regression tests were deleted instead, after confirming both bugs are
+  unreachable on a single-delegation path: cancellation releases through `Admission.admit`'s
+  `finally` with no gather layer to shield it, and progress reports through `ctx` on every
+  turn.
+
 ## #102 — 2026-09-04 — feat: a deadline failure reports what the delegation had managed
 
 ### Fixed

@@ -140,10 +140,6 @@ _KINDS = {
     "delegate": "delegate",
     "delegate_readonly": "readonly",
     "delegate_to_agent": "agent",
-    "delegate_batch": "batch",
-    # Eight characters, because the column is eight wide. `kind_of` falls back to the raw
-    # tool name, so an unmapped fifth tool would not break -- it would just push the column.
-    "delegate_batch_readonly": "ro-batch",
 }
 
 
