@@ -34,6 +34,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #108 — 2026-09-05 — docs: reopen streaming with a scope, and file admission's missing anti-starvation
+
+### Changed
+- **Streaming moves out of `Cancelled` and into the open list, with the justification its
+  2026-08-25 cancellation was decided without.** That cancellation weighed one consumer,
+  the caller, and it still holds for the caller — MCP tool calls are request/response. The
+  second consumer is the transcript stream a person reads *while* a delegation runs, added
+  by ADR-0043 six days later and annotated then as *"worth revisiting: the premise moved"*,
+  but never scoped. The missing argument is **lost work**: a task too big to finish a turn
+  is abandoned at the deadline and everything generated is discarded, because the decoder
+  needs the whole body as one JSON object and the tokens exist only on the backend.
+  Streaming also makes the stall deadline honest — token arrival is real liveness, where
+  ADR-0047's alternatives were all timers that reset on the very turn that wedged, so this
+  **supplies the signal that ADR chose turn completion for lack of** rather than
+  contradicting it. Scope, cost and the trap are recorded with it.
+- **Admission's missing anti-starvation is filed**, with the half that measurement has just
+  closed separated from the half it has just made answerable. Closed: the worry that
+  `max_inflight_large_prefills = 2` trades cache hits for pipelining — three concurrent
+  large prefills over a shared prefix cost the same as three serial ones and hit cache
+  identically, and the engine runs one at a time. Open, and now measurable rather than
+  reasoned: whether the prefix a starved request was queued to reuse is evicted while it
+  waits, which the endpoint's own KV metrics can answer once they are read.
+- **A journal entry for what the 2026-09-05 measurements cost to learn**: that a method
+  valid at one scale reports a null result at another, that a measurement can invert in two
+  days and so must not be written into a document as a scheduling rule, and that an engine
+  fingerprint's build portion does not move when a deployment's configuration is pulled.
+
 ## #107 — 2026-09-05 — feat: dated endpoint captures, kept local and never published
 
 ### Added
