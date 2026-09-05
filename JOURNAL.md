@@ -1017,3 +1017,38 @@ reachable and would separate a wedged endpoint from a task that is merely too bi
 batch is the sharper version of the same trap: one item stalling costs the whole 2100s while
 its siblings sit finished, which is why `delegate_batch` reports per-item `ok` and why every
 item failing is the only shape that means an outage.
+
+---
+
+## 2026-09-05 — Prefix caching is worth 30x, and a measurement can invert in two days
+
+Three things cost real time and would have been got wrong again.
+
+**A method can be valid at one scale and useless at another.** An earlier attempt to
+measure prefix caching used a ~6k-token prefix, found no effect, and concluded there was
+none. At 45k the effect is 26 seconds. Everything at 6k landed inside 20ms — the method
+could not resolve what it was looking for, and reported that as an answer. Re-run any
+measurement at the scale the real workload uses before believing a null result.
+
+**A measurement can invert overnight, so do not write scheduling into a document.** On
+2026-09-04 three concurrent calls over a shared 45k prefix hit cache once and took 48.1s
+against 29.2s serialised. On 2026-09-05, after a cluster configuration pull, the same arms
+hit cache twice and took 29.5s — indistinguishable from serial, replicated three times with
+the order alternated. Both were true of their day. A rule like "serialise delegations that
+share a prefix" would have been committed the day before it became false, and would have
+outlived the configuration that made it true. Measure again before writing one down.
+
+**`system_fingerprint`'s build portion is the vLLM package version, not the deployment.**
+It reads `vllm-<version>+g<commit>.d<date>-tp<n>-<confighash>`, and pulling the cluster's
+own configuration repository does not move any of it except the trailing hash. Reading an
+unchanged build as "nothing was updated" was wrong and wasted an hour: the operator had
+pulled ~100 commits the day before, and the changed configuration hash was the evidence of
+exactly that. An unchanged build with a changed hash is the signature of a config pull.
+
+**What the numbers actually are**, so nobody re-measures them: a cold 45k prefill costs
+~27s and a warm one ~1.2s, so cache hits are a 30x lever. Decode is ~36 tok/s single-stream
+and saturates at ~85 tok/s aggregate around six concurrent sequences, so concurrency is at
+best a 2.35x lever and only during decode — prefill is serialised by the engine and
+concurrent distinct prefills gain nothing at all. Cache first, concurrency second, and
+nothing else is close.
+

@@ -1,4 +1,9 @@
-<!-- BUDGET: 320
+<!-- BUDGET: 374
+     Raised from 351 on 2026-09-05: admission's missing anti-starvation filed, with the half
+     that is now measurable separated from the half that measurement has just closed.
+     Raised from 320 on 2026-09-05: streaming moved out of Cancelled with the scope and the
+     justification its 2026-08-25 cancellation was decided without -- lost work, and a stall
+     deadline that can finally be honest.
      Raised from 312 on 2026-09-05: the batch item closed as wrong when filed, and the wrong
      original is the part worth keeping.
      Raised from 298 on 2026-09-04: two items JOURNAL 2026-09-04 named while recording a stall that looked like an outage -- a batch withholding finished results, and a stall failure that cannot be told from an unreachable endpoint.
@@ -101,6 +106,26 @@ group by what the item's own annotation says it costs.
   there invites someone to rederive a check that is already derived
 
 ### Limits and admission, 2026-09-03
+
+- ⬜ **Admission has no anti-starvation, and 2026-09-05's measurements make it sharper.**
+  `_binding` ends with a queue-position check refusing any waiter with `ahead > 0`, where
+  `ahead` counts only earlier-ticketed waiters *that currently fit*. Of the four rules only
+  `max_inflight_large_prefills` is guarded by `is_large`, so a small request never tests it
+  — and a large request parked on that cap therefore counts every later small request as
+  ahead of it, and they go first. Deliberate, and the docstring says why: strict ticket
+  order would reintroduce head-of-line blocking. But there is **no aging, no reservation
+  and no barrier.** The only escape is the caller's `admission_wait_timeout`, a bail-out
+  rather than a guarantee, and the ticket staleness is a crash backstop.
+  - **What changed:** the eviction half was reasoned, not measured, and now can be. The
+    KV pool is `kv_cache_size_tokens` from the endpoint's own metric, and
+    `vllm:kv_cache_usage_perc` says how full it is, so "the prefix a starved request was
+    queued to reuse gets evicted meanwhile" is now a question with an instrument. Decide
+    after step 5 lands the reader, not before.
+  - **What is settled:** the related worry that `max_inflight_large_prefills = 2` trades
+    cache hits for pipelining is **answered and dead.** Three concurrent large prefills
+    over a shared prefix cost the same as three serial ones and hit cache identically, and
+    the engine runs one at a time, touching two only at the handoff — which is exactly
+    what "one running plus one staged" describes. Keep the setting and the value.
 
 Raised by a documentation audit that was truncated by its own turn budget, then rerun. The
 three settings below were each sized against a constraint that has since moved, and none of
@@ -286,6 +311,44 @@ them was re-derived when it did.
   documents each kept their own prose list of the tools the local model gets, none of them
   the document that owns `tools.py`, and one addition made all three wrong at once
 
+- ⬜ **Streaming, reopened 2026-09-05 with a scope.** Filed and cancelled the same day,
+  2026-08-25, on the grounds that MCP tool calls are request/response so the caller sees
+  nothing incrementally either way. That is still true of the caller and was never the
+  whole picture: it never had its own ADR (ADR-0018 is about the progress notifications
+  offered as the substitute), and it was annotated once during the ADR-0043 work as
+  *"worth revisiting: the premise moved"* — because the cancellation weighed one consumer
+  and there are two. The second is the transcript stream a person reads *while* a
+  delegation runs.
+  - **Lost work is the argument that was missing.** A task too big to finish a turn is
+    abandoned at the tighter of `stall_timeout` and `turn_timeout`, and everything
+    generated is discarded: `_decode()` needs the whole body as one JSON object, and
+    `complete()` states it never returns a partial. The tokens exist only on the backend.
+    Nor is the work re-done — `except TimeoutError` always raises, and retry covers only
+    an unavailable or refusing backend.
+  - **It makes the stall deadline honest, which beats returning partials.** ADR-0047 chose
+    turn completion because every other signal was fake: the per-turn notification fires at
+    the *top* of a turn and the keepalive is a timer, so both reset the clock on the very
+    turn that wedged. Token arrival is real liveness. `stall_left` resetting on token
+    arrival means a call producing tokens is never killed and a call producing nothing
+    still dies — **this supplies the signal ADR-0047 lacked rather than contradicting it**,
+    which is the argument that would supersede its heading.
+  - **Scope, in order of value:** a `stream` key in `wire_body()`; an SSE accumulator
+    behind the existing `complete()` contract, so *"never returns a partial"* stays true
+    and the stall path reads the accumulator rather than `complete()`; `stall_left` reset
+    on token arrival; deltas feeding `stream.turn`; and last, a partial returned at
+    `dispatch_timeout`, marked partial so the calling conversation can decide whether to
+    ask for the rest.
+  - **Cheaper than it looks**, because the seam was preserved for it — `base.py` says SSE
+    accumulation lives per adapter behind one contract, a method on the protocol rather
+    than a shape baked into the caller. **Costly** because `_decode()` requires one whole
+    JSON object, so there is no line-by-line path to extend, and the adapter's *"a single
+    non-streaming call **is** the turn"* is a claim streaming invalidates.
+  - **The trap, recorded with it:** token flow is not turn completion. The `alive`
+    heartbeat must not report streamed tokens as liveness without the deadline change
+    above, or it would call the 2026-09-04 stalls healthy. Open question to measure: a
+    model looping while emitting tokens is bounded by `max_tokens`, but whether a reasoning
+    model's thinking tokens count against it is unknown here.
+
 ## Deferred
 
 On hold for weeks or months. Not cancelled, and not queued.
@@ -295,16 +358,6 @@ On hold for weeks or months. Not cancelled, and not queued.
 
 ## Cancelled
 
-- ❌ 2026-08-25 Streaming in v1 — cancelled. MCP tool calls are request/response, so
-  Claude sees nothing incrementally either way. Progress notifications, which are
-  required for the idle timeout, cover the part that actually matters. ADR-0018
-  — **worth revisiting: the premise moved.** That reasoning weighed one consumer, the
-  caller, and it still holds for the caller. ADR-0043 added a second one six days later:
-  the transcript stream, which a person reads *while* the delegation runs. Streaming
-  would let it carry tokens as they are generated rather than a heartbeat saying only
-  how long it has been. Not reopened here, because nobody has yet wanted it enough —
-  recorded so the next reader knows the cancellation was decided without this consumer
-  in view rather than despite it.
 - ❌ 2026-08-25 Run Claude Code inside WSL — cancelled on workflow grounds, not
   engineering ones. It would delete the path-translation module outright and remove the
   12x test penalty. ADR-0002 keeps the trigger: if development moves onto Linux for
