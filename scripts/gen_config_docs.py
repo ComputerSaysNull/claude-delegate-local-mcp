@@ -77,7 +77,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                  "max_bash_output_chars",
                  "secret_shadow_max_entries", "secret_shadow_max_depth",
                  "opaque_globs_file")),
-    ("Agents", ("agents_dir",)),
+    ("Agents", ("agents_dir", "agent_bind_roots", "agent_network_allowed")),
     ("Transport", ("transport",)),
 ]
 

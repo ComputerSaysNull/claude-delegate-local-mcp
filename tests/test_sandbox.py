@@ -191,6 +191,50 @@ def test_readonly_toolchain_binds_come_before_the_writable_workdir():
     assert index_of(argv, "--ro-bind", "/opt/uv") < index_of(argv, "--bind", WORKDIR)
 
 
+# --- bind order rule 2a ------------------------------------------------------------------
+
+
+def base_mount_block(argv: list[str]) -> int:
+    """Where `_BASE_MOUNTS` starts in `argv`.
+
+    Anchored on the whole contiguous block rather than on a single flag, and that is the
+    point of it. An agent binding /usr emits `--ro-bind /usr /usr`, which is byte-identical
+    to the base mount of /usr -- so an assertion phrased as "the first --ro-bind /usr comes
+    before the last mention of /usr" is true whichever order they are in, and would pass
+    against the very bug these tests exist for. Ask where the block is instead.
+    """
+    block = list(sandbox._BASE_MOUNTS)
+    for i in range(len(argv) - len(block) + 1):
+        if argv[i:i + len(block)] == block:
+            return i
+    raise AssertionError(f"the base mount block is not in argv: {argv}")
+
+
+@pytest.mark.parametrize("target", sorted(sandbox.base_mount_targets()))
+def test_an_extra_bind_inside_a_base_mount_is_applied_after_it(target):
+    """Rule 2a, and the reason the order is this way round rather than the other.
+
+    /tmp is a tmpfs: a bind under it emitted *before* the base mounts is wiped, and on Linux
+    every temporary directory is under /tmp -- which is what an integration test found on
+    2026-09-05 when the order was inverted to stop a bind shadowing /usr. So the shadowing
+    case is refused in `agents.py` instead, and this asserts the ordering that refusal
+    assumes. Parametrised over the derived table because a mount added later is exactly the
+    case a hand-written list would miss.
+    """
+    inside = f"{target.rstrip('/')}/toolchain"
+    argv = sandbox.build_argv(cfg(), req(extra_binds=(inside,)))
+    assert index_of(argv, "--ro-bind", inside) > base_mount_block(argv), (
+        f"a bind under {target} is applied before the sandbox mounts {target}, so it is lost"
+    )
+
+
+def test_an_extra_bind_under_home_is_applied_after_home():
+    """The same, for HOME, which is a config value rather than part of the base table."""
+    inside = f"{HOME}/toolchain"
+    argv = sandbox.build_argv(cfg(), req(extra_binds=(inside,)))
+    assert index_of(argv, "--ro-bind", inside) > index_of(argv, "--bind", HOME)
+
+
 # --- network -----------------------------------------------------------------------------
 
 

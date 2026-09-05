@@ -147,6 +147,8 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DELEGATE_AGENTS_DIR` | ~/.claude/agents | Third and last place an agent definition is looked for, after the workspace's own agents and skills directories. |
+| `DELEGATE_AGENT_BIND_ROOTS` | *(empty)* | Roots an agent file's extra_binds may resolve inside, separated by os.pathsep. Empty means no agent-supplied bind is ever permitted. Deliberately does not fall back to workspace_roots the way workdir_roots does: those roots are sized for showing a file's contents, not for granting a mount, and the two of them being the same list is how one widened for a reading tool would silently widen this. Written as sandbox-side POSIX paths, because that is what a bind is. An operator's own toolchain_binds are not checked against this. |
+| `DELEGATE_AGENT_NETWORK_ALLOWED` | *(empty)* | Names of agents permitted to ask for network egress, separated by os.pathsep. Empty means none, and an agent naming network: true is refused rather than quietly run without it. Being named here is necessary and not sufficient: the file must also have been found in agents_dir, since a repository can ship a workspace-tier agent file under any name it likes. |
 
 ### Transport
 
@@ -154,6 +156,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting, unlike ADR-0034's sandbox_enabled, because naming another transport should be an error rather than silence -- load() reads only variables matching a field, so deleting this one would make a stale value do nothing without saying so. |
 
-*56 settings.*
+*58 settings.*
 
 <!-- GEN:CONFIG:END -->

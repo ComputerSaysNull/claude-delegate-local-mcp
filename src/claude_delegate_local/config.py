@@ -548,6 +548,24 @@ class Config:
         "Third and last place an agent definition is looked for, after the workspace's "
         "own agents and skills directories.",
     )
+    agent_bind_roots: tuple[str, ...] = _f(
+        (),
+        "Roots an agent file's extra_binds may resolve inside, separated by os.pathsep. "
+        "Empty means no agent-supplied bind is ever permitted. Deliberately does not fall "
+        "back to workspace_roots the way workdir_roots does: those roots are sized for "
+        "showing a file's contents, not for granting a mount, and the two of them being "
+        "the same list is how one widened for a reading tool would silently widen this. "
+        "Written as sandbox-side POSIX paths, because that is what a bind is. An "
+        "operator's own toolchain_binds are not checked against this.",
+    )
+    agent_network_allowed: tuple[str, ...] = _f(
+        (),
+        "Names of agents permitted to ask for network egress, separated by os.pathsep. "
+        "Empty means none, and an agent naming network: true is refused rather than "
+        "quietly run without it. Being named here is necessary and not sufficient: the "
+        "file must also have been found in agents_dir, since a repository can ship a "
+        "workspace-tier agent file under any name it likes.",
+    )
 
     # ---- transport ---------------------------------------------------------------
     transport: str = _f(

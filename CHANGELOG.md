@@ -34,6 +34,49 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #110 — 2026-09-05 — feat: an agent file's network and binds need an operator's consent
+
+### Added
+- **`DELEGATE_AGENT_BIND_ROOTS` and `DELEGATE_AGENT_NETWORK_ALLOWED`**, both empty by
+  default, so an unconfigured server grants no mount and no egress. `network` and
+  `extra_binds` are the only frontmatter that gives a delegation something the sandbox
+  withholds, and their whole validation was a boolean parse and `os.path.isabs`. Two of the
+  three lookup tiers sit inside the caller's own `workdir`, so a markdown file checked into
+  a repository under review could bind any absolute host path read-only and switch the
+  network on for that call. ADR-0036 saw half of this and answered it at the mount, scanning
+  binds for secrets afterwards; covering matches afterwards is not the same as deciding what
+  may be bound, and only the second is an operator's to decide. (ADR-0053)
+- **Egress needs the agent named *and* the file in `agents_dir`.** The name alone is not
+  enough because the workspace tiers are searched first: a repository shipping
+  `.claude/agents/<an-allowlisted-name>.md` shadows the operator's own file and would
+  inherit its grant by matching a string an attacker chose. The two fields are gated
+  differently on purpose — a bind can be pinned to a root and `--share-net` cannot, having
+  no destination list, no proxy and no filter.
+
+### Fixed
+- **A bind was checked as one path and mounted as another.** `build_argv` emitted the
+  frontmatter string verbatim, so a link inside an approved root was resolved by the kernel
+  at mount time, inside the sandbox, having never met the check — which would have made the
+  new containment check decorative. The resolved path is now both what is checked and what
+  is carried forward, the same shape as `resolve_workdir`, so there is no second resolution
+  to disagree with the first. This closes redirection, not substitution, exactly as ADR-0049
+  found for reads.
+- **A bind at or above one of the sandbox's own mounts is refused.** They are emitted after
+  `/usr`, `/etc`, `/tmp` and HOME, so naming one replaced it: read-only, so trust rather
+  than write access — a `/usr/bin/python3` the sandbox did not provide. Reordering is the
+  obvious fix and is wrong; it also wipes every bind *inside* `/tmp`, which is where every
+  temporary directory on Linux lives. Tried, and an existing integration test caught it in
+  one run. Two things the filing did not foresee: the reserved set needs HOME unioned in,
+  because it is a config value the derived mount table cannot know about, and four of the
+  nine targets are symlinks into `usr/`, so canonicalising a bind on one lands it inside
+  `/usr` where it shadows nothing and is correctly allowed. Their test asserts the outcome
+  rather than a refusal for that reason.
+- **`docs/AGENTS.md` claimed the opposite invariant** — that a root list was unnecessary
+  because *"no agent file can bind a directory in order to read credentials out of it"*.
+  That was wrong when written: the scan it relied on matches names, so a credential in a
+  file it does not recognise was never covered. The same section also said every frontmatter
+  row is overridable per call, and these two have no call argument at all.
+
 ## #109 — 2026-09-05 — feat: backend_status reports the cluster's numbers, not our guesses
 
 ### Added

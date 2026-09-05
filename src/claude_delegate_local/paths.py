@@ -161,9 +161,33 @@ def resolved_workdir_roots(cfg: Config) -> tuple[str, ...]:
     )
 
 
+def resolved_agent_bind_roots(cfg: Config) -> tuple[str, ...]:
+    """The roots an agent file's `extra_binds` may resolve inside. Empty means none.
+
+    No `to_posix` here, unlike the two above, and that is the difference rather than an
+    omission: a bind is consumed by bwrap on the far side of the WSL boundary, so it is
+    already POSIX and translating it would be translating something that never crossed.
+
+    No fallback either. `workdir_roots` falls back to `workspace_roots` because both govern
+    the same tree from different angles; this one governs mounts, and sharing a list with a
+    reading tool is how widening one would silently widen the other.
+    """
+    return tuple(os.path.realpath(r) for r in cfg.agent_bind_roots)
+
+
 def _within(real: str, root: str) -> bool:
     root = root.rstrip("/")
     return real == root or real.startswith(root + "/")
+
+
+def path_within_roots(real: str, roots: Sequence[str]) -> bool:
+    """`_within` against any of `roots`, for callers outside this module.
+
+    A public name rather than a reached-across underscore: `agents.py` needs exactly this
+    containment rule and needs it to be the *same* rule, because two modules disagreeing
+    about what "inside a root" means is the failure the single definition prevents.
+    """
+    return any(_within(real, root) for root in roots)
 
 
 def _check_roots(given: str, real: str, roots: Sequence[str]) -> Refusal | None:
