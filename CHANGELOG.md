@@ -34,6 +34,34 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #106 — 2026-09-05 — feat: the delegation list shows what the prefix cache saved
+
+### Added
+- **A `saved` column, between `turns` and the task.** Prompt tokens the cluster served
+  from its prefix cache instead of computing — the number the whole 2026-09-05
+  measurement session was chasing, now readable per delegation without running a script.
+  A finished row uses the total the `end` event recorded; a running one sums what its
+  turns have reported, so the figure grows as the work does.
+- **The stream carries the cached count per turn, and its total on `end`.** Per turn is
+  the level that matters: turn one pays for the whole prefix and every turn after it
+  should not, so one figure for a delegation would hide a cache going cold mid-run. `#105`
+  put the number in the record; this puts it where the viewer and the savings report can
+  both reach it.
+
+### Changed
+- **The `state` column narrows from eleven to nine.** It never needed eleven: `quiet 89m`
+  is the widest word it can hold, since the age switches to hours at ninety minutes.
+
+### Fixed
+- **A token count could overflow its own column.** The unit switched at a million, but
+  rounding happens after the unit is chosen, so 999,999 rendered as `1000.0k` — seven
+  characters in a six-wide column. The boundary is 999,950. Found by the test that asserts
+  the width, which is the reason to assert widths rather than eyeball them.
+- **Nothing measured still is not a saving of zero.** The distinction `#105` went to
+  trouble to preserve in the adapter is carried all the way to the column: a dash, not a
+  `0`, for an endpoint that reports no caching or a stream written before the field
+  existed.
+
 ## #105 — 2026-09-05 — feat: carry the four numbers the endpoint already returns
 
 ### Added

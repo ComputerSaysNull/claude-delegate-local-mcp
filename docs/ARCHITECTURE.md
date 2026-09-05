@@ -1,4 +1,5 @@
-<!-- BUDGET: 715
+<!-- BUDGET: 723
+     Raised from 715 on 2026-09-05: the list now shows what the prefix cache saved, and the stream carries it per turn.
      Raised from 710 on 2026-09-05: the result dict and the transcript record now carry the endpoint's own numbers.
      Raised from 704 on 2026-09-05: the delegation list gained a duration and an effort column, and this document owns what the viewer shows and why.
      Raised from 698 on 2026-09-04: the end event now carries turns for a dispatch that died on a deadline, where it recorded none -- the transcript half of the same gap, and this document owns what that event carries.
@@ -645,7 +646,14 @@ Nothing is deleted, and an older stream still opens by path. Unchanged files com
 keyed on `(mtime, size)`: an unattended redraw over `/mnt/c` that re-read every one would make
 the viewer a load generator (ADR-0020). The start clock is local, because `at` is UTC.
 
-Beside it: **how long**, and the **effort**. A finished row reports the `elapsed_seconds` the
+Beside those, **what the cluster did not have to recompute**: prompt tokens served from
+its prefix cache, summed over the delegation's turns because every turn resends the
+history. A finished row uses the total the `end` event recorded and a running one sums the
+turns so far, so the figure grows as the work does. A dash means nothing was measured —
+an endpoint that reports no caching, or a stream written before the field existed — which
+is deliberately not the same as a saving of zero.
+
+Beside it: **duration**, and the **effort**. A finished row reports the `elapsed_seconds` the
 dispatch measured for itself, admission wait included; an unfinished one counts from its start
 event and ticks on every redraw — one question asked at two moments, which is why it is one
 column and why it beats a last-write clock at comparing rows. Effort is read from `start`, so
