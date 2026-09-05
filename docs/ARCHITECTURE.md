@@ -1,4 +1,5 @@
-<!-- BUDGET: 704
+<!-- BUDGET: 710
+     Raised from 704 on 2026-09-05: the delegation list gained a duration and an effort column, and this document owns what the viewer shows and why.
      Raised from 698 on 2026-09-04: the end event now carries turns for a dispatch that died on a deadline, where it recorded none -- the transcript half of the same gap, and this document owns what that event carries.
      Raised from 669 on 2026-09-04: admission queues in order now, and the two qualifications a reader needs are that a waiter must be feasible to count as ahead (strict order would reintroduce head-of-line blocking) and that a ticket is dropped in a finally (an abandoned one starves the machine).
      Raised from 660 on 2026-09-04: the files block now escapes a body line shaped like its own boundary, and why it matches any path rather than the file's own is the part a reader needs. Two mid-sentence wraps in the paragraph above were reflowed to pay part of it.
@@ -637,8 +638,13 @@ watching a long dispatch. **The list is then the newest twenty**, a count rather
 seven-day window it replaces: an age left a busy day unreadable and a quiet week nearly empty.
 Nothing is deleted, and an older stream still opens by path. Unchanged files come from a cache
 keyed on `(mtime, size)`: an unattended redraw over `/mnt/c` that re-read every one would make
-the viewer a load generator (ADR-0020). Start and last-write clocks sit side by side in local
-time, because `at` is UTC and an mtime is not.
+the viewer a load generator (ADR-0020). The start clock is local, because `at` is UTC.
+
+Beside it: **how long**, and the **effort**. A finished row reports the `elapsed_seconds` the
+dispatch measured for itself, admission wait included; an unfinished one counts from its start
+event and ticks on every redraw — one question asked at two moments, which is why it is one
+column and why it beats a last-write clock at comparing rows. Effort is read from `start`, so
+it shows from the first redraw rather than once the call ends.
 
 The listing also names the **kind** of each call in one word — `delegate`, `readonly`,
 `agent`, or `one-shot` for a `delegate` that was handed no tools — because that is
