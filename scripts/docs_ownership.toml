@@ -107,6 +107,10 @@ plane = "product"
 owns = [
   "src/claude_delegate_local/loop.py",
   "src/claude_delegate_local/backends/**",
+  # What comes back from the endpoint, recorded and compared. This document already
+  # owns the adapter that reads it; a second home would be a second copy.
+  "scripts/probe_endpoint.py",
+  "scripts/diff_endpoint_captures.py",
 ]
 covers_not = """
 The orchestration around a dispatch -- prefetch, path checks, the backend cache, the MCP

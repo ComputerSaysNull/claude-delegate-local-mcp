@@ -34,6 +34,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #107 — 2026-09-05 — feat: dated endpoint captures, kept local and never published
+
+### Added
+- **`scripts/probe_endpoint.py` writes a dated capture of what the endpoint returns**, to
+  `local/endpoint-captures/`. It answers "do we already get this number?" by looking,
+  instead of re-probing or computing it ourselves — the question that cost a fortnight of
+  argument about the batch tools. Three shapes are elicited because the adapter parses all
+  three and one plain completion misses two: a normal reply, one truncated at the token
+  cap, and one that calls a tool.
+- **`scripts/diff_endpoint_captures.py` compares two captures, structure only.** Fields
+  added, removed or type-changed, and metric names that appeared or vanished; never a
+  value. It needs no endpoint, which keeps a cluster outage from looking like a repository
+  failure, and it is a script rather than a delegation because the denylist protecting the
+  captures also stops the local model reading them.
+- **ADR-0052**, which records why this is *not* the generated-document pattern that
+  `CONFIGURATION.md` and `TOOLS.md` use. Those render from code in this repository and CI
+  can prove they match; the render input here is an external service that cannot be tracked
+  without publishing what it returns. Without that paragraph a future reader "fixes" the
+  inconsistency and re-introduces the risk.
+
+### Changed
+- **Captures are covered by both `.gitignore` and `security/secret_globs.txt`.** The first
+  is a convenience — `git add -f`, a rename or a stray `git add -A` all defeat it; the
+  second blocks a tracked capture outright. Both were demonstrated: the file is invisible
+  to `git status`, and forcing it tracked is refused by the gate. Relying on one layer has
+  already failed here once, when an empty `forbidden_strings.txt` committed cleanly.
+- **The local model can no longer read a capture**, because that denylist feeds layer 3 of
+  the path policy as well as the gate. Demonstrated, not assumed: `resolve_all` refuses the
+  path. This is the accepted cost of the line above and the reason the diff is a script.
+
 ## #106 — 2026-09-05 — feat: the delegation list shows what the prefix cache saved
 
 ### Added
