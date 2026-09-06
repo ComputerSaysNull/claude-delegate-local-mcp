@@ -1206,6 +1206,15 @@ class _Watch:
         self.diagnostics = diagnostics
         self.calls: _Ledger = []
         self.turns: list[TurnDiagnostic] = []
+        # Summed over every turn, and outside the `diagnostics` branch deliberately. What a
+        # delegation cost the cluster is not a debugging extra: it is the only figure that
+        # answers "what did delegating save", and the per-turn detail that would let a
+        # caller add it up themselves is off by default (ADR-0058). `cached` stays None
+        # until an endpoint reports caching at all, because a measured zero and an endpoint
+        # that does not report are opposite answers.
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_cached_tokens: int | None = None
         self.rereads: list[RereadAfterEviction] = []
         self.turn = 0  # the turn now running, so callees need not be handed it
         # The aggregate ledger `AgenticDispatch` reports. Counters rather than derived from
@@ -1293,6 +1302,12 @@ class _Watch:
         reported `attempts: 0`, which is exactly the kind of counter that reads as fine.
         """
         self.attempts += dispatch.attempts
+        self.total_input_tokens += dispatch.response.input_tokens or 0
+        self.total_output_tokens += dispatch.response.output_tokens or 0
+        if dispatch.response.cached_tokens is not None:
+            self.total_cached_tokens = (
+                (self.total_cached_tokens or 0) + dispatch.response.cached_tokens
+            )
         if not self.diagnostics:
             return
         self.turns.append(
@@ -1545,6 +1560,13 @@ class AgenticDispatch:
     tool_errors: int = 0
     deduped: int = 0
     evicted: int = 0
+    # The whole run, where `response` describes only the turn that answered. Both are kept
+    # and neither is derivable from the other: a caller asking "was this answer truncated"
+    # wants the answering turn, and one asking "what did this delegation cost" wants these.
+    # ADR-0058, and the reason a twelve-turn delegation used to report one turn's usage.
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cached_tokens: int | None = None
     hit_turn_limit: bool = False
     # ADR-0007. `last_bash_exit` is None for "nothing exited" -- no command ran, or the last
     # one was killed on timeout -- which 0 cannot mean, being a real exit code.
@@ -1887,6 +1909,9 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             tool_errors=watch.tool_errors,
             deduped=watch.deduped,
             evicted=watch.evictions,
+            total_input_tokens=watch.total_input_tokens,
+            total_output_tokens=watch.total_output_tokens,
+            total_cached_tokens=watch.total_cached_tokens,
             hit_turn_limit=turn == turns,
             bash_calls=watch.bash_calls,
             bash_failures=watch.bash_failures,

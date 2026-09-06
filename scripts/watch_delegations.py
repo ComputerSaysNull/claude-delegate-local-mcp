@@ -300,7 +300,8 @@ def summarise(path: Path) -> dict:
     """One row for the picker, read cheaply: the head of the file plus its mtime."""
     row = {"path": path, "task": "", "model": "", "turns": 0, "done": False,
            "tool": "", "tools": None, "effort": "", "elapsed_seconds": None,
-           "turn_cached": None, "end_cached": None, "created": created_at(path)}
+           "turn_cached": None, "end_cached": None, "turn_sent": 0, "end_sent": None,
+           "created": created_at(path)}
     try:
         with path.open(encoding="utf-8") as fh:
             for line in fh:
@@ -324,11 +325,13 @@ def summarise(path: Path) -> dict:
                     cached = event.get("cached_tokens")
                     if cached is not None:
                         row["turn_cached"] = (row["turn_cached"] or 0) + cached
+                    row["turn_sent"] += event.get("input_tokens") or 0
                 elif event.get("t") == "end":
                     row["done"] = True
                     row["ok"] = event.get("ok")
                     row["elapsed_seconds"] = event.get("elapsed_seconds")
                     row["end_cached"] = event.get("cached_tokens")
+                    row["end_sent"] = event.get("input_tokens")
     except OSError:
         pass
     row["mtime"] = path.stat().st_mtime if path.exists() else 0
@@ -435,6 +438,17 @@ def _tokens(n: int | None) -> str:
     return f"{n / 1_000_000:.1f}M"
 
 
+def _reuse(share: float | None) -> str:
+    """A cache-reuse share for a narrow column, or `-` when nothing was measured.
+
+    Whole percent: the column is read to spot a run that stopped reusing its prefix, and a
+    decimal place answers that no better while costing two characters.
+    """
+    if share is None:
+        return "-"
+    return f"{share * 100:.0f}%"
+
+
 def saved_of(row: dict) -> int | None:
     """Prompt tokens the cluster served from cache instead of computing.
 
@@ -447,6 +461,31 @@ def saved_of(row: dict) -> int | None:
     if row.get("end_cached") is not None:
         return row["end_cached"]
     return row.get("turn_cached")
+
+
+def sent_of(row: dict) -> int | None:
+    """Prompt tokens sent across every turn -- the denominator `saved_of` never had."""
+    if row.get("end_sent"):
+        return row["end_sent"]
+    return row.get("turn_sent") or None
+
+
+def reuse_of(row: dict) -> float | None:
+    """Share of everything sent that the cluster served from cache.
+
+    The column used to be the bare cumulative total, and that number is real but reads as
+    a headline when it is a symptom. A run whose eviction boundary moved every turn
+    re-served the *same* opening prompt on each of them: 559,872 "saved" of which 479,232
+    was one 53,248-token prefix counted nine times, against 902,996 actually sent. As a
+    ratio that is 62%, which is visibly poor for a history that is nominally append-only,
+    and it moves the moment the prefix stops being reused. As a total it only ever grows,
+    so the worse the reuse the larger the number -- the one presentation that cannot show
+    the bug it is measuring.
+    """
+    saved, sent = saved_of(row), sent_of(row)
+    if saved is None or not sent:
+        return None
+    return saved / sent
 
 
 def _ago(seconds: float) -> str:
@@ -537,7 +576,7 @@ def pick(directory: Path) -> Path | None:
         head += f" · newest {MAX_ROWS} of {len(rows) + trimmed}" if trimmed else ""
         print(f"{head}{R}")
         print(f"{DIM} started   duration  effort  state      kind      "
-              f"turns  saved   task{R}")
+              f"turns  reuse   task{R}")
         for n, row in enumerate(rows):
             word, colour = state_of(row)
             task = row["task"][:60] or "(no task recorded)"
@@ -547,7 +586,7 @@ def pick(directory: Path) -> Path | None:
             kind = f"{DIM}{kind_of(row):<8}{R}"
             spent = f"{DIM}{_duration(elapsed_of(row)):<8}{R}"
             effort = f"{DIM}{(row.get('effort') or '?'):<6}{R}"
-            saved = f"{DIM}{_tokens(saved_of(row)):>6}{R}"
+            saved = f"{DIM}{_reuse(reuse_of(row)):>6}{R}"
             line = (f" {_clock(started_at(row))}  {spent}  {effort}  {state} "
                     f"{kind} {DIM}{row['turns']:>5}{R}  {saved}  {task}")
             print(f"{INVERT}{line}{R}" if n == i else line)

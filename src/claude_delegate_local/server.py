@@ -90,6 +90,17 @@ def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
         "tool_errors": dispatched.tool_errors,
         "tool_calls_deduplicated": dispatched.deduped,
         "tool_results_evicted": dispatched.evicted,
+        # What the whole run cost, where the `*_tokens` fields above describe only the turn
+        # that answered (ADR-0058). Both are kept because neither answers the other's
+        # question: "was this answer truncated" is about the answering turn, and "what did
+        # this delegation cost the cluster" is about every turn there was. Until these
+        # existed a twelve-turn delegation reported one turn's usage under names the
+        # transcript used for lifetime sums -- 2,002 output tokens against a real 4,404,
+        # and `cached_tokens: 0` on a run that reused 559,872.
+        "total_input_tokens": dispatched.total_input_tokens,
+        "total_output_tokens": dispatched.total_output_tokens,
+        # None where the endpoint reports no caching at all, which is not a measured zero.
+        "total_cached_tokens": dispatched.total_cached_tokens,
         "hit_turn_limit": dispatched.hit_turn_limit,
         # Present at zero, not absent, once a loop ran: these share the gate above rather
         # than getting a narrower one of their own. A delegation that was offered run_bash

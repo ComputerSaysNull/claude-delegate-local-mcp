@@ -1,4 +1,6 @@
-<!-- BUDGET: 663
+<!-- BUDGET: 678
+     Raised from 663 on 2026-09-06: the usage-accounting item, which was never filed
+     and arrives ticked, and whose finding is that two records disagreed by design.
      Raised from 647 on 2026-09-06: a second cache bug found by measurement rather
      than filed, so it arrives already ticked and its reasoning has nowhere else to
      live.
@@ -116,6 +118,19 @@ reproduces the second without a cluster.
     a whole answer in one deadline; raising the count postpones the death and makes it
     dearer. Respect ADR-0014's floor — it exists so heavy reasoning does not return nothing,
     and a cap ignoring it re-creates that bug from the other side
+- ✅ 2026-09-06 A delegation reports what the whole run cost, beside what the answering turn
+  cost (`#116`, ADR-0058) — raised by reading the picker's "saved" column and not by a filed
+  item. **Not the bug it looked like:** `saved_of`'s two branches agree, and the result dict
+  reporting the answering attempt is documented behaviour that predates all of this. The
+  defect is that the *transcript* uses the same three field names for lifetime sums, so one
+  delegation honestly reported `cached_tokens: 0` while its own record said 559,872. Fixed
+  additively rather than by renaming, because the two figures answer different questions.
+  The second half is a presentation bug with the same root: a cumulative "saved" total grows
+  fastest exactly when reuse is worst, so it was the one rendering that could not show the
+  eviction bug it was measuring. It reads as a share now — 62% and 33% on the two runs that
+  prompted this, both poor for an append-only history. Closes the measurement half of
+  [[token-savings-report-goal]]: totalling what delegation saves is possible from tool
+  results alone, which it was not before
 - ✅ 2026-09-06 The final turn forbids tool calls instead of withdrawing the tools (`#115`,
   ADR-0057) — **never filed, and found by measuring rather than by reading.** Looking at why
   turn 12 of two delegations cached zero while turns 2-11 cached fine turned up a second,

@@ -1,4 +1,7 @@
-<!-- BUDGET: 600 -->
+<!-- BUDGET: 610 -->
+<!-- Raised from 600 on 2026-09-06: the loop now counts the whole run's tokens as
+     well as the answering turn's, which is behaviour this document owns.
+     ADR-0058. -->
 <!-- Raised from 588 on 2026-09-06: the final turn forbids tool calls rather than
      withdrawing the tools, which is a change to the request this document owns.
      ADR-0057. -->
@@ -438,6 +441,13 @@ measured, dropping the tool block to save 321 tokens re-prefilled all 36,018 of 
 hit falling to 0.0%. `tool_choice` is our own two-word vocabulary, `auto` and `none`,
 translated per adapter as `effort` is; `auto` is omitted from the body so an ordinary turn's
 bytes do not move.
+
+**The loop counts what the whole run cost, not only the turn that answered** (ADR-0058).
+`_Watch` sums input, output and cached tokens across every turn, outside the `diagnostics`
+branch, and `AgenticDispatch` carries them as `total_*`. The per-turn figures on `response`
+are the answering attempt and keep that meaning; the totals are what a caller adds up across
+delegations. `total_cached_tokens` is `None` until an endpoint reports caching at all, since
+a measured zero and an unmeasured one are opposite answers.
 
 ## A repeated tool call is answered, not re-run
 
