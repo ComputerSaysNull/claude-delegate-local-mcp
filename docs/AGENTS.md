@@ -1,4 +1,7 @@
-<!-- BUDGET: 380
+<!-- BUDGET: 385
+     Raised from 380 on 2026-09-06: `name` and `description` are recognised keys that
+     the field table never listed, and the refusal when `name` disagrees with the
+     filename was documented nowhere. Two rows and no prose.
      Raised from 365 on 2026-09-05: the two privilege-granting frontmatter fields became operator-gated, and the paragraph this replaces claimed the opposite invariant -- that a root list was unnecessary because the denylist covered it -- so it had to be corrected rather than extended.
      Raised from 350 on 2026-09-03: the policy gained a check that runs at the open rather than at the resolve, which is a fifth thing a caller can be refused by and so a fact this document owns. Two sentences of the ADR-0010 corollary were deleted to pay for part of it; the subsection they duplicated already owned that.
      Raised from 331 on 2026-09-03: the path policy grew a second disposition and a directory check, both in paths.py, which this document owns.
@@ -109,6 +112,8 @@ Everything below the frontmatter is the system prompt.
 
 | Field | Effect |
 |---|---|
+| `name` | Must match the filename when present. A disagreement **refuses the file** |
+| `description` | Reported by `list_agents`, so a caller can choose without opening the file |
 | `model` | Registry key. **Actually binds the dispatch** — see below |
 | `effort` | `off`, `low`, `high`, `max`. Refused loudly if misspelt, and `inherit` is not one of them — a file is a tier that word defers *to* (ADR-0045). Reached only when the caller passes `inherit` |
 | `max_turns` | Round trips. Above the server's hard ceiling the **file is refused**, not clamped — see below |
@@ -159,7 +164,7 @@ Both run the same four layers through the same function, so a pattern cannot com
 flag, because using the lenient one on a caller-supplied path is a silent drop, which is
 the failure the strict one exists to prevent.
 
-A directory is a third case: `resolve_search_root` checks layers 1 and 2 against
+A directory is a third case: `resolve_search_root` checks layer 1 alone against
 `workspace_roots`, where `resolve_workdir` checks a directory against `workdir_roots`. The
 roots differ because the surfaces do — one governs what may be read, the other a
 read-write bind into a sandbox.
