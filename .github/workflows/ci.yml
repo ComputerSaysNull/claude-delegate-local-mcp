@@ -82,9 +82,9 @@ jobs:
     name: tests
     runs-on: ubuntu-latest
     strategy:
-      # Five is this project's standing concurrency rule, applied wherever it can be
-      # machine-enforced rather than merely written down.
-      max-parallel: 5
+      # Six is this project's standing concurrency rule -- what the serving stack admits
+      # at once -- applied wherever it can be machine-enforced rather than merely written down.
+      max-parallel: 6
       fail-fast: false
       matrix:
         python: ["3.11", "3.12"]

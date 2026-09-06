@@ -241,8 +241,8 @@ looks runnable and shells out to git underneath. Read the pair yourself for that
 
 Model and effort follow task cost: the cheapest tier that can do the job. The frontmatter
 key is `effort`, not `reasoning_effort` — a misspelling is ignored in silence and bills the
-default tier, so the table renders a missing key rather than guessing one. Run at most five
-agents concurrently; CI enforces it via `max-parallel`.
+default tier, so the table renders a missing key rather than guessing one. Run at most six
+agents concurrently — a convention, enforced nowhere: `ci.yml`'s `max-parallel` is another six.
 
 ### When to run docs-audit
 
