@@ -34,6 +34,45 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #117 — 2026-09-06 — fix: an audit pass is sized to one reply and split by check class
+
+### Fixed
+- **`docs-audit-local` still aimed at the shape that failed.** Its body recorded that a
+  prefetched audit finished "in one turn with zero tool calls" — true when measured on
+  2026-09-03, and the wrong target once `#113` capped the reply budget against the deadline.
+  An oversized pass is now truncated rather than killed: quieter, and no more useful. The
+  sizing rule is expected findings, not input size, because prefetch is cheap and answers
+  are not.
+- **The sentence had fused two independent claims.** "Prefetch everything" and "answer in
+  one turn" travelled together, so 2026-09-05's correction of the second read as abandoning
+  the first. A pass can be fully prefetched *and* small. Prefetching was investigated as the
+  cause of those stalls and exonerated; it stays.
+
+### Added
+- **How a caller should size and split a pass**, in the body because that is what a caller
+  reads before invoking. **Split by check class first, because four of the seven cannot see
+  a split by document** — and splitting a twelve-document audit into four passes of three is
+  the obvious move that silently disables them. WRONG DOCUMENT and CROSS-PLANE LEAK need
+  every document that could hold the restatement; MISSING cannot establish an absence from a
+  subset; a pass that cannot see the other copy reports nothing and looks clean. STALE, TOO
+  VERBOSE and CLAIMS WITHOUT EVIDENCE split cleanly by document, the last needing
+  `DECISIONS.md` and `JOURNAL.md` in every pass. ESCAPE ABUSE needs no documents at all.
+- **The concurrency argument, measured rather than assumed.** Over 42 multi-turn
+  delegations, 60% of backend time is decode — and that share rises now `#114` stops
+  eviction forcing a re-prefill every turn. Decode is the half fanning out parallelises: one
+  sequence runs at ~36 tok/s, four together at ~102 aggregate. Prefill is serialised by the
+  engine and gains nothing, so the win is bounded by that 60% rather than being the 2.8x the
+  aggregate figure alone suggests, and roughly 120 s of stagger per extra call comes off it.
+
+### Notes
+- **A fourth sighting of the body-outlives-its-conditions pattern**, and the first where what
+  expired was a measurement rather than a capability. Recorded in CONTRIBUTING.md beside the
+  other three, with the rule it earns: a measurement in an agent body needs its date and its
+  conditions, or the next reader cannot tell which half has expired.
+- The three fixes compound on this workload. `#113` stops a pass dying mid-decode, `#114`
+  stops every turn re-prefilling, and this stops a pass being asked for more answer than one
+  reply can hold.
+
 ## #116 — 2026-09-06 — fix: a delegation reports what the whole run cost, not just its last turn
 
 ### Fixed
