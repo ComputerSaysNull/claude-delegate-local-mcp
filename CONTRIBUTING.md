@@ -1,4 +1,6 @@
-<!-- BUDGET: 321
+<!-- BUDGET: 330
+     Raised from 321 on 2026-09-06: a sixth sighting, and this one was in this document
+     rather than an agent body -- the paragraph about stale claims carried a stale claim.
      Raised from 313 on 2026-09-06: a fifth sighting, and the first in frontmatter rather
      than a body — which is why grepping bodies could never have found it.
      Raised from 307 on 2026-09-06: the two-concurrent-pass limit is enforced by
@@ -210,11 +212,18 @@ likely fault**, because a stale body is visible and a missing entry is not.
 **A fourth sighting, 2026-09-06, and this one was a measurement rather than a capability.**
 The same body recorded that a prefetched audit finished "in one turn with zero tool calls",
 which was true when measured and became the wrong thing to aim at once the reply budget was
-capped against the deadline (ADR-0055): an oversized pass is now truncated rather than
-killed. The sentence had also fused two independent claims — prefetch everything, and answer
-in one turn — so correcting the second read as abandoning the first. **A measurement in an
+capped against the deadline (ADR-0055): an oversized pass comes back **empty**, reporting
+`ok: true` with `finish_reason: "length"`. The sentence had also fused two independent
+claims — prefetch everything, and answer in one turn — so correcting the second read as
+abandoning the first. **A measurement in an
 agent body needs its date and its conditions**, or the next reader cannot tell which half
 has expired.
+
+**This paragraph said "truncated rather than killed" until 2026-09-06 and that was wrong in
+the direction that matters**: truncation leaves a short answer a reader can see is short,
+and what actually happens is an *empty* answer reporting success. The agent body carries the
+evidence — two passes at 27,603 and 41,364 output tokens returned nothing and said `ok`. A
+sixth sighting of the same pattern, in the document that records the pattern.
 
 That rule was tested within a day. The *replacement* text carried a fresh measurement of its
 own — that fanning out costs about 120 s of stagger per extra call — and a controlled run the

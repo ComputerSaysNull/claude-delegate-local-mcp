@@ -49,6 +49,13 @@ would have been forgotten again.
   event, then the `end` event's own `output_tokens`, falling back to the final turn for a
   transcript whose `end` predates that field. `end` is written in a `try/finally`, so a
   delegation that was killed still ends and still reports — blank means running, not lost.
+- **CONTRIBUTING.md said an oversized pass is "truncated rather than killed".** It is not:
+  it comes back **empty**, reporting `ok: true` with `finish_reason: "length"`, which the
+  `docs-audit-local` body already recorded with its evidence -- two passes at 27,603 and
+  41,364 output tokens that returned nothing and said they had succeeded. **Cause:** the
+  wrong version was written the same day, in the paragraph that exists to warn about claims
+  going stale. Wrong in the direction that matters, too: truncation leaves a short answer a
+  reader can see is short, while an empty one reporting success looks like a clean result.
 - **`docs-audit-local` could not search.** Its `allowed_tools` was
   `[read_file, read_git, run_bash]` and `search_files` was simply missing. **Cause:** an
   omission rather than a chronology artefact — `search_files` landed on 2026-09-03 (#86) and
