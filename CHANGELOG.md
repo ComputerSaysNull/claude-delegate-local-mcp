@@ -34,6 +34,38 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #120 — 2026-09-06 — fix: the picker reports what a delegation returned, not an invented estimate
+
+### Fixed
+- **`#119`'s `spared` column measured no clean quantity, and its justification was wrong.**
+  It summed a peak prompt with total output to avoid "counting the same documents once per
+  turn, which the caller would never have paid for". The caller would have paid for them
+  exactly the same number of times: Claude Code runs the same agentic loop and resends its
+  context every turn. So `load` was already the apples-to-apples figure — exact in method,
+  counted identically on both sides — and the hybrid was a dodge around an objection that
+  does not hold.
+- **It was also described backwards.** The docstring called leaning high "the honest
+  direction to be wrong in for a figure that argues delegating was worth it". Inflating a
+  number that argues in your own favour is the *self-serving* direction; conservative means
+  low. Removed rather than reworded, since the metric is gone.
+
+### Added
+- **`return`: the answer that actually reached the caller**, being the last turn's output and
+  nothing else. Exact, not estimated. Beside `load` it states the resource delegation
+  protects — 2,002 tokens of 907,400 on a twelve-turn run, or 0.22% — because every earlier
+  prompt, reasoning trace and tool result stayed on the far side of the call.
+- A one-turn delegation returns everything it generated, so `return` approaches `load` there.
+  That is the honest signal that a one-shot displaces far less per token than a long agentic
+  run, and it is asserted as the control.
+
+### Notes
+- A turn carrying no `output_tokens` is now recorded as unmeasured rather than as zero
+  output. Without that, `return` answered `0` for a transcript written before the field
+  existed — a measured silence where there was no measurement, which is the distinction this
+  codebase keeps everywhere else.
+- Raised by a reader asking why leaning high was honest, and whether the same counting
+  applied to the caller would not simply make the figure exact. Both halves were right.
+
 ## #119 — 2026-09-06 — fix: the picker shows saved tokens and reuse side by side
 
 ### Fixed
