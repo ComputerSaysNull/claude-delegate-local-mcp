@@ -1,4 +1,7 @@
-<!-- BUDGET: 647
+<!-- BUDGET: 663
+     Raised from 647 on 2026-09-06: a second cache bug found by measurement rather
+     than filed, so it arrives already ticked and its reasoning has nowhere else to
+     live.
      Raised from 629 on 2026-09-06: the eviction item ticked, and its original kept
      beside it because the three directions it listed as alternatives turned out to be
      two properties you need together.
@@ -113,6 +116,19 @@ reproduces the second without a cluster.
     a whole answer in one deadline; raising the count postpones the death and makes it
     dearer. Respect ADR-0014's floor — it exists so heavy reasoning does not return nothing,
     and a cap ignoring it re-creates that bug from the other side
+- ✅ 2026-09-06 The final turn forbids tool calls instead of withdrawing the tools (`#115`,
+  ADR-0057) — **never filed, and found by measuring rather than by reading.** Looking at why
+  turn 12 of two delegations cached zero while turns 2-11 cached fine turned up a second,
+  independent cache bug sitting on top of the eviction one: `tools=()` on the last turn moves
+  the first difference to the front of the prompt. Corpus evidence was 3 of 7 runs and
+  confounded with the eviction collapse, so it was carried as a hypothesis and settled with a
+  four-arm probe — 36,018 tokens re-prefilled to avoid sending 321, with a repeat arm proving
+  the cache was still warm. The probe was also allowed to *stop* the fix: if the chat template
+  had dropped the tool block under `tool_choice: "none"` the divergence would have returned
+  unchanged, and that is a fact about the server's template rather than one the spec implies.
+  Moving the tools to the end of the prompt was the other candidate and is worse — it trades
+  the cross-delegation `system prompt + tools` prefix, which every run shares, for a
+  once-per-run saving, and gives up native tool-call parsing to do it
 - ✅ 2026-09-06 Eviction carries its boundary instead of recomputing it every turn (`#114`,
   ADR-0056) — **the three candidate directions were not alternatives**, which is what
   "measure before choosing" turned up and no amount of reading would have. Modelled over the

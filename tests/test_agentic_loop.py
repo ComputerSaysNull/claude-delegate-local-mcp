@@ -223,11 +223,35 @@ def test_the_configured_default_is_used_when_the_caller_names_no_budget():
 # --- the final-turn short-circuit -----------------------------------------------------------
 
 
-def test_the_final_turn_declares_no_tools(registered):
+def test_the_final_turn_forbids_tool_calls_without_withdrawing_the_tools(registered):
+    """ADR-0057. The intent is unchanged and the mechanism is not.
+
+    Withdrawing `tools` changed the front of the prompt, and the stack caches prefixes.
+    Measured on the cluster: dropping the tool block to save 321 tokens re-prefilled all
+    36,018 of them -- a 99.3% hit falling to 0.0% -- on the one turn that must also fit a
+    whole answer inside one deadline. Offering them and forbidding calls is byte-identical
+    to the turn before it, and measured at the same 99.3%.
+    """
     backend = ScriptedTurns(wants(("echo", {})), wants(("echo", {})))
     result = run(backend, max_turns=2)
-    assert backend.requests[-1].tools == (), "tools must be withdrawn on the last turn"
+    final = backend.requests[-1]
+    assert final.tool_choice == "none", "the last turn must forbid calls"
+    assert final.tools != (), (
+        "tools must stay in the prompt: withdrawing them moves the first difference to the "
+        "front and costs the whole prefix cache"
+    )
+    assert final.tools == backend.requests[-2].tools, (
+        "and they must be the same tools, or the prefix diverges anyway"
+    )
     assert result.hit_turn_limit is True
+
+
+def test_the_turn_before_the_last_one_leaves_tool_calls_allowed(registered):
+    """The other direction: a `tool_choice` stuck on "none" would silently end every
+    delegation after one turn, which reads as a model with nothing to do."""
+    backend = ScriptedTurns(wants(("echo", {})), wants(("echo", {})))
+    run(backend, max_turns=2)
+    assert backend.requests[0].tool_choice == "auto"
 
 
 def test_the_turn_before_the_last_one_does_declare_them(registered):

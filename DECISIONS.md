@@ -19,6 +19,59 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0057 — 2026-09-06 — The final turn forbids tool calls instead of withdrawing the tools — Accepted
+
+`final = turn == turns` sent `tools=()` on the last turn, so the only thing left to produce
+was an answer. The intent is right and is kept: a model that ends on a tool call nobody will
+run has spent the whole delegation and returned nothing readable.
+
+The mechanism was wrong. Tool schemas are rendered into the *front* of the prompt by the
+chat template, and the stack caches prefixes, so removing them moves the first difference to
+the very beginning. Measured on the live cluster over one shared history, nothing evicted,
+nothing else varying:
+
+    A   tools present                        prompt 36,339   cached 36,096   99.3%
+    B   tools present + tool_choice: none    prompt 36,339   cached 36,096   99.3%
+    C   tools withdrawn (the old behaviour)  prompt 36,018   cached      0    0.0%
+    A'  tools present, repeated              prompt 36,339   cached 36,096   99.3%
+
+C re-prefilled 36,018 tokens to avoid sending 321 tokens of tool schema. A' afterwards shows
+the cache was still warm rather than evicted by C, so the loss is C's own.
+
+**Decision.** The tools stay in every request and the final turn sends `tool_choice: "none"`.
+B is byte-identical to A, which is the property the cache needs and the one that had to be
+confirmed before this was worth building — a template that dropped the tool block under
+`tool_choice: "none"` would have reintroduced the same divergence, and that is a fact about
+the server's template rather than something inferable from the spec.
+
+**A canonical vocabulary of two words, translated per adapter**, exactly as `effort` is
+(ADR-0013). `TOOL_CHOICES` is `("auto", "none")`; the wire formats spell this differently and
+neither spelling belongs in `CanonicalRequest`. "required" and naming a specific tool are
+real options in both formats and have no caller here, so they are left out rather than
+guessed at. An unlisted value is refused before dispatch, not after a prefill has been paid
+for. `"auto"` is the default and is omitted from the body, so an ordinary turn's bytes are
+unchanged.
+
+**Why this turn is the one that could least afford it.** The tools-withdrawn turn is also the
+turn that must fit a whole answer inside one deadline, because the loop breaks there whether
+or not the model asked for anything (ADR-0055). It was paying a full cold prefill first. The
+two fixes compound: one gave the turn a budget the clock can pay, this one stops it starting
+from zero.
+
+**Rejected: moving the tools to the end of the prompt.** It would keep them out of the
+divergence, but the tools are sent as a `tools` field the *server's* template positions, so
+doing it means abandoning that field and injecting descriptions as prose — giving up native
+tool-call parsing, which the endpoint does correctly today. It also destroys a larger win
+than it buys: every delegation currently shares `system prompt + tools` as a common prefix,
+so putting the tools after the conversation would leave each run sharing only the bare system
+prompt. A once-per-run saving paid for with an always-on one.
+
+**Accepted cost.** The final turn now sends 321 tokens of tool schema it previously omitted,
+and a model could in principle still emit a call the loop will ignore. The loop already
+breaks on `final` regardless of what came back, so that path is unchanged.
+
+---
+
 ## ADR-0056 — 2026-09-06 — The eviction boundary is carried and stepped, not recomputed every turn — Accepted
 
 `evict_stale_tool_results` collapsed everything older than the newest `keep` tool results,

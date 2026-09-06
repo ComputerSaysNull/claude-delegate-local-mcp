@@ -34,6 +34,50 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #115 — 2026-09-06 — fix: the final turn forbids tool calls instead of withdrawing the tools
+
+### Fixed
+- **The last turn of every delegation took a full cold prefill, to save the tool block.**
+  `final = turn == turns` sent `tools=()` so the model could only produce an answer. The
+  intent was right; the mechanism changed the *front* of the prompt, which is the one edit
+  a prefix cache cannot absorb. Measured live over one shared history with nothing evicted
+  and nothing else varying: tools present cached 36,096 of 36,339 tokens (99.3%); tools
+  withdrawn cached 0 of 36,018 (0.0%); tools present again immediately after cached 36,096,
+  so the cache was still warm and the loss was the withdrawal's own. 36,018 tokens
+  re-prefilled to avoid sending 321. The tools now stay and the final turn sends
+  `tool_choice: "none"`. (ADR-0057)
+- **This landed on the turn that could least afford it.** The tools-withdrawn turn is also
+  the one that must fit a whole answer inside a single deadline, because the loop breaks
+  there whether or not the model asked for anything. It was paying a cold prefill first. With
+  `#113` that turn now has a budget the clock can pay; with this it no longer starts from
+  zero.
+
+### Added
+- **`CanonicalRequest.tool_choice`**, our own two-word vocabulary `("auto", "none")`,
+  translated per adapter exactly as `effort` is (ADR-0013). The wire formats spell this
+  differently and neither spelling belongs in the canonical shape. `"required"` and naming a
+  specific tool are real options in both and have no caller here, so they are left out rather
+  than guessed at; an unlisted value is refused before dispatch rather than 400'd after a
+  prefill. `"auto"` is omitted from the body, so an ordinary turn's bytes do not move.
+
+### Notes
+- **The probe came before the fix, and could have stopped it.** Two things had to hold first:
+  that withdrawing the tools really was what zeroed the cache — the corpus evidence was 3 of
+  7 runs and confounded with the eviction collapse of `#114` — and that the chat template
+  still renders the tool block under `tool_choice: "none"`. A template that dropped the block
+  there would have reintroduced the identical divergence, and that is a fact about the
+  server's template rather than something inferable from a spec. Both held, in one
+  four-arm experiment.
+- **Moving the tools to the end of the prompt was rejected**, though it would also keep them
+  out of the divergence. They are sent as a `tools` field the server's template positions, so
+  moving them means abandoning that field and injecting descriptions as prose — giving up the
+  native tool-call parsing the endpoint does correctly today. And it would destroy a larger
+  win than it buys: every delegation shares `system prompt + tools` as a common prefix, so
+  putting the tools after the conversation leaves each run sharing only the bare system
+  prompt. A once-per-run saving paid for with an always-on one.
+- Mutation-tested: restoring `tools=()` on the final turn fails the loop test, which names
+  both halves — that calls must be forbidden, and that the tools must still be there.
+
 ## #114 — 2026-09-06 — fix: eviction carries its boundary instead of recomputing it every turn
 
 ### Fixed

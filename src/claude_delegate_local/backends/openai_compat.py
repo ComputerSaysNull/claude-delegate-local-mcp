@@ -170,6 +170,11 @@ class OpenAICompatBackend:
                 }
                 for t in request.tools
             ]
+            # Only alongside `tools`, because it is a statement *about* them. Sent as the
+            # wire's own word, which happens to match ours here; an adapter whose server
+            # spells it differently translates, exactly as it does for effort.
+            if request.tool_choice != "auto":
+                body["tool_choice"] = request.tool_choice
         body.update(_effort_fields(request.effort))
         return body
 
