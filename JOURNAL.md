@@ -1141,3 +1141,42 @@ worth doing.
 **The rule this earns:** prefer a measurement taken on purpose over one noticed in passing.
 Both the figure this replaces and the one it corrects came from real runs; neither came from
 a shape anyone had varied deliberately, and both were wrong about the mechanism.
+
+## 2026-09-06 — The 120s client ramp is per annotation, measured rather than reasoned
+
+`delegate_to_agent_readonly` was argued for on two grounds. One was the annotation, which
+is a property of the declaration and needs no measurement. The other was the client ramp,
+and PLAN.md had carried that for a day as **correlated and not proven** — the 2026-09-06
+audit paid `120s x (n-1)` on passes that were read-only anyway, but nothing had varied the
+annotation deliberately and watched what happened.
+
+Two arms of the new tool, issued in one message, no `files[]`:
+
+| arm | transcript start |
+|---|---|
+| 1 | `20260906T210855.144` |
+| 2 | `20260906T210857.370` |
+
+**2.226 seconds apart.** The prediction under chaining was arm 2 at +120s exactly, which is
+what six `delegate_to_agent` arms did on 2026-09-05, the last landing at +688s. So the
+`readOnlyHint` escape is real and the annotation is what buys it.
+
+**Two arms, not the four intended.** They were meant to be four and two were issued; two is
+enough to falsify a rule that predicts a fixed 120s gap, and not enough to say anything
+about how a wider fan-out behaves. Admission is the separate constraint there and is
+server-side, so a read-only fan-out starves on `max_inflight_large_prefills` exactly as a
+writing one does — unchanged by any of this.
+
+**What the run also produced, which is the part worth keeping.** The first arm burned two
+`search_files` calls of one turn on a relative `path`, and *the transcript could not say
+why*: the ledger records `{name, outcome}` and nothing else, so twelve refusals and twelve
+successes are the same record with a different word. Diagnosing it took a separate probe
+delegation asking the model to quote the error back. That is the open PLAN item about tool
+arguments in the ledger, arriving as a bill rather than an argument — and the message it
+would have shown was itself wrong, blaming `files[]` for an argument no caller had written
+(#125).
+
+The general lesson is the one this repository keeps relearning: **the tool that has never
+been run is the one whose defects are still yours to find.** The annotation, the toolset
+replacement and the `project` argument all behaved exactly as designed on the first call.
+Everything that went wrong was in what the design had not looked at.

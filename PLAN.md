@@ -107,8 +107,8 @@ them was re-derived when it did.
   Shipped as `delegate_to_agent_readonly` (ADR-0059), and it took the `workdir`/`project`
   split with it: the correspondence the annotation rests on — a workdir is a read-write
   bind, so a read-only tool cannot offer one — was prose, and `list_agents` had already
-  falsified it. It is a test now. **The ramp claim below is still unmeasured**; the tool
-  landed on the argument, not on the timing. The justification is
+  falsified it. It is a test now. **The ramp is measured**: two arms issued in one message
+  started 2.2s apart, against the 120s a chained tool predicts (JOURNAL 2026-09-06). The justification is
   ADR-0042's and unchanged: a client decides before the call runs and never sees arguments,
   so narrowing with `allowed_tools` cannot buy the declaration. `#91`'s note that "what
   `delegate_readonly` has no equivalent of is the agent" is this same gap seen from the
@@ -159,9 +159,9 @@ them was re-derived when it did.
   write-capable tools and the justification `#118` removed is restored for them — **re-rank
   it back up.** A read-only form of the agent tool, filed under Improvements, would remove
   the ramp for the audit case without this item; this one remains the general answer.
-  **That tool shipped on 2026-09-06 and the ramp it was meant to remove is still
-  unverified** — issue four of its arms in one message and time them against their own
-  issue stamps before crediting it. Measured 2026-09-05: four passes issued together started at 20:24:30, 20:26:32,
+  **That tool shipped on 2026-09-06 and the ramp it removes is now measured** — two arms
+  2.2s apart where a chained tool predicts 120s (JOURNAL 2026-09-06). This item is still
+  the general answer, for the two tools that must keep the annotation they have. Measured 2026-09-05: four passes issued together started at 20:24:30, 20:26:32,
   20:28:32 and 20:30:32. They do run concurrently once started — ~~`seqs=4, large=0` in the
   shared slots file — so the fan-out works; it is only the ramp that is wasted.~~
   - **CORRECTED 2026-09-05 (session 2): the struck line had it backwards twice.** The
