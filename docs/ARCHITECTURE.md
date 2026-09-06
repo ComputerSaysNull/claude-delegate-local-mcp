@@ -740,9 +740,9 @@ exact. **`load` is what the cluster processed** — prompt plus output, summed o
 history, so it counts the same documents once per turn that carried them, and a caller doing
 the work itself runs the same loop and would count them the same way. Counting both sides by
 summing across turns is exact in method; the looseness is only that the two runs are not the
-same run. **`return` is the answer that actually reached the caller** — the last turn's
-output, and nothing else. Every earlier prompt, reasoning trace and tool result stayed on the
-far side of the call.
+same run. **`return` is the answer that actually reached the caller** — the final turn's
+output and nothing else, and blank until the run ends. Every earlier prompt, reasoning trace
+and tool result stayed on the far side of the call.
 
 The gap between them is the resource delegation protects: 2,002 tokens of 907,400 on a
 twelve-turn run, or 0.22%. A one-turn delegation returns everything it generated, which is

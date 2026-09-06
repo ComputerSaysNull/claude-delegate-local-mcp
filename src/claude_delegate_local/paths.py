@@ -107,17 +107,33 @@ class PathRefused(Exception):
     """
 
     def __init__(
-        self, refusals: Iterable[Refusal], total: int, *, surface: str = "files[]"
+        self,
+        refusals: Iterable[Refusal],
+        total: int,
+        *,
+        surface: str = "files[]",
+        before_dispatch: bool = True,
     ) -> None:
+        """`surface` names what was refused; `before_dispatch` says what that cost.
+
+        Both are read by the model, which is why neither may overstate. A refusal raised
+        while resolving `files[]` or a `workdir` happens before anything is sent, so the
+        call is over. A refusal raised *inside* a tool call is returned to the model as an
+        error result and the delegation continues -- saying "nothing was sent to the model"
+        there is false, and it was, for every `read_file` and `search_files` refusal until
+        2026-09-06.
+        """
         self.refusals = tuple(refusals)
         self.total = total
         self.surface = surface
+        self.before_dispatch = before_dispatch
+        cost = ", so nothing was sent to the model" if before_dispatch else ""
         head = (
-            f"{len(self.refusals)} of {total} path(s) in {surface} were refused, so nothing "
-            "was sent to the model. Every refusal is listed, not just the first, so one "
+            f"{len(self.refusals)} of {total} path(s) in {surface} were refused{cost}. "
+            "Every refusal is listed, not just the first, so one "
             "correction fixes all of them:"
         ) if total > 1 or surface == "files[]" else (
-            f"The {surface} was refused, so nothing was sent to the model:"
+            f"The {surface} was refused{cost}:"
         )
         super().__init__(head + "\n\n" + "\n\n".join(f"  {r}" for r in self.refusals))
 
@@ -519,7 +535,9 @@ def _check_exists(given: str, real: str, must_exist: bool = True) -> Refusal | N
     return None
 
 
-def resolve_search_root(cfg: Config, given: str) -> str:
+def resolve_search_root(
+    cfg: Config, given: str, *, surface: str = "files[]", before_dispatch: bool = True
+) -> str:
     """Path form and layer 1 for a directory a search will walk. Resolved, or refused.
 
     A third entry point rather than a reuse, and the reason is which roots apply.
@@ -547,7 +565,7 @@ def resolve_search_root(cfg: Config, given: str) -> str:
                 "The server has its own working directory and will not share yours. Give "
                 "an absolute path, or omit it to search every workspace root."
             ),
-        )], 1)
+        )], 1, surface=surface, before_dispatch=before_dispatch)
 
     real = os.path.realpath(posix)
     if not os.path.exists(real):
@@ -556,12 +574,12 @@ def resolve_search_root(cfg: Config, given: str) -> str:
             layer=LAYER_FORM,
             reason=f"its real location {real} does not exist.",
             remedy="Name an existing directory or file, or omit it to search everywhere.",
-        )], 1)
+        )], 1, surface=surface, before_dispatch=before_dispatch)
 
     roots = resolved_roots(cfg)
     refusal = _check_roots(given, real, roots)
     if refusal is not None:
-        raise PathRefused([refusal], 1)
+        raise PathRefused([refusal], 1, surface=surface, before_dispatch=before_dispatch)
     return real
 
 
@@ -624,7 +642,12 @@ def resolve_workdir(cfg: Config, given: str) -> str:
 
 
 def resolve_all(
-    cfg: Config, given: Sequence[str], *, must_exist: bool = True
+    cfg: Config,
+    given: Sequence[str],
+    *,
+    must_exist: bool = True,
+    surface: str = "files[]",
+    before_dispatch: bool = True,
 ) -> tuple[ResolvedPath, ...]:
     r"""Resolve every caller path, or raise `PathRefused` naming each one that failed.
 
@@ -639,7 +662,10 @@ def resolve_all(
     """
     survivors, refusals = _resolve_many(cfg, given, must_exist)
     if refusals:
-        raise PathRefused(list(refusals), total=len(given))
+        raise PathRefused(
+            list(refusals), total=len(given),
+            surface=surface, before_dispatch=before_dispatch,
+        )
     return survivors
 
 

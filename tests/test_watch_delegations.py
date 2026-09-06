@@ -644,12 +644,19 @@ def test_a_token_count_is_narrow_enough_for_its_column(viewer):
     assert viewer._tokens(999_999) == "1.0M"
 
 
-def _stream(tmp_path, turns):
-    """A transcript stream with the per-turn prompt and cache figures the picker reads."""
+def _stream(tmp_path, turns, *, done=True):
+    """A transcript stream with the per-turn prompt and cache figures the picker reads.
+
+    The `end` event carries no token figures on purpose: it marks the run finished without
+    displacing the per-turn sums these tests are about, since `sent_of` and `out_of` both
+    prefer an `end` figure when there is one.
+    """
     path = tmp_path / "20260906T000000.000-0001-no-agent.jsonl"
     lines = [{"t": "start", "task": "audit", "tool": "delegate", "at": "2026-09-06T00:00:00Z"}]
     for n, (sent, cached) in enumerate(turns, start=1):
         lines.append({"t": "turn", "turn": n, "input_tokens": sent, "cached_tokens": cached})
+    if done:
+        lines.append({"t": "end", "ok": True})
     path.write_text(
         "\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8"
     )
@@ -722,7 +729,7 @@ def test_load_counts_every_resend_because_the_caller_would_have_too(viewer, tmp_
     assert not hasattr(viewer, "displaced_of"), "the hybrid metric is gone, not renamed"
 
 
-def test_returned_is_the_last_turns_output_and_nothing_else(viewer, tmp_path):
+def test_returned_is_the_final_turns_output_and_nothing_else(viewer, tmp_path):
     """What actually reached the caller, which is exact rather than estimated.
 
     Every earlier turn's prompt, reasoning and tool traffic stayed on the far side of the
@@ -734,6 +741,37 @@ def test_returned_is_the_last_turns_output_and_nothing_else(viewer, tmp_path):
 
     assert viewer.returned_of(row) == 250
     assert viewer.returned_of(row) < viewer.load_of(row)
+
+
+def test_nothing_is_returned_until_the_delegation_ends(viewer, tmp_path):
+    """A running row has returned nothing, so the column says nothing.
+
+    It used to read `turn_outs[-1]` whatever the run's state, so a live delegation showed
+    the newest turn's output and the figure grew and shrank on every 2s refresh. No caller
+    ever receives an intermediate turn -- the number was real and answered no question.
+    Blank is the honest reading, and it is what makes the finished figure mean something.
+    """
+    row = viewer.summarise(
+        _stream(tmp_path, [(10_000, 0), (20_000, 9_000)], done=False)
+    )
+    row["turn_outs"] = [4_000, 250]
+
+    assert row["done"] is False
+    assert viewer.returned_of(row) is None
+    assert viewer._tokens(viewer.returned_of(row)) == "-"
+
+
+def test_a_finished_run_reports_the_end_events_own_count(viewer, tmp_path):
+    """`end` carries the reply's own output figure, which beats the last thing seen.
+
+    `out_of` already prefers it for the same reason. The turn fallback stays for a
+    transcript whose `end` predates the field, which is unmeasured rather than zero.
+    """
+    row = viewer.summarise(_stream(tmp_path, [(10_000, 0), (20_000, 9_000)]))
+    row["turn_outs"] = [4_000, 250]
+    row["end_out"] = 900
+
+    assert viewer.returned_of(row) == 900
 
 
 def test_a_one_turn_delegation_returns_everything_it_generated(viewer, tmp_path):

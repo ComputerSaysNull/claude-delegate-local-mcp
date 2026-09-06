@@ -144,7 +144,9 @@ def _int_arg(args: dict[str, object], name: str, default: int) -> int:
     return value
 
 
-def _one_path(cfg: Config, given: str, *, must_exist: bool) -> ResolvedPath:
+def _one_path(
+    cfg: Config, given: str, *, must_exist: bool, surface: str = "`path` argument"
+) -> ResolvedPath:
     """Run the caller's path through the four-layer policy and return the resolved entry.
 
     `paths.py` governs both file tools and the sandbox governs none of them: only `run_bash`
@@ -155,7 +157,12 @@ def _one_path(cfg: Config, given: str, *, must_exist: bool) -> ResolvedPath:
     changes in between; `open_resolved` is the only sanctioned way to open what this
     returns (ADR-0049).
     """
-    resolved = resolve_all(cfg, [given], must_exist=must_exist)
+    # A tool argument, never `files[]`: this runs inside a tool call, so the refusal goes
+    # back to the model as an error result and the delegation carries on. Naming the
+    # prefetch argument here sent the model to correct something it had not written.
+    resolved = resolve_all(
+        cfg, [given], must_exist=must_exist, surface=surface, before_dispatch=False
+    )
     if not resolved:
         # Layer 4 dropped it without a refusal only if the caller passed nothing at all.
         raise ToolRefused(f"{given!r} resolved to no file.")
@@ -396,7 +403,10 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
         # `resolve_search_root`, not `_one_path`: the latter refuses a directory at layer 1
         # because a directory is not a thing to read, and a search scope is exactly that.
         # A file is accepted too, so pointing this at one narrows to it.
-        scopes = (resolve_search_root(cfg, _text_arg(args, "path")),)
+        scopes = (resolve_search_root(
+            cfg, _text_arg(args, "path"),
+            surface="`path` argument", before_dispatch=False,
+        ),)
     else:
         # No path means the whole workspace, which is what makes this a search rather than
         # a second `read_file`. The roots arrive translated and symlink-resolved.

@@ -34,6 +34,61 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #125 — 2026-09-06 — fix: the return column counted a running turn, and the audit agent had no search tool
+
+Both were found while planning the read-only agent tool, neither is part of it, and both
+would have been forgotten again.
+
+### Fixed
+- **`return` is blank until a delegation ends.** `returned_of` read `turn_outs[-1]`
+  whatever the run's state. **Symptom:** a live row showed the newest turn's output, so the
+  figure grew and shrank on every 2s redraw and read as an answer arriving in instalments.
+  **Cause:** the column was written for finished rows and never asked what a running one
+  should say. No caller ever receives an intermediate turn, so the number was real and
+  answered no question the column is read to answer. It now reports nothing until the `end`
+  event, then the `end` event's own `output_tokens`, falling back to the final turn for a
+  transcript whose `end` predates that field. `end` is written in a `try/finally`, so a
+  delegation that was killed still ends and still reports — blank means running, not lost.
+- **CONTRIBUTING.md said an oversized pass is "truncated rather than killed".** It is not:
+  it comes back **empty**, reporting `ok: true` with `finish_reason: "length"`, which the
+  `docs-audit-local` body already recorded with its evidence -- two passes at 27,603 and
+  41,364 output tokens that returned nothing and said they had succeeded. **Cause:** the
+  wrong version was written the same day, in the paragraph that exists to warn about claims
+  going stale. Wrong in the direction that matters, too: truncation leaves a short answer a
+  reader can see is short, while an empty one reporting success looks like a clean result.
+- **`docs-audit-local` could not search.** Its `allowed_tools` was
+  `[read_file, read_git, run_bash]` and `search_files` was simply missing. **Cause:** an
+  omission rather than a chronology artefact — `search_files` landed on 2026-09-03 (#86) and
+  that line was last written two days later on 2026-09-05 (#112). It is deliberately **not**
+  credited with the 26-turn audit pass of #122: that pass is attributed there to
+  verification and history calls, not to hunting for files, and re-using the number here
+  would be inventing a measurement. The body now says what the tool is for — locating a
+  claim, never gathering the audit set, which is what `files[]` is.
+
+- **A refused tool path said it was a refused prefetch.** `read_file` and `search_files`
+  resolve a `path` through the same policy `files[]` goes through, and inherited its
+  message: *"1 of 1 path(s) in `files[]` were refused, so nothing was sent to the model"*.
+  Both halves wrong. There is no `files[]` in a tool call, so the model was told to correct
+  an argument it had not written; and the refusal *is* sent to the model, as a tool error
+  the delegation continues from, so the call was not over. `PathRefused` now takes
+  `before_dispatch` beside `surface`, and a tool-argument refusal names the `path` argument
+  and claims nothing about a dispatch. **Found by running the tool**, not by reading it: an
+  agent handed `search_files` for the first time lost two calls of one turn to a relative
+  path, and the transcript could not say why because the ledger records only the tool name
+  and the outcome.
+- **`docs-audit-local` is told its `path` must be absolute.** Granting a tool and saying how
+  it is used are two edits, and only the first has a check — which is the half of the
+  frontmatter lesson above that only appears once the tool is actually used.
+
+### Changed
+- Two tests, and the first is the point. That a stream with no `end` event renders `-`
+  rather than a turn figure, verified by reverting `returned_of` to its previous body and
+  watching both new tests fail; and that a finished run prefers the `end` event's count over
+  the last turn seen on the way there. `_stream` grew a `done` flag, defaulting to ending,
+  because every test that used it was written about figures that were already final. Its
+  `end` event carries no token counts on purpose, since `sent_of` and `out_of` both prefer
+  an `end` figure and would otherwise displace the per-turn sums those tests assert.
+
 ## #124 — 2026-09-06 — docs: PLAN.md holds open work again, at 287 lines instead of 738
 
 ### Changed

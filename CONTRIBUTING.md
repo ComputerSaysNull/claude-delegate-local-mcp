@@ -1,4 +1,10 @@
-<!-- BUDGET: 313
+<!-- BUDGET: 337
+     Raised from 330 on 2026-09-06: granting an agent a tool and telling it how to use the
+     tool are two edits, and only the first one has a check.
+     Raised from 321 on 2026-09-06: a sixth sighting, and this one was in this document
+     rather than an agent body -- the paragraph about stale claims carried a stale claim.
+     Raised from 313 on 2026-09-06: a fifth sighting, and the first in frontmatter rather
+     than a body — which is why grepping bodies could never have found it.
      Raised from 307 on 2026-09-06: the two-concurrent-pass limit is enforced by
      admission rather than by convention, and a reader who does not know which of the
      two numbers bites loses five delegations finding out.
@@ -198,14 +204,33 @@ tool runs in the server process, so the tmpfs over `.git` never applied to it. T
 sightings now, and the third was found by a reader asking "didn't we add that?", not by any
 check. **When you add a tool, grep the agent bodies for what it makes possible.**
 
+**A fifth sighting, 2026-09-06, and it says that rule is half a rule.** `docs-audit-local`
+never listed `search_files` in `allowed_tools`, two days after that tool landed — so the
+agent could not have used it whatever its body said. Grepping bodies would not have caught
+it: an agent is never told about a tool it does not have, so the omission leaves no trace in
+the prose to find. **Read the frontmatter too, and treat a tool the agent lacks as the more
+likely fault**, because a stale body is visible and a missing entry is not.
+
+**Adding the entry is half the fix.** A body that never had a tool has no guidance for it,
+and the first pass after the grant spent two calls of one turn discovering that
+`search_files` refuses a relative `path`. Grant the tool and say how it is used in the same
+edit, or the frontmatter is right and the agent still cannot use it.
+
 **A fourth sighting, 2026-09-06, and this one was a measurement rather than a capability.**
 The same body recorded that a prefetched audit finished "in one turn with zero tool calls",
 which was true when measured and became the wrong thing to aim at once the reply budget was
-capped against the deadline (ADR-0055): an oversized pass is now truncated rather than
-killed. The sentence had also fused two independent claims — prefetch everything, and answer
-in one turn — so correcting the second read as abandoning the first. **A measurement in an
+capped against the deadline (ADR-0055): an oversized pass comes back **empty**, reporting
+`ok: true` with `finish_reason: "length"`. The sentence had also fused two independent
+claims — prefetch everything, and answer in one turn — so correcting the second read as
+abandoning the first. **A measurement in an
 agent body needs its date and its conditions**, or the next reader cannot tell which half
 has expired.
+
+**This paragraph said "truncated rather than killed" until 2026-09-06 and that was wrong in
+the direction that matters**: truncation leaves a short answer a reader can see is short,
+and what actually happens is an *empty* answer reporting success. The agent body carries the
+evidence — two passes at 27,603 and 41,364 output tokens returned nothing and said `ok`. A
+sixth sighting of the same pattern, in the document that records the pattern.
 
 That rule was tested within a day. The *replacement* text carried a fresh measurement of its
 own — that fanning out costs about 120 s of stagger per extra call — and a controlled run the
