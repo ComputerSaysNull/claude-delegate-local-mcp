@@ -260,6 +260,22 @@ class Config:
         "after an empty answer. Admission accounting must use the retry's size.",
         unit="tokens",
     )
+    reply_budget_margin: float = _f(
+        0.6,
+        "Share of the stall deadline a single reply may spend generating. The reply "
+        "budget is capped at this fraction of stall_timeout multiplied by the decode rate "
+        "measured at runtime, so the model is never handed more tokens than the clock can "
+        "pay for -- ADR-0055. Below 1.0 because a turn also prefills, and a turn that "
+        "decodes until the instant of its deadline is killed rather than delivered.",
+    )
+    reply_budget_floor: int = _f(
+        4096,
+        "Lower bound on that derived cap, so a slow or misread decode rate cannot shrink "
+        "the budget to nothing. Sized from measurement: a reply whose entire visible "
+        "answer was one word still cost 697 output tokens, because reasoning is charged "
+        "here too (ADR-0014).",
+        unit="tokens",
+    )
     resend_reasoning: bool = _f(
         False,
         "Send the model's prior reasoning back as history. Off: it costs input tokens and "
@@ -687,6 +703,19 @@ class Config:
             raise ConfigError(
                 f"DELEGATE_MAX_TURNS_DEFAULT ({self.max_turns_default}) exceeds "
                 f"DELEGATE_MAX_TURNS_HARD_CAP ({self.max_turns_hard_cap})."
+            )
+        if not 0.0 < self.reply_budget_margin <= 1.0:
+            raise ConfigError(
+                f"DELEGATE_REPLY_BUDGET_MARGIN ({self.reply_budget_margin}) must be "
+                "greater than 0 and at most 1. It is the share of the stall deadline a "
+                "reply may spend decoding: at 0 no budget survives the cap, and above 1 "
+                "the cap would permit a reply the deadline cannot deliver, which is the "
+                "defect it exists to prevent (ADR-0055)."
+            )
+        if self.reply_budget_floor < 1:
+            raise ConfigError(
+                f"DELEGATE_REPLY_BUDGET_FLOOR ({self.reply_budget_floor}) must be at "
+                "least 1. A budget of nothing cannot produce an answer."
             )
         if self.max_total_prefetch_tokens < self.max_file_tokens:
             raise ConfigError(

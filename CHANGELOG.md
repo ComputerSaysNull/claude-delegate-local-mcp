@@ -34,6 +34,73 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #113 — 2026-09-06 — fix: the reply budget is derived from the deadline, not the effort floor
+
+### Fixed
+- **Delegations were being killed as stalls while decoding at full speed.** `effort: high`
+  raised `max_tokens` to `thinking_max_tokens_floor` = 131,072, which at this deployment's
+  measured ~36 tok/s is about 77 minutes of generation against a `stall_timeout` of 2,100 s
+  — a budget 2.6x what the clock can deliver solo, and roughly 4x once a sequence shares the
+  machine. Three `docs-audit-local` runs died at exactly 2100.0 s with `turns: null` and read
+  as wedged; one had produced 34,276 output tokens in 1,132 s on a straight line and was
+  still going. The two settings are in different units and nothing related them, which is why
+  it survived: comparing them needs a decode rate, and a decode rate has to be measured.
+  The budget is now capped at `stall_timeout × rate × DELEGATE_REPLY_BUDGET_MARGIN`, floored
+  at `DELEGATE_REPLY_BUDGET_FLOOR`. (ADR-0055)
+- **The enlarged retry was the way back to that budget.** ADR-0014's stage 2 asks for
+  `max(2 × asked, thinking_max_tokens_floor)`, and it is reached precisely when the model has
+  already shown it will spend everything it is given. Every stage is bounded now. Where the
+  first budget already sits at the ceiling the retry is skipped by the existing
+  identical-request test and the cascade steps effort down instead, which is the right remedy
+  once more room is not available: think less, rather than ask for time that does not exist.
+
+### Added
+- **`DecodeRate`, seeded from the cluster and corrected by our own turns.** The rate belongs
+  to the deployment rather than to this repository — it moved twice in the week this was
+  written, once when the served model was swapped and once when the cluster's configuration
+  was pulled — so a constant would have been correct on the day it was committed and wrong
+  within a week. It seeds from the endpoint's since-boot figure, because a one-shot and a
+  tools-withdrawn final turn both live on a first turn that has nothing to learn from yet,
+  and every later turn replaces the seed with what the delegation itself achieved. An
+  exponential average, and observations below 64 tokens or 1 s are refused outright: a turn
+  answering in a few tokens measures the queue rather than the decoder.
+- **`decode_tokens_per_second_since_boot` in `backend_status`.** The one histogram
+  `read_metrics` no longer skips, and the exception is shaped by the rule it breaks: a
+  since-boot mean is the right answer to the only question asked of it, and blending every
+  concurrency regime since boot makes it conservative rather than flattering. The
+  `_since_boot` suffix is what stops it reading as a current figure, exactly as it does for
+  `prefix_cache_hit_rate_since_boot`.
+- **`DELEGATE_REPLY_BUDGET_MARGIN`** (0.6) and **`DELEGATE_REPLY_BUDGET_FLOOR`** (4096). Both
+  are policy rather than deployment facts, which is the distinction that keeps the rate
+  measured. The floor is sized from measurement: a reply whose entire visible answer was one
+  word still cost 697 output tokens, because reasoning is charged against the same budget.
+
+### Changed
+- **The ceiling binds an explicit `max_tokens`, where the ADR-0014 floor does not.** A floor
+  is a preference about how much room reasoning gets, and overriding a caller's preference
+  makes the argument advisory. The ceiling states what the clock can deliver, and a budget
+  above it does not buy a longer answer — it buys the same answer discarded at the deadline.
+- **Replies get shorter when the cluster is busy**, because the rate the ceiling is derived
+  from falls under contention. Deliberate, and the trade is stated in ADR-0055: a shorter
+  answer that arrives beats a longer one killed with everything generated thrown away.
+
+### Notes
+- An endpoint that publishes no metrics leaves the rate unknown and caps nothing, which is
+  the previous behaviour rather than a guess. Inventing a rate would be the constant this
+  design exists to avoid.
+- The regression test carries a **control** asserting the old arithmetic is still
+  unreachable. Without it, a ceiling that returned any number at all would look like a pass.
+  Both halves were verified by mutation: removing the ceiling fails three tests, and removing
+  it from the retry alone fails one and names the escaping budget.
+- Three `test_server.py` tests failed on the first full run, all of them queue-backed
+  transport doubles popping one canned reply per request regardless of URL — so the new
+  `/metrics` scrape silently ate the first turn's answer. They report a missing turn, not an
+  extra request. `serves_metrics` answers the scrape separately; found by running the whole
+  suite rather than the files the change obviously touched.
+- `scripts/analyse_transcripts.py` lands here as the instrument the findings came from, so
+  the fixes can be checked against the tool that found the bugs. JOURNAL 2026-09-05 owns the
+  measurements.
+
 ## #111 — 2026-09-05 — feat: the sandbox bounds memory, file size, processes and its tmpfs
 
 ### Added

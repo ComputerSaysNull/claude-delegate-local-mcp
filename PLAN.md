@@ -1,4 +1,14 @@
-<!-- BUDGET: 429
+<!-- BUDGET: 629
+     Raised from 608 on 2026-09-06: the reply-budget item ticked, and its original kept
+     beside it because "backend_status is the reader" was wrong in the instructive
+     direction -- the reader had to be built, past a documented refusal to report the
+     figure it now consumes.
+     Raised from 520 on 2026-09-05: session 2's findings landed -- two new items at the head of the queue, and five tentative or wrong diagnoses struck in place rather than deleted, which costs the original and the correction both.
+     Raised from 505 on 2026-09-05: this session's audit items marked tentative pending a second session's findings, and the marker itself needs explaining in the legend.
+     Raised from 492 on 2026-09-05: the streaming item gained the evidence its argument lacked -- five stalls in one session, backend healthy each time, one of them after 29 completed turns.
+     Raised from 480 on 2026-09-05: the audit item's diagnosis was corrected in flight -- forcing a tool call is not the fix, the tool has to be on the critical path, and a forced stat() proved it.
+     Raised from 472 on 2026-09-05: the transcript item split in two once the records were actually read -- the ledger cannot say why a tool refused, and the sync hazard is documented only in an ADR.
+     Raised from 429 on 2026-09-05: three items filed from one session's measurements -- the 120s fan-out ramp, the audit agent's stalling shape, and transcripts being off when a tool error needed explaining.
      Raised from 410 on 2026-09-05: the sandbox limits item ticked, kept beside its original because the original named a bwrap flag that does not exist, and because measuring the process cap took three attempts.
      Raised from 392 on 2026-09-05: the allowlist item ticked, kept beside its original because
      three of the four things it turned out to need are ones the filing could not have known --
@@ -41,6 +51,14 @@ A struck-through entry with **no marker** is the archived original of the ticked
 it, kept where its reasoning turned out to be wrong in an instructive way. Four of them
 carried `⬜` until 2026-09-04, which read as open work and cost a delegation real turns.
 
+**`⚠️ TENTATIVE` is a fifth state, added 2026-09-05 and meant to be temporary.** It marks an
+item filed from one session's observations while a second session was investigating the same
+failures from another angle. The observations are real; the *diagnoses* attached to them are
+not yet trustworthy, and at least one was already contradicted by its own follow-up
+experiment before the day ended. Do not act on a tentative item. Re-read it once the other
+session's findings land, then either promote it to `⬜` with a corrected annotation or delete
+it — an item that keeps this marker indefinitely is one nobody went back to.
+
 Completed items are annotated and stay here (ADR-0003), as a record of recent work.
 [archive/PLAN-milestones.md](archive/PLAN-milestones.md) holds the closed milestone roadmap
 M0a through M7 and the work found alongside it; anything else moves there only when someone
@@ -52,6 +70,65 @@ decides it should.
 
 The milestone plan closed with M7; this is what is queued now. Ordered within each
 group by what the item's own annotation says it costs.
+
+### Delegation cost and deadlines, 2026-09-05 (session 2)
+
+Two findings from reading the operator transcripts, both measured, both new. They are the
+head of the queue because everything else in this section gets cheaper once they land, and
+because between them they explain the stalls that several items above were filed against.
+JOURNAL 2026-09-05 has the numbers; `tests/regression/test_eviction_threw_away_the_prefix_cache.py`
+reproduces the second without a cluster.
+
+- ✅ 2026-09-06 The reply budget is derived from the deadline and a measured decode rate
+  (`#113`, ADR-0055) — **"`backend_status` is the reader" was wrong**, and that is the half
+  worth keeping. `probe_cluster` scraped seven metrics and not one was a rate, and
+  `read_metrics` refused histograms by *documented decision* — so this had to argue past a
+  refusal rather than read a number. The exception it earned is narrow and named after the
+  `prefix_cache_hit_rate_since_boot` precedent that made the shape defensible; without that
+  precedent the right answer would have been to leave the module alone. Three things the
+  filing could not have known. The rate cannot be learned from experience alone: a one-shot
+  completes no turns, and the tools-withdrawn final turn is a first turn for this purpose,
+  so an estimator with no seed leaves uncapped exactly the two shapes that die — and the
+  seed is the since-boot mean the module declined to *report*, which turns out to be a
+  different act from consuming it. The ceiling had to bind an explicit `max_tokens` where
+  ADR-0014's floor deliberately does not, because a floor is a preference and a deadline is
+  not. And three `test_server.py` doubles pop one canned reply per request whatever the URL,
+  so one extra GET ate the first turn's answer and they reported a *missing turn* rather
+  than an extra request — found by the full suite, not by the files the change touched.
+  Original entry follows.
+- ~~`max_tokens` is set to a budget no deadline can pay, so productive turns are killed as
+  stalls~~ — `effort: high` raises it to `thinking_max_tokens_floor` = 131,072, which is
+  2.6x what `stall_timeout` can decode solo and ~4x when sharing. A model that uses what it
+  was given cannot finish, and reasoning counts against the same budget — so it binds
+  hardest at exactly the effort an audit wants.
+  - **The two settings are in different units and nothing relates them**, which is why this
+    survived. Derive the bound from `stall_timeout` and a decode rate read at runtime, not
+    a new constant: the rate belongs to the deployment and moved once already this week.
+    `backend_status` is the reader.
+  - **Do not fix it by raising `max_turns`.** `final = turn == turns` withdraws tools on the
+    last turn, so a delegation that exhausts its budget ends on the one shape that must fit
+    a whole answer in one deadline; raising the count postpones the death and makes it
+    dearer. Respect ADR-0014's floor — it exists so heavy reasoning does not return nothing,
+    and a cap ignoring it re-creates that bug from the other side
+- ⬜ **Eviction rewrites the history mid-stream, and the prefix cache pays every turn.**
+  `evict_stale_tool_results` stubs the oldest surviving tool result *inside* the history,
+  one per turn; the stack caches **prefixes**, so the divergence point moves toward the
+  front and everything after it is recomputed. JOURNAL 2026-09-05 had already priced this
+  lever at 30x and concluded "cache first, concurrency second"; nothing had checked whether
+  the loop was pulling it.
+  - **The policy is right and the accounting is wrong.** The saving is denominated in tokens
+    *sent*; the cluster charges for tokens it cannot *reuse*. It also fires at ~7% of a 1M
+    window, where there is nothing to relieve — `_OverflowGuard.__init__` sets `self.keep`
+    outside the `armed` check and the loop reads that attribute directly, so the guard
+    documented as "entirely inert unless `context_overflow_enabled`" is inert in its methods
+    and live in the one thing that costs.
+  - **Second-order cost, instrumented and invisible:** `evicted_then_reread` caught the
+    model re-reading what eviction had just dropped, three turns running. The dropped
+    content returns as a fresh full-size result, which evicts the next one.
+  - Candidate directions, unranked: gate `keep` on projected share; evict in batches so one
+    rewrite amortises; or evict from the front once and never re-touch. **Measure before
+    choosing** — the regression test compares prefix stability without a cluster, and the
+    live check is `cached_tokens` in the transcript
 
 ### Security review, 2026-09-02
 
@@ -165,6 +242,14 @@ group by what the item's own annotation says it costs.
     over a shared prefix cost the same as three serial ones and hit cache identically, and
     the engine runs one at a time, touching two only at the handoff — which is exactly
     what "one running plus one staged" describes. Keep the setting and the value.
+  - **What session 2 adds: `is_large` is decided once and never revisited.** `admit()` reads
+    `prefill_tokens` from the *opening* estimate and holds the lease for the whole
+    delegation, so an audit opening under `large_prefill_tokens` is filed as small for life
+    — while later turns re-prefill 40-70k each and the slots file still reads `large: 0`.
+    The rule that exists to serialise large prefills has never been tested by the workload
+    it was written for, and the same staleness understates `kv_token_budget`. **The eviction
+    item above is what makes a delegation's prefill grow**, so fix that first and re-measure;
+    re-deriving `is_large` per turn is cheap but may then be unnecessary
 - ⬜ **`kv_token_budget` is 1.66x the real KV pool, and the number to fix it is now
   readable.** The setting defaults to 2,400,000 and its help text says it "sits just under
   the measured KV pool". The endpoint reports `kv_cache_size_tokens = 1,444,236`, so it
@@ -365,6 +450,99 @@ them was re-derived when it did.
   documents each kept their own prose list of the tools the local model gets, none of them
   the document that owns `tools.py`, and one addition made all three wrong at once
 
+- ⬜ **A delegation returns a handle, and a second call collects it** — the client backs an
+  MCP call into the background after 120s, and issues the next tool call only then, so
+  firing `n` delegations in one message costs `120s x (n-1)` of stagger before the last one
+  starts. Measured 2026-09-05: four passes issued together started at 20:24:30, 20:26:32,
+  20:28:32 and 20:30:32. They do run concurrently once started — ~~`seqs=4, large=0` in the
+  shared slots file — so the fan-out works; it is only the ramp that is wasted.~~
+  - **CORRECTED 2026-09-05 (session 2): the struck line had it backwards twice.** The
+    fan-out is worth more than the ramp — the aggregate lever is real (JOURNAL 2026-09-05)
+    — but `stall_timeout` is wall-clock **per delegation**, so the batch takes the gain
+    while each run pays the per-sequence penalty, which is what tips one over the deadline.
+    Handles do not change that; they only stop it being caller-visible. And `large=0` was
+    not evidence of health — see the admission item for why that counter cannot see a
+    fan-out at all
+  - **Server-side rather than a client setting**, deliberately. `MCP_TOOL_TIMEOUT` might
+    shorten the ramp, but it is per-machine setup that does not travel, and it is not known
+    here whether it backgrounds or kills — untested, and the failure mode is severe.
+  - **Shape that keeps the common case cheap:** block for a short grace window and return
+    the result inline if it finishes, so a single fast delegation stays one call; otherwise
+    return a handle. `collect(handle, wait_seconds)` blocks up to just under the client's
+    threshold, which costs nothing because the work is already running.
+  - Moves the admission wait behind the handle, so `admission_wait_timeout` stacking on
+    `dispatch_timeout` stops being caller-visible wall time (ADR-0038).
+  - Restructures the model-facing tool contract, so it is a behaviour change with an ADR,
+    not a wording fix. **Related to streaming but not blocked on it** — streaming is
+    token-level liveness inside a turn, this is call-level detachment. Say so in the ADR.
+- ⬜ **`docs-audit-local` assumes one big prefetched pass, and that shape now stalls** —
+  its body says a prefetched audit finishes "in one turn with zero tool calls", measured
+  2026-09-03. The served model swapped to a vision model on 2026-09-04 and the measurement
+  was not re-taken. On 2026-09-05 a twelve-document, seven-class call died at 2100s with
+  **0 turns and 0 tool calls**, and two of four smaller passes went the same way — while
+  the two that called tools completed 3 and 9 turns and finished.
+  - **The predictor is whether tools sit on the critical path, not whether any are called.**
+    A tool call ends a turn and resets the stall clock, so a pass with nothing to call must
+    fit its whole answer inside one turn and ADR-0047's deadline becomes a wall clock. But
+    *mandating* a call does not fix it: a forced `stat()` closed turn 1 in 12 seconds and
+    the model then spent 1068 seconds in one silent turn, dying anyway. The passes that
+    survive are the ones that cannot proceed without reading the next thing — 12 and 21
+    turns, none longer than 282 seconds. ~~**What is not yet isolated is which change earns
+    that**, and the comparison run varied three things at once: it dropped the prefetch,
+    read in `start_line` pieces, *and* was told to emit each document's findings before
+    reading the next, where the run it replaced was told to withhold everything until the
+    end. Incremental output is at least as plausible a cause as incremental reading, and
+    the two imply opposite advice about prefetching — one of them keeps a real optimisation,
+    the other throws it away. Isolate it before rewriting the body.~~
+  - **RESOLVED 2026-09-05 (session 2): neither, and no prompt change is the fix.** The
+    struck paragraph hunts a prompt property; the cause is the reply budget — see
+    "`max_tokens` is set to a budget no deadline can pay". A tool call helps only because it
+    *ends a turn*, which is why "on the critical path" predicted survival while a forced
+    `stat()` did not: it ended turn 1 and left turn 2 holding the same budget, and its 1068
+    silent seconds are ~30,000 tokens of decode, not a wedge. **Prefetching is exonerated.**
+    Fix the budget and re-take the measurement rather than rewriting the body
+  - ~~**The 2026-09-03 optimisation is what now kills it.**~~ **It is the turn count, not
+    the prefetch** (session 2). "Prefetched, one turn, zero tool calls, four findings" was a
+    real measurement and a real improvement; what became fatal is the *one turn with zero
+    tool calls*, which must fit a whole audit inside one deadline. The prefetch is what made
+    that turn cheap and is worth keeping. Re-take the measurement against the model actually
+    serving once the budget is fixed, and say in the body that the answer is model-dependent
+    rather than settled.
+  - Also correct two things the split exposed: `read_git` is available now and is how
+    MISSING and ESCAPE ABUSE get done, and waiver counting must be line-anchored on
+    `Docs-Gate-Skip:` — matching the substring counted a commit whose prose *described* a
+    past waiver, over-reporting one document as being at the threshold.
+- ⬜ **A transcript says a tool errored, never what it was asked or why it refused** — the
+  ledger is `{name, outcome}` per call, so a pass reporting `tool_errors: 1` across twelve
+  `read_git` calls on 2026-09-05 could not be diagnosed *even with transcripts enabled*.
+  Searching the whole record for refusal text returns nothing. This is ADR-0039's own
+  argument applied to half the record: it reasons that a transcript which "cannot say what
+  was asked does not answer the question a transcript is opened to answer", and settles
+  that for the task while leaving tool arguments out. Add the arguments and the refusal
+  message to the ledger entry — mindful that arguments can carry paths, which is why the
+  ADR excluded file *contents* and not identifiers
+  - **CONFIRMED and widened 2026-09-05 (session 2).** The same gap hid a second thing, and
+    that one already has its reader: `evicted_then_reread` caught the model re-reading a
+    file eviction had just dropped, on three consecutive turns, and nothing surfaces it
+    because `diagnostics` defaults off. The fix is not only richer ledger entries but
+    deciding what an *operator* record carries without being asked — ADR-0024's own
+    reasoning, which is why `transcript_dir` is already independent of the caller's flag
+  - **And the live stream is missing a field the final record has.** `Stream.turn` writes
+    the token counts but not `tool_results_evicted`, which `write` emits per turn. So a
+    stream shows the cache collapsing and cannot show the eviction that caused it — the one
+    field that would have made the bug above self-evident while watching. One line to add
+- ⚠️ TENTATIVE (the only one left — session 2 read the transcripts but not this)
+  **The transcript's sync hazard is documented where nobody setting it will look** —
+  the case is named in the streaming ADR: a directory inside a synchronised or backed-up
+  location is one whose contents leave the machine, "on someone else's schedule and to
+  someone else's storage", and the record holds the task verbatim plus, with the stream,
+  replies. But `transcript_dir`'s own help text says none of that, and the generated
+  reference is the only thing an operator reads while choosing a value. Put it in the
+  setting's description, where the choice is actually made — **as a trade, not a
+  prohibition.** This machine deliberately points at a synced Windows directory, and the
+  reason is one the ADR never weighed: a WSL distribution is disposable and `/mnt/c`
+  survives it, so the durable choice and the leaky one are the same choice. The advice a
+  reader needs is what each direction costs, not which to pick
 - ⬜ **Streaming, reopened 2026-09-05 with a scope.** Filed and cancelled the same day,
   2026-08-25, on the grounds that MCP tool calls are request/response so the caller sees
   nothing incrementally either way. That is still true of the caller and was never the
@@ -397,11 +575,35 @@ them was re-derived when it did.
     than a shape baked into the caller. **Costly** because `_decode()` requires one whole
     JSON object, so there is no line-by-line path to extend, and the adapter's *"a single
     non-streaming call **is** the turn"* is a claim streaming invalidates.
+  - **2026-09-05 supplied the evidence this was missing, and session 2 confirmed it.** Five
+    stalls in one session, every
+    one with `backend_status` reporting the endpoint healthy and idle — zero preemptions,
+    KV under 4%, no admission wait. Turn completion is the only liveness signal there is, so
+    a model reasoning productively inside one long turn is indistinguishable from a wedged
+    one, and the deadline kills both. Prompt shape shifts the odds and does not remove the
+    failure: one pass died having completed **29 turns**, in its thirtieth. ~~Nothing bounds
+    the length of a single turn, and no prompt can. `stall_left` resetting on token arrival
+    is the only fix here that is not a guess about how a model will decompose its work.
+    Tentative because the session's own shape experiments then contradicted each other —
+    a prefetched pass with one turn boundary survived while the same shape with many died
+    at zero turns — so the stalls are real and the mechanism proposed for them is not
+    established. A second session was investigating the same failures independently; read
+    its findings before treating any of this as the argument.~~
+    - **Corrected:** something does bound a single turn — `max_tokens` — and it is set
+      2.6x above what the deadline can decode, so the bound never binds before the kill
+      does. That makes streaming a **liveness** fix rather than *the* fix: capping the
+      budget stops the deaths, and `stall_left` resetting on token arrival is what stops
+      a legitimately long turn being killed once the budget is honest. Keep both, in that
+      order, and drop "only". The shape experiments that read as contradictory were
+      measuring turn boundaries against a budget nobody had priced
   - **The trap, recorded with it:** token flow is not turn completion. The `alive`
     heartbeat must not report streamed tokens as liveness without the deadline change
-    above, or it would call the 2026-09-04 stalls healthy. Open question to measure: a
+    above, or it would call the 2026-09-04 stalls healthy. ~~Open question to measure: a
     model looping while emitting tokens is bounded by `max_tokens`, but whether a reasoning
-    model's thinking tokens count against it is unknown here.
+    model's thinking tokens count against it is unknown here.~~ **Answered 2026-09-05
+    (session 2): they do.** A turn whose entire visible answer was the word `DONE` reported
+    `output_tokens: 697` at `effort: low`. So `max_tokens` does bound a looping model — it
+    is simply set far above the deadline today.
 
 ## Deferred
 

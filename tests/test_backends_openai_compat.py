@@ -338,6 +338,11 @@ METRICS = "\n".join([
     # A histogram, which is skipped rather than averaged.
     "vllm:e2e_request_latency_seconds_sum 123.0",
     "vllm:e2e_request_latency_seconds_count 4.0",
+    # The one histogram that is not skipped, and only its sum/count pair. Each observation
+    # is one request's mean seconds per output token, so count/sum is tokens per second --
+    # 181 / 5 = 36.2, which is the rate measured on this deployment (JOURNAL 2026-09-05).
+    "vllm:request_time_per_output_token_seconds_sum 5.0",
+    "vllm:request_time_per_output_token_seconds_count 181.0",
 ])
 
 
@@ -355,6 +360,36 @@ def test_the_metrics_read_are_the_ones_asked_for_and_no_others():
     assert got["preemptions"] == 0
     assert "e2e_request_latency_seconds_sum" not in got
     assert not any("latency" in k for k in got), got
+
+
+def test_the_decode_rate_is_derived_from_the_one_histogram_that_is_read():
+    """ADR-0055 needs a decode rate to convert a deadline into tokens, and the endpoint
+    publishes one. Inverted here because every caller wants tokens per second, and one of
+    them multiplies it by `stall_timeout`."""
+    got = oc.read_metrics(METRICS)
+
+    assert got["decode_tokens_per_second_since_boot"] == 36.2
+
+
+def test_the_parser_state_behind_that_rate_is_not_reported():
+    """The sum and count are scraped to derive one figure and are not figures themselves.
+    Leaving them in would put two cumulative histogram fields into `backend_status`, which
+    is the thing `read_metrics` refuses to do everywhere else."""
+    got = oc.read_metrics(METRICS)
+
+    assert not any(k.startswith("_") for k in got), got
+    assert "request_time_per_output_token_seconds_sum" not in got
+
+
+def test_an_engine_that_has_decoded_nothing_reports_no_rate():
+    """Same reasoning as the prefix-cache rate: no measurement is not a measurement of
+    zero, and a seeded estimate of zero would cap every reply at the floor."""
+    got = oc.read_metrics(
+        "vllm:request_time_per_output_token_seconds_sum 0.0\n"
+        "vllm:request_time_per_output_token_seconds_count 0.0\n"
+    )
+
+    assert "decode_tokens_per_second_since_boot" not in got
 
 
 def test_a_handler_path_in_a_label_never_reaches_the_result():

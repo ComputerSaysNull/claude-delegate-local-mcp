@@ -1,4 +1,6 @@
-<!-- BUDGET: 293
+<!-- BUDGET: 305
+     Raised from 293 on 2026-09-06: one symptom entry for a delegation that dies at
+     the stall deadline while decoding, which read as a hung backend three times.
      Raised from 290 on 2026-09-03: one symptom entry for a commit hook that could not run the gate.
      -->
 <!-- Raised from 240 on 2026-08-27: M1 shipped the first server that can fail at
@@ -184,6 +186,16 @@ clock must cover the whole delegation up front. ADR-0018.
 ### The tool call moves to the background after two minutes
 
 Expected. Nearly every delegation will. It does not affect either timeout.
+
+### A delegation dies at exactly the stall timeout, reporting no completed turns
+
+It was very likely decoding the whole time rather than wedged, and the two are
+indistinguishable from the outside: turn completion is the only liveness signal there is
+(ADR-0047). Before treating it as a hung backend, check `backend_status` — a stalled
+delegation on an idle cluster with no preemptions and no admission wait is the signature.
+The reply budget is capped against the deadline for exactly this reason; how that cap is
+derived, and what makes it loosen or tighten, is in
+[DISPATCH.md](DISPATCH.md). ADR-0055.
 
 ---
 

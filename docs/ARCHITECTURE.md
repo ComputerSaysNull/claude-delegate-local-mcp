@@ -1,4 +1,6 @@
-<!-- BUDGET: 770
+<!-- BUDGET: 772
+     Raised from 770 on 2026-09-06: backend_status reports one more measured figure,
+     the decode rate, and it is the one nothing here could ever estimate. ADR-0055.
      Raised from 746 on 2026-09-05: the sandbox gained resource limits, whose mechanism is not bwrap's and whose process cap has three measured caveats a reader must have before touching it.
      Raised from 738 on 2026-09-05: the sandbox gained a second, independent guard on what an agent may bind -- an ordering property this document owns, distinct from the mount-level scan described beside it.
      Raised from 723 on 2026-09-05: backend_status now reports the cluster's own
@@ -235,8 +237,9 @@ Each row also carries a **`cluster` block: the serving stack's own numbers**, wh
 `admission` block beside it carries this process's estimates of them. Queue depth, KV cache
 occupancy and the prefix-cache hit rate were all guessed at from what this process had
 dispatched, which cannot see other clients or other server processes; these are measured by
-the engine. What is read and why the reading is an allowlist belongs to
-[DISPATCH.md](DISPATCH.md), which owns the adapter.
+the engine. The decode rate is the one figure nothing here could estimate at all, and the
+reply budget is now derived from it (ADR-0055). What is read and why the reading is an
+allowlist belongs to [DISPATCH.md](DISPATCH.md), which owns the adapter.
 
 **A missing `cluster` block never changes a row's status.** An endpoint that publishes no
 metrics, or times out answering for them, is a healthy endpoint with nothing to say on the

@@ -1,4 +1,8 @@
-<!-- BUDGET: 545 -->
+<!-- BUDGET: 570 -->
+<!-- Raised from 545 on 2026-09-06: the reply budget now has a ceiling derived from
+     a measured decode rate, and both halves of that -- the ceiling's asymmetry with
+     the floor, and the one histogram the metrics reader stopped skipping -- are
+     behaviour this document owns. ADR-0055. -->
 <!-- Raised from 517 on 2026-09-05: the adapter now reads the cluster's own metrics, and the label and denomination rules belong with it. -->
 <!-- Raised from 494 on 2026-09-05: this document now owns the endpoint capture and diff scripts, which record what comes back. -->
 <!-- Raised from 488 on 2026-09-05: the per-turn diagnostic and the end event now carry what the prefix cache saved. -->
@@ -114,9 +118,14 @@ makes the derived hit rate meaningless rather than merely wrong. The rate is cum
 since the engine booted and its name says so; a rate over a window needs two scrapes and a
 clock, which is a different feature.
 
-**Histograms are skipped entirely.** Their `_sum` and `_count` are cumulative over the
-process, so a mean derived from them is the mean since boot while looking like a current
-figure — worse than reporting nothing.
+**Histograms are skipped, with one exception whose shape the rule explains.** Their `_sum`
+and `_count` are cumulative, so a mean derived from them is the mean since boot while
+looking like a current figure — worse than reporting nothing.
+`decode_tokens_per_second_since_boot` is read because a since-boot mean is the right answer
+to the only question asked of it: what to seed a decode-rate estimate with before a
+delegation has decoded anything (ADR-0055). Blending every concurrency regime since boot
+makes it conservative rather than flattering, and the suffix is what stops it reading as
+current. Nothing else follows it without asking that again.
 
 ## What the endpoint returns, recorded
 
@@ -260,6 +269,22 @@ A caller's own number is *not* raised to that floor — it is the most specific 
 there is, and multiplying it by thirty would make the argument advisory. Guessing too low
 still gets the recovery below, which retries at the floor, so being wrong costs one extra
 dispatch. The per-model cap applies last everywhere: it is what the wire accepts.
+
+**Then a ceiling the clock can pay for, binding the caller's number too** (ADR-0055). The
+asymmetry with the floor is deliberate: a floor is a preference about how much room
+reasoning gets, and overriding a preference is rude, while the ceiling states what the
+deadline can deliver and no version of the request beats it. A budget above it buys the
+same answer discarded at `stall_timeout` — which is how productive turns came to be
+reported as stalls.
+
+It is `stall_timeout × rate × reply_budget_margin`, floored at `reply_budget_floor`, and
+the rate is **measured, never configured**: it belongs to the deployment and moved twice in
+one week. `DecodeRate` seeds from the cluster's since-boot figure so the first turn is
+bounded — a one-shot and a tools-withdrawn final turn both live there — and every later turn
+replaces the seed with what this delegation achieved, which is the rate its own deadline is
+paid in. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055,
+not a guess. Every recovery stage is bounded, the enlarged retry included, or that retry
+would be the way back to a budget no deadline can pay.
 
 ## Reasoning is controlled per request, never inherited
 

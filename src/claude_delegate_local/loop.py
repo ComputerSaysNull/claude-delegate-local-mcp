@@ -276,8 +276,98 @@ def resolve_effort(cfg: Config, entry: ModelEntry, explicit: str | None = None) 
     return entry.effective_effort(cfg)
 
 
+class DecodeRate:
+    """Tokens per second this deployment actually decodes, kept across turns.
+
+    ADR-0055. The reply budget has to be denominated in seconds before it can be compared
+    with a deadline, and the exchange rate is a property of the deployment rather than of
+    the code: it moved twice in the week this was written, once because the served model
+    was swapped and once because the cluster's configuration was pulled. So it is measured
+    and never configured.
+
+    Two sources, in this order, because neither alone covers the case that kills a
+    delegation:
+
+      * the cluster's own since-boot mean, read once when the delegation starts. This is
+        what makes the very first turn bounded -- and the first turn is where a one-shot
+        and a tools-withdrawn final turn both live, so an estimator that only learns from
+        experience would leave exactly the fatal shapes uncapped.
+      * this delegation's own turns, which replace the seed as soon as there is one. Our
+        sequence's rate is the one the deadline is actually paid in; the cluster's mean is
+        a blend over every tenant and every concurrency regime it has ever served.
+
+    An exponential average rather than the last value, so one anomalous turn cannot halve
+    the next turn's budget, and implausible observations are refused outright rather than
+    smoothed -- a turn that decoded four tokens in a tenth of a second says nothing about
+    throughput and would say it very loudly.
+    """
+
+    # Below these, an observation is arithmetic on noise. A turn answering in a few tokens
+    # spends most of its backend interval on prefill and queueing, so its apparent decode
+    # rate describes the queue rather than the decoder.
+    MIN_TOKENS = 64
+    MIN_SECONDS = 1.0
+    # New evidence is worth more than old, but not so much more that one turn is the
+    # estimate. Five turns move it roughly 90% of the way to a changed rate.
+    WEIGHT = 0.4
+
+    __slots__ = ("_rate",)
+
+    def __init__(self, seed: float | None = None) -> None:
+        self._rate = seed if seed and seed > 0 else None
+
+    @property
+    def known(self) -> bool:
+        return self._rate is not None
+
+    def observe(self, output_tokens: int, seconds: float) -> None:
+        if output_tokens < self.MIN_TOKENS or seconds < self.MIN_SECONDS:
+            return
+        sample = output_tokens / seconds
+        self._rate = (
+            sample if self._rate is None
+            else (1 - self.WEIGHT) * self._rate + self.WEIGHT * sample
+        )
+
+    def ceiling(self, cfg: Config, seconds_available: float) -> int | None:
+        """The largest reply the clock can pay for, or None when nothing is known yet.
+
+        `None` rather than a guess. A cap invented from no measurement is the constant
+        this design exists to avoid, and a caller that cannot bound the budget should say
+        so in the ledger rather than pretend to.
+        """
+        if self._rate is None or seconds_available <= 0:
+            return None
+        return max(
+            cfg.reply_budget_floor,
+            int(seconds_available * self._rate * cfg.reply_budget_margin),
+        )
+
+
+async def seed_decode_rate(backend: Backend) -> DecodeRate:
+    """The estimator, seeded from the cluster if it will say and empty if it will not.
+
+    Never raises. This is one scrape of a monitoring surface, and a delegation that
+    refused to start because `/metrics` was briefly unavailable would trade a latency
+    protection for an outage -- the same inversion `slots.py` warns about. An endpoint
+    that publishes nothing simply leaves the first turn uncapped, which is the behaviour
+    that existed before ADR-0055 and is stated in the ledger rather than hidden.
+    """
+    try:
+        cluster = await backend.probe_cluster()
+    except Exception:  # a monitoring read must never fail a delegation
+        return DecodeRate()
+    rate = (cluster or {}).get("decode_tokens_per_second_since_boot")
+    return DecodeRate(rate if isinstance(rate, (int, float)) else None)
+
+
 def resolve_max_tokens(
-    cfg: Config, entry: ModelEntry, effort: str, explicit: int | None = None
+    cfg: Config,
+    entry: ModelEntry,
+    effort: str,
+    explicit: int | None = None,
+    *,
+    ceiling: int | None = None,
 ) -> int:
     """The reply budget: the caller's number, else the configured one raised at high effort.
 
@@ -297,6 +387,14 @@ def resolve_max_tokens(
     cost of overriding them is an argument that does not mean what it says.
 
     The per-model cap applies to every path, last, because it is what the wire will accept.
+
+    `ceiling` is the deadline expressed in tokens, and unlike the floor it applies to the
+    explicit argument too (ADR-0055). The asymmetry is deliberate: the floor is a
+    preference about how much room reasoning should get, and overriding a caller's
+    preference is rude, while the ceiling is a statement about what the clock can deliver
+    and overriding physics is not on offer. A budget above it is not a larger answer, it
+    is the same answer killed at `stall_timeout` with everything generated discarded --
+    which is how a productive turn came to be reported as a stall.
     """
     if explicit is not None:
         if explicit < 1:
@@ -304,10 +402,13 @@ def resolve_max_tokens(
                 f"max_tokens={explicit} must be at least 1. A budget of nothing cannot "
                 "produce an answer."
             )
-        return entry.cap_tokens(explicit)
-    budget = cfg.max_tokens
-    if effort in ("high", "max"):
-        budget = max(budget, cfg.thinking_max_tokens_floor)
+        budget = explicit
+    else:
+        budget = cfg.max_tokens
+        if effort in ("high", "max"):
+            budget = max(budget, cfg.thinking_max_tokens_floor)
+    if ceiling is not None:
+        budget = min(budget, ceiling)
     return entry.cap_tokens(budget)
 
 
@@ -589,6 +690,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     deadline: float | None,
     stall_left: Callable[[], float] | None = None,
     max_tokens: int | None = None,
+    budget_ceiling: int | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
@@ -613,12 +715,20 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     is decided here. Turning this into two copies is how the turn loop would end up
     diagnosing exhaustion differently from the one-shot path.
 
+    `budget_ceiling` bounds every stage, including the enlarged retry. Bounding only the
+    first would make stage 2 the way back to a budget the clock cannot pay, and stage 2 is
+    reached precisely when the model has already shown it will use everything it is given.
+    Where the first budget is already at the ceiling the retry is skipped by the existing
+    identical-request test, and the cascade falls through to stepping effort down -- which
+    is the correct remedy once more room is not available: think less, rather than ask for
+    time that does not exist.
+
     Attempts accumulate across all three stages and every transport retry inside them, so
     the number reported is what this dispatch really cost. What is *not* summed is the
     token counts: those come from the attempt that answered. ADR-0014 says the retry must
     not charge the turn budget, so a turn is charged for the answer it got.
     """
-    asked_budget = resolve_max_tokens(cfg, entry, effort, max_tokens)
+    asked_budget = resolve_max_tokens(cfg, entry, effort, max_tokens, ceiling=budget_ceiling)
     attempts = 0
 
     response, spent = await complete_with_retry(
@@ -631,7 +741,10 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
 
     # Stage 2: the same level, more room. `thinking_max_tokens_floor` documents itself as
     # the size retried after an empty answer, so there is no second setting for it.
-    floor = entry.cap_tokens(max(2 * asked_budget, cfg.thinking_max_tokens_floor))
+    enlarged = max(2 * asked_budget, cfg.thinking_max_tokens_floor)
+    if budget_ceiling is not None:
+        enlarged = min(enlarged, budget_ceiling)
+    floor = entry.cap_tokens(enlarged)
     if floor > asked_budget:
         response, spent = await complete_with_retry(
             cfg, backend, build(effort, floor),
@@ -654,7 +767,10 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
         return Dispatch(response, effort, attempts)
 
     response, spent = await complete_with_retry(
-        cfg, backend, build(stepped, resolve_max_tokens(cfg, entry, stepped, max_tokens)),
+        cfg, backend, build(
+            stepped,
+            resolve_max_tokens(cfg, entry, stepped, max_tokens, ceiling=budget_ceiling),
+        ),
         sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
     )
     attempts += spent
@@ -716,9 +832,14 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         )
 
     async def dispatch() -> Dispatch:
+        # Seeded from the cluster, because a one-shot has no earlier turn to learn from and
+        # is the shape with the least slack: it completes no turns, so its deadline runs
+        # from entry and it must fit a whole answer inside one of them (ADR-0055).
+        rate = await seed_decode_rate(backend)
         return await dispatch_with_recovery(
             cfg, entry, backend, request_at,
             effort=resolved, max_tokens=max_tokens,
+            budget_ceiling=rate.ceiling(cfg, stall_left()),
             sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
         )
 
@@ -1578,6 +1699,12 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         if on_turn_done is not None and watch.turns:
             await on_turn_done(watch.turns[-1], text, backend_seconds)
 
+    # One scrape, before the first turn, and never again: every turn after this replaces
+    # the seed with what this delegation itself achieved (ADR-0055). Doing it here rather
+    # than lazily on the first turn keeps the network call outside the stall clock the
+    # turn is about to be measured against.
+    decode_rate = await seed_decode_rate(backend)
+
     # The heartbeat, beside the loop rather than inside it. `run_one_shot` has had one
     # since ADR-0018; this path reported only at the top of each turn, so a single long
     # turn was silent for its whole duration -- bounded by `turn_timeout`, which defaults
@@ -1618,9 +1745,16 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
                 )
 
             backend_started = clock()
+            # Re-derived every turn rather than once. `stall_left` is reset by the previous
+            # turn completing, so this tracks the clock the model is actually racing, and
+            # the rate below tracks what the cluster is giving us as other tenants come and
+            # go. A ceiling fixed at entry would be a guess about the rest of the run.
             dispatch = await dispatch_with_recovery(
                 cfg, entry, backend, build,
                 effort=resolved_effort, max_tokens=max_tokens,
+                budget_ceiling=decode_rate.ceiling(
+                    cfg, min(stall_left(), deadline - clock())
+                ),
                 sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
             )
             # The backend call alone, separate from the turn's wall clock. Tokens per second
@@ -1629,6 +1763,12 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # that is quietly measuring the wrong interval is worse than none, because it
             # gets believed.
             backend_seconds = max(clock() - backend_started, 0.0)
+            # What this turn actually achieved, which replaces the cluster's lifetime mean
+            # for every turn after it. Measured over the backend interval alone for the
+            # same reason the throughput figure below it is: folding tool execution into
+            # the divisor would report the decoder as slower than it is, and here that
+            # error would tighten the next turn's budget rather than merely mislead.
+            decode_rate.observe(dispatch.response.output_tokens, backend_seconds)
             watch.turn_cost(dispatch, evicted=dropped)
             guard.observe(
                 dispatch.response, evicted_this_turn=dropped, turn=turn, turns=turns,

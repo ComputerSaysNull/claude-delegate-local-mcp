@@ -76,6 +76,15 @@ _COUNTERS = {
     "vllm:num_preemptions_total": "preemptions",
     "vllm:external_prefix_cache_hits_total": "external_prefix_cache_hit_tokens",
 }
+# The one histogram read, and only its `_sum`/`_count` pair. Each observation is one
+# request's mean seconds per output token, so `count / sum` is tokens per second since the
+# engine booted. That is a lifetime mean and is named as one -- see the note in
+# `read_metrics` for why that is reported here and nowhere else.
+_HISTOGRAM_PAIRS = {
+    "vllm:request_time_per_output_token_seconds_sum": "_decode_seconds_sum",
+    "vllm:request_time_per_output_token_seconds_count": "_decode_requests",
+}
+
 # From `vllm:cache_config_info`, whose values live in its labels. Numeric configuration
 # only: no path, no host, no free-form string.
 _CACHE_CONFIG = {
@@ -459,10 +468,18 @@ def _labels(series: str) -> dict[str, str]:
 def read_metrics(text: str) -> dict[str, float | int | str | None]:
     """Prometheus exposition text -> the handful of figures worth reporting.
 
-    Deliberately not a general parser. Histograms are skipped entirely: their `_sum` and
-    `_count` are cumulative over the process, so a mean derived from them is the mean
-    since boot and answers a question nobody asked. Reporting one would be worse than
-    reporting nothing, because it looks like a current figure.
+    Deliberately not a general parser. Histograms are skipped, with one exception, and
+    the reason for the rule is also the shape of the exception: their `_sum` and `_count`
+    are cumulative over the process, so a mean derived from them is the mean since boot.
+    Reporting one as a *current* figure would be worse than reporting nothing.
+
+    `decode_tokens_per_second_since_boot` is read because a since-boot mean is the right
+    answer to the question it is asked -- what to seed a decode-rate estimate with before
+    this delegation has decoded anything (ADR-0055) -- and because being a blend over every
+    concurrency regime since boot makes it conservative rather than flattering. It carries
+    `_since_boot` for the same reason `prefix_cache_hit_rate_since_boot` does: the name is
+    what stops it being read as current. Nothing else here may follow it without that
+    question being asked again.
 
     Unknown names are ignored rather than collected, so a metric appearing upstream
     cannot silently widen what this returns -- `scripts/diff_endpoint_captures.py` is
@@ -479,7 +496,9 @@ def read_metrics(text: str) -> dict[str, float | int | str | None]:
             value = float(raw)
         except ValueError:
             continue
-        if name in _GAUGES:
+        if name in _HISTOGRAM_PAIRS:
+            out[_HISTOGRAM_PAIRS[name]] = value
+        elif name in _GAUGES:
             out[_GAUGES[name]] = value
         elif name in _COUNTERS:
             out[_COUNTERS[name]] = int(value)
@@ -497,14 +516,29 @@ def read_metrics(text: str) -> dict[str, float | int | str | None]:
                     else int(got) if got.isdigit() else None
                 )
 
+    _derive_since_boot(out)
+    return out
+
+
+def _derive_since_boot(out: dict[str, float | int | str | None]) -> None:
+    """The two figures computed from scraped ones, in place.
+
+    Both are cumulative since the engine booted, so both say so in their names. A rate
+    over a window would need two scrapes and a clock, which is a different feature and not
+    one `backend_status` should grow quietly.
+    """
     hits = out.get("prefix_cache_hit_tokens")
     queries = out.get("prefix_cache_query_tokens")
-    # Cumulative since the engine booted, so it is a lifetime figure and says so in its
-    # name. A rate over a window would need two scrapes and a clock, which is a different
-    # feature and not one `backend_status` should grow quietly.
     if isinstance(hits, int) and isinstance(queries, int) and queries > 0:
         out["prefix_cache_hit_rate_since_boot"] = round(hits / queries, 4)
-    return out
+
+    # Inverted here rather than reported as seconds-per-token, because every caller wants
+    # tokens per second and one of them multiplies it by a deadline. The intermediate keys
+    # are removed: they are parser state, not a figure anyone should read.
+    seconds = out.pop("_decode_seconds_sum", None)
+    requests = out.pop("_decode_requests", None)
+    if isinstance(seconds, float) and isinstance(requests, float) and seconds > 0:
+        out["decode_tokens_per_second_since_boot"] = round(requests / seconds, 2)
 
 
 def _decode(r: httpx.Response, path: str) -> dict[str, Any]:
