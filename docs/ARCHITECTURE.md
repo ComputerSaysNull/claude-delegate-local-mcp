@@ -1,4 +1,13 @@
-<!-- BUDGET: 791
+<!-- BUDGET: 838
+     Raised from 821 on 2026-09-06: the list redraws without blanking, the highlight
+     survives the row's own colours, and the selection returns where it was.
+     Raised from 814 on 2026-09-06: the cache column is renamed for what it measures,
+     and why the old name misled twice is the part worth keeping.
+     Raised from 800 on 2026-09-06: the picker separates what the cluster processed
+     from what the calling conversation was spared, and why the two differ tenfold
+     without either being waste is the fact this document owns.
+     Raised from 791 on 2026-09-06: the picker shows a saved total and a reuse share,
+     and why neither replaces the other is the fact this document owns.
      Raised from 781 on 2026-09-06: the result now reports the whole run beside the
      answering turn, and the two used to share three field names. ADR-0058.
      Raised from 772 on 2026-09-06: the live stream now reports the eviction that
@@ -697,6 +706,44 @@ directory, follows the one you pick, and renders turns as a conversation rather 
 JSON. It is owned by this document rather than its own, because a renderer and the format
 it renders are one decision — split across two documents, a renderer ends up describing a
 shape the writer no longer produces.
+
+**Its picker carries four token figures, and no two answer the same question.** `cached` is
+prefill the cluster skipped from its own prefix cache; `reuse` is that as a share of the
+prompt tokens sent — input only, since output is never cached — and is the one that falls
+when a run stops reusing its prefix. A total alone grows fastest exactly when reuse is worst,
+so it cannot show that; a share alone never says how much was avoided.
+
+The column is named for what it measures rather than for what a reader hopes it measures. It
+was `saved` until it had been misread twice: once into deleting it outright, and once by a
+reader taking it for tokens the *caller* did not have to spend. It is neither, and would read
+the same if no caller existed.
+
+`spared` and `load` answer the different question of what delegating was worth. **`load` is
+what the cluster processed** — prompt plus output, summed over every turn — and it is the
+larger, more flattering figure. **`spared` is what would have entered the calling
+conversation instead**: the peak prompt, which is the point at which the history was fullest
+and therefore the unique content, plus everything generated. The gap between them is about
+tenfold on a long run and is not inefficiency: a turn loop resends its history, so a sum
+counts the same documents once per turn that carried them, and the caller's own loop resends
+its context the same way. The difference is that a delegation records it per turn and a
+conversation does not. `spared` leans high, because an earlier turn's output reappears inside
+a later turn's prompt; for a figure arguing that delegating was worthwhile, that is the
+honest direction to be wrong in.
+
+**The list redraws by overwriting, never by blanking first.** Erasing the screen and then
+painting it leaves the terminal empty for as long as the paint takes, which at the list's
+two-second cadence reads as a flicker. So a frame goes home, overwrites each line and erases
+only that line's tail, and clears the region below last — no cell is ever blank between
+frames. The whole frame is one write, wrapped in DEC 2026 synchronised output, which
+terminals that do not know it ignore. `CLEAR` survives for the follow view, which paints
+once and has nothing to tear.
+
+**The selected row is stripped of colour before it is inverted**, because a row carries its
+own dim/reset pairs and a reset ends the inverse as surely as it ends the dim — highlighting
+only as far as the first one, two columns in. It is padded to the terminal width and never
+truncated to it: a cut row loses the end of the task text, which is what tells two
+delegations apart. Leaving the follow view returns the highlight to the row it was opened
+from, falling back to the top when that transcript has aged out of the newest N.
 
 The list and the follow view are two states of one process, not two runs of it. `q` leaves
 a transcript and comes back to the list; only the list exits. Reaching the `end` event

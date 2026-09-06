@@ -34,6 +34,67 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #119 — 2026-09-06 — fix: the picker shows saved tokens and reuse side by side
+
+### Fixed
+- **`#116` replaced the "saved" column instead of adding beside it.** That was a judgement
+  made while fixing a real defect — a cumulative total grows fastest exactly when reuse is
+  worst, so it was the one rendering that could not show the eviction bug it was measuring —
+  and the conclusion drawn from it was wrong. The total is not the bug; the missing
+  denominator was. Both columns are back, side by side.
+- They answer different questions and neither is the other's summary. `saved` is prefill the
+  cluster actually skipped, which is the figure worth totalling across delegations and the
+  one that says what delegating is worth. `reuse` is that against what was sent, which is the
+  figure that falls when a run stops reusing its prefix. Showing only the total hides the bug;
+  showing only the share hides the win.
+
+### Changed
+- **`saved` is renamed `cached`, because the name was the whole defect.** It returns
+  `cached_tokens` and always did — the cluster's own prefix-cache reuse, identical whether or
+  not a caller exists — but "saved" reads as *what delegating saved me*. That misreading cost
+  twice: it talked this session into deleting the column outright, and then a reader into
+  taking it for tokens the caller had not spent. Named for what it measures, the question it
+  cannot answer stops being asked of it.
+
+### Added
+- **`spared` and `load`, which answer the question `cached` cannot.** `load` is what
+  the cluster processed, prompt plus output over every turn. `spared` is what would have
+  entered the calling conversation instead — the peak prompt, being the point at which the
+  history was fullest and so the unique content, plus everything generated.
+- **The two differ about tenfold and neither is waste.** On a twelve-turn run, `spared` is
+  91.9k against a `load` of 907.4k. A turn loop resends its history, so a sum counts the same
+  documents once per turn that carried them — and the caller's own loop resends its context
+  the same way. The difference is that a delegation records it per turn and a conversation
+  does not: a measurement asymmetry, not an efficiency gap. Where a real gap existed it was
+  `#114` and `#115`, both fixed.
+
+### Notes
+- Visible immediately in the four-arm timing run of `#118`: arms 2, 3 and 4 each show
+  `12.3k / 91%` over the file they shared, and arm 1 shows `0 / 0%` because it was the one
+  that established the cache. Either column alone tells half of that.
+- A one-turn delegation has no history to resend, so `spared` and `load` must be equal.
+  That is asserted as the control for the tenfold gap above, which would otherwise prove
+  nothing about the peak-versus-sum distinction.
+- The header is now composed from the same widths as the row rather than typed out, because
+  it drifted the moment a column was added — twice.
+- **Three picker annoyances, all one-line causes.** The two-second redraw erased the screen
+  before painting it, so the terminal was blank for the length of the paint — a frame now
+  overwrites in place, erases only each line's tail, clears below last, and goes out as one
+  write inside DEC 2026 synchronised output. The selected row was inverted while still
+  carrying its own dim/reset pairs, and a reset ends the inverse as surely as it ends the
+  dim, so the highlight stopped two columns in; the row is stripped and padded now, and
+  padded rather than truncated because a cut row loses the task text that tells two
+  delegations apart. And leaving a transcript returned the highlight to the top of the list
+  instead of the row it was opened from.
+- Verified by reading the frame bytes out of a real pty, not by inspecting the constants:
+  the erase-forward now falls after the text rather than before it, and the inverted run is
+  104 characters — a whole row.
+- `reuse`'s denominator is prompt tokens sent, not `load`. Output is never cached, so
+  dividing by a figure that includes it would understate the hit rate and measure nothing in
+  particular.
+- The pty rendering test now asserts both headings and both values. It only runs on POSIX,
+  which is why the suite is run on both platforms.
+
 ## #118 — 2026-09-06 — fix: fanning out costs seconds, not two minutes a call
 
 ### Fixed
