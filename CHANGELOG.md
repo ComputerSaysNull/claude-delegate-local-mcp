@@ -34,6 +34,67 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #114 — 2026-09-06 — fix: eviction carries its boundary instead of recomputing it every turn
+
+### Fixed
+- **Evicting a tool result rewrote the history mid-stream, and the prefix cache paid every
+  turn.** `evict_stale_tool_results` collapsed everything older than the newest `keep`
+  results. That reads as a stable window and is not one: as the history grows the boundary
+  advances by one per turn, and with it the first difference between consecutive prompts.
+  The serving stack caches *prefixes*, so moving that difference forward discards everything
+  after it. Measured on an idle cluster with `preemptions: 0` throughout — the hit rate
+  climbed 75.0%, 80.0%, 83.3% on turns 5-7 exactly as an append-only history should, then hit
+  **0.0%** on the turn `tool_results_evicted` first went to 1 and never recovered. Turns 8-11
+  re-prefilled 315,625 tokens the run had already established: identical work, five times the
+  wall clock. `_OverflowGuard` now owns a boundary that only advances, in steps of `keep`, so
+  one rewrite buys `keep` turns of stability. (ADR-0056)
+- **The live stream could show the collapse but not its cause.** `Stream.turn` wrote
+  `cached_tokens` and not `tool_results_evicted`, which the final record already carried per
+  turn. The pair is the point: either alone answers half the question. A one-shot reports `0`
+  rather than omitting the field, because it has no history to evict from and that is a
+  measurement, where an absent field reads as *not measured*.
+
+### Changed
+- **`evict_stale_tool_results` became `stub_oldest_tool_results`**, taking how far to stub
+  rather than deriving it from `keep`. The rename is the fix stated in the signature: the
+  caller carries the boundary, so it cannot drift a result per turn.
+- **`OVERFLOW_EVICT_AT`, a new first stage at 0.50** below the existing tighten (0.70), nudge
+  (0.85) and abort (0.95). With `context_overflow_enabled` armed, the boundary is held still
+  while there is genuinely room. Below the threshold it is *held*, not reset — un-stubbing
+  rewrites the history in the other direction and costs the same cache.
+
+### Notes
+- **Both halves are necessary, which measurement decided rather than argument.** PLAN listed
+  three candidates as alternatives. Modelled over the alternation the loop appends they are
+  not: per-turn boundary 2.9% reusable and 409,588 chars re-prefilled; pressure gate alone
+  5.1% and 273,499; gate plus stepped boundary 79.2% and 109,310; no eviction at all 93.0%
+  and 68,049, but unbounded. Gating alone is nearly worthless once pressure exists because
+  the boundary still moves. The stepping is load-bearing; the gate makes the common case free.
+- **The stepping is unconditional and only the holding is gated, which is not the obvious
+  arrangement.** `context_overflow_enabled` is off by default, so gating the whole policy on
+  it would have left the default configuration bounding nothing at all — trading a cache bug
+  for an unbounded history, which is worse than what it replaced. Caught by a test asserting
+  a stub was actually produced, which failed with `0 > 0` rather than passing quietly; the
+  pressure test had been passing by evicting nothing. `test_an_unarmed_guard_still_bounds_the_history`
+  exists so that cannot recur.
+- Mutation-tested: restoring the per-turn boundary fails three tests, and they report the
+  reusable share falling to 0.08%, 0.4%, 0.7% — the shape the cluster measured.
+- The second-order cost now has a reader. `evicted_then_reread` caught the model re-reading
+  the file eviction had just dropped on three consecutive turns; the dropped content returns
+  as a fresh full-size result, which pushes the next one out. That machinery already existed
+  and `diagnostics` is off by default, so nobody saw it.
+- `docs/DISPATCH.md` had asserted the opposite of this fix — that only the leading prefix
+  could ever be cache-stable and "no arrangement of the tail changes that". Corrected there.
+- **One regression test's confound stopped being constructible, which is the fix working.**
+  `test_overflow_denominator_is_the_context_window` built "heavy eviction against a
+  barely-touched window" to prove the overflow detector reads the window and not the eviction
+  counter. Those two conditions are now mutually exclusive: eviction implies at least half the
+  window is projected in use. The property is unchanged and still worth guarding, so it moved
+  onto `_OverflowGuard` itself, where an absurd `evicted_upto` cannot be dismissed as
+  unreachable — and the original numbers are kept in a second test that now asserts the new
+  behaviour, that such a history is not evicted at all. Both were mutation-tested: pointing
+  the detector at the eviction count fails three tests in that file.
+
 ## #113 — 2026-09-06 — fix: the reply budget is derived from the deadline, not the effort floor
 
 ### Fixed

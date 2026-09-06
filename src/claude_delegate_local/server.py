@@ -449,11 +449,15 @@ class _OneShotTurn:
     were none to make.
     """
 
-    __slots__ = ("attempts", "cached_tokens", "effort", "input_tokens",
+    __slots__ = ("attempts", "cached_tokens", "effort", "evicted", "input_tokens",
                  "output_tokens", "tool_calls", "turn")
 
     def __init__(self, dispatched: Any) -> None:
         self.turn = 1
+        # Zero rather than absent. A one-shot has one turn and no history to evict from,
+        # so nothing was dropped -- which is a measurement, unlike the `None` a missing
+        # attribute would put in the stream.
+        self.evicted = 0
         self.input_tokens = dispatched.response.input_tokens
         self.output_tokens = dispatched.response.output_tokens
         self.cached_tokens = dispatched.response.cached_tokens

@@ -114,3 +114,39 @@ def test_nothing_is_streamed_when_no_transcript_directory_is_set(tmp_path):
     """
     assert transcript.open_stream(cfg(transcript_dir=""), None) is None
     assert transcript.open_stream(cfg(transcript_dir=str(tmp_path)), None) is not None
+
+
+def test_a_streamed_turn_says_whether_it_evicted_anything(tmp_path):
+    """The field that would have made ADR-0056's bug self-evident while it was happening.
+
+    The final record carried `tool_results_evicted` per turn and the live stream did not,
+    so someone watching a delegation could see `cached_tokens` collapse and not see the
+    eviction that caused it. Asserted beside `cached_tokens` because the pair is the point:
+    either alone answers half the question.
+    """
+    events = _run(tmp_path, two_turns, "delegate", {"task": "explain the retry"})
+    turns = [e for e in events if e["t"] == "turn"]
+
+    assert turns, [e["t"] for e in events]
+    for turn in turns:
+        assert "tool_results_evicted" in turn, sorted(turn)
+        assert "cached_tokens" in turn, sorted(turn)
+    # A short delegation evicts nothing, and that is a measurement rather than a silence.
+    assert [t["tool_results_evicted"] for t in turns] == [0] * len(turns)
+
+
+def test_a_one_shot_reports_no_eviction_rather_than_an_absence(tmp_path):
+    """`_OneShotTurn` has no history to evict from, so 0 is the honest value.
+
+    A missing attribute would stream `null`, which reads as "not measured" and would make
+    the one-shot path the one place a watcher could not tell the two apart.
+    """
+    events = _run(
+        tmp_path,
+        lambda r: httpx.Response(200, json=chat_reply(content="a one-shot answer")),
+        "delegate_readonly", {"task": "summarise"},
+    )
+    turns = [e for e in events if e["t"] == "turn"]
+
+    assert len(turns) == 1, [e["t"] for e in events]
+    assert turns[0]["tool_results_evicted"] == 0

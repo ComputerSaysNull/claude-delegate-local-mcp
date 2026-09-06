@@ -150,6 +150,12 @@ class Stream:
             "input_tokens": getattr(diagnostic, "input_tokens", None),
             "output_tokens": getattr(diagnostic, "output_tokens", None),
             "cached_tokens": getattr(diagnostic, "cached_tokens", None),
+            # Beside `cached_tokens` because it is the only thing that explains a collapse
+            # in it. The final record carried this per turn and the live stream did not, so
+            # someone watching a delegation could see the prefix cache fall over and not
+            # see the eviction that did it -- the one field that would have made ADR-0056's
+            # bug self-evident while it was happening.
+            "tool_results_evicted": getattr(diagnostic, "evicted", None),
             "effort": getattr(diagnostic, "effort", None),
             "attempts": getattr(diagnostic, "attempts", None),
             "tool_calls": [

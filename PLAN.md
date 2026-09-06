@@ -1,4 +1,7 @@
-<!-- BUDGET: 629
+<!-- BUDGET: 647
+     Raised from 629 on 2026-09-06: the eviction item ticked, and its original kept
+     beside it because the three directions it listed as alternatives turned out to be
+     two properties you need together.
      Raised from 608 on 2026-09-06: the reply-budget item ticked, and its original kept
      beside it because "backend_status is the reader" was wrong in the instructive
      direction -- the reader had to be built, past a documented refusal to report the
@@ -110,7 +113,22 @@ reproduces the second without a cluster.
     a whole answer in one deadline; raising the count postpones the death and makes it
     dearer. Respect ADR-0014's floor — it exists so heavy reasoning does not return nothing,
     and a cap ignoring it re-creates that bug from the other side
-- ⬜ **Eviction rewrites the history mid-stream, and the prefix cache pays every turn.**
+- ✅ 2026-09-06 Eviction carries its boundary instead of recomputing it every turn (`#114`,
+  ADR-0056) — **the three candidate directions were not alternatives**, which is what
+  "measure before choosing" turned up and no amount of reading would have. Modelled over the
+  alternation the loop appends: the per-turn boundary reuses 2.9% of each prompt, gating on
+  projected share alone reaches 5.1%, gating *plus* a stepped boundary reaches 79.2%, and an
+  unbounded history reaches 93.0%. So the stickiness is the load-bearing half and the gate is
+  what makes the common case free — filed as an either/or, delivered as both. Two things the
+  filing could not have known. **`context_overflow_enabled` is off by default**, so the
+  obvious arrangement — gate the whole policy on the flag — would have left the default
+  configuration bounding nothing at all, trading a cache bug for an unbounded history; the
+  stepping is therefore unconditional and only the holding is gated. And that was caught by a
+  test asserting a stub had actually been produced, which failed `0 > 0` while the pressure
+  test beside it passed by evicting nothing — the fourth-and-fifth-check problem, found in
+  the act. `docs/DISPATCH.md` had also asserted the opposite of the fix, that no arrangement
+  of the tail could be cache-stable. Original entry follows.
+- ~~Eviction rewrites the history mid-stream, and the prefix cache pays every turn~~ —
   `evict_stale_tool_results` stubs the oldest surviving tool result *inside* the history,
   one per turn; the stack caches **prefixes**, so the divergence point moves toward the
   front and everything after it is recomputed. JOURNAL 2026-09-05 had already priced this
