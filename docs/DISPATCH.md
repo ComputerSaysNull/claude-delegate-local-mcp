@@ -1,4 +1,7 @@
-<!-- BUDGET: 588 -->
+<!-- BUDGET: 600 -->
+<!-- Raised from 588 on 2026-09-06: the final turn forbids tool calls rather than
+     withdrawing the tools, which is a change to the request this document owns.
+     ADR-0057. -->
 <!-- Raised from 570 on 2026-09-06: the eviction boundary is stepped and carried, and
      this section had asserted the opposite -- that no arrangement of the tail could be
      cache-stable -- so the correction costs more than the change. ADR-0056. -->
@@ -426,6 +429,15 @@ So the loop's prefix is stable further than it used to be, and the earlier claim
 the leading prefix could ever be cache-stable was wrong. An append-only history reuses about
 93% of each prompt; stepped eviction reuses about 79%; the per-turn boundary reused 2.9%. The
 gap between 93% and 79% is the price of bounding the history at all.
+
+**The final turn keeps its tools and is forbidden to call them** (ADR-0057). The loop
+breaks on the last turn whether or not the model asked for anything, so the intent — leave it
+nothing to produce but an answer — is unchanged. Withdrawing `tools` achieved that by
+changing the front of the prompt, which is the one edit the prefix cache cannot absorb:
+measured, dropping the tool block to save 321 tokens re-prefilled all 36,018 of them, a 99.3%
+hit falling to 0.0%. `tool_choice` is our own two-word vocabulary, `auto` and `none`,
+translated per adapter as `effort` is; `auto` is omitted from the body so an ordinary turn's
+bytes do not move.
 
 ## A repeated tool call is answered, not re-run
 

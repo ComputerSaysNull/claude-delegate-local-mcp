@@ -1791,10 +1791,16 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
                     max_tokens=budget,
                     effort=level,
                     temperature=cfg.tool_call_temperature,
-                    # Withdrawn on the final turn, so the only thing left to produce is an
-                    # answer. A model that ends on a tool call nobody will run has spent the
-                    # whole delegation and returned nothing readable.
-                    tools=() if _final else specs,
+                    # Always offered, and forbidden rather than withdrawn on the final turn
+                    # (ADR-0057). The intent is unchanged -- a model that ends on a tool call
+                    # nobody will run has spent the whole delegation and returned nothing
+                    # readable -- but withdrawing them changed the front of the prompt, and
+                    # the stack caches prefixes. Measured: dropping the tool block to save
+                    # 321 tokens re-prefilled all 36,018 of them, a 99.3% cache hit falling
+                    # to 0.0%, on the one turn that must also fit a whole answer in one
+                    # deadline.
+                    tools=specs,
+                    tool_choice="none" if _final else "auto",
                 )
 
             backend_started = clock()

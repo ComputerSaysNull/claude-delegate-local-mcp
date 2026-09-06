@@ -210,6 +210,12 @@ class ToolSpec:
     input_schema: dict[str, object]
 
 
+# Deliberately two values, not the wire's full set. "required" and naming a specific tool
+# are real options in both formats and neither has a caller here; adding them without one
+# would be inventing a contract nobody has tested.
+TOOL_CHOICES = ("auto", "none")
+
+
 @dataclass(frozen=True, slots=True)
 class CanonicalRequest:
     """One backend call, fully specified.
@@ -231,8 +237,17 @@ class CanonicalRequest:
     effort: str
     temperature: float
     tools: tuple[ToolSpec, ...] = ()
+    # "auto" lets the model call; "none" offers the tools and forbids calling them. Our own
+    # vocabulary, translated per adapter exactly as `effort` is (ADR-0013), because the two
+    # wire formats spell this differently and neither spelling belongs in the canonical
+    # shape. Withdrawing `tools` instead is what ADR-0057 stopped doing.
+    tool_choice: str = "auto"
 
     def __post_init__(self) -> None:
+        if self.tool_choice not in TOOL_CHOICES:
+            raise ValueError(
+                f"tool_choice={self.tool_choice!r} is not one of {TOOL_CHOICES}."
+            )
         if self.effort not in EFFORT_LEVELS:
             raise CanonicalShapeError(
                 f"effort={self.effort!r} is not one of {EFFORT_LEVELS}. These are this "
