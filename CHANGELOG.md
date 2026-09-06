@@ -34,6 +34,42 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #116 — 2026-09-06 — fix: a delegation reports what the whole run cost, not just its last turn
+
+### Fixed
+- **A caller could not total what delegating saved, because every result described one
+  turn.** `input_tokens`, `output_tokens` and `cached_tokens` describe the attempt that
+  answered, and always did -- the note beside `attempts` says so. The transcript's `end`
+  event uses the same three names for lifetime sums. Both are defensible alone; the
+  collision is not. Measured on one twelve-turn delegation: the caller was handed
+  `output_tokens: 2,002` and `cached_tokens: 0` while its transcript recorded 4,404 and
+  559,872. Neither is wrong. The caller's figures were turn twelve -- which happened to be
+  the tools-withdrawn final turn that cached nothing, so the number a caller might use to
+  judge what delegation saved was structurally the worst turn of the run. (ADR-0058)
+- **The picker's "saved" column grew fastest when reuse was worst.**
+  `watch_delegations.py` rendered summed cached tokens. The figure is real -- the cluster
+  did skip that prefill -- but it counts the same prefix once per turn it was re-served. On
+  the run above, 479,232 of the 559,872 was one 53,248-token opening prompt counted nine
+  times, against 902,996 sent. A cumulative total is the one presentation that cannot show
+  the bug it is measuring.
+
+### Added
+- **`total_input_tokens`, `total_output_tokens` and `total_cached_tokens`** in the loop
+  ledger. Additive: the per-attempt fields keep their documented meaning, because the two
+  answer different questions and neither is derivable from the other. "Was this answer
+  truncated" is about the answering turn; "what did this delegation cost the cluster" is
+  about every turn there was.
+- Accumulated in `_Watch` **outside the `diagnostics` branch**, because what a delegation
+  cost is not a debugging extra and the per-turn detail that would let a caller add it up
+  is off by default. `total_cached_tokens` stays `None` until an endpoint reports caching at
+  all, keeping a measured zero apart from an unmeasured one.
+
+### Changed
+- **The picker shows reuse as a share.** 62% on the run above, and 33% on the controlled
+  eviction run -- both visibly poor for a history that is nominally append-only, and both
+  falling the moment the prefix stops being reused. Verified against the real transcript
+  directory, not only the fixtures.
+
 ## #115 — 2026-09-06 — fix: the final turn forbids tool calls instead of withdrawing the tools
 
 ### Fixed

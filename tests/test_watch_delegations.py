@@ -51,6 +51,7 @@ def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is 
     tool: str = "delegate", tools: list[str] | None = None,
     effort: str | None = None, elapsed_seconds: float | None = None,
     turn_cached: int | None = None, end_cached: int | None = None,
+    turn_sent: int | None = None, end_sent: int | None = None,
 ) -> Path:
     """One `.jsonl` named the way transcript.py names it, with events to match.
 
@@ -71,6 +72,8 @@ def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is 
         event = {"t": "turn", "at": started.astimezone(UTC).isoformat(), "turn": n}
         if turn_cached is not None:
             event["cached_tokens"] = turn_cached
+        if turn_sent is not None:
+            event["input_tokens"] = turn_sent
         lines.append(event)
     if ended is not None:
         end = {"t": "end", "at": started.astimezone(UTC).isoformat(), "ok": ended}
@@ -78,6 +81,8 @@ def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is 
             end["elapsed_seconds"] = elapsed_seconds
         if end_cached is not None:
             end["cached_tokens"] = end_cached
+        if end_sent is not None:
+            end["input_tokens"] = end_sent
         lines.append(end)
     path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
     return path
@@ -415,17 +420,20 @@ def test_the_list_paints_a_duration_and_an_effort(session, tmp_path):
     """
     now = datetime.now(UTC)
     stream(tmp_path, now - timedelta(minutes=9), "FINISHED", ended=True,
-           elapsed_seconds=125.0, effort="high", end_cached=44800)
+           elapsed_seconds=125.0, effort="high", end_cached=44800, end_sent=56000)
     stream(tmp_path, now - timedelta(seconds=200), "RUNNING", turns=2, effort="low",
-           turn_cached=1000)
+           turn_cached=1000, turn_sent=4000)
 
     screen = session(tmp_path).read()
-    assert "duration" in screen and "effort" in screen and "saved" in screen
+    assert "duration" in screen and "effort" in screen and "reuse" in screen
     assert "2m05s" in screen, "the finished row lost the server's own figure"
     assert "3m2" in screen, "the running row is not counting up from its start"
     assert "high" in screen and "low" in screen
-    assert "44.8k" in screen, "the finished row lost its recorded saving"
-    assert "2.0k" in screen, "the running row is not summing its turns"
+    # A share, not a running total: 44,800 of 56,000 sent, and 2,000 of 8,000 across two
+    # turns. The total grew fastest when reuse was worst, which is the one rendering that
+    # could not show the eviction bug it was measuring (ADR-0058).
+    assert "80%" in screen, "the finished row lost its recorded reuse"
+    assert "25%" in screen, "the running row is not summing its turns"
 
 
 @posix_only
@@ -621,3 +629,60 @@ def test_a_token_count_is_narrow_enough_for_its_column(viewer):
     # The boundary is 999,950, not a million: rounding happens after the unit is chosen,
     # so a naive `< 1_000_000` renders 999,999 as `1000.0k` and overflows the column.
     assert viewer._tokens(999_999) == "1.0M"
+
+
+def _stream(tmp_path, turns):
+    """A transcript stream with the per-turn prompt and cache figures the picker reads."""
+    path = tmp_path / "20260906T000000.000-0001-no-agent.jsonl"
+    lines = [{"t": "start", "task": "audit", "tool": "delegate", "at": "2026-09-06T00:00:00Z"}]
+    for n, (sent, cached) in enumerate(turns, start=1):
+        lines.append({"t": "turn", "turn": n, "input_tokens": sent, "cached_tokens": cached})
+    path.write_text(
+        "\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8"
+    )
+    return path
+
+
+def test_the_picker_reports_reuse_as_a_share_not_a_running_total(viewer, tmp_path):
+    """A cumulative total only ever grows, so the worse the reuse the larger the number.
+
+    Measured on a real run: 559,872 tokens "saved" of which 479,232 was one 53,248-token
+    opening prompt re-served on nine consecutive turns, against 902,996 actually sent. The
+    total reads as a headline; the ratio reads as 62%, which is visibly poor for a history
+    that is nominally append-only. This is the column that has to show the eviction bug
+    rather than hide it.
+    """
+    # Nine turns re-serving the same 53,248-token prefix, exactly as the bug produced.
+    row = viewer.summarise(
+        _stream(tmp_path, [(80_000, 53_248)] * 9 + [(80_000, 0)])
+    )
+
+    assert viewer.saved_of(row) == 53_248 * 9
+    assert viewer.sent_of(row) == 80_000 * 10
+    assert viewer._reuse(viewer.reuse_of(row)) == "60%"
+
+
+def test_a_healthy_append_only_run_reads_far_higher(viewer, tmp_path):
+    """The other direction, or the assertion above would pass on any number at all."""
+    row = viewer.summarise(
+        _stream(tmp_path, [(50_000, 48_000), (60_000, 58_000), (70_000, 68_000)])
+    )
+
+    share = viewer.reuse_of(row)
+    assert share is not None and share > 0.90
+
+
+def test_an_endpoint_that_reports_no_caching_shows_no_share(viewer, tmp_path):
+    """None is not zero: a measured miss and an unmeasured one are opposite answers, and
+    rendering the second as 0% would claim a delegation reused nothing."""
+    path = tmp_path / "20260906T000001.000-0001-no-agent.jsonl"
+    path.write_text(
+        json.dumps({"t": "start", "task": "x", "tool": "delegate"}) + "\n"
+        + json.dumps({"t": "turn", "turn": 1, "input_tokens": 1000}) + "\n",
+        encoding="utf-8",
+    )
+    row = viewer.summarise(path)
+
+    assert viewer.saved_of(row) is None
+    assert viewer.reuse_of(row) is None
+    assert viewer._reuse(None) == "-"
