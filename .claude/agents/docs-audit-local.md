@@ -61,6 +61,15 @@ something the caller did not send, not to gather the set you were asked to audit
 result you needed has been dropped from your history, the stub says so — re-read it or say
 you do not know. Do not convert a gap in your own history into a claim about permissions.
 
+**Prefetching is right and "one turn" is not the same claim**, which is the correction of
+2026-09-06. Those two travelled together in the sentence above and are independent: a pass
+can be fully prefetched *and* small. Prefetching was investigated as the cause of the
+2026-09-05 stalls and exonerated — the cause was a reply budget no deadline could pay
+(ADR-0055) — so keep it. What does not survive is sizing a pass so its whole answer must fit
+one reply. That budget is now capped at what the clock can decode, so an oversized pass is
+truncated instead of killed, which is better and still not an audit. The sizing rule is
+below, and it belongs to the caller rather than to you.
+
 ## Cite a line number only when `read_file` gave you one
 
 `read_file` now numbers every line it returns, and takes `start_line` to go straight at a
@@ -87,6 +96,43 @@ committed document before it was caught.
 
 `python3`, not `python` — the sandbox has no `python` on PATH, and a smoke test of this
 agent spent a turn and a failed command finding that out. The gate is `python3` too.
+
+## How a caller should size and split a pass
+
+Yours to read, not to act on: you audit what you are given. It is here because the body is
+what a caller reads before invoking, and because getting this wrong is what produced the
+2026-09-05 failures.
+
+**Size a pass so its findings fit one reply.** A twelve-document, seven-class call died at
+2100 s having completed no turns. The budget is capped now, so the same call would come back
+truncated rather than dead — quieter and no more useful. Judge it by expected findings, not
+by input size: prefetch is cheap and answers are not.
+
+**Split across passes, and run them concurrently.** Measured over 42 multi-turn delegations,
+**60% of backend time is decode**, and that share rises now that eviction no longer forces a
+re-prefill every turn (ADR-0056). Decode is the half concurrency parallelises: one sequence
+decodes at ~36 tok/s and four together at ~102 aggregate. Prefill is serialised by the engine
+and gains nothing from fanning out, so the win is bounded by that 60% — real, not the 2.8x
+the aggregate figure alone suggests. Firing several in one message also costs about 120 s of
+stagger per extra call, which is the client backgrounding each one before issuing the next.
+
+**Split by check class first, because four of the seven cannot see a split by document.**
+This is the trap. Splitting a twelve-document audit into four passes of three looks obvious
+and silently disables half the checks:
+
+| check | needs |
+|---|---|
+| STALE, TOO VERBOSE | one document, plus the code it describes. Splits cleanly. |
+| CLAIMS WITHOUT EVIDENCE | one document, plus `DECISIONS.md` and `JOURNAL.md` in every pass. |
+| WRONG DOCUMENT, CROSS-PLANE LEAK | every document that could hold the restatement. A pass that cannot see the other copy reports nothing and looks clean. |
+| MISSING | every document, or absence cannot be established at all. |
+| ESCAPE ABUSE | no documents — only `read_git`. Runs alone and concurrently with everything. |
+
+So: the per-document classes split by document group; the breadth classes take every document
+but look for one thing, which keeps their answers small; and ESCAPE ABUSE is its own tiny
+pass. A pass told to split by document **must not** be asked for the breadth classes, and if
+you are given one that is, say so rather than reporting a clean result you could not have
+seen.
 
 ## What to check
 

@@ -1,4 +1,6 @@
-<!-- BUDGET: 287
+<!-- BUDGET: 298
+     Raised from 287 on 2026-09-06: a fourth sighting of the pattern, and the first
+     where what expired was a measurement rather than a capability.
      Raised from 280 on 2026-09-05: the workaround-outlives-the-limitation pattern got its third sighting, and the rule that would have caught it -- grep the agent bodies when you add a tool -- is the part worth keeping.
      Raised from 272 on 2026-09-03: the agent-capability check, which automates the narrow half of the
      rule directly above it and needs its limit stated.
@@ -190,6 +192,15 @@ all and had the caller hand the waiver list in, which `read_git` had made untrue
 tool runs in the server process, so the tmpfs over `.git` never applied to it. Three
 sightings now, and the third was found by a reader asking "didn't we add that?", not by any
 check. **When you add a tool, grep the agent bodies for what it makes possible.**
+
+**A fourth sighting, 2026-09-06, and this one was a measurement rather than a capability.**
+The same body recorded that a prefetched audit finished "in one turn with zero tool calls",
+which was true when measured and became the wrong thing to aim at once the reply budget was
+capped against the deadline (ADR-0055): an oversized pass is now truncated rather than
+killed. The sentence had also fused two independent claims — prefetch everything, and answer
+in one turn — so correcting the second read as abandoning the first. **A measurement in an
+agent body needs its date and its conditions**, or the next reader cannot tell which half
+has expired.
 
 **It can also require what the sandbox cannot do — the same fault inverted, and costlier.**
 That body opened with "run the gate first", which cannot succeed: `.git` is under a tmpfs

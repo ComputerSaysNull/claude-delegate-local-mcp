@@ -1,4 +1,6 @@
-<!-- BUDGET: 678
+<!-- BUDGET: 695
+     Raised from 678 on 2026-09-06: the audit-shape item ticked, and its original kept
+     because two sessions read the same evidence oppositely and both were half right.
      Raised from 663 on 2026-09-06: the usage-accounting item, which was never filed
      and arrives ticked, and whose finding is that two records disagreed by design.
      Raised from 647 on 2026-09-06: a second cache bug found by measurement rather
@@ -524,7 +526,22 @@ them was re-derived when it did.
   - Restructures the model-facing tool contract, so it is a behaviour change with an ADR,
     not a wording fix. **Related to streaming but not blocked on it** — streaming is
     token-level liveness inside a turn, this is call-level detachment. Say so in the ADR.
-- ⬜ **`docs-audit-local` assumes one big prefetched pass, and that shape now stalls** —
+- ✅ 2026-09-06 An audit pass is sized to one reply and split by check class (`#117`) —
+  **both sessions were partly right and the disagreement was an ambiguity, not a conflict.**
+  Session 1 saw decomposed passes survive and concluded the prefetch was at fault; session 2
+  proved the budget was at fault and exonerated the prefetch. Neither noticed that the body's
+  sentence fused two independent claims — prefetch everything, *and* answer in one turn — so
+  correcting the second read as abandoning the first. A pass can be fully prefetched and
+  small. **What the filing could not have known:** splitting by *document*, the obvious
+  decomposition, silently disables four of the seven checks. WRONG DOCUMENT and CROSS-PLANE
+  LEAK need every document that could hold the restatement, and MISSING cannot establish an
+  absence from a subset — a pass that cannot see the other copy reports nothing and looks
+  clean. So the split is by check class first. The concurrency argument holds and is now
+  measured rather than asserted: 60% of backend time across 42 runs is decode, rising once
+  eviction stops forcing re-prefill, and decode is the half fanning out parallelises —
+  bounded by that 60%, not the 2.8x aggregate figure, and less roughly 120s of stagger per
+  extra call. Original entry follows.
+- ~~`docs-audit-local` assumes one big prefetched pass, and that shape now stalls~~ —
   its body says a prefetched audit finishes "in one turn with zero tool calls", measured
   2026-09-03. The served model swapped to a vision model on 2026-09-04 and the measurement
   was not re-taken. On 2026-09-05 a twelve-document, seven-class call died at 2100s with
