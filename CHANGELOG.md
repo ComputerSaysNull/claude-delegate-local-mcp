@@ -65,6 +65,21 @@ would have been forgotten again.
   would be inventing a measurement. The body now says what the tool is for — locating a
   claim, never gathering the audit set, which is what `files[]` is.
 
+- **A refused tool path said it was a refused prefetch.** `read_file` and `search_files`
+  resolve a `path` through the same policy `files[]` goes through, and inherited its
+  message: *"1 of 1 path(s) in `files[]` were refused, so nothing was sent to the model"*.
+  Both halves wrong. There is no `files[]` in a tool call, so the model was told to correct
+  an argument it had not written; and the refusal *is* sent to the model, as a tool error
+  the delegation continues from, so the call was not over. `PathRefused` now takes
+  `before_dispatch` beside `surface`, and a tool-argument refusal names the `path` argument
+  and claims nothing about a dispatch. **Found by running the tool**, not by reading it: an
+  agent handed `search_files` for the first time lost two calls of one turn to a relative
+  path, and the transcript could not say why because the ledger records only the tool name
+  and the outcome.
+- **`docs-audit-local` is told its `path` must be absolute.** Granting a tool and saying how
+  it is used are two edits, and only the first has a check — which is the half of the
+  frontmatter lesson above that only appears once the tool is actually used.
+
 ### Changed
 - Two tests, and the first is the point. That a stream with no `end` event renders `-`
   rather than a turn figure, verified by reverting `returned_of` to its previous body and
