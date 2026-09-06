@@ -1,4 +1,8 @@
-<!-- BUDGET: 847
+<!-- BUDGET: 861
+     Raised from 847 on 2026-09-06: `delegate` gained a workdir, so which tools can
+     bind one is now a difference worth stating beside the annotation asymmetry --
+     and the reason a write does not depend on it needed saying once, in the plane
+     that owns the tools rather than in a description a reader may not reach.
      Raised from 838 on 2026-09-06: `spared` is replaced by `return`, and why the
      premise behind the estimate was wrong is the part worth keeping.
      Raised from 821 on 2026-09-06: the list redraws without blanking, the highlight
@@ -642,7 +646,17 @@ be the check that cannot fail. Nor can an agent file widen a set the caller did 
 The two that can write carry no such hint and must not. With `allowed_tools` unset a delegation
 hands the local model the writing tools and `run_bash`, so a read-only claim would be false
 in the way that is hardest to notice -- the client stops asking, the write still happens, and
-nothing anywhere reports a contradiction. The permission layer matches on tool name and never
+nothing anywhere reports a contradiction.
+
+Those same two take a `workdir`, and `delegate_readonly` does not. The asymmetry is the
+annotation's: a workdir is a read-write bind into the sandbox, so a tool promising it changes
+nothing cannot offer one. `delegate` was the odd case until 2026-09-06 -- it could write but
+had no workdir, so it could produce a file and then run nothing against it, and its own
+description had claimed the argument for long enough that a model following it earned a
+validation error. **A write never depended on the bind**: `write_file` and `edit_file` resolve
+through the path policy in the server process against `workspace_roots`, so a delegation with
+no workdir writes perfectly well. What the bind adds is the other half of a write-then-verify
+loop, which is why the two belong on the same tools rather than one implying the other. The permission layer matches on tool name and never
 inspects arguments, so the claim is a property of the tool or it is worth nothing. Holding
 that asymmetry is what the guard in `tests/test_server.py` is for, and it is worth more than
 the annotations themselves.

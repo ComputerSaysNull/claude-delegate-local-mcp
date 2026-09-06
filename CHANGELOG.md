@@ -34,6 +34,42 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #123 — 2026-09-06 — feat: delegate takes a workdir, so it can run against what it wrote
+
+### Added
+- **`delegate` takes a `workdir`.** It binds that directory into the sandbox writable, the
+  same surface `delegate_to_agent` has always had, resolved and root-checked by the same
+  `_workdir` helper against `workdir_roots` before anything is sent. **Symptom:** `delegate`
+  could write a file and then run nothing against it, so a write-then-verify task needed an
+  agent file for no principled reason — and its own description had told the model to "pass
+  `workdir` to bind a directory it can actually build or test in" for long enough that a
+  model following it earned a validation error. That description was corrected in #121 by
+  removing the claim; this makes the claim true instead, which is the better direction.
+  **Cause:** the shared `run_delegation` already took a `workdir` and `delegate` simply never
+  passed one, so the asymmetry was an omission rather than a decision — nothing in the
+  history argues for it.
+
+### Fixed
+- **The reason a write does not depend on the bind is now stated where the tools are
+  described.** `write_file` and `edit_file` resolve through the path policy in the server
+  process against `workspace_roots`, never through the sandbox bind, so a delegation with no
+  workdir writes perfectly well. Nothing said so, and the absent argument was easy to read
+  as the thing that granted writing at all — which is exactly how it *was* read when this
+  change was proposed. `docs/ARCHITECTURE.md` now says it beside the annotation asymmetry,
+  because which tools may bind a workdir is the same distinction: a workdir is a read-write
+  bind, so `delegate_readonly` cannot offer one and the two that carry no `readOnlyHint`
+  both do.
+
+### Changed
+- Three tests, and the middle one is the point. That `delegate` reaches the backend with a
+  workdir at all; that a workdir outside every root is refused **before** the backend is
+  touched, verified by passing the argument unchecked and watching the test fail with "the
+  backend was called with an unchecked workdir"; and that a delegation with **no** workdir
+  still writes, so the new argument cannot be misread as what grants writing. The third
+  asserts the server's own tool-result text rather than only the filesystem, because a
+  refusal comes back to the model as text and a file-existence check alone cannot say why a
+  write did not happen.
+
 ## #122 — 2026-09-06 — fix: the audit agent's sizing advice, which cost five delegations
 
 ### Changed

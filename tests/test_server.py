@@ -1266,6 +1266,81 @@ def test_a_workdir_outside_every_root_is_refused_before_anything_is_sent(tmp_pat
                agent_name="helper", task="t", workdir=str(tmp_path.parent))
 
 
+@files_posix_only
+def test_delegate_takes_a_workdir_and_reaches_the_backend_with_it(tmp_path):
+    """`delegate` grew a workdir on 2026-09-06. Its own description had claimed one for
+    long enough that a model following it earned a validation error, which is how the gap
+    was found -- so the first thing to assert is that the argument exists at all."""
+    seen = {}
+
+    def handler(request):
+        seen["called"] = True
+        return httpx.Response(200, json=chat_reply(content="done"))
+
+    out = called(handler, "delegate",
+                 config=cfg(workspace_roots=(str(tmp_path),)),
+                 task="t", workdir=str(tmp_path))
+
+    assert seen.get("called"), "the backend was never reached"
+    assert out["answer"] == "done"
+
+
+@files_posix_only
+def test_delegates_workdir_is_root_checked_before_anything_is_sent(tmp_path):
+    """The negative half, and the one that matters. `delegate` reuses the same `_workdir`
+    helper `delegate_to_agent` does, so a workdir outside every root must be refused on the
+    same path -- and refused *before* the backend is touched, because a path check that
+    depends on the cluster being reachable is not a check."""
+    def explode(request):
+        raise AssertionError("the backend was called with an unchecked workdir")
+
+    with pytest.raises(Exception, match="outside every workdir root"):
+        called(explode, "delegate",
+               config=cfg(workspace_roots=(str(tmp_path),)),
+               task="t", workdir=str(tmp_path.parent))
+
+
+@files_posix_only
+def test_delegate_can_write_without_a_workdir_at_all(tmp_path):
+    """Why the workdir is not what write access depends on, which is the confusion that
+    prompted the argument being added at all.
+
+    `write_file` resolves through the path policy in the server process, against
+    `workspace_roots` -- not through the sandbox bind. So a delegation with no workdir can
+    still write, and what it cannot do is run anything against what it wrote. Asserting it
+    here stops the new argument being read as the thing that grants writing."""
+    # Realpath, because the policy resolves symlinks before it compares and the roots in
+    # `files_cfg` are already resolved -- on a host where /tmp is a link, an unresolved
+    # target is refused for sitting outside a root it is actually inside.
+    target = Path(os.path.realpath(tmp_path)) / "written.txt"
+    reported: list[str] = []
+    turns = iter([
+        tool_call_reply("write_file", {"path": str(target), "content": "hello"}),
+        chat_reply(content="done"),
+    ])
+
+    def handler(request):
+        body = json.loads(request.content)
+        reported.extend(
+            str(m.get("content")) for m in body.get("messages", []) if m.get("role") == "tool"
+        )
+        return httpx.Response(200, json=next(turns))
+
+    out = called(handler, "delegate",
+                 config=files_cfg(tmp_path, ext_allowlist=(".txt",)),
+                 task="t", allowed_tools=["write_file"])
+
+    assert out["answer"] == "done"
+    # The server's own report, not just the filesystem: a refusal comes back to the model
+    # as text, so asserting the file alone cannot say *why* a write did not happen.
+    assert out["tool_errors"] == 0, f"write_file was refused: {reported}"
+    assert any("Created" in r for r in reported), f"no write was reported: {reported}"
+    assert target.read_text(encoding="utf-8") == "hello", (
+        "a delegation with no workdir could not write, so the path policy is not what "
+        "governs write_file after all"
+    )
+
+
 # --- list_agents ---------------------------------------------------------------------------
 
 

@@ -882,6 +882,7 @@ def build(
         allowed_tools: list[str] | None = None,
         max_tokens: int | None = None,
         max_turns: int | None = None,
+        workdir: str | None = None,
         diagnostics: bool = False,
         # Not an argument at all -- fastmcp injects it by type, and it never appears in
         # the schema the model reads.
@@ -911,12 +912,17 @@ def build(
         So `files[]` is a head start rather than the whole world: name what it obviously
         needs, and let it find the rest. It can also run shell commands, confined to a
         sandbox that holds nothing of yours and has no network unless an agent asks for
-        one -- and holding nothing of yours is literal, because this tool takes no
-        `workdir`. Reach for `delegate_to_agent` when a command has to run against a real
-        checkout. Narrow the set with `allowed_tools` when you want it reading only, and
-        expect the shell to be absent on a host without bubblewrap. Path rules are the
-        same ones that govern `files[]`, and a write it is refused comes back to it as a
-        refusal it can correct, not as a failed call.
+        one -- pass `workdir` to bind a directory it can build or test in, and omit it to
+        leave the shell nothing of yours at all.
+
+        `write_file` and `edit_file` never needed a workdir and still do not: they run in
+        the server process against the workspace roots, so a delegation can write a file
+        without one. What a workdir adds is the ability to *run* something against what it
+        wrote, which is the whole of a write-then-verify loop. Narrow the set with
+        `allowed_tools` when you want it reading only, and expect the shell to be absent on
+        a host without bubblewrap. Path rules are the same ones that govern `files[]`, and a
+        write it is refused comes back to it as a refusal it can correct, not as a failed
+        call.
 
         `effort` is required, because it changes both what the call costs and how good the
         answer is, and there is no sensible value to pick on your behalf: one of "off",
@@ -982,6 +988,7 @@ def build(
             cfg, registry, cache, windows, admission,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
+            workdir=_workdir(workdir),
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate",
         )
 
@@ -1053,7 +1060,11 @@ def build(
             raise ToolError(str(e)) from e
 
     def _workdir(given: str | None) -> str | None:
-        """Resolved and root-checked once, here, so every tool below gets the same answer."""
+        """Resolved and root-checked once, here, so every tool gets the same answer.
+
+        Used by `delegate` above as well as `delegate_to_agent` below, which is why this
+        says "every tool" rather than naming a direction.
+        """
         if given is None:
             return None
         try:
