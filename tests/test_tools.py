@@ -21,7 +21,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from claude_delegate_local import sandbox, tools
+from claude_delegate_local import paths, sandbox, tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
 
@@ -953,6 +953,52 @@ def test_a_path_outside_the_workspace_is_refused(haystack, tmp_path_factory):
         cfg(haystack), call("search_files", pattern="alpha", path=str(outside)),
         tools.ALL_TOOL_NAMES)
     assert result.is_error
+
+
+@posix_only
+def test_a_refused_tool_path_is_not_reported_as_a_refused_prefetch(haystack):
+    """The message is what the model reads to decide what to fix, so it must name the
+    argument that was actually wrong.
+
+    A relative `path` on `search_files` reported "1 of 1 path(s) in files[] were refused,
+    so nothing was sent to the model". There is no `files[]` in a tool call, and something
+    very much was sent -- the refusal itself, as a tool result the delegation continues
+    from. Found by running the tool: an agent that had just been given `search_files`
+    burned two calls in one turn on it, and the transcript could not say why because the
+    ledger records only the tool name and the outcome.
+    """
+    result = tools.execute_tool(
+        cfg(haystack), call("search_files", pattern="alpha", path="pkg"),
+        tools.ALL_TOOL_NAMES)
+
+    assert result.is_error
+    assert "files[]" not in result.content, result.content
+    assert "nothing was sent to the model" not in result.content, result.content
+    assert "`path` argument" in result.content, result.content
+
+
+@posix_only
+def test_a_refused_read_file_path_says_the_same_thing(haystack):
+    """The other handler through `_one_path`, so the fix is the surface and not one call
+    site. `write_file` and `edit_file` reach it too."""
+    result = tools.execute_tool(
+        cfg(haystack), call("read_file", path="pkg/core.py"), tools.ALL_TOOL_NAMES)
+
+    assert result.is_error
+    assert "files[]" not in result.content, result.content
+    assert "`path` argument" in result.content, result.content
+
+
+def test_a_refused_prefetch_still_names_files_and_the_lost_dispatch():
+    """The control, and the half that must not change. A `files[]` refusal *does* happen
+    before anything is sent, and saying so is what tells the caller the call is over
+    rather than degraded."""
+    with pytest.raises(paths.PathRefused) as caught:
+        paths.resolve_all(cfg(Path.cwd()), ["relative/path.py"])
+
+    message = str(caught.value)
+    assert "files[]" in message, message
+    assert "nothing was sent to the model" in message, message
 
 
 @posix_only

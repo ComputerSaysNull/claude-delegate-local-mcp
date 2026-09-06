@@ -69,6 +69,10 @@ holding a claim beats reading your way to it, and it is the cheap way to ask whe
 appears in a second document. It is not a way to assemble the audit set — that is what
 `files[]` is, and the measurement above is what happens when a pass gathers for itself.
 
+**Its `path` must be absolute, or omitted.** `docs` is refused; omit `path` to search every
+workspace root, or give the repository root the task named you. Two calls in one turn were
+lost to this the first time this agent was handed the tool.
+
 **Prefetching is right and "one turn" is not the same claim**, which is the correction of
 2026-09-06. Those two travelled together in the sentence above and are independent: a pass
 can be fully prefetched *and* small. Prefetching was investigated as the cause of the

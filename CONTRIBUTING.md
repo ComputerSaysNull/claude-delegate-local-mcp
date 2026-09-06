@@ -1,4 +1,6 @@
-<!-- BUDGET: 330
+<!-- BUDGET: 337
+     Raised from 330 on 2026-09-06: granting an agent a tool and telling it how to use the
+     tool are two edits, and only the first one has a check.
      Raised from 321 on 2026-09-06: a sixth sighting, and this one was in this document
      rather than an agent body -- the paragraph about stale claims carried a stale claim.
      Raised from 313 on 2026-09-06: a fifth sighting, and the first in frontmatter rather
@@ -208,6 +210,11 @@ agent could not have used it whatever its body said. Grepping bodies would not h
 it: an agent is never told about a tool it does not have, so the omission leaves no trace in
 the prose to find. **Read the frontmatter too, and treat a tool the agent lacks as the more
 likely fault**, because a stale body is visible and a missing entry is not.
+
+**Adding the entry is half the fix.** A body that never had a tool has no guidance for it,
+and the first pass after the grant spent two calls of one turn discovering that
+`search_files` refuses a relative `path`. Grant the tool and say how it is used in the same
+edit, or the frontmatter is right and the agent still cannot use it.
 
 **A fourth sighting, 2026-09-06, and this one was a measurement rather than a capability.**
 The same body recorded that a prefetched audit finished "in one turn with zero tool calls",

@@ -1,4 +1,6 @@
-<!-- BUDGET: 385
+<!-- BUDGET: 395
+     Raised from 385 on 2026-09-06: a refusal names the surface it came from and says what
+     it cost, and until now a tool-argument refusal claimed to be a prefetch one.
      Raised from 380 on 2026-09-06: `name` and `description` are recognised keys that
      the field table never listed, and the refusal when `name` disagrees with the
      filename was documented nowhere. Two rows and no prose.
@@ -154,6 +156,14 @@ who eventually needs those turns would have no way to tell it never had them.
 ### One path policy, two dispositions
 
 `resolve_all` refuses the whole call if any path fails, and that is right for anything a
+A refusal names the surface it came from, and says what it cost. `files[]` and `workdir`
+are resolved before anything is dispatched, so their refusals end the call and say so. A
+`path` given to `read_file` or `search_files` is refused *inside* a tool call and comes back
+as a tool error the delegation continues from — so it names the `path` argument and makes no
+claim about a dispatch. Until 2026-09-06 every one of those reported "path(s) in `files[]`
+were refused, so nothing was sent to the model", which named an argument the model had not
+written and a consequence that had not happened.
+
 caller **named**: a delegation that asked for six files and silently got five reads exactly
 like one that got six. `resolve_permitted` drops what fails instead, and is only for paths
 nobody named — the candidates a `search_files` walk enumerates, where a file the policy
