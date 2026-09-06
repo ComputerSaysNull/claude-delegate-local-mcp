@@ -102,8 +102,13 @@ them was re-derived when it did.
   coverage. It is audit work, with a method a feature session does not have
 ### Improvements
 
-- ⬜ A read-only form of `delegate_to_agent` — the agent tool with its set fixed to whatever
-  declares no write, exactly as `delegate_readonly` is to `delegate`. The justification is
+- ✅ 2026-09-06 A read-only form of `delegate_to_agent` — the agent tool with its set fixed
+  to whatever declares no write, exactly as `delegate_readonly` is to `delegate`.
+  Shipped as `delegate_to_agent_readonly` (ADR-0059), and it took the `workdir`/`project`
+  split with it: the correspondence the annotation rests on — a workdir is a read-write
+  bind, so a read-only tool cannot offer one — was prose, and `list_agents` had already
+  falsified it. It is a test now. **The ramp claim below is still unmeasured**; the tool
+  landed on the argument, not on the timing. The justification is
   ADR-0042's and unchanged: a client decides before the call runs and never sees arguments,
   so narrowing with `allowed_tools` cannot buy the declaration. `#91`'s note that "what
   `delegate_readonly` has no equivalent of is the agent" is this same gap seen from the
@@ -153,7 +158,10 @@ them was re-derived when it did.
   exactly 120s intervals, the last landing at +688s. So the stagger is real for the two
   write-capable tools and the justification `#118` removed is restored for them — **re-rank
   it back up.** A read-only form of the agent tool, filed under Improvements, would remove
-  the ramp for the audit case without this item; this one remains the general answer. Measured 2026-09-05: four passes issued together started at 20:24:30, 20:26:32,
+  the ramp for the audit case without this item; this one remains the general answer.
+  **That tool shipped on 2026-09-06 and the ramp it was meant to remove is still
+  unverified** — issue four of its arms in one message and time them against their own
+  issue stamps before crediting it. Measured 2026-09-05: four passes issued together started at 20:24:30, 20:26:32,
   20:28:32 and 20:30:32. They do run concurrently once started — ~~`seqs=4, large=0` in the
   shared slots file — so the fan-out works; it is only the ramp that is wasted.~~
   - **CORRECTED 2026-09-05 (session 2): the struck line had it backwards twice.** The

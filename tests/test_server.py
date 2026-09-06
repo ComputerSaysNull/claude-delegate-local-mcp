@@ -412,7 +412,7 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_exactly_seven_tools_are_declared():
+def test_exactly_six_tools_are_declared():
     """docs/AGENTS.md promises this exact set, and this is what holds it to that.
 
     The promise is the design: a new *kind* of delegated task is a markdown file, not
@@ -427,12 +427,17 @@ def test_exactly_seven_tools_are_declared():
     ADR-0042 is where it went.
 
     It said seven while the two batch tools existed, for the second application of that
-    same argument. ADR-0051 cancelled them and it is back to five: a batch and N separate
+    same argument. ADR-0051 cancelled them and it went back to five: a batch and N separate
     calls present the same prefix to the endpoint, so the batch shape bought nothing that
     the permission layer could not already see. **What fell was the batch, not the
     argument** -- `delegate_readonly` stays, and a promise a caller must be able to make
     before the call is still the only thing that earns a tool. The number will not go up
     for a *task*; that is still a markdown file.
+
+    Its *name* said seven for a day after that, which is the small lesson here: the number
+    lives in the assertion and the name was never updated, so the one thing a reader sees
+    first was the one thing nothing checked. Six now, for `delegate_to_agent_readonly` --
+    the third application of the same argument, written down in ADR-0059.
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -443,7 +448,7 @@ def test_exactly_seven_tools_are_declared():
 
     assert set(asyncio.run(go())) == {
         "delegate", "delegate_readonly", "delegate_to_agent",
-        "list_agents", "backend_status",
+        "delegate_to_agent_readonly", "list_agents", "backend_status",
     }
 
 
@@ -1354,7 +1359,7 @@ def test_list_agents_reports_what_delegate_to_agent_would_find(tmp_path):
                     entries=(entry(), entry(key="second", served_model_id="served-id-2")),
                     config=cfg(workspace_roots=(str(tmp_path),),
                                agents_dir=str(tmp_path / "nowhere")),
-                    workdir=str(tmp_path))
+                    project=str(tmp_path))
 
     rows = {a["name"]: a for a in listed["agents"]}
     assert listed["count"] == 2
@@ -1374,7 +1379,7 @@ def test_a_broken_agent_file_is_left_out_rather_than_breaking_the_list(tmp_path)
         "---\nname: broken\nnonsense: 1\n---\nb\n", encoding="utf-8")
 
     config = cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere"))
-    listed = called(chat_handler(), "list_agents", config=config, workdir=str(tmp_path))
+    listed = called(chat_handler(), "list_agents", config=config, project=str(tmp_path))
     assert [a["name"] for a in listed["agents"]] == ["good"]
 
     # Named, not merely missing: a caller cannot ask by name for a name it never saw.
@@ -1405,7 +1410,7 @@ def test_the_three_answers_are_distinguishable_in_one_call(tmp_path):
         "---\nname: theirs\ntools: Read, Grep\n---\nt\n", encoding="utf-8")
 
     config = cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere"))
-    listed = called(chat_handler(), "list_agents", config=config, workdir=str(tmp_path))
+    listed = called(chat_handler(), "list_agents", config=config, project=str(tmp_path))
 
     assert [a["name"] for a in listed["agents"]] == ["mine"]
     assert [s["name"] for s in listed["skipped"]] == ["broken"]
@@ -1625,11 +1630,101 @@ def test_delegate_readonly_has_no_argument_that_could_widen_it():
 
     tools = asyncio.run(go())
 
-    for name in ("delegate_readonly",):
+    for name in ("delegate_readonly", "delegate_to_agent_readonly"):
         schema = tools[name].inputSchema
         assert "allowed_tools" not in schema.get("properties", {}), (
             f"{name} must not accept allowed_tools; it would let a caller widen "
             "a tool the client has been told is read-only"
+        )
+
+
+@files_posix_only
+def test_delegate_to_agent_readonly_offers_only_tools_that_cannot_write(tmp_path):
+    """The annotation, asserted on the wire, against an agent that asks for a shell.
+
+    `docs-audit-local` is exactly this shape -- it declares `run_bash` and is worth reaching
+    read-only anyway, which is the case the tool exists for. The agent's own set is replaced
+    rather than intersected, so `search_files` appears here although the file never named
+    it; that is the ordinary caller-wins rule, and the reason the docstring says so out loud
+    is that the winning argument is fixed at the call site rather than passed.
+    """
+    agent_file(tmp_path, "auditor",
+               frontmatter="allowed_tools: [read_file, read_git, run_bash]\n")
+    sent: list[dict] = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(content="an answer"))
+
+    called(handler, "delegate_to_agent_readonly",
+           config=cfg(workspace_roots=(str(tmp_path),),
+                      agents_dir=str(tmp_path / "nowhere")),
+           task="audit", agent_name="auditor", project=str(tmp_path))
+
+    assert sent, "nothing was dispatched"
+    declared = {t["function"]["name"] for t in sent[0].get("tools") or ()}
+    assert declared == {"read_file", "search_files", "read_git"}, declared
+    # The property, not the list, for the same reason `delegate_readonly` asserts it that
+    # way: a writing tool added later must fail here rather than ride the fixed set in.
+    for name in declared:
+        assert not tools_module.REGISTRY[name].writes, f"{name} can write"
+
+
+@files_posix_only
+def test_project_finds_the_agent_and_the_sandbox_is_given_nothing(monkeypatch, tmp_path):
+    """Both halves, because either alone would pass a broken implementation.
+
+    `project` has to reach the agent lookup or the tool cannot see a repository's own
+    agents at all -- which is most of why it exists. It must *not* reach `run_delegation`
+    as a workdir, because a workdir is a read-write bind and the annotation would then be
+    false. Forward it and the second assertion fires; drop it and the first does.
+    """
+    agent_file(tmp_path, "helper")
+    seen: dict = {}
+
+    async def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return {"ok": True, "answer": "spied"}
+
+    monkeypatch.setattr(server, "run_delegation", spy)
+
+    called(ok_handler(), "delegate_to_agent_readonly",
+           config=cfg(workspace_roots=(str(tmp_path),),
+                      agents_dir=str(tmp_path / "nowhere")),
+           task="t", agent_name="helper", project=str(tmp_path))
+
+    assert seen.get("agent") is not None and seen["agent"].name == "helper", (
+        "`project` did not reach the agent lookup, so a repository's own agents are "
+        "unreachable through this tool"
+    )
+    assert seen.get("workdir") is None, (
+        "a lookup path was passed as a workdir, which binds it into the sandbox "
+        "read-write and makes the readOnlyHint a lie"
+    )
+
+
+def test_no_tool_that_declares_itself_read_only_offers_a_workdir():
+    """#123 wrote this correspondence down as prose, and the prose was already wrong.
+
+    "A workdir is a read-write bind, so `delegate_readonly` cannot offer one and the two
+    that carry no `readOnlyHint` both do." True of the delegating tools and false of
+    `list_agents`, which was read-only and took a `workdir` that bound nothing -- one name
+    for two meanings, in the one place a reader compares tools side by side. The lookup
+    sense is `project` now, and this is the machine-checkable form of the sentence.
+    """
+    async def go():
+        async with Client(build_default()) as client:
+            return {t.name: t for t in await client.list_tools()}
+
+    tools = asyncio.run(go())
+
+    for name, tool in tools.items():
+        annotations = tool.annotations
+        if not (annotations is not None and annotations.readOnlyHint is True):
+            continue
+        assert "workdir" not in tool.inputSchema.get("properties", {}), (
+            f"{name} declares itself read-only and offers a workdir; a workdir is a "
+            "read-write sandbox bind, so one of the two claims is false"
         )
 
 
@@ -1651,7 +1746,8 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
             return {t.name: t.annotations for t in await client.list_tools()}
 
     seen = asyncio.run(go())
-    cannot_write = ("backend_status", "list_agents", "delegate_readonly")
+    cannot_write = ("backend_status", "list_agents", "delegate_readonly",
+                    "delegate_to_agent_readonly")
     can_write = ("delegate", "delegate_to_agent")
 
     for name in cannot_write:
@@ -1814,6 +1910,7 @@ def test_a_failing_heartbeat_does_not_take_the_delegation_with_it():
         ("delegate", {"task": "q"}),
         ("delegate_readonly", {"task": "q"}),
         ("delegate_to_agent", {"agent_name": "helper", "task": "q"}),
+        ("delegate_to_agent_readonly", {"agent_name": "helper", "task": "q"}),
     ],
 )
 def test_a_delegation_that_names_no_effort_is_refused(tool, args):

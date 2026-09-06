@@ -190,6 +190,8 @@ def test_the_list_says_which_kind_of_call_each_stream_was(viewer, tmp_path):
     stream(tmp_path, now - timedelta(minutes=4), "readonly",
            tool="delegate_readonly", tools=[])
     stream(tmp_path, now - timedelta(minutes=3), "agent", tool="delegate_to_agent")
+    stream(tmp_path, now - timedelta(minutes=2), "agent read-only",
+           tool="delegate_to_agent_readonly")
     stream(tmp_path, now - timedelta(minutes=1), "silent one-shot", tools=[])
 
     rows, _ = viewer.scan(tmp_path)
@@ -198,6 +200,9 @@ def test_the_list_says_which_kind_of_call_each_stream_was(viewer, tmp_path):
         "plain": "delegate",
         "readonly": "readonly",
         "agent": "agent",
+        # Eight characters because the column is eight wide, and the pair reads the way
+        # `readonly` does beside `delegate` -- the kind, then its constraint.
+        "agent read-only": "agent-ro",
         # A `delegate` handed no tools ran the one-shot path, whatever it was called.
         "silent one-shot": "one-shot",
     }

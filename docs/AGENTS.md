@@ -1,4 +1,6 @@
-<!-- BUDGET: 395
+<!-- BUDGET: 404
+     Raised from 395 on 2026-09-06: a sixth tool, and the lookup path split away from the
+     workdir -- the tool list and the argument that finds an agent are both owned here.
      Raised from 385 on 2026-09-06: a refusal names the surface it came from and says what
      it cost, and until now a tool-argument refusal claimed to be a prefetch one.
      Raised from 380 on 2026-09-06: `name` and `description` are recognised keys that
@@ -36,8 +38,8 @@ that reach it in M6. Everything below describes behaviour. The roadmap is
 
 ## Why agents are files
 
-There are five MCP tools: `delegate`, `delegate_readonly`, `delegate_to_agent`,
-`list_agents` and `backend_status`. A new *kind* of delegated task — review, test-writing,
+There are six MCP tools: `delegate`, `delegate_readonly`, `delegate_to_agent`,
+`delegate_to_agent_readonly`, `list_agents` and `backend_status`. A new *kind* of delegated task — review, test-writing,
 refactoring, migration — is a markdown file, not a new tool. A test asserts the exact set,
 so another cannot arrive unargued.
 
@@ -47,8 +49,12 @@ tool set fixed, existing because a client decides whether to prompt before a cal
 can only read the tool's annotation then. A read-only call cannot be expressed where
 permission rules never inspect arguments; only a read-only tool can. No agent file can carry
 that constraint, because the tool an agent is reached through can write. (ADR-0042) It
-reached seven with two batch tools and is back to five: they were cancelled once the prefix
-sharing that justified them was measured and needed no tool of its own. (ADR-0051)
+reached seven with two batch tools and fell back to five: they were cancelled once the
+prefix sharing that justified them was measured and needed no tool of its own. (ADR-0051)
+
+Six is the same argument a third time: `delegate_to_agent_readonly` is `delegate_to_agent`
+with the set fixed, and what it keeps that `delegate_readonly` cannot is the agent file
+itself. (ADR-0059)
 
 That keeps the tool list Claude sees from growing without bound, and makes adding a task
 type a file rather than a code change and a release. The format is the one Claude Code
@@ -360,13 +366,16 @@ delegate_to_agent(
 
 `workdir` is what separates an agent that can only read from one that can work: it binds
 that directory into the sandbox, writable, so `run_bash` can run the project's tests there.
-It is checked against the workdir roots **before** it is used to look the agent up, since
-the lookup reads `<workdir>/.claude/agents/` and a check that runs afterwards is not a check.
+
+**Finding the agent is a separate argument**, `project`, which binds nothing and defaults
+to `workdir`. Both are checked against the workdir roots **before** either is used to look
+the agent up, since the lookup reads `<project>/.claude/agents/` and a check that runs
+afterwards is not a check.
 
 Several tasks over the same material are several calls, and they still share the prefix:
 
 ```
-delegate_readonly(
+delegate_to_agent_readonly(
   agent_name = "reviewer",
   files      = ["C:/proj/src/payments/refund.py"],
   task       = "Check the currency rounding.",

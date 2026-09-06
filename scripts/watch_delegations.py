@@ -181,6 +181,9 @@ _KINDS = {
     "delegate": "delegate",
     "delegate_readonly": "readonly",
     "delegate_to_agent": "agent",
+    # Eight characters, which is the column. The pair reads as one word plus its
+    # constraint, the same way `delegate_readonly` does beside `delegate`.
+    "delegate_to_agent_readonly": "agent-ro",
 }
 
 

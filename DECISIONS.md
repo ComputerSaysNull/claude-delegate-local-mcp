@@ -19,6 +19,56 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0059 — 2026-09-06 — The agent tool gets a read-only twin, and the lookup path stops being called a workdir — Accepted
+
+ADR-0042 argued the sixth tool and, in passing, described the shape of this one: "no agent
+file can carry that constraint, because the annotation belongs to the tool the agent is
+reached through, and that tool can write." That sentence was the whole argument for a
+read-only *agent* tool, and it sat unbuilt for six days.
+
+**Decision — `delegate_to_agent_readonly`.** `delegate_to_agent` with `allowed_tools` fixed
+to the derived read-only set, declared `readOnlyHint`, no `workdir`. It is the third
+application of ADR-0042's reasoning and not a new task kind, so ADR-0005's rule survives
+whole: a new *kind* of work is still a markdown file.
+
+What it buys that `delegate_readonly` does not is the agent file — the instructions, the
+model, the effort, and the accumulated false-positive guardrails that are most of a
+well-worn agent's value. What it buys over `delegate_to_agent` is the promise, which a
+caller must be able to make *before* the call runs and cannot make with an argument.
+
+**The agent's own `allowed_tools` is replaced rather than intersected.** That is the
+existing caller-wins rule, not a new one, and it cuts both ways: an agent declaring
+`run_bash` loses it, and one declaring less than the full read-only set gains the rest.
+Intersecting instead would have been defensible and was rejected — it would make the
+offered set depend on a file the caller cannot see at the call site, which is the same
+opacity the annotation exists to remove.
+
+**Decision — the lookup path is `project`, on every tool that finds an agent file.** ADR-0042's
+correspondence — a workdir is a read-write bind, so a read-only tool cannot offer one — was
+already false when this was written: `list_agents` carried `readOnlyHint` and took a
+`workdir` that bound nothing. One name for two meanings, in the one place a reader compares
+tools side by side. `workdir` now means only the sandbox bind; `project` means only where to
+look, defaults to `workdir` on `delegate_to_agent`, and is the sole directory argument a
+read-only tool may have.
+
+A hard rename rather than an alias. Two names for one argument is the confusion being
+removed, and the model-facing descriptions are the contract — an alias would keep the old
+meaning reachable and readable for exactly as long as anyone kept using it.
+
+**The correspondence is now a test, not a sentence.** It walks the declared schemas and
+fails on any tool that claims `readOnlyHint` and offers a `workdir`. It was negative-tested
+by restoring `list_agents`'s old signature and watching it fire — which is the point: the
+prose form had already drifted once, silently, and prose cannot fail.
+
+**What this does not buy.** It does not shorten an audit the way withholding verification
+did: #122 measured 26 turns against 1 and attributed the gap to verification *and history*
+calls, and `read_git` is read-only and stays. What it buys is the annotation — so a
+read-only agent pass runs in plan mode without prompting — and the client ramp, since a
+`readOnlyHint` tool is not released one arm per 120s.
+
+Review point: ADR-0042's stands and now covers two tools. If MCP grows per-call annotations,
+or a client learns to gate on arguments, both read-only tools become redundant and both go.
+
 ## ADR-0058 — 2026-09-06 — A delegation reports what the whole run cost, beside what the answering turn cost — Accepted
 
 The result dict's `input_tokens`, `output_tokens` and `cached_tokens` describe the attempt
@@ -1892,7 +1942,7 @@ The reference implementation of this feature has no validation whatsoever and wi
 read a private SSH key on request. Every refusal here returns an actionable message so
 the caller can retry with a valid path.
 
-## ADR-0005 — 2026-08-24 — Task shaping lives in agent definition files, not in more MCP tools — Partially superseded by ADR-0031 and ADR-0042
+## ADR-0005 — 2026-08-24 — Task shaping lives in agent definition files, not in more MCP tools — Partially superseded by ADR-0031, ADR-0042 and ADR-0059
 
 Five tools total. A new kind of delegated task is a markdown file, not a code change
 and a release, and Claude is not shown a tool list that grows without bound. The files
