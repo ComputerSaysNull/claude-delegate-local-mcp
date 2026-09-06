@@ -1181,7 +1181,8 @@ def build(
         `admission` carries this process's estimates of them. It reports how many requests
         the engine is running and how many are waiting, how full the KV cache is as a
         fraction and how large it is in tokens, whether prefix caching is on, the
-        lifetime prefix-cache hit rate, and the preemption count. `null` means the
+        lifetime prefix-cache hit rate, the lifetime decode rate in tokens per second,
+        and the preemption count. `null` means the
         endpoint publishes no metrics, which is a fact about the endpoint and never a
         reason to call it unhealthy. The token counters are denominated in tokens rather
         than requests.

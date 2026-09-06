@@ -74,6 +74,8 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_MAX_TOKENS` | 65536 tokens | Cap on tokens generated in a single reply. Reasoning counts against this, which is the whole mechanism behind the empty-answer failure -- see ADR-0014. |
 | `DELEGATE_THINKING_DEFAULT` | low | Reasoning effort when neither the agent nor the registry entry specifies one. One of ('off', 'low', 'high', 'max'). Sent explicitly on every request rather than inherited, because the cluster's own default is set at boot and is not ours to assume. |
 | `DELEGATE_THINKING_MAX_TOKENS_FLOOR` | 131072 tokens | Floor applied to max_tokens when effort is high or max, and the size retried after an empty answer. Admission accounting must use the retry's size. |
+| `DELEGATE_REPLY_BUDGET_MARGIN` | 0.6 | Share of the stall deadline a single reply may spend generating. The reply budget is capped at this fraction of stall_timeout multiplied by the decode rate measured at runtime, so the model is never handed more tokens than the clock can pay for -- ADR-0055. Below 1.0 because a turn also prefills, and a turn that decodes until the instant of its deadline is killed rather than delivered. |
+| `DELEGATE_REPLY_BUDGET_FLOOR` | 4096 tokens | Lower bound on that derived cap, so a slow or misread decode rate cannot shrink the budget to nothing. Sized from measurement: a reply whose entire visible answer was one word still cost 697 output tokens, because reasoning is charged here too (ADR-0014). |
 | `DELEGATE_RESEND_REASONING` | False | Send the model's prior reasoning back as history. Off: it costs input tokens and prefill on every turn, the conclusions already survive in the visible answer, and a growing prefix defeats prefix caching. |
 | `DELEGATE_TOOL_CALL_TEMPERATURE` | 0.2 | Temperature for every turn of the agentic loop. Low because tool-call syntax tokens are sampled at the request temperature, so malformed calls grow likelier as it rises. The one-shot path uses one_shot_temperature instead. |
 | `DELEGATE_ONE_SHOT_TEMPERATURE` | 1.0 | Temperature for the one-shot delegate() path. Separate from tool_call_temperature because that value is low to protect tool-call syntax, and the one-shot path emits no tool calls -- there is no syntax to protect and nothing to gain from suppressing the model's own default sampling. |
@@ -161,6 +163,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting, unlike ADR-0034's sandbox_enabled, because naming another transport should be an error rather than silence -- load() reads only variables matching a field, so deleting this one would make a stale value do nothing without saying so. |
 
-*63 settings.*
+*65 settings.*
 
 <!-- GEN:CONFIG:END -->

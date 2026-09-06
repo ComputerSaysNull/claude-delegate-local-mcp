@@ -1052,3 +1052,57 @@ best a 2.35x lever and only during decode — prefill is serialised by the engin
 concurrent distinct prefills gain nothing at all. Cache first, concurrency second, and
 nothing else is close.
 
+## 2026-09-05 — The turn loop throws away the prefix cache, and the stalls are decodes
+
+A second session, investigating the same failures as the entry above from the transcripts
+rather than from controlled arms. Four things, and the first two are the ones that cost.
+
+**Eviction rewrites the history mid-stream, so every turn is a cold prefill.** The entry
+above priced this lever and concluded "cache first, concurrency second". Nothing had
+checked whether the loop was pulling it. It is not: `evict_stale_tool_results` stubs the
+oldest surviving tool result *inside* the history, one per turn, and the stack caches
+**prefixes** — so the divergence point moves back toward the front and everything after it
+is recomputed. Measured on an idle cluster, `preemptions: 0` throughout: an eleven-turn run
+climbed to 75.0%, 80.0%, 83.3% cache hit on turns 5-7 exactly as an append-only history
+should, then hit **0.0%** on the turn `tool_results_evicted` first went to 1, and stayed
+there. Turns 8-11 re-prefilled 315,625 tokens the run had already established. In wall
+clock that is the whole finding: turns 3-7 took 10.5-11.3s each, turns 8-11 took 58.2,
+58.7, 58.3 and 68.4s. Identical work, 5x the time, and the only thing that changed is that
+the loop started rewriting what it had already sent.
+
+It is not the policy that is wrong — unbounded history is worse — it is that the saving is
+denominated in tokens *sent* while the cluster charges for tokens it cannot *reuse*. It
+fires at 7% of a 1M window, where there is no pressure to relieve.
+
+**The same shape is reproducible as a pure function, and that is what makes it cheap to
+fix.** Prefix stability is a property of the message list, so
+`tests/regression/test_eviction_threw_away_the_prefix_cache.py` needs no endpoint. Modelled
+over the same alternation the loop appends, the reusable share runs 75.0%, 80.0%, 83.3% and
+then falls to 0.1%, creeping back ~0.3 points a turn. Those first three figures are the
+cluster's measured hit rates to the decimal — a message-list model with no backend in it
+predicts what the serving stack reported. Take that as the instrument being right rather
+than as a coincidence, and use it instead of the cluster when trying a fix.
+
+**A trap inside the trap:** the eviction makes the model re-read what it just lost. The
+same run's `evicted_then_reread` ledger caught it on turns 8, 9 and 10 — the dropped
+content comes back as a *fresh* full-size result, which evicts the next one. The machinery
+that reports this already exists; `diagnostics` defaults off, so nobody sees it.
+
+**The stalls are not stalls; they are decodes against a budget the clock cannot pay.**
+`effort: high` raises `max_tokens` to `thinking_max_tokens_floor` = 131,072. At the
+single-stream decode rate in the entry above that is 77 minutes. `turn_timeout` is 1800s
+and `stall_timeout` 2100s, so **the budget is 2.6x what any turn can deliver**, and about
+4x once a sequence is sharing the machine. Three runs died at exactly 2100.0s with
+`turns: null` and read as wedged; one of them had produced 34,276 output tokens in 1,132s
+on a straight line and was still going. Nothing relates the two settings — one is tokens
+and the other seconds — which is why the comparison was never made. The lever is
+`max_tokens`, not prompt shape: a tool call helps only because it *ends a turn*.
+
+**Reasoning tokens count against `max_tokens`, measured rather than inferred.** PLAN
+recorded this as an open question beside the streaming item. A turn whose whole visible
+answer was the word `DONE` reported `output_tokens: 697` at `effort: low`. ADR-0014 says
+the same thing from the other direction; this is the number.
+
+**One number moved under us again.** `kv_cache_size_tokens` read 1,467,988 today against
+the 1,444,236 already filed. Same conclusion, different figure — re-read it when fixing
+that item rather than trusting either.

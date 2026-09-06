@@ -19,6 +19,63 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0055 — 2026-09-06 — The reply budget is derived from the deadline and a measured decode rate — Accepted
+
+`max_tokens` and the deadlines were in different units and nothing related them. At `high`
+effort the budget is raised to `thinking_max_tokens_floor` = 131,072; the cluster decodes a
+single stream at ~36 tok/s, so that is about 77 minutes of generation against a
+`stall_timeout` of 2,100 s. The comparison had never been made because making it needs a
+decode rate, and a decode rate has to be measured.
+
+The symptom was not a wrong number, it was a wrong diagnosis. Three `docs-audit-local` runs
+died at exactly 2100.0 s with `turns: null` and read as wedged. One had produced 34,276
+output tokens in 1,132 s on a straight line and was still going. ADR-0047 chose turn
+completion as the liveness signal because every other one was fake; against a budget 2.6x
+what the clock can decode, a model spending what it was given is indistinguishable from a
+model that has stopped, and the deadline kills both.
+
+**Decision.** The budget is capped at `stall_timeout × rate × reply_budget_margin`, floored
+at `reply_budget_floor`, and the rate is measured rather than configured.
+
+The rate belongs to the deployment, not to this repository: it moved twice in the week this
+was written, once when the served model was swapped and once when the cluster's
+configuration was pulled. A constant would have been correct on the day it was committed
+and wrong within a week, which is the failure this whole ADR is a correction for. So
+`DecodeRate` seeds from the endpoint's own since-boot figure and then replaces that seed
+with what the delegation itself achieves, turn by turn. The cluster's mean is a blend over
+every tenant it has served; our own turns are the rate our own deadline is paid in.
+
+**The ceiling binds an explicit `max_tokens`, where the ADR-0014 floor does not.** The
+asymmetry is the point. A floor is a preference about how much room reasoning gets, and
+silently overriding a caller's preference makes the argument advisory. The ceiling is a
+statement about what the clock can deliver, and there is no version of the request that
+beats it — a budget above it does not buy a longer answer, it buys the same answer
+discarded.
+
+**Consequences, including the one that is not comfortable.** A busy cluster decodes more
+slowly, so the ceiling tightens and replies get shorter under load. That is deliberate: a
+shorter answer that arrives beats a longer one killed at the deadline with everything
+generated thrown away, and `reply_budget_floor` bounds how far it can degrade. Where the
+first budget already sits at the ceiling, ADR-0014's enlarged retry is skipped by the
+existing identical-request test and the cascade steps effort down instead — which is the
+right remedy once more room is not available: think less, rather than ask for time that
+does not exist.
+
+**Rejected: raising `max_turns`.** `final = turn == turns` withdraws tools on the last turn,
+so a delegation exhausting its budget ends on the one shape that must fit a whole answer
+into one deadline. Raising the count postpones that turn and buys a longer run to lose.
+
+**Rejected: a configured rate.** See above; it is the same mistake in a new unit.
+
+**Accepted cost.** An endpoint that publishes no metrics leaves the rate unknown and caps
+nothing, which is the behaviour that preceded this decision rather than a guess. Inventing
+a rate to cap against would be the constant this design exists to avoid. The scrape is one
+GET per delegation, wrapped so that a monitoring surface being briefly unavailable can
+never fail a delegation — the inversion `slots.py` warns about, where a latency protection
+becomes an outage.
+
+---
+
 ## ADR-0054 — 2026-09-05 — Sandbox resource limits come from a launcher, and the process cap is the compromised one — Accepted
 
 `build_argv` bounded nothing: a runaway allocation or a fork bomb was held only by

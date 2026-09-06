@@ -471,6 +471,28 @@ def test_the_reported_effort_is_the_one_actually_resolved():
 # --- the empty answer that is not an answer -------------------------------------------
 
 
+def serves_metrics(handler, *, text: str | None = None):
+    """Answer the metrics scrape itself, so it cannot consume a queued chat reply.
+
+    Every delegation now reads `/metrics` once to seed its decode-rate estimate
+    (ADR-0055). The queue-backed doubles below pop one canned reply per request whatever
+    the URL, so without this the scrape silently eats the first turn's answer -- which is
+    how three of these tests failed at once the moment the scrape was added, each of them
+    reporting a missing turn rather than an extra request.
+
+    The default is a 404, which `probe_cluster` documents as a real answer meaning "this
+    endpoint has no metrics surface". That leaves the rate unknown and the reply budget
+    uncapped, which is what these tests were written against. Pass `text` to hand back
+    Prometheus exposition instead, for a test that wants the cap to apply.
+    """
+    def wrapped(request):
+        if request.url.path.endswith("/metrics"):
+            return httpx.Response(200, text=text) if text is not None else httpx.Response(404)
+        return handler(request)
+
+    return wrapped
+
+
 def scripted_handler(replies):
     """Answer each call with the next item, so a test can span the recovery stages.
 
@@ -484,7 +506,7 @@ def scripted_handler(replies):
         item = remaining.pop(0) if remaining else replies[-1]
         return httpx.Response(200, json=chat_reply(**item))
 
-    return handle
+    return serves_metrics(handle)
 
 
 EXHAUSTED = {"content": None, "finish_reason": "length"}
@@ -804,7 +826,7 @@ def turn_handler(*replies):
     def handler(request):
         return httpx.Response(200, json=remaining.pop(0))
 
-    return handler
+    return serves_metrics(handler)
 
 
 def test_delegate_does_not_expose_the_injected_context_to_the_model():
