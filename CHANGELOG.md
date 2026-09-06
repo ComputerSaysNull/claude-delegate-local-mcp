@@ -34,6 +34,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #118 — 2026-09-06 — fix: fanning out costs seconds, not two minutes a call
+
+### Fixed
+- **`#117` shipped a wrong number and this corrects it within the day.** That PR told a
+  caller a fan-out costs "roughly 120 s of stagger per extra call". Measured deliberately:
+  four `delegate_readonly` calls issued in one message started 0.0s, +2.5s, +4.0s and +5.6s
+  apart, all four outlasting 120s and being backgrounded together. Under the old model the
+  fourth would have started six minutes after the first.
+- **The mechanism was misread, not the observation.** 2026-09-05's three delegations really
+  did start at exactly +121.7s, +120.0s and +120.0s — but they were issued in *separate
+  assistant turns*, so each had to be backgrounded before control returned to send the next.
+  The 120s is the client's patience with a call it is waiting on, not a dispatch interval.
+
+### Changed
+- The agent body now says to issue every pass of a fan-out in one message, and why the test
+  only means something when the arms outlast 120s: a fast fan-out returns before any
+  backgrounding and looks identical under both models.
+- `PLAN.md`'s handle-and-collect item keeps its second justification and loses its first.
+  The stagger it was filed against is a property of issuing sequentially, which a caller
+  controls for free; what survives is the admission wait becoming caller-invisible.
+
+### Notes
+- Three of the four arms reported 12,288 cached of 13,464 prompt tokens — 91% — over the
+  file they shared. Concurrent calls over a common prefix do hit the cache, which is the
+  other half of why decomposing into parallel passes is worth doing.
+- **The rule, in CONTRIBUTING.md beside the one it tests:** prefer a measurement taken on
+  purpose over one noticed in passing. `#117` added "a measurement in an agent body needs its
+  date and its conditions" and then carried a fresh measurement that failed by lunchtime.
+  Both figures came from real runs; neither came from a shape anyone had varied deliberately.
+
 ## #117 — 2026-09-06 — fix: an audit pass is sized to one reply and split by check class
 
 ### Fixed

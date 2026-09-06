@@ -1106,3 +1106,38 @@ the same thing from the other direction; this is the number.
 **One number moved under us again.** `kv_cache_size_tokens` read 1,467,988 today against
 the 1,444,236 already filed. Same conclusion, different figure — re-read it when fixing
 that item rather than trusting either.
+
+## 2026-09-06 — The 120s is when the client stops waiting, not when it issues
+
+Filed on 2026-09-05 as a cost of fanning out: the client backgrounds an MCP call after 120s
+and issues the next only then, so `n` delegations in one message cost `120s x (n-1)` of
+stagger. That was written from a real observation and describes the wrong mechanism.
+
+**Four `delegate_readonly` calls issued in one message started 0.0s, +2.5s, +4.0s and
++5.6s apart.** All four then ran past 120s and were backgrounded together. Under the filed
+model the fourth would have started six minutes after the first. Total spread: 5.6 seconds.
+
+**The arms had to outlast 120s or the test means nothing**, which is the part worth keeping.
+A fast fan-out returns before any backgrounding and looks identical under both models -- so
+each arm was given a whole configuration file and asked for a per-field listing at
+`effort: high`, taking minutes. An earlier instinct to make the probe cheap and quick would
+have produced a confident null result.
+
+The original observation stands and was misread. On 2026-09-05 three delegations started at
+exactly +121.7s, +120.0s and +120.0s -- but those were issued in *separate assistant turns*.
+Each had to be backgrounded before control returned to send the next. The threshold is the
+client's patience with a call it is waiting on, and nothing to do with dispatch.
+
+**So fanning out is nearly free, provided every call goes in one message.** That materially
+changes the concurrency advice written the same morning, and removes most of the
+justification for the handle-and-collect item, whose whole premise was a stagger a caller
+controls for free.
+
+**Incidental, and confirming:** three of the four arms reported `cached_tokens: 12,288` of
+`input_tokens: 13,464` -- 91% -- over the file they shared. Concurrent calls over a common
+prefix do hit the cache, which is the other half of why decomposing into parallel passes is
+worth doing.
+
+**The rule this earns:** prefer a measurement taken on purpose over one noticed in passing.
+Both the figure this replaces and the one it corrects came from real runs; neither came from
+a shape anyone had varied deliberately, and both were wrong about the mechanism.

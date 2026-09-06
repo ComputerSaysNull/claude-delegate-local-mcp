@@ -1,4 +1,7 @@
-<!-- BUDGET: 695
+<!-- BUDGET: 705
+     Raised from 695 on 2026-09-06: the handle item's premise was measured false the
+     same day, struck in place beside the correction rather than rewritten, because
+     what it got wrong was the mechanism and not the observation.
      Raised from 678 on 2026-09-06: the audit-shape item ticked, and its original kept
      because two sessions read the same evidence oppositely and both were half right.
      Raised from 663 on 2026-09-06: the usage-accounting item, which was never filed
@@ -502,9 +505,15 @@ them was re-derived when it did.
   the document that owns `tools.py`, and one addition made all three wrong at once
 
 - ⬜ **A delegation returns a handle, and a second call collects it** — the client backs an
-  MCP call into the background after 120s, and issues the next tool call only then, so
+  MCP call into the background after 120s. ~~and issues the next tool call only then, so
   firing `n` delegations in one message costs `120s x (n-1)` of stagger before the last one
-  starts. Measured 2026-09-05: four passes issued together started at 20:24:30, 20:26:32,
+  starts.~~ **Corrected 2026-09-06 (`#118`): that is not what the threshold does.** Four
+  calls issued in one message started within 5.6s of each other, all four outlasting 120s and
+  being backgrounded together. The 120s is when the client stops *waiting*; only calls issued
+  in separate turns pay it. **This removes most of the item's justification** — the stagger
+  it was filed against is a property of issuing sequentially, which a caller controls for
+  free. What survives is the second bullet below, admission wait becoming caller-invisible.
+  Re-rank it accordingly rather than treating it as the same item. Measured 2026-09-05: four passes issued together started at 20:24:30, 20:26:32,
   20:28:32 and 20:30:32. They do run concurrently once started — ~~`seqs=4, large=0` in the
   shared slots file — so the fan-out works; it is only the ramp that is wasted.~~
   - **CORRECTED 2026-09-05 (session 2): the struck line had it backwards twice.** The
@@ -539,8 +548,9 @@ them was re-derived when it did.
   clean. So the split is by check class first. The concurrency argument holds and is now
   measured rather than asserted: 60% of backend time across 42 runs is decode, rising once
   eviction stops forcing re-prefill, and decode is the half fanning out parallelises —
-  bounded by that 60%, not the 2.8x aggregate figure, and less roughly 120s of stagger per
-  extra call. Original entry follows.
+  bounded by that 60%, not the 2.8x aggregate figure. ~~and less roughly 120s of stagger per
+  extra call.~~ **The stagger was wrong and is corrected in `#118`**: calls issued in one
+  message start seconds apart, so fanning out costs essentially nothing to start. Original entry follows.
 - ~~`docs-audit-local` assumes one big prefetched pass, and that shape now stalls~~ —
   its body says a prefetched audit finishes "in one turn with zero tool calls", measured
   2026-09-03. The served model swapped to a vision model on 2026-09-04 and the measurement
