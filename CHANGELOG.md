@@ -34,6 +34,39 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #125 — 2026-09-06 — fix: the return column counted a running turn, and the audit agent had no search tool
+
+Both were found while planning the read-only agent tool, neither is part of it, and both
+would have been forgotten again.
+
+### Fixed
+- **`return` is blank until a delegation ends.** `returned_of` read `turn_outs[-1]`
+  whatever the run's state. **Symptom:** a live row showed the newest turn's output, so the
+  figure grew and shrank on every 2s redraw and read as an answer arriving in instalments.
+  **Cause:** the column was written for finished rows and never asked what a running one
+  should say. No caller ever receives an intermediate turn, so the number was real and
+  answered no question the column is read to answer. It now reports nothing until the `end`
+  event, then the `end` event's own `output_tokens`, falling back to the final turn for a
+  transcript whose `end` predates that field. `end` is written in a `try/finally`, so a
+  delegation that was killed still ends and still reports — blank means running, not lost.
+- **`docs-audit-local` could not search.** Its `allowed_tools` was
+  `[read_file, read_git, run_bash]` and `search_files` was simply missing. **Cause:** an
+  omission rather than a chronology artefact — `search_files` landed on 2026-09-03 (#86) and
+  that line was last written two days later on 2026-09-05 (#112). It is deliberately **not**
+  credited with the 26-turn audit pass of #122: that pass is attributed there to
+  verification and history calls, not to hunting for files, and re-using the number here
+  would be inventing a measurement. The body now says what the tool is for — locating a
+  claim, never gathering the audit set, which is what `files[]` is.
+
+### Changed
+- Two tests, and the first is the point. That a stream with no `end` event renders `-`
+  rather than a turn figure, verified by reverting `returned_of` to its previous body and
+  watching both new tests fail; and that a finished run prefers the `end` event's count over
+  the last turn seen on the way there. `_stream` grew a `done` flag, defaulting to ending,
+  because every test that used it was written about figures that were already final. Its
+  `end` event carries no token counts on purpose, since `sent_of` and `out_of` both prefer
+  an `end` figure and would otherwise displace the per-turn sums those tests assert.
+
 ## #124 — 2026-09-06 — docs: PLAN.md holds open work again, at 287 lines instead of 738
 
 ### Changed

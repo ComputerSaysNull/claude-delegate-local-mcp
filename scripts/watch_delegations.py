@@ -517,12 +517,23 @@ def out_of(row: dict) -> int | None:
 
 
 def returned_of(row: dict) -> int | None:
-    """Tokens of answer that actually reached the caller: the last turn's output.
+    """Tokens of answer that actually reached the caller, or `None` until one has.
 
     Exact, and the point of the column. Beside `load` it says what a delegation cost against
     what it put in the calling conversation -- 2,002 tokens of 907,400 on a twelve-turn run,
     or 0.22%. Every earlier turn's prompt, reasoning and tool traffic stayed on the far side
     of the call, which is the resource delegation actually protects.
+
+    **Nothing is returned until the delegation ends**, so a running row reports nothing
+    rather than the newest turn's output. It used to read `turn_outs[-1]` unconditionally,
+    which advanced on every 2s refresh and looked like an answer growing and shrinking --
+    an intermediate turn's output is not a figure any caller ever receives. `done` is set by
+    the `end` event, and `end` is written in a `try/finally`, so a delegation that was killed
+    still ends and still reports.
+
+    `end_out` is preferred over the last turn once done, for the same reason `out_of` prefers
+    it: it is the reply's own count rather than the last thing seen on the way there. The
+    fallback covers a transcript whose `end` predates the field.
 
     This replaced a `spared` column that summed a peak prompt with total output. That was
     invented to avoid "counting the same documents once per turn", on the reasoning that a
@@ -531,6 +542,10 @@ def returned_of(row: dict) -> int | None:
     it would have paid exactly the same way. `load` is therefore already the apples-to-apples
     figure, counted identically on both sides, and the hybrid answered no clean question.
     """
+    if not row.get("done"):
+        return None
+    if row.get("end_out") is not None:
+        return row["end_out"]
     turns = row.get("turn_outs") or ()
     return turns[-1] if turns else None
 

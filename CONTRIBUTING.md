@@ -1,4 +1,6 @@
-<!-- BUDGET: 313
+<!-- BUDGET: 321
+     Raised from 313 on 2026-09-06: a fifth sighting, and the first in frontmatter rather
+     than a body — which is why grepping bodies could never have found it.
      Raised from 307 on 2026-09-06: the two-concurrent-pass limit is enforced by
      admission rather than by convention, and a reader who does not know which of the
      two numbers bites loses five delegations finding out.
@@ -197,6 +199,13 @@ all and had the caller hand the waiver list in, which `read_git` had made untrue
 tool runs in the server process, so the tmpfs over `.git` never applied to it. Three
 sightings now, and the third was found by a reader asking "didn't we add that?", not by any
 check. **When you add a tool, grep the agent bodies for what it makes possible.**
+
+**A fifth sighting, 2026-09-06, and it says that rule is half a rule.** `docs-audit-local`
+never listed `search_files` in `allowed_tools`, two days after that tool landed — so the
+agent could not have used it whatever its body said. Grepping bodies would not have caught
+it: an agent is never told about a tool it does not have, so the omission leaves no trace in
+the prose to find. **Read the frontmatter too, and treat a tool the agent lacks as the more
+likely fault**, because a stale body is visible and a missing entry is not.
 
 **A fourth sighting, 2026-09-06, and this one was a measurement rather than a capability.**
 The same body recorded that a prefetched audit finished "in one turn with zero tool calls",

@@ -4,7 +4,7 @@ description: The delegated documentation audit, in this server's own agent forma
 model: deepseek-v4-flash
 effort: high
 max_turns: 30
-allowed_tools: [read_file, read_git, run_bash]
+allowed_tools: [read_file, search_files, read_git, run_bash]
 network: false
 ---
 
@@ -63,6 +63,11 @@ So: work from the `files[]` block. Reach for `read_file` to check a quotation or
 something the caller did not send, not to gather the set you were asked to audit. And if a
 result you needed has been dropped from your history, the stub says so — re-read it or say
 you do not know. Do not convert a gap in your own history into a claim about permissions.
+
+**`search_files` is for locating, never for gathering.** One search that finds the file
+holding a claim beats reading your way to it, and it is the cheap way to ask whether a fact
+appears in a second document. It is not a way to assemble the audit set — that is what
+`files[]` is, and the measurement above is what happens when a pass gathers for itself.
 
 **Prefetching is right and "one turn" is not the same claim**, which is the correction of
 2026-09-06. Those two travelled together in the sentence above and are independent: a pass
