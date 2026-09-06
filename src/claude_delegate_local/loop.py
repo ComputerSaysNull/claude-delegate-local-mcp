@@ -49,6 +49,7 @@ from .backends.base import (
 from .config import (
     EFFORT_LEVELS,
     OVERFLOW_ABORT_AT,
+    OVERFLOW_EVICT_AT,
     OVERFLOW_NUDGE_AT,
     OVERFLOW_TIGHTEN_AT,
     Config,
@@ -897,6 +898,12 @@ async def _keepalive(
 # What an evicted tool result is replaced by. The block stays and keeps its `tool_use_id`:
 # some backends validate that every tool_use has a matching result, so dropping the block
 # outright would make a long delegation fail at the wire rather than merely forget.
+def _count_tool_results(messages: tuple[Message, ...]) -> int:
+    return sum(
+        1 for m in messages for b in m.content if isinstance(b, ToolResultBlock)
+    )
+
+
 EVICTED_STUB = "[dropped from the history to keep it bounded. Call the tool again if needed.]"
 
 # Prefixed to a result served from the dedup cache. Silently returning the identical bytes
@@ -930,15 +937,22 @@ def resolve_max_turns(cfg: Config, explicit: int | None = None) -> int:
     return min(explicit, cfg.max_turns_hard_cap)
 
 
-def evict_stale_tool_results(
-    messages: tuple[Message, ...], keep: int
+def stub_oldest_tool_results(
+    messages: tuple[Message, ...], upto: int
 ) -> tuple[tuple[Message, ...], int]:
-    """Collapse all but the most recent `keep` tool results. Returns the history and a count.
+    """Collapse the oldest `upto` tool results. Returns the history and a count.
 
     Every turn resends the whole history, so without this the cost of a delegation grows
     with the square of its length -- the tenth turn pays for the first nine results again.
-    Oldest-first by count, which is what `keep_tool_results` says it is; a size-aware policy
-    would evict differently and is not what the setting promises.
+
+    **`upto` is a boundary the caller carries, not a window recomputed from `keep`**, and
+    that is the whole correction of ADR-0056. The previous form collapsed everything older
+    than the newest `keep`, so the rewrite point advanced by one every single turn. The
+    serving stack caches *prefixes*: moving the first difference toward the front discards
+    the cache for everything after it, every turn. Measured 2026-09-05 on an idle cluster,
+    the hit rate climbed 75.0%, 80.0%, 83.3% while the history was appended to, then hit
+    0.0% on the turn the first result was evicted and never recovered. `_OverflowGuard`
+    owns the boundary and only ever advances it, in steps, so one rewrite amortises.
 
     Only the *content* goes. The block and its `tool_use_id` stay (see `EVICTED_STUB`), and
     an already-evicted result is not counted twice -- the count is what this call did, not
@@ -950,7 +964,7 @@ def evict_stale_tool_results(
         for bi, block in enumerate(message.content)
         if isinstance(block, ToolResultBlock)
     ]
-    stale = positions if keep <= 0 else positions[:-keep]
+    stale = positions[:upto] if upto > 0 else []
     doomed = {
         (mi, bi)
         for mi, bi in stale
@@ -1151,7 +1165,7 @@ def newly_evicted_ids(
 ) -> tuple[str, ...]:
     """Which tool results this eviction pass replaced with the stub, by `tool_use_id`.
 
-    A separate diff rather than a third return value from `evict_stale_tool_results`. That
+    A separate diff rather than a third return value from `stub_oldest_tool_results`. That
     function's `(kept, dropped)` shape is asserted on directly by existing tests, and
     widening a tuple that other code unpacks is the kind of change that compiles everywhere
     and breaks one caller quietly. This reads the same two values that function already
@@ -1319,6 +1333,10 @@ class _OverflowGuard:
         # Only ever tightens. A delegation that wins back headroom by evicting has not
         # stopped growing, so relaxing again would only re-run the same climb.
         self.keep = cfg.keep_tool_results
+        # How many of the oldest tool results are already stubbed. Monotonic, and the
+        # reason the prefix survives: a boundary recomputed each turn moves each turn,
+        # and every move costs the cache everything after it (ADR-0056).
+        self.evicted_upto = 0
         self.prev_input_tokens = 0  # what the backend reported for the previous request
         self.pending_tokens = 0  # what we have appended since that request
         self.tightened_at = 0
@@ -1332,6 +1350,39 @@ class _OverflowGuard:
         return projected_fraction(
             self.cfg, self.entry, self.prev_input_tokens, self.pending_tokens
         )
+
+    def evict_upto(self, results: int) -> int:
+        """How many of the oldest tool results should be stubbed, now. Never retreats.
+
+        Two conditions, and measurement says both are needed. Gating on pressure alone left
+        the reuse share at 5.1% once pressure arrived, barely above the 2.9% it replaced,
+        because the boundary still moved every turn. Stepping alone would trim a history
+        that has nothing to relieve -- the old policy fired at 7% of a 1M window. Together
+        they measure 79.2% against an unbounded history's 93.0%, which is the price of
+        bounding it at all.
+
+        The step is `keep`, so the boundary jumps by the same quantity the setting is
+        denominated in and one rewrite buys `keep` turns of stability. Below the pressure
+        threshold the boundary is returned unchanged rather than zeroed: un-stubbing
+        content would rewrite the history too, in the other direction, and cost the same
+        cache.
+
+        **The stepping is unconditional and only the holding is gated**, which is not the
+        obvious arrangement and is the one that is safe. `context_overflow_enabled` is off
+        by default, and deliberately: every threshold here is measured against
+        `context_window`, which a registry entry may have inherited rather than had set.
+        Gating the whole method on it would mean the default configuration never bounded a
+        history at all -- the old policy at least did that, badly. So an unarmed guard
+        still steps, which bounds the history and measures 79.2% reusable against the 2.9%
+        it replaces; arming it additionally holds the boundary while there is room, which
+        measures 93.0%. Better than today in either configuration, and never worse.
+        """
+        step = max(self.keep, 1)
+        want = (max(results - self.keep, 0) // step) * step
+        if self.armed and self.share() < OVERFLOW_EVICT_AT:
+            return self.evicted_upto
+        self.evicted_upto = max(self.evicted_upto, want)
+        return self.evicted_upto
 
     def added(self, message: Message) -> None:
         self.pending_tokens += estimate_message_tokens(self.cfg, message)
@@ -1724,7 +1775,9 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
 
             guard.begin_turn(turn=turn, turns=turns, ledger=watch.calls)
             before = tuple(history)
-            trimmed, dropped = evict_stale_tool_results(before, guard.keep)
+            trimmed, dropped = stub_oldest_tool_results(
+                before, guard.evict_upto(_count_tool_results(before))
+            )
             history = list(trimmed)
             watch.evicted(before, trimmed, dropped)
 

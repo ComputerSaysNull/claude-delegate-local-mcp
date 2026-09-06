@@ -403,7 +403,9 @@ def history_with(n: int) -> tuple:
 
 
 def test_eviction_collapses_everything_past_the_most_recent_few():
-    kept, dropped = loop.evict_stale_tool_results(history_with(5), keep=2)
+    # `upto` is the boundary the guard carries, not a window derived from `keep` -- so a
+    # test names the boundary directly. Five results keeping the newest two is upto=3.
+    kept, dropped = loop.stub_oldest_tool_results(history_with(5), upto=3)
     contents = [m.content[0].content for m in kept]
     assert contents[:3] == [loop.EVICTED_STUB] * 3
     assert contents[3:] == ["result 3", "result 4"]
@@ -412,20 +414,20 @@ def test_eviction_collapses_everything_past_the_most_recent_few():
 
 def test_the_most_recent_results_survive_untouched():
     """The other direction: an eviction that collapsed everything would pass the count."""
-    kept, _ = loop.evict_stale_tool_results(history_with(3), keep=3)
+    kept, _ = loop.stub_oldest_tool_results(history_with(3), upto=0)
     assert [m.content[0].content for m in kept] == ["result 0", "result 1", "result 2"]
 
 
 def test_eviction_keeps_the_tool_use_id():
     """Some backends validate that every tool_use has a matching result. Dropping the block
     outright would make a long delegation fail at the wire rather than merely forget."""
-    kept, _ = loop.evict_stale_tool_results(history_with(3), keep=1)
+    kept, _ = loop.stub_oldest_tool_results(history_with(3), upto=2)
     assert [m.content[0].tool_use_id for m in kept] == ["t0", "t1", "t2"]
 
 
 def test_an_already_evicted_result_is_not_counted_twice():
-    once, first = loop.evict_stale_tool_results(history_with(4), keep=1)
-    _, second = loop.evict_stale_tool_results(once, keep=1)
+    once, first = loop.stub_oldest_tool_results(history_with(4), upto=3)
+    _, second = loop.stub_oldest_tool_results(once, upto=3)
     assert first == 3
     assert second == 0, "the count must be work done, not how much history is stubbed"
 

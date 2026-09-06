@@ -1,4 +1,6 @@
-<!-- BUDGET: 772
+<!-- BUDGET: 781
+     Raised from 772 on 2026-09-06: the live stream now reports the eviction that
+     explains a cache collapse, which the record already had. ADR-0056.
      Raised from 770 on 2026-09-06: backend_status reports one more measured figure,
      the decode rate, and it is the one nothing here could ever estimate. ADR-0055.
      Raised from 746 on 2026-09-05: the sandbox gained resource limits, whose mechanism is not bwrap's and whose process cap has three measured caveats a reader must have before touching it.
@@ -672,6 +674,13 @@ Two intervals are recorded per turn and the difference between them is the point
 the turn's wall clock, including tool execution and any wait for a slot; `backend_ms` is the
 backend call alone. Tokens per second is taken from the second, because a rate divided by
 the first would blame the cluster for time it did not spend generating.
+
+**A stream turn carries `tool_results_evicted` beside `cached_tokens`, and the pair is the
+point.** The record had the eviction count per turn and the stream did not, so a person
+watching a delegation could see the prefix cache collapse and not see the one thing that
+explains it — which is how ADR-0056's bug went unnoticed while it was happening in front of
+someone. A one-shot reports `0` rather than omitting the field: it has no history to evict
+from, and that is a measurement, where an absent field reads as *not measured*.
 
 `scripts/watch_delegations.py` reads that stream: it lists what is in the transcript
 directory, follows the one you pick, and renders turns as a conversation rather than as

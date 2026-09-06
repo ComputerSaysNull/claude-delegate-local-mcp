@@ -59,6 +59,7 @@ CLIENT_STDIO_IDLE_TIMEOUT = 1800
 # escalation, and an operator free to move them independently can invert the order so the
 # loop aborts before it has ever nudged. The reserve beside them IS a setting, because it
 # is a size rather than a stage.
+OVERFLOW_EVICT_AT = 0.50
 OVERFLOW_TIGHTEN_AT = 0.70
 OVERFLOW_NUDGE_AT = 0.85
 OVERFLOW_ABORT_AT = 0.95

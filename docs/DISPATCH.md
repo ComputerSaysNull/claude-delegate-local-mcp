@@ -1,4 +1,7 @@
-<!-- BUDGET: 570 -->
+<!-- BUDGET: 588 -->
+<!-- Raised from 570 on 2026-09-06: the eviction boundary is stepped and carried, and
+     this section had asserted the opposite -- that no arrangement of the tail could be
+     cache-stable -- so the correction costs more than the change. ADR-0056. -->
 <!-- Raised from 545 on 2026-09-06: the reply budget now has a ceiling derived from
      a measured decode rate, and both halves of that -- the ceiling's asymmetry with
      the floor, and the one histogram the metrics reader stopped skipping -- are
@@ -390,7 +393,7 @@ One deadline still covers the whole delegation, not each turn. Per-turn budgets 
 the real bound `dispatch_timeout` times `max_turns`, which at the defaults is a day and a
 half rather than an hour.
 
-## The history is resent every turn, so it is trimmed every turn
+## The history is resent every turn, and trimmed in steps
 
 Each turn resends everything before it, so an untrimmed history makes a delegation cost the
 square of its length — the tenth turn paying again for the first nine tool results.
@@ -403,11 +406,26 @@ validate that every tool use has a matching result, and dropping the block outri
 turn a long delegation into a wire-level failure rather than a model that has forgotten
 something. The stub says plainly that the result was dropped and can be fetched again.
 
-This is also the honest limit of prefix caching in the loop. The static system prompt, the
-files block and the task are stable across turns and stay cached; everything after them
-changes by construction, since each turn appends to the history and eviction rewrites part
-of what is already there. Only the leading prefix is cache-stable, and no arrangement of the
-tail changes that.
+**The boundary is carried by the guard and only ever advances, in steps of `keep`**
+(ADR-0056). Recomputing it each turn as "everything older than the newest `keep`" reads as a
+stable window and is not one: as the history grows, that boundary moves forward by one every
+turn, and with it the first difference between consecutive prompts. Since the stack caches
+prefixes, moving the first difference forward discards everything after it — measured as a
+hit rate climbing to 83.3% and then dropping to 0.0% on the turn of the first eviction,
+never recovering. Stepping means one rewrite buys `keep` turns instead of one.
+
+**Stepping is unconditional; only *holding off* is gated.** With
+[`context_overflow_enabled`](CONFIGURATION.md) armed, `OVERFLOW_EVICT_AT` holds the boundary
+still while there is genuinely room — the first stage of the same ladder that tightens,
+nudges and aborts. Unarmed, the guard steps anyway, because that flag is off by default and
+gating the whole policy on it would leave the common configuration bounding nothing. Below
+the threshold the boundary is held rather than reset: un-stubbing rewrites the history in the
+other direction at the same cost.
+
+So the loop's prefix is stable further than it used to be, and the earlier claim that only
+the leading prefix could ever be cache-stable was wrong. An append-only history reuses about
+93% of each prompt; stepped eviction reuses about 79%; the per-turn boundary reused 2.9%. The
+gap between 93% and 79% is the price of bounding the history at all.
 
 ## A repeated tool call is answered, not re-run
 

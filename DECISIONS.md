@@ -19,6 +19,64 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0056 — 2026-09-06 — The eviction boundary is carried and stepped, not recomputed every turn — Accepted
+
+`evict_stale_tool_results` collapsed everything older than the newest `keep` tool results,
+every turn. That reads as a stable window and is not one: as the history grows the boundary
+advances by one result per turn, so the *first difference* between consecutive prompts moves
+toward the front. The serving stack caches **prefixes**. Moving the first difference forward
+discards the cache for everything after it.
+
+Measured on an idle cluster with `preemptions: 0` throughout: the hit rate climbed 75.0%,
+80.0%, 83.3% on turns 5-7 exactly as an append-only history should, then hit **0.0%** on the
+turn `tool_results_evicted` first went to 1, and stayed there. Turns 8-11 re-prefilled
+315,625 tokens the run had already established — identical work at five times the wall clock.
+This is ADR-0011's failure mode with no error and no symptom beyond slower prefill.
+ADR-0011 guards the system prompt; nothing guarded the history.
+
+**Decision.** `_OverflowGuard` owns a boundary, `evicted_upto`, which only ever advances and
+advances in steps of `keep`. `stub_oldest_tool_results` is told how far to stub rather than
+deriving it. One rewrite therefore buys `keep` turns of prefix stability instead of one.
+
+**Both halves are necessary, and measurement is why the shape is this one.** PLAN listed
+three candidates as alternatives — gate on projected share, evict in batches, evict from the
+front once. Modelled over the alternation the loop appends, they are not alternatives:
+
+    per-turn boundary (before)          2.9% reusable   409,588 chars re-prefilled
+    pressure gate only                  5.1%            273,499
+    pressure gate + stepped boundary   79.2%            109,310
+    no eviction at all                 93.0%             68,049   -- unbounded
+
+Gating alone is nearly worthless once pressure exists, because the boundary still moves every
+turn. The stickiness is load-bearing; the gate is what makes the common case free, the old
+policy having fired at 7% of a 1M-token window where there was nothing to relieve.
+
+**The stepping is unconditional and only the holding is gated, which is not the obvious
+arrangement.** `context_overflow_enabled` is off by default and deliberately so: every
+threshold here is measured against `context_window`, which a registry entry may have
+inherited rather than had set. Gating the whole policy on that flag would leave the default
+configuration never bounding a history at all — trading a cache bug for an unbounded one,
+which is worse than what it replaced. So an unarmed guard still steps. Arming it adds
+`OVERFLOW_EVICT_AT`, a new first stage at 0.50 below the existing tighten, nudge and abort
+ladder, which holds the boundary while there is genuinely room.
+
+**Below the threshold the boundary is held, not reset.** Un-stubbing content rewrites the
+history in the other direction and costs exactly the same cache.
+
+**Consequence: the second-order cost is now visible.** The same run's `evicted_then_reread`
+ledger caught the model re-reading the file eviction had just dropped, on three consecutive
+turns — the dropped content returns as a fresh full-size result, which pushes the next one
+out. That machinery already existed and `diagnostics` is off by default, so nobody saw it.
+`Stream.turn` now carries `tool_results_evicted` beside `cached_tokens`, which the final
+record already had and the live stream did not: a watcher could see the cache collapse and
+not see the cause.
+
+**Accepted cost.** Under pressure the reusable share is 79.2% rather than the 93.0% of an
+unbounded history. That gap is the price of bounding the history at all, and it is paid in
+one step per `keep` turns rather than continuously.
+
+---
+
 ## ADR-0055 — 2026-09-06 — The reply budget is derived from the deadline and a measured decode rate — Accepted
 
 `max_tokens` and the deadlines were in different units and nothing related them. At `high`
