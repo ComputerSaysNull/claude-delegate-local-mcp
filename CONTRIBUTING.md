@@ -1,4 +1,7 @@
-<!-- BUDGET: 307
+<!-- BUDGET: 313
+     Raised from 307 on 2026-09-06: the two-concurrent-pass limit is enforced by
+     admission rather than by convention, and a reader who does not know which of the
+     two numbers bites loses five delegations finding out.
      Raised from 298 on 2026-09-06: the rule added that morning was falsified by lunchtime
      and the correction is the evidence for it -- prefer a measurement taken on purpose.
      Raised from 287 on 2026-09-06: a fourth sighting of the pattern, and the first
@@ -242,7 +245,9 @@ looks runnable and shells out to git underneath. Read the pair yourself for that
 Model and effort follow task cost: the cheapest tier that can do the job. The frontmatter
 key is `effort`, not `reasoning_effort` — a misspelling is ignored in silence and bills the
 default tier, so the table renders a missing key rather than guessing one. Run at most six
-agents concurrently — a convention, enforced nowhere: `ci.yml`'s `max-parallel` is another six.
+agents concurrently — a convention, enforced nowhere: `ci.yml`'s `max-parallel` is another
+six. At most **two** of them may be delegated passes that prefetch, and that one admission
+does enforce, by killing the rest after `admission_wait_timeout`.
 
 ### When to run docs-audit
 

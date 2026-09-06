@@ -1,6 +1,6 @@
 ---
 name: docs-audit-local
-description: The delegated documentation audit, in this server's own agent format, for running on the local model through delegate_to_agent. Same job as docs-audit; different consumer. Prefetch the documents in files[] and hand it the gate and git output, which it cannot obtain itself. Pass workdir so it can check its own quotations.
+description: The delegated documentation audit, in this server's own agent format, for running on the local model through delegate_to_agent. Same job as docs-audit; different consumer. Prefetch the documents in files[] and hand it the gate output, which is the one thing it cannot obtain itself; it reads git history for itself. One check class per pass, and at most two passes at once.
 model: deepseek-v4-flash
 effort: high
 max_turns: 30
@@ -36,8 +36,11 @@ covered by a read-only bind of `/dev/null`, which on `/mnt/c` yields `EACCES` ra
 empty read — the gate loads that file early and dies with a `PermissionError`. Both are the
 sandbox working as designed, and neither is a finding.
 
-**Use `read_git` for history.** It runs in the server process, not in your sandbox, so the
-tmpfs over `.git` does not apply to it: `log`, `show`, `diff`, `blame`, `shortlog`,
+**Use `read_git` for history**, and pass the repository path the task gives you as `repo`.
+It takes a subcommand and flags from fixed allowlists and refuses anything else, naming what
+it will accept — five of eleven calls in one pass failed for want of that. It runs in the
+server process, not in your sandbox, so the tmpfs over `.git` does not apply to it: `log`,
+`show`, `diff`, `blame`, `shortlog`,
 `rev-list` and the rest work. This section said you could not read the log at all until
 2026-09-05, which stopped being true when `read_git` landed — the third time a body here
 has outlived the limitation it was written around, and the reason CONTRIBUTING.md tells you
@@ -66,9 +69,9 @@ you do not know. Do not convert a gap in your own history into a claim about per
 can be fully prefetched *and* small. Prefetching was investigated as the cause of the
 2026-09-05 stalls and exonerated — the cause was a reply budget no deadline could pay
 (ADR-0055) — so keep it. What does not survive is sizing a pass so its whole answer must fit
-one reply. That budget is now capped at what the clock can decode, so an oversized pass is
-truncated instead of killed, which is better and still not an audit. The sizing rule is
-below, and it belongs to the caller rather than to you.
+one reply. **And "truncated instead of killed" was wrong**, which is the correction of
+2026-09-06: an oversized pass returns an *empty* answer reporting success, which is worse
+than either. The sizing rule is below, and it belongs to the caller rather than to you.
 
 ## Cite a line number only when `read_file` gave you one
 
@@ -97,30 +100,47 @@ committed document before it was caught.
 `python3`, not `python` — the sandbox has no `python` on PATH, and a smoke test of this
 agent spent a turn and a failed command finding that out. The gate is `python3` too.
 
+**Verification is sometimes withheld, and when the task says so it is deliberate.** Take it
+at its word: quote exactly what you were given, say what you could not check, and do not
+read the narrowed toolset as being invoked by the wrong tool. It is a measured trade — the
+same check class ran in 26 turns with verification and in 1 turn without, at no cost in
+accuracy, because 24 of its 29 tool calls were verification and history rather than
+reading.
+
 ## How a caller should size and split a pass
 
 Yours to read, not to act on: you audit what you are given. It is here because the body is
 what a caller reads before invoking, and because getting this wrong is what produced the
 2026-09-05 failures.
 
-**Size a pass so its findings fit one reply.** A twelve-document, seven-class call died at
-2100 s having completed no turns. The budget is capped now, so the same call would come back
-truncated rather than dead — quieter and no more useful. Judge it by expected findings, not
-by input size: prefetch is cheap and answers are not.
+**Size a pass so its findings fit one reply — and the reply is not a fixed size.** The
+budget is `reply_budget_margin x stall_timeout x` the *observed* decode rate (ADR-0055), so
+it shrinks as the cluster fills: measured 2026-09-06, from ~44,000 tokens to ~10,800 as
+per-sequence decode fell from ~35 tok/s to 8.6. Judge a pass by expected findings, never by
+input size — prefetch is cheap and answers are not. An oversized pass does not come back
+truncated. It comes back **empty**, with `finish_reason: "length"`, `reasoning_exhausted:
+true` and `ok: true`; two did exactly that at 27,603 and 41,364 output tokens. Raising
+`max_tokens` cannot help, because the deadline-derived ceiling applies over an explicit
+argument too.
 
-**Split across passes, and run them concurrently.** Measured over 42 multi-turn delegations,
-**60% of backend time is decode**, and that share rises now that eviction no longer forces a
-re-prefill every turn (ADR-0056). Decode is the half concurrency parallelises: one sequence
-decodes at ~36 tok/s and four together at ~102 aggregate. Prefill is serialised by the engine
-and gains nothing from fanning out, so the win is bounded by that 60% — real, not the 2.8x
-the aggregate figure alone suggests.
+**An enumerable question is what blows it, not a big one.** A five-part ask burned 41,831
+tokens returning nothing, and narrowing it to one of its five parts failed identically —
+while its sibling over a *larger* file answered in one turn. "List every recognised key and
+what each does" spends the whole budget enumerating; "does this paragraph still match this
+function" does not.
 
-**Issue every pass of a fan-out in one message.** Four calls sent together started 0.0, 2.5,
-4.0 and 5.6 seconds apart — measured 2026-09-06, with arms long enough to outlast the
-client's 120 s threshold, which is what makes the test mean anything. That threshold is when
-the client stops *waiting* on a call, not when it issues the next: calls spread across
-separate turns pay up to 120 s each before the following one starts, and calls in one message
-pay seconds. So the ramp is not a reason to keep a pass large.
+**Run at most two passes at once.** Admission admits only `max_inflight_large_prefills` (2)
+cold prefills at a time and a fully prefetched pass is always one, so twelve concurrent
+passes on 2026-09-06 lost five to `admission_timed_out … waited 1800.0s` — 12,137 seconds of
+queue for nothing. The cap is server-side and tool-agnostic, so a read-only fan-out starves
+identically. Concurrency also depresses the decode rate, which shrinks the ceiling above, so
+the two failures compound.
+
+**The 120 s ramp belongs to the tool, not to how calls are batched.** Arms sent through
+`delegate_to_agent` are released one per 120 s however they are issued; the same arms through
+a `readOnlyHint` tool run on independent clocks. Measured both ways from transcripts on
+2026-09-06. Batching a fan-out into one message buys nothing, and is never a reason to keep a
+pass large.
 
 **Split by check class first, because four of the seven cannot see a split by document.**
 This is the trap. Splitting a twelve-document audit into four passes of three looks obvious

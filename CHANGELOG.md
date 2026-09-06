@@ -34,6 +34,50 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #122 — 2026-09-06 — fix: the audit agent's sizing advice, which cost five delegations
+
+### Changed
+- **`docs-audit-local` no longer tells a caller to fan out wide.** Its "How a caller should
+  size and split a pass" section advised splitting across passes and running them
+  concurrently, and issuing every pass of a fan-out in one message, on measurements of
+  decode parallelism and of four calls starting 5.6s apart. **Symptom:** a twelve-pass audit
+  run against that advice lost five passes to `admission_timed_out … waited 1800.0s for a
+  slot`, with `admission_wait_seconds_total` reaching 12,137 — three and a half hours of arms
+  queueing for nothing — and two more returned empty answers. **Cause:** two separate things
+  the section did not know. Admission admits only `max_inflight_large_prefills` (2) cold
+  prefills at a time and a fully prefetched pass is always one, so the cap is what bounds a
+  fan-out rather than decode throughput; and the 120s ramp is a property of the tool's
+  `readOnlyHint` annotation rather than of how calls are batched, so batching into one
+  message buys nothing. **Fix:** at most two passes at once, stated with the rule that
+  enforces it, and the batching advice removed rather than softened.
+- **The reply budget is described as the moving target it is.** The section said an oversized
+  pass "is truncated instead of killed, which is better". Measured on the same run: it comes
+  back **empty** — `answer: ""`, `finish_reason: "length"`, `reasoning_exhausted: true` and
+  `ok: true` — after burning 27,603 and 41,364 output tokens. That is worse than either, and
+  it reads as success. The ceiling is `reply_budget_margin x stall_timeout x` the *observed*
+  decode rate, so it shrank from ~44,000 tokens to ~10,800 as concurrency depressed decode
+  from ~35 tok/s to 8.6; raising `max_tokens` cannot lift it, because the deadline-derived
+  ceiling applies over an explicit argument. The paragraph that carried the old claim now
+  carries its correction, which is the fourth time a body here has outlived what it was
+  written around.
+- **What blows the budget is an enumerable question, not a large one.** A five-part ask
+  burned 41,831 tokens returning nothing; narrowed to one of its five parts it failed
+  identically, while its sibling over a *larger* file answered in one turn. Recorded because
+  the obvious remedy — send less input — is the wrong one.
+- **Withheld verification is now a documented mode.** A caller may withhold `run_bash` and
+  check the quotations itself. Measured: the same check class ran in 26 turns with
+  verification and in 1 turn without, at no cost in accuracy, because 24 of its 29 tool calls
+  were verification and history rather than reading. The agent is told to take the narrowed
+  toolset at its word rather than reporting it as being invoked by the wrong tool, which the
+  last section of its body would otherwise have it do.
+
+### Fixed
+- **`read_git`'s arguments are documented where the agent is told to use it.** It takes a
+  `repo` path and a subcommand and flags from fixed allowlists; five of eleven calls in one
+  pass failed for want of the first. The frontmatter description also claimed a caller must
+  hand it git output "which it cannot obtain itself", which stopped being true when
+  `read_git` landed on 2026-09-05.
+
 ## #121 — 2026-09-06 — fix: fifteen documentation drifts from the 2026-09-06 audit
 
 ### Changed
