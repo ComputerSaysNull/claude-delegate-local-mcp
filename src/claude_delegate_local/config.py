@@ -526,7 +526,11 @@ class Config:
         "thought to ask for. Setting it must not change a single byte of any response. "
         "Records carry the task, the files and their accounting, real token usage and "
         "the server-captured ledger -- but never file contents, which are recoverable "
-        "from the repository by path and are the only bulky part.",
+        "from the repository by path and are the only bulky part. Where they land is a "
+        "trade rather than a rule, and both directions cost something: a synchronised or "
+        "backed-up directory sends the task text off this machine on someone else's "
+        "schedule, while a directory inside the WSL distribution dies with it and /mnt/c "
+        "survives -- so the durable choice and the leaky one can be the same choice.",
     )
 
     # ---- sandbox (ADR-0010) ------------------------------------------------------

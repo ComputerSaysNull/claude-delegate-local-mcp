@@ -129,7 +129,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_TRANSCRIPT_DIR` | *(empty)* | Directory to write one record per dispatch into. Empty disables it, and empty is the default. Independent of the caller's `diagnostics` argument by design: what an operator can audit should not depend on what the calling session thought to ask for. Setting it must not change a single byte of any response. Records carry the task, the files and their accounting, real token usage and the server-captured ledger -- but never file contents, which are recoverable from the repository by path and are the only bulky part. |
+| `DELEGATE_TRANSCRIPT_DIR` | *(empty)* | Directory to write one record per dispatch into. Empty disables it, and empty is the default. Independent of the caller's `diagnostics` argument by design: what an operator can audit should not depend on what the calling session thought to ask for. Setting it must not change a single byte of any response. Records carry the task, the files and their accounting, real token usage and the server-captured ledger -- but never file contents, which are recoverable from the repository by path and are the only bulky part. Where they land is a trade rather than a rule, and both directions cost something: a synchronised or backed-up directory sends the task text off this machine on someone else's schedule, while a directory inside the WSL distribution dies with it and /mnt/c survives -- so the durable choice and the leaky one can be the same choice. |
 
 ### Sandbox
 

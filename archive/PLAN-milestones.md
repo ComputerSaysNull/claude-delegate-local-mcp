@@ -310,3 +310,357 @@ five were repository tooling made the backend work look further along than it wa
   library source, so the scan would mount `/dev/null` over the imports of the environment it
   had just spent a minute reading. Found by running the tool, not the suite: every scan test
   built twelve files by hand (ADR-0041)
+
+## Completed work moved from PLAN.md on 2026-09-06
+
+Twenty-eight ticked items and the seven struck originals that travel with them,
+moved verbatim and never edited. PLAN.md kept these as a record of recent work until
+it stopped being recent: they were 36% of that document, filed under a heading that
+said Open. The reason for each is in its own annotation; the provenance is in
+CHANGELOG.md.
+
+- ✅ 2026-09-06 The reply budget is derived from the deadline and a measured decode rate
+  (`#113`, ADR-0055) — **"`backend_status` is the reader" was wrong**, and that is the half
+  worth keeping. `probe_cluster` scraped seven metrics and not one was a rate, and
+  `read_metrics` refused histograms by *documented decision* — so this had to argue past a
+  refusal rather than read a number. The exception it earned is narrow and named after the
+  `prefix_cache_hit_rate_since_boot` precedent that made the shape defensible; without that
+  precedent the right answer would have been to leave the module alone. Three things the
+  filing could not have known. The rate cannot be learned from experience alone: a one-shot
+  completes no turns, and the tools-withdrawn final turn is a first turn for this purpose,
+  so an estimator with no seed leaves uncapped exactly the two shapes that die — and the
+  seed is the since-boot mean the module declined to *report*, which turns out to be a
+  different act from consuming it. The ceiling had to bind an explicit `max_tokens` where
+  ADR-0014's floor deliberately does not, because a floor is a preference and a deadline is
+  not. And three `test_server.py` doubles pop one canned reply per request whatever the URL,
+  so one extra GET ate the first turn's answer and they reported a *missing turn* rather
+  than an extra request — found by the full suite, not by the files the change touched.
+  Original entry follows.
+- ✅ 2026-09-06 A delegation reports what the whole run cost, beside what the answering turn
+  cost (`#116`, ADR-0058) — raised by reading the picker's "saved" column and not by a filed
+  item. **Not the bug it looked like:** `saved_of`'s two branches agree, and the result dict
+  reporting the answering attempt is documented behaviour that predates all of this. The
+  defect is that the *transcript* uses the same three field names for lifetime sums, so one
+  delegation honestly reported `cached_tokens: 0` while its own record said 559,872. Fixed
+  additively rather than by renaming, because the two figures answer different questions.
+  The second half is a presentation bug with the same root: a cumulative "saved" total grows
+  fastest exactly when reuse is worst, so it was the one rendering that could not show the
+  eviction bug it was measuring. It reads as a share now — 62% and 33% on the two runs that
+  prompted this, both poor for an append-only history. Closes the measurement half of
+  [[token-savings-report-goal]]: totalling what delegation saves is possible from tool
+  results alone, which it was not before
+- ✅ 2026-09-06 The final turn forbids tool calls instead of withdrawing the tools (`#115`,
+  ADR-0057) — **never filed, and found by measuring rather than by reading.** Looking at why
+  turn 12 of two delegations cached zero while turns 2-11 cached fine turned up a second,
+  independent cache bug sitting on top of the eviction one: `tools=()` on the last turn moves
+  the first difference to the front of the prompt. Corpus evidence was 3 of 7 runs and
+  confounded with the eviction collapse, so it was carried as a hypothesis and settled with a
+  four-arm probe — 36,018 tokens re-prefilled to avoid sending 321, with a repeat arm proving
+  the cache was still warm. The probe was also allowed to *stop* the fix: if the chat template
+  had dropped the tool block under `tool_choice: "none"` the divergence would have returned
+  unchanged, and that is a fact about the server's template rather than one the spec implies.
+  Moving the tools to the end of the prompt was the other candidate and is worse — it trades
+  the cross-delegation `system prompt + tools` prefix, which every run shares, for a
+  once-per-run saving, and gives up native tool-call parsing to do it
+- ✅ 2026-09-06 Eviction carries its boundary instead of recomputing it every turn (`#114`,
+  ADR-0056) — **the three candidate directions were not alternatives**, which is what
+  "measure before choosing" turned up and no amount of reading would have. Modelled over the
+  alternation the loop appends: the per-turn boundary reuses 2.9% of each prompt, gating on
+  projected share alone reaches 5.1%, gating *plus* a stepped boundary reaches 79.2%, and an
+  unbounded history reaches 93.0%. So the stickiness is the load-bearing half and the gate is
+  what makes the common case free — filed as an either/or, delivered as both. Two things the
+  filing could not have known. **`context_overflow_enabled` is off by default**, so the
+  obvious arrangement — gate the whole policy on the flag — would have left the default
+  configuration bounding nothing at all, trading a cache bug for an unbounded history; the
+  stepping is therefore unconditional and only the holding is gated. And that was caught by a
+  test asserting a stub had actually been produced, which failed `0 > 0` while the pressure
+  test beside it passed by evicting nothing — the fourth-and-fifth-check problem, found in
+  the act. `docs/DISPATCH.md` had also asserted the opposite of the fix, that no arrangement
+  of the tail could be cache-stable. Original entry follows.
+- ~~Eviction rewrites the history mid-stream, and the prefix cache pays every turn~~ —
+  `evict_stale_tool_results` stubs the oldest surviving tool result *inside* the history,
+  one per turn; the stack caches **prefixes**, so the divergence point moves toward the
+  front and everything after it is recomputed. JOURNAL 2026-09-05 had already priced this
+  lever at 30x and concluded "cache first, concurrency second"; nothing had checked whether
+  the loop was pulling it.
+  - **The policy is right and the accounting is wrong.** The saving is denominated in tokens
+    *sent*; the cluster charges for tokens it cannot *reuse*. It also fires at ~7% of a 1M
+    window, where there is nothing to relieve — `_OverflowGuard.__init__` sets `self.keep`
+    outside the `armed` check and the loop reads that attribute directly, so the guard
+    documented as "entirely inert unless `context_overflow_enabled`" is inert in its methods
+    and live in the one thing that costs.
+  - **Second-order cost, instrumented and invisible:** `evicted_then_reread` caught the
+    model re-reading what eviction had just dropped, three turns running. The dropped
+    content returns as a fresh full-size result, which evicts the next one.
+  - Candidate directions, unranked: gate `keep` on projected share; evict in batches so one
+    rewrite amortises; or evict from the front once and never re-touch. **Measure before
+    choosing** — the regression test compares prefix stability without a cluster, and the
+    live check is `cached_tokens` in the transcript
+
+- ✅ 2026-09-05 Operator allowlist for an agent's `network` and `extra_binds` (`#110`,
+  ADR-0053) — `workdir_roots` was the pattern to copy for the containment and the wrong
+  pattern for the rest. Three things the filing could not have known. The two fields want
+  **different** gates: a bind pins to a root and `--share-net` has nothing to pin to, so
+  egress needs the agent named *and* the file in `agents_dir` — a name alone is forgeable,
+  since the workspace tiers are searched first and a repository can ship a file under any
+  name. The allowlist would have been **decorative** without a fix underneath it: the bind
+  was emitted as the frontmatter string, so a link inside an approved root was resolved by
+  the kernel at mount time having never met the check. And the reserved-mount half taught
+  the most: reordering the argv so nothing can shadow `/usr` also wipes every bind inside
+  `/tmp`, where every temporary directory lives — an existing integration test caught it in
+  one run, so the narrow case is refused instead, and four of the nine reserved targets are
+  symlinks into `usr/` that are correctly *allowed*. One enforcement site, not two:
+  `tools.py` merges agent binds with the operator's `toolchain_binds` into one untagged
+  tuple, so nothing downstream can tell whose bind it is. Original entry follows.
+- ~~Operator allowlist for `network` and `extra_binds`~~ — the only validation is
+  `os.path.isabs` and a boolean parse, so a markdown file in a repository you delegate over
+  can bind any absolute host path read-only and turn on egress for that call. The
+  mount-level secret scan covers matches afterwards (ADR-0036) rather than refusing the
+  bind. Of everything the 2026-09-02 review raised this is the one with a plausible
+  end-to-end attack, and `workdir_roots` is the pattern to copy
+- ✅ 2026-09-03 `open_resolved`, which opens and proves in one operation (#93, ADR-0049) —
+  it returns a handle rather than a path, so there is no string left for a handler to
+  reopen; that is what closes the item rather than the comparison itself. Three call sites,
+  not two: `prefetch` had the same shape. **The `O_NOFOLLOW` judgement below was wrong** —
+  the objection holds for the path a caller wrote and not for the resolved one, which
+  `realpath` has already collapsed, so it is safe here and each half was asserted to catch
+  the swap without the other. Two things the filing could not have known. The write path
+  needed `O_TRUNC` removed and the truncation moved after the proof, or it detected a
+  destruction it had already performed. And what this catches is redirection, not
+  substitution: every layer is a function of the path, so a different regular file at an
+  approved path fires neither check, measured, and is not a bypass. Original entry follows.
+- ~~Validate the opened inode, not the path~~ — `resolve_all` then `open` is check-then-use
+  in both file tools and in prefetch, with no re-validation. The adversary is the delegated
+  model itself, which holds a read-write workdir bind under `run_bash` and can retry, so
+  this is not the passive window the review described. `O_NOFOLLOW` is the wrong fix: it
+  would refuse legitimate symlinked checkouts, since `realpath` has already collapsed them
+  by design. Compare `realpath("/proc/self/fd/N")` against the roots after opening
+- ✅ 2026-09-05 Resource limits inside the sandbox (`#111`, ADR-0054) — **"emits no
+  `--rlimit`" presumed a flag bwrap does not have.** bubblewrap 0.9.0 has none, so the caps
+  come from a `prlimit` launcher in front of it; `resource` is still not imported, and
+  should not be, since `preexec_fn` is a deadlock risk once tool calls run in threads. Three
+  things the filing could not have known. `RLIMIT_AS` is address space, not resident memory,
+  so it over-counts and a Go runtime will trip it — the accurate control is a cgroup memory
+  limit, and `systemd-run --user` has no bus here, though the `pids` controller is present
+  and would be the better process cap if it were reachable. The process cap ships
+  compromised on purpose: counted per uid so concurrent delegations share it, unusable below
+  ~64 because bwrap cannot then make its namespaces, and silent when it binds because the
+  shell cannot fork to report it. And measuring it took three attempts — a sequential loop
+  never exceeded two concurrent, then a loop counting iterations rather than successes
+  reported 400 under a cap of 256, because `cmd &` succeeds whether or not the fork did.
+  Two plausible experiments agreed and were both wrong. Mutation testing then caught a
+  fifth check that could not fail: an integration test asserting no core file is left
+  behind passed with `--core=0` removed. Original entry follows.
+- ~~Resource limits inside the sandbox~~ — `build_argv` emits no `--rlimit`, no process cap
+  and no `--size` on either tmpfs, and the module never imports `resource`. A fork bomb or
+  a runaway allocation is bounded only by `run_bash_timeout` and `--die-with-parent`. This
+  machine's page file is capped by choice, so a demand-side OOM is the live failure mode
+  rather than a theoretical one
+- ✅ 2026-09-04 Escaped a file's own boundary markers in the files block — matched by
+  shape and for **any** path, not the entry's own: a forged `BEGIN FILE` naming a file the
+  server never opened was the case the item did not name, and the worse one. Neutralised
+  rather than dropped, because a review delegation reads source and `context.py` quotes
+  those markers itself. The tool-level policy remains the real defence (`#96`)
+- ✅ 2026-09-04 Refused a non-stdio transport outright, and deleted the port only it used
+  — the field is **kept** rather than deleted, diverging from ADR-0034's remedy for a
+  measured reason: `load` reads only variables matching a field, so deleting it would turn
+  a configuration error into silence. `sandbox_enabled` differed in that the value being
+  ignored was the one the operator wanted anyway. No token was the true half of the review
+  finding; the loopback default made the rest of it moot (`#97`)
+- ✅ 2026-09-03 `security/secret_globs.txt` does have the reach its header claims — this
+  item was wrong when filed and is closed without work. The git half is `check_secret_paths`
+  in `scripts/docs_gate.py`, which loads the globs and blocks any tracked file matching one;
+  it landed in the first scaffold commit, well before this item was written. `NEVER_TRACK`
+  is a separate belt-and-braces set of three files, and the gate says so where it is
+  defined. Both cited demonstrations are deliberate, commented exemptions: `.env.example` is
+  skipped by an `.example` suffix rule, and the list matching its own `*secret*` is skipped
+  by `POLICY_FILES`, annotated there as the gate's first self-inflicted false positive. Left
+  as a closed entry rather than deleted, because an open item describing a hole that is not
+  there invites someone to rederive a check that is already derived
+
+- ✅ 2026-09-03 `max_turns` overridable per call, and the hard cap at 100 (#83) — the merge
+  read `= agent.max_turns` where its three neighbours read `x or agent.x`. Sharper than
+  filed: `delegate_to_agent`'s description already promised "every explicit argument here
+  wins over the agent file", so the contract was right and the code was wrong. Not on
+  `delegate_readonly`, which had no turns until #86 gave it some
+- ✅ 2026-09-03 One prefetch budget (#84, ADR-0046) — per-file cap now equals the total.
+  The open question resolved as keep-it: it survives as an operator's way of re-tightening
+  below the total, which is the only job it has left. The accepted cost is that one large
+  file can now spend the whole budget and end the list, which the existing skip accounting
+  already reports. Two test helpers had to follow the total down, one of them in a file
+  with nothing to do with prefetch — found by running the whole suite rather than the two
+  files the change obviously touched, which is how a coupling a change *creates* shows up
+- ✅ 2026-09-04 Admission queues in order, and the wait timeout went 600s to 1800s with it
+  (`#98`) — tickets in the same shared file the counters use, dropped from a `finally` so a
+  timeout, a cancellation or any raise gives the place back. Two things the item did not
+  foresee. A waiter counts as ahead of you only if it could be admitted **now**: strict
+  ticket order reintroduces the head-of-line blocking the single predicate exists to
+  prevent, and the existing large-prefill test failed against a first attempt that used it.
+  And the schema is additive rather than versioned — resetting the file would zero the slots
+  an older process on the machine still holds, which `/mcp` Reconnect makes normal. The
+  docstring is corrected, here and in ARCHITECTURE.md. Ordering decides who goes next, not
+  how fast anyone finds out: cross-process waiting is still polling
+- ✅ 2026-09-03 A stall deadline, and a re-derived ceiling (#85, ADR-0047) — `stall_timeout`
+  at 2100 does the killing; `dispatch_timeout` rose to 14400 and is now only a ceiling. The
+  two had to land together: raising a bound that cannot see progress makes a stall more
+  expensive for everyone queued behind it. The signal is turn *completion* — the per-turn
+  notification fires at the top of a turn and the keepalive is a timer, so both would have
+  reset the clock on the very turn that wedged. A one-shot completes no turns, so its
+  deadline runs from entry and its bound becomes the tighter of the two. The lower bound was
+  written strict and was wrong, since `turn_timeout == dispatch_timeout` is permitted here
+
+- ✅ 2026-09-03 Said in `docs/DISPATCH.md` that the admission wait stacks on the dispatch
+  deadline (#85) — folded into the deadline section while it was open for the stall work,
+  which is the owning document being made correct about code that changed rather than a
+  separate errand. Original entry follows.
+- ~~Say in `docs/DISPATCH.md` that the admission wait stacks on the dispatch deadline~~ —
+  the deadline is taken after a slot is granted (ADR-0038), so the caller-visible worst
+  case is both settings added. `admission_wait_timeout` does not appear in that document at
+  all, and its deadline section enumerates three enforcement points without mentioning
+  admission. Recorded in M7 and in the ADR, which is not where a reader looks. More pressing
+  since 2026-09-02: ARCHITECTURE.md's copy of the rationale was deleted as duplication, so
+  the only prose statement of it now lives in a generated config cell
+- ✅ 2026-09-04 Re-measured `BYTES_PER_TOKEN` per tokenizer and said so in
+  `docs/MODELS.md` — the conservative direction held, and for the predicted reason rather
+  than because ratios are stable: `.json` moved 47% against the first tokenizer and `.py`
+  not at all, yet all five measurable here still sit below their entries. No value changed;
+  the defect was a comment calling the table a property of file types. JOURNAL 2026-09-04
+- ✅ 2026-09-02 Measure whether the tool schemas sit inside the cached prefix — they are.
+  Sent cold, one reworded tool *description* cached zero tokens, exactly like a reworded
+  system prompt, where the unchanged prefix cached 4096 of 5946. So rewording one costs a
+  full prefill. Two things worth more than the answer: latency could not measure it at all,
+  every case landing within 20ms including the cold control, and the first token-based run
+  was wrong in the flattering direction because the variant had been sent minutes earlier
+  and was measuring its own echo. ADR-0011's body is untouched; JOURNAL 2026-09-02 has it,
+  and `declared_tools` now cites the measurement rather than the ADR
+
+- ✅ 2026-09-04 A stalled delegation says what it had managed (`#102`) — turns, tool calls
+  and the last tool, so a wedged task shows work behind it where a dead endpoint shows zero
+  of both. **"Reachable without new plumbing" was wrong**: nothing on the error path could
+  see the counters, since `_Watch` is a local of the loop and `AgenticDispatch` is built only
+  on success. One handler wrapping the loop covers all five raise sites. Absent stays
+  distinct from zero, so a one-shot's message is unchanged. The find was elsewhere: the
+  template's literal "while" had been rendering "while with no turn completed" all along
+- ✅ 2026-09-02 A heartbeat for the agentic loop — `#58`'s silence closed, and the timer
+  alone would not have closed it: `_run_calls` is synchronous and `run_bash` reaches
+  `subprocess.run`, so a command held the event loop and no timer could be scheduled during
+  exactly the window a long delegation spends there. Tool calls now go through
+  `asyncio.to_thread`, which also stops one command freezing the transport for every
+  delegation admitted beside it. The regression test asserts a beat *during* a tool call and
+  was verified to fail without that half while the slow-backend test passed
+- ✅ 2026-09-02 Line addressing in `read_file` — `start_line`, and every returned line
+  numbered. `docs-audit-local`'s instruction to cite by quotation is withdrawn, and
+  CONTRIBUTING.md now records the trap it came from: an agent body can encode a workaround
+  for a server limitation, and nothing links the two
+- ✅ 2026-09-02 `effort` is required on all four delegation tools — not previously filed
+  here, and found in use rather than in review: four research delegations in one session ran
+  at the silent default because none named a level, and the one rerun at `high` found the
+  blocking-subprocess defect above that the others had missed. `inherit` is how a caller
+  defers on purpose, which is what keeps an agent file's own `effort:` reachable now that
+  the argument cannot be omitted. ADR-0045
+- ✅ 2026-09-03 `search_files`, and a read-only delegation that can use it (#86, ADR-0048) —
+  `delegate_readonly` now offers `read_file` and `search_files`, and so runs the loop. The
+  read-only set is **derived** from a `writes` declaration on each tool rather than listed,
+  which is the half worth keeping: injecting the mistake it exists to catch — a writing tool
+  that forgets to declare it — fails four tests including the one asserting the executor
+  refuses a write. `paths.py` gained a second *disposition* over one policy, not a second
+  policy: `resolve_permitted` drops what fails, and is only for paths nobody named. Widest
+  blast radius of the session, eight existing tests across four files
+- ✅ 2026-09-04 `read_git`, a read-only git tool in the server process (`#99`) — the
+  denylist entry stays and the sandbox is untouched. Two things the item's shape got wrong.
+  Path *arguments* cannot go through the path policy: it validates a path that exists now,
+  and history is about files that were deleted, so they are checked for not leaving the
+  repository instead. And the repository needs validating **twice** — `-C` makes git
+  discover a repo by walking up, so a validated directory can resolve to one above the
+  root. `open_resolved`'s guarantee is unavailable here by construction and the CHANGELOG
+  says so. Two usability gaps came from running it, not reading it: `git log -1` and
+  `rev-list --count` were both refused, and the model reached for both first
+- ✅ 2026-09-03 Linked an agent body to the limitations it encodes (#88) — the
+  `agent-capability` gate check. The sandbox half is derived from the denylist rather than
+  hardcoded, and the two agent formats are separated because only a server-format agent's
+  shell is confined. **The narrow case only**, and the limit is stated in the check and in
+  CONTRIBUTING.md: the motivating case, `python3 scripts/docs_gate.py`, needs git
+  *indirectly* and is invisible from the text. Writing its meta-test found more than the
+  check did — a mislabelled finding name, and three gate checks with no negative test at
+  all. Original entry follows.
+- ~~Link an agent body to the server limitations it encodes~~ — second sighting of one class.
+  The `read_file` line-addressing work recorded the first: an agent body carrying a
+  workaround for a server limitation, with nothing connecting the two, so the workaround
+  outlives the limitation. `docs-audit-local` then carried the inverse — an instruction to
+  run the gate first, which the sandbox cannot satisfy at all — and every invocation spent a
+  turn and a failed command discovering that. Both instances are fixed; the pattern is not.
+  A full check is not automatable, but the narrow case is: an agent body naming a command
+  its `allowed_tools` and sandbox cannot run
+- ✅ 2026-09-03 A read-only form of `delegate_batch` (#91) — `delegate_batch_readonly`,
+  sharing one `_run_batch` body with the sixth tool. Narrowing `delegate_batch` with
+  `allowed_tools` was never the alternative: ADR-0042 again, since a client decides before
+  the call runs and never sees arguments. What `delegate_readonly` has no equivalent of is
+  the agent — adversary-controlled markdown in the repository being reviewed — which cannot
+  widen the set, now asserted. Two documents still called it `allowed_tools=[]` since #86
+- ✅ 2026-09-03 Per-tool counts in the result (#92) — `tool_calls_by_name`, cheaper than
+  filed since `called` already held the name. The find was elsewhere: a one-shot test
+  asserting an *absence* of notifications shared the machine's real slots, so under load it
+  queued and read its own admission wait as a heartbeat that would not stop
+- ✅ 2026-09-03 `edit_file`, addressing text rather than lines (#94, ADR-0050) — the
+  ordering held: #93 landed first, so this tool holds one `"r+b"` descriptor for the whole
+  read-modify-write and there was never a second `open` to make safe. The shape changed from
+  what was filed. Line addressing had made a line range look obvious and it is the worse
+  half of the choice, because a stale line number overwrites a different region silently
+  while a stale quotation cannot — so `old_string` must match exactly once, and zero or two
+  matches are refusals that leave the file byte-identical. The find was elsewhere: three
+  documents each kept their own prose list of the tools the local model gets, none of them
+  the document that owns `tools.py`, and one addition made all three wrong at once
+
+- ✅ 2026-09-06 An audit pass is sized to one reply and split by check class (`#117`) —
+  **both sessions were partly right and the disagreement was an ambiguity, not a conflict.**
+  Session 1 saw decomposed passes survive and concluded the prefetch was at fault; session 2
+  proved the budget was at fault and exonerated the prefetch. Neither noticed that the body's
+  sentence fused two independent claims — prefetch everything, *and* answer in one turn — so
+  correcting the second read as abandoning the first. A pass can be fully prefetched and
+  small. **What the filing could not have known:** splitting by *document*, the obvious
+  decomposition, silently disables four of the seven checks. WRONG DOCUMENT and CROSS-PLANE
+  LEAK need every document that could hold the restatement, and MISSING cannot establish an
+  absence from a subset — a pass that cannot see the other copy reports nothing and looks
+  clean. So the split is by check class first. The concurrency argument holds and is now
+  measured rather than asserted: 60% of backend time across 42 runs is decode, rising once
+  eviction stops forcing re-prefill, and decode is the half fanning out parallelises —
+  bounded by that 60%, not the 2.8x aggregate figure. ~~and less roughly 120s of stagger per
+  extra call.~~ **The stagger was wrong and is corrected in `#118`**: calls issued in one
+  message start seconds apart, so fanning out costs essentially nothing to start. Original entry follows.
+- ~~`docs-audit-local` assumes one big prefetched pass, and that shape now stalls~~ —
+  its body says a prefetched audit finishes "in one turn with zero tool calls", measured
+  2026-09-03. The served model swapped to a vision model on 2026-09-04 and the measurement
+  was not re-taken. On 2026-09-05 a twelve-document, seven-class call died at 2100s with
+  **0 turns and 0 tool calls**, and two of four smaller passes went the same way — while
+  the two that called tools completed 3 and 9 turns and finished.
+  - **The predictor is whether tools sit on the critical path, not whether any are called.**
+    A tool call ends a turn and resets the stall clock, so a pass with nothing to call must
+    fit its whole answer inside one turn and ADR-0047's deadline becomes a wall clock. But
+    *mandating* a call does not fix it: a forced `stat()` closed turn 1 in 12 seconds and
+    the model then spent 1068 seconds in one silent turn, dying anyway. The passes that
+    survive are the ones that cannot proceed without reading the next thing — 12 and 21
+    turns, none longer than 282 seconds. ~~**What is not yet isolated is which change earns
+    that**, and the comparison run varied three things at once: it dropped the prefetch,
+    read in `start_line` pieces, *and* was told to emit each document's findings before
+    reading the next, where the run it replaced was told to withhold everything until the
+    end. Incremental output is at least as plausible a cause as incremental reading, and
+    the two imply opposite advice about prefetching — one of them keeps a real optimisation,
+    the other throws it away. Isolate it before rewriting the body.~~
+  - **RESOLVED 2026-09-05 (session 2): neither, and no prompt change is the fix.** The
+    struck paragraph hunts a prompt property; the cause is the reply budget — see
+    "`max_tokens` is set to a budget no deadline can pay". A tool call helps only because it
+    *ends a turn*, which is why "on the critical path" predicted survival while a forced
+    `stat()` did not: it ended turn 1 and left turn 2 holding the same budget, and its 1068
+    silent seconds are ~30,000 tokens of decode, not a wedge. **Prefetching is exonerated.**
+    Fix the budget and re-take the measurement rather than rewriting the body
+  - ~~**The 2026-09-03 optimisation is what now kills it.**~~ **It is the turn count, not
+    the prefetch** (session 2). "Prefetched, one turn, zero tool calls, four findings" was a
+    real measurement and a real improvement; what became fatal is the *one turn with zero
+    tool calls*, which must fit a whole audit inside one deadline. The prefetch is what made
+    that turn cheap and is worth keeping. Re-take the measurement against the model actually
+    serving once the budget is fixed, and say in the body that the answer is model-dependent
+    rather than settled.
+  - Also correct two things the split exposed: `read_git` is available now and is how
+    MISSING and ESCAPE ABUSE get done, and waiver counting must be line-anchored on
+    `Docs-Gate-Skip:` — matching the substring counted a commit whose prose *described* a
+    past waiver, over-reporting one document as being at the threshold.
