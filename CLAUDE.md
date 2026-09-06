@@ -60,12 +60,11 @@ Rules a machine cannot check, so they land here:
   number or counter. The cluster caches prefixes, so one dynamic byte silently disables
   that with no error and no symptom beyond slower prefill. Dynamic content goes in the
   tail, inside tool results. (ADR-0011)
-- **`paths.py` and `sandbox.py` are independent layers, not redundant ones.** The path
-  policy governs `read_file` and `write_file`, which run in the server process. Only
-  `run_bash` enters the sandbox. A bug in one is not covered by the other, and the sandbox
-  reading the same denylist does not change that: it covers up matches inside what it binds,
-  point-in-time, while a command holds a read-write bind for its whole run. Treating either
-  as a backstop for the other is the trap. (ADR-0010, ADR-0035)
+- **`paths.py` and `sandbox.py` are independent layers, not redundant ones.** Which tool
+  each one governs is `docs/ARCHITECTURE.md`'s. A bug in one is not covered by the other, and
+  the sandbox reading the same denylist does not change that: it covers up matches inside what
+  it binds, point-in-time, while a command holds a read-write bind for its whole run. Treating
+  either as a backstop for the other is the trap. (ADR-0010, ADR-0035)
 - **Validating a path and opening it are one operation.** `open_resolved` is the only
   sanctioned way to open what `paths.py` approved: it returns a handle, not a path, so
   there is no string left for a handler to reopen. A second `open` on a `.posix` puts the
@@ -74,12 +73,10 @@ Rules a machine cannot check, so they land here:
   path — redirection, not substitution; a different regular file there is not a policy
   question, and the ADR says why. (ADR-0049)
 - **`allowed_tools` is enforced at two sites**, `declared_tools` and `execute_tool` in
-  `tools.py`, and neither trusts the other. Filtering only the declared list is advisory,
-  because a model can call a tool it was never offered. Both exist now, which makes the
-  trap a maintenance one rather than a build one: change either site alone and enforcement
-  goes back to being asymmetric, silently. `WITHHELD_TOOL_NAMES` is empty as of M5 and kept
-  anyway, so remember what it never was: it narrows only what is *declared*, and is never a
-  substitute for the execution check, which does not consult it.
+  `tools.py`, and neither trusts the other — why that is necessary is `docs/AGENTS.md`'s. The
+  trap here is a maintenance one: change either site alone and enforcement goes back to being
+  asymmetric, silently. `WITHHELD_TOOL_NAMES` is empty as of M5 and kept anyway, so remember
+  what it never was: it narrows only what is *declared*, never a substitute for the check.
 - **Trust server-captured exit codes, never the model's account of them.** `bash_failures`
   and `last_bash_exit` come from real process exits and may contradict the model's final
   text. The whole self-verification design rests on this. (ADR-0007)
@@ -94,9 +91,8 @@ Rules a machine cannot check, so they land here:
   every check — assert that it fires on a real violation, not merely that it passes. Two
   tests written *for* that fourth one passed against the bug before they were rewritten,
   so the rule applies to the tests as much as to the checks.
-- **Verify network isolation by address, never by hostname.** A hostname request fails
-  whether or not the network namespace is isolated, so a hostname-only test reports a
-  tight sandbox that may just have broken DNS. (ADR-0021)
+- **Verify network isolation by address, never by hostname.** A hostname-only test passes on
+  broken DNS and reports a tight sandbox either way. (ADR-0021; mechanism in `docs/AGENTS.md`.)
 
 ## Environment
 
