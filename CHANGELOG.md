@@ -34,6 +34,50 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #126 — 2026-09-06 — feat: an agent can be reached read-only, and a lookup path stops being called a workdir
+
+### Added
+- **`delegate_to_agent_readonly`.** `delegate_to_agent` with `allowed_tools` fixed to the
+  derived read-only set and `readOnlyHint` declared, exactly as `delegate_readonly` is to
+  `delegate`. **Symptom:** an audit or review that only ever reads still had to go through
+  the tool that can write, so it prompted in plan mode and was released one arm per 120s.
+  **Cause:** ADR-0042 named this gap in passing — "no agent file can carry that constraint,
+  because the annotation belongs to the tool the agent is reached through" — and left it
+  unbuilt. What it keeps that `delegate_readonly` cannot is the agent file itself. The
+  agent's own `allowed_tools` is **replaced** rather than intersected, which is the existing
+  caller-wins rule and cuts both ways: an agent declaring `run_bash` loses it, one declaring
+  less than the read-only set gains the rest. ADR-0059.
+- **It is deliberately not credited with a shorter audit.** #122 measured 26 turns against 1
+  and attributed the gap to verification *and history* calls; `read_git` is read-only and
+  stays, so this removes one of the two. What it buys is the annotation and the ramp — and
+  the ramp itself is still unmeasured, which PLAN.md now says rather than assumes.
+
+### Changed
+- **The lookup path is `project` on every tool that finds an agent file**, and `workdir`
+  means only the sandbox bind. **Symptom:** none visible, which is the point — `list_agents`
+  declared `readOnlyHint` and took a `workdir` that bound nothing, so the one name carried a
+  read-write bind on two tools and a lookup path on a third, in the place a reader compares
+  tools side by side. **Cause:** #123 wrote the correspondence down as prose — "a workdir is
+  a read-write bind, so `delegate_readonly` cannot offer one" — and it was already false
+  when written. A hard rename rather than an alias: two names for one argument is the
+  confusion being removed. `project` defaults to `workdir` on `delegate_to_agent`, so every
+  existing call behaves as it did.
+- **The correspondence is a test now.** It walks the declared schemas and fails on any tool
+  claiming `readOnlyHint` while offering a `workdir`, negative-tested by restoring
+  `list_agents`'s old signature and watching it fire. Prose cannot fail, and this prose had
+  already drifted once without anyone noticing.
+- `test_exactly_seven_tools_are_declared` asserted five and was named for seven, stale since
+  #103 removed the batch tools. Six now, and named for it — the number lived in the
+  assertion while the name, which is what a reader sees first, was checked by nothing.
+- An example in `docs/AGENTS.md` called `delegate_readonly(agent_name = ...)`, which that
+  tool has never accepted. It was reaching for a tool that did not exist; it now names the
+  one that does.
+
+### Fixed
+- The transcript kind map gained `agent-ro`. A tool absent from it falls through to its own
+  name, which is eight characters too wide for the column and reads as a viewer bug rather
+  than a missing entry.
+
 ## #125 — 2026-09-06 — fix: the return column counted a running turn, and the audit agent had no search tool
 
 Both were found while planning the read-only agent tool, neither is part of it, and both

@@ -1,4 +1,7 @@
-<!-- BUDGET: 861
+<!-- BUDGET: 871
+     Raised from 861 on 2026-09-06: the read-only annotation now covers an agent tool, and
+     the workdir correspondence it rests on had drifted and needed correcting rather than
+     extending.
      Raised from 847 on 2026-09-06: `delegate` gained a workdir, so which tools can
      bind one is now a difference worth stating beside the annotation asymmetry --
      and the reason a write does not depend on it needed saying once, in the plane
@@ -643,14 +646,21 @@ be the check that cannot fail. Nor can an agent file widen a set the caller did 
 `run_delegation` reads `agent.allowed_tools` only when nobody passed any, which is what
 `delegate_to_agent` is tested against.
 
+`delegate_to_agent_readonly` is the same move over the agent tool, and what it adds is the
+agent file — instructions, model and effort — which no argument can carry. The caller-wins
+rule above means the agent's own set is *replaced* rather than narrowed here: one declaring
+`run_bash` loses it, and one declaring less than the read-only set gains the rest. (ADR-0059)
+
 The two that can write carry no such hint and must not. With `allowed_tools` unset a delegation
 hands the local model the writing tools and `run_bash`, so a read-only claim would be false
 in the way that is hardest to notice -- the client stops asking, the write still happens, and
 nothing anywhere reports a contradiction.
 
-Those same two take a `workdir`, and `delegate_readonly` does not. The asymmetry is the
+Those same two take a `workdir`, and no read-only tool does. The asymmetry is the
 annotation's: a workdir is a read-write bind into the sandbox, so a tool promising it changes
-nothing cannot offer one. `delegate` was the odd case until 2026-09-06 -- it could write but
+nothing cannot offer one. That was prose until 2026-09-06 and had already drifted —
+`list_agents` carried the annotation and took a `workdir` that bound nothing. The lookup
+sense is `project` now, and a test walks the declared schemas so it cannot drift again. `delegate` was the odd case until 2026-09-06 -- it could write but
 had no workdir, so it could produce a file and then run nothing against it, and its own
 description had claimed the argument for long enough that a model following it earned a
 validation error. **A write never depended on the bind**: `write_file` and `edit_file` resolve

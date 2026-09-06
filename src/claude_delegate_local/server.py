@@ -988,7 +988,7 @@ def build(
             cfg, registry, cache, windows, admission,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
-            workdir=_workdir(workdir),
+            workdir=_rooted(workdir),
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate",
         )
 
@@ -1059,11 +1059,14 @@ def build(
         except AgentError as e:
             raise ToolError(str(e)) from e
 
-    def _workdir(given: str | None) -> str | None:
-        """Resolved and root-checked once, here, so every tool gets the same answer.
+    def _rooted(given: str | None) -> str | None:
+        """Resolved and root-checked against `workdir_roots` once, here.
 
-        Used by `delegate` above as well as `delegate_to_agent` below, which is why this
-        says "every tool" rather than naming a direction.
+        Two different arguments come through it and both are directories of the caller's:
+        `workdir`, which is bound into the sandbox writable, and `project`, which only says
+        where to look for agent files. They are named apart because they mean different
+        things -- see `delegate_to_agent` -- but neither may name a path outside the roots,
+        and a check that ran in two places would be a check that drifted in one.
         """
         if given is None:
             return None
@@ -1081,6 +1084,7 @@ def build(
         files: list[str] | None = None,
         workdir: str | None = None,
         *,
+        project: str | None = None,
         model: str | None = None,
         effort: str,
         allowed_tools: list[str] | None = None,
@@ -1102,6 +1106,11 @@ def build(
         them through `write_file` and `edit_file`, but a shell has nothing of yours to run
         against. Give the repository root, in whatever path form you already have.
 
+        `project` says where to look for the agent file, and binds nothing. It defaults to
+        `workdir`, which is what you want almost always -- the repository you are working in
+        is the one whose agents you mean. Pass it separately only to run another project's
+        agent against this one.
+
         Every explicit argument here wins over the agent file, so you can send one hard case
         to `test-writer` at a larger model without editing the file. Omit them and the file
         decides.
@@ -1116,12 +1125,13 @@ def build(
         process exits the server captured, and a model summarising its own test run is not
         evidence (ADR-0007).
         """
-        # The workdir is checked *before* it is used to look anything up. The agent lookup
-        # reads `<workdir>/.claude/agents/`, so passing the caller's argument to it
+        # Both are checked *before* either is used to look anything up. The agent lookup
+        # reads `<project>/.claude/agents/`, so passing the caller's argument to it
         # unchecked would let an unvalidated path drive a filesystem read -- the root check
         # would then be a thing that happened afterwards, which is not a check at all.
-        resolved_workdir = _workdir(workdir)
-        agent = _load(agent_name, resolved_workdir)
+        resolved_workdir = _rooted(workdir)
+        resolved_project = _rooted(project) if project is not None else resolved_workdir
+        agent = _load(agent_name, resolved_project)
         return await run_delegation(
             cfg, registry, cache, windows, admission,
             task=task, files=files, model=model, effort=effort,
@@ -1130,18 +1140,85 @@ def build(
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent",
         )
 
+    @mcp.tool(annotations={"readOnlyHint": True})
+    async def delegate_to_agent_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
+        agent_name: str,
+        task: str,
+        files: list[str] | None = None,
+        *,
+        project: str | None = None,
+        model: str | None = None,
+        effort: str,
+        max_tokens: int | None = None,
+        max_turns: int | None = None,
+        diagnostics: bool = False,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        """Delegate to a named agent, with a toolset that cannot change anything.
+
+        `delegate_to_agent` with the read-only tools, chosen here rather than asked for --
+        exactly what `delegate_readonly` is to `delegate`. Reach for it whenever the agent's
+        work is reading: an audit, a review, a trace, "does anything still call Y". Declared
+        read-only, so a client that gates on that declaration runs it where
+        `delegate_to_agent` has to stop and ask.
+
+        What it keeps that `delegate_readonly` cannot is the agent file: the instructions,
+        the model and the effort that kind of work needs, and whatever hard-won guardrails
+        the body has accumulated. A read-only *call* to the agent tool could never be
+        expressed, because permission rules match on tool name and never inspect arguments,
+        so narrowing with `allowed_tools` proves nothing before the call runs.
+
+        **The agent's own `allowed_tools` is replaced, not narrowed.** It gets `read_file`,
+        `search_files` and `read_git`, whatever its file says -- so an agent declaring
+        `run_bash` loses it, and one declaring less than the full read-only set gains the
+        rest. That follows the ordinary rule that an explicit argument beats the file; it is
+        called out because here the argument is fixed rather than passed, so there is nothing
+        at the call site to read it from.
+
+        `project` says where to look for the agent file and binds nothing, which is the only
+        directory argument a read-only tool can have. There is deliberately no `workdir`: a
+        workdir is a read-write bind, and offering one would make the annotation false.
+
+        `effort` cannot be omitted, because a value chosen by silence is what this argument
+        exists to stop. Pass "inherit" to let the agent file decide -- usually right here --
+        or one of "off", "low", "high", "max" to overrule it for this call.
+
+        Asking it to edit something produces a description of the edit instead. Use
+        `delegate_to_agent` when the work must write or run a command.
+        """
+        resolved_project = _rooted(project)
+        agent = _load(agent_name, resolved_project)
+        return await run_delegation(
+            cfg, registry, cache, windows, admission,
+            task=task, files=files, model=model, effort=effort,
+            # Fixed here, and not a parameter, for ADR-0042's reason: an annotation a caller
+            # could falsify by passing an argument is exactly the check that cannot fail.
+            # Derived from which tools declare `writes` rather than listed, so a writing tool
+            # added later cannot quietly land inside a set advertised as read-only.
+            allowed_tools=sorted(READ_ONLY_TOOL_NAMES),
+            max_tokens=max_tokens, max_turns=max_turns,
+            # No `workdir`, so `policy.workdir` stays None and the sandbox binds nothing of
+            # the caller's. `resolved_project` is a lookup path and must not be passed here:
+            # doing so would bind it read-write and the readOnlyHint would be a lie.
+            agent=agent,
+            diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent_readonly",
+        )
+
     @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
-    async def list_agents(workdir: str | None = None) -> dict[str, Any]:
+    async def list_agents(project: str | None = None) -> dict[str, Any]:
         """List the agents available to `delegate_to_agent`, and where each was found.
 
         Call this before guessing an agent name. Each row carries the `name` to pass, the
         `description` the file gives itself, the `model` and `effort` it binds, and the
         `source` it was read from.
 
-        `workdir` matters. Agents are looked for in that project first and in your personal
+        `project` matters. Agents are looked for in that project first and in your personal
         directory second, so a repository can ship one that knows its own conventions. Pass
-        the same `workdir` you intend to delegate with, or this list will not match what a
+        the same `project` you intend to delegate with, or this list will not match what a
         delegation would actually find.
+
+        It was called `workdir` until 2026-09-06, which was the wrong name: a workdir is a
+        read-write sandbox bind, and this binds nothing. Nothing here ever ran a command.
 
         Three lists, because "not there", "there and broken" and "there but not mine" need
         different answers and used to give the same one -- a file that did not parse was
@@ -1158,7 +1235,7 @@ def build(
 
         A name absent from all three does not exist.
         """
-        listing = discover_agents(cfg, _workdir(workdir))
+        listing = discover_agents(cfg, _rooted(project))
         found, skipped = listing.agents, listing.skipped
         return {
             "agents": [

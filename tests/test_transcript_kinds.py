@@ -80,6 +80,33 @@ def test_a_read_only_delegation_says_so_rather_than_calling_itself_delegate(tmp_
     assert _record(tmp_path)["tool"] == "delegate_readonly"
 
 
+def test_a_read_only_agent_delegation_is_not_recorded_as_an_agent_one(tmp_path):
+    """Four tools now reach the same `run_delegation`, and two of them take an agent.
+
+    `tool` is the only field that separates them: the agent is named either way, and the
+    toolset a read-only agent call resolves to is one a `delegate_to_agent` could have been
+    handed by argument. Counting a directory of transcripts by kind depends on this, and a
+    kind that falls through to the tool's own name would read as a bug in the viewer rather
+    than a missing entry.
+    """
+    agents = tmp_path / "agents"
+    agents.mkdir()
+    # It asks for a shell, and does not get one -- the caller's fixed set wins, which is
+    # what makes `tools` unable to tell the two agent tools apart on its own.
+    (agents / "helper.md").write_text(
+        "---\nname: helper\nallowed_tools: [read_file, run_bash]\n---\nYou help.\n",
+        encoding="utf-8",
+    )
+    config = cfg(transcript_dir=str(tmp_path), agents_dir=str(agents))
+    _call(config, chat_handler(), "delegate_to_agent_readonly",
+          {"task": "audit this", "agent_name": "helper"})
+
+    start = _starts(tmp_path)[0]
+    assert start["tool"] == "delegate_to_agent_readonly", start
+    assert start["tools"] == ["read_file", "read_git", "search_files"], start
+    assert _record(tmp_path)["tool"] == "delegate_to_agent_readonly"
+
+
 def test_a_plain_delegation_records_the_tools_it_was_given(tmp_path):
     """The other side of the same field: `delegate` alone does not say whether a loop
     ran, and a delegation handed no tools is a one-shot whatever it was called."""
