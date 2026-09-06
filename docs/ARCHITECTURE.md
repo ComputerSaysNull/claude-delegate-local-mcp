@@ -142,7 +142,7 @@ budget it would have fitted in sat unused (ADR-0046).
 | `admission.py` | The four-rule gate every delegation passes before it reaches a backend |
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
-| `server.py` | MCP wiring, the six tool declarations, the backend cache |
+| `server.py` | MCP wiring, the five tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 
 The table covers every module; the three marked above live in [DISPATCH.md](DISPATCH.md),
@@ -412,11 +412,11 @@ makes itself, and insufficient only once an arbitrary shell exists — which is 
 secret denylist is additionally enforced at the *mount* level for `run_bash`.
 
 **Covering up, not leaving out.** An empty root means the denylist cannot subtract: a secret
-is visible only because it sits inside a tree that had to be bound whole. So `run` walks the
-bound HOME and workdir and `build_argv` mounts something empty over each match — `--tmpfs` on
-a directory, `--ro-bind /dev/null` on a file — after every bind, since a shadow needs its tree
-to exist first. The walk is bounded, and exhausting the budget refuses the command rather than
-covering part of a tree. `secret_match` is shared with the path policy, so one list cannot be
+is visible only because it sits inside a tree that had to be bound whole. So `run` walks all
+three bound roots — HOME, the workdir and each of `extra_binds` — and `build_argv` mounts
+something empty over each match: `--tmpfs` on a directory, `--ro-bind /dev/null` on a file,
+after every bind, since a shadow needs its tree to exist first. The walk is bounded, and
+exhausting the budget refuses the command rather than covering part of a tree. `secret_match` is shared with the path policy, so one list cannot be
 read two ways — which means the layers share limits too: both match resolved paths, so neither
 covers a link whose *name* matches while its target does not. The scan is point-in-time, and
 `run_bash` holds a read-write bind for the whole call, so a file the command writes afterwards

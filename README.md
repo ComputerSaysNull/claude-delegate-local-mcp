@@ -24,10 +24,9 @@ Two shapes of delegation, and the second is the interesting one:
   Claude to review.
 
 That second loop is why a shell exists, why it is confined by
-[bubblewrap](https://github.com/containers/bubblewrap), and why it is refused outright
-rather than run unconfined when bubblewrap is missing. The server also captures process
-exit codes itself rather than believing the model's account of them, which is what makes
-the loop's self-verification worth anything.
+[bubblewrap](https://github.com/containers/bubblewrap), what happens when bubblewrap is
+absent, and why the server watches process exit codes rather than the model's account of
+them.
 
 How each of those works is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 [docs/DISPATCH.md](docs/DISPATCH.md); this file names them and links, and deliberately

@@ -34,6 +34,115 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #121 — 2026-09-06 — fix: fifteen documentation drifts from the 2026-09-06 audit
+
+### Changed
+- **The standing concurrency rule is six, not five, and `max_inflight_seqs` defaults to 6.**
+  **Symptom:** the registry entry for the served model reports `concurrency: 6`, while the
+  global cap defaulted to 5 — so the global bound first and a per-endpoint 6 was unreachable,
+  which is not what either number was meant to say. **Cause:** the two were chosen at
+  different times and nothing compares them; `max_inflight_seqs`' own description already
+  claimed both were checked, and they are, but the smaller one always won. **Fix:** six
+  everywhere the rule is written down — the default, `ci.yml`'s `max-parallel`, and
+  `CONTRIBUTING.md`'s convention — matching what the serving stack admits at once. Note what
+  this does *not* change: `max_inflight_large_prefills` is still 2, and on a fan-out of fully
+  prefetched calls that is the limit that actually binds. `registry.py`'s `concurrency`
+  dataclass default is still 5 and was left alone, so a model added without an explicit
+  value is still capped below the global.
+- **`CLAUDE.md` keeps the trap and drops the mechanism, in three invariants.** The
+  hostname-versus-address rule, the two-site `allowed_tools` rule and the two-layer
+  `paths.py`/`sandbox.py` rule each re-explained a mechanism the product plane owns.
+  **Symptom:** one sentence — "a model can call a tool it was never offered" — appeared five
+  times across four documents, `CLAUDE.md` among them, two sections after it warns that
+  duplication "is exactly how the project this descends from ended up documenting one
+  setting three different ways". **Cause:** an invariant is easier to write with its reason
+  attached than with a pointer, and `covers_not` excluding "Rationale" is not machine-checked.
+  **Fix:** each keeps the clause only `CLAUDE.md` states — the maintenance hazard, the
+  actionable consequence — and points at the document holding the mechanism. Four lines
+  shorter, and no rule left bare.
+- **`config.py`'s `sandbox_max_processes` description no longer carries its rationale**, so
+  the generated table stops duplicating `docs/ARCHITECTURE.md`. **Symptom:** the same three
+  caveats in both, one of them generated. **Cause:** the field description is the only place
+  the reference table can say anything, so it accumulated argument. **Fix:** split by what a
+  reader needs where — the table keeps constraints on the *value* (0 disables, below roughly
+  64 nothing starts), `ARCHITECTURE.md` keeps how the cap is shared and how it fails when it
+  binds. The default is untouched.
+
+### Fixed
+- **`docs/DISPATCH.md` still described the final turn as having its tools withdrawn.**
+  **Symptom:** four passages said the last turn is "declared with no tools at all", while a
+  fifth, in another section, correctly said the tools are kept and forbidden. **Cause:**
+  ADR-0057 changed the mechanism to `tool_choice: "none"` and added the correct passage —
+  raising this document's budget to do it — without removing the ones it replaced.
+  **Fix:** all four now say forbidden rather than withdrawn and point at the section that
+  explains why the distinction is a cache one. This mattered more than a wording slip: a
+  reader trusting the stale half would restore an edit ADR-0057 measured as taking a 99.3%
+  cache hit to 0.0%, on the one turn that must also fit a whole answer inside one deadline.
+- **`CONTRIBUTING.md` claimed CI enforces the five-agent concurrency rule.** It does not
+  and cannot. **Symptom:** "Run at most five agents concurrently; CI enforces it via
+  `max-parallel`." **Cause:** `ci.yml` does set `max-parallel: 5`, but on the `tests` job's
+  matrix of two Python versions, where it can never bind; its own comment says it is applying
+  the number "wherever it can be machine-enforced rather than merely written down", which is
+  honest about being a convention. **Fix:** the document now says the rule is a convention
+  nothing enforces. This had already cost something: the session that ran this audit fanned
+  out twelve concurrent delegations, and five died at the admission wall.
+- **`docs/ARCHITECTURE.md` counted six MCP tool declarations.** There are five. **Cause:**
+  ADR-0051 removed both batch tools. **Fix:** five. Worth recording that this cell has now
+  drifted twice in opposite directions — the 2026-09-03 audit corrected it from five to six
+  when ADR-0042 added one — which is an argument for generating the count rather than
+  maintaining it by hand.
+- **`docs/ARCHITECTURE.md` said the secret scan walks HOME and the workdir.** It walks
+  three roots: `discover_secret_shadows` extends them with `req.extra_binds`. **Cause:** the
+  M6 change that added the third root updated the "Why bubblewrap" section, which already
+  says "all three roots rather than the two it began with", and not this paragraph.
+  **Fix:** three roots, named.
+- **`docs/DISPATCH.md` said the metrics reader takes only the `reason` label.** It reads
+  four: `reason`, plus `kv_cache_size_tokens`, `num_gpu_blocks` and `enable_prefix_caching`
+  from `vllm:cache_config_info` via `_CACHE_CONFIG`. **Cause:** the cache-config labels were
+  added after the sentence was written, and the sentence's own next clause — naming that
+  metric as a labels risk — was left contradicting it. **Fix:** all four named individually,
+  which is what makes the allowlist claim true rather than approximate.
+- **`docs/DISPATCH.md` said four of the ancestor project's five bugs were wrong-denominator
+  bugs.** At most two were. **Cause:** `docs/reviews/upstream-review-2026-08-26.md`
+  enumerates all five and offers "the denominator is the thing to test" as advice; the advice
+  was read back as a count. **Fix:** two — the flat reserve exceeding 95% of a small window,
+  and the auto-probe reading the architecture maximum instead of the configured value.
+- **Two MCP tool descriptions misstated their own contract**, which this project holds to
+  be a behaviour change and not a wording one. `delegate` told the model to "pass `workdir`
+  to bind a directory it can actually build or test in" — it has no `workdir` parameter, so
+  a model following the description earns a validation error; it now says so and names
+  `delegate_to_agent` as the tool that does take one. `delegate_readonly` said it gets
+  "`search_files` and `read_file`, and nothing else" — it also gets `read_git`, because
+  `READ_ONLY_TOOL_NAMES` is derived as every registered tool with `writes` unset and
+  `READ_GIT` never sets it. **Cause:** both descriptions were written before the argument
+  and the tool respectively existed, and nothing compares a description against the
+  signature beside it. **Consequence, measured:** the second one is why this audit was
+  planned around a belief that the read-only path could not reach git history.
+- **`docs/AGENTS.md`'s frontmatter table listed eight of ten recognised keys.** `name` and
+  `description` appeared only in the example block. **Symptom:** `name` carries a refusal
+  documented nowhere — a `name:` disagreeing with the filename raises `AgentError` on load,
+  because "a disagreeing 'name:' means one of the two is a lie" — so renaming a file and
+  not the field fails for a reason the document never gave. **Fix:** two rows, no prose.
+- **`docs/AGENTS.md` said a directory check applies layers 1 and 2.** It applies layer 1
+  alone: `resolve_search_root` calls `_check_roots` and returns, and the document's own
+  table numbers layer 2 as the extension allowlist, matching `LAYER_EXT = 2`. **Cause:**
+  `paths.py` carried the same error in that function's docstring *title* while its body
+  explained correctly that the content layers are applied per candidate by
+  `resolve_permitted`, so the title was the copy that got believed. Both fixed.
+- **`README.md` restated two mechanisms in the paragraph before promising not to.** It
+  described why the shell is refused when bubblewrap is missing, and how exit codes are
+  captured, immediately above "this file names them and links, and deliberately does not
+  restate them". **Fix:** names all three facts, describes none.
+
+### Added
+- `docs/audits/2026-09-06-audit.md`, recording all sixteen findings and the one left
+  unfixed on purpose (`connect_timeout` has no prose in the document that owns it, and that
+  document is at its budget ceiling). It also records what the audit *process* cost, because
+  that is the transferable part: the class that was not run at all, the finding retracted on
+  verification, a clean verdict resting partly on a cited section that does not exist, and
+  the comparison that returned an empty answer twice and had to come back to the main
+  conversation.
+
 ## #120 — 2026-09-06 — fix: the picker reports what a delegation returned, not an invented estimate
 
 ### Fixed

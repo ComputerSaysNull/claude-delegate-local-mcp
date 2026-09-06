@@ -113,12 +113,12 @@ raises, so a caller can tell "no such surface" from "could not reach it" and nev
 a blink as a fact. An empty parse is folded into `None` as well, because `{}` would read
 as *the cluster says it is doing nothing* rather than *the cluster did not say*.
 
-**An allowlist, not a filter.** Only named metrics are read, and of their labels only
-`reason`, which is a scheduler word. The risk here is labels rather than names:
-`http_request_*` carry handler paths and `vllm:cache_config_info` carries deployment
-configuration, and `backend_status` promises never to name an endpoint. A metric appearing
-upstream therefore cannot widen what is reported — noticing a new name is what
-`diff_endpoint_captures.py` is for.
+**An allowlist, not a filter.** Only named metrics are read, and of their labels only four:
+`reason`, a scheduler word, plus `kv_cache_size_tokens`, `num_gpu_blocks` and
+`enable_prefix_caching` from `vllm:cache_config_info`. The risk is labels rather than names —
+`http_request_*` carry handler paths, and `backend_status` promises never to name an endpoint
+— so the four are named one by one. A metric appearing upstream therefore cannot widen what
+is reported: noticing a new name is what `diff_endpoint_captures.py` is for.
 
 **The counters are denominated in tokens, not requests.** Measured 2026-09-05: six
 distinct 45k-token calls moved `prefix_cache_queries_total` by 269,417, against
@@ -289,7 +289,7 @@ reported as stalls.
 It is `stall_timeout × rate × reply_budget_margin`, floored at `reply_budget_floor`, and
 the rate is **measured, never configured**: it belongs to the deployment and moved twice in
 one week. `DecodeRate` seeds from the cluster's since-boot figure so the first turn is
-bounded — a one-shot and a tools-withdrawn final turn both live there — and every later turn
+bounded — a one-shot and a tool-forbidden final turn both live there — and every later turn
 replaces the seed with what this delegation achieved, which is the rate its own deadline is
 paid in. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055,
 not a guess. Every recovery stage is bounded, the enlarged retry included, or that retry
@@ -379,17 +379,16 @@ server-wide default for it would be a config default living outside `config.py`.
 delegation that names none gets a sandbox that can reach nothing of the caller's, which is
 the right way for the default to fail.
 
-The last turn is declared **with no tools at all**. Without that short-circuit a delegation
-can end on a tool call nobody will run, having spent its whole budget and returned nothing
-readable. Withdrawing the tools leaves the model one thing it can still do, which is answer.
-The result reports `hit_turn_limit` so the caller can tell the two endings apart: an answer
-written under a withdrawn toolset is a partial one, and worth reading differently from an
-answer the model chose to give. It is exactly "the loop reached its last turn". It once also
-required a tool call on that final reply, which a backend offered no tools does not make, so
-it was false in precisely the case it names and true only for a backend that ignored the
-withdrawal. A delegation that would have finished on its last turn anyway now reports the
-limit too; that costs a reader one look at `max_turns`, where the old reading cost them a
-truncated answer read as a whole one.
+The last turn is declared with its tools **forbidden, not withdrawn** — see "Turns, and what
+ends them" for why that distinction is a cache one (ADR-0057). Without that short-circuit a
+delegation can end on a tool call nobody will run, having spent its whole budget and returned
+nothing readable. The result reports `hit_turn_limit` so the caller can tell the two endings
+apart: an answer written under a forbidden toolset is a partial one, and worth reading
+differently from an answer the model chose to give. It is exactly "the loop reached its last
+turn". It once also required a tool call on that final reply, which a model forbidden to make
+one does not, so it was false in precisely the case it names. A delegation that would have
+finished on its last turn anyway now reports the limit too; that costs a reader one look at
+`max_turns`, where the old reading cost them a truncated answer read as a whole one.
 
 Recovery from an empty answer is per turn and is the same code as the one-shot path — the
 cascade below lives in one function that both call. Two copies would be two diagnoses of
@@ -544,7 +543,7 @@ backend has quietly begun dropping, and the answer looks exactly like one writte
 everything in view. `context_overflow_enabled` turns on two checks that notice, and it is
 off by default for a reason given below.
 
-Every threshold is a share of `ModelEntry.context_window` and of nothing else. Four of the
+Every threshold is a share of `ModelEntry.context_window` and of nothing else. Two of the
 five bugs this cost the ancestor project were one shape — a threshold computed against the
 wrong denominator — so the window is read in exactly one function,
 `loop.projected_fraction`, and the reserve held back for the reply is a **fraction** of it

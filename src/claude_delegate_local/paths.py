@@ -520,7 +520,7 @@ def _check_exists(given: str, real: str, must_exist: bool = True) -> Refusal | N
 
 
 def resolve_search_root(cfg: Config, given: str) -> str:
-    """Layer 1 and 2 for a directory a search will walk. Returns it resolved, or refuses.
+    """Path form and layer 1 for a directory a search will walk. Resolved, or refused.
 
     A third entry point rather than a reuse, and the reason is which roots apply.
     `_one_path` refuses a directory outright, correctly -- a directory is not a thing to

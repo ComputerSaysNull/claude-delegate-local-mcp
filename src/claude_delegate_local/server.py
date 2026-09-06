@@ -911,11 +911,12 @@ def build(
         So `files[]` is a head start rather than the whole world: name what it obviously
         needs, and let it find the rest. It can also run shell commands, confined to a
         sandbox that holds nothing of yours and has no network unless an agent asks for
-        one -- pass `workdir` to bind a directory it can actually build or test in. Narrow
-        that with `allowed_tools` when you want it reading only, and expect the shell to be
-        absent on a host without bubblewrap. Path rules are the same ones that govern
-        `files[]`, and a write it is refused comes back to it as a refusal it can correct,
-        not as a failed call.
+        one -- and holding nothing of yours is literal, because this tool takes no
+        `workdir`. Reach for `delegate_to_agent` when a command has to run against a real
+        checkout. Narrow the set with `allowed_tools` when you want it reading only, and
+        expect the shell to be absent on a host without bubblewrap. Path rules are the
+        same ones that govern `files[]`, and a write it is refused comes back to it as a
+        refusal it can correct, not as a failed call.
 
         `effort` is required, because it changes both what the call costs and how good the
         answer is, and there is no sensible value to pick on your behalf: one of "off",
@@ -1003,7 +1004,8 @@ def build(
         declared read-only, so a client that gates writes on that declaration can run it
         where `delegate` has to stop and ask.
 
-        It gets `search_files` and `read_file`, and nothing else -- so it can go looking.
+        It gets `search_files`, `read_file` and `read_git`, and nothing else -- so it can
+        go looking, through the worktree and through history alike.
         Name the obvious material in `files[]` and let it find the rest: a question like
         "where is X handled" or "does anything still call Y" is answerable now, and used to
         need a guess at which files to prefetch. `files[]` is a head start rather than the

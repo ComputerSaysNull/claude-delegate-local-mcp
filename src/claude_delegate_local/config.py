@@ -442,9 +442,12 @@ class Config:
 
     # ---- admission control (ADR-0012) -------------------------------------------
     max_inflight_seqs: int = _f(
-        5,
+        6,
         "Total concurrent backend requests across all models. Distinct from a registry "
-        "entry's own `concurrency`, which caps one endpoint; both are checked.",
+        "entry's own `concurrency`, which caps one endpoint; both are checked. Six is what "
+        "the serving stack admits at once, so the global cap no longer binds below a single "
+        "endpoint's own limit -- at 5 it did, which made a registry `concurrency` of 6 "
+        "unreachable.",
     )
     kv_token_budget: int = _f(
         2400000,
@@ -583,12 +586,9 @@ class Config:
     sandbox_max_processes: int = _f(
         512,
         "Concurrent processes the sandbox's user may hold, applied as RLIMIT_NPROC. 0 "
-        "removes the limit. Counted per real uid across the machine rather than per "
-        "sandbox, so concurrent delegations share this budget and a fork bomb in one "
-        "starves the others -- which is still the better failure. Below roughly 64 bwrap "
-        "cannot create its namespaces at all and every command fails at startup; when the "
-        "cap does bind, the shell cannot fork to report it, so the command dies with no "
-        "output rather than a message.",
+        "removes the limit, and values below roughly 64 stop bwrap starting at all. How "
+        "the cap is shared between delegations, and how it fails when it binds, are "
+        "docs/ARCHITECTURE.md's.",
     )
     sandbox_tmpfs_mb: int = _f(
         1024,
