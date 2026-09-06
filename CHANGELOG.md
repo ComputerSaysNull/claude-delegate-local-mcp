@@ -34,6 +34,65 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #124 — 2026-09-06 — docs: PLAN.md holds open work again, at 287 lines instead of 738
+
+### Changed
+- **Twenty-eight completed items and the seven struck originals that travel with them moved
+  to `archive/PLAN-milestones.md`.** **Symptom:** a document headed *Open* was 36% ticked
+  items, 17% struck-through originals and 3% cancelled — 56% history, with the twelve open
+  items interleaved through it. **Cause:** the retention was real policy ("completed items
+  are annotated and stay here… as a record of recent work") but attributed to **ADR-0003,
+  which is about size budgets and says nothing about retention**. A convention wearing an
+  ADR's authority is one nobody revisits. **Fix:** they are archived at the end of the
+  session that finishes them, and the legend now says so without a citation it cannot
+  support. This is ADR-0003's own first resolution — trim real redundancy — used as
+  intended rather than cited for something else.
+- **The header comment went from 60 lines to 6.** It carried the reason for every budget
+  raise back to 2026-09-02, while stating in its own text that "the reason for each raise is
+  in the CHANGELOG.md section for the pull request that made it". Two copies of the same
+  thing; this was the redundant one. The budget itself is reset to the document's actual
+  size.
+- **`⚠️ TENTATIVE` is gone, not retired-in-place.** Its own legend said it was temporary and
+  that "an item that keeps this marker indefinitely is one nobody went back to". Its last
+  item was verified and closed the same day, so the state and its explanation both go.
+- **The `#118` correction on the handle item is narrowed to the tool it was measured on.**
+  It read "that is not what the threshold does… **this removes most of the item's
+  justification**", from four calls that started within 5.6s of each other. Those four were
+  `delegate_readonly`, which carries `readOnlyHint`; six `delegate_to_agent` arms issued the
+  same way chained at exactly 120s intervals, the last landing at +688s. So the stagger is
+  real for the two write-capable tools, the justification is restored for them, and the item
+  is re-ranked back up. Third instance of a correction outliving its scope.
+
+### Added
+- `transcript_dir`'s description states the sync trade, which closes an item rather than
+  tracking it. A synchronised or backed-up directory sends the task text off the machine on
+  someone else's schedule; a directory inside the WSL distribution dies with it while
+  `/mnt/c` survives — so the durable choice and the leaky one can be the same choice. Framed
+  as what each direction costs rather than which to pick, because this machine deliberately
+  chooses the synchronised one.
+- Three items the 2026-09-06 audit produced and did not do: TOO VERBOSE coverage, the
+  `connect_timeout` prose gap, and a read-only form of `delegate_to_agent`.
+
+### Fixed
+- **`#121`'s finding 12 is retracted, and so is its claim that a pass cited a section that
+  does not exist.** `docs/DISPATCH.md` documents the connect-versus-request bound in full,
+  in the paragraph opening "The adapter's single HTTP client bounds **connect and request
+  separately**"; only the identifier `connect_timeout` is absent, which that document's
+  `covers_not` requires rather than forbids. The verification behind the finding grepped for
+  markdown *headings* and so reported absent what was a bolded paragraph opener — a check
+  too narrow to see what it was asked about, the same class of error as the four quotations
+  once called fabrications by a contiguous search. The PLAN.md item it produced is removed
+  rather than tracked, and the audit record carries the correction as an appended section,
+  since a committed record is superseded rather than rewritten. That audit stands at fifteen
+  findings, not sixteen. `#121`'s own section is untouched, as a merged section must be.
+- **Four things removed rather than archived**, each because its content is spent: the
+  `max_tokens` struck original, whose two central claims are now false — "`backend_status` is
+  the reader", which its own ticked pair records as wrong, and tools being withdrawn on the
+  final turn, which ADR-0057 replaced; the transcript sync-hazard item, fixed above; the
+  2026-09-01 documentation-trim item and its original, which asked for a documentation audit
+  that has since happened; and the emptied *Delegation cost and deadlines* section together
+  with an orphaned intro paragraph that referred to "items above" no longer present.
+
 ## #123 — 2026-09-06 — feat: delegate takes a workdir, so it can run against what it wrote
 
 ### Added
