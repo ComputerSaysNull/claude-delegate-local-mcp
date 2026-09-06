@@ -52,6 +52,7 @@ def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is 
     effort: str | None = None, elapsed_seconds: float | None = None,
     turn_cached: int | None = None, end_cached: int | None = None,
     turn_sent: int | None = None, end_sent: int | None = None,
+    turn_out: int | None = None, end_out: int | None = None,
 ) -> Path:
     """One `.jsonl` named the way transcript.py names it, with events to match.
 
@@ -74,6 +75,8 @@ def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is 
             event["cached_tokens"] = turn_cached
         if turn_sent is not None:
             event["input_tokens"] = turn_sent
+        if turn_out is not None:
+            event["output_tokens"] = turn_out
         lines.append(event)
     if ended is not None:
         end = {"t": "end", "at": started.astimezone(UTC).isoformat(), "ok": ended}
@@ -83,6 +86,8 @@ def stream(  # noqa: PLR0913 -- a builder for one event shape; each argument is 
             end["cached_tokens"] = end_cached
         if end_sent is not None:
             end["input_tokens"] = end_sent
+        if end_out is not None:
+            end["output_tokens"] = end_out
         lines.append(end)
     path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
     return path
@@ -425,7 +430,13 @@ def test_the_list_paints_a_duration_and_an_effort(session, tmp_path):
            turn_cached=1000, turn_sent=4000)
 
     screen = session(tmp_path).read()
-    assert "duration" in screen and "effort" in screen and "reuse" in screen
+    assert "duration" in screen and "effort" in screen
+    # Four numeric columns, each answering a different question and none of them the
+    # others' summary: prefill the cluster skipped, that as a share of what was sent,
+    # what would have entered the calling conversation instead, and what the cluster
+    # processed.
+    for column in ("cached", "reuse", "spared", "load"):
+        assert column in screen, f"header lost the {column} column"
     assert "2m05s" in screen, "the finished row lost the server's own figure"
     assert "3m2" in screen, "the running row is not counting up from its start"
     assert "high" in screen and "low" in screen
@@ -434,6 +445,8 @@ def test_the_list_paints_a_duration_and_an_effort(session, tmp_path):
     # could not show the eviction bug it was measuring (ADR-0058).
     assert "80%" in screen, "the finished row lost its recorded reuse"
     assert "25%" in screen, "the running row is not summing its turns"
+    assert "44.8k" in screen, "the finished row lost its saved total"
+    assert "2.0k" in screen, "the running row lost its saved total"
 
 
 @posix_only
@@ -590,7 +603,7 @@ def test_a_running_row_sums_the_saving_its_turns_have_reported(viewer, tmp_path)
     (row,) = viewer.scan(tmp_path)[0]
 
     assert row["done"] is False
-    assert viewer.saved_of(row) == 3000
+    assert viewer.cached_of(row) == 3000
     assert viewer._tokens(3000) == "3.0k"
 
 
@@ -602,7 +615,7 @@ def test_a_finished_row_prefers_the_total_the_end_event_recorded(viewer, tmp_pat
            turns=2, turn_cached=1000, ended=True, end_cached=44800)
     (row,) = viewer.scan(tmp_path)[0]
 
-    assert viewer.saved_of(row) == 44800
+    assert viewer.cached_of(row) == 44800
     assert viewer._tokens(44800) == "44.8k"
 
 
@@ -614,7 +627,7 @@ def test_nothing_measured_is_not_a_saving_of_zero(viewer, tmp_path):
            turns=2, ended=True)
     (row,) = viewer.scan(tmp_path)[0]
 
-    assert viewer.saved_of(row) is None
+    assert viewer.cached_of(row) is None
     assert viewer._tokens(None) == "-"
     assert viewer._tokens(0) == "0", "a measured zero still renders as a number"
 
@@ -657,7 +670,7 @@ def test_the_picker_reports_reuse_as_a_share_not_a_running_total(viewer, tmp_pat
         _stream(tmp_path, [(80_000, 53_248)] * 9 + [(80_000, 0)])
     )
 
-    assert viewer.saved_of(row) == 53_248 * 9
+    assert viewer.cached_of(row) == 53_248 * 9
     assert viewer.sent_of(row) == 80_000 * 10
     assert viewer._reuse(viewer.reuse_of(row)) == "60%"
 
@@ -683,6 +696,118 @@ def test_an_endpoint_that_reports_no_caching_shows_no_share(viewer, tmp_path):
     )
     row = viewer.summarise(path)
 
-    assert viewer.saved_of(row) is None
+    assert viewer.cached_of(row) is None
     assert viewer.reuse_of(row) is None
     assert viewer._reuse(None) == "-"
+
+
+def test_spared_counts_the_history_once_and_load_counts_every_resend(viewer, tmp_path):
+    """The two figures the picker shows side by side, and why they differ by an order.
+
+    A turn loop resends its whole history, so summing prompts counts the same documents
+    once per turn that carried them. Claude Code's own loop resends its context the same
+    way; the difference is that a delegation records it per turn and a conversation does
+    not, which is a measurement asymmetry rather than an efficiency gap.
+
+    `spared` therefore takes the peak prompt -- the point at which the history was
+    fullest, and so the unique content -- plus everything generated. `load` sums every
+    turn, which is what the hardware processed.
+    """
+    row = viewer.summarise(
+        _stream(tmp_path, [(10_000, 0), (20_000, 9_000), (30_000, 19_000)])
+    )
+    row["turn_out"] = 1_500
+
+    assert viewer.load_of(row) == 10_000 + 20_000 + 30_000 + 1_500
+    # The peak, not the sum: 30,000 is everything the history ever held.
+    assert viewer.displaced_of(row) == 30_000 + 1_500
+    assert viewer.displaced_of(row) < viewer.load_of(row)
+
+
+def test_a_one_turn_delegation_spares_exactly_what_it_loads(viewer, tmp_path):
+    """The control. With one turn there is no history to resend, so the two must agree.
+
+    If they ever disagree here, the peak-versus-sum distinction has a bug in it and the
+    order-of-magnitude gap above proves nothing.
+    """
+    row = viewer.summarise(_stream(tmp_path, [(14_000, 12_000)]))
+    row["turn_out"] = 6_000
+
+    assert viewer.displaced_of(row) == viewer.load_of(row) == 20_000
+
+
+def test_no_token_figures_at_all_means_no_columns_rather_than_zeroes(viewer, tmp_path):
+    """A transcript written before these fields existed is unknown, not free."""
+    path = tmp_path / "20260906T000002.000-0001-no-agent.jsonl"
+    path.write_text(
+        json.dumps({"t": "start", "task": "x", "tool": "delegate"}) + "\n"
+        + json.dumps({"t": "turn", "turn": 1}) + "\n",
+        encoding="utf-8",
+    )
+    row = viewer.summarise(path)
+
+    assert viewer.displaced_of(row) is None
+    assert viewer.load_of(row) is None
+    assert viewer._tokens(None) == "-"
+
+
+def test_the_highlight_survives_the_rows_own_colour_codes(viewer):
+    """The selected row is inverted across its whole width, not up to its first reset.
+
+    A row carries `DIM`/reset pairs of its own, and a reset ends the inverse as surely
+    as it ends the dim -- so wrapping the coloured string highlighted only as far as the
+    first reset, which landed two columns in. Asserted as the absence of any reset before
+    the end, because that is the mechanism rather than the symptom.
+    """
+    row = f"{viewer.DIM}12:00:00{viewer.R}  {viewer.DIM}high{viewer.R}  a task"
+    out = viewer._highlight(row)
+
+    assert out.startswith(viewer.INVERT)
+    assert out.endswith(viewer.R)
+    # Exactly one reset, at the very end. Any earlier one would end the inverse there.
+    assert out.count(viewer.R) == 1, out
+    assert "12:00:00" in out and "a task" in out
+
+
+def test_the_highlight_pads_but_never_truncates(viewer):
+    """Padding is what makes it span the row; truncating would lose the task text, which
+    is the part that tells two delegations apart."""
+    long_task = "x" * 400
+    out = viewer._highlight(f" 12:00:00  {long_task}")
+
+    assert long_task in out
+
+
+def test_a_frame_overwrites_rather_than_blanking_first(viewer):
+    """The flicker: erasing the screen and then painting leaves it blank for as long as
+    the paint takes, which at a two-second cadence is visible from the corner of the eye.
+
+    The frame goes home, overwrites each line and erases only that line tail, then
+    clears the region below. Asserted as ordering, because that is the property: nothing
+    may erase a region before the text that replaces it has been written.
+    """
+    assert viewer.HOME == "\033[H"
+    assert viewer.EOL == "\033[K"
+    assert viewer.BELOW == "\033[0J"
+    # The old redraw is still defined, for the follow view, and is the thing the list
+    # must not use: it erases forward from home before anything is printed.
+    assert viewer.CLEAR.startswith(viewer.HOME)
+    assert viewer.BELOW in viewer.CLEAR
+
+
+def test_the_picker_opens_on_the_row_a_transcript_was_opened_from(viewer, tmp_path):
+    """Coming back from the follow view landed at the top of the list, which on a busy
+    directory is not where you were.
+
+    Tested on the index rather than through a terminal: the terminal proves the wiring and
+    this proves the rule, including the case the wiring cannot easily show -- a transcript
+    that has aged out of the newest N, where any remembered index would point at an
+    unrelated row.
+    """
+    rows = [{"path": tmp_path / f"{n}.jsonl"} for n in range(4)]
+
+    assert viewer.start_index(rows, rows[2]["path"]) == 2
+    assert viewer.start_index(rows, rows[0]["path"]) == 0
+    assert viewer.start_index(rows, None) == 0
+    assert viewer.start_index(rows, tmp_path / "aged-out.jsonl") == 0
+    assert viewer.start_index([], tmp_path / "0.jsonl") == 0

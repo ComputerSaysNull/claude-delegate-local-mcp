@@ -22,7 +22,9 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import select
+import shutil
 import sys
 import time
 from datetime import datetime, UTC
@@ -69,6 +71,45 @@ STALL_SECONDS = 120      # silence after which an unfinished stream stops claimi
 # Home, then erase forward. `ESC[2J` and `ESC[3J` both cost scrollback in some terminals,
 # and scrollback is how you read back over a transcript you have just watched.
 CLEAR = "\033[H\033[0J"
+
+# The redraw, done without a blank interval. Erasing the screen and then painting it leaves
+# the terminal empty for as long as the paint takes, which at a two-second cadence reads as
+# a flicker in the corner of the eye. Instead: go home, overwrite each line in place and
+# erase only to the end of that line, then erase whatever is left below. Nothing is ever
+# blank, because every cell is overwritten rather than cleared first.
+HOME = "\033[H"
+EOL = "\033[K"       # erase to end of line, after the text that replaces it
+BELOW = "\033[0J"    # erase from the cursor down, for a list that just got shorter
+
+# DEC 2026, synchronised output: the terminal is asked to present the frame in one go
+# rather than as it arrives. Terminals that do not know it ignore both sequences, so this
+# costs nothing where it is unsupported and removes tearing where it is.
+SYNC_ON = "\033[?2026h"
+SYNC_OFF = "\033[?2026l"
+
+_ANSI = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
+
+
+def _plain(text: str) -> str:
+    """The text without its colour, for measuring width or re-colouring it wholesale."""
+    return _ANSI.sub("", text)
+
+
+def _highlight(line: str) -> str:
+    """One row, inverted across its whole width.
+
+    The colours have to come out first. A row carries its own `DIM`/reset pairs, and a
+    reset ends the inverse as surely as it ends the dim -- so wrapping the coloured string
+    highlighted only as far as the first reset, which was two columns in. Stripping and
+    padding is what makes the highlight the width of the row rather than the width of its
+    first field.
+    """
+    text = _plain(line)
+    # Padded out to the terminal, never cut back to it. A highlight that truncates loses
+    # the end of the task text, which is the part that tells two delegations apart -- and
+    # a row wider than the window wraps, which is what it did before it was highlighted.
+    width = max(shutil.get_terminal_size((100, 24)).columns, len(text))
+    return f"{INVERT}{text.ljust(width)}{R}"
 
 R = "\033[0m"
 DIM = "\033[2m"
@@ -301,7 +342,7 @@ def summarise(path: Path) -> dict:
     row = {"path": path, "task": "", "model": "", "turns": 0, "done": False,
            "tool": "", "tools": None, "effort": "", "elapsed_seconds": None,
            "turn_cached": None, "end_cached": None, "turn_sent": 0, "end_sent": None,
-           "created": created_at(path)}
+           "turn_peak": 0, "turn_out": 0, "end_out": None, "created": created_at(path)}
     try:
         with path.open(encoding="utf-8") as fh:
             for line in fh:
@@ -325,13 +366,19 @@ def summarise(path: Path) -> dict:
                     cached = event.get("cached_tokens")
                     if cached is not None:
                         row["turn_cached"] = (row["turn_cached"] or 0) + cached
-                    row["turn_sent"] += event.get("input_tokens") or 0
+                    sent = event.get("input_tokens") or 0
+                    row["turn_sent"] += sent
+                    # The fullest the history ever got, which is the unique content -- the
+                    # sum counts the same documents once per turn that resent them.
+                    row["turn_peak"] = max(row["turn_peak"], sent)
+                    row["turn_out"] += event.get("output_tokens") or 0
                 elif event.get("t") == "end":
                     row["done"] = True
                     row["ok"] = event.get("ok")
                     row["elapsed_seconds"] = event.get("elapsed_seconds")
                     row["end_cached"] = event.get("cached_tokens")
                     row["end_sent"] = event.get("input_tokens")
+                    row["end_out"] = event.get("output_tokens")
     except OSError:
         pass
     row["mtime"] = path.stat().st_mtime if path.exists() else 0
@@ -438,6 +485,44 @@ def _tokens(n: int | None) -> str:
     return f"{n / 1_000_000:.1f}M"
 
 
+def load_of(row: dict) -> int | None:
+    """Everything the cluster processed: prompt plus output, summed over every turn.
+
+    The bigger number, and the less useful one for judging what delegating is worth. A turn
+    loop resends its whole history, so this counts the same documents once per turn that
+    carried them -- most of which the cluster served from cache rather than recomputing.
+    Read it as load on the hardware, not as work avoided here.
+    """
+    sent, out = sent_of(row), out_of(row)
+    if sent is None and out is None:
+        return None
+    return (sent or 0) + (out or 0)
+
+
+def out_of(row: dict) -> int | None:
+    if row.get("end_out") is not None:
+        return row["end_out"]
+    return row.get("turn_out") or None
+
+
+def displaced_of(row: dict) -> int | None:
+    """Roughly what would have entered this conversation had the work been done here.
+
+    The peak prompt rather than the sum, because the peak is the point at which the history
+    was fullest and is therefore the unique content -- resending it on later turns is an API
+    property, not extra material. Claude Code's own loop resends its context the same way;
+    the difference is only that a delegation records it per turn and a conversation does not.
+    Plus every token generated, which would all have had to be generated somewhere.
+
+    An estimate, and it leans high: an earlier turn's output reappears inside a later turn's
+    prompt, so the two overlap. It is the right order of magnitude and the honest direction
+    to be wrong in for a figure that argues delegating was worth it.
+    """
+    peak = row.get("end_sent") or row.get("turn_peak") or 0
+    out = out_of(row) or 0
+    return (peak + out) or None
+
+
 def _reuse(share: float | None) -> str:
     """A cache-reuse share for a narrow column, or `-` when nothing was measured.
 
@@ -449,8 +534,14 @@ def _reuse(share: float | None) -> str:
     return f"{share * 100:.0f}%"
 
 
-def saved_of(row: dict) -> int | None:
-    """Prompt tokens the cluster served from cache instead of computing.
+def cached_of(row: dict) -> int | None:
+    """Prompt tokens the cluster served from its prefix cache instead of computing.
+
+    Named for what it measures, not for what a reader hopes it measures. It was `saved`
+    until 2026-09-06, and that name was misread twice -- once here, into deleting the column
+    outright, and once by a reader taking it for tokens the *caller* did not have to spend.
+    It is neither: it is the serving stack's own prefix reuse, and it would read the same if
+    no caller existed. `spared` is the one that answers what delegating was worth.
 
     A finished row uses the total the `end` event recorded; a running one sums what the
     turns have reported so far, so the figure grows as the delegation does. `None` is an
@@ -464,7 +555,7 @@ def saved_of(row: dict) -> int | None:
 
 
 def sent_of(row: dict) -> int | None:
-    """Prompt tokens sent across every turn -- the denominator `saved_of` never had."""
+    """Prompt tokens sent across every turn -- the denominator `cached_of` never had."""
     if row.get("end_sent"):
         return row["end_sent"]
     return row.get("turn_sent") or None
@@ -482,10 +573,10 @@ def reuse_of(row: dict) -> float | None:
     so the worse the reuse the larger the number -- the one presentation that cannot show
     the bug it is measuring.
     """
-    saved, sent = saved_of(row), sent_of(row)
-    if saved is None or not sent:
+    cached, sent = cached_of(row), sent_of(row)
+    if cached is None or not sent:
         return None
-    return saved / sent
+    return cached / sent
 
 
 def _ago(seconds: float) -> str:
@@ -566,17 +657,39 @@ def wait_key(timeout: float | None) -> str | None:
     return read_key()
 
 
-def pick(directory: Path) -> Path | None:
-    """Newest first, live ones marked. A finished delegation is still worth reading."""
+def start_index(rows: list[dict], start_at: Path | None) -> int:
+    """Where the highlight opens: on `start_at` if it is still listed, else the top.
+
+    Its own function so it can be tested without a terminal. Falls back to the top rather
+    than to a remembered position, because a transcript that has aged out of the newest N
+    is gone from the list and any index kept for it would point at an unrelated row.
+    """
+    return next((n for n, row in enumerate(rows) if row["path"] == start_at), 0)
+
+
+def pick(directory: Path, start_at: Path | None = None) -> Path | None:
+    """Newest first, live ones marked. A finished delegation is still worth reading.
+
+    `start_at` puts the highlight back on a named transcript, so returning from the follow
+    view lands on the row you just left rather than at the top of a list that may have
+    grown underneath you.
+    """
     rows, trimmed = scan(directory)
-    i = 0
+    i = start_index(rows, start_at)
     while True:
-        print(CLEAR, end="")
+        out: list[str] = []
         head = f"{BOLD}delegations{R} {DIM}· ↑↓ select · enter follow · r refresh · q quit"
         head += f" · newest {MAX_ROWS} of {len(rows) + trimmed}" if trimmed else ""
-        print(f"{head}{R}")
-        print(f"{DIM} started   duration  effort  state      kind      "
-              f"turns  reuse   task{R}")
+        out.append(f"{head}{R}")
+        # Composed from the same widths the row below uses, rather than typed out and
+        # eyeballed. A header typed by hand drifts the moment a column is added -- which
+        # is exactly what happened when the token figures became four columns.
+        head_cols = (
+            f" {'started':<8}  {'duration':<8}  {'effort':<6}  {'state':<9} "
+            f"{'kind':<8} {'turns':>5}  {'cached':>6}  {'reuse':>5}  "
+            f"{'spared':>6}  {'load':>6}  task"
+        )
+        out.append(f"{DIM}{head_cols}{R}")
         for n, row in enumerate(rows):
             word, colour = state_of(row)
             task = row["task"][:60] or "(no task recorded)"
@@ -586,13 +699,35 @@ def pick(directory: Path) -> Path | None:
             kind = f"{DIM}{kind_of(row):<8}{R}"
             spent = f"{DIM}{_duration(elapsed_of(row)):<8}{R}"
             effort = f"{DIM}{(row.get('effort') or '?'):<6}{R}"
-            saved = f"{DIM}{_reuse(reuse_of(row)):>6}{R}"
+            # Both, because they answer different questions and one is not the other's
+            # summary. `cached` is prefill the cluster skipped from its own prefix cache,
+            # and `reuse` is that against the prompt tokens sent -- input only, since output
+            # is never cached -- which is the figure that falls when a run stops reusing its
+            # prefix. Showing only the total hides the bug; only the share hides the win.
+            cached = f"{DIM}{_tokens(cached_of(row)):>6}{R}"
+            reuse = f"{DIM}{_reuse(reuse_of(row)):>5}{R}"
+            # `spared` is the delegation's value -- what would have entered the calling
+            # conversation had the work been done there. `load` is what the cluster
+            # processed, which is larger because a turn loop resends its history and is
+            # mostly cache hits rather than work. Neither is the other's summary, and
+            # `cached` beside them is a third thing again: the cluster's own prefix reuse.
+            spared = f"{DIM}{_tokens(displaced_of(row)):>6}{R}"
+            load = f"{DIM}{_tokens(load_of(row)):>6}{R}"
             line = (f" {_clock(started_at(row))}  {spent}  {effort}  {state} "
-                    f"{kind} {DIM}{row['turns']:>5}{R}  {saved}  {task}")
-            print(f"{INVERT}{line}{R}" if n == i else line)
+                    f"{kind} {DIM}{row['turns']:>5}{R}  {cached}  {reuse}  "
+                    f"{spared}  {load}  {task}")
+            out.append(_highlight(line) if n == i else line)
         if not rows:
-            print(f"\n{DIM} no delegations recorded yet. "
-                  f"Run one and it appears here.{R}")
+            out.append("")
+            out.append(f"{DIM} no delegations recorded yet. "
+                       f"Run one and it appears here.{R}")
+
+        # One write, so the frame arrives as a unit. Each line erases only its own tail,
+        # and only the region below the last row is cleared -- so no cell is ever blank
+        # between frames, which is what the flicker was.
+        frame = HOME + "".join(f"{row}{EOL}\n" for row in out) + BELOW
+        sys.stdout.write(f"{SYNC_ON}{frame}{SYNC_OFF}")
+        sys.stdout.flush()
 
         key = wait_key(REFRESH_SECONDS)
         if key in ("q", "esc", "eof"):
@@ -668,8 +803,10 @@ def main() -> int:
         return 2
     try:
         with terminal():
-            while (chosen := pick(directory)) is not None:
+            last: Path | None = None
+            while (chosen := pick(directory, last)) is not None:
                 follow(chosen)
+                last = chosen
     except KeyboardInterrupt:
         print(f"\n{DIM}stopped{R}")
     return 0
