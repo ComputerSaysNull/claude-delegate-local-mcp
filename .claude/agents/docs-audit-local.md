@@ -113,8 +113,14 @@ by input size: prefetch is cheap and answers are not.
 re-prefill every turn (ADR-0056). Decode is the half concurrency parallelises: one sequence
 decodes at ~36 tok/s and four together at ~102 aggregate. Prefill is serialised by the engine
 and gains nothing from fanning out, so the win is bounded by that 60% — real, not the 2.8x
-the aggregate figure alone suggests. Firing several in one message also costs about 120 s of
-stagger per extra call, which is the client backgrounding each one before issuing the next.
+the aggregate figure alone suggests.
+
+**Issue every pass of a fan-out in one message.** Four calls sent together started 0.0, 2.5,
+4.0 and 5.6 seconds apart — measured 2026-09-06, with arms long enough to outlast the
+client's 120 s threshold, which is what makes the test mean anything. That threshold is when
+the client stops *waiting* on a call, not when it issues the next: calls spread across
+separate turns pay up to 120 s each before the following one starts, and calls in one message
+pay seconds. So the ramp is not a reason to keep a pass large.
 
 **Split by check class first, because four of the seven cannot see a split by document.**
 This is the trap. Splitting a twelve-document audit into four passes of three looks obvious

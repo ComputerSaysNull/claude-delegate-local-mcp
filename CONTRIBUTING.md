@@ -1,4 +1,6 @@
-<!-- BUDGET: 298
+<!-- BUDGET: 307
+     Raised from 298 on 2026-09-06: the rule added that morning was falsified by lunchtime
+     and the correction is the evidence for it -- prefer a measurement taken on purpose.
      Raised from 287 on 2026-09-06: a fourth sighting of the pattern, and the first
      where what expired was a measurement rather than a capability.
      Raised from 280 on 2026-09-05: the workaround-outlives-the-limitation pattern got its third sighting, and the rule that would have caught it -- grep the agent bodies when you add a tool -- is the part worth keeping.
@@ -201,6 +203,13 @@ killed. The sentence had also fused two independent claims — prefetch everythi
 in one turn — so correcting the second read as abandoning the first. **A measurement in an
 agent body needs its date and its conditions**, or the next reader cannot tell which half
 has expired.
+
+That rule was tested within a day. The *replacement* text carried a fresh measurement of its
+own — that fanning out costs about 120 s of stagger per extra call — and a controlled run the
+next morning found it wrong: four calls issued in one message start seconds apart, and the
+120 s is the client's threshold for backgrounding a call it is waiting on, not for issuing
+the next (`#118`). Both numbers came from real observations; both described a shape nobody
+had varied deliberately. **Prefer a measurement you took on purpose over one you noticed.**
 
 **It can also require what the sandbox cannot do — the same fault inverted, and costlier.**
 That body opened with "run the gate first", which cannot succeed: `.git` is under a tmpfs
