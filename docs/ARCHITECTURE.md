@@ -1,4 +1,6 @@
-<!-- BUDGET: 838
+<!-- BUDGET: 847
+     Raised from 838 on 2026-09-06: `spared` is replaced by `return`, and why the
+     premise behind the estimate was wrong is the part worth keeping.
      Raised from 821 on 2026-09-06: the list redraws without blanking, the highlight
      survives the row's own colours, and the selection returns where it was.
      Raised from 814 on 2026-09-06: the cache column is renamed for what it measures,
@@ -718,17 +720,24 @@ was `saved` until it had been misread twice: once into deleting it outright, and
 reader taking it for tokens the *caller* did not have to spend. It is neither, and would read
 the same if no caller existed.
 
-`spared` and `load` answer the different question of what delegating was worth. **`load` is
-what the cluster processed** — prompt plus output, summed over every turn — and it is the
-larger, more flattering figure. **`spared` is what would have entered the calling
-conversation instead**: the peak prompt, which is the point at which the history was fullest
-and therefore the unique content, plus everything generated. The gap between them is about
-tenfold on a long run and is not inefficiency: a turn loop resends its history, so a sum
-counts the same documents once per turn that carried them, and the caller's own loop resends
-its context the same way. The difference is that a delegation records it per turn and a
-conversation does not. `spared` leans high, because an earlier turn's output reappears inside
-a later turn's prompt; for a figure arguing that delegating was worthwhile, that is the
-honest direction to be wrong in.
+`return` and `load` answer the different question of what delegating was worth, and both are
+exact. **`load` is what the cluster processed** — prompt plus output, summed over every turn
+— and it is the apples-to-apples figure rather than a flattering one: a turn loop resends its
+history, so it counts the same documents once per turn that carried them, and a caller doing
+the work itself runs the same loop and would count them the same way. Counting both sides by
+summing across turns is exact in method; the looseness is only that the two runs are not the
+same run. **`return` is the answer that actually reached the caller** — the last turn's
+output, and nothing else. Every earlier prompt, reasoning trace and tool result stayed on the
+far side of the call.
+
+The gap between them is the resource delegation protects: 2,002 tokens of 907,400 on a
+twelve-turn run, or 0.22%. A one-turn delegation returns everything it generated, which is
+the honest signal that a one-shot displaces far less per token than a long agentic run.
+
+An earlier `spared` column mixed a peak prompt with total output, to avoid what looked like
+counting the same documents once per turn. That premise was wrong — the caller would have
+paid for them the same number of times — so the column measured no clean quantity and was
+replaced rather than renamed.
 
 **The list redraws by overwriting, never by blanking first.** Erasing the screen and then
 painting it leaves the terminal empty for as long as the paint takes, which at the list's

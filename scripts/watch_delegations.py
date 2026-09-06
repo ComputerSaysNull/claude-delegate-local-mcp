@@ -342,7 +342,8 @@ def summarise(path: Path) -> dict:
     row = {"path": path, "task": "", "model": "", "turns": 0, "done": False,
            "tool": "", "tools": None, "effort": "", "elapsed_seconds": None,
            "turn_cached": None, "end_cached": None, "turn_sent": 0, "end_sent": None,
-           "turn_peak": 0, "turn_out": 0, "end_out": None, "created": created_at(path)}
+           "turn_peak": 0, "turn_out": 0, "end_out": None, "turn_outs": [],
+           "created": created_at(path)}
     try:
         with path.open(encoding="utf-8") as fh:
             for line in fh:
@@ -371,7 +372,14 @@ def summarise(path: Path) -> dict:
                     # The fullest the history ever got, which is the unique content -- the
                     # sum counts the same documents once per turn that resent them.
                     row["turn_peak"] = max(row["turn_peak"], sent)
-                    row["turn_out"] += event.get("output_tokens") or 0
+                    # Recorded only when the turn reported one. A turn carrying no
+                    # `output_tokens` is a transcript written before the field existed,
+                    # which is unmeasured rather than a turn that generated nothing --
+                    # and `returned_of` would otherwise answer 0 where it knows nothing.
+                    out = event.get("output_tokens")
+                    if out is not None:
+                        row["turn_out"] += out
+                        row["turn_outs"].append(out)
                 elif event.get("t") == "end":
                     row["done"] = True
                     row["ok"] = event.get("ok")
@@ -488,10 +496,13 @@ def _tokens(n: int | None) -> str:
 def load_of(row: dict) -> int | None:
     """Everything the cluster processed: prompt plus output, summed over every turn.
 
-    The bigger number, and the less useful one for judging what delegating is worth. A turn
-    loop resends its whole history, so this counts the same documents once per turn that
-    carried them -- most of which the cluster served from cache rather than recomputing.
-    Read it as load on the hardware, not as work avoided here.
+    **This is the apples-to-apples figure**, and the one to read as work the caller did not
+    do. A turn loop resends its whole history, so it counts the same documents once per turn
+    that carried them -- and so would Claude Code, which runs the same loop and resends its
+    context the same way. Counting both sides by summing across turns is therefore exact in
+    method; the looseness is only that the two runs are not the same run.
+
+    Much of it is served from cache rather than recomputed, which `cached` and `reuse` say.
     """
     sent, out = sent_of(row), out_of(row)
     if sent is None and out is None:
@@ -505,22 +516,23 @@ def out_of(row: dict) -> int | None:
     return row.get("turn_out") or None
 
 
-def displaced_of(row: dict) -> int | None:
-    """Roughly what would have entered this conversation had the work been done here.
+def returned_of(row: dict) -> int | None:
+    """Tokens of answer that actually reached the caller: the last turn's output.
 
-    The peak prompt rather than the sum, because the peak is the point at which the history
-    was fullest and is therefore the unique content -- resending it on later turns is an API
-    property, not extra material. Claude Code's own loop resends its context the same way;
-    the difference is only that a delegation records it per turn and a conversation does not.
-    Plus every token generated, which would all have had to be generated somewhere.
+    Exact, and the point of the column. Beside `load` it says what a delegation cost against
+    what it put in the calling conversation -- 2,002 tokens of 907,400 on a twelve-turn run,
+    or 0.22%. Every earlier turn's prompt, reasoning and tool traffic stayed on the far side
+    of the call, which is the resource delegation actually protects.
 
-    An estimate, and it leans high: an earlier turn's output reappears inside a later turn's
-    prompt, so the two overlap. It is the right order of magnitude and the honest direction
-    to be wrong in for a figure that argues delegating was worth it.
+    This replaced a `spared` column that summed a peak prompt with total output. That was
+    invented to avoid "counting the same documents once per turn", on the reasoning that a
+    caller doing the work itself would not have paid for them repeatedly. The reasoning was
+    wrong: Claude Code runs the same agentic loop and resends its context every turn too, so
+    it would have paid exactly the same way. `load` is therefore already the apples-to-apples
+    figure, counted identically on both sides, and the hybrid answered no clean question.
     """
-    peak = row.get("end_sent") or row.get("turn_peak") or 0
-    out = out_of(row) or 0
-    return (peak + out) or None
+    turns = row.get("turn_outs") or ()
+    return turns[-1] if turns else None
 
 
 def _reuse(share: float | None) -> str:
@@ -687,7 +699,7 @@ def pick(directory: Path, start_at: Path | None = None) -> Path | None:
         head_cols = (
             f" {'started':<8}  {'duration':<8}  {'effort':<6}  {'state':<9} "
             f"{'kind':<8} {'turns':>5}  {'cached':>6}  {'reuse':>5}  "
-            f"{'spared':>6}  {'load':>6}  task"
+            f"{'return':>6}  {'load':>6}  task"
         )
         out.append(f"{DIM}{head_cols}{R}")
         for n, row in enumerate(rows):
@@ -706,12 +718,12 @@ def pick(directory: Path, start_at: Path | None = None) -> Path | None:
             # prefix. Showing only the total hides the bug; only the share hides the win.
             cached = f"{DIM}{_tokens(cached_of(row)):>6}{R}"
             reuse = f"{DIM}{_reuse(reuse_of(row)):>5}{R}"
-            # `spared` is the delegation's value -- what would have entered the calling
-            # conversation had the work been done there. `load` is what the cluster
-            # processed, which is larger because a turn loop resends its history and is
-            # mostly cache hits rather than work. Neither is the other's summary, and
-            # `cached` beside them is a third thing again: the cluster's own prefix reuse.
-            spared = f"{DIM}{_tokens(displaced_of(row)):>6}{R}"
+            # `return` is what reached the caller; `load` is what the cluster processed
+            # doing it, and is also what the caller would have spent running the same loop
+            # itself. The gap between them is the resource delegation protects: on a
+            # twelve-turn run, 2,002 tokens of 907,400. `cached` beside them is a third
+            # thing again, the cluster's own prefix reuse rather than anything about a caller.
+            spared = f"{DIM}{_tokens(returned_of(row)):>6}{R}"
             load = f"{DIM}{_tokens(load_of(row)):>6}{R}"
             line = (f" {_clock(started_at(row))}  {spent}  {effort}  {state} "
                     f"{kind} {DIM}{row['turns']:>5}{R}  {cached}  {reuse}  "

@@ -435,7 +435,7 @@ def test_the_list_paints_a_duration_and_an_effort(session, tmp_path):
     # others' summary: prefill the cluster skipped, that as a share of what was sent,
     # what would have entered the calling conversation instead, and what the cluster
     # processed.
-    for column in ("cached", "reuse", "spared", "load"):
+    for column in ("cached", "reuse", "return", "load"):
         assert column in screen, f"header lost the {column} column"
     assert "2m05s" in screen, "the finished row lost the server's own figure"
     assert "3m2" in screen, "the running row is not counting up from its start"
@@ -701,17 +701,17 @@ def test_an_endpoint_that_reports_no_caching_shows_no_share(viewer, tmp_path):
     assert viewer._reuse(None) == "-"
 
 
-def test_spared_counts_the_history_once_and_load_counts_every_resend(viewer, tmp_path):
-    """The two figures the picker shows side by side, and why they differ by an order.
+def test_load_counts_every_resend_because_the_caller_would_have_too(viewer, tmp_path):
+    """`load` is the apples-to-apples figure, not the flattering one.
 
     A turn loop resends its whole history, so summing prompts counts the same documents
-    once per turn that carried them. Claude Code's own loop resends its context the same
-    way; the difference is that a delegation records it per turn and a conversation does
-    not, which is a measurement asymmetry rather than an efficiency gap.
+    once per turn that carried them -- and so would Claude Code, which runs the same loop.
+    Counting both sides that way is exact in method, which is why `load` is the figure to
+    read as work the caller did not do.
 
-    `spared` therefore takes the peak prompt -- the point at which the history was
-    fullest, and so the unique content -- plus everything generated. `load` sums every
-    turn, which is what the hardware processed.
+    This replaced a `spared` column that mixed a peak prompt with total output to avoid
+    that supposed double count. The premise was wrong and the metric answered no clean
+    question.
     """
     row = viewer.summarise(
         _stream(tmp_path, [(10_000, 0), (20_000, 9_000), (30_000, 19_000)])
@@ -719,21 +719,33 @@ def test_spared_counts_the_history_once_and_load_counts_every_resend(viewer, tmp
     row["turn_out"] = 1_500
 
     assert viewer.load_of(row) == 10_000 + 20_000 + 30_000 + 1_500
-    # The peak, not the sum: 30,000 is everything the history ever held.
-    assert viewer.displaced_of(row) == 30_000 + 1_500
-    assert viewer.displaced_of(row) < viewer.load_of(row)
+    assert not hasattr(viewer, "displaced_of"), "the hybrid metric is gone, not renamed"
 
 
-def test_a_one_turn_delegation_spares_exactly_what_it_loads(viewer, tmp_path):
-    """The control. With one turn there is no history to resend, so the two must agree.
+def test_returned_is_the_last_turns_output_and_nothing_else(viewer, tmp_path):
+    """What actually reached the caller, which is exact rather than estimated.
 
-    If they ever disagree here, the peak-versus-sum distinction has a bug in it and the
-    order-of-magnitude gap above proves nothing.
+    Every earlier turn's prompt, reasoning and tool traffic stayed on the far side of the
+    call. Beside `load` this is the resource delegation protects: measured at 2,002 tokens
+    of 907,400 on a real twelve-turn run.
+    """
+    row = viewer.summarise(_stream(tmp_path, [(10_000, 0), (20_000, 9_000)]))
+    row["turn_outs"] = [4_000, 250]
+
+    assert viewer.returned_of(row) == 250
+    assert viewer.returned_of(row) < viewer.load_of(row)
+
+
+def test_a_one_turn_delegation_returns_everything_it_generated(viewer, tmp_path):
+    """The control. With one turn the whole output is the answer, so the two agree.
+
+    It also says the honest thing about a one-shot: it returns most of what it cost, so it
+    displaces far less per token than a long agentic run does.
     """
     row = viewer.summarise(_stream(tmp_path, [(14_000, 12_000)]))
-    row["turn_out"] = 6_000
+    row["turn_outs"] = [6_000]
 
-    assert viewer.displaced_of(row) == viewer.load_of(row) == 20_000
+    assert viewer.returned_of(row) == 6_000
 
 
 def test_no_token_figures_at_all_means_no_columns_rather_than_zeroes(viewer, tmp_path):
@@ -746,7 +758,7 @@ def test_no_token_figures_at_all_means_no_columns_rather_than_zeroes(viewer, tmp
     )
     row = viewer.summarise(path)
 
-    assert viewer.displaced_of(row) is None
+    assert viewer.returned_of(row) is None
     assert viewer.load_of(row) is None
     assert viewer._tokens(None) == "-"
 
