@@ -1,4 +1,7 @@
-<!-- BUDGET: 430
+<!-- BUDGET: 440
+     Raised from 430 on 2026-09-07: where a ready measurement lives, because it lives
+     somewhere untracked and so reached nobody reading this. Every line the labelling had
+     left overlong was reflowed, and the tick rule now says reflowing is allowed.
      Raised from 390 on 2026-09-07: four of the six measurements this roadmap was waiting on
      came back, and each answer belongs against the item that was waiting for it. Two of
      them changed the item rather than confirming it.
@@ -30,8 +33,10 @@ budgets and says nothing about retention, and twenty-eight of them had accumulat
 of a document headed *Open*.
 
 **Ticking an item changes only its marker and the date, never its text.** The body records
-what was believed when the work was filed. Where that reasoning was wrong in an instructive
-way, strike it and file the corrected item beside it.
+what was believed when the work was filed. Reflowing is not a change to it — the words stay
+and only the line breaks move, which a tick makes necessary by lengthening the first line.
+Where that reasoning was wrong in an instructive way, strike it and file the corrected item
+beside it.
 
 **Ask at the end of a session.** Not on a threshold: ADR-0033 already tried one and
 retired it, because a warning with no remedy the reader can apply fires until it stops
@@ -58,9 +63,9 @@ knowledge into the server; M12 fixes the one thing those notes exist to work aro
   nothing — and `config.py` already called that "the single most likely first-run sandbox
   failure". Nothing checks the environment at startup, so it went undiagnosed for a session
   and was written up as an architectural limit instead
-- ✅ 2026-09-07 Measure that the server really does start with a missing workspace root, no `bwrap` and
-  a dead endpoint. Read from code rather than run, and it is the justification for the item
-  below
+- ✅ 2026-09-07 Measure that the server really does start with a missing workspace root,
+  no `bwrap` and a dead endpoint. Read from code rather than run, and it is the
+  justification for the item below
 - ✅ 2026-09-07 `--doctor`, one line per check: each root exists, `bwrap` runs a trivial command, the
   provisioned toolchain is current, the head node resolves by name *inside WSL*, every
   registry entry answers with `id_confirmed`, `transcript_dir` is writable, `cross_process`
@@ -101,9 +106,9 @@ with that test included. The criterion above is already satisfiable; only provis
 - ⬜ Network stays off, with an ADR. `--share-net` re-shares the host's whole namespace with
   no allowlist or destination list, and this host reaches the cluster and the LAN
 - ⬜ **Spike answered** — weigh covering read-only, which would make a discarded write
-  fail loudly instead of exiting 0. Measure first: `__pycache__` and `.pytest_cache` are on the same list and a test
-  run writes to both, so read-only may break what this milestone exists to enable. Any
-  change supersedes a line of ADR-0041
+  fail loudly instead of exiting 0. Measure first: `__pycache__` and `.pytest_cache` are
+  on the same list and a test run writes to both, so read-only may break what this
+  milestone exists to enable. Any change supersedes a line of ADR-0041
   - **Measured 2026-09-07: it is viable, and the timid version is unnecessary.** With eight
     directories covered by `--tmpfs` plus `--remount-ro`, a write into a covered path is
     refused with exit 1 while the same write into the workdir succeeds, and the full suite
@@ -153,10 +158,16 @@ their own project without ever reading this repository.
     Code treats a `skill://` resource as an invocable skill or merely lists it. It reads MCP
     resources already. Answering it needs the provider wired into this server and a
     reconnect, so it cannot be settled from outside
+  - **Ready to run, and untracked so it reaches no reader.** `.spike/ready_spike4.py` takes
+    `apply` and `revert`: it wires the provider in, writes a probe skill that answers
+    `SPIKE-4-CONSUMED` and nothing else, and restores `server.py` from a backup it wrote. So
+    the sequence is `apply`, reconnect, look for an invocable skill, `revert`, reconnect. It
+    refuses rather than patching blindly if the anchor line has moved
 - ⬜ **Spike** — find the cause behind withholding `run_bash` on a verifying pass, rather
-  than writing the workaround down. It took an audit from 26 turns to 1 at no cost in accuracy, and 24 of its
-  29 calls were verification — so if verification bought nothing, stop instructing the agent
-  to verify by shelling out. Measure that first; a `verify_quote` tool is only the fallback
+  than writing the workaround down. It took an audit from 26 turns to 1 at no cost in
+  accuracy, and 24 of its 29 calls were verification — so if verification bought nothing,
+  stop instructing the agent to verify by shelling out. Measure that first; a
+  `verify_quote` tool is only the fallback
   - **Attempted 2026-09-07 and inconclusive, because the experiment was designed wrong.** A
     read-only pass has no shell, which is the condition under test, and one was run over a
     dense document for the TOO VERBOSE class. It correctly found nothing — so it produced no
@@ -190,8 +201,8 @@ nothing was configured, and no tool result changes shape.
   derives only since-boot figures and a lifetime average cannot say how the cluster is doing
   now. `backend_status` keeps the output it has, so no client behaviour changes
 - ⬜ **Spike answered** — a `status` subcommand printing one plain-text block, since a TUI
-  cannot run inside an agent's shell. Measure whether a detached terminal window can be launched from one; if not,
-  print the command to paste
+  cannot run inside an agent's shell. Measure whether a detached terminal window can be
+  launched from one; if not, print the command to paste
   - **Measured 2026-09-07: a detached launch works, so the fallback is not needed.**
     `wt.exe -- wsl.exe -d <distro> -e <cmd> <args>` opens a window, runs the command, and
     outlives the tool call that started it; the window closes when the command exits, so a

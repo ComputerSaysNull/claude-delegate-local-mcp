@@ -34,6 +34,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #135 — 2026-09-07 — docs: PLAN.md says where a ready measurement lives
+
+### Fixed
+- **A spike whose harness is already built read as one that still needs building.** The
+  client half of the MCP-served-skills measurement needs the provider wired into this
+  server and a reconnect, and a throwaway that does exactly that was written the same day
+  — into `.spike/`, which is gitignored. So it survives on one machine and reaches nobody
+  reading the repository, including the next session, which plans from PLAN.md rather than
+  from the filesystem. That is the same failure this roadmap exists to fix, one directory
+  over. The item now names the harness, its `apply`/`revert` verbs, and the sequence.
+- **Every line the previous entry's labelling had left overlong is reflowed**, including
+  the ticked one. Three attempts fixed a line at a time and each merely pushed the overflow
+  onto the next; rewrapping the paragraph whole is what settled it.
+- **The tick rule now says that reflowing is allowed**, because reading it as a ban was a
+  live misreading — this entry originally claimed the ticked item could not be rewrapped and
+  left it over-width on that basis. Reflowing changes no words, only where the lines break,
+  and a tick makes it necessary by lengthening the first line with its date. Verified rather
+  than asserted: the item's block is byte-identical to the previous commit's once whitespace
+  is normalised.
+
 ## #134 — 2026-09-07 — docs: an open measurement is labelled so it can be found
 
 ### Changed
