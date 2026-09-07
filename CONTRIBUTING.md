@@ -1,4 +1,6 @@
-<!-- BUDGET: 337
+<!-- BUDGET: 348
+     Raised from 337 on 2026-09-07: a seventh sighting, and the first about a program other
+     than the agent itself -- a body credited the gate with a check it had never had.
      Raised from 330 on 2026-09-06: granting an agent a tool and telling it how to use the
      tool are two edits, and only the first one has a check.
      Raised from 321 on 2026-09-06: a sixth sighting, and this one was in this document
@@ -231,6 +233,15 @@ the direction that matters**: truncation leaves a short answer a reader can see 
 and what actually happens is an *empty* answer reporting success. The agent body carries the
 evidence — two passes at 27,603 and 41,364 output tokens returned nothing and said `ok`. A
 sixth sighting of the same pattern, in the document that records the pattern.
+
+**A seventh sighting, 2026-09-07, and this one pointed outward.** Both audit bodies listed
+"broken links" among what `scripts/docs_gate.py` mechanically checks; `CHECKS` had never held
+one. Every earlier sighting was a body wrong about *itself*, so reading the frontmatter — the
+fix for the fifth — could not have found this. It also inverts the cost: the next line is
+"report nothing it already catches", making a false entry a **blind spot** rather than a
+duplication, and it steered the one reader who would have checked references away from a
+`docs/DISPATCH.md` pointer aimed at its own section. **A body crediting another tool is
+asserting something about that tool's source** — check it there.
 
 That rule was tested within a day. The *replacement* text carried a fresh measurement of its
 own — that fanning out costs about 120 s of stagger per extra call — and a controlled run the

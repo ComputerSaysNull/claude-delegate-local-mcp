@@ -34,6 +34,63 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #127 — 2026-09-07 — docs: five duplications trimmed, and the gate learns to check references
+
+### Fixed
+- **A cross-reference in `docs/DISPATCH.md` pointed at the section it was written in.** The
+  final-turn paragraph said to see "Turns, and what ends them" for why forbidding tools
+  rather than withdrawing them is a cache decision — while sitting inside that very section.
+  **Cause:** the reason and its measurement (321 tokens saved against 36,018 re-prefilled, a
+  99.3% hit falling to 0.0%) live in "The history is resent every turn, and trimmed in
+  steps", and the reference was never updated when the mechanism moved there. Introduced by
+  #121 — the commit that fixed the 2026-09-06 audit's own BLOCKER #1, whose finding said the
+  correct mechanism was "already stated in 'Turns, and what ends them'". **Fix:** it names
+  the section that holds the measurement.
+- **The gate checks references now, which two documents had credited it with all along.**
+  `doc-reference` resolves relative markdown link targets, checks `#` anchors against the
+  headings that actually make them, and flags a quoted section pointer that resolves to the
+  section containing it. **Cause:** `.claude/agents/docs-audit-local.md` and
+  `.claude/agents/docs-audit.md` both listed "broken links" among what the gate mechanically
+  catches, and `CHECKS` never held such a check. The claim was not idle — the next line of
+  each is "report nothing it already catches", so a false entry there is a blind spot rather
+  than a duplication, and it aimed the one reader who would have looked away from the
+  pointer above. Both files now describe what the check does, and keep the history as a
+  standing warning about that paragraph rather than a quietly fixed typo.
+- **The check could not fire when first written, and was caught by trying it.** The quoted
+  span was `[^"
+]`, so a title wrapped across a line break — which is exactly how the
+  `docs/DISPATCH.md` pointer wraps — could never match, and the check passed the repository
+  holding the bug it was written for. The trap was already recorded thirty lines away in the
+  same agent file, where a contiguous search had once called four true quotations
+  fabrications. It now admits newlines and compares on normalised whitespace. All three arms
+  were demonstrated firing against real violations before the tests were written, and both
+  directions are tested: reverting the span makes the wrapped case fail, and dropping the
+  containment condition makes two silent-direction cases fail. **All three arms pass on the
+  repository as it stands** — 104 relative links, 14 anchors, no self-pointers — so this is
+  a guard, and CLAUDE.md's rule that a check which cannot fail is worse than none is the
+  reason the mutation tests are recorded here.
+
+### Changed
+- **Five duplications trimmed from `docs/ARCHITECTURE.md` and `docs/DISPATCH.md`** — the
+  TOO VERBOSE check class, the one the 2026-09-06 audit deferred rather than do badly. In
+  each case the same fact or stated reason appeared twice and one copy carried it more fully:
+  "source cut mid-function is worse than absent" and "a model can call a tool it was never
+  offered" each stated twice in ARCHITECTURE, an empty-answer clause duplicated across two
+  consecutive paragraphs there, and the `attempts`/token-counts rule stated in both DISPATCH's
+  retry and empty-answer sections. **No fact, caveat, measured number or stated reason was
+  cut** — only the second statement of one, and the fuller copy is what survived each time.
+  Both documents came back **dense rather than padded**, which is the finding worth keeping:
+  the audit declined to trim the process-cap, admission, picker and `backend_status`
+  paragraphs, and named seams to split on instead of prose to remove.
+- **The two things the pass established beyond its findings**, both in PLAN.md. The reply
+  ceiling is dynamic rather than a size: these passes answered at 27,119 and 27,828 output
+  tokens where 2026-09-06 saw an *empty* return at 27,603 — a smaller answer than one that
+  landed here, which is ADR-0055's decode-rate derivation and not a limit `max_tokens` could
+  raise. And splitting an audit by document forfeits the prefix cache, measured at 1,280 and
+  4,096 `cached_tokens` against the 69,632 two identical prefetches share, because the two
+  passes prefetched different files. That is the price of the split the check-class table
+  prescribes, and it is worth paying for answers small enough to clear the ceiling above.
+
 ## #126 — 2026-09-06 — feat: an agent can be reached read-only, and a lookup path stops being called a workdir
 
 ### Added

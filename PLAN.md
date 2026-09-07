@@ -96,10 +96,11 @@ them was re-derived when it did.
 
 ### Documentation accuracy
 
-- ⬜ TOO VERBOSE across `docs/ARCHITECTURE.md` and `docs/DISPATCH.md` — the one check class
-  the 2026-09-06 audit did not run at all. 1,457 lines needing a trim proposal per
-  candidate, deferred rather than done badly, and the only class of that audit with no
-  coverage. It is audit work, with a method a feature session does not have
+- ✅ 2026-09-07 TOO VERBOSE across `docs/ARCHITECTURE.md` and `docs/DISPATCH.md` — the one
+  check class the 2026-09-06 audit did not run at all. Five duplications trimmed, both
+  documents dense rather than padded; what the passes measured is in the #127 entry
+- ✅ 2026-09-07 The gate now checks references, which both audit agent files had claimed
+  for it since they were written. `doc-reference`, negative-tested in both directions
 ### Improvements
 
 - ✅ 2026-09-06 A read-only form of `delegate_to_agent` — the agent tool with its set fixed
