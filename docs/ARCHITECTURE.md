@@ -1,4 +1,7 @@
-<!-- BUDGET: 923
+<!-- BUDGET: 933
+     Raised from 923 on 2026-09-07: opening a path and comparing one need different
+     translation, and this section owns the boundary. Third raise in a day -- the split
+     ADR-0003 asks for is overdue rather than merely signalled.
      Raised from 914 on 2026-09-07: a turn's record says which effort it ran at, which the
      viewer now shows. Second raise in a day, which ADR-0003 means as a signal: the next
      addition is weighed against a split, and the seam is the stream-and-viewer section.
@@ -208,11 +211,11 @@ and the result was filed as an architectural limit rather than a missing package
 
 `doctor.py` asks those questions up front and **reuses the server's own code to ask them**
 — `paths.resolved_roots`, `sandbox.available`, `sandbox.limiter_available`,
-`sandbox.probe_toolchain_binds`, `server.probe_entry`, `slots.build_slots` and
-`transcript.enabled`. A check written fresh is free to agree with a server that changed
-underneath it. One question has no helper and so is written here: `bwrap` is *executed*
-rather than looked up, because `available` is a `PATH` lookup and a bubblewrap that cannot
-unshare a namespace passes it and then refuses every command.
+`sandbox.probe_toolchain_binds`, `server.probe_entry`, `slots.build_slots`,
+`transcript.enabled` and `transcript.directory`. A check written fresh is free to agree
+with a server that changed underneath it. One question has no helper and so is written
+here: `bwrap` is *executed* rather than looked up, because `available` is a `PATH` lookup
+and a bubblewrap that cannot unshare a namespace passes it and then refuses every command.
 
 POSIX only, since on Windows every answer would describe a machine the server never runs
 on. stdout is the report rather than the wire — nothing speaks MCP to a doctor run. `FAIL`
@@ -366,6 +369,13 @@ silent ones: a model's guessed `/c/Users/...` is a path that does not exist rath
 error saying so, and rewriting separators on a path that was already POSIX corrupts it,
 since a backslash is a legal filename character. So a path in no recognised Windows form
 is passed through untouched, and an untranslatable one is refused by name.
+
+Two entry points, because comparing a path and opening one are different. `to_posix`
+translates unconditionally — its callers compare the result against roots translated
+alike, so on a Windows host the rewrite hits both sides and cancels. A path used as a
+*location* has no second side, and rewriting one on the host that wrote it invents a
+directory under the current drive; `to_local` translates only where this process is
+already POSIX. Compare with `to_posix`, open with `to_local`.
 
 ### Why bubblewrap, and what it does not cover
 

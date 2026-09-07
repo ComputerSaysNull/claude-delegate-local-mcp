@@ -47,6 +47,7 @@ from . import config, paths, registry, sandbox, transcript
 from .config import Config, ConfigError
 from .server import STATUS_OK, BackendCache, probe_entry
 from .slots import build_slots
+from .wsl import UntranslatablePath
 
 # Verdicts, worst last: the exit code is decided by the worst one seen.
 OK = "ok"
@@ -213,8 +214,14 @@ def check_transcripts(cfg: Config) -> Check:
             "transcripts", WARN, "switched off, so nothing records what a delegation cost",
             "Set DELEGATE_TRANSCRIPT_DIR to make the viewer and the cost report work.",
         )
-    raw = cfg.transcript_dir.strip()
-    directory = Path(os.path.expanduser(raw))
+    try:
+        directory = transcript.directory(cfg)
+    except UntranslatablePath as e:
+        return Check(
+            "transcripts", FAIL, f"{cfg.transcript_dir!r} cannot name a file here: {e}",
+            "A transcript failure is swallowed at runtime by design, so this is the only "
+            "place it is reported. Name a directory this distribution can reach.",
+        )
     try:
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         probe = directory / ".doctor-write-probe"
@@ -224,8 +231,7 @@ def check_transcripts(cfg: Config) -> Check:
         return Check(
             "transcripts", FAIL, f"{directory} is not writable: {e}",
             "A transcript failure is swallowed at runtime by design, so this is the only "
-            "place it is reported. Note that this setting is not path-translated: give it "
-            "a POSIX path.",
+            "place it is reported.",
         )
     return Check("transcripts", OK, f"writable at {directory}")
 

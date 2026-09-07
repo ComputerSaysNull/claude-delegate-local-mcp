@@ -73,7 +73,7 @@ knowledge into the server; M12 fixes the one thing those notes exist to work aro
   `sandbox.available()`, `limiter_available()` and `probe_entry()` exist, uncalled at startup
 - ⬜ `--init`, writing `.env` and `models.toml` from answers and *printing* the client
   registration it cannot write, and accepting a pasted Windows path wherever a path is asked
-- ⬜ `transcript_dir` skips `to_posix`, unlike `workspace_roots`, `toolchain_binds` and
+- ✅ 2026-09-07 `transcript_dir` skips `to_posix`, unlike `workspace_roots`, `toolchain_binds` and
   `sandbox_home`, so a Windows path in it has to be hand-converted to `/mnt/c` form
 - ⬜ One refused path in `files[]` kills the whole call. Prefetch what resolves, fill the
   `files_skipped` the reply already carries, and name the path and the root it missed
