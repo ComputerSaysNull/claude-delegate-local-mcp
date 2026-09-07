@@ -34,6 +34,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #129 — 2026-09-07 — docs: a workdir cannot verify Python work, measured and filed
+
+### Added
+- **An open item recording that `run_bash` cannot run this project's test suite.** Filed
+  rather than fixed, because the fix is a decision. A `workdir` binds a directory writable
+  so `run_bash` can run what a delegation wrote, and ADR-0007's self-verification rests on
+  capturing exit codes from real commands — but there is no `python` on `PATH` in the
+  sandbox, `import pytest` raises, `/tmp/vv` is absent because the WSL venv lives on the
+  host's `/tmp`, and there is no network to install one.
+- **Two measurements that make the item actionable rather than a complaint.** `.venv` is
+  *covered*, not empty — a 64k `tmpfs` over it where the repository is `v9fs` — so it is the
+  deliberate cover-up ADR-0035 describes, and shipping a Linux venv in the repository would
+  be covered too. And a write into a covered path **exits 0 and is then discarded**: `touch
+  .venv/probe` succeeds and is gone by the next `run_bash` call, where a write into the
+  workdir itself persists. That last one is the shape ADR-0007 cannot defend against, since
+  it tells a reader to trust the captured exit code and here the captured code is 0.
+
 ## #128 — 2026-09-07 — feat: a tool call's record says what was asked and why it refused
 
 ### Added
