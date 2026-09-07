@@ -60,9 +60,17 @@ Older entries, in the previous flat format, are in
   the same check twice.
 - **`FAIL` exits non-zero, `WARN` does not.** A missing toolchain leaves the read-heavy
   majority of delegations working, so it must not block; a missing root refuses every path
-  under it, so it must. Running on this machine, the report is eight `PASS` and one `WARN`
+  under it, so it must. Running on this machine the report is seven `PASS` and one `WARN`
   — and the warning is the absent toolchain, independently reproducing the finding that
   went undiagnosed for a session.
+- **The `bwrap` execution test is `integration`-marked, and CI proved why.** It was first
+  guarded only on `sandbox.available()`, which is the `PATH` lookup the doctor exists to
+  distrust — so it asserted a pass in exactly the environment the check is for, and failed
+  on both Python versions. The runner installs bubblewrap and still cannot bring up loopback
+  in a new network namespace (no `CAP_NET_ADMIN`), which `ci.yml` had already recorded above
+  the install step. The probe's `FAIL` there is **correct**: `build_argv` uses the same
+  `--unshare-all`, so `run_bash` would fail on that machine too. The test was wrong, not the
+  check.
 
 ### Changed
 - **What shipped differs from the filed item in two ways, recorded here because a ticked

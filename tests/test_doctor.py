@@ -128,9 +128,18 @@ def test_bwrap_present_but_failing_is_still_a_fail(tmp_path):
 
 
 @posix_only
+@pytest.mark.integration
 @pytest.mark.skipif(
     not sandbox.available(Config(workspace_roots=("/tmp",))),  # type: ignore[arg-type]
-    reason="BWRAP EXECUTION UNPROVEN BY THIS RUN -- needs a real bubblewrap, so WSL.",
+    reason=(
+        "BWRAP EXECUTION UNPROVEN BY THIS RUN -- not a pass. `available()` is a PATH lookup "
+        "and proves nothing about unsharing, which is the doctor's whole point, so this is "
+        "`integration`-marked as well: the CI runner installs bubblewrap and still cannot "
+        "bring up loopback in a new network namespace (no CAP_NET_ADMIN), where the probe's "
+        "`--unshare-all` correctly reports FAIL because `run_bash` would also fail there. "
+        "Run: wsl -d Ubuntu-24.04 -e bash -lc 'cd <repo> && /tmp/vv/bin/python -m pytest "
+        "tests/test_doctor.py -m integration'"
+    ),
 )
 def test_real_bwrap_passes():
     assert doctor.check_bwrap(cfg()).verdict == OK
