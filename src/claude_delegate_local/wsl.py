@@ -17,6 +17,7 @@ to cross.
 
 from __future__ import annotations
 
+import os
 import re
 
 # `C:\rest`, `C:/rest`, or a bare `C:` -- Claude Code emits all three separator styles and
@@ -83,3 +84,24 @@ def to_posix(given: str) -> str:
         return f"/mnt/{drive}{rest}"
 
     return s
+
+
+def to_local(given: str) -> str:
+    """`to_posix` where a boundary was really crossed; a pass-through where it was not.
+
+    `to_posix` translates unconditionally, and every caller it was written for can afford
+    that because none of them uses the result as a *location*. `workspace_roots`,
+    `effective_workdir_roots` and the requested paths checked against them all go through
+    it and then through `realpath`, so on a Windows host the mangling applies to both sides
+    of every comparison and cancels. Containment is answered correctly either way.
+
+    A directory the server opens or writes into has no other side to cancel against. There,
+    translating on a Windows host is not a no-op but a mistake: `C:\\Users\\me\\t` is
+    already absolute there, and `/mnt/c/Users/me/t` names something under the current drive
+    that nobody asked for. The boundary this module exists to cross only exists when this
+    process is on the POSIX side of it -- which in production it always is, so this differs
+    from `to_posix` only under the Windows test suite.
+
+    Use `to_posix` to compare a path. Use this to open one.
+    """
+    return to_posix(given) if os.name == "posix" else given.strip()

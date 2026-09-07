@@ -34,6 +34,55 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #136 — 2026-09-07 — fix: transcript_dir is path-translated like every other path setting
+
+### Added
+- **`wsl.to_local`, because opening a path and comparing one are not the same question.**
+  The first attempt at this fix translated with `to_posix`, and the full Windows suite
+  refused it: 23 failures across `test_transcript*.py`, every one a record written under a
+  translated path on a host where the original was already absolute. `to_posix` translates
+  whatever host it runs on, and every caller it was written for can afford that because
+  none of them uses the result as a *location* — `workspace_roots` and the requested paths
+  checked against them are all translated alike, so the rewrite hits both sides of every
+  comparison and cancels. A directory the server opens has no second side to cancel
+  against. `to_local` applies the same translation only where this process is on the POSIX
+  side of the boundary: identical in production, where the server is always on it, and
+  different only under the Windows suite that found the distinction. Compare with
+  `to_posix`; open with `to_local`.
+
+### Fixed
+- **`--doctor` passed on the exact misconfiguration it exists to catch.** `transcript_dir`
+  was the one path setting that skipped translation; `workspace_roots`,
+  `effective_workdir_roots`, `sandbox_home` and `toolchain_binds` all get it. The symptom
+  PLAN.md recorded was the mild one — an operator had to convert the path by hand. The real
+  one is not. A Windows path is a legal *single-component* POSIX filename, so
+  `C:\Users\me\t` is relative rather than absolute, and not an error: measured under WSL its
+  `parts` is a one-tuple and `abspath` places it under the server's working directory. So
+  `open_stream` called `mkdir(parents=True)` on it and **succeeded**, writing records into a
+  directory of that literal name inside the checkout, and its `except OSError` never fired
+  because nothing raised. `check_transcripts` did the same `mkdir` and returned
+  `OK, "writable at C:\Users\me\t"` — so the one place a swallowed transcript failure is
+  reported reported a pass, and the remedy it carried ("this setting is not path-translated:
+  give it a POSIX path") sat in a `FAIL` branch this failure could never reach. That is the
+  fifth check found here that could not fail, which CLAUDE.md calls worse than no check
+  precisely because it is trusted.
+- **Fixed by giving the setting one translation site instead of three.**
+  `transcript.directory` owns it, and `open_stream`, `write` and `doctor.check_transcripts`
+  all ask it rather than each resolving the raw string. That is the reuse rule the rest of
+  `doctor.py` already follows, and the reason a check cannot drift into agreeing with a
+  server that changed underneath it. `open_stream` widened its `except` to include
+  `UntranslatablePath`, which is a `ValueError` and would otherwise have escaped into the
+  dispatch path once translation was added — this module may not raise into a delegation;
+  `write` already caught broadly. A UNC share is refused with a message rather than resolved
+  to something plausible, because there is no mount point for one here.
+- The regression test reconstructs what the old code computed and asserts it was a single
+  relative component, so it fails if the fault is ever mis-stated rather than only if the
+  fix regresses. Five of its cases failed against the unfixed code before `to_local`
+  existed. The fault is POSIX-only — on Windows the path really is absolute — so the cases
+  that resolve a location are marked POSIX-only and carry their weight in the WSL suite,
+  where all ten run. An earlier draft of one case quietly created a directory on the Windows
+  host to make itself pass, which is the same mistake as the check it was written for.
+
 ## #135 — 2026-09-07 — docs: PLAN.md says where a ready measurement lives
 
 ### Fixed

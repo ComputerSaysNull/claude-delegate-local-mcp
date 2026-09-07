@@ -50,6 +50,8 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .wsl import UntranslatablePath, to_local
+
 if TYPE_CHECKING:
     from .admission import AdmissionLease
     from .config import Config
@@ -216,17 +218,34 @@ class Stream:
         })
 
 
+def directory(cfg: Config) -> Path:
+    """Where records go: the one place `transcript_dir` becomes a path.
+
+    Translated with `to_posix` for the same reason `workspace_roots` and `sandbox_home`
+    are: the setting is written on the Windows side and read inside WSL. Skipping it here
+    was not a conversion the caller had to do by hand, it was a silent one. A Windows path
+    is a legal *single-component* POSIX filename, so `C:\\Users\\me\\t` is relative, not
+    absolute; `mkdir(parents=True)` therefore succeeded against a directory of that literal
+    name under the server's working directory, records landed in it, and every check that
+    existed to catch the misconfiguration passed.
+
+    Raises `UntranslatablePath` for a UNC share, which has no mount point here. Callers on
+    the dispatch path must swallow it -- this module may not raise into a delegation.
+    """
+    return Path(os.path.expanduser(to_local(cfg.transcript_dir)))
+
+
 def open_stream(cfg: Config, agent_name: str | None) -> Stream | None:
     """A stream for this dispatch, or None when transcripts are switched off."""
     if not enabled(cfg):
         return None
     try:
-        directory = Path(os.path.expanduser(cfg.transcript_dir.strip()))
-        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        target = directory(cfg)
+        target.mkdir(parents=True, exist_ok=True, mode=0o700)
         _COUNTER["n"] += 1
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%f")[:-3]
-        return Stream(directory / f"{stamp}-{_COUNTER['n']:04d}-{_slug(agent_name)}.jsonl")
-    except OSError:
+        return Stream(target / f"{stamp}-{_COUNTER['n']:04d}-{_slug(agent_name)}.jsonl")
+    except (OSError, UntranslatablePath):
         return None
 
 
@@ -358,13 +377,13 @@ def write(  # noqa: PLR0913 -- one record's worth of facts, from four different 
     if not enabled(cfg):
         return
     try:
-        directory = Path(os.path.expanduser(cfg.transcript_dir.strip()))
-        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        target = directory(cfg)
+        target.mkdir(parents=True, exist_ok=True, mode=0o700)
 
         _COUNTER["n"] += 1
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%f")[:-3]
         agent = _slug(agent_name)
-        path = directory / f"{stamp}-{_COUNTER['n']:04d}-{agent}.json"
+        path = target / f"{stamp}-{_COUNTER['n']:04d}-{agent}.json"
 
         record: dict[str, Any] = {
             "at": datetime.now(UTC).isoformat(),

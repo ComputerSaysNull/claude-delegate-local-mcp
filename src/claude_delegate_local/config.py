@@ -521,7 +521,10 @@ class Config:
     transcript_dir: str = _f(
         "",
         "Directory to write one record per dispatch into. Empty disables it, and empty "
-        "is the default. Independent of the caller's `diagnostics` argument by design: "
+        "is the default. Given in either form -- a Windows path is translated like every "
+        "other path setting, which until 2026-09-07 it was not, and an untranslated one "
+        "is a relative filename rather than an error. "
+        "Independent of the caller's `diagnostics` argument by design: "
         "what an operator can audit should not depend on what the calling session "
         "thought to ask for. Setting it must not change a single byte of any response. "
         "Records carry the task, the files and their accounting, real token usage and "
