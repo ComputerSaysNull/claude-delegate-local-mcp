@@ -1,4 +1,7 @@
-<!-- BUDGET: 300
+<!-- BUDGET: 390
+     Raised from 300 on 2026-09-07: five milestone headings with their exit conditions, and
+     the items M8 to M11 add. Four completed items were archived first, which paid for 46
+     lines of it.
      Reset from 738 on 2026-09-06, when 35 completed items moved to
      archive/PLAN-milestones.md. The raise history that stood here ran to sixty lines and
      said itself that the reason for each raise is in the CHANGELOG.md section for the
@@ -23,6 +26,10 @@ work", which was a convention rather than a decision — the ADR-0003 it cited i
 budgets and says nothing about retention, and twenty-eight of them had accumulated to 36%
 of a document headed *Open*.
 
+**Ticking an item changes only its marker and the date, never its text.** The body records
+what was believed when the work was filed. Where that reasoning was wrong in an instructive
+way, strike it and file the corrected item beside it.
+
 **Ask at the end of a session.** Not on a threshold: ADR-0033 already tried one and
 retired it, because a warning with no remedy the reader can apply fires until it stops
 being read. This is a question someone answers, and the end of a session is when the answer
@@ -30,80 +37,71 @@ is cheap — the work is fresh enough to annotate and finished enough to move.
 
 ---
 
-## Open — hardening, testing and troubleshooting
+## Open — the roadmap to a server someone else can run
 
-The milestone plan closed with M7; this is what is queued now. Ordered within each
-group by what the item's own annotation says it costs.
+Milestones M0a to M7 closed on 2026-09-02 and are in
+[archive/PLAN-milestones.md](archive/PLAN-milestones.md). These are queued now, each with
+the one observable thing that ends it, ordered by what each item's annotation says it costs.
 
-### Security review, 2026-09-02
+Most of what makes this server usable lives outside it, in a private CLAUDE.md and in
+session memories that reach nobody else and are gated by nothing. M8 to M11 move that
+knowledge into the server; M12 fixes the one thing those notes exist to work around.
 
-- ⬜ Content-level detection for a renamed secret — every path-policy layer inspects the
-  path and none the bytes, so `config.json` holding a private key passes all of them and is
-  inlined, and `run_bash` can read one the mount-level scan did not match by name. One
-  finding, not two: fixing the detection fixes both ends. **Not** by pointing `scan_text` at
-  it, which the 2026-09-02 review recommended — that scanner looks for RFC1918 addresses,
-  private-DNS suffixes and non-allowlisted emails, and would false-positive on the source a
-  review delegation exists to read. A narrow, high-precision check for key material instead
-  (PEM armour, `BEGIN OPENSSH PRIVATE KEY`, cloud key prefixes)
-### Limits and admission, 2026-09-03
+### M8 — The server can say why it will not work
 
-- ⬜ **Admission has no anti-starvation, and 2026-09-05's measurements make it sharper.**
-  `_binding` ends with a queue-position check refusing any waiter with `ahead > 0`, where
-  `ahead` counts only earlier-ticketed waiters *that currently fit*. Of the four rules only
-  `max_inflight_large_prefills` is guarded by `is_large`, so a small request never tests it
-  — and a large request parked on that cap therefore counts every later small request as
-  ahead of it, and they go first. Deliberate, and the docstring says why: strict ticket
-  order would reintroduce head-of-line blocking. But there is **no aging, no reservation
-  and no barrier.** The only escape is the caller's `admission_wait_timeout`, a bail-out
-  rather than a guarantee, and the ticket staleness is a crash backstop.
-  - **What changed:** the eviction half was reasoned, not measured, and now can be. The
-    KV pool is `kv_cache_size_tokens` from the endpoint's own metric, and
-    `vllm:kv_cache_usage_perc` says how full it is, so "the prefix a starved request was
-    queued to reuse gets evicted meanwhile" is now a question with an instrument. Decide
-    after step 5 lands the reader, not before.
-  - **What is settled:** the related worry that `max_inflight_large_prefills = 2` trades
-    cache hits for pipelining is **answered and dead.** Three concurrent large prefills
-    over a shared prefix cost the same as three serial ones and hit cache identically, and
-    the engine runs one at a time, touching two only at the handoff — which is exactly
-    what "one running plus one staged" describes. Keep the setting and the value.
-  - **What session 2 adds: `is_large` is decided once and never revisited.** `admit()` reads
-    `prefill_tokens` from the *opening* estimate and holds the lease for the whole
-    delegation, so an audit opening under `large_prefill_tokens` is filed as small for life
-    — while later turns re-prefill 40-70k each and the slots file still reads `large: 0`.
-    The rule that exists to serialise large prefills has never been tested by the workload
-    it was written for, and the same staleness understates `kv_token_budget`. **The eviction
-    item above is what makes a delegation's prefill grow**, so fix that first and re-measure;
-    re-deriving `is_large` per turn is cheap but may then be unnecessary
-- ⬜ **`kv_token_budget` is 1.66x the real KV pool, and the number to fix it is now
-  readable.** The setting defaults to 2,400,000 and its help text says it "sits just under
-  the measured KV pool". The endpoint reports `kv_cache_size_tokens = 1,444,236`, so it
-  sits well over. Nothing has failed, because the setting protects latency rather than
-  correctness — over-admitting queues and preempts rather than erroring — which is exactly
-  why it drifted unnoticed. Likely cause is the 2026-09-04 model swap: a vision model
-  carries more weights, so less memory is left for KV and the pool shrank underneath a
-  constant measured against the old model.
-  - **Do not fix it with a new constant.** An `.env` override is right today and drifts on
-    the next swap; changing the default bakes one deployment's hardware into the
-    repository. Derive it from what `backend_status` now reads, the way `WindowCheck`
-    already derives per process — a server guessing at a figure the cluster publishes is
-    the whole argument of the 2026-09-05 session.
-  - Deferred deliberately on 2026-09-05: our delegations run ~45k tokens, so six of them
-    is 19% of the pool and the gap is not currently reachable.
+**Exit:** `--doctor` prints a pass or fail line per check and exits non-zero on any failure.
 
-Raised by a documentation audit that was truncated by its own turn budget, then rerun. The
-three settings below were each sized against a constraint that has since moved, and none of
-them was re-derived when it did.
+- ✅ 2026-09-07 `uv` is absent on this host, so `probe_toolchain_binds` probed and bound
+  nothing — and `config.py` already called that "the single most likely first-run sandbox
+  failure". Nothing checks the environment at startup, so it went undiagnosed for a session
+  and was written up as an architectural limit instead
+- ⬜ Measure that the server really does start with a missing workspace root, no `bwrap` and
+  a dead endpoint. Read from code rather than run, and it is the justification for the item
+  below
+- ⬜ `--doctor`, one line per check: each root exists, `bwrap` runs a trivial command, the
+  provisioned toolchain is current, the head node resolves by name *inside WSL*, every
+  registry entry answers with `id_confirmed`, `transcript_dir` is writable, `cross_process`
+  slots are live. Refuses to run outside WSL, where `bwrap` and DNS would answer wrongly.
+  `sandbox.available()`, `limiter_available()` and `probe_entry()` exist, uncalled at startup
+- ⬜ `--init`, writing `.env` and `models.toml` from answers and *printing* the client
+  registration it cannot write, and accepting a pasted Windows path wherever a path is asked
+- ⬜ `transcript_dir` skips `to_posix`, unlike `workspace_roots`, `toolchain_binds` and
+  `sandbox_home`, so a Windows path in it has to be hand-converted to `/mnt/c` form
+- ⬜ One refused path in `files[]` kills the whole call. Prefetch what resolves, fill the
+  `files_skipped` the reply already carries, and name the path and the root it missed
 
-### Documentation accuracy
+### M9 — A delegation can run the project's tests
 
-- ✅ 2026-09-07 TOO VERBOSE across `docs/ARCHITECTURE.md` and `docs/DISPATCH.md` — the one
-  check class the 2026-09-06 audit did not run at all. Five duplications trimmed, both
-  documents dense rather than padded; what the passes measured is in the #127 entry
-- ✅ 2026-09-07 The gate now checks references, which both audit agent files had claimed
-  for it since they were written. `doc-reference`, negative-tested in both directions
-### Improvements
+**Exit:** a delegation runs this repository's suite in a workdir and the server captures a
+real non-zero exit for a failing test and a real zero for a passing one.
 
-- ⬜ **`workdir` cannot verify Python work, which is the one thing it exists for.** It binds a
+Measured 2026-09-07 before any code: inside `bwrap --unshare-all`, a venv under
+`sandbox_home` carrying this repository's dev dependencies and an editable install ran the
+whole WSL suite — **1237 passed, 4 skipped, 1 deselected in 207s at exit 0**, and exit 1
+with that test included. The criterion above is already satisfiable; only provisioning is left.
+
+- ⬜ `provision <project>` — build the interpreter and dev dependencies under
+  `sandbox_home`, bound read-write, persistent and *outside* the workspace. Outside is
+  mandatory rather than tidy: ADR-0041 records that inside a virtualenv `*secret*` and
+  `*credential*` match ordinary library filenames and the scan covers each with `/dev/null`,
+  breaking the environment it just read. It runs server-side, where the network is, so no
+  `network: true` grant is needed — and `uv` is no substitute, binding only its binary and
+  leaving its cache outside by design, so with no network it resolves nothing
+- ⬜ Hash the project's dependency declaration beside the provisioned venv and have
+  `--doctor` report a mismatch, or a delegation tests stale dependencies and returns the
+  clean exit code ADR-0007 says to trust
+- ⬜ Invoke the venv's interpreter by absolute path rather than changing `SANDBOX_PATH`,
+  which is hardcoded to `/usr/bin:/usr/sbin`; the measurement needed no PATH change
+- ⬜ A per-project list of tests that cannot run nested. Measured:
+  `test_network_is_reachable_by_address_when_shared` fails because `--unshare-all` denies the
+  network it asserts, and without the list the exit condition above is unreachable
+- ⬜ Network stays off, with an ADR. `--share-net` re-shares the host's whole namespace with
+  no allowlist or destination list, and this host reaches the cluster and the LAN
+- ⬜ Weigh covering read-only, which would make a discarded write fail loudly instead of
+  exiting 0. Measure first: `__pycache__` and `.pytest_cache` are on the same list and a test
+  run writes to both, so read-only may break what this milestone exists to enable. Any
+  change supersedes a line of ADR-0041
+- ~~**`workdir` cannot verify Python work, which is the one thing it exists for.**~~ It binds a
   directory writable so `run_bash` can run what the delegation wrote, and ADR-0007's
   self-verification rests on real captured exit codes. There are none here: measured
   2026-09-07, no `python` on `PATH`, `import pytest` raises, `/tmp/vv` is absent because the
@@ -114,106 +112,58 @@ them was re-derived when it did.
   - **And a write into a covered path exits 0 and is then discarded** — `touch .venv/probe`
     succeeds and is gone by the next `run_bash`, where a workdir write persists. ADR-0007
     says trust the captured exit; here it is 0 and wrong. Decide separately.
-- ✅ 2026-09-06 A read-only form of `delegate_to_agent` — the agent tool with its set fixed
-  to whatever declares no write, exactly as `delegate_readonly` is to `delegate`.
-  Shipped as `delegate_to_agent_readonly` (ADR-0059), and it took the `workdir`/`project`
-  split with it: the correspondence the annotation rests on — a workdir is a read-write
-  bind, so a read-only tool cannot offer one — was prose, and `list_agents` had already
-  falsified it. It is a test now. **The ramp is measured**: two arms issued in one message
-  started 2.2s apart, against the 120s a chained tool predicts (JOURNAL 2026-09-06). The justification is
-  ADR-0042's and unchanged: a client decides before the call runs and never sees arguments,
-  so narrowing with `allowed_tools` cannot buy the declaration. `#91`'s note that "what
-  `delegate_readonly` has no equivalent of is the agent" is this same gap seen from the
-  other side, recorded there as context for a finished item rather than as work.
-  **What makes it worth doing now is measured.** A `readOnlyHint` tool runs on independent
-  clocks while `delegate_to_agent` is released one arm per 120s, so the 2026-09-06 audit
-  paid 120s x (n-1) of pure client ramp on passes that were `read_file`-only anyway — every
-  one after its second wave. It would also keep the agent file, whose accumulated
-  false-positive guardrails are most of that agent's value and which `delegate_readonly`
-  cannot carry. Two caveats to state rather than discover: the annotation's causation is
-  correlated and not proven, testable with two calls timed against their own issue stamps;
-  and it buys nothing against admission, which is server-side and starves a read-only
-  fan-out identically on `max_inflight_large_prefills`
-- ❌ 2026-09-05 A batch returns nothing until its slowest item settles — **wrong when
-  filed**, and moot besides: `#103` removed both batch tools (ADR-0051). `asyncio.gather`
-  withheld only the final dict. Each item's `run_delegation` wrote `stream.end` and its
-  transcript in its own `try/finally` as that item settled, turns streamed live through
-  `on_turn_done`, and per-item progress fired before the gather returned. An as-completed
-  drain would have passed its tests and improved nothing. Original entry follows.
-- ~~A batch returns nothing until its slowest item settles~~ — `asyncio.gather` over the
-  items, so one that stalls for the whole deadline withholds results that finished minutes
-  earlier. Purely latency and usability: slots are released per item as each `admit` context
-  exits, so the cluster gets its capacity back promptly and only the caller waits. Measured
-  on 2026-09-04, where two of three items were ready and unusable for 35 minutes. Progress
-  notifications already flow per item, so the missing piece is handing back what is done —
-  and the shape has to keep the per-item `ok`/`error` contract that `#45` exists to protect,
-  because shielding or restructuring the gather is what silently restored a lockout before
+
+### M10 — Knowledge that travels with the package
+
+**Exit:** on a host holding only the package, a caller can write a valid agent file for
+their own project without ever reading this repository.
+
+- ⬜ Three facts are missing from the tool descriptions, which is the only channel the
+  protocol delivers by itself: one question per delegating call, an unprefetched call is the
+  dearest rather than the cheapest, and prefetch what is already known to be needed. A
+  behaviour change with a CHANGELOG entry, not a wording fix
+- ⬜ An `@mcp.prompt` entry point carrying the orchestration discipline — sizing a pass by
+  expected findings, two large calls at a time, splitting a multi-part ask. The server
+  registers six tools and no prompts or resources at all
+- ⬜ `install-skills`, shipping `write-delegate-agent`: it writes an agent file in this
+  server's format and validates it by calling `list_agents` and checking the name lands
+  under `agents` rather than `skipped` or `other_format`
+- ⬜ Move the caller-side half of `docs-audit-local.md` into a repository-local skill, so
+  the agent body keeps only what one pass reads — the file says exactly that of the section
+  itself. It stays local rather than shipping, because the check list, the ownership map and
+  the gate integration are specific to this repository
+- ⬜ Measure whether Claude Code consumes skills served over MCP through FastMCP's
+  `SkillsDirectoryProvider`; if it does, that replaces `install-skills` outright
+- ⬜ Find the cause behind withholding `run_bash` on a verifying pass instead of writing the
+  workaround down. It took an audit from 26 turns to 1 at no cost in accuracy, and 24 of its
+  29 calls were verification — so if verification bought nothing, stop instructing the agent
+  to verify by shelling out. Measure that first; a `verify_quote` tool is only the fallback
 - ⬜ Server-format twins for the four Claude Code agents — `#72` made it visible that
   `code-reviewer`, `docs-audit`, `researcher` and `test-writer` load only in Claude Code,
   so `delegate_to_agent` can reach one of five agents in this repository. `docs-audit-local`
   is the shape to copy (`#67`). CONTRIBUTING.md already records the two-format arrangement
   as temporary; this is what it costs
-- ⬜ Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
-  way to look for anything. Its original justification, that expanding before the call keeps
-  `delegate_readonly` toolless and loopless, no longer holds now the fork is settled the
-  other way, so this is a convenience and ranks below the search tool. The work is in the
-  budget rather than the matching — a glob hitting two hundred files has to skip and account
-  for them the way `context.prefetch` already does, not spend `prefetch_budget` silently
-- ⬜ **A delegation returns a handle, and a second call collects it** — the client backs an
-  MCP call into the background after 120s. ~~and issues the next tool call only then, so
-  firing `n` delegations in one message costs `120s x (n-1)` of stagger before the last one
-  starts.~~ **Corrected 2026-09-06 (`#118`), then narrowed the same day.** Four
-  calls issued in one message started within 5.6s of each other, all four outlasting 120s
-  and being backgrounded together, so the 120s is when the client stops *waiting* rather
-  than when it issues the next call. **That holds for `delegate_readonly` only.** Those four
-  arms carried `readOnlyHint`; six `delegate_to_agent` arms issued the same way chained at
-  exactly 120s intervals, the last landing at +688s. So the stagger is real for the two
-  write-capable tools and the justification `#118` removed is restored for them — **re-rank
-  it back up.** A read-only form of the agent tool, filed under Improvements, would remove
-  the ramp for the audit case without this item; this one remains the general answer.
-  **That tool shipped on 2026-09-06 and the ramp it removes is now measured** — two arms
-  2.2s apart where a chained tool predicts 120s (JOURNAL 2026-09-06). This item is still
-  the general answer, for the two tools that must keep the annotation they have. Measured 2026-09-05: four passes issued together started at 20:24:30, 20:26:32,
-  20:28:32 and 20:30:32. They do run concurrently once started — ~~`seqs=4, large=0` in the
-  shared slots file — so the fan-out works; it is only the ramp that is wasted.~~
-  - **CORRECTED 2026-09-05 (session 2): the struck line had it backwards twice.** The
-    fan-out is worth more than the ramp — the aggregate lever is real (JOURNAL 2026-09-05)
-    — but `stall_timeout` is wall-clock **per delegation**, so the batch takes the gain
-    while each run pays the per-sequence penalty, which is what tips one over the deadline.
-    Handles do not change that; they only stop it being caller-visible. And `large=0` was
-    not evidence of health — see the admission item for why that counter cannot see a
-    fan-out at all
-  - **Server-side rather than a client setting**, deliberately. `MCP_TOOL_TIMEOUT` might
-    shorten the ramp, but it is per-machine setup that does not travel, and it is not known
-    here whether it backgrounds or kills — untested, and the failure mode is severe.
-  - **Shape that keeps the common case cheap:** block for a short grace window and return
-    the result inline if it finishes, so a single fast delegation stays one call; otherwise
-    return a handle. `collect(handle, wait_seconds)` blocks up to just under the client's
-    threshold, which costs nothing because the work is already running.
-  - Moves the admission wait behind the handle, so `admission_wait_timeout` stacking on
-    `dispatch_timeout` stops being caller-visible wall time (ADR-0038).
-  - Restructures the model-facing tool contract, so it is a behaviour change with an ADR,
-    not a wording fix. **Related to streaming but not blocked on it** — streaming is
-    token-level liveness inside a turn, this is call-level detachment. Say so in the ADR.
-- ✅ 2026-09-07 **A transcript says a tool errored, never what it was asked or why it refused** — the
-  ledger is `{name, outcome}` per call, so a pass reporting `tool_errors: 1` across twelve
-  `read_git` calls on 2026-09-05 could not be diagnosed *even with transcripts enabled*.
-  Searching the whole record for refusal text returns nothing. This is ADR-0039's own
-  argument applied to half the record: it reasons that a transcript which "cannot say what
-  was asked does not answer the question a transcript is opened to answer", and settles
-  that for the task while leaving tool arguments out. Add the arguments and the refusal
-  message to the ledger entry — mindful that arguments can carry paths, which is why the
-  ADR excluded file *contents* and not identifiers
-  - **CONFIRMED and widened 2026-09-05 (session 2).** The same gap hid a second thing, and
-    that one already has its reader: `evicted_then_reread` caught the model re-reading a
-    file eviction had just dropped, on three consecutive turns, and nothing surfaces it
-    because `diagnostics` defaults off. The fix is not only richer ledger entries but
-    deciding what an *operator* record carries without being asked — ADR-0024's own
-    reasoning, which is why `transcript_dir` is already independent of the caller's flag
-  - **And the live stream is missing a field the final record has.** `Stream.turn` writes
-    the token counts but not `tool_results_evicted`, which `write` emits per turn. So a
-    stream shows the cache collapsing and cannot show the eviction that caused it — the one
-    field that would have made the bug above self-evident while watching. One line to add
+
+### M11 — A call you can watch, and a cluster you can see
+
+**Exit:** the viewer shows a running delegation and live cluster figures on a host where
+nothing was configured, and no tool result changes shape.
+
+- ⬜ `transcript_dir` falls back to the server's own state directory when unset, so the
+  viewer and the cost record work without setup. ADR-0024 already argues that what an
+  operator can audit should not depend on the caller's flag
+- ⬜ Split the running totals from the transcripts so retention and accuracy stop competing:
+  an append-only ledger of one line per dispatch, never pruned, beside the fat per-dispatch
+  records, which may be aged out
+- ⬜ The ledger counts *cluster* tokens, which is a fact. Calling the number a saving assumes
+  what Claude would otherwise have read, which is not measured — report the facts and state
+  the assumption beside any saving
+- ⬜ A sampler polling the metrics reader on an interval into a windowed series, because it
+  derives only since-boot figures and a lifetime average cannot say how the cluster is doing
+  now. `backend_status` keeps the output it has, so no client behaviour changes
+- ⬜ A `status` subcommand printing one plain-text block, since a TUI cannot run inside an
+  agent's shell. Measure whether a detached terminal window can be launched from one; if not,
+  print the command to paste
 - ⬜ **Streaming, reopened 2026-09-05 with a scope.** Filed and cancelled the same day,
   2026-08-25, on the grounds that MCP tool calls are request/response so the caller sees
   nothing incrementally either way. That is still true of the caller and was never the
@@ -276,25 +226,165 @@ them was re-derived when it did.
     `output_tokens: 697` at `effort: low`. So `max_tokens` does bound a looping model — it
     is simply set far above the deadline today.
 
+- ⬜ **A delegation returns a handle, and a second call collects it** — the client backs an
+  MCP call into the background after 120s. ~~and issues the next tool call only then, so
+  firing `n` delegations in one message costs `120s x (n-1)` of stagger before the last one
+  starts.~~ **Corrected 2026-09-06 (`#118`), then narrowed the same day.** Four
+  calls issued in one message started within 5.6s of each other, all four outlasting 120s
+  and being backgrounded together, so the 120s is when the client stops *waiting* rather
+  than when it issues the next call. **That holds for `delegate_readonly` only.** Those four
+  arms carried `readOnlyHint`; six `delegate_to_agent` arms issued the same way chained at
+  exactly 120s intervals, the last landing at +688s. So the stagger is real for the two
+  write-capable tools and the justification `#118` removed is restored for them — **re-rank
+  it back up.** A read-only form of the agent tool, filed under Improvements, would remove
+  the ramp for the audit case without this item; this one remains the general answer.
+  **That tool shipped on 2026-09-06 and the ramp it removes is now measured** — two arms
+  2.2s apart where a chained tool predicts 120s (JOURNAL 2026-09-06). This item is still
+  the general answer, for the two tools that must keep the annotation they have. Measured 2026-09-05: four passes issued together started at 20:24:30, 20:26:32,
+  20:28:32 and 20:30:32. They do run concurrently once started — ~~`seqs=4, large=0` in the
+  shared slots file — so the fan-out works; it is only the ramp that is wasted.~~
+  - **CORRECTED 2026-09-05 (session 2): the struck line had it backwards twice.** The
+    fan-out is worth more than the ramp — the aggregate lever is real (JOURNAL 2026-09-05)
+    — but `stall_timeout` is wall-clock **per delegation**, so the batch takes the gain
+    while each run pays the per-sequence penalty, which is what tips one over the deadline.
+    Handles do not change that; they only stop it being caller-visible. And `large=0` was
+    not evidence of health — see the admission item for why that counter cannot see a
+    fan-out at all
+  - **Server-side rather than a client setting**, deliberately. `MCP_TOOL_TIMEOUT` might
+    shorten the ramp, but it is per-machine setup that does not travel, and it is not known
+    here whether it backgrounds or kills — untested, and the failure mode is severe.
+  - **Shape that keeps the common case cheap:** block for a short grace window and return
+    the result inline if it finishes, so a single fast delegation stays one call; otherwise
+    return a handle. `collect(handle, wait_seconds)` blocks up to just under the client's
+    threshold, which costs nothing because the work is already running.
+  - Moves the admission wait behind the handle, so `admission_wait_timeout` stacking on
+    `dispatch_timeout` stops being caller-visible wall time (ADR-0038).
+  - Restructures the model-facing tool contract, so it is a behaviour change with an ADR,
+    not a wording fix. **Related to streaming but not blocked on it** — streaming is
+    token-level liveness inside a turn, this is call-level detachment. Say so in the ADR.
+  - **Re-ranked below streaming on 2026-09-07.** `delegate_to_agent_readonly` removed the
+    ramp for read-only work and the client backgrounds a long call by itself, so what is left
+    is the ramp on the two write-capable tools and hiding the admission wait.
+
+### M12 — Admission that queues instead of starving
+
+**Exit:** a large request parked on `max_inflight_large_prefills` is no longer overtaken
+indefinitely by later small ones, shown by a test that reproduces the starvation first.
+
+Needed before a second person shares the cluster, and worth having alone.
+
+Raised by a documentation audit that was truncated by its own turn budget, then rerun. The
+three settings below were each sized against a constraint that has since moved, and none of
+them was re-derived when it did.
+
+- ⬜ **Admission has no anti-starvation, and 2026-09-05's measurements make it sharper.**
+  `_binding` ends with a queue-position check refusing any waiter with `ahead > 0`, where
+  `ahead` counts only earlier-ticketed waiters *that currently fit*. Of the four rules only
+  `max_inflight_large_prefills` is guarded by `is_large`, so a small request never tests it
+  — and a large request parked on that cap therefore counts every later small request as
+  ahead of it, and they go first. Deliberate, and the docstring says why: strict ticket
+  order would reintroduce head-of-line blocking. But there is **no aging, no reservation
+  and no barrier.** The only escape is the caller's `admission_wait_timeout`, a bail-out
+  rather than a guarantee, and the ticket staleness is a crash backstop.
+  - **What changed:** the eviction half was reasoned, not measured, and now can be. The
+    KV pool is `kv_cache_size_tokens` from the endpoint's own metric, and
+    `vllm:kv_cache_usage_perc` says how full it is, so "the prefix a starved request was
+    queued to reuse gets evicted meanwhile" is now a question with an instrument. Decide
+    after step 5 lands the reader, not before.
+  - **What is settled:** the related worry that `max_inflight_large_prefills = 2` trades
+    cache hits for pipelining is **answered and dead.** Three concurrent large prefills
+    over a shared prefix cost the same as three serial ones and hit cache identically, and
+    the engine runs one at a time, touching two only at the handoff — which is exactly
+    what "one running plus one staged" describes. Keep the setting and the value.
+  - **What session 2 adds: `is_large` is decided once and never revisited.** `admit()` reads
+    `prefill_tokens` from the *opening* estimate and holds the lease for the whole
+    delegation, so an audit opening under `large_prefill_tokens` is filed as small for life
+    — while later turns re-prefill 40-70k each and the slots file still reads `large: 0`.
+    The rule that exists to serialise large prefills has never been tested by the workload
+    it was written for, and the same staleness understates `kv_token_budget`. **The eviction
+    item above is what makes a delegation's prefill grow**, so fix that first and re-measure;
+    re-deriving `is_large` per turn is cheap but may then be unnecessary
+
+- ⬜ **`kv_token_budget` is 1.66x the real KV pool, and the number to fix it is now
+  readable.** The setting defaults to 2,400,000 and its help text says it "sits just under
+  the measured KV pool". The endpoint reports `kv_cache_size_tokens = 1,444,236`, so it
+  sits well over. Nothing has failed, because the setting protects latency rather than
+  correctness — over-admitting queues and preempts rather than erroring — which is exactly
+  why it drifted unnoticed. Likely cause is the 2026-09-04 model swap: a vision model
+  carries more weights, so less memory is left for KV and the pool shrank underneath a
+  constant measured against the old model.
+  - **Do not fix it with a new constant.** An `.env` override is right today and drifts on
+    the next swap; changing the default bakes one deployment's hardware into the
+    repository. Derive it from what `backend_status` now reads, the way `WindowCheck`
+    already derives per process — a server guessing at a figure the cluster publishes is
+    the whole argument of the 2026-09-05 session.
+  - Deferred deliberately on 2026-09-05: our delegations run ~45k tokens, so six of them
+    is 19% of the pool and the gap is not currently reachable.
+
+### Unscheduled — open, real, and in no milestone
+
+Neither queued nor deferred: real work not yet ranked against a milestone.
+
+- ⬜ Content-level detection for a renamed secret — every path-policy layer inspects the
+  path and none the bytes, so `config.json` holding a private key passes all of them and is
+  inlined, and `run_bash` can read one the mount-level scan did not match by name. One
+  finding, not two: fixing the detection fixes both ends. **Not** by pointing `scan_text` at
+  it, which the 2026-09-02 review recommended — that scanner looks for RFC1918 addresses,
+  private-DNS suffixes and non-allowlisted emails, and would false-positive on the source a
+  review delegation exists to read. A narrow, high-precision check for key material instead
+
+- ⬜ Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
+  way to look for anything. Its original justification, that expanding before the call keeps
+  `delegate_readonly` toolless and loopless, no longer holds now the fork is settled the
+  other way, so this is a convenience and ranks below the search tool. The work is in the
+  budget rather than the matching — a glob hitting two hundred files has to skip and account
+  for them the way `context.prefetch` already does, not spend `prefetch_budget` silently
+
 ## Deferred
 
 On hold for weeks or months. Not cancelled, and not queued.
 
 - ⬜ Anthropic-compatible adapter — the seam and canonical shape are kept so this is
   additive, roughly 150 to 220 lines in one new file (ADR-0008)
+- ⬜ Packaging for other people, on hold until wanted — a real version and a publishable
+  wheel, since `version` is `0.0.0` and installing means a clone; whether it travels as a
+  wheel or a repository URL; and a version a colleague's `--doctor` can report
+- ⬜ Cluster-wide queueing across machines. Admission counts one machine (ADR-0040) and
+  cross-process slots need a POSIX lock, so two hosts coordinate not at all — each admits
+  its own `max_inflight_seqs` and `max_inflight_large_prefills` against one endpoint
+- ⬜ Per-user identity on the endpoint. `api_key_env` is empty, so there is no auth, no
+  quota and no fair share
 
 ## Cancelled
+
+- ❌ 2026-09-05 A batch returns nothing until its slowest item settles — **wrong when
+  filed**, and moot besides: `#103` removed both batch tools (ADR-0051). `asyncio.gather`
+  withheld only the final dict. Each item's `run_delegation` wrote `stream.end` and its
+  transcript in its own `try/finally` as that item settled, turns streamed live through
+  `on_turn_done`, and per-item progress fired before the gather returned. An as-completed
+  drain would have passed its tests and improved nothing. Original entry follows.
+- ~~A batch returns nothing until its slowest item settles~~ — `asyncio.gather` over the
+  items, so one that stalls for the whole deadline withholds results that finished minutes
+  earlier. Purely latency and usability: slots are released per item as each `admit` context
+  exits, so the cluster gets its capacity back promptly and only the caller waits. Measured
+  on 2026-09-04, where two of three items were ready and unusable for 35 minutes. Progress
+  notifications already flow per item, so the missing piece is handing back what is done —
+  and the shape has to keep the per-item `ok`/`error` contract that `#45` exists to protect,
+  because shielding or restructuring the gather is what silently restored a lockout before
 
 - ❌ 2026-08-25 Run Claude Code inside WSL — cancelled on workflow grounds, not
   engineering ones. It would delete the path-translation module outright and remove the
   12x test penalty. ADR-0002 keeps the trigger: if development moves onto Linux for
   independent reasons, revisit immediately. ADR-0020
+
 - ❌ 2026-08-25 Dedicated Linux box beside the cluster — cancelled. Solves sandboxing but
   the workspace would reach it only over a share, a sync tool, or a clone, each worse
   than the local bridge and each adding a failure the bridge does not have. ADR-0020
+
 - ❌ 2026-08-25 Scheduled docs-audit workflow — cancelled. It needs an API key, which is
   standing billing exposure for a job that fires whether or not anything changed, and a
   calendar measures the wrong thing. Replaced by the gate's `audit-due` signal
+
 - ❌ 2026-08-25 Collapse reasoning effort to three levels — cancelled. Saves one enum
   value, does not shrink the state machine, and would make our API disagree with the
   backend's documented values. ADR-0013

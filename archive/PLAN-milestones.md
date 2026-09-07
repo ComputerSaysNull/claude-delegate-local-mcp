@@ -664,3 +664,57 @@ CHANGELOG.md.
     MISSING and ESCAPE ABUSE get done, and waiver counting must be line-anchored on
     `Docs-Gate-Skip:` — matching the substring counted a commit whose prose *described* a
     past waiver, over-reporting one document as being at the threshold.
+
+## Completed work moved from PLAN.md on 2026-09-07
+
+Four ticked items, no struck originals, moved verbatim and never edited. Archived to
+make room for the milestone structure PLAN.md took on in the same commit: the file was
+at its 300-line budget, and its own rule is that a completed item leaves at the end of
+the session that finished it. The reason for each is in its own annotation; the
+provenance is in CHANGELOG.md. The `### Documentation accuracy` heading went with the
+two items under it, which were its only content.
+
+- ✅ 2026-09-07 TOO VERBOSE across `docs/ARCHITECTURE.md` and `docs/DISPATCH.md` — the one
+  check class the 2026-09-06 audit did not run at all. Five duplications trimmed, both
+  documents dense rather than padded; what the passes measured is in the #127 entry
+- ✅ 2026-09-07 The gate now checks references, which both audit agent files had claimed
+  for it since they were written. `doc-reference`, negative-tested in both directions
+- ✅ 2026-09-06 A read-only form of `delegate_to_agent` — the agent tool with its set fixed
+  to whatever declares no write, exactly as `delegate_readonly` is to `delegate`.
+  Shipped as `delegate_to_agent_readonly` (ADR-0059), and it took the `workdir`/`project`
+  split with it: the correspondence the annotation rests on — a workdir is a read-write
+  bind, so a read-only tool cannot offer one — was prose, and `list_agents` had already
+  falsified it. It is a test now. **The ramp is measured**: two arms issued in one message
+  started 2.2s apart, against the 120s a chained tool predicts (JOURNAL 2026-09-06). The justification is
+  ADR-0042's and unchanged: a client decides before the call runs and never sees arguments,
+  so narrowing with `allowed_tools` cannot buy the declaration. `#91`'s note that "what
+  `delegate_readonly` has no equivalent of is the agent" is this same gap seen from the
+  other side, recorded there as context for a finished item rather than as work.
+  **What makes it worth doing now is measured.** A `readOnlyHint` tool runs on independent
+  clocks while `delegate_to_agent` is released one arm per 120s, so the 2026-09-06 audit
+  paid 120s x (n-1) of pure client ramp on passes that were `read_file`-only anyway — every
+  one after its second wave. It would also keep the agent file, whose accumulated
+  false-positive guardrails are most of that agent's value and which `delegate_readonly`
+  cannot carry. Two caveats to state rather than discover: the annotation's causation is
+  correlated and not proven, testable with two calls timed against their own issue stamps;
+  and it buys nothing against admission, which is server-side and starves a read-only
+  fan-out identically on `max_inflight_large_prefills`
+- ✅ 2026-09-07 **A transcript says a tool errored, never what it was asked or why it refused** — the
+  ledger is `{name, outcome}` per call, so a pass reporting `tool_errors: 1` across twelve
+  `read_git` calls on 2026-09-05 could not be diagnosed *even with transcripts enabled*.
+  Searching the whole record for refusal text returns nothing. This is ADR-0039's own
+  argument applied to half the record: it reasons that a transcript which "cannot say what
+  was asked does not answer the question a transcript is opened to answer", and settles
+  that for the task while leaving tool arguments out. Add the arguments and the refusal
+  message to the ledger entry — mindful that arguments can carry paths, which is why the
+  ADR excluded file *contents* and not identifiers
+  - **CONFIRMED and widened 2026-09-05 (session 2).** The same gap hid a second thing, and
+    that one already has its reader: `evicted_then_reread` caught the model re-reading a
+    file eviction had just dropped, on three consecutive turns, and nothing surfaces it
+    because `diagnostics` defaults off. The fix is not only richer ledger entries but
+    deciding what an *operator* record carries without being asked — ADR-0024's own
+    reasoning, which is why `transcript_dir` is already independent of the caller's flag
+  - **And the live stream is missing a field the final record has.** `Stream.turn` writes
+    the token counts but not `tool_results_evicted`, which `write` emits per turn. So a
+    stream shows the cache collapsing and cannot show the eviction that caused it — the one
+    field that would have made the bug above self-evident while watching. One line to add

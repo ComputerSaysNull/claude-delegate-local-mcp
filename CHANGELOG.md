@@ -34,6 +34,53 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #130 — 2026-09-07 — docs: PLAN.md becomes a milestone roadmap, and #129 is corrected
+
+### Added
+- **Five milestones, M8 to M12, each with the one observable thing that ends it.** The
+  document had grown into three thematic groups ordered by cost, which answers "what is
+  open" and not "what next" — the question a roadmap exists for. The framing is recorded
+  with them: most of what makes this server usable lives outside it, in a private CLAUDE.md
+  and in session memories that reach nobody else and are gated by nothing, so they drift
+  with no signal. M8 to M11 move that knowledge into the server; M12 fixes the one thing
+  those notes exist to work around.
+- **An `Unscheduled` group** for open work that is real and ranked against nothing. Two
+  items previously sat in cost-ordered groups and so implied a priority they never had.
+- **A header rule: ticking an item changes only its marker and the date, never its text.**
+  A convention nobody had written down, and the reason is that the body records what was
+  believed when the work was filed — rewriting it destroys what the annotation is for.
+
+### Changed
+- **Four completed items archived**, per this document's own rule that a `✅` leaves at the
+  end of the session that finished it. That paid for 46 lines of the milestone structure;
+  the budget goes 300 to 390 for the rest, after ten of the new items were trimmed first.
+- **`handle + collect` re-ranked below streaming.** Its case was the 120s client ramp, and
+  `delegate_to_agent_readonly` (#126) already removed that for read-only work while the
+  client backgrounds a long call on its own. What is left is the ramp on the two
+  write-capable tools plus hiding the admission wait — real, and smaller than the item's
+  own prose implies.
+
+### Fixed
+- **#129 was right in every measurement and wrong in its conclusion.** It filed "`run_bash`
+  cannot run this project's test suite, ever" from four accurate observations: no `python`
+  on `PATH`, `import pytest` raising, `.venv` covered rather than empty, `/tmp/vv` absent.
+  **Cause:** nothing asked whether any *other* path the sandbox binds could hold an
+  interpreter with pytest in it. `sandbox_home` is bound read-write, is persistent, and sits
+  outside the workspace — which ADR-0041 makes mandatory rather than tidy, because inside a
+  virtualenv `*secret*` and `*credential*` match ordinary library filenames and the scan
+  covers each with `/dev/null`, breaking the environment it just read. **Measured:** a venv
+  there carrying this repository's dev dependencies and an editable install ran the whole
+  WSL suite inside `bwrap --unshare-all` at 1237 passed, 4 skipped, 1 deselected in 207s,
+  exit 0 — and exit 1 with that test included, so both directions of the exit-code check
+  hold. The item is therefore a missing `provision` command rather than an architectural
+  limit, and M9 carries the corrected version with the original struck beside it.
+- **`uv` is absent on this host, which is why `toolchain_binds` bound nothing.** `config.py`
+  had already called that "the single most likely first-run sandbox failure". Installing it
+  would not have helped either: `probe_toolchain_binds` binds only the binary and leaves the
+  cache outside deliberately, so with no network it resolves nothing. The absence went
+  undiagnosed for a whole session because nothing checks the environment at startup, which
+  is what M8 exists for.
+
 ## #129 — 2026-09-07 — docs: a workdir cannot verify Python work, measured and filed
 
 ### Added
