@@ -138,11 +138,10 @@ during spikes: given no prefetch, the model's first turn was a wasted directory 
 Prefetching removes several such turns from the front of every delegation.
 
 A prefetch cap is a **drop** threshold and never a truncation: a file over it is left out
-whole. It is also not a fairness
-control, and used to be sized as though it were. Fairness between concurrent requests is
-admission's, below, which counts it across every server process on the machine rather than
-per call — so a second control here only meant one large file being dropped while the
-budget it would have fitted in sat unused (ADR-0046).
+whole. It is also not a fairness control, and used to be sized as though it were. Fairness
+between concurrent requests is admission's, below, which counts it across every server
+process on the machine rather than per call — so a second control here only meant one
+large file being dropped while the budget it would have fitted in sat unused (ADR-0046).
 
 ## Modules
 
@@ -235,7 +234,8 @@ for the same endpoint. The cache is injectable, for the reason the adapter takes
 
 `delegate()` builds the opening request from one task and the files named with it, hands it
 to the turn loop, and returns what the loop finished with. Paths are checked before the
-backend is looked up, so a refusal costs nothing and needs no reachable cluster.
+backend is looked up. A refused one is skipped and the call proceeds with the rest, named
+in `files_skipped`; refusing every path costs nothing and needs no cluster (ADR-0061).
 
 Which path runs is decided by the resolved toolset and nothing else. `allowed_tools`
 narrows what the model may call, and resolving it to an empty set takes the one-shot path,

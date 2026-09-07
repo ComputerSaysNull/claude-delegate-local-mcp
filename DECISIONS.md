@@ -19,6 +19,54 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0061 — 2026-09-07 — A refused path costs the call its file, not the call — Accepted
+
+**Context.** `files[]` was all-or-nothing: one path the policy would not allow discarded
+the whole prefetch before anything was dispatched. The motivating case is mundane and was
+expensive — a prefetch naming a dozen files in the workspace and one path outside every
+root, a scratchpad or another checkout, threw all twelve away and cost a round trip to
+learn it. The refusal message is good and names every failure at once, so the caller can
+fix them in one go; what it cannot do is give back the work the other eleven files would
+have done.
+
+**This rule was never in an ADR.** It lived in `resolve_all`'s docstring and in two
+sections of `docs/AGENTS.md`, one of which carried a worked example of it. That is worth
+recording as much as the change: a behaviour with no decision behind it had been treated as
+settled for long enough that it read like one.
+
+**Decision — partial resolution for `files[]`, and only there.** `resolve_files` returns
+what resolved beside what did not. Each refusal becomes a `Skip` with kind `refused`,
+carrying the path, the layer that refused it and the remedy, so the reply's `files_skipped`
+names the path *and* the root it missed. The prompt's skipped list carries it too, which is
+not incidental: a model told the path was refused does not spend a turn calling `read_file`
+on it.
+
+**`resolve_all` keeps its contract exactly**, and `tools.py` keeps calling it. A mid-loop
+`read_file` resolves one path for one answer and has nothing to partially succeed at.
+Adding the disposition beside the existing one, rather than adding a flag to it, is the
+same argument ADR-0006's two dispositions already made: the lenient one applied to a
+caller-named path is a silent drop.
+
+**Two things stay fatal.** A `workdir` refusal, because a workdir is singular and there is
+no partial version of it. And every path in `files[]` being refused — nothing survived, so
+dispatching would spend a delegation on a prompt carrying none of the context it asked for,
+and a caller who got every path wrong has one mistake to fix rather than a dozen. This is
+the half of the old rule that was right, and it preserves what the pre-dispatch check was
+for: a wholly-refused call still costs nothing and still does not depend on the cluster
+being reachable.
+
+**Every refusal layer skips, the secret denylist included.** Considered keeping that one
+fatal on the grounds that asking for credential material deserves a loud stop, and
+rejected: the file is not read either way, so the posture is identical, and a reply naming
+the layer and the pattern is a louder signal than an error that names one path while
+discarding eleven good ones. `tools.py` has already treated that layer as non-fatal
+mid-loop since 2026-09-06, so keeping it fatal here would have made the same refusal mean
+two different things depending on which surface met it.
+
+**What this costs.** A caller who mistypes one path now pays for a delegation that runs
+without it. That is the trade, and it is the right way round: the reply says exactly which
+file was missing and why, whereas the old behaviour spent nothing and returned nothing.
+
 ## ADR-0060 — 2026-09-07 — A per-call record carries what was asked and why it refused — Accepted
 
 **Context.** A delegation on 2026-09-05 reported one tool error across twelve `read_git`

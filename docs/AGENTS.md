@@ -1,4 +1,5 @@
-<!-- BUDGET: 404
+<!-- BUDGET: 408
+     Raised from 404 on 2026-09-07: the path policy has three dispositions now, not two, and the section carrying a worked example of the old one had to be rewritten (ADR-0061).
      Raised from 395 on 2026-09-06: a sixth tool, and the lookup path split away from the
      workdir -- the tool list and the argument that finds an agent are both owned here.
      Raised from 385 on 2026-09-06: a refusal names the surface it came from and says what
@@ -159,26 +160,29 @@ file is committed, read again, and believed. Clamping there would leave the wron
 the file forever, working correctly and reading as though it were in effect — and the person
 who eventually needs those turns would have no way to tell it never had them.
 
-### One path policy, two dispositions
+### One path policy, three dispositions
 
-`resolve_all` refuses the whole call if any path fails, and that is right for anything a
-A refusal names the surface it came from, and says what it cost. `files[]` and `workdir`
-are resolved before anything is dispatched, so their refusals end the call and say so. A
-`path` given to `read_file` or `search_files` is refused *inside* a tool call and comes back
-as a tool error the delegation continues from — so it names the `path` argument and makes no
-claim about a dispatch. Until 2026-09-06 every one of those reported "path(s) in `files[]`
-were refused, so nothing was sent to the model", which named an argument the model had not
-written and a consequence that had not happened.
+`resolve_files` is what `files[]` uses: it returns what resolved beside what did not, so a
+refused path costs the call its file rather than the call, and `files_skipped` carries the
+path, the layer and the remedy. Refusing *every* path still dispatches nothing, since
+nothing would be left to send (ADR-0061). `resolve_all` raises on any refusal, right
+wherever one path means one answer — a mid-loop `read_file` cannot partially succeed.
+`resolve_permitted` drops what fails, only for paths nobody named — the candidates a
+`search_files` walk enumerates, where a file the policy declines is not an error but simply
+not a result.
 
-caller **named**: a delegation that asked for six files and silently got five reads exactly
-like one that got six. `resolve_permitted` drops what fails instead, and is only for paths
-nobody named — the candidates a `search_files` walk enumerates, where a file the policy
-declines is not an error but simply not a result.
+A refusal names the surface it came from, and says what it cost. `workdir` is resolved
+before anything is dispatched, so its refusal ends the call and says so. A `path` given to
+`read_file` or `search_files` is refused *inside* a tool call and comes back as a tool error
+the delegation continues from — so it names the `path` argument and makes no claim about a
+dispatch. Until 2026-09-06 every one of those reported "path(s) in `files[]` were refused,
+so nothing was sent to the model", which named an argument the model had not written and a
+consequence that had not happened.
 
-Both run the same four layers through the same function, so a pattern cannot come to deny
-`read_file` while leaving the same file findable by search. Two functions rather than a
-flag, because using the lenient one on a caller-supplied path is a silent drop, which is
-the failure the strict one exists to prevent.
+All three run the same four layers through the same function, so a pattern cannot deny
+`read_file` while leaving the same file findable by search. Separate functions rather than a
+flag, because using a lenient one on a caller-supplied path is a silent drop — the failure
+the strict ones exist to prevent.
 
 A directory is a third case: `resolve_search_root` checks layer 1 alone against
 `workspace_roots`, where `resolve_workdir` checks a directory against `workdir_roots`. The
@@ -289,14 +293,14 @@ before any layer runs. A UNC network share is refused outright rather than trans
 something that resolves to nothing, and a relative path is refused because it would
 resolve against the server's working directory rather than yours.
 
-### Refusals are actionable, and they fail the whole call
+### Refusals are actionable, and they cost the call their file
 
-A **refusal** means the file was not allowed. Nothing is dispatched — not the other files,
-not the task — and *every* refusal is reported, so one correction fixes all of them rather
-than costing a round trip each:
+A **refusal** means the file was not allowed. The call goes ahead with whatever did resolve,
+and each refused path is reported in `files_skipped`, so one correction fixes all of them
+rather than a round trip each. Refuse them all and nothing is dispatched — the message below:
 
 ```
-2 of 3 path(s) in files[] were refused, so nothing was sent to the model. Every
+3 of 3 path(s) in files[] were refused, so nothing was sent to the model. Every
 refusal is listed, not just the first, so one correction fixes all of them:
 
   C:\proj\.env

@@ -75,7 +75,7 @@ knowledge into the server; M12 fixes the one thing those notes exist to work aro
   registration it cannot write, and accepting a pasted Windows path wherever a path is asked
 - ✅ 2026-09-07 `transcript_dir` skips `to_posix`, unlike `workspace_roots`, `toolchain_binds` and
   `sandbox_home`, so a Windows path in it has to be hand-converted to `/mnt/c` form
-- ⬜ One refused path in `files[]` kills the whole call. Prefetch what resolves, fill the
+- ✅ 2026-09-07 One refused path in `files[]` kills the whole call. Prefetch what resolves, fill the
   `files_skipped` the reply already carries, and name the path and the root it missed
 
 ### M9 — A delegation can run the project's tests

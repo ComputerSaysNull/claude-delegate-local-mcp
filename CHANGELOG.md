@@ -34,6 +34,55 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #139 — 2026-09-07 — feat: a refused path in files[] no longer discards the whole prefetch
+
+### Changed
+- **One bad path cost a delegation every good one.** `files[]` was all-or-nothing: a path
+  the policy would not allow discarded the entire prefetch before anything was dispatched.
+  The motivating case is mundane and was expensive — a prefetch naming a dozen files in the
+  workspace and one path outside every root, a scratchpad or another checkout, threw all
+  twelve away and cost a round trip to learn it. The refusal message was already good, and
+  named every failure at once; what it could not do was give back the work the other eleven
+  files would have done.
+- **Now the call proceeds with what resolved.** Each refusal becomes a skip of kind
+  `refused`, carrying the path, the layer that refused it and the remedy — so
+  `files_skipped` names the path *and* the root it missed, which `_check_roots` had already
+  written into the remedy and nothing had ever read. It reaches the prompt as well as the
+  reply, which is not incidental: a model told the path was refused does not then spend a
+  turn calling `read_file` on it.
+- **Two things stay fatal, and one of them is the point.** A `workdir` refusal, because a
+  workdir is singular and has no partial version. And *every* path being refused — nothing
+  survived, so dispatching would spend a delegation on a prompt carrying none of the context
+  it asked for. That preserves what the pre-dispatch check was for: a wholly-refused call
+  still costs nothing and still does not depend on the cluster being reachable.
+- **Every refusal layer skips, the secret denylist included.** Keeping that one fatal was
+  considered and rejected: the file is not read either way, so the posture is identical, and
+  a reply naming the layer and the pattern is a louder signal than an error naming one path
+  while discarding eleven good ones. `tools.py` has treated that layer as non-fatal mid-loop
+  since 2026-09-06, so keeping it fatal here would have made one refusal mean two different
+  things depending on which surface met it.
+- `resolve_all` keeps its contract exactly and `tools.py` keeps calling it — a mid-loop
+  `read_file` resolves one path for one answer and has nothing to partially succeed at. The
+  new disposition sits beside it as `resolve_files` rather than being a flag on it, which is
+  the argument ADR-0006's two dispositions already made. Every existing
+  `pytest.raises(PathRefused)` test is therefore untouched and still green.
+- The `delegate` description said "fails the whole call", so it was part of the contract and
+  is updated with the rest. ADR-0061 records the decision, and notes that this rule had
+  never been in an ADR at all: it lived in a docstring and in two sections of
+  `docs/AGENTS.md`, one carrying a worked example of it.
+
+### Fixed
+- **A test that passed by refusing everything, including the file it was about.** The
+  denylist case was first written as `test_a_secret_denylist_...`, and `tmp_path` is derived
+  from the test name — so the workspace root contained "secret", the `*secret*` glob matched
+  the root itself, every file under it was refused, and the resulting abort was correct
+  behaviour on bad test data rather than the behaviour under test. Renamed, with the trap
+  recorded in the docstring. Same shape as ADR-0041's finding that the glob matches ordinary
+  filenames inside a virtualenv.
+- A pre-existing break in `docs/AGENTS.md`, where a paragraph had been inserted between "that
+  is right for anything a" and "caller **named**:", splitting one sentence across an
+  unrelated block. Repaired while rewriting the section it sits in.
+
 ## #138 — 2026-09-07 — feat: the delegating tool descriptions carry the three missing facts
 
 ### Changed
