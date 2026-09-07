@@ -134,7 +134,9 @@ def test_a_turn_record_carries_what_the_server_watched(reader):
     assert first.output_tokens == 5
     assert first.attempts == 1
     assert first.effort in ("off", "low", "high", "max")
-    assert first.tool_calls == (("reader", "ran"),)
+    call = first.tool_calls[0]
+    assert (call.name, call.outcome) == ("reader", "ran")
+    assert call.arguments == (("path", "/a.py"),)
 
 
 def test_the_answering_turn_ran_no_tools_and_says_so(reader):

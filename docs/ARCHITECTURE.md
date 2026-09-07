@@ -1,4 +1,7 @@
-<!-- BUDGET: 871
+<!-- BUDGET: 887
+     Raised from 871 on 2026-09-07: a turn's tool calls are a record carrying what was
+     asked and why it refused, and the viewer renders it. Both additions cut by half
+     first, and the reasoning left in ADR-0060 rather than restated here.
      Raised from 861 on 2026-09-06: the read-only annotation now covers an agent tool, and
      the workdir correspondence it rests on had drifted and needed correcting rather than
      extending.
@@ -708,6 +711,15 @@ the turn's wall clock, including tool execution and any wait for a slot; `backen
 backend call alone. Tokens per second is taken from the second, because a rate divided by
 the first would blame the cluster for time it did not spend generating.
 
+**A turn's tool calls are a record, not a pair.** `(name, outcome)` is why a delegation
+reporting one tool error across twelve `read_git` calls could not be diagnosed even with
+transcripts enabled: the refusal text was built in `tools.py`, handed to the model as the
+next turn's history, and dropped at the one point it was in scope. Each entry now carries
+the arguments, a refusal message on an error outcome, and accounting on a success — what is
+recorded and why is ADR-0060's. The three sites that rendered the pair by hand,
+`_diagnostics_block` here and the live stream and `_ledger` in `transcript.py`, share one
+serialiser, so the stream cannot drift out of step with the two records tests assert on.
+
 **A stream turn carries `tool_results_evicted` beside `cached_tokens`, and the pair is the
 point.** The record had the eviction count per turn and the stream did not, so a person
 watching a delegation could see the prefix cache collapse and not see the one thing that
@@ -814,6 +826,14 @@ an old row to `delegate` would reproduce exactly the confusion the column ends. 
 transcript then shows the resolved tools and every file it was given, skipped ones named with
 their reason: a file the caller believes it passed and the model never saw is the one thing
 in that block worth interrupting a reader for.
+
+**A tool-call line shows what was asked, how it ended, and why if it refused.** The refusal
+wraps onto its own lines, is coloured like the outcome beside it, and is never trimmed to
+fit; on a narrow terminal the argument list drops to its own line rather than being cut. The
+line did neither before, and carried two checks that could not fire: it tested success as
+`outcome == "ok"`, which is not one of the three outcomes `_run_calls` produces, so every
+successful call was painted red — and it interpolated a `detail` key no producer has ever
+written. Both survived because nothing asserts on a colour.
 
 Both paths write a fourth kind of event, `alive`, and it is the only one that reports no
 work done. The other three mark something that happened; this one exists because either

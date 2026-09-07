@@ -19,6 +19,54 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0060 — 2026-09-07 — A per-call record carries what was asked and why it refused — Accepted
+
+**Context.** A delegation on 2026-09-05 reported one tool error across twelve `read_git`
+calls, and nothing in the record could say which call failed or why — even with transcripts
+enabled. The per-call entry was a `(name, outcome)` pair. The refusal text was built in
+`tools.py`, handed back to the model as the next turn's history, and then dropped, so
+searching the whole record for it returns nothing.
+
+**Decision — this extends ADR-0039 rather than reversing it.** That decision excluded file
+*bodies*, for two stated reasons: they are the overwhelming majority of the bytes, and they
+are recoverable from the repository by path. ADR-0043 already read that exclusion narrowly
+and extended the record to the reply text, because a reply "is small, and it exists nowhere
+else". An argument and a refusal are neither bulky nor recoverable by path, and a refusal
+exists nowhere at all once the delegation ends. The same reasoning reaches the same answer,
+so ADR-0039 stands.
+
+**Decision — arguments are recorded, capped per field, bodies summarised rather than cut.**
+`TOOL_ARG_VALUE_CAP` bounds each value and the elision marker says how much was dropped,
+because a silently truncated argument reads as a complete one and a reader would draw
+conclusions from a path the model never sent. `content`, `old_string` and `new_string` carry
+a body rather than an identifier, and are reduced to a length and a digest instead: a
+truncated body is useless to read and still a partial copy at rest, which would reopen
+ADR-0039's exposure through the arguments door.
+
+**Decision — a refusal is recorded, only on an error outcome and capped.**
+`TOOL_MESSAGE_CAP` is the larger of the two caps, because a refusal is the whole reason this
+record exists while an argument only has to be recognisable. The text is the one `tools.py`
+put in the result block, so the record and the model agree about what was said — ADR-0007's
+rule that the server reports what it watched, not what was claimed.
+
+**Decision — on success, accounting instead of content.** Bytes, lines, and an exit code
+when a process exited. A successful `read_file`'s result *is* the file body, so recording
+"the message" uniformly would be ADR-0039's exclusion by another name. The three counters
+are universal rather than per-tool: a table of per-tool counters would drift every time a
+tool changed its output, which is what this repository already refuses to accept for second
+copies of a fact.
+
+**Consequences.** A dataclass rather than a wider tuple, because the pair it replaces was
+unpacked at three call sites and widening a tuple that other code unpacks breaks one caller
+quietly. Those three sites now share one serialiser, so a fourth field is one edit and not
+three; the one that would have drifted is the live stream, which is watched rather than
+asserted on. The caps are constants rather than settings: they size a record's shape, not a
+deployment, and an operator who wants more of a refusal wants the refusal — which the
+elision marker tells them they are missing. The caller's `diagnostics` flag is unchanged and
+remains reply-shaping only. What is newly at rest on disk is a bash command line and a
+search pattern, which ADR-0039's own terms already cover: whoever configures the directory
+owns what lands in it.
+
 ## ADR-0059 — 2026-09-06 — The agent tool gets a read-only twin, and the lookup path stops being called a workdir — Accepted
 
 ADR-0042 argued the sixth tool and, in passing, described the shape of this one: "no agent

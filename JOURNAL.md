@@ -1180,3 +1180,40 @@ The general lesson is the one this repository keeps relearning: **the tool that 
 been run is the one whose defects are still yours to find.** The annotation, the toolset
 replacement and the `project` argument all behaved exactly as designed on the first call.
 Everything that went wrong was in what the design had not looked at.
+
+## 2026-09-07 — The concurrency cap was never the thing throttling a delegation
+
+Seven read-only delegations in one session, all recorded because
+`DELEGATE_TRANSCRIPT_DIR` was set. Six were prefetched and finished in 93 to 476 seconds
+across two to six turns. The seventh passed no `files[]` at all and let the model go
+looking for a document itself: **ten turns, `hit_turn_limit`, twelve evicted tool results,
+1,175 seconds, and 394k total input tokens** — for a question that one prefetched document
+answers in two turns. Nineteen minutes of apparent silence, and the instinct was to suspect
+admission, the cluster, or the 120-second client window. It was none of them. It was the
+prompt.
+
+Two things this makes concrete, both of which had been reasoned about and not measured.
+
+**`large_prefill_tokens` is 32,768, and almost nothing here is large.** Of eight calls, one
+was. The working rule had been "at most two prefetched calls at a time", which reads as any
+call carrying `files[]` — so seven small calls were serialised for a cap they never
+contended for. The cap is real and server-side; the rule sitting on top of it was measuring
+the wrong quantity. It now keys on the threshold.
+
+**An unprefetched call is not a small call, and admission cannot tell.** `is_large` is
+decided once, from the opening estimate, and held for the whole delegation. A call opening
+with no prefetch is filed as small for life while its later turns average around 39k each —
+above the threshold. So the rule that exists to serialise large prefills watched the largest
+call of the session go past it as a small one. PLAN.md's admission item had predicted
+exactly this staleness from reading the code; this is the first specimen of it in the wild,
+and it arrived from the opposite direction — not an audit growing past the threshold, but a
+call that started below it because it had been given nothing. `backend_status` later in the
+same session showed it plainly: `inflight_seqs: 3` carrying `inflight_tokens: 232520` —
+about 77k each, every one of them over the threshold — beside
+`inflight_large_prefills: 0`.
+
+The lesson is narrower than "prefetch more". It is that **`files[]` is not a courtesy to the
+server, it is the difference between two turns and ten**, and that the one number a caller
+uses to decide how many calls to run at once cannot be read off the shape of the call. Both
+were guessable and neither was known until the transcript directory was read — which is the
+same directory this session was widening the per-call record inside.

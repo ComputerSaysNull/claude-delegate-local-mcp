@@ -184,7 +184,7 @@ them was re-derived when it did.
   - Restructures the model-facing tool contract, so it is a behaviour change with an ADR,
     not a wording fix. **Related to streaming but not blocked on it** — streaming is
     token-level liveness inside a turn, this is call-level detachment. Say so in the ADR.
-- ⬜ **A transcript says a tool errored, never what it was asked or why it refused** — the
+- ✅ 2026-09-07 **A transcript says a tool errored, never what it was asked or why it refused** — the
   ledger is `{name, outcome}` per call, so a pass reporting `tool_errors: 1` across twelve
   `read_git` calls on 2026-09-05 could not be diagnosed *even with transcripts enabled*.
   Searching the whole record for refusal text returns nothing. This is ADR-0039's own

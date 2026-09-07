@@ -158,9 +158,12 @@ class Stream:
             "tool_results_evicted": getattr(diagnostic, "evicted", None),
             "effort": getattr(diagnostic, "effort", None),
             "attempts": getattr(diagnostic, "attempts", None),
+            # Rendered by the record itself rather than here. This was the third of three
+            # sites each unpacking the pair by hand, so a field added to the record used to
+            # mean an edit in three places -- and the one that drifted would have been this
+            # one, because a live stream is watched and not asserted on.
             "tool_calls": [
-                {"name": name, "outcome": outcome}
-                for name, outcome in getattr(diagnostic, "tool_calls", ()) or ()
+                call.as_json() for call in getattr(diagnostic, "tool_calls", ()) or ()
             ],
             "ms": ms,
             "backend_ms": backend_ms,
@@ -316,7 +319,7 @@ def _ledger(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
                 "attempts": t.attempts,
                 "effort": t.effort,
                 "tool_results_evicted": t.evicted,
-                "tool_calls": [{"name": n, "outcome": o} for n, o in t.tool_calls],
+                "tool_calls": [c.as_json() for c in t.tool_calls],
             }
             for t in dispatched.diagnostics
         ],

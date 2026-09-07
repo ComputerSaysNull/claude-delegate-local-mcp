@@ -30,7 +30,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
 from email.utils import parsedate_to_datetime
+from hashlib import sha256
 from pathlib import Path
+from typing import Any
 
 from .backends.base import (
     Backend,
@@ -1115,6 +1117,158 @@ def plateaued_without_eviction(
 # result content would make an abort report the size of the delegation it aborted.
 _Ledger = list[tuple[str, str, bool]]
 
+# How much of one argument value the record keeps, and how much of a refusal. Constants
+# rather than settings: these size a diagnostic record's shape, not a deployment, and an
+# operator who wants more of a refusal wants the refusal, which is what the elision marker
+# tells them they are missing. The message cap is the larger of the two because a refusal
+# is the whole reason this record exists, while an argument only has to be recognisable.
+TOOL_ARG_VALUE_CAP = 240
+TOOL_MESSAGE_CAP = 600
+
+# Arguments that carry a file body rather than an identifier. These are summarised to a
+# length and a digest instead of being elided, because a truncated body is the worst of
+# both answers -- useless for reading and still a partial copy at rest on disk. ADR-0039
+# excluded bodies from the record and this keeps them out of it through the arguments door.
+_BODY_ARG_NAMES = frozenset({"content", "old_string", "new_string"})
+
+
+def _elide(text: str, cap: int) -> str:
+    """Shorten to `cap`, saying how much was dropped.
+
+    The marker is not decoration. A silently truncated argument reads as a complete one, so
+    a reader diagnosing a refusal would draw conclusions from a path that was never the
+    path the model sent.
+    """
+    if len(text) <= cap:
+        return text
+    return f"{text[:cap]}... [+{len(text) - cap} chars]"
+
+
+def _line_count(text: str) -> int:
+    """Lines in a result, counting an empty result as none.
+
+    A trailing newline does not add a line, so a one-match `search_files` reports 1 whether
+    or not its output ends in a break -- the two differ by a byte and mean the same thing.
+    """
+    if not text:
+        return 0
+    return text.count("\n") + (0 if text.endswith("\n") else 1)
+
+
+def _body_summary(text: str) -> str:
+    """A file body as a length and a digest, never as bytes.
+
+    The digest is what makes two writes of the same file distinguishable, which is the only
+    question a record is asked about a body: which of these two writes actually ran. Twelve
+    hex characters, because this identifies a write within one delegation rather than
+    resisting an adversary looking for a collision.
+    """
+    digest = sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:12]
+    return f"<{len(text)} chars, sha256:{digest}>"
+
+
+def record_arguments(call: ToolUseBlock) -> tuple[tuple[str, str], ...]:
+    """What the model asked for, capped per field and with bodies summarised.
+
+    Sorted, so two records of the same call compare equal regardless of the order the
+    backend serialised the arguments in -- which is what makes a test on this record
+    stable across backends.
+    """
+    return tuple(
+        (
+            key,
+            _body_summary(str(value)) if key in _BODY_ARG_NAMES
+            else _elide(str(value), TOOL_ARG_VALUE_CAP),
+        )
+        for key, value in sorted(call.input.items())
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallRecord:
+    """One tool call as the record keeps it: what was asked, and what came back.
+
+    A dataclass rather than a wider tuple, deliberately. The pair this replaces was
+    unpacked at three separate call sites, and widening a tuple that other code unpacks is
+    the change that compiles everywhere and breaks one caller quietly -- the same reasoning
+    `newly_evicted_ids` gives for not widening `stub_oldest_tool_results`. `as_json` exists
+    for the same reason: those three sites each rendered the pair themselves, so a fourth
+    field would have had to be added in three places or drift in one.
+
+    `message` is the refusal text and is present only on an error outcome. On success the
+    record carries accounting instead -- size, line count, exit code -- and never content:
+    a successful `read_file`'s result *is* the file body, which is precisely what ADR-0039
+    keeps out of the record. Accounting still answers what an operator asks of a successful
+    call, which is whether it found anything and how much.
+    """
+
+    name: str
+    outcome: str
+    arguments: tuple[tuple[str, str], ...]
+    # Capped refusal text. Empty on success, and empty is not "no reason given": the
+    # outcome says which of the two it is.
+    message: str = ""
+    # Size of what came back, in bytes and in lines. Universal rather than per-tool: lines
+    # is the match count for `search_files`, the output length for `run_bash` and the file
+    # length for `read_file`, and a per-tool table of counters would drift every time a
+    # tool changed its output. None when no result reached us at all.
+    result_bytes: int | None = None
+    result_lines: int | None = None
+    # Only when a process actually exited. None covers both "no shell command here" and
+    # "killed before it could exit", which `bash_failures` distinguishes -- and neither is
+    # 0, a real exit code that must not collide with either (see `BashOutcome`).
+    exit_code: int | None = None
+
+    def as_json(self) -> dict[str, Any]:
+        """The record as one JSON object, with absent fields absent rather than null.
+
+        Following `_diagnostics_block`'s rule: a key present and empty reads as a measured
+        empty, so a call that ran no shell command must not report `exit_code: null` beside
+        one that was killed before exiting.
+        """
+        row: dict[str, Any] = {
+            "name": self.name,
+            "outcome": self.outcome,
+            "arguments": dict(self.arguments),
+        }
+        if self.message:
+            row["message"] = self.message
+        if self.result_bytes is not None:
+            row["result_bytes"] = self.result_bytes
+            row["result_lines"] = self.result_lines
+        if self.exit_code is not None:
+            row["exit_code"] = self.exit_code
+        return row
+
+
+def tool_call_record(
+    call: ToolUseBlock, outcome: str, result: ToolResultBlock | None
+) -> ToolCallRecord:
+    """Build one call's record from what the server saw, never from the model's account.
+
+    The refusal text is taken from the result block `tools.py` built, which is the same
+    string the model was handed -- so the record and the model agree about what was said,
+    and ADR-0007's rule that the server reports what it watched is preserved.
+    """
+    message = ""
+    if outcome == "error" and result is not None:
+        message = _elide(result.content, TOOL_MESSAGE_CAP)
+    exit_code = None
+    if result is not None and result.bash is not None and result.bash.ran:
+        exit_code = result.bash.exit_code
+    return ToolCallRecord(
+        name=call.name,
+        outcome=outcome,
+        arguments=record_arguments(call),
+        message=message,
+        result_bytes=None if result is None else len(result.content),
+        # Zero rather than one for empty content. `count("\n") + 1` alone reports a line
+        # that is not there, and "one line" is the answer an operator would read as a
+        # `search_files` that found a match.
+        result_lines=None if result is None else _line_count(result.content),
+        exit_code=exit_code,
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class TurnDiagnostic:
@@ -1126,8 +1280,13 @@ class TurnDiagnostic:
     this says which turn the eviction happened on and what the prompt cost either side of
     it, which is the difference between knowing a delegation was expensive and knowing why.
 
-    Metadata only, deliberately. Tool results are not carried: a diagnostic that embedded
-    what it was measuring would become the expensive payload it exists to explain.
+    Metadata only, deliberately. Result *content* is not carried: a diagnostic that
+    embedded what it was measuring would become the expensive payload it exists to explain.
+    What each call carries instead is in `ToolCallRecord` -- arguments capped per field, a
+    refusal message when there was one, and accounting when there was not. A refusal is not
+    an exception to the rule: it is small, it exists nowhere else once the delegation ends,
+    and a record that cannot say why a call failed does not answer the question a record is
+    opened to answer.
     """
 
     turn: int
@@ -1142,7 +1301,7 @@ class TurnDiagnostic:
     attempts: int
     effort: str
     evicted: int
-    tool_calls: tuple[tuple[str, str], ...]  # (name, outcome)
+    tool_calls: tuple[ToolCallRecord, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1323,10 +1482,10 @@ class _Watch:
             )
         )
 
-    def turn_tools(self, outcomes: tuple[tuple[str, str], ...]) -> None:
-        """Attach this turn's tool outcomes to the record `turn_cost` already opened."""
+    def turn_tools(self, records: tuple[ToolCallRecord, ...]) -> None:
+        """Attach this turn's tool records to the record `turn_cost` already opened."""
         if self.diagnostics and self.turns:
-            self.turns[-1] = replace(self.turns[-1], tool_calls=outcomes)
+            self.turns[-1] = replace(self.turns[-1], tool_calls=records)
 
 
 class _OverflowGuard:
@@ -1646,23 +1805,29 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     watch: _Watch,
     *,
     policy: BashPolicy,
-) -> tuple[list[ContentBlock], tuple[tuple[str, str], ...]]:
-    """One turn's tool calls, run in order. Returns the result blocks, errors and repeats.
+) -> tuple[list[ContentBlock], tuple[ToolCallRecord, ...]]:
+    """One turn's tool calls, run in order. Returns the result blocks and their records.
 
     Separate from `_run_one_call` because the ledger entry belongs to the turn rather than
     to the call: it records the path argument the model asked for, not the path the policy
     resolved, and that distinction is worth keeping in one visible place. The two can
     differ, and it is the model's own argument that the abort report needs -- reconciling
     what it *believed* it wrote against what is on disk is the point of that report.
+
+    This is also the one place where the arguments and the refusal text are both in scope,
+    which is why the record is built here rather than reconstructed later. Nothing
+    downstream of this line still holds the result block, so a record assembled anywhere
+    else would have to be assembled from less.
     """
     results: list[ContentBlock] = []
-    outcomes: list[tuple[str, str]] = []
+    records: list[ToolCallRecord] = []
     for call in calls:
         block, outcome = _run_one_call(cfg, call, allowed, cached, policy)
-        watch.called(call, outcome, block if isinstance(block, ToolResultBlock) else None)
-        outcomes.append((call.name, outcome))
+        result = block if isinstance(block, ToolResultBlock) else None
+        watch.called(call, outcome, result)
+        records.append(tool_call_record(call, outcome, result))
         results.append(block)
-    return results, tuple(outcomes)
+    return results, tuple(records)
 
 
 async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are test

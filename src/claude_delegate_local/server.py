@@ -141,7 +141,7 @@ def _diagnostics_block(
                     "attempts": t.attempts,
                     "effort": t.effort,
                     "tool_results_evicted": t.evicted,
-                    "tool_calls": [{"name": n, "outcome": o} for n, o in t.tool_calls],
+                    "tool_calls": [c.as_json() for c in t.tool_calls],
                 }
                 for t in dispatched.diagnostics
             ],
