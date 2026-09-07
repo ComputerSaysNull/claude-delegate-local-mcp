@@ -1,4 +1,7 @@
-<!-- BUDGET: 914
+<!-- BUDGET: 923
+     Raised from 914 on 2026-09-07: a turn's record says which effort it ran at, which the
+     viewer now shows. Second raise in a day, which ADR-0003 means as a signal: the next
+     addition is weighed against a split, and the seam is the stream-and-viewer section.
      Raised from 887 on 2026-09-07: the preflight, which is a mechanism this document owns
      and did not previously exist -- the section was cut by a fifth first, and one stale
      count fixed alongside it.
@@ -710,6 +713,12 @@ The stream carries the model's reply text, which the record does not. That is an
 of ADR-0039 rather than a reversal of it: that decision excluded file *bodies* as bulky and
 recoverable from the repository by path, and a reply is neither — it is small and exists
 nowhere else, which is the same argument ADR-0039 used to write the task verbatim.
+
+A `turn` carries **the effort that turn ran at, and how many attempts it took**, and the
+viewer renders both — attempts only above one, which is the whole signal. Empty-answer
+recovery steps the level down and retries, so a run requested at `high` can answer at
+`low`; the requested level is the `start` event's and the picker's column, and showing only
+that described a run no turn had performed.
 
 Both files are created at `0o600` and the directory at `0o700`, by `os.open` with an
 explicit mode rather than a `chmod` afterwards — that would leave a window in which the

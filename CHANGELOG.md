@@ -34,6 +34,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #133 — 2026-09-07 — feat: a turn says which effort it ran at, and how long as a length
+
+### Fixed
+- **A transcript could read `effort high` for a run where no turn used it.** Empty-answer
+  recovery steps the level down and retries, so a delegation requested at `high` can answer
+  at `low` — and the viewer showed only the requested level, from the `start` event. **The
+  data was already there:** `transcript.Stream.turn` has written `effort` and `attempts` per
+  turn all along, and the turn renderer dropped both. So this is a rendering fix, not new
+  plumbing. Found while reading a real transcript whose header said `high` and whose
+  answering attempt was `low`.
+- **`attempts` is shown only above one**, because that is the whole signal: it is the reason
+  an effort differs from the one requested, and a line reading "1 attempt" on every turn of
+  every transcript would be noise. The requested level stays exactly where it was, in the
+  `start` header and the picker's own column, so the two are readable side by side.
+- **A turn's time read as raw seconds, which past a minute is not a length anyone
+  recognises.** `171.4s` and `2m51s` are the same fact. The turn's wall clock, the backend
+  call inside it, and the finished dispatch's total now use the existing `_duration`, so all
+  three read as `2m51s` and `20m00s`. The end event was the worst of them: a twenty-minute
+  run rendered as `1200.0s`.
+- **`h:mm:ss` was tried first and rejected on sight.** `2:51` reads as a *time of day*, and
+  it would have sat on the same line as the `_clock()` stamp this renderer already prints.
+  The picker's format has no such ambiguity, and it already existed and was already tested —
+  so reusing it deleted a helper and its tests instead of adding either. A test now pins
+  that `2:51` does **not** appear, because the mistake is only obvious once it is on screen.
+- **The `alive` line keeps its coarser shape** on purpose: it is a counter still moving,
+  shown against a budget, where "3m of 60m" is the useful reading.
+- The turn branch moved into `_turn_lines`. It had pushed `render` past the statement limit,
+  and that limit exists to say a dispatch function should dispatch.
+
 ## #132 — 2026-09-07 — feat: `--doctor` checks the environment the server assumes
 
 ### Added

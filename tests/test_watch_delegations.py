@@ -866,3 +866,89 @@ def test_the_picker_opens_on_the_row_a_transcript_was_opened_from(viewer, tmp_pa
     assert viewer.start_index(rows, None) == 0
     assert viewer.start_index(rows, tmp_path / "aged-out.jsonl") == 0
     assert viewer.start_index([], tmp_path / "0.jsonl") == 0
+
+
+def test_a_turn_says_which_effort_it_actually_ran_at(viewer):
+    """The requested level and the level that answered are different facts.
+
+    Empty-answer recovery steps the effort down and retries, so a delegation asked for at
+    `high` can answer at `low`. The start event keeps the requested level and the picker
+    keeps its column; without this the stepped-down one was in the stream and on no screen,
+    which is how a transcript came to read `high` for a run where no turn used it.
+    """
+    screen = "\n".join(viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 2,
+        "input_tokens": 1000, "output_tokens": 50, "effort": "low", "attempts": 2,
+    }, 100))
+
+    assert "effort low" in screen
+    assert "2 attempts" in screen
+
+
+def test_a_turn_that_answered_first_time_does_not_mention_attempts(viewer):
+    """The negative half: `attempts` is shown because it is unusual, not as decoration."""
+    screen = "\n".join(viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
+        "input_tokens": 10, "output_tokens": 5, "effort": "high", "attempts": 1,
+    }, 100))
+
+    assert "effort high" in screen
+    assert "attempt" not in screen
+
+
+def test_a_turn_from_before_effort_was_streamed_claims_nothing(viewer):
+    """Absent is not `default`. An older transcript carries no per-turn effort, and
+    printing one would invent a fact about a run nobody can go back and check."""
+    screen = "\n".join(viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
+        "input_tokens": 10, "output_tokens": 5,
+    }, 100))
+
+    assert "effort" not in screen
+    assert "turn 1" in screen
+
+
+def test_the_requested_effort_still_heads_the_transcript(viewer):
+    """Adding the per-turn value must not have moved the requested one off the header."""
+    screen = "\n".join(viewer.render({
+        "t": "start", "at": "2026-01-01T00:00:00+00:00", "tool": "delegate_to_agent",
+        "task": "audit", "model_key": "m", "effort": "high",
+    }, 100))
+
+    assert "effort high" in screen
+
+
+def test_a_turn_reports_its_time_as_a_length_not_as_seconds(viewer):
+    """`171.4s` is a number a reader has to convert before it means anything."""
+    screen = "\n".join(viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
+        "input_tokens": 10, "output_tokens": 5, "ms": 171_400,
+    }, 100))
+
+    assert "2m51s" in screen
+    assert "171.4s" not in screen
+    # Not `2:51`: that reads as a time of day, and it would sit on the same line as the
+    # `_clock` stamp this renderer already prints.
+    assert "2:51" not in screen
+
+
+def test_a_finished_dispatch_reports_its_total_as_a_length(viewer):
+    """The end event was the worst of the three: a twenty-minute run read as 1200.0s."""
+    screen = "\n".join(viewer.render({
+        "t": "end", "at": "2026-01-01T00:00:00+00:00", "ok": True,
+        "turns": 3, "elapsed_seconds": 1200.0,
+    }, 100))
+
+    assert "20m00s" in screen
+    assert "1200.0s" not in screen
+
+
+def test_the_still_running_line_keeps_its_own_coarser_shape(viewer):
+    """Deliberate: a live counter against a budget reads better as minutes."""
+    screen = "\n".join(viewer.render({
+        "t": "alive", "at": "2026-01-01T00:00:00+00:00",
+        "elapsed_seconds": 200, "of_seconds": 3600,
+    }, 100))
+
+    assert "3m" in screen
+    assert "3m20s" not in screen
