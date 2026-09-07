@@ -103,6 +103,17 @@ them was re-derived when it did.
   for it since they were written. `doc-reference`, negative-tested in both directions
 ### Improvements
 
+- ⬜ **`workdir` cannot verify Python work, which is the one thing it exists for.** It binds a
+  directory writable so `run_bash` can run what the delegation wrote, and ADR-0007's
+  self-verification rests on real captured exit codes. There are none here: measured
+  2026-09-07, no `python` on `PATH`, `import pytest` raises, `/tmp/vv` is absent because the
+  WSL venv lives on the host's `/tmp`, and no network to install one.
+  - **The cause rules out the obvious fix.** `.venv` is covered, not empty — a 64k `tmpfs`
+    over it where the repository is `v9fs`, deliberately and by name (ADR-0035). Committing a
+    Linux venv would be covered too, so a fix must use a path the cover-up does not name.
+  - **And a write into a covered path exits 0 and is then discarded** — `touch .venv/probe`
+    succeeds and is gone by the next `run_bash`, where a workdir write persists. ADR-0007
+    says trust the captured exit; here it is 0 and wrong. Decide separately.
 - ✅ 2026-09-06 A read-only form of `delegate_to_agent` — the agent tool with its set fixed
   to whatever declares no write, exactly as `delegate_readonly` is to `delegate`.
   Shipped as `delegate_to_agent_readonly` (ADR-0059), and it took the `workdir`/`project`
