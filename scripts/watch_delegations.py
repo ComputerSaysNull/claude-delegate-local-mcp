@@ -297,6 +297,47 @@ def _call_lines(call: dict, width: int) -> list[str]:
     return out
 
 
+def _turn_lines(event: dict, stamp: str, width: int) -> list[str]:
+    """One completed turn: what it cost, what it ran at, and what it said.
+
+    Its own function because the branch outgrew `render`, which is a dispatch and
+    should read like one.
+    """
+    n = event.get("turn", "?")
+    cost = (f"{DIM}{_tokens(event.get('input_tokens'))} in · "
+            f"{_tokens(event.get('output_tokens'))} out{R}")
+    secs = event.get("ms")
+    cost += f" {DIM}· {_duration(secs / 1000)}{R}" if isinstance(secs, (int, float)) else ""
+    # Generation rate over the backend call, which is the figure that says whether the
+    # cluster is slow. The turn's own wall clock includes tool execution, so a rate
+    # taken from it would blame the cluster for time it did not spend generating.
+    if isinstance(rate := event.get("out_tok_s"), (int, float)):
+        gen = event.get("backend_ms")
+        served = f" of {_duration(gen / 1000)}" if isinstance(gen, (int, float)) else ""
+        cost += f"  {GREEN}{rate:g} tok/s{R}{DIM}{served}{R}"
+    # The effort this turn actually ran at, which is not always the one that was asked
+    # for: empty-answer recovery steps the level down and retries, so a delegation
+    # requested at `high` can answer at `low` and the header would still say `high`.
+    # The requested level stays where it was -- the start event above, and the picker's
+    # own column -- so the two are readable side by side rather than one hiding the
+    # other.
+    head = f"{stamp}  {BOLD}{CYAN}turn {n}{R}"
+    if effort := event.get("effort"):
+        head += f"  {DIM}effort {effort}{R}"
+    # Shown only above one, because that is the whole signal. `attempts` is the reason
+    # an effort differs from the requested one, and a turn that answered first time
+    # saying "1 attempt" would be noise on every line of every transcript.
+    if isinstance(tries := event.get("attempts"), int) and tries > 1:
+        head += f"  {YELLOW}{tries} attempts{R}"
+    lines = ["", f"{head}  {cost}"]
+    for call in event.get("tool_calls", []) or []:
+        lines.extend(_call_lines(call, width))
+    if text := (event.get("text") or "").strip():
+        lines.append("")
+        lines.extend(_wrap(text, width, "  "))
+    return lines
+
+
 def render(event: dict, width: int) -> list[str]:
     """One event, as a block a person reads rather than a line a machine parses."""
     kind = event.get("t")
@@ -314,25 +355,7 @@ def render(event: dict, width: int) -> list[str]:
                 f"{DIM}{'─' * width}{R}"]
 
     if kind == "turn":
-        n = event.get("turn", "?")
-        cost = (f"{DIM}{_tokens(event.get('input_tokens'))} in · "
-                f"{_tokens(event.get('output_tokens'))} out{R}")
-        secs = event.get("ms")
-        cost += f" {DIM}· {secs / 1000:.1f}s{R}" if isinstance(secs, (int, float)) else ""
-        # Generation rate over the backend call, which is the figure that says whether the
-        # cluster is slow. The turn's own wall clock includes tool execution, so a rate
-        # taken from it would blame the cluster for time it did not spend generating.
-        if isinstance(rate := event.get("out_tok_s"), (int, float)):
-            gen = event.get("backend_ms")
-            served = f" of {gen / 1000:.1f}s" if isinstance(gen, (int, float)) else ""
-            cost += f"  {GREEN}{rate:g} tok/s{R}{DIM}{served}{R}"
-        lines = ["", f"{stamp}  {BOLD}{CYAN}turn {n}{R}  {cost}"]
-        for call in event.get("tool_calls", []) or []:
-            lines.extend(_call_lines(call, width))
-        if text := (event.get("text") or "").strip():
-            lines.append("")
-            lines.extend(_wrap(text, width, "  "))
-        return lines
+        return _turn_lines(event, stamp, width)
 
     if kind == "alive":
         # One line, dim, no rule. It reports that nothing has happened, which is worth
@@ -351,7 +374,7 @@ def render(event: dict, width: int) -> list[str]:
         n_turns = event.get("turns")
         tail = f"{DIM}{n_turns if n_turns is not None else '?'} turn"
         tail += "" if n_turns == 1 else "s"
-        tail += f" · {secs:.1f}s" if isinstance(secs, (int, float)) else ""
+        tail += f" · {_duration(secs)}" if isinstance(secs, (int, float)) else ""
         tail += R
         if isinstance(rate := event.get("out_tok_s"), (int, float)):
             out = event.get("output_tokens")
