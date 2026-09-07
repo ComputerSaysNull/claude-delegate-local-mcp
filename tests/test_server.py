@@ -795,6 +795,40 @@ def test_the_tool_description_tells_the_model_not_to_paste_files():
     assert "files_skipped" in description
 
 
+@pytest.mark.parametrize(
+    "tool_name",
+    ["delegate", "delegate_readonly", "delegate_to_agent", "delegate_to_agent_readonly"],
+)
+def test_every_delegating_description_carries_the_three_facts(tool_name):
+    """The descriptions are the only channel the protocol delivers by itself.
+
+    Both facts cost real money to learn by discovery. An unprefetched call is filed as
+    small by admission on its opening estimate and never revisited, so its turns re-prefill
+    while the gauge still reads small -- measured once at ten turns and 394k input tokens
+    for a question two turns answered with the right document attached. And a multi-part
+    task returns `ok: true` with an empty answer, which reads as success.
+
+    Parametrised over all four because the descriptions are written out per tool rather
+    than shared, so the drift this guards against is a fact landing on one and not the rest.
+    """
+    config = cfg()
+    mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
+
+    async def go():
+        async with Client(mcp) as client:
+            return next(t for t in await client.list_tools() if t.name == tool_name)
+
+    tool = asyncio.run(go())
+    description = " ".join((tool.description or "").split())
+    # All three named in the PLAN item, asserted separately. They ship as two paragraphs
+    # -- "prefetch" and "not prefetching is the dear shape" are one instruction -- and
+    # asserting the grouping rather than the facts is how one of them goes missing quietly.
+    assert "dearest shape, not the cheapest" in description   # unprefetched is dearest
+    assert "Prefetch what you already know it needs" in description  # prefetch the known
+    assert "One question per call" in description             # one question per call
+    assert "empty_response" in description                    # ...and how it fails
+
+
 # --- the agentic loop, over a real MCP session ---------------------------------------------
 
 

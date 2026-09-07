@@ -17,6 +17,7 @@ the other half of that rule.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -831,6 +832,37 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     }
 
 
+# The three facts that decide what a delegation costs, written once. Every delegating tool
+# must carry them *on the wire* -- MCP has no include, and a model choosing a tool sees one
+# description at a time -- but four copies in this file would be four things to edit and
+# three to forget. Appended under `@mcp.tool`, which runs last and so reads the finished
+# text. Written dedented, and joined onto a docstring this file cleans itself: appending
+# an indented block left those lines indented on the wire while the rest had been
+# dedented, so the join is explicit rather than inherited from how FastMCP normalises.
+_COST_RULES = """
+**A call with no `files[]` is the dearest shape, not the cheapest**, because its
+turns re-read what one prefetch would have supplied once. Prefetch what you already
+know it needs; that is a head start, not a limit on what it may go and find.
+
+**One question per call.** A task carrying several either stalls without completing
+a turn or comes back `ok: true` with an empty answer, so check `empty_response`
+before trusting a short reply. "List every X and what each does" is enumerable and
+counts as many -- send those as separate calls, which share the cached prefix
+anyway.
+"""
+
+
+def _with_cost_rules(fn):
+    """Extend a delegating tool's description with `_COST_RULES`.
+
+    Applied *under* `@mcp.tool` so it runs first and the registration sees the whole text.
+    Returns the same function object; only `__doc__` changes, so the schema FastMCP infers
+    is untouched.
+    """
+    fn.__doc__ = inspect.cleandoc(fn.__doc__ or "") + "\n\n" + _COST_RULES.strip() + "\n"
+    return fn
+
+
 def build(
     cfg: Config, registry: Registry, cache: BackendCache | None = None
 ) -> FastMCP:
@@ -866,6 +898,7 @@ def build(
     mcp: FastMCP = FastMCP(name=SERVER_NAME, lifespan=lifespan)
 
     @mcp.tool
+    @_with_cost_rules
     async def delegate(  # noqa: PLR0913 -- ctx is injected, not an argument the caller sees
         task: str,
         # Required, and sitting here only because a parameter without a default cannot
@@ -993,6 +1026,7 @@ def build(
         )
 
     @mcp.tool(annotations={"readOnlyHint": True})
+    @_with_cost_rules
     async def delegate_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
         task: str,
         effort: str,
@@ -1078,6 +1112,7 @@ def build(
             raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
     @mcp.tool
+    @_with_cost_rules
     async def delegate_to_agent(  # noqa: PLR0913 -- ctx is injected, not a caller argument
         agent_name: str,
         task: str,
@@ -1141,6 +1176,7 @@ def build(
         )
 
     @mcp.tool(annotations={"readOnlyHint": True})
+    @_with_cost_rules
     async def delegate_to_agent_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
         agent_name: str,
         task: str,

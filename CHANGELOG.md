@@ -34,6 +34,49 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #138 — 2026-09-07 — feat: the delegating tool descriptions carry the three missing facts
+
+### Changed
+- **Three facts that decide what a delegation costs now reach the model.** All three lived
+  only in a caller's private notes, so a caller on a fresh host paid to rediscover them, and the
+  descriptions are the only channel the protocol delivers by itself — this server registers
+  six tools and no prompts or resources at all. A behaviour change with an entry, not a
+  wording fix (CLAUDE.md).
+  They ship as two paragraphs rather than three, because *prefetch what the call is known
+  to need* and *not prefetching is the dear shape* are one instruction stated from two
+  directions; the test asserts all three separately, since asserting the grouping is how
+  one of them would go missing quietly.
+  - **A call with no `files[]` is the dearest shape, not the cheapest** — and, in the same
+    breath, *prefetch what you already know it needs*. Its turns re-read
+    what one prefetch would have supplied once. Measured: an unprefetched question ran ten
+    turns, hit the turn limit, evicted twelve tool results and spent 394k input tokens on
+    something two turns answered with the right document attached. The description
+    previously said `files[]` was "a head start rather than the whole world", which is true
+    and was being read as permission to send none.
+  - **One question per call.** A task carrying several either stalls without completing a
+    turn — which reads like an outage — or comes back with `ok: true` and an empty answer,
+    which reads like success. The description now names `empty_response` as the field to
+    check before trusting a short reply, and says that an enumerable ask ("list every X and
+    what each does") counts as many questions.
+- All four delegating tools carry both, placed before each one's `effort` guidance, which
+  is the other thing that decides what a call costs. `list_agents` and `backend_status` are
+  untouched: neither dispatches.
+- **Written once in the source, though it reaches the wire four times.** MCP has no
+  include and a model choosing a tool sees one description at a time, so every delegating
+  tool must carry the text itself. That is a fact about the protocol, not a reason to keep
+  four copies in one file: a single `_COST_RULES` is appended by a decorator sitting under
+  `@mcp.tool`, which therefore registers the finished text. The first attempt did paste
+  four identical paragraphs, which is one fact stored four times and three of them free to
+  drift. Note what this is *not*: the existing per-tool overlap — several descriptions
+  discuss `files[]` — is the same subject worded for each tool's job, and stays that way.
+- The join is explicit rather than inherited: `inspect.cleandoc` is applied here, because
+  appending an indented block to a docstring left those lines indented on the wire while
+  the rest had been dedented, and the description is a contract that should not read as
+  ragged.
+- The test is parametrised across all four, and verified through a real MCP client session,
+  which is the surface the contract actually crosses. All four cases fail against the
+  previous descriptions.
+
 ## #137 — 2026-09-07 — docs: the MCP-served-skills spike is answered, and the answer is no
 
 ### Fixed

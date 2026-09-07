@@ -134,7 +134,7 @@ with that test included. The criterion above is already satisfiable; only provis
 **Exit:** on a host holding only the package, a caller can write a valid agent file for
 their own project without ever reading this repository.
 
-- ⬜ Three facts are missing from the tool descriptions, which is the only channel the
+- ✅ 2026-09-07 Three facts are missing from the tool descriptions, which is the only channel the
   protocol delivers by itself: one question per delegating call, an unprefetched call is the
   dearest rather than the cheapest, and prefetch what is already known to be needed. A
   behaviour change with a CHANGELOG entry, not a wording fix

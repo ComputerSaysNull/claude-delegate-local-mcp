@@ -1,4 +1,5 @@
-<!-- BUDGET: 933
+<!-- BUDGET: 938
+     Raised from 933 on 2026-09-07: the tool descriptions gained the three cost facts, the only channel the protocol offers. Fourth raise today -- the 78-line raise history above is now the first candidate for the split.
      Raised from 923 on 2026-09-07: opening a path and comparing one need different
      translation, and this section owns the boundary. Third raise in a day -- the split
      ADR-0003 asks for is overdue rather than merely signalled.
@@ -709,6 +710,10 @@ loop, which is why the two belong on the same tools rather than one implying the
 inspects arguments, so the claim is a property of the tool or it is worth nothing. Holding
 that asymmetry is what the guard in `tests/test_server.py` is for, and it is worth more than
 the annotations themselves.
+The descriptions carry the three facts that decide what a call costs -- prefetch what the
+call is known to need, and ask one question per call -- because the protocol offers this
+server no other channel, and a test walks all four since they are written per tool rather
+than shared.
 
 ## A dispatch is written twice, because "what happened" and "what is happening" are different questions
 
