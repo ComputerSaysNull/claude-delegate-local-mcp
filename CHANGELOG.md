@@ -34,6 +34,64 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #132 — 2026-09-07 — feat: `--doctor` checks the environment the server assumes
+
+### Added
+- **`claude-delegate-local-mcp --doctor`, because startup validates values and not the
+  world.** `config.load` checks that the roots tuple is non-empty and that the deadlines
+  nest; `registry.load` checks that `models.toml` parses. Neither asks the filesystem or
+  the network anything. **Measured:** with a nonexistent workspace root, a `bwrap` that is
+  not installed and an endpoint nothing is listening on, the server completed an MCP
+  handshake in about a second and served all six tools. Every fault then surfaces inside
+  whichever call reaches it first, a layer away from its cause. The cost of that is already
+  on record — an absent `uv` left the toolchain probe resolving to nothing for a session,
+  and the result was written up as an architectural limit rather than a missing package,
+  which the setting's own help text had predicted.
+- **Eight checks, reusing the server's own code rather than reimplementing it.**
+  `paths.resolved_roots`, `sandbox.available`, `sandbox.limiter_available`,
+  `sandbox.probe_toolchain_binds`, `server.probe_entry`, `slots.build_slots` and
+  `transcript.enabled` all existed and nothing called them at startup. A check written
+  fresh would be free to agree with a server that had changed underneath it.
+- **One check is written fresh, because no helper answers it: `bwrap` is executed, not
+  looked up.** `sandbox.available` is a `PATH` lookup, so a bubblewrap that is installed and
+  cannot unshare a namespace passes it and then refuses every command. The test for this
+  builds a fake `bwrap` that exists, is executable and exits non-zero, and asserts that
+  `available()` is satisfied while the doctor is not — otherwise the two checks would be
+  the same check twice.
+- **`FAIL` exits non-zero, `WARN` does not.** A missing toolchain leaves the read-heavy
+  majority of delegations working, so it must not block; a missing root refuses every path
+  under it, so it must. Running on this machine the report is seven `PASS` and one `WARN`
+  — and the warning is the absent toolchain, independently reproducing the finding that
+  went undiagnosed for a session.
+- **The `bwrap` execution test is `integration`-marked, and CI proved why.** It was first
+  guarded only on `sandbox.available()`, which is the `PATH` lookup the doctor exists to
+  distrust — so it asserted a pass in exactly the environment the check is for, and failed
+  on both Python versions. The runner installs bubblewrap and still cannot bring up loopback
+  in a new network namespace (no `CAP_NET_ADMIN`), which `ci.yml` had already recorded above
+  the install step. The probe's `FAIL` there is **correct**: `build_argv` uses the same
+  `--unshare-all`, so `run_bash` would fail on that machine too. The test was wrong, not the
+  check.
+
+### Changed
+- **What shipped differs from the filed item in two ways, recorded here because a ticked
+  PLAN.md item keeps the text it was filed with.** The doctor refuses to run on Windows
+  rather than refusing anywhere but WSL: the server runs on native Linux too, and there the
+  answers are exactly as meaningful. And there is no separate name-resolution check —
+  `probe_entry` already reaches the endpoint by name and reports `backend_unreachable` with
+  its own detail, so a second probe would be a second thing to keep true.
+- **`docs/ARCHITECTURE.md` said `server.py` carries "the five tool declarations".** There
+  are six, and have been since the read-only agent tool landed in `#126`. Found by reading
+  the doctor's own output.
+
+### Fixed
+- **Two PLAN.md items are ticked by measurement rather than by assertion**: that the server
+  starts with a broken environment, and the preflight itself. The read-only-cover question
+  under M9 is also answered — with eight directories covered by `--tmpfs` plus
+  `--remount-ro`, a write into a covered path is refused while the same write into the
+  workdir succeeds, and the suite still passes at 1237 passed, 4 skipped, exit 0. So both
+  the secret shadows and the bulk list can be read-only, where the plan had expected only
+  the former to be possible.
+
 ## #131 — 2026-09-07 — fix: the suite leaves the machine two cores, and its numbers are re-measured
 
 ### Changed

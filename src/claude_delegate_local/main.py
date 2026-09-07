@@ -9,6 +9,9 @@ Claude Code reporting a server that failed for no stated reason. So a startup fa
 is written to stderr and the process exits non-zero, which is the one thing a launcher
 can actually report. To read that message, run the command by hand in a terminal --
 docs/TROUBLESHOOTING.md says so, because there is nowhere else it can be seen.
+
+`--doctor` is the one exception, and it is not really one: nothing speaks MCP to a doctor
+run, so there is no protocol on stdout to corrupt. It returns before any of the below.
 """
 
 from __future__ import annotations
@@ -19,6 +22,19 @@ from . import config, registry, server
 
 
 def run() -> None:
+    # `--doctor` before anything else, because it exists for the case where the rest of
+    # this function would succeed and be wrong. It is matched rather than parsed: the
+    # server takes no arguments at all, so an argument parser here would be a second
+    # place for the transport and the config file to be settable, and `config.load` is
+    # the only sanctioned route to either (ADR-0027).
+    if "--doctor" in sys.argv[1:]:
+        # Imported here rather than at the top on purpose: the doctor pulls in the whole
+        # server module, and an ordinary launch should not pay for a report it will never
+        # print. The suppression below is for that, not an oversight.
+        from . import doctor  # noqa: PLC0415
+
+        raise SystemExit(doctor.main())
+
     try:
         cfg = config.load()
         reg = registry.load(cfg)  # RegistryError subclasses ConfigError

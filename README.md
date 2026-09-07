@@ -1,4 +1,7 @@
-<!-- BUDGET: 160 -->
+<!-- BUDGET: 165
+     Raised from 160 on 2026-09-07: a new entry point, `--doctor`, and the reason to run
+     it. The prose was cut to two lines first. -->
+
 # claude-delegate-local-mcp
 
 An MCP server that lets Claude Code hand work to a local model you host yourself.
@@ -60,7 +63,12 @@ cp models.toml.example models.toml    # then set your endpoint
 
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 python scripts/install_hooks.py       # optional, gives the gate at commit time
+claude-delegate-local-mcp --doctor    # checks the environment; non-zero on any failure
 ```
+
+Run the doctor before the first delegation. The server starts whether or not what it needs
+is there, so a missing root or an unreachable endpoint otherwise surfaces much later, as a
+refusal one layer away from its cause.
 
 On Windows plus WSL2 the two interpreters cannot share `.venv`: a Linux `python -m venv
 .venv` overwrites a Windows one in place, and it reads as a corrupted install rather than a
