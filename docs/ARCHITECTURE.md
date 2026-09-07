@@ -125,7 +125,7 @@ during spikes: given no prefetch, the model's first turn was a wasted directory 
 Prefetching removes several such turns from the front of every delegation.
 
 A prefetch cap is a **drop** threshold and never a truncation: a file over it is left out
-whole, because source cut mid-function is worse than absent. It is also not a fairness
+whole. It is also not a fairness
 control, and used to be sized as though it were. Fairness between concurrent requests is
 admission's, below, which counts it across every server process on the machine rather than
 per call — so a second control here only meant one large file being dropped while the
@@ -226,12 +226,9 @@ caller first and the configured default last, and is
 [described with the rest of resolution](DISPATCH.md#the-reply-budget-is-resolved-once-most-specific-first). An unlisted effort is refused before dispatch: it has no translation into
 the server's vocabulary, and discovering that mid-call wastes the call.
 
-A dispatch that fails on the way out is retried here rather than surfaced, and a reply that
-arrives empty is recovered from — both below, under
-[retry](DISPATCH.md#retry-sits-above-the-adapter-and-honours-what-the-endpoint-asks-for)
-and [empty-answer recovery](DISPATCH.md#an-empty-answer-is-recovered-from-before-it-is-reported).
-What
-stays true is where the reading happens: `finish_reason` and the token counts cross the
+A dispatch that fails on the way out is retried here rather than surfaced — below, under
+[retry](DISPATCH.md#retry-sits-above-the-adapter-and-honours-what-the-endpoint-asks-for).
+What stays true is where the reading happens: `finish_reason` and the token counts cross the
 adapter raw, and `loop.py` is the only layer that interprets them.
 
 A reply can be valid, empty and stopped on length — the budget spent on reasoning, nothing
@@ -404,8 +401,7 @@ secrets inside what that sandbox binds. Both do, so `WITHHELD_TOOL_NAMES` is emp
 The set is kept rather than deleted. Withholding is how this server says "this tool exists
 and cannot work today" — a fact about the server, distinct from a caller narrowing one
 delegation through `allowed_tools`. It also never was a control on its own: it narrows only
-what is *declared*, and `execute_tool` checks its own allowed set without consulting it,
-because a model can call a tool it was never offered.
+what is *declared*, and `execute_tool` checks its own allowed set without consulting it.
 
 **Bind order is load-bearing.** bubblewrap applies binds in argv order and a later one
 shadows an earlier one at or below the same path, so two rules hold: HOME binds before the

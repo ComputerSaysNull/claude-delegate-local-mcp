@@ -34,6 +34,42 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #127 — 2026-09-07 — docs: five duplications trimmed, and a cross-reference that pointed at itself
+
+### Fixed
+- **A cross-reference in `docs/DISPATCH.md` pointed at the section it was written in.** The
+  final-turn paragraph said to see "Turns, and what ends them" for why forbidding tools
+  rather than withdrawing them is a cache decision — while sitting inside that very section.
+  **Cause:** the reason and its measurement (321 tokens saved against 36,018 re-prefilled, a
+  99.3% hit falling to 0.0%) live in "The history is resent every turn, and trimmed in
+  steps", and the reference was never updated when the mechanism moved there. **Fix:** it
+  names the section that holds the measurement. **Why nothing caught it:** the gate has no
+  link check, and both CLAUDE.md and the audit agent's own body claim it has one — so the
+  agent, told to report nothing the gate already catches, was steered off the only check that
+  would have found this. PLAN.md now carries that as open work; the prose is not fixed here
+  because the choice between correcting the claim and writing the check is not a docs edit.
+
+### Changed
+- **Five duplications trimmed from `docs/ARCHITECTURE.md` and `docs/DISPATCH.md`** — the
+  TOO VERBOSE check class, the one the 2026-09-06 audit deferred rather than do badly. In
+  each case the same fact or stated reason appeared twice and one copy carried it more fully:
+  "source cut mid-function is worse than absent" and "a model can call a tool it was never
+  offered" each stated twice in ARCHITECTURE, an empty-answer clause duplicated across two
+  consecutive paragraphs there, and the `attempts`/token-counts rule stated in both DISPATCH's
+  retry and empty-answer sections. **No fact, caveat, measured number or stated reason was
+  cut** — only the second statement of one, and the fuller copy is what survived each time.
+  Both documents came back **dense rather than padded**, which is the finding worth keeping:
+  the audit declined to trim the process-cap, admission, picker and `backend_status`
+  paragraphs, and named seams to split on instead of prose to remove.
+- **The two things the pass established beyond its findings**, both in PLAN.md. The reply
+  ceiling is dynamic rather than a size: these passes answered at 27,119 and 27,828 output
+  tokens where 2026-09-06 saw an *empty* return at 27,603 — a smaller answer than one that
+  landed here, which is ADR-0055's decode-rate derivation and not a limit `max_tokens` could
+  raise. And splitting an audit by document forfeits the prefix cache, measured at 1,280 and
+  4,096 `cached_tokens` against the 69,632 two identical prefetches share, because the two
+  passes prefetched different files. That is the price of the split the check-class table
+  prescribes, and it is worth paying for answers small enough to clear the ceiling above.
+
 ## #126 — 2026-09-06 — feat: an agent can be reached read-only, and a lookup path stops being called a workdir
 
 ### Added

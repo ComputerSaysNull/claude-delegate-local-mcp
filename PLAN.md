@@ -96,10 +96,17 @@ them was re-derived when it did.
 
 ### Documentation accuracy
 
-- ⬜ TOO VERBOSE across `docs/ARCHITECTURE.md` and `docs/DISPATCH.md` — the one check class
-  the 2026-09-06 audit did not run at all. 1,457 lines needing a trim proposal per
-  candidate, deferred rather than done badly, and the only class of that audit with no
-  coverage. It is audit work, with a method a feature session does not have
+- ✅ 2026-09-07 TOO VERBOSE across `docs/ARCHITECTURE.md` and `docs/DISPATCH.md` — the one
+  check class the 2026-09-06 audit did not run at all. Five duplications trimmed, both
+  documents dense rather than padded; what the passes measured is in the #127 entry
+- ⬜ **The gate does not check links, and two documents say it does.** `CHECKS` in
+  `scripts/docs_gate.py` holds twenty checks and no link check; CLAUDE.md and
+  `.claude/agents/docs-audit-local.md` both list "broken links" among what it catches, and the
+  agent file's next line is "Report nothing it already catches" — so the false claim steers
+  the audit off the check nobody performs. The 2026-09-07 pass found a `docs/DISPATCH.md`
+  cross-reference pointing at its own section, which is that shape exactly. Fixing the prose
+  leaves the hole; decide whether the check is worth writing — an in-document anchor check is
+  the part that catches this
 ### Improvements
 
 - ✅ 2026-09-06 A read-only form of `delegate_to_agent` — the agent tool with its set fixed

@@ -353,10 +353,9 @@ nothing left to disable, so the budget was too small for the answer, and reporti
 exhaustion would tell the caller to lower an effort that is already lowest.
 
 `attempts` counts every real call across all three stages and every transport retry inside
-them, and across every turn when this runs inside the loop. The token counts describe the
-attempt that answered, not the sum: ADR-0014 requires the retry not to charge the turn
-budget, so a turn is charged for the answer it got rather than for what recovering it
-cost.
+them, and across every turn when this runs inside the loop. ADR-0014 requires the retry not
+to charge the turn budget, so a turn is charged for the answer it got rather than for what
+recovering it cost.
 
 ## Turns, and what ends them
 
@@ -379,8 +378,9 @@ server-wide default for it would be a config default living outside `config.py`.
 delegation that names none gets a sandbox that can reach nothing of the caller's, which is
 the right way for the default to fail.
 
-The last turn is declared with its tools **forbidden, not withdrawn** — see "Turns, and what
-ends them" for why that distinction is a cache one (ADR-0057). Without that short-circuit a
+The last turn is declared with its tools **forbidden, not withdrawn** — see "The history is
+resent every turn, and trimmed in steps" for why that distinction is a cache one (ADR-0057),
+where the measurement is. Without that short-circuit a
 delegation can end on a tool call nobody will run, having spent its whole budget and returned
 nothing readable. The result reports `hit_turn_limit` so the caller can tell the two endings
 apart: an answer written under a forbidden toolset is a partial one, and worth reading
