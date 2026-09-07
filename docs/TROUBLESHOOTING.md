@@ -1,4 +1,7 @@
-<!-- BUDGET: 305
+<!-- BUDGET: 315
+     Raised from 305 on 2026-09-07: the preflight, which identifies several symptoms below
+     faster than matching them by hand. A pointer rather than an answer, as this document
+     requires.
      Raised from 293 on 2026-09-06: one symptom entry for a delegation that dies at
      the stall deadline while decoding, which read as a hung backend three times.
      Raised from 290 on 2026-09-03: one symptom entry for a commit hook that could not run the gate.
@@ -27,6 +30,13 @@ has the roadmap.
 ---
 
 ## Startup
+
+**Run `claude-delegate-local-mcp --doctor` first.** It checks the roots, `bwrap`, the
+toolchain, every endpoint, the transcript directory and the machine-wide slots, and names
+whichever is wrong. Several symptoms below are faster to identify that way than to match by
+hand — and the server starts regardless of all of them, so a symptom here is often the
+first sign of a fault that was present at launch. See
+[ARCHITECTURE.md](ARCHITECTURE.md#--doctor-asks-what-startup-does-not).
 
 ### The server refuses to start, naming a setting
 

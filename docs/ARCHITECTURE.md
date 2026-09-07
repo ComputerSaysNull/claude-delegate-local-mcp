@@ -1,4 +1,7 @@
-<!-- BUDGET: 887
+<!-- BUDGET: 914
+     Raised from 887 on 2026-09-07: the preflight, which is a mechanism this document owns
+     and did not previously exist -- the section was cut by a fifth first, and one stale
+     count fixed alongside it.
      Raised from 871 on 2026-09-07: a turn's tool calls are a record carrying what was
      asked and why it refused, and the viewer renders it. Both additions cut by half
      first, and the reasoning left in ADR-0060 rather than restated here.
@@ -152,8 +155,9 @@ budget it would have fitted in sat unused (ADR-0046).
 | `admission.py` | The four-rule gate every delegation passes before it reaches a backend |
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
-| `server.py` | MCP wiring, the five tool declarations, the backend cache |
+| `server.py` | MCP wiring, the six tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
+| `doctor.py` | `--doctor`: the environment checks startup does not make |
 
 The table covers every module; the three marked above live in [DISPATCH.md](DISPATCH.md),
 which owns them, and `agents.py` in [AGENTS.md](AGENTS.md). The ancestor put all of this in one large file; we add two concerns it
@@ -188,6 +192,29 @@ The FastMCP banner is suppressed for the same reason it would otherwise be harml
 drawn to stderr, but drawing it first calls PyPI for a version check. An outbound request
 on every launch is the wrong default for a tool whose point is that inference stays on
 hardware you control.
+
+### `--doctor` asks what startup does not
+
+`config.load` validates values and `registry.load` validates that `models.toml` parses.
+Neither asks the filesystem or the network anything, so the server starts with a
+nonexistent workspace root, no `bwrap` and a dead endpoint — measured, with a full MCP
+handshake in about a second and every tool served. Each fault then surfaces inside
+whichever call reaches it first, a layer away from its cause. The cost is on record: an
+absent `uv` left [`toolchain_binds`](CONFIGURATION.md) resolving to nothing for a session,
+and the result was filed as an architectural limit rather than a missing package.
+
+`doctor.py` asks those questions up front and **reuses the server's own code to ask them**
+— `paths.resolved_roots`, `sandbox.available`, `sandbox.limiter_available`,
+`sandbox.probe_toolchain_binds`, `server.probe_entry`, `slots.build_slots` and
+`transcript.enabled`. A check written fresh is free to agree with a server that changed
+underneath it. One question has no helper and so is written here: `bwrap` is *executed*
+rather than looked up, because `available` is a `PATH` lookup and a bubblewrap that cannot
+unshare a namespace passes it and then refuses every command.
+
+POSIX only, since on Windows every answer would describe a machine the server never runs
+on. stdout is the report rather than the wire — nothing speaks MCP to a doctor run. `FAIL`
+exits non-zero and `WARN` does not, because a missing toolchain still leaves the read-heavy
+majority working. No row names an endpoint (ADR-0029).
 
 ### One backend per registry entry, for the life of the server
 

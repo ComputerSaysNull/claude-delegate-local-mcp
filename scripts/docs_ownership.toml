@@ -87,6 +87,10 @@ owns = [
   "src/claude_delegate_local/wsl.py",
   "src/claude_delegate_local/sandbox.py",
   "src/claude_delegate_local/main.py",
+  # The preflight belongs with the startup it checks. Its whole subject is the gap
+  # between what `main.run` validates and what the server actually needs, so a second
+  # document would describe one half of one decision.
+  "src/claude_delegate_local/doctor.py",
   "src/claude_delegate_local/admission.py",
   "src/claude_delegate_local/slots.py",
   "src/claude_delegate_local/transcript.py",

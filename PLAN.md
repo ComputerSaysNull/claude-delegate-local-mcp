@@ -1,4 +1,7 @@
-<!-- BUDGET: 390
+<!-- BUDGET: 430
+     Raised from 390 on 2026-09-07: four of the six measurements this roadmap was waiting on
+     came back, and each answer belongs against the item that was waiting for it. Two of
+     them changed the item rather than confirming it.
      Raised from 300 on 2026-09-07: five milestone headings with their exit conditions, and
      the items M8 to M11 add. Four completed items were archived first, which paid for 46
      lines of it.
@@ -55,10 +58,10 @@ knowledge into the server; M12 fixes the one thing those notes exist to work aro
   nothing — and `config.py` already called that "the single most likely first-run sandbox
   failure". Nothing checks the environment at startup, so it went undiagnosed for a session
   and was written up as an architectural limit instead
-- ⬜ Measure that the server really does start with a missing workspace root, no `bwrap` and
+- ✅ 2026-09-07 Measure that the server really does start with a missing workspace root, no `bwrap` and
   a dead endpoint. Read from code rather than run, and it is the justification for the item
   below
-- ⬜ `--doctor`, one line per check: each root exists, `bwrap` runs a trivial command, the
+- ✅ 2026-09-07 `--doctor`, one line per check: each root exists, `bwrap` runs a trivial command, the
   provisioned toolchain is current, the head node resolves by name *inside WSL*, every
   registry entry answers with `id_confirmed`, `transcript_dir` is writable, `cross_process`
   slots are live. Refuses to run outside WSL, where `bwrap` and DNS would answer wrongly.
@@ -101,6 +104,14 @@ with that test included. The criterion above is already satisfiable; only provis
   exiting 0. Measure first: `__pycache__` and `.pytest_cache` are on the same list and a test
   run writes to both, so read-only may break what this milestone exists to enable. Any
   change supersedes a line of ADR-0041
+  - **Measured 2026-09-07: it is viable, and the timid version is unnecessary.** With eight
+    directories covered by `--tmpfs` plus `--remount-ro`, a write into a covered path is
+    refused with exit 1 while the same write into the workdir succeeds, and the full suite
+    still passes — 1237 passed, 4 skipped, exit 0. Python tolerates an unwritable
+    `__pycache__` and pytest degrades to a cacheprovider warning, so **both** the secret
+    shadows and the bulk list can be read-only rather than only the former
+  - The first probe asserted read-only against a directory it had not covered, and passed.
+    It needed a control write into the workdir to show the assertion could fail at all
 - ~~**`workdir` cannot verify Python work, which is the one thing it exists for.**~~ It binds a
   directory writable so `run_bash` can run what the delegation wrote, and ADR-0007's
   self-verification rests on real captured exit codes. There are none here: measured
@@ -134,10 +145,27 @@ their own project without ever reading this repository.
   the gate integration are specific to this repository
 - ⬜ Measure whether Claude Code consumes skills served over MCP through FastMCP's
   `SkillsDirectoryProvider`; if it does, that replaces `install-skills` outright
+  - **Server half measured 2026-09-07: it serves them.** A `SkillsDirectoryProvider` over a
+    directory holding one skill advertises the `resources` capability and lists two entries
+    per skill under a `skill://` scheme — the `SKILL.md` and a `_manifest` — both readable
+    through `resources/read`, plus one resource template
+  - **The client half is still open**, and it is the half that decides this: whether Claude
+    Code treats a `skill://` resource as an invocable skill or merely lists it. It reads MCP
+    resources already. Answering it needs the provider wired into this server and a
+    reconnect, so it cannot be settled from outside
 - ⬜ Find the cause behind withholding `run_bash` on a verifying pass instead of writing the
   workaround down. It took an audit from 26 turns to 1 at no cost in accuracy, and 24 of its
   29 calls were verification — so if verification bought nothing, stop instructing the agent
   to verify by shelling out. Measure that first; a `verify_quote` tool is only the fallback
+  - **Attempted 2026-09-07 and inconclusive, because the experiment was designed wrong.** A
+    read-only pass has no shell, which is the condition under test, and one was run over a
+    dense document for the TOO VERBOSE class. It correctly found nothing — so it produced no
+    quotations, and there was nothing whose accuracy could be checked
+  - The cost half did reproduce: **one turn, zero tool calls**, against the 26 turns the
+    with-shell pass took. What is still unmeasured is whether accuracy holds, and measuring
+    it needs a task that *necessarily* quotes — a STALE pass over a document and the code it
+    describes, against a known discrepancy, rather than a class that may legitimately return
+    an empty list
 - ⬜ Server-format twins for the four Claude Code agents — `#72` made it visible that
   `code-reviewer`, `docs-audit`, `researcher` and `test-writer` load only in Claude Code,
   so `delegate_to_agent` can reach one of five agents in this repository. `docs-audit-local`
@@ -164,6 +192,17 @@ nothing was configured, and no tool result changes shape.
 - ⬜ A `status` subcommand printing one plain-text block, since a TUI cannot run inside an
   agent's shell. Measure whether a detached terminal window can be launched from one; if not,
   print the command to paste
+  - **Measured 2026-09-07: a detached launch works, so the fallback is not needed.**
+    `wt.exe -- wsl.exe -d <distro> -e <cmd> <args>` opens a window, runs the command, and
+    outlives the tool call that started it; the window closes when the command exits, so a
+    long-running viewer persists
+  - **The trap, which cost four wrong readings:** `wt.exe` consumes `;` as its own pane
+    separator, so a compound command loses everything after the first statement and the
+    fragments are launched as executables. Avoid `;` or escape it `\;`. Separately,
+    `Start-Process -ArgumentList @(...)` against `wsl.exe` exits 0 and runs nothing at all,
+    while the same arguments as one string work
+  - And a lesson about the probe rather than the feature: a marker file written *first* in
+    the command reported success while the tail was being mangled. Write the marker last
 - ⬜ **Streaming, reopened 2026-09-05 with a scope.** Filed and cancelled the same day,
   2026-08-25, on the grounds that MCP tool calls are request/response so the caller sees
   nothing incrementally either way. That is still true of the caller and was never the
