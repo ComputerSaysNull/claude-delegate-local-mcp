@@ -40,7 +40,20 @@ packages = ["src/claude_delegate_local"]
 # went unwanted for a whole session, at 488s serial against 183s with workers, because
 # remembering a flag is not a default. Anything that relies on being remembered is not a
 # rule. The readable serial run is still one flag away: `-n 0`.
-addopts = ["-n", "auto"]
+#
+# `--maxprocesses` because `auto` is a core count and leaves nothing for the controller or
+# the OS. The figures in the paragraph above had gone stale by a few hundred tests: measured
+# 2026-09-07 on 12 logical cores, serial is 416s rather than 488s. Ten workers run the
+# Windows suite in 140s against 238s at six, and the WSL suite in 110s against 246s.
+#
+# Set for scheduling margin, not for memory. The suite's own footprint is about 1 GB of
+# commit and barely moves between six and ten workers, because the peak process count is
+# dominated by the interpreters the sandbox and pty tests spawn -- 24 either way -- rather
+# than by the workers. Memory pressure on a full run comes from whatever else is resident.
+#
+# A cap rather than a count, deliberately: it binds only where `auto` would exceed it, so a
+# smaller machine is unaffected and no core count is baked in here.
+addopts = ["-n", "auto", "--maxprocesses", "10"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
