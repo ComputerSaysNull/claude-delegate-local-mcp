@@ -34,6 +34,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #131 — 2026-09-07 — fix: the suite leaves the machine two cores, and its numbers are re-measured
+
+### Changed
+- **`--maxprocesses 10`, because `auto` leaves nothing for the controller or the OS.** The
+  figures justifying `-n auto` had gone stale by a few hundred tests. Re-measured on 12
+  logical cores: serial is 416s, not the 488s recorded; ten workers run the Windows suite in
+  140s against 238s at six, and the WSL suite in 110s against 246s. A cap rather than a
+  count, so it binds only where `auto` would exceed it and no core count is baked in.
+- **A trap in CLAUDE.md: never run the Windows and WSL suites at once against one checkout.**
+  Doing so produced eight ImportErrors and an xdist complaint that different tests were
+  collected between two workers, on a change that touched only markdown. Both write
+  `__pycache__` under `/mnt/c`, so the collision surfaces as a failure in an unrelated
+  module rather than as a collision. Serial runs on each platform were clean, which is what
+  identified it.
+
+### Fixed
+- **The premise this change started from was wrong, and the measurement is worth more than
+  the fix.** It began as "cap the suite, because a full run exhausts memory and other
+  applications die". Measured instead: the suite's own footprint is about **1 GB** of commit
+  and *barely moves* between six and ten workers, because the peak process count is
+  dominated by the interpreters the sandbox and pty tests spawn — 24 either way — rather
+  than by the workers. Baseline commit was **40.3 GB of a 47.7 GB limit before a run
+  started**, roughly 7 GB of it in 54 browser processes. So worker count is not the memory
+  lever it looked like, and the cap is set for scheduling margin. Recorded because the
+  obvious next step, capping harder, would have cost time and bought nothing.
+- **A trap in reading memory figures, met while diagnosing this.** A process listed at
+  4.1 GB of *working set* held 394 MB of private commit; working set counts shared pages, so
+  sorting by it names the wrong culprit. Attribute commit with `PageFileUsage` instead.
+
 ## #130 — 2026-09-07 — docs: PLAN.md becomes a milestone roadmap, and #129 is corrected
 
 ### Added

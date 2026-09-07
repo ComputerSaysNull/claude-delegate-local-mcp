@@ -100,6 +100,9 @@ Rules a machine cannot check, so they land here:
   boundary in exactly one place, `wsl.py`, and everything inside it is POSIX-only.
 - The workspace lives on `/mnt/c`, which is roughly 12x slower for a test run and ~27x for
   creating a virtualenv. Expected, measured, and accepted. (ADR-0020)
+- **Never run the Windows and WSL suites at once against the same checkout.** Both write
+  `__pycache__` under `/mnt/c`, so xdist workers disagree about what they collected and it
+  surfaces as an ImportError in an unrelated module rather than as a collision.
 - `bwrap` needs `--symlink usr/lib64 /lib64`; without it nothing dynamically linked runs
   and the error blames the executable rather than the missing loader. (ADR-0021)
 - The head node is configuration. Never a literal in code, docs, tests, a commit message
