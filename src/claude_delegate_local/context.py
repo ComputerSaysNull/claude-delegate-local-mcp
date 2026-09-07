@@ -33,7 +33,7 @@ import re
 from dataclasses import dataclass
 
 from .config import Config
-from .paths import PathRefused, ResolvedPath, open_resolved
+from .paths import PathRefused, Refusal, ResolvedPath, open_resolved
 
 # How far in to look for a NUL byte. A text file does not contain one, and a binary file
 # that hides its first NUL past 8 KiB is rarer than the cost of reading further. ADR-0030.
@@ -44,6 +44,10 @@ SKIP_OVER_FILE_BUDGET = "over_file_budget"
 SKIP_BINARY = "binary"
 SKIP_OVER_TOTAL_BUDGET = "over_total_budget"
 SKIP_UNREADABLE = "unreadable"
+# A path the policy would not allow. Unlike the five above it never became a file at all,
+# so `path` below is the caller's spelling -- there is no resolved one, and the refusal is
+# why. ADR-0061.
+SKIP_REFUSED = "refused"
 
 # The markers wrapping each file. Not a markdown fence: an inlined `.md` file carries
 # fences of its own, and the model would read the first one as the end of the file.
@@ -172,6 +176,23 @@ class Prefetch:
             "prefetch_tokens": self.total_tokens,
             "prefetch_budget": self.budget,
         }
+
+
+def skip_from_refusal(refusal: Refusal) -> Skip:
+    """A refused path as a skip, so the call keeps the files that did resolve.
+
+    The reason carries the remedy as well as the cause, because both audiences need it and
+    `Skip` has one field for them. The model reads it in the prompt's skipped list and so
+    does not spend a turn trying to `read_file` the same path; the caller reads it in
+    `files_skipped` and learns which root the path missed, which `_check_roots` has already
+    written into the remedy.
+    """
+    return Skip(
+        path=refusal.given,
+        given=refusal.given,
+        kind=SKIP_REFUSED,
+        reason=f"{refusal.reason} {refusal.remedy}",
+    )
 
 
 def decode_text(data: bytes) -> tuple[str | None, str]:

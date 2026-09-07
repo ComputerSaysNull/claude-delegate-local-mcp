@@ -641,6 +641,30 @@ def resolve_workdir(cfg: Config, given: str) -> str:
     return real
 
 
+def resolve_files(
+    cfg: Config,
+    given: Sequence[str],
+    *,
+    must_exist: bool = True,
+) -> tuple[tuple[ResolvedPath, ...], tuple[Refusal, ...]]:
+    """Resolve every caller path, returning what survived beside what did not.
+
+    The non-raising disposition, and `files[]` is the surface that wants it: a prefetch of
+    a dozen files has eleven useful answers left when one path is wrong, and discarding
+    them costs the caller a round trip to learn something the reply could have carried.
+    ADR-0061.
+
+    `resolve_all` is this plus a raise, and stays right wherever one path means one answer
+    -- a mid-loop `read_file` has nothing to partially succeed at, so `tools.py` keeps it.
+
+    Splitting here rather than catching `PathRefused` in the caller keeps the refusals as
+    data. An exception carrying a list the handler must take apart is a return value that
+    has to be caught first.
+    """
+    survivors, refusals = _resolve_many(cfg, given, must_exist)
+    return survivors, tuple(refusals)
+
+
 def resolve_all(
     cfg: Config,
     given: Sequence[str],
@@ -660,7 +684,7 @@ def resolve_all(
     that asked for six files and silently got five reads exactly like one that got six.
     `resolve_permitted` is the other disposition, for paths nobody named.
     """
-    survivors, refusals = _resolve_many(cfg, given, must_exist)
+    survivors, refusals = resolve_files(cfg, given, must_exist=must_exist)
     if refusals:
         raise PathRefused(
             list(refusals), total=len(given),

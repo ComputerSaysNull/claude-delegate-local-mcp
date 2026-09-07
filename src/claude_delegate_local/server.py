@@ -41,7 +41,7 @@ from .admission import Admission, AdmissionError, AdmissionLease
 from .agents import AgentError, AgentSpec, load_agent
 from .agents import survey_agents as discover_agents
 from .config import EFFORT_INHERIT, EFFORT_LEVELS, Config, ConfigError
-from .context import estimate_text_tokens, prefetch
+from .context import estimate_text_tokens, prefetch, skip_from_refusal
 from .loop import (
     AgenticDispatch,
     ContextOverflowAborted,
@@ -52,7 +52,7 @@ from .loop import (
     run_agentic_loop,
     run_one_shot,
 )
-from .paths import PathPolicyError, PathRefused, resolve_all, resolve_workdir
+from .paths import PathPolicyError, PathRefused, resolve_files, resolve_workdir
 from .registry import ModelEntry, Registry, RegistryError
 from .slots import build_slots, cross_process_status
 from . import transcript
@@ -567,13 +567,26 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     # Before the backend is even looked up: a refused path must cost nothing, and
     # must not depend on whether the cluster happens to be reachable today.
     try:
-        resolved = resolve_all(cfg, files or [])
-    except PathRefused as e:
-        raise ToolError(str(e)) from e
+        resolved, refusals = resolve_files(cfg, files or [])
     except PathPolicyError as e:
         raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
+    # Every path refused is still fatal, and it is the only `files[]` case that is. There
+    # is nothing left to send, so dispatching would spend a delegation on a prompt with
+    # none of the context it asked for -- and a caller who got every path wrong has one
+    # mistake to fix, not a dozen. One refusal among many is different in kind: the other
+    # files are still the answer. ADR-0061, superseding ADR-0006 on this point.
+    if refusals and not resolved:
+        raise ToolError(str(PathRefused(list(refusals), total=len(files or []))))
+
     prefetched = prefetch(cfg, resolved)
+    if refusals:
+        # Ahead of the budget skips: this is the caller's own error, and the prompt's
+        # skipped list is read top-down by whoever has to act on it.
+        prefetched = replace(
+            prefetched,
+            skips=tuple(skip_from_refusal(r) for r in refusals) + prefetched.skips,
+        )
 
     try:
         backend = cache.get(entry)
@@ -981,12 +994,13 @@ def build(
         `hit_turn_limit: true` as the sign you should have. It is clamped to a ceiling the
         operator sets, silently, so asking for more than that is not an error.
 
-        A path in `files[]` that is not allowed fails the whole call before anything is
-        sent, and the error names every rejected path, the layer that rejected it, and
-        what to do. A file that is allowed but too large or not text is **skipped**: the
-        call proceeds without it, and `files_skipped` says which and why. Read that field
-        before trusting an answer; the model was told the file was unavailable, but it
-        cannot tell you what it never saw.
+        A path in `files[]` that is not allowed is **skipped**, not fatal: the call goes
+        ahead with the files that did resolve, and `files_skipped` names each refused
+        path, the layer that refused it and what to do about it. Every path being refused
+        is the exception and still fails before anything is sent, because nothing would be
+        left to send. A file that is allowed but too large or not text is skipped the same
+        way. Read `files_skipped` before trusting an answer; the model was told the file
+        was unavailable, but it cannot tell you what it never saw.
 
         Returns `answer` plus what the server watched happen, rather than the model's
         account of it: `turns` is how many round trips it took, `tool_calls` how many

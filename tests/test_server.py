@@ -772,6 +772,123 @@ def test_a_skipped_file_lets_the_call_proceed_and_is_reported(tmp_path):
     assert result["files_skipped"][0]["kind"] == "binary"
 
 
+@files_posix_only
+def test_a_refused_path_no_longer_discards_the_files_that_resolved(tmp_path):
+    """ADR-0061: a refused path costs the call its file, not the call.
+
+    The case this exists for is mundane and was expensive: a prefetch naming a dozen good
+    files and one path outside every root -- a scratchpad, another checkout -- threw all
+    twelve away and cost a round trip to learn it.
+    """
+    good = tmp_path / "a.py"
+    good.write_text("x = 1\n", encoding="utf-8")
+    also_good = tmp_path / "b.py"
+    also_good.write_text("y = 2\n", encoding="utf-8")
+    outside = tmp_path.parent / "elsewhere.py"
+    outside.write_text("z = 3\n", encoding="utf-8")
+
+    sent: list = []
+    result = delegated(
+        recording_handler(sent),
+        config=files_cfg(tmp_path),
+        task="review this",
+        files=[str(good), str(outside), str(also_good)],
+    )
+
+    assert sent, "the delegation should have been dispatched"
+    read = [f["path"] for f in result["files_read"]]
+    assert read == [os.path.realpath(good), os.path.realpath(also_good)]
+
+    refused = [s for s in result["files_skipped"] if s["kind"] == "refused"]
+    assert len(refused) == 1
+    assert refused[0]["given"] == str(outside)
+    # The PLAN item asked for the path *and* the root it missed; `_check_roots` already
+    # writes the configured roots into the remedy, so the skip carries both.
+    assert "workspace root" in refused[0]["reason"]
+    assert str(tmp_path) in refused[0]["reason"]
+
+
+@files_posix_only
+def test_the_model_is_told_about_a_refused_path_not_merely_the_caller(tmp_path):
+    """Otherwise it spends a turn on `read_file` against a path already known to be refused."""
+    good = tmp_path / "a.py"
+    good.write_text("x = 1\n", encoding="utf-8")
+    outside = tmp_path.parent / "elsewhere.py"
+    outside.write_text("z = 3\n", encoding="utf-8")
+
+    sent: list = []
+    delegated(
+        recording_handler(sent),
+        config=files_cfg(tmp_path),
+        task="review this",
+        files=[str(good), str(outside)],
+    )
+
+    prompt = json.dumps(sent[0])
+    assert "elsewhere.py" in prompt, "the refused path never reached the prompt"
+
+
+@files_posix_only
+def test_every_path_refused_still_fails_before_anything_is_sent(tmp_path):
+    """The negative test. Without it, "no longer aborts" and "never aborts" read alike.
+
+    Nothing survived, so there is nothing to send: dispatching would spend a delegation on
+    a prompt carrying none of the context it asked for, and a caller who got every path
+    wrong has one mistake to fix rather than a dozen.
+    """
+    one = tmp_path.parent / "elsewhere.py"
+    one.write_text("z = 3\n", encoding="utf-8")
+    two = tmp_path.parent / "also-elsewhere.py"
+    two.write_text("z = 4\n", encoding="utf-8")
+
+    sent: list = []
+    with pytest.raises(Exception) as e:
+        delegated(
+            recording_handler(sent),
+            config=files_cfg(tmp_path),
+            task="review this",
+            files=[str(one), str(two)],
+        )
+
+    assert sent == [], "the backend was called with nothing it asked for"
+    assert "elsewhere.py" in str(e.value)
+    assert "also-elsewhere.py" in str(e.value)
+
+
+@files_posix_only
+def test_a_denylist_hit_is_skipped_rather_than_fatal(tmp_path):
+    """Decided rather than fallen into: every refusal layer skips, this one included.
+
+    The file is not read either way, so the security posture is identical, and the reply
+    naming the layer is a louder signal than an error that names one path while discarding
+    the rest. `tools.py` has treated this layer as non-fatal mid-loop since 2026-09-06.
+
+    Named without the word this test is about, deliberately: `tmp_path` is derived from
+    the test name, so calling it `..._secret_...` put "secret" in the directory, the
+    `*secret*` glob matched the root itself, and every file under it was refused. The
+    test then passed its own abort off as the behaviour under test. Same shape as
+    ADR-0041's finding that the glob matches ordinary filenames inside a virtualenv.
+    """
+    good = tmp_path / "a.py"
+    good.write_text("x = 1\n", encoding="utf-8")
+    secret = tmp_path / "client_secret.json"
+    secret.write_text("{}", encoding="utf-8")
+
+    result = delegated(
+        chat_handler(),
+        config=files_cfg(tmp_path),
+        task="review this",
+        files=[str(good), str(secret)],
+    )
+
+    assert result["answer"] == "ok"
+    assert [f["path"] for f in result["files_read"]] == [os.path.realpath(good)]
+    refused = [s for s in result["files_skipped"] if s["kind"] == "refused"]
+    assert len(refused) == 1
+    assert "client_secret.json" in refused[0]["given"]
+    assert result["files_read"] and "client_secret" not in json.dumps(result["files_read"])
+
+
 def test_the_tool_description_tells_the_model_not_to_paste_files():
     """The description is the model-facing contract, and this is the behaviour it buys.
 
