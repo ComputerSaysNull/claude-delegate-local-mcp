@@ -1219,6 +1219,134 @@ def check_agent_capabilities() -> list[Finding]:
     return out
 
 
+
+# --------------------------------------------------------------------------- references
+
+MD_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+MD_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
+
+# A prose pointer at another section: `see "Some Heading"`. Only these lead-ins count,
+# because an unqualified quoted string is far more often a quotation than a reference --
+# 47 files hold exactly one quoted string matching a heading in their own file, and it is
+# this repository's name matching its own H1.
+#
+# The quoted span deliberately admits newlines, and the title is compared on normalised
+# whitespace. The first draft of this check used `[^"\n]` and could not fire on the very
+# bug it was written for, because that pointer wraps as `"Turns, and what\nends them"`.
+# The agent file already recorded this trap -- a contiguous search once called four true
+# quotations fabrications -- which is a check failing to learn from a documented mistake
+# thirty lines away. A blank line ends the span: that is an unclosed quote, not a title.
+# Case-insensitive because a pointer opening a sentence is capitalised, and the arm only
+# fires when the quoted text resolves to the section containing it, so a broader lead-in
+# costs nothing.
+SECTION_POINTER = re.compile(r'\b(?:see|under|in|per)\s+"([^"]{6,160})"', re.IGNORECASE)
+
+
+def _heading_slug(title: str) -> str:
+    """GitHub's anchor for a heading, near enough for the links this repository writes.
+
+    Validated rather than assumed: it resolves all fourteen cross-file anchors present
+    when this check was written. A slugger that matched none of them would have made the
+    dead-anchor arm fire on everything, and one that matched everything would have made
+    it fire on nothing.
+    """
+    title = re.sub(r"`([^`]*)`", r"\1", title)
+    title = re.sub(r"\*\*?([^*]*)\*\*?", r"\1", title)
+    title = re.sub(r"[^\w\s-]", "", title.lower())
+    return re.sub(r"\s+", "-", title.strip())
+
+
+def _sections(text: str) -> list[tuple[int, int, int, str]]:
+    """(start line, end line, level, normalised title) for every heading.
+
+    A section ends at the next heading of the same or a higher level, which is what makes
+    "is this pointer inside the section it names" answerable.
+    """
+    heads = [
+        (text[: m.start()].count("\n") + 1, len(m.group(1)),
+         " ".join(m.group(2).split()).lower())
+        for m in MD_HEADING.finditer(text)
+    ]
+    out = []
+    last_line = text.count("\n") + 2
+    for i, (line, level, title) in enumerate(heads):
+        end = last_line
+        for line2, level2, _ in heads[i + 1:]:
+            if level2 <= level:
+                end = line2
+                break
+        out.append((line, end, level, title))
+    return out
+
+
+def check_doc_references() -> list[Finding]:
+    """Markdown links resolve, anchors name a real heading, and no pointer names itself.
+
+    Added because CLAUDE.md and `.claude/agents/docs-audit-local.md` both claimed the gate
+    checked links and it never had. The claim was not idle: the audit agent is told to
+    report nothing the gate already catches, so it steered the one reader who would have
+    looked. #121, the commit that fixed the 2026-09-06 audit's findings, left a pointer in
+    `docs/DISPATCH.md` reading `see "Turns, and what ends them"` from inside that very
+    section, and it survived two further audits.
+
+    All three arms pass on the repository as it stands -- 104 relative links, 14 anchors,
+    no self-pointers -- so this is a guard, and its negative tests are the only thing
+    standing between it and the four checks this project has already found unable to fail.
+    """
+    out = []
+    docs = [ROOT / f for f in run("git", "ls-files", "*.md").splitlines()]
+    for path in docs:
+        if not path.exists():
+            continue  # staged deletion
+        text = path.read_text(encoding="utf-8", errors="replace")
+        here = rel(path)
+        own_slugs = {_heading_slug(t) for _, _, _, t in _sections(text)}
+
+        for m in MD_LINK.finditer(text):
+            href = m.group(1)
+            if href.startswith(("http://", "https://", "mailto:")):
+                continue
+            line = text[: m.start()].count("\n") + 1
+            path_part, _, anchor = href.partition("#")
+            target = (path.parent / path_part).resolve() if path_part else path
+            if path_part and not target.exists():
+                out.append(Finding(
+                    BLOCK, "doc-reference",
+                    f"{here} line {line} links to {href!r}, which does not exist."))
+                continue
+            if not anchor:
+                continue
+            if target == path:
+                slugs = own_slugs
+            elif target.suffix == ".md":
+                slugs = {_heading_slug(t) for _, _, _, t
+                         in _sections(target.read_text(encoding="utf-8", errors="replace"))}
+            else:
+                continue
+            if _heading_slug(anchor) not in slugs:
+                out.append(Finding(
+                    BLOCK, "doc-reference",
+                    f"{here} line {line} links to {href!r}, but no heading there makes "
+                    f"that anchor. A reworded heading breaks this silently."))
+
+        for m in SECTION_POINTER.finditer(text):
+            if "\n\n" in m.group(1):
+                continue
+            quoted = " ".join(m.group(1).split()).lower()
+            line = text[: m.start()].count("\n") + 1
+            for start, end, level, title in _sections(text):
+                # Level 1 excluded: a document whose H1 is its own name says that name in
+                # prose constantly, and none of it is a cross-reference.
+                if title == quoted and level > 1 and start <= line < end:
+                    # The normalised title, not the raw capture: a wrapped pointer would
+                    # otherwise print an escaped newline in the middle of the heading.
+                    out.append(Finding(
+                        BLOCK, "doc-reference",
+                        f"{here} line {line} points at {quoted!r} from inside that "
+                        f"section. Whatever it promises the reader lives somewhere else, "
+                        f"or nowhere."))
+    return out
+
 CHECKS = {
     "identity": check_commit_identity,
     "email-content": check_emails_in_files,
@@ -1234,6 +1362,7 @@ CHECKS = {
     "adr": check_adr_format,
     "owning-doc": check_ownership,
     "orphan-doc": check_orphan_docs,
+    "doc-reference": check_doc_references,
     "split-dodge": check_split_dodge,
     "manifest": check_manifest_docs_exist,
     "audit-due": check_audit_pressure,

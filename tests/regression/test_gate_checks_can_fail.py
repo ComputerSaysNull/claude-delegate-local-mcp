@@ -500,6 +500,123 @@ def test_agent_capability_ignores_prose_that_merely_mentions_a_command(repo: Pat
     assert not fired(gate(repo), "agent-capability", "explainer.md")
 
 
+
+# ------------------------------------------- references, which nothing checked at all
+#
+# `check_doc_references` is the ninth check to arrive here, and the first added because a
+# check was *claimed* rather than merely untested: CLAUDE.md and the audit agent's body
+# both listed "broken links" among what the gate mechanically caught, and it never had.
+# The agent is told to report nothing the gate already catches, so the false claim aimed
+# the one reader who would have looked somewhere else.
+#
+# All three arms pass on the real repository, so these tests are the whole of the evidence
+# that any of them can fire. The wrapped-pointer case below is not decoration: the first
+# draft of the check used `[^"\n]` for the quoted span and could not fire on the single
+# bug it existed for.
+
+POINTER_DOC = """\
+# Doc
+
+## Turns, and what ends them
+
+The last turn is forbidden its tools -- see "Turns, and what ends them" for why that
+distinction is a cache one.
+
+## The history is resent every turn
+
+Where the measurement lives.
+"""
+
+
+def test_doc_reference_fires_on_a_pointer_into_its_own_section(repo: Path):
+    (repo / "docs" / "ptr.md").write_text(POINTER_DOC, encoding="utf-8")
+    assert fired(gate(repo), "doc-reference", "docs/ptr.md", "from inside that section")
+
+
+def test_doc_reference_fires_when_the_pointer_wraps_across_a_line(repo: Path):
+    """The regression. `docs/DISPATCH.md` wrapped its pointer exactly here.
+
+    A contiguous `[^"\\n]` span cannot match a title broken by the line wrap, so the
+    check's first draft passed the repository holding the bug it was written for. The
+    trap was already written down thirty lines away in the audit agent's own body, where
+    a contiguous search had once called four true quotations fabrications.
+    """
+    (repo / "docs" / "wrap.md").write_text(
+        POINTER_DOC.replace(
+            'see "Turns, and what ends them" for why that\ndistinction',
+            'see "Turns, and what\nends them" for why that distinction'),
+        encoding="utf-8")
+    assert fired(gate(repo), "doc-reference", "docs/wrap.md", "from inside that section")
+
+
+def test_doc_reference_is_silent_on_a_pointer_at_another_section(repo: Path):
+    """The other direction, and the one that matters most here.
+
+    An arm that flagged every quoted heading would pass both tests above while making
+    every legitimate cross-reference in the repository a blocking finding.
+    """
+    (repo / "docs" / "ok.md").write_text(
+        POINTER_DOC.replace(
+            'see "Turns, and what ends them"', 'see "The history is resent every turn"'),
+        encoding="utf-8")
+    assert not fired(gate(repo), "doc-reference", "docs/ok.md")
+
+
+def test_doc_reference_ignores_a_document_naming_its_own_title(repo: Path):
+    """README.md mentions its own H1 in prose, and none of it is a cross-reference.
+
+    The level-1 exclusion, measured: this was the only false positive the arm produced
+    across all 47 markdown files when it was written.
+    """
+    (repo / "docs" / "h1.md").write_text(
+        '# Some Project\n\nInstall it, then see "Some Project" for what it does.\n',
+        encoding="utf-8")
+    assert not fired(gate(repo), "doc-reference", "docs/h1.md")
+
+
+def test_doc_reference_fires_on_a_link_to_a_file_that_is_not_there(repo: Path):
+    (repo / "docs" / "gone.md").write_text(
+        "# Doc\n\nSee [the other one](NOT_THERE.md).\n", encoding="utf-8")
+    assert fired(gate(repo), "doc-reference", "docs/gone.md", "does not exist")
+
+
+def test_doc_reference_is_silent_on_a_link_that_resolves(repo: Path):
+    (repo / "docs" / "fine.md").write_text(
+        "# Doc\n\nSee [the parent](PARENT.md).\n", encoding="utf-8")
+    assert not fired(gate(repo), "doc-reference", "docs/fine.md")
+
+
+def test_doc_reference_fires_on_an_anchor_no_heading_makes(repo: Path):
+    """The silent half of a broken link: the file is right and the fragment is not.
+
+    This is the arm with no current violation to point at -- 14 cross-file anchors all
+    resolve -- so it is guarding against a reworded heading, and nothing but this test
+    says it would notice one.
+    """
+    (repo / "docs" / "anch.md").write_text(
+        "# Doc\n\nSee [the parent](PARENT.md#no-such-heading).\n", encoding="utf-8")
+    assert fired(gate(repo), "doc-reference", "docs/anch.md", "no heading there makes")
+
+
+def test_doc_reference_is_silent_on_an_anchor_that_resolves(repo: Path):
+    (repo / "docs" / "anch2.md").write_text(
+        "# Doc\n\nSee [the parent](PARENT.md#parent).\n", encoding="utf-8")
+    assert not fired(gate(repo), "doc-reference", "docs/anch2.md")
+
+
+def test_doc_reference_resolves_an_anchor_through_backticks_and_bold(repo: Path):
+    """The slugger, which is the arm's whole accuracy.
+
+    One that stripped nothing would call every anchor into a code-formatted heading dead,
+    and this repository writes plenty of them.
+    """
+    (repo / "docs" / "slug.md").write_text(
+        "# Doc\n\n## The **`delegate()`** tool, and why\n\n"
+        "See [above](#the-delegate-tool-and-why).\n",
+        encoding="utf-8")
+    assert not fired(gate(repo), "doc-reference", "docs/slug.md")
+
+
 def test_every_gate_check_is_exercised_by_some_test():
     """The meta-check, and the reason this file exists at all.
 

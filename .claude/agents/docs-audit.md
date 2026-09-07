@@ -15,9 +15,17 @@ MINOR and say what a human would need to decide.
 
 ## What the gate already covers — do not duplicate it
 
-`scripts/docs_gate.py` mechanically checks: stale generated documents, broken links,
-budgets, ADR heading format and supersede links, ownership, orphans, split-dodges,
-manifest consistency, secrets and commit authorship.
+`scripts/docs_gate.py` mechanically checks: stale generated documents, budgets, ADR
+heading format and supersede links, ownership, orphans, split-dodges, manifest
+consistency, secrets, commit authorship, and references — markdown link targets, `#`
+anchors against real headings, and a quoted section pointer that resolves to the section
+containing it.
+
+This list said "broken links" from the start and the gate had no such check until
+2026-09-07. Read that as the standing warning about this paragraph rather than as a fixed
+typo: "report nothing it already catches" turns anything false here into a blind spot
+rather than a duplication, and the missing check was the one that would have caught a
+pointer in `docs/DISPATCH.md` aimed at its own section.
 
 Run it first (`python scripts/docs_gate.py --mode pre-commit`) and report nothing it
 already catches. Your value is entirely in the judgements a script cannot make.
