@@ -148,21 +148,21 @@ their own project without ever reading this repository.
   the agent body keeps only what one pass reads — the file says exactly that of the section
   itself. It stays local rather than shipping, because the check list, the ownership map and
   the gate integration are specific to this repository
-- ⬜ **Spike** — does Claude Code consume skills served over MCP through FastMCP's
+- ⬜ **Spike answered** — does Claude Code consume skills served over MCP through FastMCP's
   `SkillsDirectoryProvider`? If it does, that replaces `install-skills` outright
   - **Server half measured 2026-09-07: it serves them.** A `SkillsDirectoryProvider` over a
     directory holding one skill advertises the `resources` capability and lists two entries
     per skill under a `skill://` scheme — the `SKILL.md` and a `_manifest` — both readable
     through `resources/read`, plus one resource template
-  - **The client half is still open**, and it is the half that decides this: whether Claude
-    Code treats a `skill://` resource as an invocable skill or merely lists it. It reads MCP
-    resources already. Answering it needs the provider wired into this server and a
-    reconnect, so it cannot be settled from outside
-  - **Ready to run, and untracked so it reaches no reader.** `.spike/ready_spike4.py` takes
-    `apply` and `revert`: it wires the provider in, writes a probe skill that answers
-    `SPIKE-4-CONSUMED` and nothing else, and restores `server.py` from a backup it wrote. So
-    the sequence is `apply`, reconnect, look for an invocable skill, `revert`, reconnect. It
-    refuses rather than patching blindly if the anchor line has moved
+  - **Answered 2026-09-07: it does not, so `install-skills` stands.** Claude Code 2.1.263
+    finds MCP skills through a paginated `skills/list`, gated on the server declaring
+    `io.modelcontextprotocol/skills` under capability `extensions` and on a client flag off
+    by default; FastMCP 3.4.7 declares `io.modelcontextprotocol/ui`, no skills key and no
+    handler, so two gates fail before the flag is reached. Measured twice: the client binary
+    against a negative control (`mcp__` 278 matches, `SKILL.md` 94, `skill://` 0), then live
+    — provider wired in, client reconnected, `resources/list` returning both `skill://`
+    entries while no skill was offered. Resources present and skill absent is the
+    discriminator, so the null result is not a mis-wired provider
 - ⬜ **Spike** — find the cause behind withholding `run_bash` on a verifying pass, rather
   than writing the workaround down. It took an audit from 26 turns to 1 at no cost in
   accuracy, and 24 of its 29 calls were verification — so if verification bought nothing,

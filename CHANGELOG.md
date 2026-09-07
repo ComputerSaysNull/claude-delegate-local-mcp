@@ -34,6 +34,32 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #137 — 2026-09-07 — docs: the MCP-served-skills spike is answered, and the answer is no
+
+### Fixed
+- **A spike filed as unanswerable from outside the client was answerable by reading the
+  client.** PLAN.md said the deciding half — whether Claude Code treats a `skill://`
+  resource as an invocable skill or merely lists it — "cannot be settled from outside", so
+  the only route on file was to patch the server, reconnect, look, and revert. But the
+  client ships as a single bundled binary, and it names its own mechanism: skills are
+  discovered through a paginated `skills/list`, gated on the server declaring
+  `io.modelcontextprotocol/skills` under capability `extensions`, and on a client feature
+  flag that is off by default. FastMCP 3.4.7 declares `io.modelcontextprotocol/ui` and no
+  skills key, and registers no skills handler at all, so two gates fail before the flag is
+  even reached. The provider serves a resource tree; the client asks a method that tree
+  does not answer.
+- **The dynamic run was done too, and it discriminates where a null result could not.**
+  With the provider wired into this server and the client reconnected, `resources/list`
+  returned both `skill://` entries while no skill was offered. Resources present *and*
+  skill absent rules out the reading that a bare "nothing appeared" cannot — that the
+  provider was mis-wired or the reconnect had not taken. The static read was
+  negative-controlled on the same grep over the same binary: `mcp__` 278 matches,
+  `SKILL.md` 94, `resources/read` 10, `skill://` 0, so the zero is a real zero.
+- **What it changes:** `install-skills` is not replaced, and stays in M10 as the only route
+  that travels. The route that would work is `skills/list` plus the capability
+  declaration, which this Python stack cannot currently emit and which sits behind a client
+  flag this project does not control — so it is not a near-term alternative either.
+
 ## #136 — 2026-09-07 — fix: transcript_dir is path-translated like every other path setting
 
 ### Added
