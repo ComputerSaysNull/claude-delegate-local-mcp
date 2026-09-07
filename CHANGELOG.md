@@ -34,6 +34,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #134 — 2026-09-07 — docs: an open measurement is labelled so it can be found
+
+### Changed
+- **PLAN.md held four items whose deliverable is a measurement, and the word for them
+  appeared nowhere in the file.** It lived in a session's own plan file instead — which is
+  exactly the class of problem this roadmap exists to relocate, committed against the
+  roadmap itself. Searching the repository for it returned nothing, which is how the gap was
+  found. They now read `**Spike** --` while open and `**Spike answered** --` once the
+  measurement is in, so one grep finds both what is outstanding and what settled it.
+- **No index**, deliberately: a second copy of the list is the drift the ownership scheme
+  exists to prevent. The label travels with the item instead.
+- **The ticked item was left alone.** Completing an item changes only its marker and the
+  date, and a label is text — a rule added to this file's own header earlier the same day,
+  so relabelling a finished item would have been the first thing to contradict it.
+
 ## #133 — 2026-09-07 — feat: a turn says which effort it ran at, and how long as a length
 
 ### Fixed

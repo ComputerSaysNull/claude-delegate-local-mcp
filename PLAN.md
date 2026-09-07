@@ -100,8 +100,8 @@ with that test included. The criterion above is already satisfiable; only provis
   network it asserts, and without the list the exit condition above is unreachable
 - ⬜ Network stays off, with an ADR. `--share-net` re-shares the host's whole namespace with
   no allowlist or destination list, and this host reaches the cluster and the LAN
-- ⬜ Weigh covering read-only, which would make a discarded write fail loudly instead of
-  exiting 0. Measure first: `__pycache__` and `.pytest_cache` are on the same list and a test
+- ⬜ **Spike answered** — weigh covering read-only, which would make a discarded write
+  fail loudly instead of exiting 0. Measure first: `__pycache__` and `.pytest_cache` are on the same list and a test
   run writes to both, so read-only may break what this milestone exists to enable. Any
   change supersedes a line of ADR-0041
   - **Measured 2026-09-07: it is viable, and the timid version is unnecessary.** With eight
@@ -143,8 +143,8 @@ their own project without ever reading this repository.
   the agent body keeps only what one pass reads — the file says exactly that of the section
   itself. It stays local rather than shipping, because the check list, the ownership map and
   the gate integration are specific to this repository
-- ⬜ Measure whether Claude Code consumes skills served over MCP through FastMCP's
-  `SkillsDirectoryProvider`; if it does, that replaces `install-skills` outright
+- ⬜ **Spike** — does Claude Code consume skills served over MCP through FastMCP's
+  `SkillsDirectoryProvider`? If it does, that replaces `install-skills` outright
   - **Server half measured 2026-09-07: it serves them.** A `SkillsDirectoryProvider` over a
     directory holding one skill advertises the `resources` capability and lists two entries
     per skill under a `skill://` scheme — the `SKILL.md` and a `_manifest` — both readable
@@ -153,8 +153,8 @@ their own project without ever reading this repository.
     Code treats a `skill://` resource as an invocable skill or merely lists it. It reads MCP
     resources already. Answering it needs the provider wired into this server and a
     reconnect, so it cannot be settled from outside
-- ⬜ Find the cause behind withholding `run_bash` on a verifying pass instead of writing the
-  workaround down. It took an audit from 26 turns to 1 at no cost in accuracy, and 24 of its
+- ⬜ **Spike** — find the cause behind withholding `run_bash` on a verifying pass, rather
+  than writing the workaround down. It took an audit from 26 turns to 1 at no cost in accuracy, and 24 of its
   29 calls were verification — so if verification bought nothing, stop instructing the agent
   to verify by shelling out. Measure that first; a `verify_quote` tool is only the fallback
   - **Attempted 2026-09-07 and inconclusive, because the experiment was designed wrong.** A
@@ -189,8 +189,8 @@ nothing was configured, and no tool result changes shape.
 - ⬜ A sampler polling the metrics reader on an interval into a windowed series, because it
   derives only since-boot figures and a lifetime average cannot say how the cluster is doing
   now. `backend_status` keeps the output it has, so no client behaviour changes
-- ⬜ A `status` subcommand printing one plain-text block, since a TUI cannot run inside an
-  agent's shell. Measure whether a detached terminal window can be launched from one; if not,
+- ⬜ **Spike answered** — a `status` subcommand printing one plain-text block, since a TUI
+  cannot run inside an agent's shell. Measure whether a detached terminal window can be launched from one; if not,
   print the command to paste
   - **Measured 2026-09-07: a detached launch works, so the fallback is not needed.**
     `wt.exe -- wsl.exe -d <distro> -e <cmd> <args>` opens a window, runs the command, and
