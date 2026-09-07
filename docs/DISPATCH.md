@@ -1,4 +1,7 @@
-<!-- BUDGET: 610 -->
+<!-- BUDGET: 615 -->
+<!-- Raised from 610 on 2026-09-07: a tool call's record carries its arguments and
+     its refusal, which is behaviour this document owns. Three net lines after two
+     trims of the addition itself. ADR-0060. -->
 <!-- Raised from 600 on 2026-09-06: the loop now counts the whole run's tokens as
      well as the answering turn's, which is behaviour this document owns.
      ADR-0058. -->
@@ -593,9 +596,12 @@ something about itself, and one we could not reach has not.
 ### Diagnostics, per call
 
 `diagnostics=true` adds a per-turn breakdown to the reply: what each turn's prompt cost,
-what it evicted, which tools it ran and how each ended. Metadata only — tool results are not
-carried, since a diagnostic that embedded what it was measuring would become the expensive
-payload it exists to explain.
+what it evicted, and a `ToolCallRecord` per call — the arguments the model sent, capped per
+field with a marker saying how much was dropped; a refusal message, on an error outcome
+only; and on success accounting rather than content, since a diagnostic that embedded what
+it was measuring would become the expensive payload it exists to explain. Built in
+`_run_calls`, the one place the arguments and the result are both in scope. ADR-0060 has
+what is recorded and why.
 
 The field worth asking for is `evicted_then_reread`: files the model read again after this
 server had dropped the first read from the history. The aggregate ledger can already say a
@@ -604,6 +610,6 @@ or because it kept paying twice for the same bytes — and those have different 
 them being a larger `keep_tool_results`. It is a prerequisite for sizing eviction rather
 than a report about it.
 
-Correlation is on the path argument the model supplied, not the path the policy resolved:
-`tools.py` never hands the resolved one back, and the raw argument is what a reader
-reconciling the report against a working tree is looking at anyway.
+Correlation, and the arguments in the record, are the path the model supplied rather than
+the one the policy resolved: `tools.py` never hands the resolved one back, and the raw
+argument is what a reader reconciling against a working tree is looking at anyway.

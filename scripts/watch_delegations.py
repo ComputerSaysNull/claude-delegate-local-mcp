@@ -236,6 +236,67 @@ def _given(event: dict) -> list[str]:
     return out
 
 
+# The outcomes `_run_calls` actually produces. `ok` was not among them and was the only
+# thing this renderer compared against, so every successful call was painted red with the
+# word `ran` beside it -- a check that could not pass, next to three that could not fire.
+_GOOD_OUTCOMES = frozenset({"ran", "repeat"})
+
+
+def _size_note(call: dict) -> str:
+    """How much a call returned, and the exit code if a process produced one.
+
+    Absent rather than zero when the record carries no accounting, because a call that
+    returned nothing and a call whose size was never recorded are different facts and `0 B`
+    would claim the first.
+    """
+    bits: list[str] = []
+    if isinstance(size := call.get("result_bytes"), int):
+        rows = call.get("result_lines")
+        rows_note = f" · {rows} line{'' if rows == 1 else 's'}" if isinstance(rows, int) else ""
+        bits.append(f"{size:,} B{rows_note}")
+    if isinstance(code := call.get("exit_code"), int):
+        bits.append(f"exit {code}")
+    return " · ".join(bits)
+
+
+def _call_lines(call: dict, width: int) -> list[str]:
+    """One tool call: what it was asked, how it ended, and why if it refused.
+
+    The refusal message gets its own wrapped lines and is never trimmed to fit. That is the
+    whole point of the record -- a delegation reporting one error across twelve `read_git`
+    calls could not be diagnosed at all before it existed -- so if anything has to give on
+    a narrow terminal it is the argument list, which drops to its own line rather than
+    being cut.
+    """
+    outcome = str(call.get("outcome") or "error")
+    colour = GREEN if outcome in _GOOD_OUTCOMES else RED
+    head = f"  {YELLOW}▸ {call.get('name', '?')}{R} {colour}{outcome}{R}"
+    tail = "  ".join(
+        part
+        for part in (
+            "  ".join(f"{k}={v}" for k, v in (call.get("arguments") or {}).items()),
+            _size_note(call),
+        )
+        if part
+    )
+    out = [head]
+    if tail and len(_plain(head)) + len(tail) + 2 <= width:
+        out = [f"{head}  {DIM}{tail}{R}"]
+    elif tail:
+        out.extend(f"{DIM}{line}{R}" for line in _wrap(tail, width, "      "))
+    if message := str(call.get("message") or "").strip():
+        # Red, like the outcome beside it. The word `error` was coloured and the reason for
+        # it was not, which is the wrong way round: the outcome is one token a reader can
+        # find anywhere on the line, and the message is the thing they came for. Blank
+        # lines inside a wrapped refusal are left bare rather than wrapped in codes that
+        # colour nothing.
+        out.extend(
+            f"{RED}{line}{R}" if line.strip() else line
+            for line in _wrap(message, width, "      ")
+        )
+    return out
+
+
 def render(event: dict, width: int) -> list[str]:
     """One event, as a block a person reads rather than a line a machine parses."""
     kind = event.get("t")
@@ -267,10 +328,7 @@ def render(event: dict, width: int) -> list[str]:
             cost += f"  {GREEN}{rate:g} tok/s{R}{DIM}{served}{R}"
         lines = ["", f"{stamp}  {BOLD}{CYAN}turn {n}{R}  {cost}"]
         for call in event.get("tool_calls", []) or []:
-            ok = call.get("outcome") == "ok"
-            mark = f"{GREEN}ok{R}" if ok else f"{RED}{call.get('outcome', 'error')}{R}"
-            lines.append(f"  {YELLOW}▸ {call.get('name', '?')}{R} {DIM}"
-                         f"{call.get('detail', '')}{R} {mark}")
+            lines.extend(_call_lines(call, width))
         if text := (event.get("text") or "").strip():
             lines.append("")
             lines.extend(_wrap(text, width, "  "))

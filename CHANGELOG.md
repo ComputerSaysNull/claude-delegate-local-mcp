@@ -34,6 +34,61 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #128 — 2026-09-07 — feat: a tool call's record says what was asked and why it refused
+
+### Added
+- **`ToolCallRecord`, replacing the `(name, outcome)` pair kept per call.** A delegation on
+  2026-09-05 reported one tool error across twelve `read_git` calls and could not be
+  diagnosed *even with transcripts enabled* — the record named the tool and how it ended,
+  and nothing else. **Cause:** `tools.py` builds the refusal text, `_run_calls` hands it to
+  the model as the tool result and keeps only `(call.name, outcome)`, so the reason was
+  discarded at the one point it was in scope. Searching a whole record for refusal text
+  returned nothing, by construction. **Fix:** the record carries the arguments the model
+  sent and the refusal text, both capped, and accounting on a call that succeeded.
+- **Arguments, capped per field, with file bodies summarised rather than elided.**
+  `content`, `old_string` and `new_string` are reduced to a length and a digest: a
+  truncated body is useless to read and still a partial copy at rest, so recording one
+  would reopen ADR-0039's exposure through the arguments door. The elision marker on
+  everything else is load-bearing — a silently truncated argument reads as a complete one,
+  and a reader would draw conclusions from a path the model never sent.
+- **Accounting on a successful call** — `result_bytes`, `result_lines`, and `exit_code`
+  when a process actually exited. Universal rather than per-tool, because a table of
+  per-tool counters drifts every time a tool changes its output. Recording a success
+  *message* was considered and rejected: a successful `read_file`'s result is the file
+  body, which is exactly what ADR-0039 keeps out. ADR-0060 has the reasoning.
+
+### Changed
+- **`TurnDiagnostic.tool_calls` is a tuple of records**, and the three sites that unpacked
+  the pair by hand — `_diagnostics_block` in `server.py`, the live stream and `_ledger` in
+  `transcript.py` — now share `ToolCallRecord.as_json`. A dataclass rather than a wider
+  tuple for the reason `newly_evicted_ids` already gives: widening a tuple that other code
+  unpacks compiles everywhere and breaks one caller quietly. Three hand-written renderers
+  had the same shape of risk, and the one that would have drifted is the live stream,
+  because it is watched rather than asserted on.
+- **The caller's `diagnostics` flag is unchanged and stays reply-shaping only.** Recorded
+  here because it was re-derived during this work and is easy to mistake for a gap:
+  per-turn recording is already independent of it (ADR-0039's last decision), so what
+  defaults off is `transcript_dir`, not the gating.
+
+### Fixed
+- **The viewer painted every successful tool call red.** The renderer's only test of
+  success was `outcome == "ok"`, and `_run_calls` produces `ran`, `repeat` and `error` —
+  never `ok`. So a healthy call rendered in red with the word `ran` beside it, and had done
+  since the viewer was written. **Cause:** a comparison against a value that is not in the
+  vocabulary it compares against, which no test asserted because the colour was never
+  asserted on. **Fix:** `ran` and `repeat` are good, everything else is not — and the
+  refusal message is now red as well, not only the outcome word beside it. Colouring the
+  one-token outcome and leaving the reason plain was the wrong way round: the outcome can be
+  found anywhere on the line, and the message is what a reader came for. A blank line inside
+  a wrapped refusal stays bare rather than carrying codes that colour nothing.
+- **The viewer read a `detail` key no producer ever wrote.** The tool-call line
+  interpolated `call.get('detail', '')`, and nothing in the server has ever emitted a
+  `detail` inside a call entry — the only producers of that key are `backend_status` rows.
+  A dead read, removed rather than filled: a single flat string would collapse arguments,
+  refusal and counters into one blob. **These two are the fifth and sixth checks-that-cannot-
+  fire found in this repository**, both in the same renderer, and both found only because
+  something new had to be displayed there.
+
 ## #127 — 2026-09-07 — docs: five duplications trimmed, and the gate learns to check references
 
 ### Fixed
