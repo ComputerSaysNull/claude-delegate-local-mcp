@@ -686,6 +686,22 @@ def test_the_policy_reaches_the_sandbox_request(workspace, monkeypatch):
     assert "/opt/toolchain" in req.extra_binds
 
 
+def test_the_description_says_the_exit_code_is_recorded_rather_than_forbidding_an_echo():
+    """The contract has to remove the *reason* for the habit, not just prohibit it.
+
+    Measured 2026-09-08: both live delegations appended `; echo "EXIT_CODE=$?"` to their
+    test command, which made the shell exit 0 while pytest exited 1 -- so `last_bash_exit`
+    read 0 for a failing run, and that is the field ADR-0007 tells every reader to trust.
+    The habit is a diligent one: the model appended it in order to report the code
+    accurately, having no way to know before its first call that the server already
+    captures it. So the promise must be stated, and both halves are asserted here because
+    a description carrying only the prohibition leaves the motive in place.
+    """
+    description = tools.REGISTRY["run_bash"].spec.description
+    assert "recorded for you" in description, "the promise that removes the motive is gone"
+    assert "whole command line" in description, "the mechanism is no longer explained"
+
+
 def test_a_provisioned_interpreter_reaches_the_command_as_an_environment_name(
     workspace, monkeypatch
 ):

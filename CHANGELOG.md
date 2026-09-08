@@ -34,6 +34,45 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #147 — 2026-09-08 — fix: a trailing echo replaced the exit code the design rests on
+
+### Fixed
+- **`last_bash_exit` read 0 for a test run that failed, and the cause is the shell line
+  rather than the server.** A model composes the whole command, and it reached for
+  `"$DELEGATE_PYTHON" -m pytest ... ; echo "EXIT=$?"` -- so the shell exited 0 because
+  `echo` succeeded, while pytest exited 1. The field is honest about what it measured; what
+  it measured stopped being the work. The `run_bash` description now says the code is
+  **recorded for you and reported to whoever asked**, which removes the reason for the echo
+  rather than prohibiting it: the model appends it in order to report the code accurately,
+  having no way to know before its first call that the server already captures it.
+- **Measured, because a wording change is a claim about a model and not a mechanism.** Four
+  trials of one deliberately failing test, identical task, in-process so the working tree's
+  description was the one in play. With the sentence, a real non-zero reached
+  `last_bash_exit` in 3 of 4 runs; without it, in 0 of 4 -- and the successful runs used one
+  command ending on `pytest` where the others used up to four, each ending in an echo. So it
+  is an improvement with a residual, and the entry says so rather than calling it a fix.
+- **The asymmetry this exposes is the part worth keeping.** A captured **non-zero is
+  trustworthy** -- nothing invents one. A captured **zero is not proof of success**, because
+  a masked failure is indistinguishable from a clean run. ADR-0007 stands as written: the
+  captured code still beats the model's prose. What is new is that one of its two directions
+  is weaker than the other, which nothing had stated.
+
+### Added
+- **An open item for the half a description cannot close.** The robust answer is
+  server-side: a signal for *any* command in the line exiting non-zero, beside the last
+  one's. `/bin/sh` is dash here, so whether that can be had without changing what a
+  compound command means is a measurement rather than a design.
+
+### Changed
+- **A correction to how the finding was first reported, kept because the mistake is
+  instructive.** It first read as an ingrained model habit, "consistent rather than
+  accidental". The confound was the task wording: the probe said *"Report the exit code the
+  run finished with"*, which asks for precisely the thing that breaks the measurement. With
+  the task phrased around the outcome instead, the same model ran one command and the server
+  captured a real exit 1. Both readings were partly right -- the phrasing produces the echo,
+  and so does the absence of the sentence above -- but the first was stated with more
+  confidence than one trial could carry.
+
 ## #146 — 2026-09-08 — fix: the registry is denied to the model, not just to git
 
 ### Fixed
