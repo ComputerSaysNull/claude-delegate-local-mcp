@@ -61,6 +61,20 @@ markers = [
     "integration: needs the live cluster or a real bwrap; skipped by default",
 ]
 
+# Tests that cannot run nested, i.e. inside the sandbox a delegation's `run_bash` gets.
+# Read at call time and applied as PYTEST_ADDOPTS, so the model does not have to remember
+# them -- forgetting produces a real non-zero exit from a test that cannot pass, which is
+# a false failure that looks exactly as trustworthy as a true one.
+#
+# One entry, and it is not a shortcoming: `--unshare-all` denies the network this test
+# asserts is reachable, and re-sharing it would hand every sandboxed command the whole
+# host namespace with no allowlist (ADR-0063). A named exclusion is one line an operator
+# can read; a shared namespace is a capability nobody re-reads.
+[tool.delegate-local]
+nested-deselect = [
+    "tests/test_sandbox.py::test_network_is_reachable_by_address_when_shared",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

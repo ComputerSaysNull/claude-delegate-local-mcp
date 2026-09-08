@@ -40,10 +40,12 @@ import hashlib
 import json
 import os
 import posixpath
+import shlex
 import shutil
 import subprocess
 import sys
 import tomllib
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -178,8 +180,8 @@ def is_current(record: dict[str, Any] | None) -> bool:
     return current is not None and current == record.get("dependency_hash")
 
 
-def interpreter_for(cfg: Config, workdir: str | None) -> str | None:
-    """The provisioned interpreter covering this workdir, or None. Never a stale one.
+def provisioned_for(cfg: Config, workdir: str | None) -> dict[str, Any] | None:
+    """The record of the environment covering this workdir, or None. Never a stale one.
 
     A workdir *inside* a provisioned project counts, since an editable install works from
     anywhere under it, and the longest matching project wins so a nested checkout is not
@@ -194,7 +196,7 @@ def interpreter_for(cfg: Config, workdir: str | None) -> str | None:
     """
     if workdir is None:
         return None
-    best: tuple[int, str] | None = None
+    best: tuple[int, dict[str, Any]] | None = None
     for _venv, record in discover(resolve_home(cfg)):
         if not is_current(record):
             continue
@@ -202,19 +204,76 @@ def interpreter_for(cfg: Config, workdir: str | None) -> str | None:
         project = str(record["project"]).rstrip("/")
         if workdir == project or workdir.startswith(project + "/"):
             if best is None or len(project) > best[0]:
-                best = (len(project), str(record["interpreter"]))
+                best = (len(project), record)
     return best[1] if best else None
 
 
+def interpreter_for(cfg: Config, workdir: str | None) -> str | None:
+    """The absolute interpreter path for this workdir, or None. See `provisioned_for`."""
+    record = provisioned_for(cfg, workdir)
+    return str(record["interpreter"]) if record else None
+
+
+def nested_deselect(project_real: str) -> tuple[str, ...]:
+    """The pytest node ids this project says cannot run nested, from its own declaration.
+
+    Read at call time rather than recorded at build time, so correcting the list does not
+    need a re-provision -- the list is a statement about the sandbox, not about the
+    installed dependencies.
+
+    `[tool.delegate-local] nested-deselect` in `pyproject.toml`, because that is where a
+    Python project's other tool configuration already lives and a new dotfile per project
+    is a worse trade. Unreadable or malformed is an empty list rather than an error: this
+    runs on the path of every `run_bash` call, and refusing a shell command over a
+    misspelt table would be a far worse failure than running the test that cannot pass.
+    """
+    source = Path(project_real) / "pyproject.toml"
+    try:
+        data = tomllib.loads(source.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return ()
+    table = data.get("tool", {}).get("delegate-local", {})
+    if not isinstance(table, dict):
+        return ()
+    listed = table.get("nested-deselect", ())
+    if not isinstance(listed, list):
+        return ()
+    return tuple(str(item) for item in listed if str(item).strip())
+
+
+def addopts_for(deselect: Sequence[str]) -> str:
+    """`--deselect` per node id, as one `PYTEST_ADDOPTS` value.
+
+    `shlex.quote` because pytest splits that variable the way a shell would, so a node id
+    carrying a space -- a parametrised case can -- would otherwise become two arguments.
+    """
+    return " ".join(f"--deselect {shlex.quote(node)}" for node in deselect)
+
+
 def sandbox_env(cfg: Config, workdir: str | None) -> dict[str, str]:
-    """`SANDBOX_ENV_NAME` pointing at the interpreter, or nothing at all.
+    """What a sandboxed command is told about its interpreter, or nothing at all.
+
+    `SANDBOX_ENV_NAME` for the interpreter, and `PYTEST_ADDOPTS` for the tests the project
+    says cannot run nested. The second is applied here rather than left to the model
+    because forgetting it produces a **real** non-zero exit from a test that cannot pass
+    inside `--unshare-all` -- a false failure that looks exactly as trustworthy as a true
+    one, which is ADR-0007's problem inverted. The server does not touch the model's
+    command to do it: `run_bash` takes an opaque shell string, so appending arguments would
+    mean parsing shell, and the `--setenv` lands in the argv the transcript records so the
+    deselect is answerable from the record.
 
     An absent name rather than an empty value: a shell expands an unset variable to the
     empty string, so `$DELEGATE_PYTHON -m pytest` would run `-m pytest` as a command and
     fail with something unrelated to the actual cause.
     """
-    python = interpreter_for(cfg, workdir)
-    return {SANDBOX_ENV_NAME: python} if python else {}
+    record = provisioned_for(cfg, workdir)
+    if record is None:
+        return {}
+    env = {SANDBOX_ENV_NAME: str(record["interpreter"])}
+    addopts = addopts_for(nested_deselect(str(record["project"])))
+    if addopts:
+        env["PYTEST_ADDOPTS"] = addopts
+    return env
 
 
 def build_env() -> dict[str, str]:
@@ -252,13 +311,33 @@ def denylist_matches(cfg: Config, venv: str) -> list[str]:
     Ordinary library files match -- measured on this repository, thirteen of them, including
     `certifi/cacert.pem` and `keyring/credentials.py` -- so a match is not a refusal. It is
     a number an operator can look at, and `--doctor` reports it on every run.
+
+    **The opaque list is pruned here exactly as the scan prunes it**, and that is what makes
+    the number comparable. Without it this walks into every `__pycache__` and counts the
+    compiled twin of each match: 44 on this repository against the 13 the scan itself would
+    have covered. Two true answers to different questions, and the one worth reporting is
+    the scan's, since this check exists to say what covering was skipped.
     """
     globs = paths.load_secret_globs(cfg)
+    opaque = sandbox.load_opaque_globs(cfg)
     found: list[str] = []
     for dirpath, dirnames, filenames in os.walk(venv, followlinks=False):
-        for name in list(dirnames) + filenames:
-            full = os.path.join(dirpath, name)
-            if paths.secret_match(full.replace(os.sep, "/"), globs) is not None:
+        kept: list[str] = []
+        for name in dirnames:
+            full = posixpath.join(dirpath.replace(os.sep, "/"), name)
+            # `sandbox._dir_match` rather than `secret_match`, because a directory glob is
+            # written `__pycache__/**` and that matches nothing against the directory's own
+            # path -- it needs the probe suffix the scan appends. Reused rather than
+            # rewritten for the reason `doctor.py` reuses the server's helpers: a second
+            # reading of one list is free to disagree with the first.
+            if sandbox._dir_match(full, globs) is not None:
+                found.append(full)  # matched: reported, and not descended into
+            elif sandbox._dir_match(full, opaque) is None:
+                kept.append(name)
+        dirnames[:] = kept
+        for name in filenames:
+            full = posixpath.join(dirpath.replace(os.sep, "/"), name)
+            if paths.secret_match(full, globs) is not None:
                 found.append(full)
     return found
 
@@ -319,6 +398,10 @@ def run(cfg: Config, given: str, *, out) -> int:
     print(f"\n  interpreter: {interpreter_path(venv)}", file=out)
     print(f"  record:      {posixpath.join(venv, RECORD_NAME)}", file=out)
     print(f"  denylist matches inside it: {len(matches)}", file=out)
+    nested = nested_deselect(project_real)
+    print(f"  tests declared unable to run nested: {len(nested)}", file=out)
+    for node in nested:
+        print(f"    - {node}", file=out)
     print(
         "\nThis tree is bound read-only into the sandbox and is the one tree the secret\n"
         "scan skips rather than covers, so those matches are reported here and by\n"

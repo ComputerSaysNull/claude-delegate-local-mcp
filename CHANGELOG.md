@@ -34,6 +34,58 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #144 — 2026-09-08 — feat: the tests a project cannot run nested are deselected for it
+
+### Added
+- **`[tool.delegate-local] nested-deselect` in a project's `pyproject.toml`**, applied as
+  `PYTEST_ADDOPTS` inside the sandbox. This repository declares one entry: a test asserting
+  the network is reachable, which `--unshare-all` denies and which would otherwise fail on
+  every nested run of the suite.
+- **Applied by the server rather than left to the model, and the reason is the shape of the
+  failure.** Forgetting the deselects produces a *real* non-zero exit from a test that
+  cannot pass here, and a false failure looks exactly as trustworthy as a true one -- which
+  is ADR-0007's problem inverted. So the model does not have to remember them.
+- **Measured before it was written down, because two things could have made this
+  unworkable.** A `--deselect` naming a node id outside the collected subset is tolerated
+  at exit 0, and so is one naming a node id that does not exist at all -- so the list costs
+  nothing on a targeted run and cannot turn a passing run into an error. And
+  `PYTEST_ADDOPTS` survives `sh -c`, which is how every `run_bash` command is executed.
+- **Read at call time, not recorded at build time.** The list is a statement about the
+  sandbox rather than about the installed dependencies, so correcting it does not need a
+  re-provision. A malformed table is an empty list rather than an error: this runs on the
+  path of every `run_bash` call, and refusing a shell command over a misspelt key would be
+  a worse failure than running the test that cannot pass.
+
+### Changed
+- **The server does not touch the model's command to do any of it.** `run_bash` takes an
+  opaque shell string, so appending `--deselect` would mean parsing shell and would break on
+  anything compound; and pytest discovers its configuration from the project's rootdir, so a
+  file inside the provisioned environment would never be read. Env injection is machinery
+  `build_argv` already has, the command executes verbatim, and the `--setenv` lands in the
+  argv the transcript records -- so "why was one test deselected" is answerable from the
+  record rather than invisible.
+- **`--doctor`'s uncovered-match count now prunes the opaque list exactly as the scan does.**
+  It reported 44 where the scan itself would have covered 13, because it descended into every
+  `__pycache__` and counted the compiled twin of each match. Both numbers are true of
+  different questions; the one this check exists to answer is the scan's, since its whole
+  subject is what covering was skipped. It reuses `sandbox._dir_match` rather than
+  `secret_match` for directories, because a directory glob is written `__pycache__/**` and
+  that matches nothing against the directory's own path.
+- **`#143` landed without ticking the PLAN.md item it finished**, so both M9 items are
+  ticked here. Recorded rather than quietly fixed.
+
+### Fixed
+- **A delegation still cannot run the *whole* suite, and the cause is now measured.** The
+  shadow tmpfs over a covered directory is 64 KiB **and writable**, so a nested `pytest`
+  writes bytecode into the covered `src/.../__pycache__`, the write is truncated at 65536
+  bytes with no error, and a later import in the same run dies with `EOFError: marshal data
+  too short` -- 18 collection errors on one test file. ADR-0041 recorded this cover as
+  discarding a write; it is worse than that, because it leaves a corrupt artefact behind
+  rather than nothing. A single small module is under the limit, which is why a targeted
+  run passes and the suite does not. The fix is making covers read-only, which the
+  2026-09-07 spike already measured as viable -- Python tolerates an unwritable
+  `__pycache__` -- so M9's exit condition is blocked on that rather than on this.
+
 ## #143 — 2026-09-08 — feat: run_bash names the provisioned interpreter, and withholds a stale one
 
 ### Added

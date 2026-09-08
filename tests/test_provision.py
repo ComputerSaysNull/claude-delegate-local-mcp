@@ -228,13 +228,20 @@ def test_discovery_of_an_absent_root_is_empty_rather_than_an_error(tmp_path):
 
 @posix_only
 def test_a_denylist_match_inside_a_provisioned_tree_is_reported(tmp_path):
-    """Reported, never covered. Covering is what breaks the environment (ADR-0041)."""
-    site = tmp_path / "venv" / "lib" / "site-packages"
+    """Reported, never covered. Covering is what breaks the environment (ADR-0041).
+
+    The tree is *not* called `venv`, and that is not cosmetic. `security/opaque_globs.txt`
+    names `venv/**`, so a fixture called that has its own contents pruned by this walk and
+    the planted file is never reached -- which made the clean-tree control below pass for
+    the wrong reason until both were renamed. The real provisioned root is `venvs/<name>`,
+    which the pattern does not match.
+    """
+    site = tmp_path / "prov" / "lib" / "site-packages"
     site.mkdir(parents=True)
     (site / "credentials.py").write_text("x", encoding="utf-8")
     (site / "ordinary.py").write_text("x", encoding="utf-8")
 
-    found = provision.denylist_matches(cfg(), str(tmp_path / "venv"))
+    found = provision.denylist_matches(cfg(), str(tmp_path / "prov"))
 
     assert [Path(p).name for p in found] == ["credentials.py"]
 
@@ -242,10 +249,29 @@ def test_a_denylist_match_inside_a_provisioned_tree_is_reported(tmp_path):
 @posix_only
 def test_a_clean_tree_reports_nothing(tmp_path):
     """The control, so the reporter cannot pass by matching everything or nothing."""
-    site = tmp_path / "venv" / "lib"
+    site = tmp_path / "prov" / "lib"
     site.mkdir(parents=True)
     (site / "ordinary.py").write_text("x", encoding="utf-8")
-    assert provision.denylist_matches(cfg(), str(tmp_path / "venv")) == []
+    assert provision.denylist_matches(cfg(), str(tmp_path / "prov")) == []
+
+
+@posix_only
+def test_an_opaque_directory_is_pruned_so_the_count_matches_the_scans(tmp_path):
+    """The compiled twin of a match must not be counted a second time.
+
+    Without pruning, this reported 44 on this repository where the scan itself would have
+    covered 13 -- every `__pycache__` descended into and every `.pyc` of a matched name
+    counted. The opaque list is asked with the same directory probe the scan uses, since
+    `__pycache__/**` matches nothing against the directory's own path.
+    """
+    pkg = tmp_path / "prov" / "lib" / "pkg"
+    (pkg / "__pycache__").mkdir(parents=True)
+    (pkg / "credentials.py").write_text("x", encoding="utf-8")
+    (pkg / "__pycache__" / "credentials.cpython-312.pyc").write_text("x", encoding="utf-8")
+
+    found = provision.denylist_matches(cfg(), str(tmp_path / "prov"))
+
+    assert [Path(p).name for p in found] == ["credentials.py"]
 
 
 # --- handing the interpreter to run_bash -------------------------------------------------
@@ -368,6 +394,109 @@ def test_the_name_carries_the_absolute_path_when_one_is_current(tmp_path):
 
     assert list(env) == [provision.SANDBOX_ENV_NAME]
     assert env[provision.SANDBOX_ENV_NAME].startswith("/")
+
+
+# --- tests that cannot run nested --------------------------------------------------------
+
+
+def with_deselect(tmp_path: Path, *nodes: str) -> Path:
+    """A project declaring its own nested-exclusion list."""
+    root = tmp_path / "proj"
+    root.mkdir(exist_ok=True)
+    listed = "".join(f'    "{n}",\n' for n in nodes)
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.0.0"\n\n'
+        "[tool.delegate-local]\nnested-deselect = [\n" + listed + "]\n",
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_the_declared_list_is_read(tmp_path):
+    root = with_deselect(tmp_path, "tests/test_a.py::test_one", "tests/test_b.py::test_two")
+    assert provision.nested_deselect(str(root)) == (
+        "tests/test_a.py::test_one", "tests/test_b.py::test_two")
+
+
+def test_a_project_declaring_nothing_has_an_empty_list(tmp_path):
+    """The control: a reader returning something for every project would deselect blindly."""
+    assert provision.nested_deselect(str(project_tree(tmp_path))) == ()
+
+
+def test_a_malformed_table_is_empty_rather_than_an_error(tmp_path):
+    """This runs on the path of every run_bash call. Refusing a shell command over a
+    misspelt table would be a far worse failure than running the test that cannot pass."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "d"\n\n[tool.delegate-local]\nnested-deselect = "oops"\n',
+        encoding="utf-8",
+    )
+    assert provision.nested_deselect(str(root)) == ()
+
+
+def test_each_node_becomes_its_own_deselect():
+    got = provision.addopts_for(["tests/a.py::test_x", "tests/b.py::test_y"])
+    assert got == "--deselect tests/a.py::test_x --deselect tests/b.py::test_y"
+
+
+def test_a_node_id_carrying_a_space_is_quoted():
+    """pytest splits PYTEST_ADDOPTS the way a shell would, and a parametrised case can carry
+    a space -- unquoted it would arrive as two arguments."""
+    assert provision.addopts_for(["tests/a.py::test_x[a b]"]) == (
+        "--deselect 'tests/a.py::test_x[a b]'")
+
+
+def test_an_empty_list_produces_no_addopts():
+    """Empty rather than a bare `--deselect`, which pytest would refuse outright."""
+    assert provision.addopts_for([]) == ""
+
+
+@posix_only
+def test_the_deselects_reach_the_sandbox_beside_the_interpreter(tmp_path):
+    home = tmp_path / "home"
+    project = with_deselect(tmp_path, "tests/test_sandbox.py::test_needs_network")
+    recorded(home, project)
+
+    env = provision.sandbox_env(cfg(sandbox_home=str(home)), project.as_posix())
+
+    assert env["PYTEST_ADDOPTS"] == "--deselect tests/test_sandbox.py::test_needs_network"
+    assert env[provision.SANDBOX_ENV_NAME].endswith("/bin/python")
+
+
+@posix_only
+def test_a_project_with_no_list_gets_no_addopts_name_at_all(tmp_path):
+    """Absent rather than empty, for the same reason the interpreter name is."""
+    home = tmp_path / "home"
+    recorded(home, project_tree(tmp_path, extras=""))
+    project = tmp_path / "proj"
+
+    env = provision.sandbox_env(cfg(sandbox_home=str(home)), project.as_posix())
+
+    assert "PYTEST_ADDOPTS" not in env
+    assert provision.SANDBOX_ENV_NAME in env
+
+
+@posix_only
+def test_a_stale_environment_carries_no_deselects_either(tmp_path):
+    """They travel with the interpreter: withholding one and offering the other would
+    deselect tests for a command that has no interpreter to run them with."""
+    home = tmp_path / "home"
+    project = with_deselect(tmp_path, "tests/test_a.py::test_one")
+    recorded(home, project)
+    (project / "pyproject.toml").write_text('[project]\nname = "moved"\n', encoding="utf-8")
+
+    assert provision.sandbox_env(cfg(sandbox_home=str(home)), project.as_posix()) == {}
+
+
+def test_this_repository_declares_the_test_that_cannot_run_nested():
+    """Measured: `--unshare-all` denies the network this one asserts is reachable.
+
+    Asserted against the shipped `pyproject.toml` rather than a fixture, so deleting the
+    entry fails here instead of surfacing as a false failure inside a delegation.
+    """
+    listed = provision.nested_deselect(str(Path(__file__).resolve().parents[1]))
+    assert "tests/test_sandbox.py::test_network_is_reachable_by_address_when_shared" in listed
 
 
 # --- the command's own argument handling -------------------------------------------------

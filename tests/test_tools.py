@@ -700,7 +700,11 @@ def test_a_provisioned_interpreter_reaches_the_command_as_an_environment_name(
     monkeypatch.setattr(sandbox, "run", lambda c, r: (
         seen.append(r),
         sandbox.SandboxResult(stdout="", stderr="", exit_code=0, timed_out=False))[1])
-    monkeypatch.setattr(provision, "interpreter_for", lambda c, w: "/sb/venvs/p-1/bin/python")
+    monkeypatch.setattr(provision, "sandbox_env", lambda c, w: {
+        provision.SANDBOX_ENV_NAME: "/sb/venvs/p-1/bin/python",
+        "PYTEST_ADDOPTS": "--deselect tests/t.py::test_x",
+    })
+    monkeypatch.setattr(sandbox, "resolve_env", lambda c: {"LANG": "C.UTF-8"})
 
     tools.execute_tool(
         cfg(workspace), call("run_bash", command="ls"), frozenset({"run_bash"}),
@@ -708,6 +712,9 @@ def test_a_provisioned_interpreter_reaches_the_command_as_an_environment_name(
 
     (req,) = seen
     assert req.env[provision.SANDBOX_ENV_NAME] == "/sb/venvs/p-1/bin/python"
+    assert req.env["PYTEST_ADDOPTS"] == "--deselect tests/t.py::test_x"
+    # Merged, not replaced: the operator's own passthrough must survive.
+    assert req.env["LANG"] == "C.UTF-8"
     assert sandbox.SANDBOX_PATH == "/usr/bin:/usr/sbin"
 
 
@@ -721,7 +728,7 @@ def test_nothing_provisioned_leaves_the_name_unset_rather_than_empty(workspace, 
     monkeypatch.setattr(sandbox, "run", lambda c, r: (
         seen.append(r),
         sandbox.SandboxResult(stdout="", stderr="", exit_code=0, timed_out=False))[1])
-    monkeypatch.setattr(provision, "interpreter_for", lambda c, w: None)
+    monkeypatch.setattr(provision, "sandbox_env", lambda c, w: {})
 
     tools.execute_tool(
         cfg(workspace), call("run_bash", command="ls"), frozenset({"run_bash"}),
@@ -729,6 +736,7 @@ def test_nothing_provisioned_leaves_the_name_unset_rather_than_empty(workspace, 
 
     (req,) = seen
     assert provision.SANDBOX_ENV_NAME not in req.env
+    assert "PYTEST_ADDOPTS" not in req.env
 
 
 def test_a_delegation_that_names_no_policy_reaches_nothing_of_yours(workspace, monkeypatch):
