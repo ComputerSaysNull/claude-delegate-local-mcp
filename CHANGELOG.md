@@ -34,6 +34,38 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #148 — 2026-09-08 — fix: a line-ending flip read as a changed dependency declaration
+
+### Fixed
+- **`--doctor` failed and `run_bash` lost its interpreter, with nothing about the project
+  changed.** Found by running the doctor on merged `main` about an hour after the digest
+  shipped in `#142`. The environment had been provisioned while `pyproject.toml` held CRLF;
+  `git reset --hard origin/main` rewrote it as LF, and since the digest was over raw bytes
+  the identical declaration hashed differently. Measured: recorded `62efe935…`, on disk
+  `8dfa761e…`, and re-inserting CRLF reproduced the recorded value exactly -- so the content
+  was never in question.
+- **The consequence was worse than a noisy warning.** `is_current` went false, so
+  `interpreter_for` withheld the interpreter by design (`#143`) and a delegation could run
+  no test at all. It fails *safe*, which is why it took a doctor run rather than a wrong
+  answer to notice -- and on a Windows checkout this is every branch switch and every fresh
+  clone, not an edge case.
+- **Newlines are normalised before hashing, and the asymmetry is preserved.** The digest
+  still covers the whole declaration rather than its dependency tables, for the reason
+  `#142` chose that: a false "stale" costs one re-provision, a false "fresh" hands back a
+  clean exit code from a test run that proved nothing. Normalising removes a false stale
+  without weakening the other direction, because a real dependency edit changes bytes that
+  are not newlines.
+- **Negative-tested against the old code, per this repository's rule.** With the fix
+  reverted the CRLF/LF pair fails as it should; with it in place they match. The control --
+  a genuine version bump still moving the digest -- passes either way, which is what shows
+  the fix did not simply stop the digest noticing anything. A test asserting only the
+  equality would have been satisfied by a digest that ignored the file entirely.
+- **It does not repair a record already written, so an existing environment needs one
+  re-provision.** The hash in `provision.json` was computed the old way, over CRLF bytes,
+  and no normalisation of the *current* file can reproduce it. Measured here: the doctor
+  still failed after the fix and passed after `provision`, exit 0. Anyone else carrying a
+  provisioned environment from `#142` sees the same, once.
+
 ## #147 — 2026-09-08 — fix: a trailing echo replaced the exit code the design rests on
 
 ### Fixed
