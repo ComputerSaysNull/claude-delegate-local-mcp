@@ -1,4 +1,6 @@
-<!-- BUDGET: 942
+<!-- BUDGET: 953
+     Raised from 942 on 2026-09-08: how the provisioned interpreter reaches `run_bash`,
+     and why a stale one is withheld instead.
      Raised from 910 on 2026-09-08: `provision` is a third entry point, and the scan
      exception that makes what it builds readable belongs beside the bind order it
      depends on -- the tree and the mount are one decision. -->
@@ -211,6 +213,16 @@ widening it would put one project's tools on every command's PATH.
 It is the first command here that reads an argument rather than testing for one, so it is
 matched on `sys.argv[1]` and not by membership — matched the way `--doctor` is, a project
 path containing the word would start building a virtualenv instead of a server.
+
+**`run_bash` is told where the interpreter is through the environment**, as
+`$DELEGATE_PYTHON`, matched against the workdir. Not by widening PATH, and not by appending
+to the command: `run_bash` takes an opaque shell string, so adding arguments would mean
+parsing shell. The `--setenv` lands in the argv the transcript records, so what was offered
+is answerable from the record. **A stale environment is withheld rather than offered** —
+the name is simply absent, which the model can report and the doctor explains, where an
+interpreter built from a declaration that has moved on would produce a passing suite at
+exit 0 against the wrong versions. Absent rather than empty, too: a shell expands an unset
+name to nothing, and `$DELEGATE_PYTHON -m pytest` would then run `-m pytest`.
 
 ### One backend per registry entry, for the life of the server
 

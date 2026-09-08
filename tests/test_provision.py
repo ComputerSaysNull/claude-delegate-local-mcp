@@ -248,6 +248,128 @@ def test_a_clean_tree_reports_nothing(tmp_path):
     assert provision.denylist_matches(cfg(), str(tmp_path / "venv")) == []
 
 
+# --- handing the interpreter to run_bash -------------------------------------------------
+
+
+def recorded(home: Path, project: Path, **over) -> Path:
+    """One provisioned environment, shaped as `provision` leaves it, without a real build."""
+    venv = Path(provision.venv_dir(home.as_posix(), project.as_posix()))
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "python").write_text("", encoding="utf-8")
+    record = {
+        "project": project.as_posix(),
+        "interpreter": (venv / "bin" / "python").as_posix(),
+        "dependency_hash": provision.dependency_hash(project.as_posix()),
+        "hash_source": provision.HASH_SOURCE,
+    }
+    record.update(over)
+    (venv / provision.RECORD_NAME).write_text(json.dumps(record), encoding="utf-8")
+    return venv
+
+
+@posix_only
+def test_the_interpreter_is_found_for_the_project_it_was_built_for(tmp_path):
+    home = tmp_path / "home"
+    project = project_tree(tmp_path, extras="")
+    venv = recorded(home, project)
+
+    found = provision.interpreter_for(cfg(sandbox_home=str(home)), project.as_posix())
+
+    assert found == (venv / "bin" / "python").as_posix()
+
+
+@posix_only
+def test_a_workdir_inside_the_project_still_finds_it(tmp_path):
+    """An editable install works from anywhere under the project, so a subdirectory counts."""
+    home = tmp_path / "home"
+    project = project_tree(tmp_path, extras="")
+    (project / "src").mkdir()
+    recorded(home, project)
+
+    assert provision.interpreter_for(
+        cfg(sandbox_home=str(home)), (project / "src").as_posix()
+    ) is not None
+
+
+@posix_only
+def test_an_unrelated_workdir_finds_nothing(tmp_path):
+    """The control. A lookup that matched anything would hand one project another's python."""
+    home = tmp_path / "home"
+    recorded(home, project_tree(tmp_path, extras=""))
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+
+    assert provision.interpreter_for(cfg(sandbox_home=str(home)), other.as_posix()) is None
+
+
+@posix_only
+def test_a_stale_environment_is_withheld_rather_than_offered(tmp_path):
+    """The point of asking `is_current` instead of just looking.
+
+    Offering an interpreter built from a declaration that has moved on is how a delegation
+    reports a passing suite at exit 0 against the wrong versions -- and exit 0 is the one
+    number ADR-0007 tells everything downstream to believe. Absent is a state the model can
+    report and `--doctor` explains; a false pass is neither.
+    """
+    home = tmp_path / "home"
+    project = project_tree(tmp_path, extras="")
+    recorded(home, project)
+    (project / "pyproject.toml").write_text('[project]\nname = "moved-on"\n', encoding="utf-8")
+
+    assert provision.interpreter_for(cfg(sandbox_home=str(home)), project.as_posix()) is None
+
+
+@posix_only
+def test_a_vanished_interpreter_is_withheld(tmp_path):
+    home = tmp_path / "home"
+    project = project_tree(tmp_path, extras="")
+    venv = recorded(home, project)
+    (venv / "bin" / "python").unlink()
+
+    assert provision.interpreter_for(cfg(sandbox_home=str(home)), project.as_posix()) is None
+
+
+@posix_only
+def test_the_nearest_project_wins_for_a_nested_checkout(tmp_path):
+    """Longest match, so a checkout inside another is not served its parent's environment."""
+    home = tmp_path / "home"
+    outer = project_tree(tmp_path, extras="")
+    inner = outer / "vendored"
+    inner.mkdir()
+    (inner / "pyproject.toml").write_text('[project]\nname = "inner"\n', encoding="utf-8")
+    recorded(home, outer)
+    inner_venv = recorded(home, inner)
+
+    found = provision.interpreter_for(cfg(sandbox_home=str(home)), inner.as_posix())
+
+    assert found == (inner_venv / "bin" / "python").as_posix()
+
+
+def test_no_workdir_means_no_interpreter():
+    """`workdir` is None for a delegation that named none, and there is nothing to match."""
+    assert provision.interpreter_for(cfg(), None) is None
+
+
+@posix_only
+def test_the_name_is_absent_rather_than_empty_when_nothing_is_provisioned(tmp_path):
+    """A shell expands an unset name to nothing, so `$DELEGATE_PYTHON -m pytest` would run
+    `-m pytest` as a command and fail for a reason unrelated to the actual cause."""
+    env = provision.sandbox_env(cfg(sandbox_home=str(tmp_path / "home")), str(tmp_path))
+    assert env == {}
+
+
+@posix_only
+def test_the_name_carries_the_absolute_path_when_one_is_current(tmp_path):
+    home = tmp_path / "home"
+    project = project_tree(tmp_path, extras="")
+    recorded(home, project)
+
+    env = provision.sandbox_env(cfg(sandbox_home=str(home)), project.as_posix())
+
+    assert list(env) == [provision.SANDBOX_ENV_NAME]
+    assert env[provision.SANDBOX_ENV_NAME].startswith("/")
+
+
 # --- the command's own argument handling -------------------------------------------------
 
 
