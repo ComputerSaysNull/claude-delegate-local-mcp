@@ -1,4 +1,6 @@
-<!-- BUDGET: 172
+<!-- BUDGET: 182
+     Raised from 172 on 2026-09-08: a third entry point, `provision`, and the one-paragraph
+     answer to "do I need it" -- which is no, for every delegation that only reads.
      Raised from 165 on 2026-09-08: `--init` replaces the two `cp` lines in the quickstart
      and needs three saying what it does and does not decide for you. Cut from four first.
      Raised from 160 on 2026-09-07: a new entry point, `--doctor`, and the reason to run
@@ -65,6 +67,7 @@ python scripts/install_hooks.py       # optional, gives the gate at commit time
 
 claude-delegate-local-mcp --init      # writes .env and models.toml from answers
 claude-delegate-local-mcp --doctor    # checks the environment; non-zero on any failure
+claude-delegate-local-mcp provision . # optional, so a delegation can run this project's tests
 ```
 
 `--init` asks what has no safe default, shows the default for everything else it offers,
@@ -74,6 +77,11 @@ filled in for this machine. Copying the two `.example` files by hand still works
 Run the doctor before the first delegation. The server starts whether or not what it needs
 is there, so a missing root or an unreachable endpoint otherwise surfaces much later, as a
 refusal one layer away from its cause.
+
+`provision` is needed only for `run_bash` to run a Python project's tests. It builds a
+virtualenv outside the workspace, where the sandbox can read it and the secret scan will
+not cover it up; the doctor then fails if the project's dependencies move on. Reading,
+writing and reviewing files need none of it.
 
 On Windows plus WSL2 the two interpreters cannot share `.venv`: a Linux `python -m venv
 .venv` overwrites a Windows one in place, and it reads as a corrupted install rather than a

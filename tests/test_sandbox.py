@@ -200,6 +200,93 @@ def test_readonly_toolchain_binds_come_before_the_writable_workdir():
     assert index_of(argv, "--ro-bind", "/opt/uv") < index_of(argv, "--bind", WORKDIR)
 
 
+# --- bind order rule 1a: the provisioned root (ADR-0062) ---------------------------------
+
+
+def test_the_provisioned_root_is_bound_read_only_and_after_home():
+    """The read-only bind is the control that replaces the secret cover, not a second one.
+
+    The scan skips this tree without covering it, so if this bind were writable -- or simply
+    absent, leaving HOME's read-write bind in force -- a delegation could plant a file inside
+    an interpreter that later runs a test suite, and ADR-0007 would tell everything
+    downstream to believe its exit code.
+    """
+    provisioned = sandbox.provisioned_root(HOME)
+    argv = sandbox.build_argv(cfg(), req())
+    assert (provisioned, provisioned) in pairs(argv, "--ro-bind")
+    assert (provisioned, provisioned) not in pairs(argv, "--bind")
+    assert index_of(argv, "--bind", HOME) < index_of(argv, "--ro-bind", provisioned)
+
+
+def test_the_provisioned_root_binds_before_the_workdir():
+    """Rule 1a's second half: a workdir nested under it must still be writable."""
+    nested = f"{sandbox.provisioned_root(HOME)}/scratch"
+    argv = sandbox.build_argv(cfg(), req(workdir=nested))
+    assert index_of(argv, "--ro-bind", sandbox.provisioned_root(HOME)) < index_of(
+        argv, "--bind", nested
+    )
+
+
+def test_the_provisioned_root_is_not_named_what_the_opaque_list_covers():
+    """`.venv` and `venv` are covered with a tmpfs, which would hide the interpreter.
+
+    Asserted against the shipped list rather than a fixture, so renaming the pattern there
+    without renaming this fails here rather than silently mounting over a venv.
+    """
+    shipped = (
+        Path(__file__).resolve().parents[1] / "security" / "opaque_globs.txt"
+    ).read_text(encoding="utf-8")
+    patterns = [
+        line.strip() for line in shipped.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert sandbox.PROVISIONED_DIRNAME not in {p.split("/")[0] for p in patterns}
+
+
+def test_ensure_home_creates_the_provisioned_root(tmp_path):
+    """`build_argv` emits the bind unconditionally, so the source has to exist by then."""
+    home = tmp_path / "sandbox-home"
+    sandbox.ensure_home(str(home))
+    assert (home / sandbox.PROVISIONED_DIRNAME).is_dir()
+
+
+@posix_only
+def test_a_secret_name_inside_the_provisioned_root_is_pruned_and_not_covered(tmp_path):
+    """The one place the walk prunes without covering, and why (ADR-0062).
+
+    Measured on this repository's own environment: walked, a real venv is 8,981 entries and
+    the denylist fires 13 times -- `certifi/cacert.pem`, `keyring/credentials.py` and the
+    whole of `secretstorage/` -- each covered with /dev/null, which breaks the environment
+    it just read. Covering the tree instead hides it. So it is skipped, and the read-only
+    bind above is what pays for that.
+    """
+    home = tmp_path / "home"
+    site = home / sandbox.PROVISIONED_DIRNAME / "proj-abc123" / "lib" / "site-packages"
+    site.mkdir(parents=True)
+    (site / "credentials.py").write_text("x", encoding="utf-8")
+
+    found = sandbox.discover_secret_shadows(cfg(), req(home=str(home)))
+
+    covered = {t.path for t in found}
+    assert str(site / "credentials.py") not in covered
+    assert str(home / sandbox.PROVISIONED_DIRNAME) not in covered
+    assert covered == set()
+
+
+@posix_only
+def test_the_control_the_same_name_outside_it_is_still_covered(tmp_path):
+    """The negative half. Without this the test above passes against a scan that stopped
+    matching anything at all, which is exactly how a check that cannot fail gets trusted."""
+    home = tmp_path / "home"
+    elsewhere = home / "notvenvs" / "lib"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "credentials.py").write_text("x", encoding="utf-8")
+
+    found = sandbox.discover_secret_shadows(cfg(), req(home=str(home)))
+
+    assert str(elsewhere / "credentials.py") in {t.path for t in found}
+
+
 # --- bind order rule 2a ------------------------------------------------------------------
 
 
@@ -489,6 +576,35 @@ def test_a_bound_workdir_is_writable(tmp_path):
         workdir=str(work)))
     assert result.exit_code == 0
     assert (work / "proof.txt").read_text().strip() == "written"
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_write_into_the_provisioned_root_is_refused(tmp_path):
+    """The property the whole of ADR-0062 rests on, proved by a real kernel refusing it.
+
+    Argv assertions cannot reach this: `--ro-bind` over a path already covered by a
+    read-write bind is exactly the case where reading the order right and getting the
+    semantics wrong look identical.
+    """
+    home = tmp_path / "home"
+    sandbox.ensure_home(str(home))
+    target = f"{sandbox.provisioned_root(str(home))}/planted"
+    result = sandbox.run(cfg(), req(command=f"touch {target}", home=str(home)))
+    assert result.exit_code != 0
+    assert not Path(target).exists()
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_the_control_a_write_beside_it_under_home_still_succeeds(tmp_path):
+    """Without this, the refusal above would pass against a HOME bound read-only by mistake
+    -- a much wider break that the same assertion cannot tell apart."""
+    home = tmp_path / "home"
+    sandbox.ensure_home(str(home))
+    result = sandbox.run(cfg(), req(command=f"touch {home}/allowed", home=str(home)))
+    assert result.exit_code == 0
+    assert (home / "allowed").exists()
 
 
 @pytest.mark.integration

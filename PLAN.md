@@ -1,4 +1,7 @@
-<!-- BUDGET: 460
+<!-- BUDGET: 470
+     Raised from 460 on 2026-09-08: three M9 ticks and their reflow, plus the retention
+     rule this document now states once instead of twice. Nothing is archived mid-roadmap
+     any more, so a tick is paid for here rather than by an item leaving.
      Raised from 440 on 2026-09-08: an item filed for the denylist asymmetry `--init`'s
      backup coverage exposed, plus the reflow that ticking M8's last item costs. Completed
      items stay until the milestone plan they belong to closes, so nothing was archived to
@@ -28,13 +31,15 @@ A struck-through entry with **no marker** is the original of a ticked item, kept
 where its reasoning turned out to be wrong in an instructive way. It travels with its item
 when that item is archived, so one left here belongs to something still open.
 
-**Completed items are archived, not kept.** `✅` marks an item until the end of the session
-that finished it; then it moves to
-[archive/PLAN-milestones.md](archive/PLAN-milestones.md) with its struck original, and this
-document holds open work only. Until 2026-09-06 they stayed here "as a record of recent
-work", which was a convention rather than a decision — the ADR-0003 it cited is about size
-budgets and says nothing about retention, and twenty-eight of them had accumulated to 36%
-of a document headed *Open*.
+**Completed items stay until the roadmap closes.** A `✅` keeps its place, with its struck
+original, until every milestone is finished or the owner says to archive; only then does it
+move to [archive/PLAN-milestones.md](archive/PLAN-milestones.md). The roadmap is read as a
+whole while it is being worked, and a closed milestone beside an open one shows what has
+already been paid for.
+
+Until 2026-09-08 this said a `✅` left "at the end of the session that finished it", while
+the budget comment above said they stay until their milestone plan closes. A document with
+two retention rules has none, so this is the one.
 
 **Ticking an item changes only its marker and the date, never its text.** The body records
 what was believed when the work was filed. Reflowing is not a change to it — the words stay
@@ -42,10 +47,10 @@ and only the line breaks move, which a tick makes necessary by lengthening the f
 Where that reasoning was wrong in an instructive way, strike it and file the corrected item
 beside it.
 
-**Ask at the end of a session.** Not on a threshold: ADR-0033 already tried one and
-retired it, because a warning with no remedy the reader can apply fires until it stops
-being read. This is a question someone answers, and the end of a session is when the answer
-is cheap — the work is fresh enough to annotate and finished enough to move.
+**A tick is paid for by the budget, never by trimming.** Ticking lengthens a first line and
+costs a reflow, and with nothing leaving mid-roadmap the count only goes up — so raise the
+budget with a one-line reason. Not on a threshold warning: ADR-0033 tried one and retired
+it, because a warning with no remedy the reader can apply fires until it stops being read.
 
 ---
 
@@ -93,23 +98,25 @@ Measured 2026-09-07 before any code: inside `bwrap --unshare-all`, a venv under
 whole WSL suite — **1237 passed, 4 skipped, 1 deselected in 207s at exit 0**, and exit 1
 with that test included. The criterion above is already satisfiable; only provisioning is left.
 
-- ⬜ `provision <project>` — build the interpreter and dev dependencies under
+- ✅ 2026-09-08 `provision <project>` — build the interpreter and dev dependencies under
   `sandbox_home`, bound read-write, persistent and *outside* the workspace. Outside is
   mandatory rather than tidy: ADR-0041 records that inside a virtualenv `*secret*` and
-  `*credential*` match ordinary library filenames and the scan covers each with `/dev/null`,
-  breaking the environment it just read. It runs server-side, where the network is, so no
-  `network: true` grant is needed — and `uv` is no substitute, binding only its binary and
-  leaving its cache outside by design, so with no network it resolves nothing
-- ⬜ Hash the project's dependency declaration beside the provisioned venv and have
-  `--doctor` report a mismatch, or a delegation tests stale dependencies and returns the
-  clean exit code ADR-0007 says to trust
+  `*credential*` match ordinary library filenames and the scan covers each with
+  `/dev/null`, breaking the environment it just read. It runs server-side, where the
+  network is, so no `network: true` grant is needed — and `uv` is no substitute, binding
+  only its binary and leaving its cache outside by design, so with no network it resolves
+  nothing
+- ✅ 2026-09-08 Hash the project's dependency declaration beside the provisioned venv and
+  have `--doctor` report a mismatch, or a delegation tests stale dependencies and returns
+  the clean exit code ADR-0007 says to trust
 - ⬜ Invoke the venv's interpreter by absolute path rather than changing `SANDBOX_PATH`,
   which is hardcoded to `/usr/bin:/usr/sbin`; the measurement needed no PATH change
 - ⬜ A per-project list of tests that cannot run nested. Measured:
   `test_network_is_reachable_by_address_when_shared` fails because `--unshare-all` denies the
   network it asserts, and without the list the exit condition above is unreachable
-- ⬜ Network stays off, with an ADR. `--share-net` re-shares the host's whole namespace with
-  no allowlist or destination list, and this host reaches the cluster and the LAN
+- ✅ 2026-09-08 Network stays off, with an ADR. `--share-net` re-shares the host's whole
+  namespace with no allowlist or destination list, and this host reaches the cluster and
+  the LAN
 - ⬜ **Spike answered** — weigh covering read-only, which would make a discarded write
   fail loudly instead of exiting 0. Measure first: `__pycache__` and `.pytest_cache` are
   on the same list and a test run writes to both, so read-only may break what this

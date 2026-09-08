@@ -1,4 +1,7 @@
-<!-- BUDGET: 910 -->
+<!-- BUDGET: 942
+     Raised from 910 on 2026-09-08: `provision` is a third entry point, and the scan
+     exception that makes what it builds readable belongs beside the bind order it
+     depends on -- the tree and the mount are one decision. -->
 <!-- Raised from 890 on 2026-09-08: `--init` is a second entry point and a mechanism this
      document owns, cut by a third before it landed here -- plus seven lines for why a
      pasted Windows root cannot be stored as typed, which is measured and was nearly
@@ -93,6 +96,7 @@ large file being dropped while the budget it would have fitted in sat unused (AD
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
 | `init.py` | `--init`: the two files that have no safe default, from answers |
+| `provision.py` | `provision <project>`: the interpreter `run_bash` cannot otherwise reach |
 
 The table covers every module; the three marked above live in [DISPATCH.md](DISPATCH.md),
 which owns them, and `agents.py` in [AGENTS.md](AGENTS.md). The ancestor put all of this in one large file; we add two concerns it
@@ -186,6 +190,27 @@ is crossed the other way; `wsl.to_windows` raises rather than guess for a reposi
 the distribution, whose UNC spelling needs a distribution name this layer is not given. No
 endpoint is probed — the run ends by saying to run the doctor, and a second copy of
 `probe_entry` would be a second thing to keep true.
+
+### `provision` builds the interpreter a delegation verifies with
+
+`run_bash` exists so a model can check its own work, and ADR-0007 rests everything on the
+server capturing a real exit code. For a Python project none of it worked: no `python` on
+`PATH` inside the sandbox, `import pytest` raising, and no network to install either. That
+was filed once as an architectural limit and was not one — nothing had asked whether some
+*other* bound path could hold an interpreter. [`sandbox_home`](CONFIGURATION.md) can: bound
+read-write, persistent, and outside the workspace.
+
+`provision <project>` builds a virtualenv under it from the project's own declaration and
+records what it built from beside it, so [`--doctor`](#--doctor-asks-what-startup-does-not)
+finds it with no setting to keep in step and **fails** on a stale dependency hash — stale
+dependencies do not error, they pass against the wrong versions and return 0. It runs
+server-side, where the network is, which is why a test run needs none (ADR-0063). The
+interpreter is reached by absolute path: `SANDBOX_PATH` stays `/usr/bin:/usr/sbin`, since
+widening it would put one project's tools on every command's PATH.
+
+It is the first command here that reads an argument rather than testing for one, so it is
+matched on `sys.argv[1]` and not by membership — matched the way `--doctor` is, a project
+path containing the word would start building a virtualenv instead of a server.
 
 ### One backend per registry entry, for the life of the server
 
@@ -377,6 +402,18 @@ second is a decision. So an agent's binds are now resolved and checked against o
 roots before they reach here at all. A bind at or above one of the sandbox's own mounts is
 refused separately: `extra_binds` are emitted after them, so naming one replaces it, and
 reordering to prevent that would wipe every bind inside the tmpfs on `/tmp`. (ADR-0053)
+
+**One tree is pruned from that scan and not covered**, which is the shape ADR-0041 calls
+the hole — and it is forced rather than chosen. A provisioned virtualenv is the first tree
+a command must be able to *read*: walked, this repository's own is 8,981 entries and the
+denylist fires 13 times, covering `certifi/cacert.pem` and `keyring/credentials.py` with
+`/dev/null` and breaking the environment it just read. Covering the tree instead hides it.
+So it is skipped and bound **read-only**, which replaces the cover rather than second-
+guessing it: the contents become unchangeable instead of unreadable, and the guarantee
+moves to build time, where `provision` keeps an operator's index configuration out. An
+agent file cannot substitute it — the tree is reserved beside the base mounts, since taking
+it would supply an interpreter the sandbox did not build. `--doctor` re-scans and *reports*
+what matches. (ADR-0062)
 
 ### The caps come from in front of bwrap, not from it
 

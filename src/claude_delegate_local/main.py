@@ -10,9 +10,9 @@ is written to stderr and the process exits non-zero, which is the one thing a la
 can actually report. To read that message, run the command by hand in a terminal --
 docs/TROUBLESHOOTING.md says so, because there is nowhere else it can be seen.
 
-`--doctor` and `--init` are the exceptions, and they are not really exceptions: nothing
-speaks MCP to either, so there is no protocol on stdout for them to corrupt. Both return
-before any of the below.
+`--doctor`, `--init` and `provision` are the exceptions, and they are not really
+exceptions: nothing speaks MCP to any of them, so there is no protocol on stdout for them
+to corrupt. All three return before any of the below.
 """
 
 from __future__ import annotations
@@ -44,6 +44,16 @@ def run() -> None:
         from . import init  # noqa: PLC0415
 
         raise SystemExit(init.main())
+
+    # `provision` is the first command here that reads an argument rather than testing for
+    # one, so it is matched on position: `sys.argv[1]`, not membership. Membership would
+    # make any delegation whose *project path* happened to contain the word provision start
+    # building a virtualenv instead of a server. Still not argparse, for the reason above --
+    # the module validates its own one argument and prints its own usage.
+    if sys.argv[1:2] == ["provision"]:
+        from . import provision  # noqa: PLC0415
+
+        raise SystemExit(provision.main(argv=sys.argv[2:]))
 
     try:
         cfg = config.load()

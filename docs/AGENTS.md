@@ -1,4 +1,6 @@
-<!-- BUDGET: 408
+<!-- BUDGET: 417
+     Raised from 408 on 2026-09-08: the provisioned virtualenv root is reserved against
+     agent binds, and HOME's own entry does not reach it (ADR-0062).
      Raised from 404 on 2026-09-07: the path policy has three dispositions now, not two, and the section carrying a worked example of the old one had to be rewritten (ADR-0061).
      Raised from 395 on 2026-09-06: a sixth tool, and the lookup path split away from the
      workdir -- the tool list and the argument that finds an agent are both owned here.
@@ -225,6 +227,12 @@ what is carried forward, so a link inside a root pointing out of it is refused o
 lands rather than approved on where it sits. A bind at or *above* something the sandbox
 mounts itself is refused too — binds are emitted after those mounts, so naming one replaces
 it. Inside one is fine, and is how a toolchain under `/tmp` works at all.
+
+The provisioned virtualenv root is reserved too, and needs its own entry because HOME's
+does not reach it: it sits *inside* HOME, where a bind is allowed. Naming it would supply an
+interpreter the sandbox did not build, whose exit code ADR-0007 tells every reader to
+believe — and it is the one tree the scan skips rather than covers, so nothing else would
+notice. (ADR-0062)
 
 Not the workspace roots, on two counts. The field exists to reach a toolchain living
 outside one, and a list shared with a reading tool would let a root widened for `files[]`

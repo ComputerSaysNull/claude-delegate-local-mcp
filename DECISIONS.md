@@ -19,6 +19,85 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0063 — 2026-09-08 — The sandbox that runs a test suite never gets the network — Accepted
+
+**Context.** M9 gives a delegation an interpreter it can run a project's tests with, and the
+obvious next question is whether that command needs the network. A test suite often does:
+this repository's own has a test asserting the network *is* reachable. And provisioning
+certainly does -- a virtualenv plus a dependency resolution is nothing but network.
+
+**Decision — provisioning gets the network, and the sandbox does not.** `provision` runs
+server-side, in the server's own process, where the network already is. Nothing about it
+happens inside `bwrap`, so no grant is needed and none is added. `--unshare-all` stays, and
+`agent_network_allowed` keeps being the only route to `--share-net`.
+
+**Because `--share-net` is not a network grant, it is the host's whole namespace.** There is
+no allowlist and no destination list in it: an agent given `network: true` can reach
+whatever this machine can reach, which here means the cluster and the LAN. That is
+acceptable for a fetch an operator deliberately enabled by name. It is not acceptable as the
+standing condition for running tests, which is the most frequent thing a delegation will
+do once M9 lands, and which would otherwise carry that reach every time.
+
+**What it costs, stated rather than discovered later.** A test asserting outbound
+connectivity fails inside the sandbox, and fails *correctly* -- there is no network. Such a
+test is named in the project's nested-exclusion list rather than granted a namespace, which
+is the trade this decision makes: a named exclusion is one line an operator can read, and a
+shared namespace is a capability nobody re-reads after the day it was set.
+
+**And a delegation cannot install anything**, deliberately. Provisioning is an operator
+action with an operator's timing, so a dependency a model decides it wants mid-task is a
+refusal rather than a download. `--doctor` reports a stale environment (ADR-0062) so the
+answer to "why can it not import that" is one command away rather than a guess.
+
+## ADR-0062 — 2026-09-08 — A tree the shell must read cannot be covered, so it is trusted at build time — Accepted
+
+**Context.** ADR-0035 covers denylist matches with a mount rather than leaving them out, and
+ADR-0041 extends the same mount to bulk directories and calls pruning *without* covering the
+hole -- correctly, for a tree an operator may keep secrets in. M9 needs something neither
+anticipated: a virtualenv the sandbox must be able to **read**, because a command that
+cannot import pytest cannot verify anything.
+
+Measured on this repository's own environment rather than reasoned about. Walked, it is
+8,981 entries and the denylist fires 13 times -- `certifi/cacert.pem`,
+`keyring/credentials.py`, `pydantic_settings/.../secrets.py` and the whole of
+`secretstorage/` -- each covered with `/dev/null` or a tmpfs, which breaks the imports and
+the TLS roots of the environment the scan just read. That is exactly what ADR-0041 predicted
+for a workspace virtualenv, and moving the tree outside the workspace does not escape it:
+`discover_secret_shadows` walks `home`, `workdir` and `extra_binds`, which is every bound
+root there is. Naming it `.venv` is worse, not better -- the opaque list matches that and
+covers it, so the interpreter becomes invisible instead of broken.
+
+**Decision — one tree is pruned from the walk and not covered, and is bound read-only in
+exchange.** `sandbox.PROVISIONED_DIRNAME` under the sandbox HOME. The read-only bind is not
+a second opinion about the cover; it is the control that replaces it. Covering answers "what
+if a secret is in there" by making the tree unreadable; read-only answers it by making the
+tree unchangeable, and the contents are then whatever the server put there.
+
+**So the guarantee moves from scan time to build time, and that is the whole of the
+decision.** `provision` builds the tree from the project's own dependency declaration with
+`PIP_CONFIG_FILE=/dev/null` and the index environment variables dropped, because a `pip.conf`
+may carry an index URL with credentials in it and this is the last point at which one can be
+kept out. An agent file cannot substitute the tree either -- it is reserved in `agents.py`
+alongside the base mounts, since taking it would mean supplying an interpreter the sandbox
+did not build, whose exit code ADR-0007 then tells every reader to believe.
+
+**A guarantee nothing re-checks is one that stops being true quietly**, so `--doctor` scans
+the finished tree with the same denylist and *reports* what matches instead of covering it.
+Thirteen matches here, all ordinary library files. The number is the point: it moves if
+someone provisions with `--system-site-packages`, or adds a dependency that ships something
+that is not a library file.
+
+**Measured, both directions.** With the tree bound read-only, `touch` inside it is refused
+at exit 1 while the same write into the workdir succeeds, and the full WSL suite still
+passes from that interpreter inside `bwrap --unshare-all` -- 1309 passed, 4 skipped, exit 0.
+The control matters: the first read-only probe in this area, on 2026-09-07, asserted
+read-only against a directory it had never covered and passed.
+
+**What this does not close.** A dependency that ships a genuine credential is installed and
+readable, as it would be on the host. The scan never protected against that; it covered
+paths by name, and by name a library's `credentials.py` and a real credential are the same
+thing -- which is why covering them broke the environment rather than protecting it.
+
 ## ADR-0061 — 2026-09-07 — A refused path costs the call its file, not the call — Accepted
 
 **Context.** `files[]` was all-or-nothing: one path the policy would not allow discarded
@@ -1005,7 +1084,7 @@ still permits writes, and should.
 Review point: if MCP ever grows per-call annotations, or a client learns to gate on
 arguments, this tool becomes redundant and should go.
 
-## ADR-0041 — 2026-08-30 — Bulk directories are covered and skipped, not the denylist — Accepted
+## ADR-0041 — 2026-08-30 — Bulk directories are covered and skipped, not the denylist — Partially superseded by ADR-0062
 
 **Context.** `run_bash` was refused on every real project. The mount-level secret scan
 walks the workdir before each call and refuses past `secret_shadow_max_entries`, which is
@@ -1281,7 +1360,7 @@ What this does not change: the scan is still point-in-time, still skips symlinks
 still defence-in-depth for one tool rather than the authority `paths.py` is for `read_file`.
 ADR-0035 governs all of that and stands.
 
-## ADR-0035 — 2026-08-29 — The secret denylist is enforced by covering paths up, not by leaving them out — Accepted
+## ADR-0035 — 2026-08-29 — The secret denylist is enforced by covering paths up, not by leaving them out — Partially superseded by ADR-0062
 
 `paths.py` enforces the denylist by refusing a path. The sandbox cannot: bubblewrap starts
 from an **empty root**, so there is nothing to subtract from. A secret is only ever visible

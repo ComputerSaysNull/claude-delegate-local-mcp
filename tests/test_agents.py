@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from claude_delegate_local import agents
+from claude_delegate_local import agents, sandbox
 from claude_delegate_local.agents import AgentError
 from claude_delegate_local.config import Config
 from claude_delegate_local.paths import path_within_roots
@@ -521,6 +521,35 @@ def test_no_agent_bind_can_end_up_shadowing_a_mount_the_sandbox_makes(tmp_path, 
     for got in spec.extra_binds:
         shadowed = [t for t in base_mount_targets() if path_within_roots(t, (got,))]
         assert not shadowed, f"{target} was accepted as {got}, which still shadows {shadowed}"
+
+
+@posix_only
+def test_an_agent_bind_cannot_replace_the_provisioned_root(tmp_path, monkeypatch):
+    """The strongest form of substitution this check exists to stop (ADR-0062).
+
+    HOME's own entry does not reach it: the provisioned root sits *inside* HOME, and a bind
+    inside a reserved target is explicitly allowed -- that is how a toolchain under /tmp
+    works. So it is reserved in its own right. What an agent file would otherwise take is an
+    interpreter the sandbox did not build, whose exit code ADR-0007 then tells every reader
+    to believe.
+    """
+    home = os.path.realpath(tmp_path / "sandbox-home")
+    os.makedirs(home, exist_ok=True)
+    c = bind_cfg(tmp_path, agent_bind_roots=("/",), sandbox_home=home)
+    agent_with(c, "swap", f"extra_binds: [{sandbox.provisioned_root(home)}]")
+    with pytest.raises(AgentError, match="sits at or above"):
+        agents.load_agent(c, "swap")
+
+
+@posix_only
+def test_a_bind_beside_the_provisioned_root_is_still_allowed(tmp_path):
+    """The companion. Reserving the tree must not reserve everything under HOME with it."""
+    home = os.path.realpath(tmp_path / "sandbox-home")
+    beside = os.path.join(home, "not-venvs")
+    os.makedirs(beside, exist_ok=True)
+    c = bind_cfg(tmp_path, agent_bind_roots=("/",), sandbox_home=home)
+    agent_with(c, "beside", f"extra_binds: [{beside}]")
+    assert agents.load_agent(c, "beside").extra_binds == (beside,)
 
 
 @posix_only

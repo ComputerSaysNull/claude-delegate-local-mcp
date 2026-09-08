@@ -15,6 +15,7 @@ reused here on purpose.
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import stat
@@ -25,7 +26,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from claude_delegate_local import doctor, sandbox
+from claude_delegate_local import doctor, provision, sandbox
 from claude_delegate_local.config import Config
 from claude_delegate_local.doctor import FAIL, OK, WARN, Check
 from claude_delegate_local.registry import ModelEntry, Registry
@@ -162,6 +163,139 @@ def test_nothing_bound_warns_rather_than_fails(monkeypatch):
     check = doctor.check_toolchain(cfg())
     assert check.verdict == WARN
     assert doctor.worst([check]) == WARN
+
+
+# --- provisioned environments -------------------------------------------------------
+
+
+def provisioned(home: Path, project: Path, **over) -> Path:
+    """A provisioned environment shaped the way `provision` leaves one, without building it.
+
+    Paths go in POSIX-shaped, which is what production hands `provision`: `resolve_workdir`
+    translates and resolves before anything here sees a value, and `venv_name` takes a
+    POSIX basename deliberately -- fed a Windows path it would return the whole string as
+    the directory name.
+    """
+    venv = Path(provision.venv_dir(home.as_posix(), project.as_posix()))
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "python").write_text("", encoding="utf-8")
+    record = {
+        "project": project.as_posix(),
+        "interpreter": (venv / "bin" / "python").as_posix(),
+        "dependency_hash": provision.dependency_hash(project.as_posix()),
+        "hash_source": provision.HASH_SOURCE,
+    }
+    record.update(over)
+    (venv / provision.RECORD_NAME).write_text(json.dumps(record), encoding="utf-8")
+    return venv
+
+
+def declared(tmp_path: Path) -> Path:
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "pyproject.toml").write_text('[project]\nname = "d"\n', encoding="utf-8")
+    return project
+
+
+@posix_only
+def test_nothing_provisioned_warns_rather_than_fails(tmp_path):
+    """The read-heavy majority of delegations needs no interpreter, so this must not block.
+
+    Same call as `check_toolchain` makes, and for the same reason.
+    """
+    checks = doctor.check_provisioned(cfg(sandbox_home=str(tmp_path / "home")))
+    assert [c.verdict for c in checks] == [WARN]
+    assert doctor.worst(checks) == WARN
+
+
+@posix_only
+def test_a_current_environment_passes(tmp_path):
+    home = tmp_path / "home"
+    provisioned(home, declared(tmp_path))
+    checks = doctor.check_provisioned(cfg(sandbox_home=str(home)))
+    assert [c.verdict for c in checks] == [OK]
+
+
+@posix_only
+def test_a_stale_declaration_fails(tmp_path):
+    """A FAIL and not a WARN, which is the opposite call to the absence case above.
+
+    Stale dependencies do not error. They produce a passing test run against the wrong
+    versions and hand back exit 0 -- the one number ADR-0007 says to believe -- so this is
+    worse than having no environment at all, because it is believed.
+    """
+    home = tmp_path / "home"
+    project = declared(tmp_path)
+    provisioned(home, project)
+    (project / "pyproject.toml").write_text('[project]\nname = "moved-on"\n', encoding="utf-8")
+
+    checks = doctor.check_provisioned(cfg(sandbox_home=str(home)))
+
+    assert [c.verdict for c in checks] == [FAIL]
+    assert doctor.worst(checks) == FAIL
+
+
+@posix_only
+def test_a_missing_record_fails(tmp_path):
+    """A half-built environment is exactly where a test run passes against nothing."""
+    home = tmp_path / "home"
+    Path(provision.venv_dir(home.as_posix(), (tmp_path / "proj").as_posix())).mkdir(
+        parents=True
+    )
+    checks = doctor.check_provisioned(cfg(sandbox_home=str(home)))
+    assert [c.verdict for c in checks] == [FAIL]
+
+
+@posix_only
+def test_a_vanished_interpreter_fails(tmp_path):
+    home = tmp_path / "home"
+    venv = provisioned(home, declared(tmp_path))
+    (venv / "bin" / "python").unlink()
+    checks = doctor.check_provisioned(cfg(sandbox_home=str(home)))
+    assert [c.verdict for c in checks] == [FAIL]
+
+
+@posix_only
+def test_a_project_that_has_gone_away_fails(tmp_path):
+    home = tmp_path / "home"
+    project = declared(tmp_path)
+    provisioned(home, project)
+    (project / "pyproject.toml").unlink()
+    checks = doctor.check_provisioned(cfg(sandbox_home=str(home)))
+    assert [c.verdict for c in checks] == [FAIL]
+
+
+@posix_only
+def test_an_uncovered_denylist_match_is_reported_as_a_warning(tmp_path):
+    """Nothing covers this tree at runtime, so the doctor is where the count is reported.
+
+    ADR-0062 moves the guarantee to build time, and a guarantee nothing re-checks stops
+    being true quietly. Ordinary library filenames match, so it is a count and not a
+    refusal.
+    """
+    home = tmp_path / "home"
+    venv = provisioned(home, declared(tmp_path))
+    (venv / "credentials.py").write_text("", encoding="utf-8")
+
+    check = doctor.check_provisioned_secrets(cfg(sandbox_home=str(home)))
+
+    assert check.verdict == WARN
+    assert doctor.worst([check]) == WARN
+
+
+@posix_only
+def test_a_clean_provisioned_tree_passes(tmp_path):
+    """The control: without it the warning above could fire on any tree at all."""
+    home = tmp_path / "home"
+    provisioned(home, declared(tmp_path))
+    check = doctor.check_provisioned_secrets(cfg(sandbox_home=str(home)))
+    assert check.verdict == OK
+
+
+@posix_only
+def test_nothing_provisioned_is_not_reported_as_uncovered(tmp_path):
+    check = doctor.check_provisioned_secrets(cfg(sandbox_home=str(tmp_path / "home")))
+    assert check.verdict == OK
 
 
 # --- transcripts --------------------------------------------------------------------

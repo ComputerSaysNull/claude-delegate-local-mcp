@@ -34,6 +34,82 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #142 — 2026-09-08 — feat: provision builds the interpreter run_bash could not reach
+
+### Added
+- **`provision <project>`, because `run_bash` could not run a Python project's tests.**
+  ADR-0007 rests the whole self-verification design on the server capturing a real exit
+  code, and for a Python project there was nothing to capture: no `python` on `PATH` inside
+  the sandbox, `import pytest` raising, no network to install either. `#129` filed that as
+  an architectural limit and `#130` corrected it -- nothing had asked whether some *other*
+  bound path could hold an interpreter. This is the command that builds one, under
+  `sandbox_home`, from the project's own declaration.
+- **A record beside each environment, so `--doctor` needs no setting to find it.**
+  `provision.json` carries the project, the interpreter, the digest and what was installed.
+  Two `--doctor` checks read it: one per environment, and a re-scan of the finished tree.
+  The staleness verdict is a **`FAIL`** rather than a warning, which is the opposite call to
+  the "nothing provisioned" case beside it and the important one -- stale dependencies do
+  not error, they pass against the wrong versions and return 0, the one number ADR-0007
+  says to believe.
+- **The digest is taken over the whole `pyproject.toml`, not its dependency tables.** The
+  check is asymmetric: a false "stale" costs one re-provision, a false "fresh" hands back a
+  clean exit code from a test run that proved nothing. So it is coarse on purpose.
+- **ADR-0062 — a tree the shell must read cannot be covered, so it is trusted at build
+  time.** Measured on this repository's own environment rather than reasoned about: walked,
+  it is 8,981 entries and the denylist fires 13 times, covering `certifi/cacert.pem`,
+  `keyring/credentials.py` and the whole of `secretstorage/` with `/dev/null` -- breaking
+  the imports and TLS roots of the environment the scan just read, exactly as ADR-0041
+  predicted for a workspace virtualenv. Covering the tree instead hides it. So one tree is
+  pruned and **not** covered -- the shape ADR-0041 calls the hole -- and bound `--ro-bind`
+  in exchange, which replaces the cover rather than second-guessing it: the contents become
+  unchangeable instead of unreadable. Measured both ways: `touch` inside it is refused at
+  exit 1 while the same write into the workdir succeeds, and the full WSL suite still runs
+  from that interpreter inside `bwrap --unshare-all` at **1309 passed, 4 skipped, exit 0**.
+  ADR-0041 and ADR-0035 are partially superseded.
+- **ADR-0063 — the sandbox that runs a test suite never gets the network.** Provisioning is
+  where the network belongs and it happens server-side, so no `network: true` grant is
+  added. `--share-net` is not a network grant but the host's whole namespace, with no
+  allowlist and no destination list, and this host reaches the cluster and the LAN -- fine
+  for a fetch an operator enabled by name, not as the standing condition for the thing a
+  delegation will now do most often.
+- **`tests/test_main.py`, because the `sys.argv` dispatch had never been tested at all.**
+  `provision` is the first command there that reads a value rather than testing for one, so
+  it is matched on position: matched the way `--doctor` is, a project path containing the
+  word would start building a virtualenv instead of a server. Both directions asserted for
+  each of the three entry points -- a dispatch test that only checks the positive case
+  passes against a function that dispatches on everything.
+
+### Changed
+- **An agent file cannot substitute the provisioned tree.** It is reserved in `agents.py`
+  beside the base mounts, and it needed its own entry because HOME's does not reach it: the
+  tree sits *inside* HOME, where a bind is explicitly allowed -- that is how a toolchain
+  under `/tmp` works. What naming it would take is an interpreter the sandbox did not build,
+  whose exit code ADR-0007 then tells every reader to believe, in the one tree nothing
+  scans. Closed here rather than filed, because it would have been a hole opened by this
+  commit.
+- **`check_toolchain`'s remedy had become wrong advice.** It told the reader to provision an
+  interpreter and name it in `DELEGATE_TOOLCHAIN_BINDS`, which lands the virtualenv in a
+  scanned `extra_bind` and breaks it the way ADR-0041 describes. It now points at
+  `provision`.
+- **`PLAN.md` states one retention rule instead of two.** Its header said a `✅` leaves at
+  the end of the session that finished it; its budget comment said completed items stay
+  until their milestone plan closes. Completed items now stay until the whole roadmap
+  closes or the owner says otherwise, and a tick is paid for by raising the budget with a
+  reason rather than by trimming an item's text, which the tick rule forbids anyway.
+
+### Fixed
+- **A planning claim that the opaque list already handled this, corrected by measuring it.**
+  `security/opaque_globs.txt` names `.venv/**` and `venv/**`, and it was asserted from that
+  -- not measured -- that a provisioned virtualenv would therefore be pruned and the walk
+  was not the problem. It is not matched: `venvs/` is not `venv/`, so the tree is walked in
+  full and every one of those 13 denylist matches fires. The opposite reading was equally
+  wrong, since naming the tree `.venv` *is* matched and covered, which hides the
+  interpreter. Both failure modes are real and neither was visible from reading the list.
+- **The 2026-09-07 measurement that made this milestone look nearly done had a gap.** It ran
+  `bwrap` by hand, so no secret scan ran at all, and `discover_secret_shadows` walks `home`
+  as well as the workdir. Putting the environment outside the *workspace* is necessary and
+  was never sufficient.
+
 ## #141 — 2026-09-08 — feat: --init writes the two files a first run has no default for
 
 ### Added

@@ -38,7 +38,7 @@ from pathlib import Path
 from .config import EFFORT_LEVELS, Config
 from .loop import InvalidDelegation
 from .paths import path_within_roots, resolved_agent_bind_roots
-from .sandbox import base_mount_targets, resolve_home
+from .sandbox import base_mount_targets, provisioned_root, resolve_home
 from .tools import ALL_TOOL_NAMES
 
 
@@ -224,7 +224,14 @@ def _check_binds(cfg: Config, binds: tuple[str, ...], *, where: str) -> tuple[st
     # HOME joins the base mounts here because it is bound before `extra_binds` too, and so
     # is shadowable in exactly the same way -- but it is a config value rather than part of
     # the static table, so `base_mount_targets` cannot know about it.
-    reserved = base_mount_targets() | {resolve_home(cfg)}
+    #
+    # The provisioned root is listed separately rather than covered by HOME: it sits
+    # *inside* it, and a bind inside a reserved target is explicitly fine (that is how a
+    # toolchain under /tmp works), so HOME's entry does not reach it. It has to be reserved
+    # in its own right because substituting it is the strongest form of the trust this check
+    # exists to protect -- an interpreter the sandbox did not build, whose exit code
+    # ADR-0007 then tells everything downstream to believe.
+    reserved = base_mount_targets() | {resolve_home(cfg), provisioned_root(resolve_home(cfg))}
     resolved: list[str] = []
     for bind in binds:
         if not os.path.isabs(bind):
