@@ -34,6 +34,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #140 — 2026-09-08 — docs: ARCHITECTURE.md's 85-line raise history is one copy too many
+
+### Changed
+- **A document at its budget was 9% budget comment.** `docs/ARCHITECTURE.md` stood at 938
+  lines against a budget of 938, and 85 of them were the header: two adjacent comments
+  carrying the reason for every raise back to 2026-08-29, four of those added on 2026-09-07
+  alone. So the file that had no room left for a mechanism it owns was spending a tenth of
+  itself on its own accounting, and anything touching it had to trim or raise before it
+  could start.
+- **The cause is the one #124 already found and named.** Each raise's reason was written
+  into the header *and* into the `CHANGELOG.md` section for the pull request that made it.
+  Two copies of the same fact, and the header was the redundant one — the identical finding
+  that cut `PLAN.md`'s own 60-line header to 6 on 2026-09-06. Applying it here is not a new
+  decision, and no document body changed: the diff is 9 lines in, 85 out, and the budget is
+  reset to 880 over the 862 lines that leaves.
+- **What the prose was also the only record of, and where that now reads from.** The
+  accumulated raises were the one place ADR-0003's split signal appeared — "raised twice in
+  a day, so weigh the next addition against a split" was legible only as a pile of dated
+  lines, and the header's last entry said in its own words that the split was "overdue
+  rather than merely signalled". Deleting the pile without replacing the signal would have
+  answered the budget question by losing the more important one. The retained comment names
+  `git log -L 1,1` on the file as the replacement, which is where a raise cadence should
+  have been read all along: it is exact, it cannot fall out of date, and it does not grow.
+- **A collapse is not the split, and does not pretend to be.** ADR-0003's three
+  resolutions are trim, split, or raise with a reason; this is the trim, and it takes the
+  document from its ceiling to 862 with a ceiling of 880. The seam a split would use is
+  still the stream-and-viewer section the earlier header nominated, and the case for it is
+  now made by the body's own length rather than by the header's.
+
 ## #139 — 2026-09-07 — feat: a refused path in files[] no longer discards the whole prefetch
 
 ### Changed

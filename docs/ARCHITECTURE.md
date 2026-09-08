@@ -1,88 +1,12 @@
-<!-- BUDGET: 938
-     Raised from 933 on 2026-09-07: the tool descriptions gained the three cost facts, the only channel the protocol offers. Fourth raise today -- the 78-line raise history above is now the first candidate for the split.
-     Raised from 923 on 2026-09-07: opening a path and comparing one need different
-     translation, and this section owns the boundary. Third raise in a day -- the split
-     ADR-0003 asks for is overdue rather than merely signalled.
-     Raised from 914 on 2026-09-07: a turn's record says which effort it ran at, which the
-     viewer now shows. Second raise in a day, which ADR-0003 means as a signal: the next
-     addition is weighed against a split, and the seam is the stream-and-viewer section.
-     Raised from 887 on 2026-09-07: the preflight, which is a mechanism this document owns
-     and did not previously exist -- the section was cut by a fifth first, and one stale
-     count fixed alongside it.
-     Raised from 871 on 2026-09-07: a turn's tool calls are a record carrying what was
-     asked and why it refused, and the viewer renders it. Both additions cut by half
-     first, and the reasoning left in ADR-0060 rather than restated here.
-     Raised from 861 on 2026-09-06: the read-only annotation now covers an agent tool, and
-     the workdir correspondence it rests on had drifted and needed correcting rather than
-     extending.
-     Raised from 847 on 2026-09-06: `delegate` gained a workdir, so which tools can
-     bind one is now a difference worth stating beside the annotation asymmetry --
-     and the reason a write does not depend on it needed saying once, in the plane
-     that owns the tools rather than in a description a reader may not reach.
-     Raised from 838 on 2026-09-06: `spared` is replaced by `return`, and why the
-     premise behind the estimate was wrong is the part worth keeping.
-     Raised from 821 on 2026-09-06: the list redraws without blanking, the highlight
-     survives the row's own colours, and the selection returns where it was.
-     Raised from 814 on 2026-09-06: the cache column is renamed for what it measures,
-     and why the old name misled twice is the part worth keeping.
-     Raised from 800 on 2026-09-06: the picker separates what the cluster processed
-     from what the calling conversation was spared, and why the two differ tenfold
-     without either being waste is the fact this document owns.
-     Raised from 791 on 2026-09-06: the picker shows a saved total and a reuse share,
-     and why neither replaces the other is the fact this document owns.
-     Raised from 781 on 2026-09-06: the result now reports the whole run beside the
-     answering turn, and the two used to share three field names. ADR-0058.
-     Raised from 772 on 2026-09-06: the live stream now reports the eviction that
-     explains a cache collapse, which the record already had. ADR-0056.
-     Raised from 770 on 2026-09-06: backend_status reports one more measured figure,
-     the decode rate, and it is the one nothing here could ever estimate. ADR-0055.
-     Raised from 746 on 2026-09-05: the sandbox gained resource limits, whose mechanism is not bwrap's and whose process cap has three measured caveats a reader must have before touching it.
-     Raised from 738 on 2026-09-05: the sandbox gained a second, independent guard on what an agent may bind -- an ordering property this document owns, distinct from the mount-level scan described beside it.
-     Raised from 723 on 2026-09-05: backend_status now reports the cluster's own
-     numbers beside this process's estimates of them.
-     Raised from 715 on 2026-09-05: the list now shows what the prefix cache saved, and the stream carries it per turn.
-     Raised from 710 on 2026-09-05: the result dict and the transcript record now carry the endpoint's own numbers.
-     Raised from 704 on 2026-09-05: the delegation list gained a duration and an effort column, and this document owns what the viewer shows and why.
-     Raised from 698 on 2026-09-04: the end event now carries turns for a dispatch that died on a deadline, where it recorded none -- the transcript half of the same gap, and this document owns what that event carries.
-     Raised from 669 on 2026-09-04: admission queues in order now, and the two qualifications a reader needs are that a waiter must be feasible to count as ahead (strict order would reintroduce head-of-line blocking) and that a ticket is dropped in a finally (an abandoned one starves the machine).
-     Raised from 660 on 2026-09-04: the files block now escapes a body line shaped like its own boundary, and why it matches any path rather than the file's own is the part a reader needs. Two mid-sentence wraps in the paragraph above were reflowed to pay part of it.
-     Raised from 655 on 2026-09-03: prefetch now holds one proven descriptor per file from the open to the read, so the size the budgets use and the bytes inlined are the same file (ADR-0049).
-     Raised from 646 on 2026-09-03: delegate_readonly stopped being the one-shot path, which is a fact about how a delegation is assembled and this document owns server.py.
-     Raised from 638 on 2026-09-03: the per-file prefetch cap stopped being a fairness control, so this document says where fairness actually lives and why a second copy of it here cost an under-used cluster.
-     Raised from 633 on 2026-09-03: max_turns became a per-call argument, so this document can state where argument precedence is applied and why there is exactly one such place.
-     Raised from 630 on 2026-09-02: list_agents reports what it skipped and what belongs to the other format, which is the discovery case of a rule this document already states.
-     Raised from 625 on 2026-09-02: nothing set the transcript's file permissions, so this document could not state them.
-     Raised to the size it had already reached on 2026-09-01: the check that should have held this
-     line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
-     stopped matching, so the document grew unenforced. This records where it actually is rather than
-     endorsing it; the 2026-09-01 audit tracks the trim. Raised from 394 on 2026-08-30: agents.py
-     joined the module table and the tool count in it became a number worth stating. Raised from 386
-     that day: M6 made what the sandbox binds a property of the delegation rather than of the server,
-     and the secret scan widened with it. Raised from 375 on 2026-08-29: the mount-level secret
-     denylist is a mechanism this document owns and could not previously describe, because it did not
-     exist. What it replaced was one wrong sentence in AGENTS.md. -->
-<!-- Raised from 300 across M2. This document owns wsl.py, paths.py and context.py, and
-     all three went from a table row reading "not built" to behaviour that has to be
-     explained. Partly paid for by cutting the bytes-per-token measurements, which
-     AGENTS.md already carried in full.
-     Raised again from 340 in M3: loop.py stopped being a straight-through dispatch, and
-     retry selectivity is a set of decisions whose reasons do not survive being compressed
-     into a sentence. Some of those lines went on two bounds that did not exist yet, an
-     unenforced dispatch_timeout being exactly the kind of gap a reader assumes is covered.
-     Raised again from 375 to 425 for empty-answer recovery. The two terminal states are
-     different diagnoses that send a caller to different fixes, and the reason each
-     mitigation is ordered where it is -- prefix cache first, prefill last -- is not
-     recoverable from the code by someone deciding whether to reorder them. The last ten
-     lines are the measurement that says one of those stages does not fire in production:
-     without it the skip reads as tidiness rather than the thing holding the cost down.
-     Lowered from 425 to 330 on 2026-08-27, when loop.py and backends/ moved to DISPATCH.md
-     with the four sections describing them. A budget left at its old ceiling after a split
-     has been deferred rather than paid. ADR-0032.
-     Raised from 360 to 375 in M5. sandbox.py's row stopped saying "not built", and the
-     two bind-order rules are invisible in the code -- they are an ordering, not a
-     statement -- so a reader deciding whether to move a bind cannot recover them by
-     reading build_argv. The section saying what is built but still unreached is the other
-     half: without it the config reference's newly un-marked sandbox rows read as wired. -->
+<!-- BUDGET: 880 -->
+<!-- Reset from 938 on 2026-09-08, when 85 lines of raise history became these nine. Each
+     raise's reason already stood in the CHANGELOG.md section for the pull request that
+     made it, so this header was a second copy of it -- the same finding that cut PLAN.md's
+     own 60-line header on 2026-09-06. The prose was also the only record of ADR-0003's
+     split signal, that this document was raised four times on 2026-09-07. That signal now
+     reads from `git log -L 1,1` on this file, where a raise cadence should have been read
+     all along. The 880 carries headroom over the 862 lines this left, so it is a ceiling
+     with slack in it rather than a measurement of the document. -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
