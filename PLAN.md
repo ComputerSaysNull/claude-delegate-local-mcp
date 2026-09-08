@@ -1,4 +1,6 @@
-<!-- BUDGET: 470
+<!-- BUDGET: 480
+     Raised from 470 on 2026-09-08: the self-covering denylist file, found while measuring
+     M9's exit condition, plus the tick for the read-only spike it answered.
      Raised from 460 on 2026-09-08: three M9 ticks and their reflow, plus the retention
      rule this document now states once instead of twice. Nothing is archived mid-roadmap
      any more, so a tick is paid for here rather than by an item leaving.
@@ -118,9 +120,9 @@ with that test included. The criterion above is already satisfiable; only provis
 - ✅ 2026-09-08 Network stays off, with an ADR. `--share-net` re-shares the host's whole
   namespace with no allowlist or destination list, and this host reaches the cluster and
   the LAN
-- ⬜ **Spike answered** — weigh covering read-only, which would make a discarded write
-  fail loudly instead of exiting 0. Measure first: `__pycache__` and `.pytest_cache` are
-  on the same list and a test run writes to both, so read-only may break what this
+- ✅ 2026-09-08 **Spike answered** — weigh covering read-only, which would make a discarded
+  write fail loudly instead of exiting 0. Measure first: `__pycache__` and `.pytest_cache`
+  are on the same list and a test run writes to both, so read-only may break what this
   milestone exists to enable. Any change supersedes a line of ADR-0041
   - **Measured 2026-09-07: it is viable, and the timid version is unnecessary.** With eight
     directories covered by `--tmpfs` plus `--remount-ro`, a write into a covered path is
@@ -395,6 +397,16 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
   it, which the 2026-09-02 review recommended — that scanner looks for RFC1918 addresses,
   private-DNS suffixes and non-allowlisted emails, and would false-positive on the source a
   review delegation exists to read. A narrow, high-precision check for key material instead
+
+- ⬜ **The denylist file matches itself, so layer 3 is unusable inside the sandbox.**
+  `security/secret_globs.txt` matches its own `*secret*` entry, so the scan covers it with
+  `--ro-bind /dev/null` — and inside the sandbox it is then a character device owned by
+  `nobody`, which reads as `Permission denied` rather than as empty. Any nested run that
+  exercises layer 3 fails: 42 of `test_tools.py` on 2026-09-08, and it is why this
+  repository's own suite cannot run nested in full. It fails *closed*, so it is a usability
+  bug and not a hole. Covering it protects nothing either way — the file holds patterns, not
+  secrets, and is tracked in git — so the fix is to exempt the configured
+  `secret_globs_file` and `opaque_globs_file` from being shadowed at all
 
 - ⬜ `models.toml` is not on the layer-3 denylist, though it names the host that `.env`
   is denied for. Found while covering `--init`'s backups on 2026-09-08: `.gitignore` and

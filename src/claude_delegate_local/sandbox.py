@@ -640,7 +640,17 @@ def build_argv(
     # Rule 3: after every bind, so each shadow has something to mount on.
     for shadow in shadows:
         if shadow.kind == "dir":
-            argv += ["--size", str(_SHADOW_TMPFS_BYTES), "--tmpfs", shadow.path]
+            # `--remount-ro` immediately after the tmpfs, and it is a correctness fix rather
+            # than hardening. ADR-0041 recorded the writable cover as discarding a write;
+            # measured 2026-09-08, it is worse -- the mount is 64 KiB, a larger write is
+            # truncated at exactly 65536 bytes with no error, and the corrupt remainder is
+            # still there to be read. A nested `pytest` writing bytecode into a covered
+            # `__pycache__` then dies on `EOFError: marshal data too short` in the same run.
+            # Read-only turns that into a refusal Python already handles. (ADR-0064)
+            argv += [
+                "--size", str(_SHADOW_TMPFS_BYTES), "--tmpfs", shadow.path,
+                "--remount-ro", shadow.path,
+            ]
         else:
             # A tmpfs needs a directory. /dev/null is the file-shaped equivalent: readable
             # as a mount source, and an unreadable empty thing once it is in place.

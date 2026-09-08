@@ -19,6 +19,49 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0064 — 2026-09-08 — A covered directory is read-only, because a writable one corrupts rather than discards — Accepted
+
+**Context.** ADR-0035 covers a denylist match with a mount instead of leaving the path out,
+and ADR-0041 extends the same mount to bulk directories. Both used a writable `tmpfs`, and
+ADR-0041 recorded the consequence as benign: *"the tmpfs that covers a directory is
+writable, so a command writing into one appears to succeed and leaves nothing behind."*
+Filed as a wart about lost work.
+
+It is worse than that, and M9 made it visible. The mount is 64 KiB. Measured 2026-09-08: a
+200 KiB write into a covered directory is **truncated at exactly 65536 bytes with no error
+reported to the writer**, and the truncated remainder stays there to be read. So a nested
+`pytest` writes bytecode into a covered `src/.../__pycache__`, the write is cut short, and a
+later import in the same run dies on `EOFError: marshal data too short` -- 18 collection
+errors on a single test file. Not a discarded write: a corrupt artefact, produced by a
+control that exists to make a path *empty*.
+
+**Decision — `--remount-ro` immediately after each covering `tmpfs`.** The cover keeps doing
+what it was for, and a write into it is refused rather than half-accepted. File shadows are
+untouched: `--ro-bind /dev/null` is already read-only, and `--remount-ro` on a bind rather
+than a mount of its own would remount whatever tree it landed in.
+
+**The order is the whole thing.** `--remount-ro` applies to the mount that is current, so
+emitted anywhere but directly after its own `tmpfs` it silently remounts something else, or
+nothing. One remount per cover, asserted per cover rather than once.
+
+**Both halves measured, and the control is what makes the measurement worth having.** A
+write into a covered directory is refused at exit 1, a 200 KiB write leaves no partial file,
+and the same writes into the workdir still succeed at exit 0 with all 200 KiB present. The
+covering itself is unchanged -- a directory holding a private key still lists empty from
+inside. The first probe in this area, on 2026-09-07, asserted read-only against a directory
+it had never covered and passed; that is why the control is not optional.
+
+**Why this supersedes rather than merely adds.** ADR-0041's closing sentence is now wrong in
+the way that matters: the failure it describes as leaving nothing behind leaves something
+behind. Its decision -- cover and prune bulk directories -- stands, so it is partially
+superseded rather than replaced.
+
+**What it costs.** Python tolerates an unwritable `__pycache__` and pytest degrades to a
+cacheprovider warning, measured 2026-09-07 across the full suite. A command that genuinely
+needs to write where a cover sits now fails loudly instead of appearing to work, which is
+the point: ADR-0007 says to trust the captured exit code, and until now that code was 0 for
+a write that never happened.
+
 ## ADR-0063 — 2026-09-08 — The sandbox that runs a test suite never gets the network — Accepted
 
 **Context.** M9 gives a delegation an interpreter it can run a project's tests with, and the
@@ -1084,7 +1127,7 @@ still permits writes, and should.
 Review point: if MCP ever grows per-call annotations, or a client learns to gate on
 arguments, this tool becomes redundant and should go.
 
-## ADR-0041 — 2026-08-30 — Bulk directories are covered and skipped, not the denylist — Partially superseded by ADR-0062
+## ADR-0041 — 2026-08-30 — Bulk directories are covered and skipped, not the denylist — Partially superseded by ADR-0062, ADR-0064
 
 **Context.** `run_bash` was refused on every real project. The mount-level secret scan
 walks the workdir before each call and refuses past `secret_shadow_max_entries`, which is
