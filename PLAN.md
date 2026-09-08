@@ -1,4 +1,8 @@
-<!-- BUDGET: 440
+<!-- BUDGET: 460
+     Raised from 440 on 2026-09-08: an item filed for the denylist asymmetry `--init`'s
+     backup coverage exposed, plus the reflow that ticking M8's last item costs. Completed
+     items stay until the milestone plan they belong to closes, so nothing was archived to
+     pay for it, and the ceiling carries slack rather than landing on the new size.
      Raised from 430 on 2026-09-07: where a ready measurement lives, because it lives
      somewhere untracked and so reached nobody reading this. Every line the labelling had
      left overlong was reflowed, and the tick rule now says reflowing is allowed.
@@ -71,8 +75,9 @@ knowledge into the server; M12 fixes the one thing those notes exist to work aro
   registry entry answers with `id_confirmed`, `transcript_dir` is writable, `cross_process`
   slots are live. Refuses to run outside WSL, where `bwrap` and DNS would answer wrongly.
   `sandbox.available()`, `limiter_available()` and `probe_entry()` exist, uncalled at startup
-- ⬜ `--init`, writing `.env` and `models.toml` from answers and *printing* the client
-  registration it cannot write, and accepting a pasted Windows path wherever a path is asked
+- ✅ 2026-09-08 `--init`, writing `.env` and `models.toml` from answers and *printing* the
+  client registration it cannot write, and accepting a pasted Windows path wherever a path
+  is asked
 - ✅ 2026-09-07 `transcript_dir` skips `to_posix`, unlike `workspace_roots`, `toolchain_binds` and
   `sandbox_home`, so a Windows path in it has to be hand-converted to `/mnt/c` form
 - ✅ 2026-09-07 One refused path in `files[]` kills the whole call. Prefetch what resolves, fill the
@@ -382,6 +387,13 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
   it, which the 2026-09-02 review recommended — that scanner looks for RFC1918 addresses,
   private-DNS suffixes and non-allowlisted emails, and would false-positive on the source a
   review delegation exists to read. A narrow, high-precision check for key material instead
+
+- ⬜ `models.toml` is not on the layer-3 denylist, though it names the host that `.env`
+  is denied for. Found while covering `--init`'s backups on 2026-09-08: `.gitignore` and
+  `NEVER_TRACK` both hold it, so it cannot be committed, but `security/secret_globs.txt`
+  has no entry for it and so `read_file` will hand it to a delegated model. Adding one line
+  fixes it and changes what a delegation may read, which is why it is an item rather than a
+  detail of that commit
 
 - ⬜ Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
   way to look for anything. Its original justification, that expanding before the call keeps
