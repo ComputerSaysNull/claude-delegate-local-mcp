@@ -408,12 +408,12 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
   secrets, and is tracked in git — so the fix is to exempt the configured
   `secret_globs_file` and `opaque_globs_file` from being shadowed at all
 
-- ⬜ `models.toml` is not on the layer-3 denylist, though it names the host that `.env`
-  is denied for. Found while covering `--init`'s backups on 2026-09-08: `.gitignore` and
-  `NEVER_TRACK` both hold it, so it cannot be committed, but `security/secret_globs.txt`
-  has no entry for it and so `read_file` will hand it to a delegated model. Adding one line
-  fixes it and changes what a delegation may read, which is why it is an item rather than a
-  detail of that commit
+- ✅ 2026-09-08 `models.toml` is not on the layer-3 denylist, though it names the host that
+  `.env` is denied for. Found while covering `--init`'s backups on 2026-09-08:
+  `.gitignore` and `NEVER_TRACK` both hold it, so it cannot be committed, but
+  `security/secret_globs.txt` has no entry for it and so `read_file` will hand it to a
+  delegated model. Adding one line fixes it and changes what a delegation may read, which
+  is why it is an item rather than a detail of that commit
 
 - ⬜ Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
   way to look for anything. Its original justification, that expanding before the call keeps

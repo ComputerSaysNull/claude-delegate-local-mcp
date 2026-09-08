@@ -187,12 +187,16 @@ def test_both_backup_names_are_covered_by_the_secret_denylist():
     assert paths.secret_match("/repo/models.toml.bak-20260908-120000", globs)
     assert paths.secret_match("/repo/models.toml.bak-20991231-235959", globs)
     assert paths.secret_match("/repo/.env", globs)
+    # The registry itself, denied since 2026-09-08. It was left readable when the backup
+    # glob landed, on the grounds that it cannot be committed -- which covered the wrong
+    # surface: a delegated model's answer reaches a transcript and the calling
+    # conversation, and that is where pull request text is drafted.
+    assert paths.secret_match("/repo/models.toml", globs)
 
-    # The negative control for the glob this feature adds: it must not reach the example
-    # file beside it. (`.env.example` is a different matter -- `.env.*` has denied that
-    # since before any of this, deliberately, and is not what is under test here.)
+    # The negative control for both: neither glob may reach the example file beside them,
+    # or this would be passing by refusing everything. (`.env.example` is a different
+    # matter -- `.env.*` has denied that since before any of this, deliberately.)
     assert not paths.secret_match("/repo/models.toml.example", globs)
-    assert not paths.secret_match("/repo/models.toml", globs)
 
 
 # --------------------------------------------------------------------------------------

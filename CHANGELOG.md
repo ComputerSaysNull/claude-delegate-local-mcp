@@ -34,6 +34,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #146 — 2026-09-08 — fix: the registry is denied to the model, not just to git
+
+### Fixed
+- **`models.toml` names the head node and layer 3 would hand it to a delegated model.**
+  `.gitignore` and `NEVER_TRACK` both hold it, so it cannot be committed --
+  `security/secret_globs.txt` had no entry, so `read_file` and every prefetch would read it.
+- **The reasoning that left it readable covered the wrong surface, and that is the whole
+  correction.** When the backup glob landed in `#141` the comment beside it said
+  `models.toml` was "deliberately not denied to the model here", because it cannot reach
+  git. But a delegated model's answer lands in a transcript and in the calling
+  conversation, and that conversation is where pull request text gets drafted -- a surface
+  no hook gates and one this repository already blocks host literals on. Not being
+  committable was never the same as not being readable.
+- **Checked for a legitimate reader before denying it, and there is none.**
+  `models.toml.example` is tracked and carries the same shape, so documentation and review
+  delegations lose nothing; `--doctor` and `backend_status` run operator-side; and a
+  sandboxed command has no network with which to use an endpoint. Nothing in the suite read
+  it through the path policy either -- `registry.load` opens the configured file directly,
+  which is a different route and unaffected.
+- **The negative control moved rather than disappeared.** `#141` asserted
+  `models.toml` was *not* matched, as the control proving the backup glob was not
+  over-broad. That assertion is now the positive one, and `models.toml.example` carries the
+  control on its own: the pair still has to prove it is not simply refusing everything.
+
 ## #145 — 2026-09-08 — feat: a covered path refuses a write instead of truncating it
 
 ### Changed
