@@ -1,4 +1,6 @@
-<!-- BUDGET: 953
+<!-- BUDGET: 966
+     Raised from 953 on 2026-09-08: the per-project list of tests that cannot run nested,
+     and the measurement that says a deselect outside the collected subset costs nothing.
      Raised from 942 on 2026-09-08: how the provisioned interpreter reaches `run_bash`,
      and why a stale one is withheld instead.
      Raised from 910 on 2026-09-08: `provision` is a third entry point, and the scan
@@ -223,6 +225,17 @@ the name is simply absent, which the model can report and the doctor explains, w
 interpreter built from a declaration that has moved on would produce a passing suite at
 exit 0 against the wrong versions. Absent rather than empty, too: a shell expands an unset
 name to nothing, and `$DELEGATE_PYTHON -m pytest` would then run `-m pytest`.
+
+**Tests that cannot run nested travel the same way**, as `PYTEST_ADDOPTS`. A project lists
+them under `[tool.delegate-local] nested-deselect` in its `pyproject.toml`, read at call
+time so correcting the list needs no re-provision — the list is a statement about the
+sandbox, not about the installed dependencies. This repository has one entry: a test
+asserting the network is reachable, which `--unshare-all` denies. Applied by the server
+rather than left to the model because forgetting it produces a **real** non-zero exit from
+a test that cannot pass, and a false failure looks exactly as trustworthy as a true one.
+Measured before it was written down: a `--deselect` naming a node id outside the collected
+subset, or one that does not exist at all, is tolerated at exit 0 — so the list costs
+nothing on a targeted run.
 
 ### One backend per registry entry, for the life of the server
 

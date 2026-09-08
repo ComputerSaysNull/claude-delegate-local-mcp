@@ -109,11 +109,12 @@ with that test included. The criterion above is already satisfiable; only provis
 - ✅ 2026-09-08 Hash the project's dependency declaration beside the provisioned venv and
   have `--doctor` report a mismatch, or a delegation tests stale dependencies and returns
   the clean exit code ADR-0007 says to trust
-- ⬜ Invoke the venv's interpreter by absolute path rather than changing `SANDBOX_PATH`,
-  which is hardcoded to `/usr/bin:/usr/sbin`; the measurement needed no PATH change
-- ⬜ A per-project list of tests that cannot run nested. Measured:
-  `test_network_is_reachable_by_address_when_shared` fails because `--unshare-all` denies the
-  network it asserts, and without the list the exit condition above is unreachable
+- ✅ 2026-09-08 Invoke the venv's interpreter by absolute path rather than changing
+  `SANDBOX_PATH`, which is hardcoded to `/usr/bin:/usr/sbin`; the measurement needed no
+  PATH change
+- ✅ 2026-09-08 A per-project list of tests that cannot run nested. Measured:
+  `test_network_is_reachable_by_address_when_shared` fails because `--unshare-all` denies
+  the network it asserts, and without the list the exit condition above is unreachable
 - ✅ 2026-09-08 Network stays off, with an ADR. `--share-net` re-shares the host's whole
   namespace with no allowlist or destination list, and this host reaches the cluster and
   the LAN

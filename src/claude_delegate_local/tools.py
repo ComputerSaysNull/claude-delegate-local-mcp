@@ -1001,7 +1001,9 @@ RUN_BASH = RegisteredTool(
             "$DELEGATE_PYTHON is the absolute path to an interpreter with its dependencies "
             "installed -- run tests with \"$DELEGATE_PYTHON\" -m pytest. It is unset when "
             "nothing current is provisioned for this workdir, including when the project's "
-            "dependencies have changed since; there is no way to install one from here."
+            "dependencies have changed since; there is no way to install one from here. "
+            "Tests the project declares as unable to run nested are already deselected via "
+            "PYTEST_ADDOPTS, so a report of them is a deselection rather than a failure."
         ),
         input_schema={
             "type": "object",
