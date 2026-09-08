@@ -34,6 +34,54 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #145 — 2026-09-08 — feat: a covered path refuses a write instead of truncating it
+
+### Changed
+- **`--remount-ro` after every covering tmpfs, and it is a correctness fix rather than
+  hardening.** ADR-0041 recorded a writable cover as benign -- *"a command writing into one
+  appears to succeed and leaves nothing behind"* -- and filed it as lost work. Measured
+  2026-09-08 it is worse than that. The mount is 64 KiB, a 200 KiB write is **truncated at
+  exactly 65536 bytes with nothing reported to the writer**, and the truncated remainder
+  stays there to be read. So a nested `pytest` writes bytecode into a covered
+  `src/.../__pycache__`, the write is cut short, and a later import in the same run dies on
+  `EOFError: marshal data too short` -- 18 collection errors on one test file. Not a
+  discarded write: a corrupt artefact, left by a control whose purpose is to make a path
+  empty. ADR-0064; ADR-0041 is partially superseded.
+- **The position is the whole thing.** A remount applies to whichever mount is current, so
+  emitted anywhere but directly after its own tmpfs it silently remounts something else, or
+  nothing. One remount per cover, asserted per cover rather than once. File shadows are
+  untouched: `--ro-bind /dev/null` is read-only already, and remounting a bind would remount
+  the tree it landed in.
+- **Both directions measured, with the control that makes them mean anything.** A write into
+  a covered directory is refused at exit 1, a 200 KiB write leaves no partial file behind,
+  and the same writes into the workdir still succeed with all 200 KiB present. The covering
+  is unchanged -- a directory holding a private key still lists empty from inside. The
+  control is not optional here: the first probe in this area, on 2026-09-07, asserted
+  read-only against a directory it had never covered and passed.
+
+### Fixed
+- **M9's exit condition is met, measured through the real path rather than by hand.** A
+  delegation with a `workdir` on this repository runs a test file and the server captures
+  **exit 0**; a failing selection comes back as a real **exit 4**, `is_error` set. Both were
+  taken through `tools.execute_tool` -- the same code a delegation reaches -- rather than
+  through a hand-written `bwrap` line, which is what the 2026-09-07 measurement did and is
+  why it missed everything below.
+- **A trap worth recording: a pipe masks the exit code the whole design rests on.**
+  `pytest ... | tail -4` reports `tail`'s status, so the first run of this check read
+  `exit 0` for a suite with 78 failures in it. ADR-0007 says to trust the captured code; it
+  is still the shell's own arithmetic, and a pipeline is where that stops meaning what it
+  looks like.
+
+### Added
+- **An open item: the denylist file matches itself.** `security/secret_globs.txt` matches its
+  own `*secret*` entry, so the scan covers it -- and inside the sandbox it becomes a
+  character device owned by `nobody` that reads as `Permission denied` rather than as empty.
+  Every nested test that exercises layer 3 then fails, which is 42 of `test_tools.py` and the
+  reason this repository's own suite cannot run nested in full. It fails **closed**, so it is
+  a usability bug rather than a hole. Filed rather than fixed here, because covering that
+  file protects nothing in either direction -- it holds patterns, not secrets, and is tracked
+  in git -- so the fix is an exemption with its own reasoning, not a detail of this commit.
+
 ## #144 — 2026-09-08 — feat: the tests a project cannot run nested are deselected for it
 
 ### Added

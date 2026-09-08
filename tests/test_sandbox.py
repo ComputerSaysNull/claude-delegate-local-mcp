@@ -609,6 +609,74 @@ def test_the_control_a_write_beside_it_under_home_still_succeeds(tmp_path):
 
 @pytest.mark.integration
 @needs_bwrap
+def test_a_write_into_a_covered_directory_is_refused(tmp_path):
+    """The bug this closes, as a kernel refusal rather than as an argv claim.
+
+    ADR-0041 recorded a covered directory as discarding a write. Measured 2026-09-08 it is
+    worse: the mount is 64 KiB, a larger write is truncated at exactly 65536 bytes with no
+    error reported, and the corrupt remainder stays there to be read -- which is how a
+    nested pytest writing bytecode into a covered `__pycache__` dies on `EOFError: marshal
+    data too short` later in the same run.
+    """
+    work = tmp_path / "work"
+    (work / ".ssh").mkdir(parents=True)
+    result = sandbox.run(cfg(), req(
+        command="echo nope > .ssh/planted", home=str(tmp_path / "home"), workdir=str(work)))
+    assert result.exit_code != 0
+    assert not (work / ".ssh" / "planted").exists()
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_large_write_into_a_covered_directory_no_longer_truncates(tmp_path):
+    """The specific shape that produced a corrupt artefact rather than an absent one.
+
+    64 KiB is bigger than most single writes and smaller than a compiled module, so the
+    failure only appeared once something real wrote through it. Read-only refuses the whole
+    write, so nothing partial is left.
+    """
+    work = tmp_path / "work"
+    (work / ".ssh").mkdir(parents=True)
+    result = sandbox.run(cfg(), req(
+        command="dd if=/dev/zero of=.ssh/big bs=1k count=200",
+        home=str(tmp_path / "home"), workdir=str(work)))
+    assert result.exit_code != 0
+    assert not (work / ".ssh" / "big").exists()
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_the_control_a_write_outside_the_cover_still_succeeds(tmp_path):
+    """Without this, the two refusals above would pass against a workdir bound read-only --
+    a far wider break that the same assertions cannot tell apart. It is the mistake the
+    first probe in this area made on 2026-09-07: it asserted read-only against a directory
+    it had never covered, and passed."""
+    work = tmp_path / "work"
+    (work / ".ssh").mkdir(parents=True)
+    result = sandbox.run(cfg(), req(
+        command="echo yes > allowed && dd if=/dev/zero of=big bs=1k count=200",
+        home=str(tmp_path / "home"), workdir=str(work)))
+    assert result.exit_code == 0
+    assert (work / "allowed").read_text().strip() == "yes"
+    assert (work / "big").stat().st_size == 200 * 1024
+
+
+@pytest.mark.integration
+@needs_bwrap
+def test_a_covered_directory_is_still_empty_from_inside(tmp_path):
+    """Read-only must not have cost the covering. The secret is hidden *and* unwritable."""
+    work = tmp_path / "work"
+    (work / ".ssh").mkdir(parents=True)
+    (work / ".ssh" / "id_ed25519").write_text("PRIVATE", encoding="utf-8")
+    result = sandbox.run(cfg(), req(
+        command="ls -A .ssh | wc -l; cat .ssh/id_ed25519 2>&1 | head -1",
+        home=str(tmp_path / "home"), workdir=str(work)))
+    assert result.stdout.splitlines()[0].strip() == "0"
+    assert "PRIVATE" not in result.stdout
+
+
+@pytest.mark.integration
+@needs_bwrap
 def test_a_hanging_command_is_killed_and_reported_as_a_timeout(tmp_path):
     """`None` rather than a number: a real 124 is a command's own choice, not a timeout."""
     result = sandbox.run(cfg(run_bash_timeout=2), req(
@@ -1186,13 +1254,48 @@ def test_zero_leaves_the_tmpfs_unsized():
 
 
 def test_a_secret_shadow_is_a_sized_tmpfs_too():
-    """A shadow is a writable mount placed over every denylist match, so an unbounded one is
-    a way to fill RAM. It exists to be empty, so it is sized small rather than given a knob."""
+    """A shadow is a mount placed over every denylist match, so an unbounded one is a way to
+    fill RAM. It exists to be empty, so it is sized small rather than given a knob."""
     argv = sandbox.build_argv(cfg(), req(), shadows=(
         sandbox.ShadowTarget(path=f"{HOME}/.ssh", kind="dir", matched=".ssh/**"),))
     i = index_of(argv, "--tmpfs", f"{HOME}/.ssh")
     assert argv[i - 2] == "--size"
     assert int(argv[i - 1]) == sandbox._SHADOW_TMPFS_BYTES
+
+
+def test_a_covered_directory_is_remounted_read_only_right_after_it_is_mounted():
+    """The order is the whole thing: `--remount-ro` applies to a mount that already exists.
+
+    Emitted anywhere but immediately after its own tmpfs, it would remount whatever mount
+    happened to be current -- silently making the wrong thing read-only, or nothing.
+    """
+    target = f"{HOME}/.ssh"
+    argv = sandbox.build_argv(cfg(), req(), shadows=(
+        sandbox.ShadowTarget(path=target, kind="dir", matched=".ssh/**"),))
+    i = index_of(argv, "--tmpfs", target)
+    assert argv[i + 2 : i + 4] == ["--remount-ro", target]
+
+
+def test_every_covered_directory_gets_its_own_remount():
+    """One remount per cover, not one for the last of them."""
+    shadows = tuple(
+        sandbox.ShadowTarget(path=f"{HOME}/s{n}", kind="dir", matched="*secret*")
+        for n in range(3)
+    )
+    argv = sandbox.build_argv(cfg(), req(), shadows=shadows)
+    assert argv.count("--remount-ro") == 3
+    for s in shadows:
+        i = index_of(argv, "--tmpfs", s.path)
+        assert argv[i + 2 : i + 4] == ["--remount-ro", s.path]
+
+
+def test_a_covered_file_is_not_remounted():
+    """A file shadow is already read-only -- `--ro-bind /dev/null` -- and `--remount-ro` on
+    a bind rather than a mount of its own would remount the tree it landed in."""
+    argv = sandbox.build_argv(cfg(), req(), shadows=(
+        sandbox.ShadowTarget(path=f"{HOME}/.netrc", kind="file", matched=".netrc"),))
+    assert "--remount-ro" not in argv
+    assert ("/dev/null", f"{HOME}/.netrc") in pairs(argv, "--ro-bind")
 
 
 def test_a_missing_limiter_is_refused_rather_than_run_unbounded(monkeypatch):

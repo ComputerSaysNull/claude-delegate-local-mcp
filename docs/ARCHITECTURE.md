@@ -1,4 +1,6 @@
-<!-- BUDGET: 966
+<!-- BUDGET: 978
+     Raised from 966 on 2026-09-08: a covering mount is read-only now, and the reason is a
+     truncated write rather than a discarded one (ADR-0064).
      Raised from 953 on 2026-09-08: the per-project list of tests that cannot run nested,
      and the measurement that says a deselect outside the collected subset costs nothing.
      Raised from 942 on 2026-09-08: how the provisioned interpreter reaches `run_bash`,
@@ -427,6 +429,15 @@ second is a decision. So an agent's binds are now resolved and checked against o
 roots before they reach here at all. A bind at or above one of the sandbox's own mounts is
 refused separately: `extra_binds` are emitted after them, so naming one replaces it, and
 reordering to prevent that would wipe every bind inside the tmpfs on `/tmp`. (ADR-0053)
+
+**A covering mount is read-only**, and that is a correctness fix rather than hardening.
+ADR-0041 recorded a writable cover as discarding a write; measured 2026-09-08 it is worse.
+The mount is 64 KiB, a larger write is truncated at exactly 65536 bytes with nothing
+reported to the writer, and the truncated remainder stays there to be read — so a nested
+`pytest` writing bytecode into a covered `__pycache__` dies on `EOFError: marshal data too
+short` later in the same run. `--remount-ro` follows each covering tmpfs, in that position
+because a remount applies to whichever mount is current. File shadows keep `--ro-bind
+/dev/null`, which is read-only already. (ADR-0064)
 
 **One tree is pruned from that scan and not covered**, which is the shape ADR-0041 calls
 the hole — and it is forced rather than chosen. A provisioned virtualenv is the first tree
