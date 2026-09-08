@@ -1,4 +1,6 @@
-<!-- BUDGET: 480
+<!-- BUDGET: 492
+     Raised from 480 on 2026-09-08: a captured exit code of zero is not proof of success,
+     and only the server can close that half -- measured at 3/4 against 0/4.
      Raised from 470 on 2026-09-08: the self-covering denylist file, found while measuring
      M9's exit condition, plus the tick for the read-only spike it answered.
      Raised from 460 on 2026-09-08: three M9 ticks and their reflow, plus the retention
@@ -397,6 +399,17 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
   it, which the 2026-09-02 review recommended — that scanner looks for RFC1918 addresses,
   private-DNS suffixes and non-allowlisted emails, and would false-positive on the source a
   review delegation exists to read. A narrow, high-precision check for key material instead
+
+- ⬜ **A captured exit code of zero is not proof of success, and only the server can close
+  that.** `last_bash_exit` is the status of the whole shell line the model composed, so a
+  trailing `; echo $?` or a `| tail` replaces the status of the work with the status of the
+  echo. Measured 2026-09-08 over four trials each: the `run_bash` description now says the
+  code is recorded for you, which took a real non-zero from 0/4 to 3/4 — an improvement and
+  not a guarantee, and a wording change can never be one. A non-zero is still trustworthy
+  because nothing invents one; a zero is ambiguous, which is the half ADR-0007 needs.
+  The server-side answer is a signal for *any* command in the line exiting non-zero, beside
+  the last one's — and `/bin/sh` is dash here, so whether that can be had without changing
+  what a compound command means is the thing to measure first
 
 - ⬜ **The denylist file matches itself, so layer 3 is unusable inside the sandbox.**
   `security/secret_globs.txt` matches its own `*secret*` entry, so the scan covers it with

@@ -1,4 +1,6 @@
-<!-- BUDGET: 978
+<!-- BUDGET: 992
+     Raised from 978 on 2026-09-08: a captured exit code is the shell line's, so its two
+     directions are not equally trustworthy -- measured, not reasoned.
      Raised from 966 on 2026-09-08: a covering mount is read-only now, and the reason is a
      truncated write rather than a discarded one (ADR-0064).
      Raised from 953 on 2026-09-08: the per-project list of tests that cannot run nested,
@@ -537,6 +539,17 @@ each counts, and why `last_bash_exit` can be `None` when `0` would be a lie, is 
 
 Without this, "the tests pass" is an assertion rather than a measurement, and the entire
 self-verification design rests on it. (ADR-0007)
+
+**The captured code is the shell line's, and that makes it asymmetric.** A model composes
+the whole command, so a trailing `; echo $?` or a `| tail` replaces the status of the work
+with the status of the last thing in the line — and both are idioms a model reaches for
+precisely when it wants to report an exit code carefully. Measured 2026-09-08 over four
+trials of one failing test each: with the `run_bash` description saying the code is recorded
+for you, a real non-zero reached `last_bash_exit` three times out of four; without that
+sentence, none of four. So a captured **non-zero is trustworthy** — nothing invents one —
+while a captured **zero is not proof of success**, because a masked failure looks identical
+to a clean run. Read `bash_failures` beside it, and do not phrase a task as "report the exit
+code": asking for the number is what produces the echo that destroys it.
 
 ### Prompt order is load-bearing
 

@@ -1003,7 +1003,11 @@ RUN_BASH = RegisteredTool(
             "nothing current is provisioned for this workdir, including when the project's "
             "dependencies have changed since; there is no way to install one from here. "
             "Tests the project declares as unable to run nested are already deselected via "
-            "PYTEST_ADDOPTS, so a report of them is a deselection rather than a failure."
+            "PYTEST_ADDOPTS, so a report of them is a deselection rather than a failure. "
+            "The exit code is recorded for you and reported to whoever asked, so you do not "
+            "need to echo it: the server records the status of the whole command line, and a "
+            "trailing `; echo $?` or `| tail` replaces the status of the work with the "
+            "status of the echo. Put the command whose result matters last."
         ),
         input_schema={
             "type": "object",
