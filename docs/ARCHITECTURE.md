@@ -1,12 +1,16 @@
-<!-- BUDGET: 880 -->
-<!-- Reset from 938 on 2026-09-08, when 85 lines of raise history became these nine. Each
+<!-- BUDGET: 910 -->
+<!-- Raised from 890 on 2026-09-08: `--init` is a second entry point and a mechanism this
+     document owns, cut by a third before it landed here -- plus seven lines for why a
+     pasted Windows root cannot be stored as typed, which is measured and was nearly
+     shipped wrong.
+     Reset from 938 on 2026-09-08, when 85 lines of raise history became nine. Each
      raise's reason already stood in the CHANGELOG.md section for the pull request that
      made it, so this header was a second copy of it -- the same finding that cut PLAN.md's
      own 60-line header on 2026-09-06. The prose was also the only record of ADR-0003's
      split signal, that this document was raised four times on 2026-09-07. That signal now
      reads from `git log -L 1,1` on this file, where a raise cadence should have been read
-     all along. The 880 carries headroom over the 862 lines this left, so it is a ceiling
-     with slack in it rather than a measurement of the document. -->
+     all along. The reset left 862 lines under a ceiling of 880, deliberately slack: a
+     budget here is a review prompt, never a measurement of the document. -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -88,6 +92,7 @@ large file being dropped while the budget it would have fitted in sat unused (AD
 | `server.py` | MCP wiring, the six tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
+| `init.py` | `--init`: the two files that have no safe default, from answers |
 
 The table covers every module; the three marked above live in [DISPATCH.md](DISPATCH.md),
 which owns them, and `agents.py` in [AGENTS.md](AGENTS.md). The ancestor put all of this in one large file; we add two concerns it
@@ -145,6 +150,42 @@ POSIX only, since on Windows every answer would describe a machine the server ne
 on. stdout is the report rather than the wire — nothing speaks MCP to a doctor run. `FAIL`
 exits non-zero and `WARN` does not, because a missing toolchain still leaves the read-heavy
 majority working. No row names an endpoint (ADR-0029).
+
+### `--init` shows a default without writing one down
+
+The same decision as the doctor's, from the other end: what has no safe default, asked
+before anything depends on it. `workspace_roots` has none, and neither does a registry
+entry's `base_url` or `served_model_id`, so those are required. A setting that *does* have
+one is still asked, with the default and its own help text shown and Enter accepting;
+everything else is not asked.
+
+**A default is read and printed, never written.** An answer equal to the default emits no
+line, because a value in `.env` is a frozen copy — raise the default in `config.py` and
+every generated file silently keeps the old number with nothing to compare it against.
+Which questions were waved through is recorded by name, without their values. `init.py`
+holds no default, help string or validation rule of its own: the prompts come from
+`config.describe()`, the introspection [CONFIGURATION.md](CONFIGURATION.md) is generated
+from, and the rules from calling `registry._validate` and `config.load`.
+
+**Every path it writes is in POSIX form, and the roots are asked one per line.** Not a
+preference: `config.load` splits a tuple setting on `os.pathsep`, which is `:` here, so a
+pasted `C:\Users\you\projects` splits on the drive's colon into two roots that then
+survive `to_posix` untouched and rejoin into the original. The value round-trips, every
+path under it is refused, and nothing in the file looks wrong — measured 2026-09-08, and
+`.env.example` had shipped that exact value. Asking one root at a time removes the parse
+rather than outsmarting it, and each answer is translated as it is taken.
+
+**An existing file is moved aside, not refused** — refusing leaves a half-configured host
+with no way forward but hand-editing. Both `.bak-` names are covered by `.gitignore` *and*
+`security/secret_globs.txt`, which is load-bearing: these files name a host, so an
+uncovered backup is a leak with one `git add -A` behind it.
+
+The MCP registration is printed, never written, since it belongs to a client this process
+cannot reach. Under WSL it needs `wsl.exe --cd <windows path>`, the one place the boundary
+is crossed the other way; `wsl.to_windows` raises rather than guess for a repository inside
+the distribution, whose UNC spelling needs a distribution name this layer is not given. No
+endpoint is probed — the run ends by saying to run the doctor, and a second copy of
+`probe_entry` would be a second thing to keep true.
 
 ### One backend per registry entry, for the life of the server
 

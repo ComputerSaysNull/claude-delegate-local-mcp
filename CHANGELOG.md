@@ -34,6 +34,88 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #141 — 2026-09-08 — feat: --init writes the two files a first run has no default for
+
+### Added
+- **The install had two steps nobody could do yet.** `cp .env.example .env` "then set
+  DELEGATE_WORKSPACE_ROOTS", and `cp models.toml.example models.toml` "then set your
+  endpoint" -- two edits to files the reader has not seen, where skipping either surfaces
+  much later as a refusal one layer away from its cause. That is the same gap `--doctor`
+  closes from behind; `--init` closes it from the front. It asks, validates what it
+  collected by loading it, and only then writes.
+- **A default is shown, not skipped.** Three tiers. `workspace_roots` has no safe default,
+  and neither does an entry's `base_url` or `served_model_id`, so those must be answered.
+  Five settings and five registry fields are *offered* with their default and their own
+  help text displayed, Enter accepting. Everything else is not asked, and the written file
+  points at the generated reference instead of restating any of it.
+- **A default is never written down, and that is the rule worth the words.** An answer
+  equal to the default emits no line. A value in `.env` is a frozen copy: raise
+  `dispatch_timeout` in `config.py` next month and every generated file silently keeps
+  today's number with nothing to compare it against, which is exactly what "config
+  defaults live only in config.py" exists to stop. Which questions were waved through is
+  recorded by name, without their values. Asserted in both directions, because a renderer
+  that wrote everything and one that wrote nothing each pass a single-direction test.
+- **Nothing in `init.py` holds a default, a help string or a rule of its own.** The prompts
+  come from `config.describe()`, the introspection `gen_config_docs.py` renders
+  CONFIGURATION.md from, and from `dataclasses.fields(ModelEntry)`; which registry fields
+  are mandatory comes from `registry._REQUIRED`; and the rules come from calling
+  `registry._validate` and `config.load`. So the refusal for a `base_url` carrying a `/v1`
+  suffix, or an effort level with no translation, is the server's own wording -- reuse for
+  the reason `doctor.py` reuses its helpers, since a copy is free to agree with a module
+  that has moved.
+- **An existing file is moved aside rather than refused.** Refusing leaves a
+  half-configured host with no way forward but hand-editing, which is the state this
+  command exists to remove. The backup is named in the output and never written over a
+  backup.
+
+### Fixed
+- **A pasted Windows root cannot be stored as typed, and the obvious `--init` was wrong
+  about it.** The Linux suite caught it before anything shipped: `config.load` splits a
+  tuple setting on `os.pathsep`, which is `:` there, so
+  `DELEGATE_WORKSPACE_ROOTS=C:\Users\you\projects` loads as the two roots `C` and
+  `\Users\you\projects`. Both then pass through `to_posix` untouched -- neither half has a
+  drive letter any more -- so the value round-trips, every path under it is refused one
+  call at a time, and nothing in the file looks wrong. Splitting a separated list *inside*
+  `--init` fails identically, for the same reason, which is why the roots are now asked one
+  per line: it removes the parse rather than outsmarting it. Each answer is translated as
+  it is taken, so every path written into `.env` is in POSIX form.
+- **`.env.example` shipped exactly that value**, under a comment explaining that the
+  separator is `:` on this host -- the file contradicted itself, and the fallback path
+  `--init` replaces was broken in the same way it nearly was. Corrected to the translated
+  form, with a test that loads whatever value the example carries and asserts it comes back
+  as one root, so the file cannot drift back.
+- **A `models.toml` backup would have been an uncovered file naming the head node.** Found
+  by writing the backup, not after it: `.env.*` is in both `.gitignore` and
+  `security/secret_globs.txt`, so a `.env` backup was already covered twice, while
+  `.gitignore` held only the literal `models.toml` and the denylist held no entry for it at
+  all. A `models.toml.bak-*` would have been an ordinary untracked file, one `git add -A`
+  from publication. Both files gain the glob, and the test asserting it was checked by
+  removing the line and watching it fail.
+- The asymmetry underneath that is filed rather than fixed here: `models.toml` itself is
+  gitignored and on `NEVER_TRACK`, but absent from `security/secret_globs.txt`, so unlike
+  `.env` it is *not* on layer 3 and `read_file` will hand it to a delegated model. Adding
+  the line changes what a delegation may read, which makes it an item in PLAN.md rather
+  than a detail of this commit.
+
+### Changed
+- `wsl.py` gains `to_windows`, the first translation in that direction. `--init` prints an
+  MCP registration whose `--cd` is read by `wsl.exe` on the Windows side, and README
+  already records that the argument takes the Windows form and rejects a `/mnt/c` spelling
+  -- so printing the POSIX path would hand out a block that cannot work. It raises rather
+  than guess for a repository inside the distribution, whose UNC spelling needs a
+  distribution name the function is not given, and the caller says so instead of printing
+  a path that looks plausible and resolves to nothing. Kept in `wsl.py` rather than at its
+  one call site, because a translation split across two modules is how the two directions
+  stop agreeing.
+- `doctor._is_wsl` becomes `wsl.is_wsl`. Two callers wanted it -- the doctor's platform row
+  and the registration block -- and a four-line procfs probe copied into both is the
+  duplication this repository keeps finding. It reads procfs rather than `WSL_DISTRO_NAME`,
+  which is unset for a process systemd started inside the distribution.
+- The README quickstart loses its two `cp` lines and gains the two commands. `--init` is
+  offered, not required: copying the `.example` files by hand still works, and is the
+  fallback where there is no terminal to answer in -- which `--init` detects and refuses,
+  rather than blocking on a pipe or reading a default from silence.
+
 ## #140 — 2026-09-08 — docs: ARCHITECTURE.md's 85-line raise history is one copy too many
 
 ### Changed

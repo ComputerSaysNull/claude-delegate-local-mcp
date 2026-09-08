@@ -91,6 +91,10 @@ owns = [
   # between what `main.run` validates and what the server actually needs, so a second
   # document would describe one half of one decision.
   "src/claude_delegate_local/doctor.py",
+  # And the first-run writer belongs with the preflight, for the same reason: the two are
+  # one decision seen from both ends -- what has no safe default, and what goes wrong when
+  # it was never set.
+  "src/claude_delegate_local/init.py",
   "src/claude_delegate_local/admission.py",
   "src/claude_delegate_local/slots.py",
   "src/claude_delegate_local/transcript.py",

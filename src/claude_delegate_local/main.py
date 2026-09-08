@@ -10,8 +10,9 @@ is written to stderr and the process exits non-zero, which is the one thing a la
 can actually report. To read that message, run the command by hand in a terminal --
 docs/TROUBLESHOOTING.md says so, because there is nowhere else it can be seen.
 
-`--doctor` is the one exception, and it is not really one: nothing speaks MCP to a doctor
-run, so there is no protocol on stdout to corrupt. It returns before any of the below.
+`--doctor` and `--init` are the exceptions, and they are not really exceptions: nothing
+speaks MCP to either, so there is no protocol on stdout for them to corrupt. Both return
+before any of the below.
 """
 
 from __future__ import annotations
@@ -34,6 +35,15 @@ def run() -> None:
         from . import doctor  # noqa: PLC0415
 
         raise SystemExit(doctor.main())
+
+    # `--init` writes the files `config.load` below is about to require, so it too has to
+    # return before that runs. Matched rather than parsed for the same reason as above, and
+    # deferred for a narrower one: it reads no configuration at all and pulls in none of
+    # the server.
+    if "--init" in sys.argv[1:]:
+        from . import init  # noqa: PLC0415
+
+        raise SystemExit(init.main())
 
     try:
         cfg = config.load()

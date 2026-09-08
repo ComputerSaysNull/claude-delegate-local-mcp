@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 # `C:\rest`, `C:/rest`, or a bare `C:` -- Claude Code emits all three separator styles and
 # has no reason to be consistent about them within one call.
@@ -39,6 +40,25 @@ class UntranslatablePath(ValueError):
     Distinct from a path that translates cleanly and is then refused by policy: this one
     never reaches the policy, because there is nothing to check.
     """
+
+
+def is_wsl() -> bool:
+    """True when this POSIX process is running inside a WSL distribution.
+
+    Lives here rather than beside either caller because it answers the question this
+    module is about -- which side of the boundary this process is on. `--doctor` reports
+    it in the platform row, and `--init` needs it to decide whether an MCP registration
+    goes through `wsl.exe`; a four-line probe copied into both is how the two answers
+    start disagreeing.
+
+    Read from procfs rather than from an environment variable: `WSL_DISTRO_NAME` is unset
+    for a process launched by systemd inside the distribution, which would report a WSL
+    host as a native one.
+    """
+    try:
+        return "microsoft" in Path("/proc/version").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
 
 
 def is_windows_form(given: str) -> bool:
@@ -105,3 +125,38 @@ def to_local(given: str) -> str:
     Use `to_posix` to compare a path. Use this to open one.
     """
     return to_posix(given) if os.name == "posix" else given.strip()
+
+
+# `/mnt/c/rest`, the form `to_posix` produces from a drive letter. Only a single-letter
+# mount is matched: `/mnt/wsl` and `/mnt/some-share` are real directories inside the
+# distribution that no Windows drive corresponds to.
+_MNT = re.compile(r"^/mnt/([a-zA-Z])(/.*)?$", re.DOTALL)
+
+
+def to_windows(given: str) -> str:
+    r"""The inverse of `to_posix`, for a path that has to be *printed* to Windows.
+
+    Kept here rather than at its one call site, because a translation split across two
+    modules is how the two directions stop agreeing. Nothing in the server uses it: the
+    policy layers only ever translate toward POSIX, and a path this process opens is
+    handled by `to_local`. What needs it is `--init`, which prints an MCP registration
+    whose `--cd` is read by `wsl.exe` on the Windows side -- README says that argument
+    takes the Windows form and that `/mnt/c/...` is rejected there, so printing the POSIX
+    path would hand out a block that cannot work.
+
+    Raises rather than guessing for a path with no Windows equivalent. `/home/you/x` lives
+    inside the distribution and the `\\wsl$\...` spelling that reaches it needs the
+    distribution name, which this function is not given -- and inventing one produces a
+    path that looks plausible and resolves to nothing, the failure this module's own
+    header rejects.
+    """
+    s = given.strip()
+    m = _MNT.match(s)
+    if not m:
+        raise UntranslatablePath(
+            f"{given!r} has no Windows equivalent. Only a drive mount under /mnt "
+            "translates back; a path inside the distribution is reachable from Windows "
+            "only through a UNC spelling that needs the distribution's name."
+        )
+    drive, rest = m.group(1).upper(), (m.group(2) or "/").replace("/", "\\")
+    return f"{drive}:{rest}"

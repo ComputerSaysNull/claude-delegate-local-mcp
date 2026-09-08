@@ -1,4 +1,6 @@
-<!-- BUDGET: 165
+<!-- BUDGET: 172
+     Raised from 165 on 2026-09-08: `--init` replaces the two `cp` lines in the quickstart
+     and needs three saying what it does and does not decide for you. Cut from four first.
      Raised from 160 on 2026-09-07: a new entry point, `--doctor`, and the reason to run
      it. The prose was cut to two lines first. -->
 
@@ -58,13 +60,16 @@ does not restate them.
 git clone https://github.com/ComputerSaysNull/claude-delegate-local-mcp
 cd claude-delegate-local-mcp
 
-cp .env.example .env                  # then set DELEGATE_WORKSPACE_ROOTS
-cp models.toml.example models.toml    # then set your endpoint
-
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 python scripts/install_hooks.py       # optional, gives the gate at commit time
+
+claude-delegate-local-mcp --init      # writes .env and models.toml from answers
 claude-delegate-local-mcp --doctor    # checks the environment; non-zero on any failure
 ```
+
+`--init` asks what has no safe default, shows the default for everything else it offers,
+moves an existing file aside rather than over, and prints the registration block below
+filled in for this machine. Copying the two `.example` files by hand still works.
 
 Run the doctor before the first delegation. The server starts whether or not what it needs
 is there, so a missing root or an unreachable endpoint otherwise surfaces much later, as a

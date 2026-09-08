@@ -47,7 +47,7 @@ from . import config, paths, registry, sandbox, transcript
 from .config import Config, ConfigError
 from .server import STATUS_OK, BackendCache, probe_entry
 from .slots import build_slots
-from .wsl import UntranslatablePath
+from .wsl import UntranslatablePath, is_wsl
 
 # Verdicts, worst last: the exit code is decided by the worst one seen.
 OK = "ok"
@@ -89,7 +89,7 @@ def check_platform() -> Check:
     """
     if os.name == "posix":
         detail = f"posix ({sys.platform})"
-        if _is_wsl():
+        if is_wsl():
             detail += ", under WSL"
         return Check("platform", OK, detail)
     return Check(
@@ -98,13 +98,6 @@ def check_platform() -> Check:
         "Run the doctor where the server runs. On Windows that means inside WSL, "
         "through the same interpreter the MCP registration names.",
     )
-
-
-def _is_wsl() -> bool:
-    try:
-        return "microsoft" in Path("/proc/version").read_text(encoding="utf-8").lower()
-    except OSError:
-        return False
 
 
 def check_workspace_roots(cfg: Config) -> Check:

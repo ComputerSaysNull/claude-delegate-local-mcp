@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 models.toml
+# --init moves an existing registry aside before writing a new one. Uncovered, that
+# backup is an ordinary untracked file naming a host.
+models.toml.bak-*
 !models.toml.example
 *.pem
 *.key
