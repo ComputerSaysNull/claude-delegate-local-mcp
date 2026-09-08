@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import config, paths, registry, sandbox, transcript
+from . import config, paths, provision, registry, sandbox, transcript
 from .config import Config, ConfigError
 from .server import STATUS_OK, BackendCache, probe_entry
 from .slots import build_slots
@@ -194,9 +194,101 @@ def check_toolchain(cfg: Config) -> Check:
     return Check(
         "toolchain", WARN,
         "nothing is bound, so a sandboxed command sees only what /usr provides",
-        "Reading and writing files still work. To run a project's tests, provision an "
-        "interpreter outside the workspace and name it in DELEGATE_TOOLCHAIN_BINDS -- "
-        "inside the workspace the secret scan covers a virtualenv's own files.",
+        "Reading and writing files still work. To run a project's tests, use "
+        "`provision <project>` rather than this setting: a virtualenv named in "
+        "DELEGATE_TOOLCHAIN_BINDS is scanned like any other bind, and the scan covers a "
+        "virtualenv's own files with /dev/null. See the provisioned check below.",
+    )
+
+
+def check_provisioned(cfg: Config) -> list[Check]:
+    """One line per provisioned environment: is its interpreter there, and is it current?
+
+    A `WARN` when nothing is provisioned, on the same reasoning as `check_toolchain`: the
+    read-heavy majority of delegations needs no interpreter at all, so an absence must not
+    block. A **`FAIL`** for a stale one, which is the opposite call and the important one --
+    stale dependencies do not error, they produce a passing test run against the wrong
+    versions and hand back the clean exit code ADR-0007 tells everything downstream to
+    trust. That is worse than no environment, because it is believed.
+    """
+    home = sandbox.resolve_home(cfg)
+    found = provision.discover(home)
+    if not found:
+        return [Check(
+            "provisioned", WARN,
+            "no project has an interpreter, so a delegation cannot run a test suite",
+            "Run `claude-delegate-local-mcp provision <project>`. Reading and writing "
+            "files still work without it; only run_bash's ability to verify Python work "
+            "depends on this.",
+        )]
+
+    checks: list[Check] = []
+    for venv, record in found:
+        name = os.path.basename(venv)
+        if record is None:
+            checks.append(Check(
+                f"provisioned:{name}", FAIL, f"{provision.RECORD_NAME} is missing or unreadable",
+                "A half-built environment is the case where a test run passes against "
+                "nothing. Re-run provision for this project, or delete the directory.",
+            ))
+            continue
+        project = str(record.get("project", ""))
+        if not Path(str(record.get("interpreter", ""))).exists():
+            checks.append(Check(
+                f"provisioned:{name}", FAIL, "the interpreter it recorded is gone",
+                f"Re-run provision for {project or 'this project'}.",
+            ))
+            continue
+        current = provision.dependency_hash(project) if project else None
+        if current is None:
+            checks.append(Check(
+                f"provisioned:{name}", FAIL,
+                f"its project no longer has a readable {provision.HASH_SOURCE}",
+                "The project may have moved or been deleted. Re-run provision, or remove "
+                "this environment.",
+            ))
+        elif current != record.get("dependency_hash"):
+            checks.append(Check(
+                f"provisioned:{name}", FAIL,
+                f"{provision.HASH_SOURCE} has changed since it was built",
+                "Re-run provision. Until then a test run here exercises the dependencies "
+                "that were installed, not the ones the project declares, and still exits "
+                "0 -- which ADR-0007 says to trust.",
+            ))
+        else:
+            checks.append(Check(f"provisioned:{name}", OK,
+                                "interpreter present, dependencies current"))
+    return checks
+
+
+def check_provisioned_secrets(cfg: Config) -> Check:
+    """What the denylist matches inside a provisioned tree, since nothing covers it.
+
+    ADR-0062 moves that guarantee from scan time to build time -- the tree is trusted
+    because the server built it -- and a guarantee nothing ever re-checks is one that stops
+    being true quietly. So it is re-checked here and *reported*, never covered: covering is
+    what breaks the environment, and the whole point of the ADR is that this tree is the one
+    a command must be able to read.
+
+    Ordinary library files match, so this is a `WARN` with a count rather than a failure.
+    Thirteen on this repository's own environment, `certifi/cacert.pem` and
+    `keyring/credentials.py` among them.
+    """
+    home = sandbox.resolve_home(cfg)
+    if not provision.discover(home):
+        return Check("provisioned-secrets", OK, "nothing provisioned, so nothing uncovered")
+    matches: list[str] = []
+    for venv, _record in provision.discover(home):
+        matches.extend(provision.denylist_matches(cfg, venv))
+    if not matches:
+        return Check("provisioned-secrets", OK, "no denylist match inside a provisioned tree")
+    return Check(
+        "provisioned-secrets", WARN,
+        f"{len(matches)} denylist match(es) inside a provisioned tree, none of them covered",
+        "Expected: ordinary library filenames match *secret* and *credential*, and "
+        "covering them would break the environment (ADR-0062). Worth a look only if the "
+        "count moves after a dependency change, or if one is not a library file.",
+        {"matches": matches[:20]},
     )
 
 
@@ -307,6 +399,8 @@ def collect(cfg: Config, reg: registry.Registry) -> list[Check]:
         check_bwrap(cfg),
         check_limiter(cfg),
         check_toolchain(cfg),
+        *check_provisioned(cfg),
+        check_provisioned_secrets(cfg),
         *check_endpoints(cfg, reg),
         check_transcripts(cfg),
         check_cross_process(cfg),

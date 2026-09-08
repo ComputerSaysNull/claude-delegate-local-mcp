@@ -1,4 +1,6 @@
-<!-- BUDGET: 315
+<!-- BUDGET: 336
+     Raised from 315 on 2026-09-08: three symptoms provisioning introduces -- a missing
+     interpreter, a stale one, and a refused write inside one. Links only, no facts.
      Raised from 305 on 2026-09-07: the preflight, which identifies several symptoms below
      faster than matching them by hand. A pointer rather than an answer, as this document
      requires.
@@ -234,6 +236,23 @@ seeing this from the server itself means the path is genuinely unwritable. ADR-0
 
 The empty root contains only what is bound, and `uv` lives outside it. Add toolchains via
 `extra_binds` — see [AGENTS.md](AGENTS.md#extra_binds-for-toolchains).
+
+### `python: not found`, or `import pytest` fails, inside the sandbox
+
+The empty root has no interpreter with the project's dependencies in it, and no network to
+install one. Run `claude-delegate-local-mcp provision <project>`, then `--doctor` — see
+[ARCHITECTURE.md](ARCHITECTURE.md#provision-builds-the-interpreter-a-delegation-verifies-with).
+
+### A test run passes but the dependencies are old
+
+`--doctor` fails on this rather than warning, and names the project to re-provision. Why a
+clean exit code is the dangerous outcome here: ADR-0007, ADR-0062.
+
+### A write inside a provisioned virtualenv is refused
+
+Bound read-only, deliberately — see
+[ARCHITECTURE.md](ARCHITECTURE.md#why-bubblewrap-and-what-it-does-not-cover). Re-provision
+rather than editing in place.
 
 ### An agent with `network: true` cannot resolve hostnames
 

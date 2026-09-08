@@ -48,7 +48,16 @@ BUILTIN_ENV_ALLOWLIST: tuple[str, ...] = ("LANG", "LC_ALL", "TERM")
 
 # PATH inside the sandbox. Points at the symlink targets below, not at the host's PATH,
 # which names directories that do not exist inside an empty root.
+#
+# It stays this narrow even now that `provision` builds interpreters the sandbox can run.
+# A provisioned venv is reached by its absolute path, never by widening this -- putting one
+# project's tools on every command's PATH is how a command silently gets the wrong python.
 SANDBOX_PATH = "/usr/bin:/usr/sbin"
+
+# The one subdirectory of the sandbox HOME that a command may read but not write, and the
+# only tree under a bound root that the secret scan deliberately does not cover (ADR-0062).
+# `provision` builds interpreters here.
+PROVISIONED_DIRNAME = "venvs"
 
 # The flags that are always present, in order.
 #
@@ -279,16 +288,36 @@ def resolve_home(cfg: Config) -> str:
     return posixpath.normpath(raw)
 
 
+def provisioned_root(home: str) -> str:
+    """Where `provision` builds interpreters, derived from the sandbox HOME.
+
+    Takes the resolved home rather than a `Config` so `build_argv` can call it and stay
+    pure. One derivation, so the walk that skips this tree and the bind that mounts it
+    read-only cannot disagree about which tree that is.
+
+    The name matters and is not `.venv`. `security/opaque_globs.txt` names `.venv/**` and
+    `venv/**`, and a match there is *covered* with a 64k tmpfs -- so a venv called either
+    would be mounted over and invisible to the command that needs it.
+    """
+    return posixpath.join(home, PROVISIONED_DIRNAME)
+
+
 def ensure_home(home: str) -> None:
-    """Create the persistent sandbox HOME on the host, if it is not there yet.
+    """Create the persistent sandbox HOME and the provisioned root, if not there yet.
 
     A bind needs its source to exist. bwrap will happily create the mount point *inside* the
     sandbox and then fail on the source with "Can't find source path", which reads as a
     mistyped setting rather than as a directory nobody has made yet -- so this runs before
     every call rather than once at startup, where a deleted cache directory would turn every
     later command into that same misleading error.
+
+    The provisioned root is created for exactly that reason, and unconditionally: it lets
+    `build_argv` emit its read-only bind with no filesystem question, which is what keeps
+    that function pure. Empty when nothing has been provisioned, and an empty read-only
+    bind costs nothing.
     """
     os.makedirs(home, exist_ok=True)
+    os.makedirs(provisioned_root(home), exist_ok=True)
 
 
 def available(cfg: Config) -> bool:
@@ -400,6 +429,35 @@ def _dir_shadow(
     return None
 
 
+def _charge(cfg: Config, root: str, depth: int, entries: int, budget: int) -> int:
+    """Charge one directory against the depth and entry budgets, or refuse the call.
+
+    Split out of the walk so that function stays under a branch count, and the two refusals
+    that must both fail closed sit side by side where they can be read as one policy.
+    Returns the remaining budget; raises rather than returning a partial answer, because a
+    denylist that covered part of a tree reads exactly like one that covered all of it.
+    """
+    if depth >= cfg.secret_shadow_max_depth:
+        raise SecretShadowIncomplete(
+            f"the secret scan reached {cfg.secret_shadow_max_depth} directories "
+            f"deep under {root} and stopped. run_bash is refused rather than run "
+            "with a denylist that covered only part of the tree. Raise "
+            "DELEGATE_SECRET_SHADOW_MAX_DEPTH if the tree is genuinely that deep."
+        )
+    remaining = budget - entries
+    if remaining < 0:
+        raise SecretShadowIncomplete(
+            f"the secret scan visited more than {cfg.secret_shadow_max_entries} "
+            f"entries under {root} and stopped. run_bash is refused rather than "
+            "run with a denylist that covered only part of the tree. Usually the "
+            "tree carries a machine-generated directory nobody needs to scan: name "
+            "it in the opaque list (DELEGATE_OPAQUE_GLOBS_FILE) and it is covered "
+            "and skipped, which is both faster and no less safe. Raising "
+            "DELEGATE_SECRET_SHADOW_MAX_ENTRIES makes every call walk it instead."
+        )
+    return remaining
+
+
 def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTarget, ...]:
     """Every denylist match under the bound roots, as a mount that will cover it up. I/O.
 
@@ -451,6 +509,7 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
 
     globs = load_secret_globs(cfg)
     opaque = load_opaque_globs(cfg)
+    provisioned = provisioned_root(req.home)
     found: list[ShadowTarget] = []
     seen: set[str] = set()
     budget = cfg.secret_shadow_max_entries
@@ -458,29 +517,22 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
     for root in roots:
         base_depth = root.rstrip("/").count("/")
         for dirpath, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
-            if dirpath.rstrip("/").count("/") - base_depth >= cfg.secret_shadow_max_depth:
-                raise SecretShadowIncomplete(
-                    f"the secret scan reached {cfg.secret_shadow_max_depth} directories "
-                    f"deep under {root} and stopped. run_bash is refused rather than run "
-                    "with a denylist that covered only part of the tree. Raise "
-                    "DELEGATE_SECRET_SHADOW_MAX_DEPTH if the tree is genuinely that deep."
-                )
-
-            budget -= len(dirnames) + len(filenames)
-            if budget < 0:
-                raise SecretShadowIncomplete(
-                    f"the secret scan visited more than {cfg.secret_shadow_max_entries} "
-                    f"entries under {root} and stopped. run_bash is refused rather than "
-                    "run with a denylist that covered only part of the tree. Usually the "
-                    "tree carries a machine-generated directory nobody needs to scan: name "
-                    "it in the opaque list (DELEGATE_OPAQUE_GLOBS_FILE) and it is covered "
-                    "and skipped, which is both faster and no less safe. Raising "
-                    "DELEGATE_SECRET_SHADOW_MAX_ENTRIES makes every call walk it instead."
-                )
+            depth = dirpath.rstrip("/").count("/") - base_depth
+            budget = _charge(cfg, root, depth, len(dirnames) + len(filenames), budget)
 
             kept: list[str] = []
             for name in dirnames:
                 full = posixpath.join(dirpath, name)
+                if full == provisioned:
+                    # Pruned and NOT covered -- the one place this walk does that, and the
+                    # one tree a command must be able to read (ADR-0062). Measured on this
+                    # repository's own venv: walked, it is 8,981 entries and the denylist
+                    # fires 13 times, covering `certifi/cacert.pem`, `keyring/credentials.py`
+                    # and the whole of `secretstorage/` with /dev/null -- breaking the
+                    # environment it just read, exactly as ADR-0041 predicted for a workspace
+                    # virtualenv. Covering it instead hides it. `build_argv` binds it
+                    # read-only, which is what makes skipping it safe here.
+                    continue
                 if os.path.islink(full):
                     continue  # never descended, never shadowed; see the docstring
                 shadow = _dir_shadow(full, globs, opaque)
@@ -519,6 +571,12 @@ def build_argv(
 
     1. HOME binds before the workdir. A workdir nested inside `sandbox_home` then gets its
        own read-write bind rather than inheriting whatever mode HOME was bound with.
+
+    1a. And the provisioned root binds read-only straight after HOME, for the same reason
+       read the other way: it sits *inside* HOME, so it must come after to win, and before
+       the workdir so that a workdir somehow nested under it is still writable. This is the
+       one tree the secret scan skips without covering, so the read-only bind is the control
+       that replaces the cover rather than a second opinion about it (ADR-0062).
     2. Read-only toolchain binds come before the read-write workdir. If an operator's
        toolchain bind overlaps the workdir, the workdir must still be writable -- otherwise
        a build fails with a read-only-filesystem error inside the very directory the
@@ -553,6 +611,18 @@ def build_argv(
     # "Can't find source path", which reads like a bad configuration value rather than a
     # directory nobody has created yet. `run` creates it; see `ensure_home`.
     argv += ["--bind", req.home, req.home]
+
+    # Rule 1a: the provisioned root, read-only, immediately after the HOME bind that would
+    # otherwise make it writable. It is emitted unconditionally because `ensure_home`
+    # creates it, which is what lets this function stay pure -- no stat, no branch.
+    #
+    # Read-only is load-bearing rather than tidy. The secret scan deliberately does not
+    # cover this tree (ADR-0062), so this bind is the only thing standing between a
+    # delegation and a planted file in an interpreter that later runs a test suite.
+    # Measured: `touch` inside it is refused at exit 1 while the same write into the workdir
+    # succeeds, and the whole suite still passes read-only at 1309 passed, 4 skipped.
+    provisioned = provisioned_root(req.home)
+    argv += ["--ro-bind", provisioned, provisioned]
 
     # Read-only toolchain binds before the workdir (rule 2) and after the base mounts
     # (rule 2a). Nothing here resolves the path: `build_argv` is pure, and a realpath call

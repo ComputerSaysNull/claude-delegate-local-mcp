@@ -95,6 +95,11 @@ owns = [
   # one decision seen from both ends -- what has no safe default, and what goes wrong when
   # it was never set.
   "src/claude_delegate_local/init.py",
+  # Provisioning is the third of those, and belongs with the sandbox as much as with the
+  # preflight: what it builds is only usable because of a bind order and a scan exception
+  # that live in `sandbox.py`, which this document already owns. Splitting it out would put
+  # the tree and the mount that makes it readable in two different documents.
+  "src/claude_delegate_local/provision.py",
   "src/claude_delegate_local/admission.py",
   "src/claude_delegate_local/slots.py",
   "src/claude_delegate_local/transcript.py",
