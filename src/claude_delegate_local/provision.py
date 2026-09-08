@@ -63,6 +63,10 @@ RECORD_NAME = "provision.json"
 # against the wrong dependencies and returns the clean exit code ADR-0007 says to trust.
 HASH_SOURCE = "pyproject.toml"
 
+# The environment name a sandboxed command finds the interpreter under. Absent when nothing
+# current is provisioned for the workdir, never empty -- see `sandbox_env`.
+SANDBOX_ENV_NAME = "DELEGATE_PYTHON"
+
 # How long a build may take before it is abandoned. Generous: it is a virtualenv plus a
 # dependency resolution over the network, and on a cold cache that is minutes.
 _BUILD_TIMEOUT = 1800.0
@@ -155,6 +159,62 @@ def discover(home: str) -> list[tuple[str, dict[str, Any] | None]]:
         for name in names
         if os.path.isdir(posixpath.join(root, name))
     ]
+
+
+def is_current(record: dict[str, Any] | None) -> bool:
+    """Does this record describe an environment built from the project as it stands now?
+
+    Both halves are required: the interpreter has to be there, and the declaration it was
+    built from has to be unchanged. A missing digest on either side is *not* current --
+    "cannot tell" and "matches" are different answers, and only one of them is safe.
+    """
+    if record is None:
+        return False
+    project = str(record.get("project") or "")
+    python = str(record.get("interpreter") or "")
+    if not project or not python or not os.path.exists(python):
+        return False
+    current = dependency_hash(project)
+    return current is not None and current == record.get("dependency_hash")
+
+
+def interpreter_for(cfg: Config, workdir: str | None) -> str | None:
+    """The provisioned interpreter covering this workdir, or None. Never a stale one.
+
+    A workdir *inside* a provisioned project counts, since an editable install works from
+    anywhere under it, and the longest matching project wins so a nested checkout is not
+    served its parent's environment.
+
+    **Stale is withheld rather than offered**, which is the whole reason this asks
+    `is_current` instead of just looking. Handing back an interpreter built from a
+    declaration that has moved on is how a delegation reports a passing suite, at exit 0,
+    against the wrong dependency versions -- and exit 0 is the one thing ADR-0007 tells
+    every reader downstream to believe. Absent is a state the model can report and
+    `--doctor` explains; a false pass is neither.
+    """
+    if workdir is None:
+        return None
+    best: tuple[int, str] | None = None
+    for _venv, record in discover(resolve_home(cfg)):
+        if not is_current(record):
+            continue
+        assert record is not None  # is_current rejects None
+        project = str(record["project"]).rstrip("/")
+        if workdir == project or workdir.startswith(project + "/"):
+            if best is None or len(project) > best[0]:
+                best = (len(project), str(record["interpreter"]))
+    return best[1] if best else None
+
+
+def sandbox_env(cfg: Config, workdir: str | None) -> dict[str, str]:
+    """`SANDBOX_ENV_NAME` pointing at the interpreter, or nothing at all.
+
+    An absent name rather than an empty value: a shell expands an unset variable to the
+    empty string, so `$DELEGATE_PYTHON -m pytest` would run `-m pytest` as a command and
+    fail with something unrelated to the actual cause.
+    """
+    python = interpreter_for(cfg, workdir)
+    return {SANDBOX_ENV_NAME: python} if python else {}
 
 
 def build_env() -> dict[str, str]:

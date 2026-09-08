@@ -21,7 +21,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from claude_delegate_local import paths, sandbox, tools
+from claude_delegate_local import paths, provision, sandbox, tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
 
@@ -684,6 +684,51 @@ def test_the_policy_reaches_the_sandbox_request(workspace, monkeypatch):
     assert req.workdir == str(workspace)
     assert req.network is True
     assert "/opt/toolchain" in req.extra_binds
+
+
+def test_a_provisioned_interpreter_reaches_the_command_as_an_environment_name(
+    workspace, monkeypatch
+):
+    """The wiring, captured at the boundary: the name is set, and `SANDBOX_PATH` is not touched.
+
+    Handed over as an environment name rather than by widening PATH or rewriting the
+    command. `run_bash` takes an opaque shell string, so appending to it would mean parsing
+    shell; and one project's tools on every command's PATH is how a command silently gets
+    the wrong python.
+    """
+    seen: list[sandbox.SandboxRequest] = []
+    monkeypatch.setattr(sandbox, "run", lambda c, r: (
+        seen.append(r),
+        sandbox.SandboxResult(stdout="", stderr="", exit_code=0, timed_out=False))[1])
+    monkeypatch.setattr(provision, "interpreter_for", lambda c, w: "/sb/venvs/p-1/bin/python")
+
+    tools.execute_tool(
+        cfg(workspace), call("run_bash", command="ls"), frozenset({"run_bash"}),
+        tools.BashPolicy(workdir=str(workspace)))
+
+    (req,) = seen
+    assert req.env[provision.SANDBOX_ENV_NAME] == "/sb/venvs/p-1/bin/python"
+    assert sandbox.SANDBOX_PATH == "/usr/bin:/usr/sbin"
+
+
+def test_nothing_provisioned_leaves_the_name_unset_rather_than_empty(workspace, monkeypatch):
+    """The other half, and the reason it is absence and not `""`.
+
+    A shell expands an unset name to nothing, so `$DELEGATE_PYTHON -m pytest` with an empty
+    value runs `-m pytest` as a command and fails for a reason unrelated to the cause.
+    """
+    seen: list[sandbox.SandboxRequest] = []
+    monkeypatch.setattr(sandbox, "run", lambda c, r: (
+        seen.append(r),
+        sandbox.SandboxResult(stdout="", stderr="", exit_code=0, timed_out=False))[1])
+    monkeypatch.setattr(provision, "interpreter_for", lambda c, w: None)
+
+    tools.execute_tool(
+        cfg(workspace), call("run_bash", command="ls"), frozenset({"run_bash"}),
+        tools.BashPolicy(workdir=str(workspace)))
+
+    (req,) = seen
+    assert provision.SANDBOX_ENV_NAME not in req.env
 
 
 def test_a_delegation_that_names_no_policy_reaches_nothing_of_yours(workspace, monkeypatch):

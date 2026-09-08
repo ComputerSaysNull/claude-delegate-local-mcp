@@ -34,6 +34,40 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #143 — 2026-09-08 — feat: run_bash names the provisioned interpreter, and withholds a stale one
+
+### Added
+- **`$DELEGATE_PYTHON` inside the sandbox, matched against the workdir.** `#142` built the
+  interpreter and nothing told a delegation where it was. It is handed over as an
+  environment name rather than by widening `SANDBOX_PATH`, which stays
+  `/usr/bin:/usr/sbin`: one project's tools on every command's PATH is how a command
+  silently gets the wrong python, and the measurement that proved a provisioned virtualenv
+  works inside `bwrap --unshare-all` needed no PATH change at all. Not by appending to the
+  command either -- `run_bash` takes an opaque shell string, so adding `-m pytest` or a
+  path to it would mean parsing shell and would break on anything compound. The `--setenv`
+  lands in the argv the transcript records, so what was offered is answerable from the
+  record rather than inferred.
+- **A workdir *inside* a provisioned project counts, and the longest match wins.** An
+  editable install works from anywhere under the project, so a subdirectory should resolve;
+  and a vendored checkout inside another must get its own environment rather than its
+  parent's.
+- **A model-facing contract change, so the `run_bash` description says all of it** --
+  including that there is no way to install anything from inside the sandbox, which is
+  ADR-0063 and not an omission. Regenerated `docs/TOOLS.md`.
+
+### Changed
+- **A stale environment is withheld rather than offered, and that is the load-bearing
+  decision here.** `interpreter_for` asks `is_current` instead of just looking: both the
+  interpreter must exist and the digest of the project's declaration must still match. An
+  interpreter built from a declaration that has moved on does not error -- it produces a
+  passing suite at exit 0 against the wrong versions, and exit 0 is the one number ADR-0007
+  tells everything downstream to believe. An absent name is a state the model can report
+  and `--doctor` explains; a false pass is neither. "Cannot tell" counts as not current,
+  since a missing digest and a matching one are different answers and only one is safe.
+- **Absent, never empty.** A shell expands an unset name to nothing, so an empty
+  `$DELEGATE_PYTHON -m pytest` runs `-m pytest` as a command and fails with a message that
+  has nothing to do with the cause.
+
 ## #142 — 2026-09-08 — feat: provision builds the interpreter run_bash could not reach
 
 ### Added

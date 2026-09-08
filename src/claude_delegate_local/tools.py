@@ -28,7 +28,7 @@ import subprocess
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from . import sandbox
+from . import provision, sandbox
 from .backends.base import BashOutcome, ToolResultBlock, ToolSpec, ToolUseBlock
 from .config import Config
 from .context import decode_text
@@ -612,7 +612,15 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
             workdir=policy.workdir,
             network=policy.network,
             extra_binds=sandbox.probe_toolchain_binds(cfg) + policy.extra_binds,
-            env=sandbox.resolve_env(cfg),
+            # The provisioned interpreter is handed over as an environment name, not by
+            # widening `SANDBOX_PATH` and not by rewriting the model's command. `run_bash`
+            # takes an opaque shell string, so appending arguments to it would mean parsing
+            # shell; and putting one project's tools on every command's PATH is how a
+            # command silently gets the wrong python. The `--setenv` lands in the argv the
+            # transcript records, so what was offered is answerable from the record.
+            # Absent when nothing *current* is provisioned -- `provision.interpreter_for`
+            # withholds a stale one rather than offering an exit code that lies.
+            env={**sandbox.resolve_env(cfg), **provision.sandbox_env(cfg, policy.workdir)},
         ))
     except (sandbox.SandboxUnavailable, sandbox.SecretShadowIncomplete) as e:
         return BashResult(str(e), BashOutcome(exit_code=None), is_error=True)
@@ -989,7 +997,11 @@ RUN_BASH = RegisteredTool(
             "rather than merely unreadable. Commands time out and are killed. The server "
             "reports the real exit code it observed, so do not describe a command as having "
             "succeeded when the result says otherwise. To change a file's text, prefer "
-            "write_file, which replaces it whole."
+            "write_file, which replaces it whole. When a project has been provisioned, "
+            "$DELEGATE_PYTHON is the absolute path to an interpreter with its dependencies "
+            "installed -- run tests with \"$DELEGATE_PYTHON\" -m pytest. It is unset when "
+            "nothing current is provisioned for this workdir, including when the project's "
+            "dependencies have changed since; there is no way to install one from here."
         ),
         input_schema={
             "type": "object",
