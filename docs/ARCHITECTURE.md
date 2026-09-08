@@ -1,4 +1,5 @@
-<!-- BUDGET: 992
+<!-- BUDGET: 998
+     Raised from 992 on 2026-09-08: why the staleness digest normalises newlines.
      Raised from 978 on 2026-09-08: a captured exit code is the shell line's, so its two
      directions are not equally trustworthy -- measured, not reasoned.
      Raised from 966 on 2026-09-08: a covering mount is read-only now, and the reason is a
@@ -211,7 +212,10 @@ read-write, persistent, and outside the workspace.
 `provision <project>` builds a virtualenv under it from the project's own declaration and
 records what it built from beside it, so [`--doctor`](#--doctor-asks-what-startup-does-not)
 finds it with no setting to keep in step and **fails** on a stale dependency hash — stale
-dependencies do not error, they pass against the wrong versions and return 0. It runs
+dependencies do not error, they pass against the wrong versions and return 0. Newlines are
+normalised out of the digest first, and that is not tidiness: on a Windows checkout a
+`git reset --hard` rewrites CRLF to LF, which unnormalised read as a changed declaration
+and withheld the interpreter with nothing about the project changed. It runs
 server-side, where the network is, which is why a test run needs none (ADR-0063). The
 interpreter is reached by absolute path: `SANDBOX_PATH` stays `/usr/bin:/usr/sbin`, since
 widening it would put one project's tools on every command's PATH.

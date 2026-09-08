@@ -120,6 +120,45 @@ def test_the_digest_is_stable_when_nothing_changes(tmp_path):
     assert provision.dependency_hash(str(root)) == provision.dependency_hash(str(root))
 
 
+def test_the_same_declaration_in_crlf_and_lf_hashes_the_same(tmp_path):
+    """The bug: a line-ending flip read as a changed dependency declaration.
+
+    Measured 2026-09-08 on this repository. The recorded hash was of the CRLF form, a
+    `git reset --hard` rewrote the file as LF, and `--doctor` failed while
+    `interpreter_for` withheld the interpreter -- so `run_bash` could run no test at all,
+    with nothing about the project changed. On a Windows checkout that is every branch
+    switch, not an edge case.
+    """
+    root = tmp_path / "proj"
+    root.mkdir()
+    body = '[project]\nname = "demo"\nversion = "0.0.0"\n'
+
+    (root / "pyproject.toml").write_bytes(body.encode())
+    lf = provision.dependency_hash(str(root))
+    (root / "pyproject.toml").write_bytes(body.replace("\n", "\r\n").encode())
+    crlf = provision.dependency_hash(str(root))
+
+    assert lf == crlf
+
+
+def test_a_real_dependency_edit_still_moves_the_digest(tmp_path):
+    """The control, and the half that must not be weakened by the fix above.
+
+    A digest that ignored everything would satisfy the CRLF test perfectly. Stale
+    dependencies do not error -- they pass against the wrong versions and return 0, the one
+    number ADR-0007 says to believe -- so this direction is the one with teeth.
+    """
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "pyproject.toml").write_bytes(
+        b'[project]\nname = "demo"\ndependencies = ["httpx>=0.28"]\n')
+    before = provision.dependency_hash(str(root))
+    (root / "pyproject.toml").write_bytes(
+        b'[project]\nname = "demo"\ndependencies = ["httpx>=0.29"]\n')
+
+    assert provision.dependency_hash(str(root)) != before
+
+
 def test_a_project_with_no_declaration_has_no_digest(tmp_path):
     """None rather than a digest of nothing, so `--doctor` can say which case it is."""
     empty = tmp_path / "bare"

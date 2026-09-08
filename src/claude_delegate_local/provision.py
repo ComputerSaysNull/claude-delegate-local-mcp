@@ -106,13 +106,28 @@ def interpreter_path(venv: str) -> str:
 
 
 def dependency_hash(project_real: str) -> str | None:
-    """A digest of the project's dependency declaration, or None if it has none."""
+    """A digest of the project's dependency declaration, or None if it has none.
+
+    **Line endings are normalised first, and that is a bug fix rather than tidiness.**
+    Measured 2026-09-08 on this repository, an hour after the digest shipped: the recorded
+    hash was of the CRLF form, `git reset --hard` rewrote the file as LF, and identical
+    content read as a changed declaration. `--doctor` then failed and `interpreter_for`
+    withheld the interpreter, so `run_bash` lost the ability to run any test at all -- and
+    nothing about the project had changed. On a Windows checkout that is not an edge case,
+    it is every branch switch and every fresh clone.
+
+    Still the whole file rather than its dependency tables, which is the asymmetry the
+    original chose deliberately: a false "stale" costs one re-provision, a false "fresh"
+    hands back a clean exit code from a test run that proved nothing. Normalising newlines
+    removes a false stale without weakening that -- a real edit still moves the digest,
+    because a change to a dependency is a change to bytes that are not newlines.
+    """
     source = Path(project_real) / HASH_SOURCE
     try:
         raw = source.read_bytes()
     except OSError:
         return None
-    return hashlib.sha256(raw).hexdigest()
+    return hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _extras(project_real: str) -> tuple[str, ...]:
