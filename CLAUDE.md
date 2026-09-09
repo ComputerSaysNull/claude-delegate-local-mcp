@@ -1,4 +1,6 @@
-<!-- BUDGET: 152 -->
+<!-- BUDGET: 158 -->
+<!-- Raised from 152 on 2026-09-09: the contract has four homes rather than one, and two more
+     checks that could not fail were found (ADR-0066, ADR-0065). -->
 <!-- Raised from 144 on 2026-09-03: one invariant, for the trap ADR-0049 closed. -->
 # CLAUDE.md
 
@@ -53,9 +55,12 @@ Rules a machine cannot check, so they land here:
 - **Config defaults live only in `config.py`.** Never in a docstring, a README, a comment
   in another module, or a test. The reference table is generated from the dataclass, and
   the gate fails when they disagree.
-- **The MCP tool descriptions are the model-facing contract.** Rewording one changes
-  runtime behaviour. Treat it as a behaviour change with a CHANGELOG entry, not as a
-  wording fix.
+- **The model-facing contract has four homes, and a description is the smallest.** The
+  client delivers 2048 characters of one and nothing fetches the rest, so it is the index a
+  tool is *found* by: an argument's meaning belongs in `inputSchema`, a remedy in the
+  refusal that raises it, the long form in a resource. The trap is a fact in the wrong home;
+  changing any of them is a behaviour change, not a wording fix. And a prompt is pulled by a
+  *person* where a resource is pulled by the *model* — never interchangeable. (ADR-0066)
 - **The system prompt must be static, byte for byte.** No timestamp, session id, turn
   number or counter. The cluster caches prefixes, so one dynamic byte silently disables
   that with no error and no symptom beyond slower prefill. Dynamic content goes in the
@@ -84,13 +89,16 @@ Rules a machine cannot check, so they land here:
   Python validates a `.pyc` on `(mtime, size)`, so a same-length edit inside one timestamp
   tick is invisible. Set `sys.pycache_prefix` to a fresh temp directory. `-B` does *not*
   help — it stops writing bytecode, not reading a stale cache. (JOURNAL 2026-08-25)
-- **A check that cannot fail is worse than no check**, because it is trusted. Four have
-  been found here already: one searching a file for the reference it was validating, one
-  reading stale bytecode, one flagging the pattern list that defined it, and one scanning
-  the previous commit's message because git had not written the new one yet. Negative-test
-  every check — assert that it fires on a real violation, not merely that it passes. Two
-  tests written *for* that fourth one passed against the bug before they were rewritten,
-  so the rule applies to the tests as much as to the checks.
+- **A check that cannot fail is worse than no check**, because it is trusted. Six have been
+  found here already: one searching a file for the reference it was validating, one reading
+  stale bytecode, one flagging the pattern list that defined it, one scanning the previous
+  commit's message because git had not written the new one yet, one asserting a tool
+  description against `list_tools()` — the server's own copy rather than the wire the client
+  truncates — and one whose `tmp_path` was named after the pattern it tested, so the fixture
+  directory matched, the tree was pruned, and the assertion passed against the unfixed bug.
+  Negative-test every check — assert it fires on a real violation, not merely that it passes.
+  Two tests written *for* the fourth passed against the bug before they were rewritten, so
+  the rule applies to the tests as much as to the checks.
 - **Verify network isolation by address, never by hostname.** A hostname-only test passes on
   broken DNS and reports a tight sandbox either way. (ADR-0021; mechanism in `docs/AGENTS.md`.)
 

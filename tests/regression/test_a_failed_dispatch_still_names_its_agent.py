@@ -26,7 +26,7 @@ from fastmcp import Client
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from claude_delegate_local import server
-from test_server import DoubleCache, cfg, entry, registry
+from test_server import DoubleCache, cfg, entry, payload, registry
 
 AGENT = """---
 name: reviewer
@@ -51,7 +51,7 @@ def with_agent(tmp_path: Path, handler, **over) -> tuple[dict | None, list[dict]
 
     async def go():
         async with Client(mcp) as client:
-            return (
+            return payload(
                 await client.call_tool(
                     "delegate_to_agent",
                     {
@@ -60,7 +60,7 @@ def with_agent(tmp_path: Path, handler, **over) -> tuple[dict | None, list[dict]
                         "effort": "inherit",
                     },
                 )
-            ).data
+)
 
     try:
         result = asyncio.run(go())

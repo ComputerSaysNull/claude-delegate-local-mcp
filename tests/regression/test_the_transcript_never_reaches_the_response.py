@@ -31,7 +31,7 @@ from fastmcp import Client
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from claude_delegate_local import server
-from test_server import DoubleCache, cfg, chat_reply, entry, registry
+from test_server import DoubleCache, cfg, chat_reply, entry, payload, registry
 
 
 def handler(request):
@@ -46,9 +46,9 @@ def response_with(config) -> dict:
 
     async def go():
         async with Client(mcp) as client:
-            return (
+            return payload(
                 await client.call_tool("delegate", {"task": "a question", "effort": "inherit"})
-            ).data
+)
 
     return asyncio.run(go())
 
@@ -92,7 +92,7 @@ def test_the_caller_can_still_ask_for_diagnostics_with_a_transcript_on(tmp_path)
 
     async def go():
         async with Client(mcp) as client:
-            return (
+            return payload(
                 await client.call_tool(
                     "delegate",
                     {
@@ -102,6 +102,6 @@ def test_the_caller_can_still_ask_for_diagnostics_with_a_transcript_on(tmp_path)
                         "diagnostics": True,
                     },
                 )
-            ).data
+)
 
     assert "diagnostics" in asyncio.run(go())

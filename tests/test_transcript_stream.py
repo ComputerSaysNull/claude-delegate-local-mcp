@@ -15,7 +15,15 @@ import httpx
 from fastmcp import Client
 
 from claude_delegate_local import server, transcript
-from test_server import DoubleCache, cfg, chat_reply, entry, registry, tool_call_reply
+from test_server import (
+    DoubleCache,
+    cfg,
+    chat_reply,
+    entry,
+    payload,
+    registry,
+    tool_call_reply,
+)
 
 
 def _events(directory: Path) -> list[dict]:
@@ -36,7 +44,7 @@ def _run(tmp_path: Path, handler, tool: str, args: dict) -> list[dict]:
 
     async def go():
         async with Client(mcp) as client:
-            return (await client.call_tool(tool, args)).data
+            return payload(await client.call_tool(tool, args))
 
     asyncio.run(go())
     return _events(tmp_path)

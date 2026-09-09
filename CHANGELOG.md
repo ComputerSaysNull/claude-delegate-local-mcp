@@ -34,6 +34,61 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #150 — 2026-09-09 — feat: each fact moves to the channel that owns it
+
+### Fixed
+- **The model was receiving 31% of `delegate`'s description, and nobody had measured it.**
+  Claude Code slices a tool description at 2048 characters and appends a marker; its own
+  `/mcp` panel says so. Nothing in FastMCP or the MCP schema caps a description and no
+  mechanism returns the remainder, so a tool is chosen and called on the surviving text.
+  All four delegating tools were over — `delegate` at 6665. `_COST_RULES` was *appended*,
+  so #138's three facts sat exactly where the cut lands, and what `delegate` never
+  delivered included `effort` (its one required argument), every return key,
+  `empty_response`, and ADR-0061's skip-not-fatal rule. (ADR-0066)
+- **The test asserting that contract could not fail.** It read `client.list_tools()` —
+  the server's own copy rather than the wire — so it passed green while the text was
+  truncated away. The fifth check-that-cannot-fail found here.
+
+### Changed
+- **A description is now the retrieval index it actually is**, carrying what the tool does
+  and which axis separates it from its near-twins, and nothing else. All six went from
+  1484–6087 characters to 392–622. What they used to carry moved to the home that owns it:
+  arguments to `inputSchema`, failures to the refusal that already explains them, the long
+  form to a resource, and the few must-know-first rules to the server `instructions`.
+- **`inputSchema` describes every argument of every tool**, each on its own budget and
+  shown beside the field it governs. The descriptions are written once as shared annotated
+  types rather than repeated per tool, which is what `_with_cost_rules` was reaching for in
+  the wrong place; that decorator and `_COST_RULES` are deleted rather than reordered.
+- **`effort` carries an `enum` derived from `EFFORT_LEVELS`**, so the wire cannot disagree
+  with the runtime check. Two enforcement sites, neither trusting the other, as
+  `allowed_tools` already has. The runtime refusal is unchanged and still the explainer.
+
+### Added
+- **Every tool describes its result.** `dict[str, Any]` infers `{"type": "object"}`, which
+  documents nothing, so the return contract lived in prose and prose is what the client
+  cut. All 32 keys of a delegation's result now carry a description — including the two
+  that decide what a caller does next: `empty_response`, which says an empty answer is a
+  result rather than a transient because the server already retried at a larger budget and
+  a lower effort, and `last_bash_exit`, which says the status is the whole shell line's, so
+  a non-zero is trustworthy while a zero is not proof. Permissive by design: nothing
+  `required` and additions allowed, since the one-shot path omits the loop ledger. A test
+  runs a real delegation and diffs what came back against what is declared, so a key added
+  later cannot stay undocumented.
+- **`delegate://orchestration`, the first resource this server offers**, carrying the cost
+  model, the fan-out ceiling and the failure modes worth recognising — 3301 characters that
+  cost nothing until something reads them. A resource rather than an `@mcp.prompt` because
+  prompts are user-controlled by specification, so a person must invoke one; a resource is
+  pulled by the *model*, which is the difference that matters.
+- **The resource also carries the one piece of caller knowledge that lived only in a private
+  CLAUDE.md**: `run_bash` cannot see `.git`, because the scan covers it, so a git command in
+  the sandbox fails without saying why and every history question belongs to `read_git` —
+  which reads the working tree too, and so is also how a delegation sees an uncommitted diff.
+  That is what "knowledge that travels with the package" means, and a test asserts it stays.
+- **Five checks, each demonstrated failing before being kept**: a description target well
+  under the client's cut, no argument left undescribed, the enum compared against the
+  config constants, the three facts asserted in the channels that now carry them, and that
+  the resource URI the instructions advertise is actually registered.
+
 ## #149 — 2026-09-09 — fix: the denylist is the one file its own patterns may not cover
 
 ### Fixed

@@ -19,6 +19,64 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0066 — 2026-09-09 — The contract has four homes, because a description is an index and not a manual — Accepted
+
+**Context.** CLAUDE.md calls the tool descriptions the model-facing contract and treats
+rewording one as a behaviour change. Nobody had measured what the client delivers.
+
+Claude Code holds a 2048-character constant. A longer description is sliced to it and a
+marker appended; the `/mcp` panel says so in as many words, and the same constant cuts the
+server `instructions`. Nothing in FastMCP or the MCP schema caps either. No mechanism
+returns the remainder, so a tool is chosen and called on the first 2048 characters.
+
+All four delegating tools were over it, `delegate` at 6665 characters delivering 31% of
+itself. `_COST_RULES` was *appended*, so #138's three facts sat exactly where the cut lands,
+and what `delegate` never delivered included `effort` -- its one required argument -- every
+return key, `empty_response`, and ADR-0061's skip-not-fatal rule.
+
+**And the test could not see it.** It asserted against `client.list_tools()`, the server's
+own copy rather than the wire, so it passed green throughout. The fifth
+check-that-cannot-fail found in this repository.
+
+**Decision -- each fact goes to the home that owns it, and a description keeps only the
+smallest job.** A description is the retrieval index a tool is *found* by: tool search is on
+by default, so it is matched on before it is read, and four of these six are near-twins.
+
+- Arguments belong to `inputSchema`. Names, types and required-ness are already derived from
+  the signature, so prose restating them was pure duplication; what an argument *means* now
+  sits in its own `description`, on its own budget, beside the field it governs. `effort`
+  gains an `enum` derived from `EFFORT_LEVELS`, so the wire and the runtime check cannot
+  disagree -- two sites, neither trusting the other, as `allowed_tools` already does.
+- Failures belong to the refusal. `Refusal.remedy` and `files_skipped` already carry what to
+  do about a refused path, at the moment it happens, for callers who hit it -- rather than on
+  every listing, for every caller who does not.
+- The result belongs to `outputSchema`. `dict[str, Any]` infers an untyped object, so every
+  key was undocumented; all 32 are described now, permissively -- nothing `required`,
+  additions allowed -- because the one-shot path omits the loop ledger and a schema that
+  could refuse a real result would trade a failure mode for documentation.
+- The long form belongs to a **resource**, `delegate://orchestration`.
+- What must be known before a tool is chosen stays in the server `instructions`, short.
+
+**The resource is the load-bearing choice.** A prompt cannot do this job: prompts are
+user-controlled by specification -- content arrives only on `prompts/get`, and a person must
+select one -- so a rule the model must follow unprompted would never be delivered. A
+resource is pulled by the *model*: Claude Code exposes listing and reading, so it reaches the
+model unprompted, with no length limit. Relocating to a prompt would have deleted guidance
+while looking like tidying; relocating to a resource is what lets a description shrink.
+
+**Measured.** Descriptions went from 1484-6087 characters to 392-622, every argument of
+every tool is described, and the long form is 3301 characters that cost nothing until read.
+Common practice agrees: GitHub's official server has a median description of 69 characters
+and keeps its workflow prose in server instructions.
+
+**Enforced by checks that were each shown failing first**: a target per description well
+under the client's cut, a per-property assertion that no argument is undescribed, the enum
+compared against the config constants, and -- the one nothing else would catch -- that the
+URI the instructions advertise is actually registered.
+
+**A risk left open.** A reported client issue says the instructions budget is shared across
+servers; the path observed truncates per server at connect. Verify before moving more there.
+
 ## ADR-0065 — 2026-09-09 — The lists the scan reads are the two files it may not cover — Accepted
 
 **Context.** ADR-0035 covers a denylist match with a mount rather than leaving it out, and
