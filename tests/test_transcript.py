@@ -31,6 +31,7 @@ from test_server import (
     entry,
     files_cfg,
     files_posix_only,
+    payload,
     registry,
 )
 
@@ -49,7 +50,7 @@ def run(handler, *, config: Config, tool: str = "delegate", **kwargs) -> dict:
 
     async def go():
         async with Client(mcp) as client:
-            return (await client.call_tool(tool, kwargs)).data
+            return payload(await client.call_tool(tool, kwargs))
 
     return asyncio.run(go())
 

@@ -1217,3 +1217,37 @@ server, it is the difference between two turns and ten**, and that the one numbe
 uses to decide how many calls to run at once cannot be read off the shape of the call. Both
 were guessable and neither was known until the transcript directory was read — which is the
 same directory this session was widening the per-call record inside.
+
+## 2026-09-09 — A description is an index, and four of the five homes were empty
+
+Raised from the `/mcp` panel rather than from a failure: it reports how much of a
+description the model receives. It reports 2048 characters, and four of six tools were over.
+
+The number is a constant in the client, applied to a description and to the server
+`instructions` alike, with a marker appended. Nothing in FastMCP or the MCP schema caps
+either. Confirmed three ways: the panel's wording, the slice site, and reading back a
+delivered description that ended mid-word at exactly index 2048.
+
+`_COST_RULES` was **appended**, so the newest and most important text was the first cut. On
+`delegate` the loss ran to 4617 characters, including `effort` -- the one required argument.
+**And the test passed throughout**, because it asserted against `client.list_tools()`: the
+producing side, not the consuming one. Fifth of its kind here. The lesson is narrower than
+"test the real thing": a test of a contract has to read it from the side that consumes it.
+
+**The first fix was wrong, and worth recording as such.** It moved the shared block into the
+server instructions and trimmed `delegate` to fit -- which fits, and still treats a
+description as the place a contract lives. The correction came from asking what each fact
+*is*: a valid value for an argument is schema, not prose; a remedy for a refused path is an
+error message, not prose; a cost model is reference material, not prose. Four homes were
+sitting empty. `inputSchema` described no argument at all, `effort` had no enum while its
+five valid values lived only in sentences, and the server offered zero resources.
+
+**Prompts and resources are not interchangeable, and that was the mistake underneath.** Both
+are "pulled", so the first pass dismissed both. But a prompt is pulled by a *person* -- the
+specification says user-controlled, and content arrives only on `prompts/get` -- while a
+resource is pulled by the *model*, since the client exposes listing and reading. So a prompt
+is where guidance goes to be forgotten, and a resource is where it goes to be found. That
+single distinction is what let the descriptions shrink from 6087 characters to 546.
+
+What is left in a description is the only thing a schema cannot say: which of four
+near-twins to reach for.

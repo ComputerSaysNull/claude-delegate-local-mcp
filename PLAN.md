@@ -157,9 +157,14 @@ their own project without ever reading this repository.
   protocol delivers by itself: one question per delegating call, an unprefetched call is the
   dearest rather than the cheapest, and prefetch what is already known to be needed. A
   behaviour change with a CHANGELOG entry, not a wording fix
-- ⬜ An `@mcp.prompt` entry point carrying the orchestration discipline — sizing a pass by
-  expected findings, two large calls at a time, splitting a multi-part ask. The server
-  registers six tools and no prompts or resources at all
+- ✅ 2026-09-09 An `@mcp.prompt` entry point carrying the orchestration discipline — sizing
+  a pass by expected findings, two large calls at a time, splitting a multi-part ask. The
+  server registers six tools and no prompts or resources at all
+  - **Done as a resource, not a prompt, and the difference is the whole finding.** A prompt
+    is user-controlled by specification, so a person must invoke one; a resource is pulled
+    by the *model*. `delegate://orchestration` carries the discipline and costs nothing
+    until read (ADR-0066). A prompt remains defensible later as a *user-facing* briefing,
+    which is a different job and no longer this item's
 - ⬜ `install-skills`, shipping `write-delegate-agent`: it writes an agent file in this
   server's format and validates it by calling `list_agents` and checking the name lands
   under `agents` rather than `skipped` or `other_format`

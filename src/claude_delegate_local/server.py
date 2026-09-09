@@ -17,16 +17,16 @@ the other half of that rule.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from typing import Any
+from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from .backends.base import (
     Backend,
@@ -845,35 +845,347 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     }
 
 
-# The three facts that decide what a delegation costs, written once. Every delegating tool
-# must carry them *on the wire* -- MCP has no include, and a model choosing a tool sees one
-# description at a time -- but four copies in this file would be four things to edit and
-# three to forget. Appended under `@mcp.tool`, which runs last and so reads the finished
-# text. Written dedented, and joined onto a docstring this file cleans itself: appending
-# an indented block left those lines indented on the wire while the rest had been
-# dedented, so the join is explicit rather than inherited from how FastMCP normalises.
-_COST_RULES = """
-**A call with no `files[]` is the dearest shape, not the cheapest**, because its
-turns re-read what one prefetch would have supplied once. Prefetch what you already
-know it needs; that is a head start, not a limit on what it may go and find.
-
-**One question per call.** A task carrying several either stalls without completing
-a turn or comes back `ok: true` with an empty answer, so check `empty_response`
-before trusting a short reply. "List every X and what each does" is enumerable and
-counts as many -- send those as separate calls, which share the cached prefix
-anyway.
-"""
+# ---- the result, described once, in the schema that carries it ---------------------
+#
+# `dict[str, Any]` infers `{"type": "object"}`, which says nothing, so the return contract
+# lived in prose -- and prose is what the client cuts. A described `outputSchema` is the
+# same move as the argument descriptions above, one level on: the keys that decide what a
+# caller does next are named where a caller reads the result.
+#
+# Deliberately permissive. Nothing is `required` and additions are allowed, because the
+# one-shot path omits the whole loop ledger and `diagnostics` appears only when asked. A
+# schema that could refuse a real result would be a new failure mode in exchange for
+# documentation, which is not a trade worth making. (ADR-0066)
 
 
-def _with_cost_rules(fn):
-    """Extend a delegating tool's description with `_COST_RULES`.
+def _num(desc: str) -> dict[str, Any]:
+    return {"type": ["integer", "null"], "description": desc}
 
-    Applied *under* `@mcp.tool` so it runs first and the registration sees the whole text.
-    Returns the same function object; only `__doc__` changes, so the schema FastMCP infers
-    is untouched.
+
+_DELEGATION_RESULT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "answer": {"type": "string", "description": (
+            "The model's reply. Empty is never a successful answer -- read "
+            "`empty_response` beside it."
+        )},
+        "empty_response": {"type": "boolean", "description": (
+            "The answer came back empty. Reaching this means the server already retried at "
+            "a larger budget and then at a lower effort, so it is a result and not a "
+            "transient -- do not simply ask again."
+        )},
+        "reasoning_exhausted": {"type": "boolean", "description": (
+            "Why the answer was empty, which is a different claim from that it was. True: "
+            "the task needs more reasoning than this model finishes inside its budget, so "
+            "split it or send it elsewhere. False: the budget was too small at an effort "
+            "already at its lowest. Two different fixes."
+        )},
+        "model": {"type": "string", "description": (
+            "The model the backend reported serving, not the one asked for."
+        )},
+        "effort": {"type": ["string", "null"], "description": (
+            "The effort actually used, after the precedence chain resolved."
+        )},
+        "attempts": _num(
+            "Real backend calls made. More than one means something failed and was retried "
+            "for you; the per-reply token counts describe the attempt that answered."
+        ),
+        "turns": _num(
+            "Round trips the loop took. Absent on the one-shot path, where a turn budget "
+            "never applied."
+        ),
+        "hit_turn_limit": {"type": ["boolean", "null"], "description": (
+            "The delegation was still calling tools when its turns ran out, so the answer "
+            "is whatever it could write once tools were withdrawn. Treat it as partial and "
+            "raise `max_turns` rather than re-asking."
+        )},
+        "tool_calls": _num("Tools that actually ran."),
+        "tool_calls_by_name": {"type": ["object", "null"], "additionalProperties": True,
+                               "description": (
+            "The same total split by tool, because one number cannot tell a delegation "
+            "that read two files from one that overwrote two."
+        )},
+        "tool_errors": _num("Tool calls the server refused."),
+        "tool_calls_deduplicated": _num("Repeat calls the loop collapsed."),
+        "tool_results_evicted": _num(
+            "Tool results dropped from history to stay inside the window."
+        ),
+        "bash_calls": _num("Shell commands run."),
+        "bash_failures": _num(
+            "Commands that exited non-zero, counted from real process exits. This may "
+            "contradict the model's own account of a command it ran; believe this."
+        ),
+        "last_bash_exit": _num(
+            "Exit status of the last command, captured by the server. Null means nothing "
+            "exited -- no command ran, or the last was killed on timeout -- which 0 cannot "
+            "carry. It is the status of the whole shell line, so a trailing `; echo $?` or "
+            "a `| tail` reports the echo's success rather than the work's: a non-zero is "
+            "trustworthy because nothing invents one, a zero is not proof."
+        ),
+        "files_read": {"type": ["array", "null"], "items": {"type": "object",
+                                                            "additionalProperties": True},
+                       "description": "The files prefetched, with what each cost."},
+        "files_skipped": {"type": ["array", "null"], "items": {"type": "object",
+                                                               "additionalProperties": True},
+                          "description": (
+            "Files named but not sent, each with the layer that refused it and what to do "
+            "about it. A refused path costs the call that file and not the call, so read "
+            "this before trusting an answer: the model was told the file was unavailable, "
+            "and cannot tell you what it never saw."
+        )},
+        "prefetch_tokens": _num("Tokens the prefetch actually spent."),
+        "prefetch_budget": _num("Tokens it was allowed."),
+        "input_tokens": _num("Prompt tokens for the turn that answered."),
+        "output_tokens": _num("Reply tokens for the turn that answered."),
+        "cached_tokens": _num(
+            "Prompt tokens the cluster served from cache on that turn. 0 is a measured "
+            "miss; null is an endpoint that does not report caching."
+        ),
+        "total_tokens": _num("The answering turn's total, as the endpoint reported it."),
+        "total_input_tokens": _num("Prompt tokens across every turn there was."),
+        "total_output_tokens": _num("Reply tokens across every turn there was."),
+        "total_cached_tokens": _num("Cached prompt tokens across every turn."),
+        "finish_reason": {"type": ["string", "null"], "description": (
+            "Why generation stopped, as the endpoint put it."
+        )},
+        "stop_reason": {"type": ["string", "null"], "description": "The canonical form."},
+        "system_fingerprint": {"type": ["string", "null"], "description": (
+            "The endpoint's build identifier, when it offers one."
+        )},
+        "diagnostics": {"type": ["object", "null"], "additionalProperties": True,
+                        "description": (
+            "Present only when `diagnostics` was set: the per-turn ledger, including which "
+            "files were read again after the server had dropped the first read."
+        )},
+        "overflow_disarmed": {"type": ["string", "null"], "description": (
+            "Present only when the operator armed overflow handling and this server "
+            "declined to use it, with the reason."
+        )},
+    },
+}
+
+_AGENT_LIST_RESULT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "agents": {"type": "array", "items": {"type": "object", "additionalProperties": True},
+                   "description": (
+            "The usable agents: the `name` to pass, the `description` the file gives "
+            "itself, the `model` and `effort` it binds, and the `source` it was read from."
+        )},
+        "count": {"type": "integer", "description": "How many are usable."},
+        "skipped": {"type": "array", "items": {"type": "object",
+                                               "additionalProperties": True},
+                    "description": (
+            "Files present but unusable, with why. A broken definition is skipped rather "
+            "than fatal, so this is the list that needs fixing."
+        )},
+        "other_format": {"type": "array", "items": {"type": "object",
+                                                    "additionalProperties": True},
+                         "description": (
+            "Claude Code's own agent files sharing the directory. Not broken, and not "
+            "runnable here."
+        )},
+    },
+}
+
+_BACKEND_STATUS_RESULT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "default": {"type": "string", "description": "The registry key used when none is named."},
+        "models": {"type": "array", "items": {"type": "object", "additionalProperties": True},
+                   "description": (
+            "One row per registry entry: `status`, `id_confirmed`, `detail`, and a "
+            "`cluster` block of the serving stack's own numbers. `id_confirmed: false` "
+            "beside an ok `status` means the endpoint is healthy but is not serving the "
+            "model that entry names. A null `cluster` means the endpoint publishes no "
+            "metrics, which is not ill health."
+        )},
+        "admission": {"type": "object", "additionalProperties": True, "description": (
+            "This process's own gauges, and under `cross_process` whether the four rules "
+            "are counted across every server process on the machine. `active: false` there "
+            "means each client is bounded separately, so real load is higher than these "
+            "numbers suggest."
+        )},
+    },
+}
+
+
+# What the client actually delivers, measured rather than assumed: Claude Code slices a tool
+# description at 2048 characters, appends a marker, and offers nothing that fetches the rest.
+# Nothing in FastMCP or the MCP schema caps it -- the protocol leaves it to the client.
+#
+# So a description is not where a contract goes. It is the retrieval index a tool is *found*
+# by, and four of the six here are near-twins, so what it must carry is the axis that
+# separates them. Everything else has a better home, and every one of those homes is
+# delivered too: arguments in `inputSchema` below, the result shape in `outputSchema`,
+# failures in the error each refusal already raises, and the long form in a resource a
+# caller reads only when it wants it. (ADR-0066)
+_DESCRIPTION_LIMIT = 2048
+
+# A description this server intends to fit, well under the client's cut. The limit above is
+# what the client enforces; this is what review enforces, and the gap is deliberate -- a
+# description at 2000 characters is passing a length check while failing its purpose.
+_DESCRIPTION_TARGET = 700
+
+# ---- the arguments, described once, in the schema that carries them ----------------
+#
+# Written here rather than in four docstrings. MCP has no include, but `inputSchema` needs
+# none: each property carries its own `description`, on its own budget, shown beside the
+# argument it describes. That is the whole reason the prose that used to sit in the
+# descriptions is gone rather than relocated -- it was never a description's to carry.
+#
+# `effort`'s vocabulary is derived from `config.py` and not written out, so the enum and the
+# levels cannot disagree. It is the schema half of a check `_resolve_effort` also makes at
+# runtime, and neither trusts the other: a client may not enforce an enum, and a schema
+# cannot explain itself the way that refusal does.
+
+Task = Annotated[
+    str,
+    Field(description=(
+        "One self-contained question or instruction. A task carrying several either stalls "
+        "without completing a turn or returns `ok: true` with an empty answer, so send "
+        "several as several calls -- they share the cached prefix anyway."
+    )),
+]
+
+Effort = Annotated[
+    str,
+    Field(
+        description=(
+            "Reasoning effort, required because it changes both what the call costs and how "
+            "good the answer is. 'low' for summarising, quoting and mechanical edits; "
+            "'high' when the answer depends on reasoning across what it was given; 'max' "
+            "only for something that came back thin at 'high'; 'off' to disable reasoning; "
+            "'inherit' to defer to the agent file, then the registry row, then the "
+            "configured default."
+        ),
+        json_schema_extra={"enum": [*EFFORT_LEVELS, EFFORT_INHERIT]},
+    ),
+]
+
+Files = Annotated[
+    list[str] | None,
+    Field(description=(
+        "Absolute paths the server reads itself and hands to the model, so their contents "
+        "never enter your own context. Naming files here is the cheapest shape there is; "
+        "omitting them is the dearest, because the delegation's turns then re-read what one "
+        "prefetch would have supplied once. A head start, not a limit -- it can still go "
+        "looking. Windows paths are translated. A refused path costs the call that file and "
+        "not the call, and comes back in `files_skipped`."
+    )),
+]
+
+Model = Annotated[
+    str | None,
+    Field(description=(
+        "A key from the model registry. Omit for the configured default."
+    )),
+]
+
+AllowedTools = Annotated[
+    list[str] | None,
+    Field(description=(
+        "Narrows what the delegated model may use. Omit for everything the tool offers; "
+        "pass an empty list for a single-turn answer with no tools at all, which is the "
+        "cheapest shape when `files[]` already holds everything."
+    )),
+]
+
+MaxTokens = Annotated[
+    int | None,
+    Field(description=(
+        "Cap on one reply. Leave it unset unless you have a reason: the default is already "
+        "raised at high and max effort so reasoning cannot consume the whole allowance and "
+        "return nothing. If you do set it, it is honoured as given rather than raised to "
+        "that floor -- so a small cap at high effort risks an answer that is empty because "
+        "it thought until it ran out, which the server then retries at a larger budget. "
+        "Raising it past what the clock can decode has no effect."
+    )),
+]
+
+MaxTurns = Annotated[
+    int | None,
+    Field(description=(
+        "Cap on round trips. Raise it for work that genuinely iterates, and read "
+        "`hit_turn_limit` as the sign you should have. Clamped to an operator ceiling, so "
+        "asking for more than that is not an error."
+    )),
+]
+
+Workdir = Annotated[
+    str | None,
+    Field(description=(
+        "A directory to bind into the sandbox read-write, so `run_bash` can build or test "
+        "in it. Writing never needed one -- `write_file` and `edit_file` run against the "
+        "workspace roots -- so what this adds is the *running* half of a write-then-verify "
+        "loop. Omit it to leave the shell nothing of yours at all."
+    )),
+]
+
+Diagnostics = Annotated[
+    bool,
+    Field(description=(
+        "Return a per-turn breakdown beside the answer: what each turn cost, what it "
+        "evicted, and which files were read again after the server had dropped the first "
+        "read. Ask for it when a call was dearer than the work justified."
+    )),
+]
+
+AgentName = Annotated[
+    str,
+    Field(description=(
+        "An agent from `list_agents`. The file carries the instructions, the model, the "
+        "effort and the tools that kind of work needs."
+    )),
+]
+
+Project = Annotated[
+    str | None,
+    Field(description=(
+        "Where to look for the agent file. Binds nothing, and defaults to `workdir`. Pass "
+        "it separately only to run one project's agent against another."
+    )),
+]
+
+
+ProjectLookup = Annotated[
+    str | None,
+    Field(description=(
+        "Which project's agents to list. Pass the same value you intend to delegate with: "
+        "a project's own agents are found before your personal ones, so a different "
+        "project lists agents a delegation would not actually reach."
+    )),
+]
+
+
+def _server_instructions(cfg: Config) -> str:
+    """The few rules that decide a call before the caller has chosen a tool.
+
+    Short on purpose. The client truncates this by the same 2048 as a description, and
+    everything that has a better home has gone to it -- so what is left is the operational
+    shape a caller cannot discover from a schema: that a delegation is cheap, that the
+    concurrency ceiling is real, and that there is a resource to read when sizing a pass
+    matters. The ceiling is interpolated from `Config`, because defaults live only there.
+
+    Everything below the `return` is the delivered text; this docstring is not. They read
+    as one block in the file and reach entirely different audiences.
     """
-    fn.__doc__ = inspect.cleandoc(fn.__doc__ or "") + "\n\n" + _COST_RULES.strip() + "\n"
-    return fn
+    return f"""
+Delegation to a local model, on hardware the user hosts: it costs no cloud tokens, so
+prefer it for bulk, mechanical or read-heavy work and keep your own context for judgement.
+
+Name files in `files[]` rather than pasting them -- the server reads them, so their
+contents never enter your context. Send one question per call.
+
+At most {cfg.max_inflight_large_prefills} calls prefetching over {cfg.large_prefill_tokens}
+tokens run at once; further ones wait. Smaller calls do not contend.
+
+Read the `delegate://orchestration` resource before a wide pass -- sizing, fan-out and the
+failure modes worth knowing, kept there rather than here so it costs nothing until wanted.
+""".strip()
 
 
 def build(
@@ -908,128 +1220,39 @@ def build(
         finally:
             await cache.aclose()
 
-    mcp: FastMCP = FastMCP(name=SERVER_NAME, lifespan=lifespan)
+    mcp: FastMCP = FastMCP(
+        name=SERVER_NAME,
+        lifespan=lifespan,
+        instructions=_server_instructions(cfg),
+    )
 
-    @mcp.tool
-    @_with_cost_rules
+    @mcp.tool(output_schema=_DELEGATION_RESULT)
     async def delegate(  # noqa: PLR0913 -- ctx is injected, not an argument the caller sees
-        task: str,
-        # Required, and sitting here only because a parameter without a default cannot
-        # follow one that has it. Effort changes both what a call costs and how good the
-        # answer is, and it was previously chosen by saying nothing -- four links down a
-        # precedence chain to `thinking_default`, without the caller ever seeing the
-        # decision. `"inherit"` is how a caller defers on purpose (ADR-0045).
-        effort: str,
-        files: list[str] | None = None,
-        model: str | None = None,
+        task: Task,
+        effort: Effort,
+        files: Files = None,
+        model: Model = None,
         *,
         # Keyword-only from here, and not merely to satisfy a lint: MCP passes every
         # argument by name, so positional order is a promise to nobody.
-        allowed_tools: list[str] | None = None,
-        max_tokens: int | None = None,
-        max_turns: int | None = None,
-        workdir: str | None = None,
-        diagnostics: bool = False,
+        allowed_tools: AllowedTools = None,
+        max_tokens: MaxTokens = None,
+        max_turns: MaxTurns = None,
+        workdir: Workdir = None,
+        diagnostics: Diagnostics = False,
         # Not an argument at all -- fastmcp injects it by type, and it never appears in
         # the schema the model reads.
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Hand one self-contained task to a local model and get its answer back.
+        """Delegate a task to a local model that can read, write and run commands.
 
-        For bulk, mechanical or read-heavy work whose reasoning is modest: drafting,
-        first-pass review, mechanical rewrites, explaining something. It runs on hardware
-        the user hosts, so it costs no cloud tokens -- prefer it whenever the work does
-        not need your own judgement.
+        The general form, and the only one that can change anything: it gets the file
+        tools and a sandboxed shell, so it can write code, run the project's tests, read
+        the real failure and try again -- on hardware the user hosts, at no cloud cost.
 
-        Set `diagnostics=true` to get a per-turn breakdown back alongside the answer:
-        what each turn's prompt cost, what it evicted, which tools it ran, and -- the part
-        worth asking for -- which files were read again after the server had dropped the
-        first read from the history. Use it when a delegation was slower or more expensive
-        than the work justified and you want to know which. It makes the reply larger and
-        changes nothing about how the work is done, so leave it off by default.
-
-        **Name files in `files[]` rather than pasting them into `task`.** The server
-        reads them itself and gives them to the model directly, so their contents never
-        enter your context and cost you nothing. Reading a file yourself in order to
-        paste it here defeats the entire point of this tool. Give absolute paths, in
-        whatever form you already have them -- Windows paths are translated for you.
-
-        The model works in turns, and can read and write files in the workspace itself.
-        So `files[]` is a head start rather than the whole world: name what it obviously
-        needs, and let it find the rest. It can also run shell commands, confined to a
-        sandbox that holds nothing of yours and has no network unless an agent asks for
-        one -- pass `workdir` to bind a directory it can build or test in, and omit it to
-        leave the shell nothing of yours at all.
-
-        `write_file` and `edit_file` never needed a workdir and still do not: they run in
-        the server process against the workspace roots, so a delegation can write a file
-        without one. What a workdir adds is the ability to *run* something against what it
-        wrote, which is the whole of a write-then-verify loop. Narrow the set with
-        `allowed_tools` when you want it reading only, and expect the shell to be absent on
-        a host without bubblewrap. Path rules are the same ones that govern `files[]`, and a
-        write it is refused comes back to it as a refusal it can correct, not as a failed
-        call.
-
-        `effort` is required, because it changes both what the call costs and how good the
-        answer is, and there is no sensible value to pick on your behalf: one of "off",
-        "low", "high", "max", or "inherit" to defer to the configured default. Match it to
-        the task -- "low" for summarising, quoting, or anything mechanical; "high" when the
-        answer depends on reasoning across what it was given, such as a review, a trace
-        through several files, or a design question. "max" is for the rare case that has
-        already come back thin at "high".
-
-        `model` names a registered model, defaulting to the configured one. `allowed_tools`
-        narrows what the model may use -- omit it for everything available, or pass an
-        empty list for a single-turn answer with no tools at all, which is the cheapest
-        shape when the task is self-contained and `files[]` already holds everything.
-
-        `max_tokens` caps one reply. Leave it alone unless you have a reason: the default
-        is already raised at high and max effort so reasoning does not consume the whole
-        allowance and return nothing, and naming a small number here opts out of that
-        headroom rather than saving anything. It is honoured as given, up to whatever the
-        model itself accepts.
-
-        `max_turns` caps how many round trips it gets. Raise it for work that genuinely
-        iterates -- a wide audit, a refactor across many files -- and read
-        `hit_turn_limit: true` as the sign you should have. It is clamped to a ceiling the
-        operator sets, silently, so asking for more than that is not an error.
-
-        A path in `files[]` that is not allowed is **skipped**, not fatal: the call goes
-        ahead with the files that did resolve, and `files_skipped` names each refused
-        path, the layer that refused it and what to do about it. Every path being refused
-        is the exception and still fails before anything is sent, because nothing would be
-        left to send. A file that is allowed but too large or not text is skipped the same
-        way. Read `files_skipped` before trusting an answer; the model was told the file
-        was unavailable, but it cannot tell you what it never saw.
-
-        Returns `answer` plus what the server watched happen, rather than the model's
-        account of it: `turns` is how many round trips it took, `tool_calls` how many
-        tools actually ran, `tool_errors` how many of those were refused, and `attempts`
-        the real number of backend calls, which exceeds `turns` when something failed and
-        was retried for you. A model's summary of its own work is not evidence; these are.
-
-        `hit_turn_limit: true` means it was still calling tools when its turns ran out.
-        The answer is whatever it could write once tools were withdrawn, so treat it as
-        partial -- and verify any file it claims to have written, because the count of
-        tools that ran does not say what they did.
-
-        Do not retry this call yourself to work around an empty answer or a flaky
-        endpoint. The server already does both, and repeating it here spends your context
-        to redo work that was done. A dropped route or a temporary refusal is retried with
-        backoff; an answer that comes back empty at a length stop -- reasoning having
-        consumed the whole reply budget -- is retried at a larger budget and then at a
-        lower effort before you are told about it.
-
-        So `empty_response: true` means those were already tried and it is still empty.
-        Read `reasoning_exhausted` alongside it. True: the task needs more reasoning than
-        this model can finish inside its budget, so split it or send it somewhere else --
-        asking again, or at a lower effort, will not help. False: the budget was simply
-        too small for the answer at an effort that is already the lowest, so a shorter
-        task or a model with a larger cap is the fix. Either way, report the empty result
-        rather than presenting it as a model with nothing to say.
-
-        If the call fails outright, `backend_status()` will say whether the model is down,
-        misconfigured, or serving something other than it should.
+        Reach for `delegate_readonly` when nothing needs writing; it is declared read-only,
+        so a client that gates writes runs it without stopping to ask. Reach for
+        `delegate_to_agent` when the work has a *kind* an agent file already shapes.
         """
         return await run_delegation(
             cfg, registry, cache, windows, admission,
@@ -1039,47 +1262,28 @@ def build(
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate",
         )
 
-    @mcp.tool(annotations={"readOnlyHint": True})
-    @_with_cost_rules
+    @mcp.tool(annotations={"readOnlyHint": True}, output_schema=_DELEGATION_RESULT)
     async def delegate_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
-        task: str,
-        effort: str,
-        files: list[str] | None = None,
-        model: str | None = None,
+        task: Task,
+        effort: Effort,
+        files: Files = None,
+        model: Model = None,
         *,
-        max_tokens: int | None = None,
-        max_turns: int | None = None,
-        diagnostics: bool = False,
+        max_tokens: MaxTokens = None,
+        max_turns: MaxTurns = None,
+        diagnostics: Diagnostics = False,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Hand a task to a local model that can read the workspace but cannot change it.
+        """Delegate a read-only task: search, read files, read git history, change nothing.
 
-        `delegate` with a fixed read-only toolset, chosen here rather than asked for. What
-        differs from `delegate` is what a caller can promise *before* it runs: this is
-        declared read-only, so a client that gates writes on that declaration can run it
-        where `delegate` has to stop and ask.
+        `delegate` with the toolset fixed, and what differs is what a caller can promise
+        *before* it runs -- this is declared read-only, so a client that gates writes runs
+        it where `delegate` has to stop and ask.
 
-        It gets `search_files`, `read_file` and `read_git`, and nothing else -- so it can
-        go looking, through the worktree and through history alike.
-        Name the obvious material in `files[]` and let it find the rest: a question like
-        "where is X handled" or "does anything still call Y" is answerable now, and used to
-        need a guess at which files to prefetch. `files[]` is a head start rather than the
-        whole world.
-
-        Use it for the read-heavy majority: explaining, summarising, first-pass review,
-        tracing a call path, answering "where" and "what already exists". Reach for
-        `delegate` only when the work needs to write a file or run a command -- asking this
-        one to edit something produces a description of the edit instead.
-
-        `effort` is required: one of "off", "low", "high", "max", or "inherit" to defer to
-        the configured default. Read-only does not mean undemanding -- "low" suits
-        summarising and quoting, but a review or a trace across several files needs "high",
-        and answering it at "low" spends the call for a worse answer rather than a cheaper
-        one.
-
-        `max_turns` caps how many round trips it gets. It has turns now, which it did not
-        before, so a search that needs to grep, read a hit and grep again has room; read
-        `hit_turn_limit` as the sign it needed more.
+        The read-heavy majority belongs here: explaining, summarising, first-pass review,
+        tracing a call path, "where is X handled", "does anything still call Y". It has
+        turns and can go looking, so name the obvious material and let it find the rest.
+        Use `delegate_to_agent_readonly` when an agent file should shape the work.
         """
         return await run_delegation(
             cfg, registry, cache, windows, admission,
@@ -1125,54 +1329,31 @@ def build(
         except PathPolicyError as e:
             raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
-    @mcp.tool
-    @_with_cost_rules
+    @mcp.tool(output_schema=_DELEGATION_RESULT)
     async def delegate_to_agent(  # noqa: PLR0913 -- ctx is injected, not a caller argument
-        agent_name: str,
-        task: str,
-        files: list[str] | None = None,
-        workdir: str | None = None,
+        agent_name: AgentName,
+        task: Task,
+        files: Files = None,
+        workdir: Workdir = None,
         *,
-        project: str | None = None,
-        model: str | None = None,
-        effort: str,
-        allowed_tools: list[str] | None = None,
-        max_tokens: int | None = None,
-        max_turns: int | None = None,
-        diagnostics: bool = False,
+        project: Project = None,
+        model: Model = None,
+        effort: Effort,
+        allowed_tools: AllowedTools = None,
+        max_tokens: MaxTokens = None,
+        max_turns: MaxTurns = None,
+        diagnostics: Diagnostics = False,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Delegate to a named agent -- a markdown file that shapes how the task is done.
+        """Delegate to a named agent: a file that shapes how one *kind* of task is done.
 
-        Use this over `delegate` when the work has a *kind*: writing tests, reviewing a
+        Use this over `delegate` when the work has a kind -- writing tests, reviewing a
         diff, migrating an API. The agent file carries the instructions, the model, the
-        reasoning effort and the tools that kind of work needs, so you send the task and not
-        the preamble. `list_agents()` shows what is available.
+        effort and the tools that kind of work needs, so you send the task and not the
+        preamble. `list_agents` shows what is available.
 
-        `workdir` is what makes an agent able to work rather than only read. It binds that
-        directory into the sandbox, writable, so `run_bash` can run the project's tests or
-        its linter there. Without it the model can still read files you name and change
-        them through `write_file` and `edit_file`, but a shell has nothing of yours to run
-        against. Give the repository root, in whatever path form you already have.
-
-        `project` says where to look for the agent file, and binds nothing. It defaults to
-        `workdir`, which is what you want almost always -- the repository you are working in
-        is the one whose agents you mean. Pass it separately only to run another project's
-        agent against this one.
-
-        Every explicit argument here wins over the agent file, so you can send one hard case
-        to `test-writer` at a larger model without editing the file. Omit them and the file
-        decides.
-
-        `effort` is the exception: it cannot be omitted, because a value chosen by silence
-        is what this argument exists to stop. Pass "inherit" to let the agent file decide --
-        which is usually right here, since a well-written agent binds the effort its kind of
-        work needs -- or one of "off", "low", "high", "max" to overrule it for this call.
-
-        The reply is `delegate`'s, plus `agent` naming the file that was used. Read
-        `bash_failures` and `last_bash_exit` over the model's own prose: those are real
-        process exits the server captured, and a model summarising its own test run is not
-        evidence (ADR-0007).
+        Can write and run commands, like `delegate`. Use `delegate_to_agent_readonly` when
+        the agent's work is reading.
         """
         # Both are checked *before* either is used to look anything up. The agent lookup
         # reads `<project>/.claude/agents/`, so passing the caller's argument to it
@@ -1189,52 +1370,29 @@ def build(
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent",
         )
 
-    @mcp.tool(annotations={"readOnlyHint": True})
-    @_with_cost_rules
+    @mcp.tool(annotations={"readOnlyHint": True}, output_schema=_DELEGATION_RESULT)
     async def delegate_to_agent_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
-        agent_name: str,
-        task: str,
-        files: list[str] | None = None,
+        agent_name: AgentName,
+        task: Task,
+        files: Files = None,
         *,
-        project: str | None = None,
-        model: str | None = None,
-        effort: str,
-        max_tokens: int | None = None,
-        max_turns: int | None = None,
-        diagnostics: bool = False,
+        project: Project = None,
+        model: Model = None,
+        effort: Effort,
+        max_tokens: MaxTokens = None,
+        max_turns: MaxTurns = None,
+        diagnostics: Diagnostics = False,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Delegate to a named agent, with a toolset that cannot change anything.
+        """Delegate to a named agent, with the toolset fixed to reading.
 
-        `delegate_to_agent` with the read-only tools, chosen here rather than asked for --
-        exactly what `delegate_readonly` is to `delegate`. Reach for it whenever the agent's
-        work is reading: an audit, a review, a trace, "does anything still call Y". Declared
-        read-only, so a client that gates on that declaration runs it where
-        `delegate_to_agent` has to stop and ask.
-
-        What it keeps that `delegate_readonly` cannot is the agent file: the instructions,
-        the model and the effort that kind of work needs, and whatever hard-won guardrails
-        the body has accumulated. A read-only *call* to the agent tool could never be
-        expressed, because permission rules match on tool name and never inspect arguments,
-        so narrowing with `allowed_tools` proves nothing before the call runs.
+        `delegate_to_agent` with the read-only tools, exactly as `delegate_readonly` is to
+        `delegate`: declared read-only, so a client that gates writes runs it without
+        asking. The default for an audit, a review, or any agent whose work is reading.
 
         **The agent's own `allowed_tools` is replaced, not narrowed.** It gets `read_file`,
-        `search_files` and `read_git`, whatever its file says -- so an agent declaring
-        `run_bash` loses it, and one declaring less than the full read-only set gains the
-        rest. That follows the ordinary rule that an explicit argument beats the file; it is
-        called out because here the argument is fixed rather than passed, so there is nothing
-        at the call site to read it from.
-
-        `project` says where to look for the agent file and binds nothing, which is the only
-        directory argument a read-only tool can have. There is deliberately no `workdir`: a
-        workdir is a read-write bind, and offering one would make the annotation false.
-
-        `effort` cannot be omitted, because a value chosen by silence is what this argument
-        exists to stop. Pass "inherit" to let the agent file decide -- usually right here --
-        or one of "off", "low", "high", "max" to overrule it for this call.
-
-        Asking it to edit something produces a description of the edit instead. Use
-        `delegate_to_agent` when the work must write or run a command.
+        `search_files` and `read_git` whatever its file says -- so an agent declaring
+        `run_bash` does not get it, and one declaring less gains the rest.
         """
         resolved_project = _rooted(project)
         agent = _load(agent_name, resolved_project)
@@ -1254,36 +1412,17 @@ def build(
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent_readonly",
         )
 
-    @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
-    async def list_agents(project: str | None = None) -> dict[str, Any]:
-        """List the agents available to `delegate_to_agent`, and where each was found.
+    @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True},
+              output_schema=_AGENT_LIST_RESULT)
+    async def list_agents(project: ProjectLookup = None) -> dict[str, Any]:
+        """List the agents `delegate_to_agent` can reach, and where each was found.
 
-        Call this before guessing an agent name. Each row carries the `name` to pass, the
-        `description` the file gives itself, the `model` and `effort` it binds, and the
-        `source` it was read from.
-
-        `project` matters. Agents are looked for in that project first and in your personal
-        directory second, so a repository can ship one that knows its own conventions. Pass
-        the same `project` you intend to delegate with, or this list will not match what a
-        delegation would actually find.
-
-        It was called `workdir` until 2026-09-06, which was the wrong name: a workdir is a
-        read-write sandbox bind, and this binds nothing. Nothing here ever ran a command.
+        Call this before guessing an agent name.
 
         Three lists, because "not there", "there and broken" and "there but not mine" need
-        different answers and used to give the same one -- a file that did not parse was
-        simply left out, which is indistinguishable from a name that does not exist.
-
-        `skipped` is what needs fixing: a file meant for this server that could not be read
-        as an agent, with the name it claimed and why it failed. Non-empty always means
-        something is wrong.
-
-        `other_format` is Claude Code's own agent format sharing the directory. Those files
-        are not broken and are not for this server -- the tool list is spelled `tools`
-        there and `allowed_tools` here -- so they are named rather than either hidden or
-        called faulty. `delegate_to_agent` cannot run one.
-
-        A name absent from all three does not exist.
+        different answers: `agents` are usable, `skipped` are present but did not parse,
+        and `other_format` are Claude Code's own agent files sharing the directory -- not
+        faulty, and not runnable here.
         """
         listing = discover_agents(cfg, _rooted(project))
         found, skipped = listing.agents, listing.skipped
@@ -1312,37 +1451,19 @@ def build(
             "other_format_count": len(listing.other_format),
         }
 
-    @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
+    @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True},
+              output_schema=_BACKEND_STATUS_RESULT)
     async def backend_status() -> dict[str, Any]:
         """Report whether each configured local model is reachable and serving what it should.
 
-        Probes every model in the registry at once and returns one row each. Use this
-        first whenever a delegation fails, before retrying or giving up: it separates a
-        model that is down from one that is misconfigured, and from a key that is wrong.
+        Call this first whenever a delegation fails, before retrying or giving up: it
+        separates a model that is down from one that is misconfigured, and from a key that
+        is wrong. `status: "ok"` with `id_confirmed: false` is the case worth reading
+        closely -- the endpoint is healthy but is not serving the model this entry names,
+        so delegating to it will not do what the registry claims.
 
-        Each row carries a `status` of "ok", "backend_unreachable", "auth_failed",
-        "backend_refused", "backend_protocol_error" or "misconfigured", and an
-        `id_confirmed` flag. `id_confirmed: false` alongside `status: "ok"` is the case
-        worth reading closely -- the endpoint is healthy but is not serving the model
-        this entry names, so delegating to it will not do what the registry claims.
-
-        The `admission` block reports this process's own gauges and peaks, and, under
-        `admission.cross_process`, whether the four rules are being counted across every
-        server process on the machine and what that machine-wide total currently is.
-        `active: false` there means each connected client is being bounded separately, so
-        the real load on the cluster is higher than this process's numbers suggest.
-
-        Each row also carries a `cluster` block: the serving stack's own numbers, where
-        `admission` carries this process's estimates of them. It reports how many requests
-        the engine is running and how many are waiting, how full the KV cache is as a
-        fraction and how large it is in tokens, whether prefix caching is on, the
-        lifetime prefix-cache hit rate, the lifetime decode rate in tokens per second,
-        and the preemption count. `null` means the
-        endpoint publishes no metrics, which is a fact about the endpoint and never a
-        reason to call it unhealthy. The token counters are denominated in tokens rather
-        than requests.
-
-        Endpoint addresses are deliberately never included in the result.
+        Also reports this process's admission gauges and, per model, the serving stack's
+        own numbers: queue depth, KV-cache fill, prefix-cache hit rate, preemptions.
         """
         rows = await asyncio.gather(
             *(
@@ -1358,5 +1479,102 @@ def build(
                 "cross_process": await cross_process_status(slots, slots_reason),
             },
         }
+
+    # ---- the long form, pulled rather than pushed ---------------------------------
+    #
+    # A resource, and that choice is the whole of ADR-0066's second half. Prompts are
+    # user-controlled by specification -- content arrives only on `prompts/get`, and a
+    # person has to invoke one -- so a rule the model must follow unprompted cannot live
+    # there. A resource is different in exactly the way that matters: the *model* can list
+    # and read it (Claude Code exposes both), so this pays nothing until something asks for
+    # it, and then has no length limit at all.
+    #
+    # What belongs here is what a caller needs when sizing a pass rather than when choosing
+    # a tool. Anything a schema can state is in the schema instead, and anything a refusal
+    # can state is in the refusal.
+    @mcp.resource(
+        "delegate://orchestration",
+        name="Orchestrating delegations",
+        description=(
+            "How to size a delegation, what a call costs, how many run at once, and the "
+            "failure modes worth recognising. Read it before a wide pass."
+        ),
+        mime_type="text/markdown",
+    )
+    def orchestration_guide() -> str:
+        """The cost model and the failure modes, measured on this deployment."""
+        return f"""
+# Orchestrating delegations
+
+## What a call costs
+
+The expensive shape is a call with no `files[]`. Its turns re-read what one prefetch would
+have supplied once, and admission sizes a request on its *opening* estimate and never
+revisits it -- so an unprefetched call is filed as small for life while each later turn
+re-prefills. Measured here: no prefetch gave 10 turns, a turn-limit stop, 12 evicted tool
+results and 394k total input tokens, for a question that two turns answered with the right
+file attached.
+
+Prefetching is a head start, not a limit. The read-only tools have turns and can go
+looking, so name the obvious material and let the delegation find the rest.
+
+## How many run at once
+
+A prefetch estimated over {cfg.large_prefill_tokens} tokens counts as a large call, and
+admission admits {cfg.max_inflight_large_prefills} of them concurrently. It does not queue
+politely: a waiter that does not fit is refused after `admission_wait_timeout`, so issuing
+many large calls together loses the ones that time out rather than delaying them.
+
+Calls under that threshold do not contend and can overlap freely. Several tasks over the
+same files are several calls, and they share the cached prefix however they are sent,
+because the task is rendered last under a byte-constant prefix.
+
+## One question per call
+
+A task carrying several fails in two ways. It stalls without completing a turn, which reads
+like an outage; or it completes one and returns an empty answer with `ok: true`, which
+reads like success. "List every X and what each does" is enumerable and counts as many.
+
+So check `empty_response` before trusting a short reply, and read `reasoning_exhausted`
+beside it: true means the task needs more reasoning than the model can finish in its
+budget, so split it; false means the budget was simply too small.
+
+## Recognising a failure
+
+`bash_failures` and `last_bash_exit` are real process exits the server captured. They may
+contradict the model's own account of a command it ran, and the server's numbers are the
+ones to believe. `last_bash_exit` is the status of the whole shell line, so a trailing
+`; echo $?` or a `| tail` replaces the status of the work with the status of the echo -- a
+non-zero is trustworthy because nothing invents one, a zero is not proof of success.
+
+`hit_turn_limit` means the delegation was still calling tools when its turns ran out; the
+answer is whatever it could write once tools were withdrawn, so treat it as partial and
+raise `max_turns` rather than re-asking the same question.
+
+Do not retry a failed call yourself. The server already retries an unavailable or refusing
+backend with backoff, and already re-asks an empty answer at a larger budget and then a
+lower effort. When a call fails outright, `backend_status()` says whether the model is
+down, misconfigured, or serving something other than what the registry names.
+
+## Choosing a tool
+
+`delegate_readonly` and `delegate_to_agent_readonly` are declared read-only, so a client
+that gates writes runs them without asking. Prefer them whenever the work is reading --
+that is most work. Reach for the writing forms when the delegation must produce a file or
+run a command, and pass `workdir` only then.
+
+## History is `read_git`'s, and only `read_git`'s
+
+`run_bash` cannot see `.git` at all: the scan covers it, so a git command inside the sandbox
+fails without saying why. Every question about history therefore goes to `read_git` -- when a
+line changed and why, what a commit touched, which entry removed a thing.
+
+It reads the **working tree** as well as history, so it is also how a delegation sees an
+uncommitted diff: ask it to read the diff against HEAD rather than copying a patch file
+somewhere for it, which cannot work anyway if that somewhere is outside the workspace roots.
+
+Its long output is truncated on a line boundary and says so. Read that line before concluding
+something is absent.
+""".strip()
 
     return mcp

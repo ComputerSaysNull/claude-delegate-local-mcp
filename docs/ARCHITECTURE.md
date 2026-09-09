@@ -1,4 +1,6 @@
-<!-- BUDGET: 998
+<!-- BUDGET: 1030
+     Raised from 998 on 2026-09-09: the model-facing contract has four homes, and which
+     fact belongs in which is this document's to state (ADR-0066).
      Raised from 992 on 2026-09-08: why the staleness digest normalises newlines.
      Raised from 978 on 2026-09-08: a captured exit code is the shell line's, so its two
      directions are not equally trustworthy -- measured, not reasoned.
@@ -770,10 +772,40 @@ loop, which is why the two belong on the same tools rather than one implying the
 inspects arguments, so the claim is a property of the tool or it is worth nothing. Holding
 that asymmetry is what the guard in `tests/test_server.py` is for, and it is worth more than
 the annotations themselves.
-The descriptions carry the three facts that decide what a call costs -- prefetch what the
-call is known to need, and ask one question per call -- because the protocol offers this
-server no other channel, and a test walks all four since they are written per tool rather
-than shared.
+### The contract has four homes, and a description is the smallest of them
+
+Measured against the client rather than assumed: Claude Code slices a tool description at
+2048 characters, appends a marker, and offers nothing that fetches the rest. Nothing in
+FastMCP or the MCP schema caps it — the protocol leaves it to the client. So a description
+is not where a contract goes. It is the **retrieval index** a tool is found by, since tool
+search is on by default and a description is matched on before it is read.
+
+Each fact goes to the home that owns it, and all four are delivered:
+
+| Fact | Home | Why there |
+|---|---|---|
+| What it does, when to use it *rather than a sibling* | tool `description` | It is the index; four of six are near-twins |
+| Names, types, required-ness | `inputSchema`, derived | Already there; prose restating it is duplication |
+| Valid `effort` values | `inputSchema` `enum`, derived from `config.py` | Structural, and cannot drift from the levels |
+| What an argument means and costs | property `description` | Own budget, shown beside the argument |
+| What went wrong and how to fix it | the refusal itself | Arrives when it matters, not on every listing |
+| What the result's keys mean | `outputSchema`, described | Read where a caller reads the result |
+| Sizing, fan-out, failure modes | `delegate://orchestration` | Unbounded, and costs nothing until read |
+| What must be known before choosing | server `instructions` | Pushed once, server-wide |
+
+**The resource is the one that makes the rest possible.** A prompt could not do this job:
+prompts are user-controlled by specification, so a person has to invoke one. A resource is
+pulled by the *model* — Claude Code exposes listing and reading — so it reaches the model
+unprompted with no length limit at all. That is what lets a description be an index instead
+of a manual.
+
+Descriptions run 392 to 622 characters here, against 1484 to 6087 before, and the schemas
+now describe every argument *and every result key* of every tool. The result schema is
+deliberately permissive — nothing `required`, additions allowed — because the one-shot path
+omits the loop ledger and `diagnostics` appears only when asked, so a stricter one would
+refuse results this server legitimately produces. A test holds each description to a target well
+under the client's cut, since a 2000-character description passes a length check while
+failing its purpose. (ADR-0066)
 
 ## A dispatch is written twice, because "what happened" and "what is happening" are different questions
 

@@ -21,6 +21,7 @@ import pytest
 from fastmcp import Client
 
 from claude_delegate_local import loop as loop_module
+from claude_delegate_local import config as config_module
 from claude_delegate_local import sandbox, server
 from claude_delegate_local import tools as tools_module
 from claude_delegate_local.backends import openai_compat as oc
@@ -366,7 +367,7 @@ async def test_the_result_reports_every_registered_entry_and_marks_the_default()
         DoubleCache(config, ok_handler()),
     )
     async with Client(mcp) as client:
-        result = (await client.call_tool("backend_status")).data
+        result = payload(await client.call_tool("backend_status"))
     assert result["default"] == "b"
     assert {row["key"] for row in result["models"]} == {"a", "b"}
     assert [row["key"] for row in result["models"] if row["is_default"]] == ["b"]
@@ -385,6 +386,18 @@ def chat_reply(content="ok", finish_reason="stop", model="served-id-1", **over):
     }
     body.update(over)
     return body
+
+
+def payload(result):
+    """The result dict as the wire carried it.
+
+    `.data` deserialises into a generated model once a tool declares an `outputSchema`,
+    which is a convenience of fastmcp's own client rather than anything the protocol says
+    -- Claude Code reads `structuredContent`. These tests assert what crosses the wire, so
+    they read the same field it does. (ADR-0066)
+    """
+    structured = getattr(result, "structured_content", None)
+    return structured if structured is not None else result.data
 
 
 def chat_handler(**over):
@@ -407,7 +420,7 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
 
     async def go():
         async with Client(mcp) as client:
-            return (await client.call_tool("delegate", kwargs)).data
+            return payload(await client.call_tool("delegate", kwargs))
 
     return asyncio.run(go())
 
@@ -889,12 +902,17 @@ def test_a_denylist_hit_is_skipped_rather_than_fatal(tmp_path):
     assert result["files_read"] and "client_secret" not in json.dumps(result["files_read"])
 
 
-def test_the_tool_description_tells_the_model_not_to_paste_files():
-    """The description is the model-facing contract, and this is the behaviour it buys.
+def test_the_schema_tells_the_model_not_to_paste_files():
+    """The contract that buys this tool's whole purpose, asserted where it now lives.
 
     A model that reads a file itself in order to paste it into `task` has spent exactly
     the context this tool exists to save, and the call still succeeds -- so nothing but
     the wording prevents it.
+
+    That wording is a property of the `files` argument, so it belongs in `inputSchema`
+    beside the argument rather than in the description. It is delivered there on its own
+    budget and shown next to the field it governs, where the description is sliced at
+    2048 characters and is the index the tool is *found* by. (ADR-0066)
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -903,47 +921,150 @@ def test_the_tool_description_tells_the_model_not_to_paste_files():
         async with Client(mcp) as client:
             return next(t for t in await client.list_tools() if t.name == "delegate")
 
-    tool = asyncio.run(go())
-    # Collapsed, because the docstring is hard-wrapped and a phrase can straddle a line
-    # break. The contract is the words, not where they happen to sit.
-    description = " ".join((tool.description or "").split())
-    assert "files[]" in description
-    assert "never enter your context" in description
-    assert "files_skipped" in description
+    files = asyncio.run(go()).inputSchema["properties"]["files"]
+    # Collapsed, because the text is hard-wrapped and a phrase can straddle a line break.
+    described = " ".join((files.get("description") or "").split())
+    assert "never enter your own context" in described
+    assert "files_skipped" in described
 
 
-@pytest.mark.parametrize(
-    "tool_name",
-    ["delegate", "delegate_readonly", "delegate_to_agent", "delegate_to_agent_readonly"],
-)
-def test_every_delegating_description_carries_the_three_facts(tool_name):
-    """The descriptions are the only channel the protocol delivers by itself.
+def _built(config=None):
+    config = config or cfg()
+    return server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
 
-    Both facts cost real money to learn by discovery. An unprefetched call is filed as
+
+def _tools(mcp):
+    async def go():
+        async with Client(mcp) as client:
+            return {t.name: t for t in await client.list_tools()}
+
+    return asyncio.run(go())
+
+
+DELEGATING = ["delegate", "delegate_readonly", "delegate_to_agent",
+              "delegate_to_agent_readonly"]
+EVERY_TOOL = [*DELEGATING, "list_agents", "backend_status"]
+
+
+def test_the_three_facts_are_delivered_by_the_channels_that_own_them():
+    """#138's contract, preserved across the move that took it out of the descriptions.
+
+    All three cost real money to learn by discovery: an unprefetched call is filed as
     small by admission on its opening estimate and never revisited, so its turns re-prefill
     while the gauge still reads small -- measured once at ten turns and 394k input tokens
     for a question two turns answered with the right document attached. And a multi-part
     task returns `ok: true` with an empty answer, which reads as success.
 
-    Parametrised over all four because the descriptions are written out per tool rather
-    than shared, so the drift this guards against is a fact landing on one and not the rest.
+    They were four copies of a 575-character block appended to four descriptions, which is
+    where the client's cut landed. Each now sits in the channel that owns it: the cost of
+    omitting `files[]` is a property of `files`, the shape of a task is a property of
+    `task`, and the operational rule is in the instructions every tool is listed under.
+    Asserted separately, because asserting the grouping is how one goes missing quietly.
     """
-    config = cfg()
-    mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
+    mcp = _built()
+    tools = _tools(mcp)
+    props = tools["delegate"].inputSchema["properties"]
+    files = " ".join((props["files"].get("description") or "").split())
+    task = " ".join((props["task"].get("description") or "").split())
+    instructions = " ".join((mcp.instructions or "").split())
+
+    assert "dearest" in files                        # unprefetched is the dear shape
+    assert "cheapest shape" in files                 # ...so prefetch what is known
+    assert "empty answer" in task                    # a multi-part task fails quietly
+    assert "one question per call" in instructions.lower()
+
+
+@pytest.mark.parametrize("tool_name", EVERY_TOOL)
+def test_every_description_is_an_index_rather_than_a_manual(tool_name):
+    """A description is sliced at 2048 characters and is matched on before it is read.
+
+    So this holds them to a far tighter target than the client's cut. The cut is what the
+    client enforces; the target is what review enforces, and the gap is the point -- a
+    2000-character description passes a length check while failing its purpose. Measured
+    across five major servers when this was written: GitHub's official server has a median
+    description of 69 characters, Sentry's 693, Azure's 243. (ADR-0066)
+    """
+    tool = _tools(_built())[tool_name]
+    length = len(tool.description or "")
+    assert length <= server._DESCRIPTION_TARGET, (
+        f"{tool_name} is {length} characters against a target of "
+        f"{server._DESCRIPTION_TARGET}; move what belongs in the schema, the error or the "
+        f"resource rather than raising this")
+
+
+@pytest.mark.parametrize("tool_name", EVERY_TOOL)
+def test_every_argument_describes_itself_in_the_schema(tool_name):
+    """The check that makes the reallocation hold, rather than merely happen once.
+
+    An argument added later with a bare type is invisible: the schema still validates, the
+    description still fits, and the guidance simply is not there. Nothing else notices,
+    which is why this is asserted per property rather than per tool.
+    """
+    schema = _tools(_built())[tool_name].inputSchema
+    undescribed = [
+        name for name, prop in schema.get("properties", {}).items()
+        if not (prop.get("description") or "").strip()
+    ]
+    assert not undescribed, f"{tool_name} has undescribed arguments: {undescribed}"
+
+
+@pytest.mark.parametrize("tool_name", DELEGATING)
+def test_the_effort_enum_is_derived_from_the_configured_vocabulary(tool_name):
+    """One copy of the levels, in `config.py`, reaching the wire as an enum.
+
+    Written out here it would be a second copy that drifts -- and the drift would be
+    silent, because an enum disagreeing with the runtime check refuses a value the server
+    would have accepted, or advertises one it will not. So the assertion compares the wire
+    against the constants rather than against a literal list.
+    """
+    schema = _tools(_built())[tool_name].inputSchema
+    assert schema["properties"]["effort"]["enum"] == [
+        *config_module.EFFORT_LEVELS, config_module.EFFORT_INHERIT]
+
+
+def test_the_instructions_name_a_resource_that_exists():
+    """A pointer to nothing is worse than no pointer, and nothing else would catch it.
+
+    The instructions send a caller to the orchestration resource. Rename the resource, or
+    drop it, and the instructions keep advertising it -- the tools still work, the lengths
+    still pass, and the only symptom is a caller being told to read something unreadable.
+    """
+    mcp = _built()
 
     async def go():
         async with Client(mcp) as client:
-            return next(t for t in await client.list_tools() if t.name == tool_name)
+            listed = {str(r.uri) for r in await client.list_resources()}
+            return listed
 
-    tool = asyncio.run(go())
-    description = " ".join((tool.description or "").split())
-    # All three named in the PLAN item, asserted separately. They ship as two paragraphs
-    # -- "prefetch" and "not prefetching is the dear shape" are one instruction -- and
-    # asserting the grouping rather than the facts is how one of them goes missing quietly.
-    assert "dearest shape, not the cheapest" in description   # unprefetched is dearest
-    assert "Prefetch what you already know it needs" in description  # prefetch the known
-    assert "One question per call" in description             # one question per call
-    assert "empty_response" in description                    # ...and how it fails
+    listed = asyncio.run(go())
+    named = [w.strip(" .`") for w in (mcp.instructions or "").split()
+             if w.strip(" .`").startswith("delegate://")]
+    assert named, "the instructions should point at the long-form resource"
+    for uri in named:
+        assert uri in listed, f"instructions name {uri}, which is not registered: {listed}"
+
+
+def test_the_orchestration_resource_carries_the_long_form():
+    """What the descriptions no longer say, said once, where it costs nothing until read.
+
+    A resource is the pulled channel the *model* can pull -- Claude Code exposes listing
+    and reading -- which is what separates it from a prompt, where only a person can. So
+    it is the one place with no length limit that still reaches the model unprompted.
+    """
+    mcp = _built()
+
+    async def go():
+        async with Client(mcp) as client:
+            result = await client.read_resource("delegate://orchestration")
+            return "".join(getattr(c, "text", "") for c in result)
+
+    body = " ".join(asyncio.run(go()).split())
+    assert len(body) > server._DESCRIPTION_LIMIT, (
+        "the point of a resource is that it is not bounded by the description cut")
+    assert "last_bash_exit" in body        # believe the server, not the model's prose
+    assert "empty_response" in body        # the failure that reads as success
+    assert "admission" in body.lower()     # how many run at once
+    assert "read_git" in body              # the only route to history; run_bash cannot see .git
 
 
 # --- the agentic loop, over a real MCP session ---------------------------------------------
@@ -1158,7 +1279,7 @@ def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
         async with Client(mcp, progress_handler=on_progress) as client:
             call = client.call_tool(
                 "delegate", {"task": "read it", "effort": "inherit"})
-            return (await call).data
+            return payload(await call)
 
     result = asyncio.run(go())
     assert result["turns"] == 2
@@ -1301,7 +1422,7 @@ def called(handler, tool, *, entries=None, config=None, **kwargs):
 
     async def go():
         async with Client(mcp) as client:
-            return (await client.call_tool(tool, kwargs)).data
+            return payload(await client.call_tool(tool, kwargs))
 
     return asyncio.run(go())
 
@@ -1684,7 +1805,7 @@ def test_a_delegation_that_fails_still_gives_its_slot_back():
             for _ in range(3):
                 with pytest.raises(Exception, match="backend_refused"):
                     await client.call_tool("delegate", {"task": "x", "effort": "inherit"})
-            return (await client.call_tool("backend_status", {})).data
+            return payload(await client.call_tool("backend_status", {}))
 
     gate = asyncio.run(go())["admission"]
     assert gate["inflight_seqs"] == 0, "a failed dispatch kept its sequence slot"
@@ -1717,10 +1838,10 @@ def test_delegate_readonly_offers_only_tools_that_cannot_write():
 
     async def go():
         async with Client(mcp) as client:
-            return (
+            return payload(
                 await client.call_tool(
                     "delegate_readonly", {"task": "explain this", "effort": "inherit"})
-            ).data
+            )
 
     asyncio.run(go())
 
@@ -2047,7 +2168,7 @@ def test_a_failing_heartbeat_does_not_take_the_delegation_with_it():
         async with Client(mcp, progress_handler=exploding) as client:
             call = client.call_tool(
                 "delegate_readonly", {"task": "q", "effort": "inherit"})
-            return (await call).data
+            return payload(await call)
 
     assert asyncio.run(go())["answer"] == "ok"
 
@@ -2355,3 +2476,57 @@ def test_zero_turns_is_refused_rather_than_clamped_up():
     with pytest.raises(Exception) as e:
         called(chat_handler(), tool="delegate", task="q", effort="inherit", max_turns=0)
     assert "at least 1" in str(e.value)
+
+
+# ---- the result describes itself too (ADR-0066) -------------------------------------
+@pytest.mark.parametrize("tool_name", EVERY_TOOL)
+def test_every_tool_describes_its_result(tool_name):
+    """`dict[str, Any]` infers `{"type": "object"}`, which documents nothing.
+
+    The return keys decide what a caller does next -- `empty_response` says the answer is
+    a result rather than a transient, and `last_bash_exit` says whether to believe the
+    model's account of a command. Those lived in prose, and prose is what the client cut.
+    """
+    tool = _tools(_built())[tool_name]
+    schema = tool.outputSchema or {}
+    props = schema.get("properties", {})
+    assert props, f"{tool_name} declares no output properties"
+    undescribed = [k for k, v in props.items() if not (v.get("description") or "").strip()]
+    assert not undescribed, f"{tool_name} has undescribed result keys: {undescribed}"
+
+
+def test_the_result_schema_can_never_refuse_a_real_result():
+    """Permissive on purpose, and asserted so nobody tightens it into a failure mode.
+
+    The one-shot path omits the whole loop ledger and `diagnostics` appears only when
+    asked, so a `required` list or a closed object would refuse results this server
+    legitimately produces -- trading a new failure mode for documentation.
+    """
+    for tool in _tools(_built()).values():
+        schema = tool.outputSchema or {}
+        assert not schema.get("required"), f"{tool.name} makes a result key required"
+        assert schema.get("additionalProperties") is not False, (
+            f"{tool.name} forbids keys it may itself add")
+
+
+def test_the_result_schema_covers_the_keys_a_delegation_actually_returns():
+    """The negative control for the schema: compared against a real call, not a reading.
+
+    A key added to the result later is invisible otherwise -- the call still succeeds, the
+    schema still validates because it is permissive, and the new key is simply undocumented.
+    So this runs a delegation and diffs what came back against what is declared.
+    """
+    config = cfg()
+    mcp = server.build(config, registry(entry()), DoubleCache(config, chat_handler()))
+
+    async def go():
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "delegate", {"task": "q", "effort": "low", "diagnostics": True})
+            tool = next(t for t in await client.list_tools() if t.name == "delegate")
+            return result.structured_content or result.data, tool.outputSchema or {}
+
+    returned, schema = asyncio.run(go())
+    declared = set(schema.get("properties", {}))
+    missing = sorted(set(returned) - declared)
+    assert not missing, f"the result carries keys the schema does not describe: {missing}"
