@@ -66,13 +66,25 @@ markers = [
 # them -- forgetting produces a real non-zero exit from a test that cannot pass, which is
 # a false failure that looks exactly as trustworthy as a true one.
 #
-# One entry, and it is not a shortcoming: `--unshare-all` denies the network this test
-# asserts is reachable, and re-sharing it would hand every sandboxed command the whole
-# host namespace with no allowlist (ADR-0063). A named exclusion is one line an operator
-# can read; a shared namespace is a capability nobody re-reads.
+# Every entry is here for one reason: `--unshare-all` denies the network, and re-sharing it
+# would hand every sandboxed command the whole host namespace with no allowlist (ADR-0063).
+# A named exclusion is one line an operator can read; a shared namespace is a capability
+# nobody re-reads.
+#
+# The first asserts the network is reachable, so it cannot pass where it is denied. The rest
+# were found by actually running this suite nested on 2026-09-09, once the denylist stopped
+# covering its own list file: four talk to the live endpoint, and one runs a real `pip
+# install` to build a virtualenv. They pass on the host, where the cluster is up, which is
+# why nothing had noticed. Note that `integration` is documented as "skipped by default" and
+# is not -- `addopts` carries no `-m` filter, so these run unless deselected.
 [tool.delegate-local]
 nested-deselect = [
     "tests/test_sandbox.py::test_network_is_reachable_by_address_when_shared",
+    "tests/test_backends_openai_compat.py::test_probe_against_the_live_endpoint",
+    "tests/test_backends_openai_compat.py::test_one_real_completion_against_the_live_endpoint",
+    "tests/regression/test_reasoning_exhaustion_recovers.py::test_the_live_empty_answer_is_recovered_by_the_budget_retry",
+    "tests/regression/test_reasoning_exhaustion_recovers.py::test_the_live_verdict_is_exhaustion_only_after_the_step_down_was_tried",
+    "tests/test_provision.py::test_a_real_build_leaves_a_usable_interpreter_and_a_record",
 ]
 
 [tool.ruff]

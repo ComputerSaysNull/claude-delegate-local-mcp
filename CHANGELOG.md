@@ -34,6 +34,50 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #149 — 2026-09-09 — fix: the denylist is the one file its own patterns may not cover
+
+### Fixed
+- **Layer 3 could not run inside the sandbox, so this repository's suite could not run
+  nested in full.** `security/secret_globs.txt` matches its own `*secret*` entry, so the
+  mount scan covered the list it had just read. A covered file is `--ro-bind /dev/null`,
+  which inside the sandbox is a character device owned by `nobody`: it reads as
+  `Permission denied`, not as empty, so `load_secret_globs` raised `PathPolicyError`
+  instead of degrading and took 42 tests of `test_tools.py` with it. It failed *closed*,
+  which is why it was a filed item rather than an incident. Both configured lists —
+  `secret_globs_file` and `opaque_globs_file` — are now exempt from being covered at all,
+  recognised by `os.path.realpath` on both sides because the setting resolves against the
+  server's working directory while the walked path is joined from a bound root, and one
+  bind can reach the same file twice. Exempting them discloses nothing: they hold glob
+  patterns, are tracked in git, and a caller who can delegate can already read them.
+  Measured through `tools.execute_tool` rather than a hand-written bwrap line — before,
+  reading the list inside the sandbox gives `Permission denied`; after, it gives the file.
+  The control holds in the same run: `.env` and `models.toml` are still refused.
+  (ADR-0065)
+- **Five more tests declared un-nestable, found by actually running the suite nested.**
+  With the denylist no longer covering its own list file, this repository's suite runs
+  inside the sandbox for the first time: **1416 passed, 1 skipped, 1 failed** through
+  `tools.execute_tool`, against 42 layer-3 failures before. Four of the five talk to the
+  live endpoint and one runs a real `pip install`, so none can pass where `--unshare-all`
+  denies the network (ADR-0063); all five pass on the host, which is why nothing had
+  noticed. `integration` is documented as "skipped by default" and is not — `addopts`
+  carries no `-m` filter — so they run unless deselected. The remaining failure is filed:
+  `.env.*` covers `.env.example`, a tracked example file, where `models.toml.example`
+  stays readable. Same over-broad-cover class as this fix, and its own item because it
+  changes what a delegated model may read.
+- **A stale comment in `security/opaque_globs.txt` still described the pre-ADR-0064
+  behaviour**, telling a reader that a covering tmpfs is writable and that a write into one
+  "appears to succeed and leaves nothing behind". Covers became read-only in #145 and the
+  file had not changed since #44, so a write into one is now refused outright. Corrected
+  beside the exemption because both are answers to the same question — what covering does
+  to a matched file.
+
+### Changed
+- **The cwd-relative resolution of a configured list file lives in one function**,
+  `paths.resolve_configured_path`, called by both loaders and by the shadow scan. It was
+  duplicated in `paths.py` and `sandbox.py`, and the scan needed it third — comparing a
+  walked path against a setting resolved a different way is how the scan came to cover the
+  very list it had read.
+
 ## #148 — 2026-09-08 — fix: a line-ending flip read as a changed dependency declaration
 
 ### Fixed

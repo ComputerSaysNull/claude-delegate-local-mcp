@@ -10,8 +10,10 @@
 # 0.7s with it covered. See ADR-0041.
 #
 # What does NOT belong here: anything a shell might legitimately need to read. The
-# contents become invisible, and the tmpfs that covers them is writable, so a command that
-# writes into one appears to succeed and leaves nothing behind.
+# contents become invisible, and the covering tmpfs is read-only since ADR-0064, so a
+# command that writes into one is refused outright rather than appearing to succeed.
+# Neither list file may be listed here either -- both are exempt from being covered at
+# all, because the scan reads them to build the cover-up (ADR-0065).
 #
 # node_modules is listed despite that, on measurement rather than principle. A 32,184-entry
 # project here is refused on every call without it and scans in 3s with it, and raising the

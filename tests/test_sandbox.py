@@ -1380,3 +1380,109 @@ def test_the_file_size_cap_truncates_the_write(tmp_path):
     out = result.stdout + result.stderr
     assert "exit=153" in out, f"expected death by SIGXFSZ (128+25), got: {out}"
     assert "1048576" in out, "the file should stop at exactly the cap"
+
+
+
+# ---- the configured lists are never covered by their own patterns (ADR-0065) -------
+def self_matching_lists(home: Path) -> tuple[str, str]:
+    """A denylist that matches its own name, beside an opaque list, both inside `home`.
+
+    Inside deliberately. Every pre-existing fixture writes the list to `tmp_path`, a
+    sibling of `home`, so the walk never reached it -- which is why the suite passed
+    while a nested run could not read the denylist at all.
+    """
+    d = home / "guard"
+    d.mkdir(parents=True, exist_ok=True)
+    deny = d / "secret_globs.txt"
+    deny.write_text("*secret*\n*credential*\n", encoding="utf-8")
+    opaque = d / "opaque_globs.txt"
+    opaque.write_text(".venv/**\n", encoding="utf-8")
+    return str(deny), str(opaque)
+
+
+def assert_the_walk_got_there(found, home: Path) -> None:
+    """The containing directory must not be shadowed, or nothing inside was examined.
+
+    Not a stylistic assertion. `tmp_path` is derived from the test's own name, so naming
+    a test after the pattern it exercises makes an ancestor directory match, shadows the
+    whole tree, prunes the walk, and leaves every "the file is not covered" assertion
+    passing for the wrong reason. That happened here before this guard existed.
+    """
+    dirs = [t.path for t in found if t.kind == "dir"]
+    assert str(home / "guard") not in dirs, (
+        "the directory holding the lists was covered wholesale, so the walk never "
+        "examined the files and the assertions below prove nothing")
+
+
+@posix_only
+def test_the_denylist_file_is_not_covered_by_its_own_pattern(tmp_path):
+    """`*secret*` matches `secret_globs.txt`, and covering it broke every nested run.
+
+    A /dev/null shadow reads as Permission denied rather than as empty, so
+    `load_secret_globs` raised instead of degrading -- layer 3 unusable inside the
+    sandbox, failing closed. 42 tests of `test_tools.py` went with it.
+    """
+    home = tmp_path / "home"
+    deny, opaque = self_matching_lists(home)
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=deny, opaque_globs_file=opaque),
+        req(home=str(home)))
+    assert_the_walk_got_there(found, home)
+    assert deny not in [t.path for t in found]
+
+
+@posix_only
+def test_the_opaque_list_file_is_not_covered_either(tmp_path):
+    """Both configured lists, not only the one that happens to self-match today.
+
+    `opaque_globs.txt` is given a pattern that reaches itself, since the shipped list has
+    none -- the exemption is what makes adding one safe rather than a repeat outage.
+    """
+    home = tmp_path / "home"
+    deny, opaque = self_matching_lists(home)
+    (home / "guard" / "secret_globs.txt").write_text("*globs*\n", encoding="utf-8")
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=deny, opaque_globs_file=opaque),
+        req(home=str(home)))
+    assert_the_walk_got_there(found, home)
+    assert opaque not in [t.path for t in found]
+
+
+@posix_only
+def test_a_neighbour_matching_the_same_pattern_is_still_covered(tmp_path):
+    """The negative control, and the reason the two tests above mean anything.
+
+    Without it they pass if the matcher breaks entirely, or if the exemption were written
+    to cover the whole directory instead of the two configured files. This file sits
+    beside the lists and matches the same entry, and it must still be shadowed.
+    """
+    home = tmp_path / "home"
+    deny, opaque = self_matching_lists(home)
+    neighbour = home / "guard" / "my-secret.txt"
+    neighbour.write_text("hunter2\n", encoding="utf-8")
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=deny, opaque_globs_file=opaque),
+        req(home=str(home)))
+    assert_the_walk_got_there(found, home)
+    paths = [t.path for t in found]
+    assert str(neighbour) in paths, "a real match beside the list must still be covered"
+    assert deny not in paths
+
+
+@posix_only
+def test_the_exemption_follows_the_file_through_a_symlinked_root(tmp_path):
+    """Realpath on both sides, because the two sides are built differently.
+
+    The setting is resolved against the cwd; the walked path is joined from a bound root.
+    Bind the same tree under a symlinked home and plain string equality misses, covering
+    the list again while every assertion about the setting still looks right.
+    """
+    real = tmp_path / "real"
+    deny, opaque = self_matching_lists(real)
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    found = sandbox.discover_secret_shadows(
+        cfg(secret_globs_file=deny, opaque_globs_file=opaque),
+        req(home=str(link)))
+    covered = [os.path.realpath(t.path) for t in found]
+    assert os.path.realpath(deny) not in covered

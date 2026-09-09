@@ -1,4 +1,6 @@
-<!-- BUDGET: 417
+<!-- BUDGET: 424
+     Raised from 417 on 2026-09-09: where the denylist file itself comes from, since the
+     scan now has to recognise it (ADR-0065).
      Raised from 408 on 2026-09-08: the provisioned virtualenv root is reserved against
      agent binds, and HOME's own entry does not reach it (ADR-0062).
      Raised from 404 on 2026-09-07: the path policy has three dispositions now, not two, and the section carrying a worked example of the old one had to be rewritten (ADR-0061).
@@ -266,6 +268,10 @@ extensionless key, a `.env.local`, a committed config full of tokens.
 
 The reference implementation of server-side prefetch had **no validation whatsoever** and
 would read a private SSH key on request. (ADR-0006)
+
+The list is read from `secret_globs_file`, a relative setting resolving against the server's
+working directory via `resolve_configured_path` — shared with the opaque list and with the
+scan that must recognise both to avoid covering them (ADR-0065).
 
 Order decides which message you get, not just whether the file is refused. A `.pem` is
 stopped by layer 2, never reaching the denylist, because its extension is not allowlisted;
