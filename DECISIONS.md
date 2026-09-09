@@ -19,6 +19,61 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0065 — 2026-09-09 — The lists the scan reads are the two files it may not cover — Accepted
+
+**Context.** ADR-0035 covers a denylist match with a mount rather than leaving it out, and
+ADR-0062 carved out the one tree a command must be able to *read*. Neither anticipated the
+degenerate case: `security/secret_globs.txt` matches its own `*secret*` entry, so the scan
+covered the list it had just read.
+
+Covering a file means `--ro-bind /dev/null`, and inside the sandbox that is a character
+device owned by `nobody`. It reads as `Permission denied`, not as empty -- so
+`load_secret_globs` took its `except OSError` branch and raised `PathPolicyError` rather
+than degrading. Layer 3 became unusable inside the sandbox, and with it every nested run
+that exercises it: 42 tests of `test_tools.py`, and the reason this repository's own suite
+could not run nested in full.
+
+It failed **closed**, so this was usability rather than a hole, and that is why it stood as
+a filed item rather than an incident.
+
+**Decision -- both configured list files are exempt from being covered at all.**
+`secret_globs_file` and `opaque_globs_file`, recognised by `os.path.realpath` on both sides.
+Realpath rather than string equality because the two sides are constructed differently: the
+setting is resolved against the server's working directory, while the walked path is joined
+from a bound root, and one bind can reach the same file by two paths. Not `samefile` -- it
+stats twice for no gain, since a walked path exists by construction.
+
+**Exempting them discloses nothing.** They hold glob patterns, not secrets; both are tracked
+in git; and a caller who can delegate at all can already read them. The exemption is exactly
+two files wide, which is the property worth testing: a neighbour matching the same pattern
+in the same directory is still covered, verified by a negative control rather than asserted.
+
+**The resolution lives in one function**, `paths.resolve_configured_path`, called by both
+loaders and by the scan. Three copies of the same cwd-relative dance was how the scan came
+to compare a walked path against a setting resolved a different way.
+
+**What this does not close.** The guard is on the file-match path only. No directory pattern
+matches `security/` today, but one added later would cover the parent wholesale and reopen
+this in a form the new tests do not catch -- they assert the containing directory is not
+shadowed precisely so that failure is loud rather than silent. And an operator pointing
+`secret_globs_file` at an absolute path outside the workspace, while delegating against this
+repository, leaves the repository's own copy covered; the exemption names the file this
+server was configured with, not every file of that name.
+
+**Measured, both directions, through `tools.execute_tool` rather than a hand-written bwrap
+line.** Before: `head -1 security/secret_globs.txt` inside the sandbox returns `Permission
+denied`. After: it returns the first line. The control holds in the same run -- `.env` and
+`models.toml` are still refused, and `security/opaque_globs.txt` is readable. Four unit tests
+were then run against the un-fixed scan and all four failed, which is the only evidence that
+they test anything.
+
+**A note on the tests, because it cost a wrong pass.** The first version of the exemption
+test was named after the pattern it exercised. `tmp_path` is derived from the test's name, so
+the fixture directory itself matched `*secret*`, the whole tree was covered as a directory
+and pruned, and the assertion "the list file is not among the shadows" passed against the
+unfixed code. A check that cannot fail is worse than no check (CLAUDE.md); the tests now
+assert the containing directory was not shadowed before asserting anything about the files.
+
 ## ADR-0064 — 2026-09-08 — A covered directory is read-only, because a writable one corrupts rather than discards — Accepted
 
 **Context.** ADR-0035 covers a denylist match with a mount instead of leaving the path out,

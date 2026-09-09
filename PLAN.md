@@ -1,4 +1,6 @@
-<!-- BUDGET: 492
+<!-- BUDGET: 505
+     Raised from 492 on 2026-09-09: the first nested run of this suite found a second
+     over-broad cover, and five integration tests that cannot run without the network.
      Raised from 480 on 2026-09-08: a captured exit code of zero is not proof of success,
      and only the server can close that half -- measured at 3/4 against 0/4.
      Raised from 470 on 2026-09-08: the self-covering denylist file, found while measuring
@@ -411,15 +413,15 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
   the last one's — and `/bin/sh` is dash here, so whether that can be had without changing
   what a compound command means is the thing to measure first
 
-- ⬜ **The denylist file matches itself, so layer 3 is unusable inside the sandbox.**
+- ✅ 2026-09-09 **The denylist file matches itself, so layer 3 is unusable inside the sandbox.**
   `security/secret_globs.txt` matches its own `*secret*` entry, so the scan covers it with
   `--ro-bind /dev/null` — and inside the sandbox it is then a character device owned by
   `nobody`, which reads as `Permission denied` rather than as empty. Any nested run that
-  exercises layer 3 fails: 42 of `test_tools.py` on 2026-09-08, and it is why this
-  repository's own suite cannot run nested in full. It fails *closed*, so it is a usability
-  bug and not a hole. Covering it protects nothing either way — the file holds patterns, not
-  secrets, and is tracked in git — so the fix is to exempt the configured
-  `secret_globs_file` and `opaque_globs_file` from being shadowed at all
+  exercises layer 3 fails: 42 of `test_tools.py` on 2026-09-08, and it is why this repository's
+  own suite cannot run nested in full. It fails *closed*, so it is a usability bug and not a
+  hole. Covering it protects nothing either way — the file holds patterns, not secrets, and is
+  tracked in git — so the fix is to exempt the configured `secret_globs_file` and
+  `opaque_globs_file` from being shadowed at all
 
 - ✅ 2026-09-08 `models.toml` is not on the layer-3 denylist, though it names the host that
   `.env` is denied for. Found while covering `--init`'s backups on 2026-09-08:
@@ -427,6 +429,17 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
   `security/secret_globs.txt` has no entry for it and so `read_file` will hand it to a
   delegated model. Adding one line fixes it and changes what a delegation may read, which
   is why it is an item rather than a detail of that commit
+
+- ⬜ **`.env.example` is covered by `.env.*`, so a tracked example file is unreadable.**
+  Found 2026-09-09 by running this repository's suite nested for the first time, which the
+  ADR-0065 fix made possible. Inside the sandbox `.env.example` is a character device owned
+  by `nobody` and reads as `Permission denied`, while `models.toml.example` is readable —
+  because the denylist names `models.toml` exactly and `.env.*` matches every suffix. That
+  asymmetry contradicts `security/secret_globs.txt`'s own comment, which says the example
+  file stays readable and is "the control on this pair". It fails closed, so it is the same
+  usability class as ADR-0065 rather than a hole, and it is the one test still failing a
+  nested run. Changing it changes what a delegated model may read, which is why it is an
+  item and not a detail of another commit — the same reasoning the `models.toml` entry used
 
 - ⬜ Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
   way to look for anything. Its original justification, that expanding before the call keeps

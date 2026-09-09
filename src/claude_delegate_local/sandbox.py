@@ -31,10 +31,9 @@ import shutil
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from .config import Config
-from .paths import load_secret_globs, secret_match
+from .paths import load_secret_globs, resolve_configured_path, secret_match
 from .wsl import to_posix
 
 log = logging.getLogger(__name__)
@@ -387,9 +386,7 @@ def load_opaque_globs(cfg: Config) -> tuple[str, ...]:
     raw = cfg.opaque_globs_file.strip()
     if not raw:
         return ()
-    path = Path(raw)
-    if not path.is_absolute():
-        path = Path.cwd() / path
+    path = resolve_configured_path(raw)
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -404,6 +401,22 @@ def load_opaque_globs(cfg: Config) -> tuple[str, ...]:
         for line in text.splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     )
+
+
+def _list_file_exemptions(cfg: Config) -> frozenset[str]:
+    """The two list files, realpath'd, that the scan must never cover.
+
+    Both are read by the server to *build* the cover-up, and one of them matches its own
+    patterns. Exempting them discloses nothing: they hold globs rather than secrets, both
+    are tracked in git, and a caller who can delegate can already read them. Empty
+    settings are skipped -- `opaque_globs_file` is legitimately blank.
+    """
+    out: set[str] = set()
+    for raw in (cfg.secret_globs_file, cfg.opaque_globs_file):
+        if not raw.strip():
+            continue
+        out.add(os.path.realpath(resolve_configured_path(raw.strip())))
+    return frozenset(out)
 
 
 def _dir_shadow(
@@ -510,6 +523,7 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
     globs = load_secret_globs(cfg)
     opaque = load_opaque_globs(cfg)
     provisioned = provisioned_root(req.home)
+    exempt = _list_file_exemptions(cfg)
     found: list[ShadowTarget] = []
     seen: set[str] = set()
     budget = cfg.secret_shadow_max_entries
@@ -553,6 +567,16 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
                 if os.path.islink(full):
                     continue
                 glob = secret_match(full, globs)
+                if glob is not None and os.path.realpath(full) in exempt:
+                    # The lists cannot be covered from the command their own patterns
+                    # govern. `security/secret_globs.txt` matches its own `*secret*`
+                    # entry, so covering it left a /dev/null character device owned by
+                    # `nobody` -- which reads as Permission denied rather than as empty,
+                    # and took every nested run that touches layer 3 down with it.
+                    # Realpath both sides: the setting is resolved against the cwd while
+                    # this path is joined from a bound root, and one bind can reach the
+                    # same file twice. (ADR-0065)
+                    continue
                 if glob is not None and full not in seen:
                     seen.add(full)
                     found.append(ShadowTarget(path=full, kind="file", matched=glob))

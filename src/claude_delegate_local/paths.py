@@ -264,6 +264,20 @@ def _check_ext(cfg: Config, given: str, real: str) -> Refusal | None:
 # ---- layer 3 ---------------------------------------------------------------------
 
 
+def resolve_configured_path(raw: str) -> Path:
+    """Where a configured list file actually is: relative settings hang off the cwd.
+
+    One copy, three callers -- `load_secret_globs`, `load_opaque_globs`, and the shadow
+    scan that has to recognise both files to avoid covering them. The third is why this is
+    a function at all: comparing a walked path against a setting resolved a different way
+    is how the scan came to cover the very list it had just read.
+    """
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
 def load_secret_globs(cfg: Config) -> tuple[str, ...]:
     """Read the denylist, or refuse to run without it.
 
@@ -271,9 +285,7 @@ def load_secret_globs(cfg: Config) -> tuple[str, ...]:
     also why a missing file is fatal here: the gate would keep passing while the server
     quietly stopped denying anything, and nothing would report the difference.
     """
-    path = Path(cfg.secret_globs_file)
-    if not path.is_absolute():
-        path = Path.cwd() / path
+    path = resolve_configured_path(cfg.secret_globs_file)
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as e:

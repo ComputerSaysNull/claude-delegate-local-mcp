@@ -457,6 +457,11 @@ agent file cannot substitute it — the tree is reserved beside the base mounts,
 it would supply an interpreter the sandbox did not build. `--doctor` re-scans and *reports*
 what matches. (ADR-0062)
 
+**The two list files are exempt too: the scan reads them to build itself.**
+`secret_globs.txt` matches its own `*secret*` entry, and a `/dev/null` cover reads as
+`Permission denied` rather than empty, so layer 3 raised instead of degrading — closed,
+but unusable nested. Both are matched by realpath and skipped; a neighbour is not. (ADR-0065)
+
 ### The caps come from in front of bwrap, not from it
 
 bubblewrap 0.9.0 has no `--rlimit` of any kind — measured, not assumed — so a `prlimit`

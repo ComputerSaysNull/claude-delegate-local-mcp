@@ -528,14 +528,27 @@ def test_a_stale_environment_carries_no_deselects_either(tmp_path):
     assert provision.sandbox_env(cfg(sandbox_home=str(home)), project.as_posix()) == {}
 
 
-def test_this_repository_declares_the_test_that_cannot_run_nested():
-    """Measured: `--unshare-all` denies the network this one asserts is reachable.
+def test_this_repository_declares_the_tests_that_cannot_run_nested():
+    """Measured: every one of these needs the network `--unshare-all` denies.
 
-    Asserted against the shipped `pyproject.toml` rather than a fixture, so deleting the
-    entry fails here instead of surfacing as a false failure inside a delegation.
+    Asserted against the shipped `pyproject.toml` rather than a fixture, so deleting an
+    entry fails here instead of surfacing as a false failure inside a delegation. The list
+    grew from one to six on 2026-09-09, when this suite was first actually run nested --
+    four talk to the live endpoint and one runs a real `pip install`, and all five pass on
+    the host, which is why nothing had noticed.
     """
     listed = provision.nested_deselect(str(Path(__file__).resolve().parents[1]))
-    assert "tests/test_sandbox.py::test_network_is_reachable_by_address_when_shared" in listed
+    for node in (
+        "tests/test_sandbox.py::test_network_is_reachable_by_address_when_shared",
+        "tests/test_backends_openai_compat.py::test_probe_against_the_live_endpoint",
+        "tests/test_backends_openai_compat.py::test_one_real_completion_against_the_live_endpoint",
+        ("tests/regression/test_reasoning_exhaustion_recovers.py"
+         "::test_the_live_empty_answer_is_recovered_by_the_budget_retry"),
+        ("tests/regression/test_reasoning_exhaustion_recovers.py"
+         "::test_the_live_verdict_is_exhaustion_only_after_the_step_down_was_tried"),
+        "tests/test_provision.py::test_a_real_build_leaves_a_usable_interpreter_and_a_record",
+    ):
+        assert node in listed, f"{node} is no longer declared un-nestable"
 
 
 # --- the command's own argument handling -------------------------------------------------
