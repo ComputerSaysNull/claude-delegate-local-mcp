@@ -34,7 +34,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #160 — 2026-09-10 — fix: the shipped skill called the agent body a system prompt
+## #161 — 2026-09-10 — docs: server-format twins move to Deferred
+
+### Changed
+- **The M10 entry for server-format twins pointed at a shape that no longer exists.** It
+  named `docs-audit-local` as "the shape to copy", and `#159` split that file into an agent
+  body plus a dispatch runbook — so copying it now means copying half a thing, and which
+  half is the open question the entry does not ask.
+- Moved to **Deferred** rather than cancelled: the underlying gap is real and unchanged —
+  `code-reviewer`, `docs-audit`, `researcher` and `test-writer` load only in Claude Code, so
+  `delegate_to_agent` reaches one of five agents in this repository. What has to happen
+  first is re-deriving what a twin *is*, before four of them are committed to.
+- M10's other two entries are unaffected; the milestone keeps its exit condition.
 
 ### Fixed
 - **`write-delegate-agent` told callers the body "becomes the system prompt". It does not.**

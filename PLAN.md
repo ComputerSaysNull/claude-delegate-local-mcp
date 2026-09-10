@@ -201,11 +201,6 @@ their own project without ever reading this repository.
     it needs a task that *necessarily* quotes — a STALE pass over a document and the code it
     describes, against a known discrepancy, rather than a class that may legitimately return
     an empty list
-- ⬜ Server-format twins for the four Claude Code agents — `#72` made it visible that
-  `code-reviewer`, `docs-audit`, `researcher` and `test-writer` load only in Claude Code,
-  so `delegate_to_agent` can reach one of five agents in this repository. `docs-audit-local`
-  is the shape to copy (`#67`). CONTRIBUTING.md already records the two-format arrangement
-  as temporary; this is what it costs
 
 ### M11 — A call you can watch, and a cluster you can see
 
@@ -467,6 +462,11 @@ On hold for weeks or months. Not cancelled, and not queued.
   its own `max_inflight_seqs` and `max_inflight_large_prefills` against one endpoint
 - ⬜ Per-user identity on the endpoint. `api_key_env` is empty, so there is no auth, no
   quota and no fair share
+- ⬜ Server-format twins for the four Claude Code agents — `code-reviewer`, `docs-audit`,
+  `researcher` and `test-writer` load only in Claude Code, so `delegate_to_agent` reaches
+  one of five agents here. Deferred from M10 on 2026-09-10: the entry named
+  `docs-audit-local` as the shape to copy, and `#159` split it into an agent plus a runbook,
+  so that shape no longer exists. Re-derive what a twin is before committing four of them
 
 ## Cancelled
 
