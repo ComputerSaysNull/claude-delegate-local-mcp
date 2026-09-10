@@ -25,6 +25,11 @@ dev = [
     # the agent-roster one was found.
     "pytest-xdist>=3.8,<4",
     "ruff>=0.16,<0.17",
+    # The build backend, as a *test* dependency. Asking it what the wheel carries costs
+    # 0.01s; driving `pip wheel` to find out costs the network, because build isolation
+    # fetches hatchling before it can answer. One would have had to sit behind the
+    # `integration` marker and never run; this one runs in the default suite.
+    "hatchling",
 ]
 
 [build-system]
