@@ -34,6 +34,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #159 — 2026-09-10 — docs: the caller-side half of docs-audit-local moves to its own skill
+
+### Changed
+- **`docs-audit-local.md` was addressed to two audiences and only one of them could act.**
+  At 258 lines it was three times its Claude Code twin and every other agent in
+  `.claude/agents/` (53–96), and its fourth section opened by admitting the problem: *"Yours
+  to read, not to act on."* Fifty-two lines told a *caller* how to size a pass, why splitting
+  by document silently disables four of the seven check classes, and what the two concurrency
+  limits are — none of which a pass can do anything with, while paying to read all of it on
+  every turn.
+- The cause is that the file predates anywhere else to put caller-side guidance;
+  `.claude/skills/` did not exist when it was written. Moved to
+  `.claude/skills/docs-audit-dispatch/SKILL.md`, leaving the agent body at 205 lines.
+- **The seven check-class definitions deliberately did not move**, though a first pass
+  classified them as caller-side because the frontmatter says "one check class per pass" and
+  they read as a menu. A pass still needs to know what the class it was assigned *means*, so
+  moving them would force the caller to paste a definition into every task. The rule that
+  survives: the caller owns how a pass is shaped, the agent owns what a check means.
+- The moved section's opening paragraph explained why it sat in the agent body. That
+  self-reference became false the moment it moved, so it now records the move instead — the
+  same stale-body failure this document has logged five sightings of.
+- `docs-audit-dispatch` also appears in `list_agents`, because `.claude/skills/` is tier 2 of
+  agent lookup; its description says it is not a role to dispatch.
+
 ## #158 — 2026-09-10 — fix: the shipped skill's worked example was refused by its own format
 
 ### Fixed

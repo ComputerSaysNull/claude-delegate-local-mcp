@@ -1,4 +1,6 @@
-<!-- BUDGET: 365
+<!-- BUDGET: 369
+     Raised from 365 on 2026-09-10: a skill can now be caller-side guidance for an agent
+     rather than a slash command -- a third kind; two of its four lines were paid for by trimming.
      Raised from 357 on 2026-09-10: there are two skill directories now and only one of
      them ships, so which is which is this document's to state (M10).
      Raised from 348 on 2026-09-10: `.claude/skills/` is a second directory of build-time recipes this document now owns.
@@ -326,16 +328,18 @@ Running the agent locally uses the Claude Code subscription instead.
 ## Session skills
 
 `.claude/skills/` holds the skills invoked with `/<name>` while working on this repository —
-same distinction as the agents above, and `session-plan`'s procedure stays in
-[its own file](.claude/skills/session-plan/SKILL.md) rather than being summarised here.
-**A skill only runs when it is invoked**, so a rule that must hold whether or not anyone
-typed a slash command belongs in [CLAUDE.md](CLAUDE.md) instead.
+same distinction as the agents above, and `session-plan`'s procedure stays in [its own
+file](.claude/skills/session-plan/SKILL.md) rather than being summarised here. **A skill only
+runs when it is invoked**, so a rule that must hold anyway belongs in [CLAUDE.md](CLAUDE.md).
 
 There are now **two** skill directories and they are not interchangeable. This one is for
 working on this repository and is never installed anywhere. `src/claude_delegate_local/skills/`
-is the opposite: it ships inside the wheel, `--install-skills` copies it into someone
-else's project, and nothing in it may assume this repository is present — which is the
-whole reason it exists, since `docs/` does not travel with a package.
+ships inside the wheel and `--install-skills` copies it into someone else's project, so
+nothing in it may assume this repository — the reason it exists, since `docs/` does not travel.
+
+`docs-audit-dispatch` is a third kind: not a slash command but the caller-side half of
+`docs-audit-local`, split out so a pass stops paying to read fifty lines it cannot act on.
+It also appears in `list_agents`, because `.claude/skills/` is tier 2 of agent lookup.
 
 ## Secrets
 
