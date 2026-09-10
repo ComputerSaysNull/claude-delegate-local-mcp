@@ -18,7 +18,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import atexit
 import difflib
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -30,6 +32,9 @@ from pathlib import Path
 # supposed to catch. `-B` is not sufficient: it stops WRITING a cache, not reading a stale
 # one. Redirecting the cache to an empty temp directory forces a fresh compile.
 sys.pycache_prefix = tempfile.mkdtemp(prefix="cdl-gentools-pyc-")
+# ...and removed when this process exits; see the note in docs_gate.py for the measurement
+# that prompted it.
+atexit.register(shutil.rmtree, sys.pycache_prefix, ignore_errors=True)
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))

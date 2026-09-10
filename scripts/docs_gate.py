@@ -21,9 +21,11 @@ check is worse than an absent one, because it is trusted.
 from __future__ import annotations
 
 import argparse
+import atexit
 import fnmatch
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -35,6 +37,13 @@ from pathlib import Path
 # must never read a cached compile of that source. (mtime, size) validation misses a
 # same-length edit inside one timestamp tick.
 sys.pycache_prefix = tempfile.mkdtemp(prefix="cdl-gate-pyc-")
+# ...and removed when this process exits. The redirect was right and the cleanup was
+# missing: this runs on every commit, and by 2026-09-10 /tmp held 2,268 of these
+# directories totalling 3.5 GB, the oldest dated 25 August. `atexit` rather than a context
+# manager because the directory has to outlive every import below it. The same three lines
+# are in each of the four scripts that redirect the cache -- they share no module on
+# purpose, so that the gate runs from a bare clone with nothing installed.
+atexit.register(shutil.rmtree, sys.pycache_prefix, ignore_errors=True)
 
 ROOT = Path(__file__).resolve().parent.parent
 BLOCK, WARN, SKIP = "BLOCK", "WARN", "SKIP"
