@@ -1,4 +1,6 @@
-<!-- BUDGET: 357
+<!-- BUDGET: 365
+     Raised from 357 on 2026-09-10: there are two skill directories now and only one of
+     them ships, so which is which is this document's to state (M10).
      Raised from 348 on 2026-09-10: `.claude/skills/` is a second directory of build-time recipes this document now owns.
      Raised from 337 on 2026-09-07: a seventh sighting, and the first about a program other
      than the agent itself -- a body credited the gate with a check it had never had.
@@ -328,6 +330,12 @@ same distinction as the agents above, and `session-plan`'s procedure stays in
 [its own file](.claude/skills/session-plan/SKILL.md) rather than being summarised here.
 **A skill only runs when it is invoked**, so a rule that must hold whether or not anyone
 typed a slash command belongs in [CLAUDE.md](CLAUDE.md) instead.
+
+There are now **two** skill directories and they are not interchangeable. This one is for
+working on this repository and is never installed anywhere. `src/claude_delegate_local/skills/`
+is the opposite: it ships inside the wheel, `--install-skills` copies it into someone
+else's project, and nothing in it may assume this repository is present — which is the
+whole reason it exists, since `docs/` does not travel with a package.
 
 ## Secrets
 

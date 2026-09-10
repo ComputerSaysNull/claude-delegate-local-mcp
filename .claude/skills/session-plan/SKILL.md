@@ -27,6 +27,10 @@ blocking impact ÷ effort. `✅`, `❌` and **Deferred** are out of scope for th
   spike first, and say what would be run to settle it.
 - Check the milestone exit condition the items sit under. An item that does not move that
   condition is not this session's work, however cheap it looks.
+- **The exit condition orders the session; it does not size it.** Ranking stops when the
+  items run out, not when the first one is picked. A plan holding one item is right only if
+  that item is genuinely a session's worth — say how long you think it is, and if the
+  answer is "half a session", keep ranking.
 
 ## 3. Propose ONE plan
 
@@ -36,12 +40,17 @@ One plan, not a menu. Per item, name:
 - **the test, and how that test fails without the fix.** A check that cannot fail is worse
   than no check. Say what the negative control is before writing either;
 - the owning document — `python scripts/docs_gate.py --owner <path>`, never from memory;
-- the CHANGELOG entry's *why*: symptom, cause, fix.
+- the CHANGELOG entry's *why*: symptom, cause, fix;
+- **that it is a whole item.** If what you are proposing is a fragment of a PLAN entry — a
+  precondition you measured out of it, a first half — say so, and plan the rest of the
+  entry too.
 
 Constraints that shape the split, not afterthoughts:
 
 - One feature per **branch**. Squash-only, and one PR open at a time, because a merge
-  deletes the base branch and closes a stacked child unreopenably. Stack locally.
+  deletes the base branch and closes a stacked child unreopenably. Stack locally. That caps
+  what *lands* in a session, never what is *built* in one, so it is not a reason to plan
+  fewer items.
 - Every document carries a `BUDGET:` header. Trim the lines *you* are adding first; propose
   a raise only as a last resort, with a one-line reason.
 - A fact belongs to one document and one plane. If the plan says "and document X in two
