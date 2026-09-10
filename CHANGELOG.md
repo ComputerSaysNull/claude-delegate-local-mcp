@@ -34,6 +34,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #153 — 2026-09-10 — feat: `--install-skills`, and M10's exit condition is met
+
+### Added
+- **`--install-skills`, a fourth entry point, copying the shipped skills into a project's
+  `.claude/skills/`.** Shipping the format inside the package (#152) got it onto the host;
+  it did not get it to the tools, which look under a project rather than in
+  `site-packages`, so the file was present and invisible. This closes that half. It follows
+  `--init`'s dispatch exactly — membership in `sys.argv[1:]`, deferred import, returning
+  before `config.load` — and reuses `--init`'s `back_up`, so an existing file is moved
+  aside, never overwritten and never left in place, with the backup named in the output.
+  Unlike `--init` it asks nothing, which is what lets it run with stdin closed: the caller
+  most likely to want it is an agent in a shell, not a person at a terminal.
+- The shipped directory name is checked against the agent-name pattern on the way out
+  rather than trusted. `survey_agents` skips a name that could never be addressed, so a
+  skill shipped under one would install successfully and never load — a failure with no
+  symptom anywhere near its cause.
+
+### Changed
+- **M10's exit condition is now met, and was measured rather than argued.** A venv holding
+  only the wheel, with no repository present (`docs/AGENTS.md reachable: False`), ran
+  `--install-skills` in an empty directory and the format was readable there afterwards.
+  The first run of that check reported nothing written: the probe invoked
+  `python -m claude_delegate_local.main`, which imports the module without calling the
+  console-script entry point. The probe was wrong and the code was not — recorded because a
+  marker that reports success while the work is being skipped is the failure mode this
+  end-to-end check exists to catch, and it caught itself first.
+
 ## #152 — 2026-09-10 — feat: the agent-file format travels with the package
 
 ### Added

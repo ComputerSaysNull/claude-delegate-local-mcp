@@ -1,4 +1,7 @@
-<!-- BUDGET: 1030
+<!-- BUDGET: 1054
+     Raised from 1030 on 2026-09-10: `--install-skills` is a fourth entry point, and the
+     reason it exists -- that documentation does not travel with a wheel -- is the M10
+     argument and has nowhere else to live.
      Raised from 998 on 2026-09-09: the model-facing contract has four homes, and which
      fact belongs in which is this document's to state (ADR-0066).
      Raised from 992 on 2026-09-08: why the staleness digest normalises newlines.
@@ -107,6 +110,7 @@ large file being dropped while the budget it would have fitted in sat unused (AD
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
 | `init.py` | `--init`: the two files that have no safe default, from answers |
+| `install_skills.py` | `--install-skills`: the shipped skills, copied where the tools look |
 | `provision.py` | `provision <project>`: the interpreter `run_bash` cannot otherwise reach |
 
 The table covers every module; the three marked above live in [DISPATCH.md](DISPATCH.md),
@@ -201,6 +205,26 @@ is crossed the other way; `wsl.to_windows` raises rather than guess for a reposi
 the distribution, whose UNC spelling needs a distribution name this layer is not given. No
 endpoint is probed — the run ends by saying to run the doctor, and a second copy of
 `probe_entry` would be a second thing to keep true.
+
+### `--install-skills` moves what ships to where the tools look
+
+The package carries the agent-file format as a skill, because documentation does not
+travel: the wheel holds `src/claude_delegate_local` and nothing outside it, so on a host
+that installed only the package there is no `docs/` to read. That gets the format onto the
+host. It does not get it to the *tools*, which look under a project's `.claude/skills/` —
+a file in `site-packages` is still invisible to them. This copies it across, and is the
+whole of what it does.
+
+No interview, unlike `--init`: the destination is the working directory and the content is
+fixed, so there is nothing to ask. That is what lets it run with stdin closed, which is the
+common case — the caller most likely to want it is an agent in a shell, not a person at a
+terminal.
+
+It reuses `--init`'s `back_up`, so an existing file is moved aside, never overwritten and
+never left in place, and the backup name is printed. The shipped directory name is checked
+against the agent-name pattern on the way out rather than trusted: `survey_agents` skips a
+name that could not be addressed, so a skill shipped under one would install and never
+load — a failure with no symptom anywhere near its cause.
 
 ### `provision` builds the interpreter a delegation verifies with
 

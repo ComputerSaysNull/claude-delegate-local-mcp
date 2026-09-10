@@ -45,6 +45,15 @@ def run() -> None:
 
         raise SystemExit(init.main())
 
+    # `--install-skills` reads no configuration either -- the destination is the working
+    # directory and the content ships in this package -- so it returns before `config.load`
+    # for the same reason `--init` does. Unlike `--init` it asks nothing, which is what lets
+    # it run with stdin closed, from an agent's shell rather than a terminal.
+    if "--install-skills" in sys.argv[1:]:
+        from . import install_skills  # noqa: PLC0415
+
+        raise SystemExit(install_skills.main())
+
     # `provision` is the first command here that reads an argument rather than testing for
     # one, so it is matched on position: `sys.argv[1]`, not membership. Membership would
     # make any delegation whose *project path* happened to contain the word provision start
