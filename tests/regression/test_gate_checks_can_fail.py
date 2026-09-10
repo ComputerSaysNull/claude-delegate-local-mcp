@@ -230,10 +230,31 @@ def test_secret_path_fires_on_a_tracked_file_matching_a_glob(repo: Path):
     assert fired(gate(repo), "secret-path", ".env")
 
 
-def test_secret_path_is_silent_on_the_example_file(repo: Path):
-    """`.env.example` matches nothing and must stay committable."""
+def test_secret_path_is_silent_on_an_exempted_file(repo: Path):
+    """`.env.example` is exempted by a `!` entry, and must stay committable.
+
+    The fixture is extended rather than left as it was. Its list is `.env` and `id_rsa`
+    only, so the previous version of this test passed because nothing matched at all --
+    it asserted the outcome while exercising none of the mechanism, and read as a
+    guarantee about a real list it never touched. The real list denies `.env.*`, and it
+    was denying this file until 2026-09-10 (ADR-0067).
+    """
+    (repo / "security" / "secret_globs.txt").write_text(
+        ".env\n.env.*\n!.env.example\nid_rsa\n", encoding="utf-8")
     (repo / ".env.example").write_text("TOKEN=\n", encoding="utf-8")
     assert not fired(gate(repo), "secret-path", ".env.example")
+
+
+def test_secret_path_still_fires_on_a_sibling_the_exemption_does_not_name(repo: Path):
+    """The negative control for the test above.
+
+    An exemption implemented as a prefix or substring test would let `.env.example.local`
+    through as well, and the test above would not notice.
+    """
+    (repo / "security" / "secret_globs.txt").write_text(
+        ".env\n.env.*\n!.env.example\nid_rsa\n", encoding="utf-8")
+    (repo / ".env.example.local").write_text("TOKEN=x\n", encoding="utf-8")
+    assert fired(gate(repo), "secret-path", ".env.example.local")
 
 
 def test_secret_path_fires_on_a_match_by_basename_in_a_subdirectory(repo: Path):

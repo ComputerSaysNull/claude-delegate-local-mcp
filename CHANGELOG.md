@@ -34,6 +34,43 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #154 — 2026-09-10 — fix: a tracked example file stays readable, in both enforcers
+
+### Fixed
+- **`.env.example` was denied by `.env.*`, and the two enforcers disagreed about it.**
+  Found 2026-09-09 by running this repository's suite nested for the first time: inside the
+  sandbox the file was a character device owned by `nobody` and read as `Permission
+  denied`, while `models.toml.example` read normally — an asymmetry the denylist's own
+  comment says does not exist, since it calls the example file "the control on this pair".
+  The cause was two readings of one list. `paths.py` exempted nothing, while
+  `scripts/docs_gate.py` carried an exemption of its own, `r.endswith(".example")` applied
+  after a match, so it exempted *every* `*.example`. One list read two ways, in opposite
+  directions, with nothing reporting the difference. Fixed with a `!` prefix that exempts,
+  checked before every deny, and by deleting the gate's private condition so both sides
+  read the list and only the list (ADR-0067).
+- **Narrowing `.env.*` was rejected deliberately.** It would be an allowlist by omission: a
+  `.env.production` added later would be readable and nothing would say so. An exemption
+  stays closed by default and opens exactly one filename. Tests assert `.env`,
+  `.env.local`, `.env.production` and `.env.bak-*` are all still denied, and that
+  `.env.example.local` — a lookalike, not the tracked file — stays denied too, which fails
+  if the exemption is ever implemented as a prefix or substring test.
+
+### Added
+- **A parametrised test asserting the gate and the server return the same verdict for the
+  same paths**, denied and exempt alike. They cannot share code — the gate must run from a
+  bare clone with nothing installed, so it cannot import the package — which is exactly why
+  the duplication needed a check rather than a convention. Negative-tested by removing the
+  gate's half alone: the test fails on `.env.example`, naming both verdicts.
+
+### Verified
+- **The nested run is green for the first time**, through the real `sandbox.run` path with
+  the provisioned interpreter: **1442 passed, 1 skipped, server-captured exit code 0**,
+  against #149's 1416 passed / 1 skipped / **1 failed**. That one failure was this bug, so
+  the run that found it is now the run that confirms it. The exit code is the process's own,
+  captured server-side and not the command's account of itself (ADR-0007) — the same probe
+  reported a real 127 on a first attempt that reached no interpreter, which is what says
+  the 0 means something.
+
 ## #153 — 2026-09-10 — feat: `--install-skills`, and M10's exit condition is met
 
 ### Added

@@ -333,14 +333,28 @@ def secret_match(real: str, globs: Sequence[str]) -> str | None:
 
     Returns the pattern rather than a bool because both callers need to name it -- one in
     a refusal the model reads, one in a diagnostic about what was covered up.
+
+    A `!` prefix exempts, and is checked before any deny. It exists because a broad
+    pattern is sometimes right about a family and wrong about one tracked member of it:
+    `.env.*` should deny every real environment file and was also denying `.env.example`,
+    which is committed and is the readable control on that pair. Narrowing the pattern
+    instead would be an allowlist by omission -- a `.env.production` added later would be
+    readable, with nothing to say so -- where an exemption stays closed by default and
+    names exactly what it opens.
     """
     candidates = _path_suffixes(real.lower())
-    for glob in globs:
+
+    def hit(pattern: str) -> bool:
         # fnmatchcase on pre-lowered strings, never fnmatch: fnmatch folds case through
         # os.path.normcase, a no-op on Linux and case-folding on Windows, so the same
         # denylist would behave differently on either side of the boundary.
-        lowered = glob.lower()
-        if any(fnmatch.fnmatchcase(c, lowered) for c in candidates):
+        lowered = pattern.lower()
+        return any(fnmatch.fnmatchcase(c, lowered) for c in candidates)
+
+    if any(hit(glob[1:]) for glob in globs if glob.startswith("!")):
+        return None
+    for glob in globs:
+        if not glob.startswith("!") and hit(glob):
             return glob
     return None
 
