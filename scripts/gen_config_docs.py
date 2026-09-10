@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import argparse
 import ast
+import atexit
 import difflib
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -34,6 +36,10 @@ from pathlib import Path
 # READING an existing stale one. Redirecting the cache to an empty temp directory is
 # what actually forces a fresh compile.
 sys.pycache_prefix = tempfile.mkdtemp(prefix="cdl-gen-pyc-")
+# ...and removed when this process exits; see the note in docs_gate.py for the measurement
+# that prompted it. `atexit` rather than a context manager: the directory has to outlive
+# every import below it.
+atexit.register(shutil.rmtree, sys.pycache_prefix, ignore_errors=True)
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))

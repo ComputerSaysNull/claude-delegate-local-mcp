@@ -13,12 +13,17 @@ caught it.
 from __future__ import annotations
 
 import argparse
+import atexit
 import re
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 sys.pycache_prefix = tempfile.mkdtemp(prefix="cdl-gl-pyc-")
+# ...and removed when this process exits; see the note in docs_gate.py for the measurement
+# that prompted it.
+atexit.register(shutil.rmtree, sys.pycache_prefix, ignore_errors=True)
 
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = ROOT / ".gitleaks.toml"

@@ -34,6 +34,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #156 — 2026-09-10 — fix: the bytecode-cache redirect cleans up after itself
+
+### Fixed
+- **Four scripts redirected `sys.pycache_prefix` to a fresh temp directory and never
+  removed it.** The redirect is required — CLAUDE.md and JOURNAL 2026-08-25 both say a tool
+  comparing a committed artefact against live source must not read a cached compile, since
+  Python validates a `.pyc` on `(mtime, size)` and misses a same-length edit inside one
+  timestamp tick. The freshness was right; the cleanup was absent. Measured 2026-09-10 in
+  WSL: `/tmp` held **2,268 `cdl-gen-pyc-*` directories totalling 3.5 GB**, the oldest dated
+  25 August, on a machine with 7.5 GB free on its system drive. `docs_gate.py` runs on
+  every commit, so every commit since then leaked one.
+- Fixed with `atexit.register(shutil.rmtree, ...)` in each of the four —
+  `docs_gate.py`, `gen_config_docs.py`, `gen_gitleaks_config.py`, `gen_tools_docs.py`.
+  `atexit` rather than a context manager because the directory has to outlive every import
+  below it. The three lines are repeated in each script deliberately: they share no module
+  so that the gate runs from a bare clone with nothing installed, which is the same
+  constraint that gives the secret denylist two readers.
+
+### Added
+- **A regression test that runs each script as a subprocess and asserts no directory
+  survives it**, because an `atexit` finalizer only runs when a real process exits —
+  importing the module would exercise a path nothing takes. It asserts the run reached a
+  normal conclusion first, since "nothing was left behind" is also what a script that died
+  on its first line produces.
+- **A second test asserting the redirect is still there**, keyed to each script's own
+  prefix. Deleting the `pycache_prefix` line would make the cleanup test pass while
+  reintroducing the stale-compile bug the line exists to prevent, so the two cannot be
+  traded against each other.
+
 ## #155 — 2026-09-10 — docs: the session plan is sized to a session, not to one item
 
 ### Changed
