@@ -623,6 +623,7 @@ def generator_targets() -> list[tuple[str, str]]:
         ("scripts/gen_gitleaks_config.py", ".gitleaks.toml"),
         ("scripts/gen_agents_docs.py", "CONTRIBUTING.md"),
         ("scripts/gen_tools_docs.py", "docs/TOOLS.md"),
+        ("scripts/gen_agent_format_docs.py", "docs/AGENTS.md"),
     ]
 
 

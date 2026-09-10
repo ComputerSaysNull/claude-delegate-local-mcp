@@ -172,7 +172,7 @@ their own project without ever reading this repository.
   the agent body keeps only what one pass reads — the file says exactly that of the section
   itself. It stays local rather than shipping, because the check list, the ownership map and
   the gate integration are specific to this repository
-- ⬜ **Spike answered** — does Claude Code consume skills served over MCP through FastMCP's
+- ✅ 2026-09-10 **Spike answered** — does Claude Code consume skills served over MCP through FastMCP's
   `SkillsDirectoryProvider`? If it does, that replaces `install-skills` outright
   - **Server half measured 2026-09-07: it serves them.** A `SkillsDirectoryProvider` over a
     directory holding one skill advertises the `resources` capability and lists two entries

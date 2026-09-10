@@ -1,4 +1,9 @@
-<!-- BUDGET: 424
+<!-- BUDGET: 455
+     Raised from 424 on 2026-09-10: the format reference is generated now, from the spec
+     that ships inside the package, and the spec carries three facts this document never
+     had -- that a frontmatter block is required, that no individual field is, and that a
+     body is optional. The hand-written `list_agents` bullets were deleted to pay for part
+     of it; the generated block owns those now (M10).
      Raised from 417 on 2026-09-09: where the denylist file itself comes from, since the
      scan now has to recognise it (ADR-0065).
      Raised from 408 on 2026-09-08: the provisioned virtualenv root is reserved against
@@ -71,33 +76,33 @@ where this format spells it `allowed_tools`, and accepts an `effort: medium` tha
 [config.py](../src/claude_delegate_local/config.py) deliberately refuses. The shape is
 borrowed; a file is not moved between the two unedited. (ADR-0031)
 
-## Where they are found
+<!-- GEN:AGENT-FORMAT-LOCATIONS:START -->
+<!-- Generated from src/claude_delegate_local/skills/write-delegate-agent/SKILL.md by scripts/gen_agent_format_docs.py. That file ships inside the package; edit it, not this. -->
 
-Three locations, first match wins:
+## Where the file goes
 
-1. `<workdir>/.claude/agents/<name>.md`
-2. `<workdir>/.claude/skills/<name>/SKILL.md`
-3. `~/.claude/agents/<name>.md`
+Three locations, **first match wins**, so a project's own agent shadows a personal one of
+the same name:
 
-Project-local agents therefore override personal ones, which is usually what you want. The
-name is validated against `^[A-Za-z0-9_-]+$` — an agent name is not a path, and allowing it
-to look like one would make it a traversal.
+1. `<project>/.claude/agents/<name>.md`
+2. `<project>/.claude/skills/<name>/SKILL.md`
+3. `<agents_dir>/<name>.md` — the personal tier, set by `DELEGATE_AGENTS_DIR`
 
-`list_agents` gives **three** answers, because "not there", "there and broken" and "there
-but not mine" need different ones and until 2026-09-02 gave the same one — a file that did
-not parse was simply left out. The standing advice for a missing agent, ask by name and read
-the error, needs the very name an omission hides.
+The **filename supplies the name** — `<name>.md`, or the skill directory for a `SKILL.md`.
+A name must match `^[A-Za-z0-9_-]+$`: it is a name, not a path, so it cannot traverse.
 
-- `skipped` is what needs fixing, with the name each file claimed and why it failed. A
-  broken definition is still skipped rather than fatal.
-- `other_format` is Claude Code's format sharing the directory (ADR-0031) — `tools` where
-  this format says `allowed_tools`. Not broken, not for this server, and named rather than
-  hidden. Four of this repository's own five agent files are in it, deliberately, which is
-  why the split exists: folding them into `skipped` would leave that list permanently
-  non-empty here, and a list that is never empty is one nobody reads.
-- Absent from all three means it does not exist.
+<!-- GEN:AGENT-FORMAT-LOCATIONS:END -->
 
-A name shadowed by a nearer tier is in none of them: the lookup really does offer only one.
+`list_agents` gave one answer until 2026-09-02: a file that did not parse was simply left
+out, and the standing advice for a missing agent — ask by name, read the error — needs the
+very name an omission hides. Hence three, and `other_format` (ADR-0031) rather than a
+second kind of broken: four of this repository's own five agent files are in it
+deliberately, and folding them into `skipped` would leave that list permanently non-empty,
+which is a list nobody reads. A name shadowed by a nearer tier is in none of the three —
+the lookup really does offer only one.
+
+<!-- GEN:AGENT-FORMAT-FIELDS:START -->
+<!-- Generated from src/claude_delegate_local/skills/write-delegate-agent/SKILL.md by scripts/gen_agent_format_docs.py. That file ships inside the package; edit it, not this. -->
 
 ## Frontmatter
 
@@ -110,39 +115,66 @@ effort: low
 max_turns: 20
 max_tokens: 32768
 keep_tool_results: 6
-allowed_tools: [read_file, write_file, run_bash]
+allowed_tools: read_file, write_file, run_bash
 network: false
-extra_binds: []
 ---
 
 You write tests for existing code. Read the module, then write tests that would have
 caught the bug described in the task. Run them. Iterate until they pass.
 
-Report the real exit code of the final test run.
+Report the outcome of the final test run.
 ```
 
-Everything below the frontmatter is the system prompt.
+A frontmatter block is **required** — a `---` line, at least one key, a closing `---`. A
+file with no block, or with an empty one, is refused. **No individual field is required**,
+so the smallest valid file is one key and nothing else.
 
-| Field | Effect |
-|---|---|
-| `name` | Must match the filename when present. A disagreement **refuses the file** |
-| `description` | Reported by `list_agents`, so a caller can choose without opening the file |
-| `model` | Registry key. **Actually binds the dispatch** — see below |
-| `effort` | `off`, `low`, `high`, `max`. Refused loudly if misspelt, and `inherit` is not one of them — a file is a tier that word defers *to* (ADR-0045). Reached only when the caller passes `inherit` |
-| `max_turns` | Round trips. Above the server's hard ceiling the **file is refused**, not clamped — see below |
-| `max_tokens` | Per-reply budget, clamped by the model's cap |
-| `keep_tool_results` | How many recent tool results survive history eviction — [DISPATCH.md](DISPATCH.md) |
-| `allowed_tools` | Restricts what this agent may call. Enforced twice |
-| `network` | `true` re-shares the network namespace for `run_bash`. Default off, and an operator grant — see below |
-| `extra_binds` | Extra directories visible inside the sandbox, within operator-set roots |
+Every key must be one of these ten. An unknown key is **refused, not ignored**, because a
+typo that costs you a setting in silence is the failure this format was rewritten to
+prevent:
 
-**Every row is overridable per call except the last two**, which no tool takes an argument
-for: a caller cannot ask for a bind or for egress, only a file can, and that is the surface
-the two checks below exist for. The order is the call argument, then frontmatter,
-then — for the two settings that have one, `model` and `effort` — the registry row, then the
-global default. `max_turns` was the exception until 2026-09-03: it read the file and ignored
-the argument, so the single field that truncates a run was the single field that needed the
-file edited to change.
+| Key | Value | Notes |
+|---|---|---|
+| `name` | the agent's name | Optional, but if present it **must equal the filename**, or the file is refused |
+| `description` | one line | What `list_agents` reports, so a caller can choose without opening the file |
+| `model` | a model-registry key | Binds the dispatch |
+| `effort` | `off`, `low`, `high`, `max` | Refused loudly if misspelt. **Not** `medium` — the backend has no such level. **Not** `inherit` — that is what a *caller* passes to defer to this file |
+| `max_turns` | integer ≥ 1 | Above the server's hard cap the file is **refused, not clamped**: a caller's number is transient, a file is committed and trusted |
+| `max_tokens` | integer ≥ 1 | Reply budget; the model's own cap still applies afterwards |
+| `keep_tool_results` | integer ≥ 0 | How many recent tool results survive history eviction. `0` evicts each one as the next turn starts |
+| `allowed_tools` | comma-separated | From `read_file`, `search_files`, `read_git`, `run_bash`, `write_file`, `edit_file`. Naming an unimplemented tool is refused |
+| `network` | `true` / `false` | Default false. An **operator grant**: the agent must also be listed in `DELEGATE_AGENT_NETWORK_ALLOWED` and found in the personal tier |
+| `extra_binds` | comma-separated paths | Extra directories visible in the sandbox, within operator-set roots. Read-only, and the denylist still reaches inside |
+
+Precedence for a value: the call argument, then this file, then the registry row (for
+`model` and `effort` only), then the server default.
+
+## The body
+
+Everything below the closing `---` is the **system prompt**, stripped of surrounding blank
+lines. A body is optional. A `---` inside it is just text: only the opening block is parsed.
+
+## Validate it
+
+Do not assume the file was read. Call `list_agents` with the same `project` you intend to
+delegate with, and find your name: **`agents`** is usable and the only success;
+**`skipped`** means it was found and did not parse, with the reason on the entry;
+**`other_format`** means it read as a Claude Code agent file, recognised by keys such as
+`tools` that this format does not have. Absent from all three means no file was found at
+any of the three locations — check the filename against the name, and the `project`.
+
+<!-- GEN:AGENT-FORMAT-FIELDS:END -->
+
+## Why the format is what it is
+
+**Every field is overridable per call except `network` and `extra_binds`**, which no tool
+takes an argument for: a caller cannot ask for a bind or for egress, only a file can, and
+that is the surface the two checks below exist for. `max_turns` was the exception until
+2026-09-03: it read the file and ignored the argument, so the single field that truncates a
+run was the single field that needed the file edited to change.
+
+`effort: inherit` is refused in a file rather than accepted, because a file is a tier that
+word defers *to* (ADR-0045).
 
 ### `model` genuinely binds
 

@@ -34,6 +34,41 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #152 — 2026-09-10 — feat: the agent-file format travels with the package
+
+### Added
+- **`write-delegate-agent`, a skill shipped inside the package, now the single home of the
+  agent-file format.** M10 asks that a caller on a host holding only the package be able to
+  write a valid agent file without ever reading this repository. That was unreachable, and
+  measurably so: asking the build backend what the wheel carries returns 21 `.py` files and
+  nothing else, while `docs/AGENTS.md` — the format's only home — sits outside
+  `src/claude_delegate_local`, the one tree hatchling packages. No channel carried the
+  format to such a host at all. The spec therefore moved into the package, where hatchling
+  ships it with no `pyproject.toml` change (verified against a probe file outside the
+  package directory, which is not shipped). It is written in the format it describes, so it
+  is its own worked example, and a test parses it to prove that stays true.
+- **`scripts/gen_agent_format_docs.py`**, rendering that spec into `docs/AGENTS.md` between
+  GEN markers, and a fourth row in the gate's generator list. Shipping the spec would
+  otherwise have created a second copy of one fact, which is the drift the ownership scheme
+  exists to prevent — so it is the ADR-0004 mechanism again: one source, one rendered view,
+  and the gate fails when they disagree. Two blocks rather than one, because the document
+  interleaves the reference with the reasoning behind it and splicing a single contiguous
+  region would have meant moving that reasoning to suit the generator.
+
+### Changed
+- **`docs/AGENTS.md` keeps every "why" paragraph and generates the reference.** The
+  hand-written `list_agents` bullets were deleted, since the generated block owns those
+  now, and the rationale that surrounded the field table moved under a `Why the format is
+  what it is` heading. Budget raised 424 → 455 with the reason recorded in the file: the
+  spec carries three facts the document never had — that a frontmatter block is required,
+  that no individual field is, and that a body is optional. All three were found by probing
+  the parser rather than by reading it, and the third contradicts what the ten-row field
+  table implied.
+- **`hatchling` is now a dev dependency.** The packaging test asks the build backend what
+  the wheel would contain, which costs 0.01s; driving `pip wheel` to find out needs the
+  network, because build isolation fetches hatchling before it can answer. That test would
+  have had to sit behind the `integration` marker and never run.
+
 ## #151 — 2026-09-10 — feat: a session-plan skill, and the test comes before the fix
 
 ### Added

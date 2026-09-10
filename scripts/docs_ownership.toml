@@ -168,10 +168,16 @@ plane = "product"
 owns = [
   "src/claude_delegate_local/agents.py",
   "src/claude_delegate_local/paths.py",
+  "src/claude_delegate_local/skills/**",
 ]
 covers_not = """
 Tool internals (TOOLS.md) or sandbox mechanics (ARCHITECTURE.md). This covers the
-frontmatter format and the path policy as a user experiences it."""
+frontmatter format and the path policy as a user experiences it.
+
+The shipped skills are owned here rather than by whatever installs them, because the
+format reference in this document is rendered from one of them: the fact has a single
+home that travels with the package, and the two views cannot disagree without the
+generated-doc check firing."""
 
 [docs."docs/TROUBLESHOOTING.md"]
 audience = ["user"]
