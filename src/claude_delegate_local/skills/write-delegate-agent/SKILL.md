@@ -4,8 +4,8 @@ description: Write an agent file in this server's format, for delegate_to_agent 
 ---
 
 An agent file is a role this server can run: frontmatter that sets the dispatch, and a body
-that becomes the system prompt. `delegate_to_agent` and `delegate_to_agent_readonly` take
-its name.
+that instructs the model. `delegate_to_agent` and `delegate_to_agent_readonly` take its
+name.
 
 This file is itself a valid agent file in the format it describes, so it doubles as the
 worked example.
@@ -69,8 +69,12 @@ Precedence for a value: the call argument, then this file, then the registry row
 
 ## The body
 
-Everything below the closing `---` is the **system prompt**, stripped of surrounding blank
+Everything below the closing `---` is the role's instructions, stripped of surrounding blank
 lines. A body is optional. A `---` inside it is just text: only the opening block is parsed.
+
+It is delivered at the **head of the user message** — body, files, then task — and not as
+the system prompt, which is a cached constant nothing per-delegation may enter (ADR-0011).
+A body is therefore resent every turn: keep it to standing instructions for the role.
 
 ## Validate it
 

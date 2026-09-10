@@ -1,4 +1,6 @@
-<!-- BUDGET: 463
+<!-- BUDGET: 469
+     Raised from 463 on 2026-09-10: the format said the body becomes the system prompt and
+     it does not, so where it is actually delivered has to be stated (ADR-0011).
      Raised from 455 on 2026-09-10: layer 3 gained an exemption prefix, and why it is an
      exemption rather than a narrowed pattern is this document's to state (ADR-0067).
      Raised from 424 on 2026-09-10: the format reference is generated now, from the spec
@@ -153,8 +155,12 @@ Precedence for a value: the call argument, then this file, then the registry row
 
 ## The body
 
-Everything below the closing `---` is the **system prompt**, stripped of surrounding blank
+Everything below the closing `---` is the role's instructions, stripped of surrounding blank
 lines. A body is optional. A `---` inside it is just text: only the opening block is parsed.
+
+It is delivered at the **head of the user message** — body, files, then task — and not as
+the system prompt, which is a cached constant nothing per-delegation may enter (ADR-0011).
+A body is therefore resent every turn: keep it to standing instructions for the role.
 
 ## Validate it
 
