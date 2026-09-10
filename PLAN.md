@@ -165,7 +165,7 @@ their own project without ever reading this repository.
     by the *model*. `delegate://orchestration` carries the discipline and costs nothing
     until read (ADR-0066). A prompt remains defensible later as a *user-facing* briefing,
     which is a different job and no longer this item's
-- ⬜ `install-skills`, shipping `write-delegate-agent`: it writes an agent file in this
+- ✅ 2026-09-10 `install-skills`, shipping `write-delegate-agent`: it writes an agent file in this
   server's format and validates it by calling `list_agents` and checking the name lands
   under `agents` rather than `skipped` or `other_format`
 - ⬜ Move the caller-side half of `docs-audit-local.md` into a repository-local skill, so
