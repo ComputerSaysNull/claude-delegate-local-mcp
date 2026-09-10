@@ -34,6 +34,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #155 — 2026-09-10 — docs: the session plan is sized to a session, not to one item
+
+### Changed
+- **`session-plan` was reading its milestone filter as a filter on the whole session.**
+  Step 2 says an item that does not move the milestone's exit condition is not this
+  session's work; applied literally, ranking stopped at the first pick and the plan held a
+  single item. Worse, that item turned out to be *half* of a PLAN entry — a packaging
+  precondition measured out of it — and nothing in the skill asked whether the thing being
+  proposed was whole. Both were caught by the user reading the plan, not by the skill.
+  Three additions, no deletions: the exit condition orders the session and does not size
+  it; name whether the item is whole and plan the rest of the entry if not; and the
+  one-PR-at-a-time rule caps what *lands* in a session rather than what is *built*, so it
+  is not a reason to plan fewer items.
+- **`CONTRIBUTING.md` now distinguishes the two skill directories.** `.claude/skills/` is
+  for working on this repository and is never installed; `src/claude_delegate_local/skills/`
+  ships in the wheel and may not assume this repository is present. That distinction did
+  not exist before #152 and would otherwise be inferred from a path.
+
 ## #154 — 2026-09-10 — fix: a tracked example file stays readable, in both enforcers
 
 ### Fixed
