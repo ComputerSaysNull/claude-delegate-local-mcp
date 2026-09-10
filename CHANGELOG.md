@@ -34,6 +34,58 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #159 — 2026-09-10 — docs: docs-audit-local splits into an agent and a runbook
+
+### Added
+- **`.claude/skills/docs-audit-dispatch/SKILL.md`, the audit runbook.** It names the thirteen
+  passes that constitute one audit, the files each prefetches, the effort each takes and the
+  definition of every check class. Running the same thirteen every time is what makes two
+  audits comparable; before this, each audit was assembled from prose and the 2026-09-06 one
+  silently omitted a class.
+- Per-pass effort, rather than one level for the whole audit. Twelve passes stay `high`
+  because an audit is a search across kinds of violation; ESCAPE ABUSE drops to `low`
+  because reading the log for `Docs-Gate-Skip:` trailers is retrieval. Validated end to end:
+  that pass returns in three turns and two `read_git` calls, and its result was checked by
+  hand against the log.
+- A STALE pass over a module above ~1,000 lines names document sections rather than the
+  whole document. `docs/DISPATCH.md` against the whole of `loop.py` never reported at all.
+
+### Changed
+- **`docs-audit-local.md` was addressed to two audiences and only one could act.** At 258
+  lines it was three times its Claude Code twin, and one section opened by admitting it:
+  *"Yours to read, not to act on."* The agent body is now 88 lines and holds only how to
+  audit — the caller owns which passes exist and what each class means.
+- The body's dated narrative went with it. Roughly half of what remained recounted when a
+  paragraph had last been wrong; Anthropic's skill-authoring guidance names time-sensitive
+  content an anti-pattern outright, and a pass cannot act on the history of its own file.
+
+### Fixed
+- **The two readers of an agent file disagree, and the permissive one wins silently.**
+  `agents.py` parses frontmatter line by line; every editor and Claude Code parse it as
+  YAML. A description containing an unquoted `: ` made YAML raise `mapping values are not
+  allowed here` while `list_agents` reported the file as fine — so the skill loaded on the
+  server and showed a parse error in the editor. Descriptions are now quoted, and a test
+  asserts **both** readers accept every file in `.claude/agents/`, `.claude/skills/` and the
+  shipped skills directory. `pyyaml` becomes a dev dependency to provide the other reader.
+- **The agent's own instruction to "check every quotation" was an unbounded loop.** Two
+  audit passes over `docs/DISPATCH.md` against `loop.py` ran 3,895s and 3,775s across 7 and
+  11 turns without ever reporting, each turn opening two more verification calls. Both were
+  cancelled; their transcripts show neither had begun to write findings. The body now says
+  to verify once and then report, and the runbook says not to reinstate the loop from a task.
+- **Prose could not hold that bound, so `max_turns` does.** With the instruction alone a
+  retried pass was still opening its third round of searches. `max_turns` drops 30 to 5,
+  which is mechanical rather than persuasive: the final turn is declared `tool_choice="none"`
+  (ADR-0057), so tools are forbidden rather than withdrawn and an answer is written whatever
+  state the pass is in. The body also warns against answering the bound by front-loading one
+  enormous turn, which is the same budget failure from the other end.
+- `run_bash` leaves `allowed_tools`. The arm that had it made **zero** `run_bash` calls in
+  seven turns, verifying entirely through `search_files` and `read_file`, so the tool bought
+  nothing here and its removal makes the file agree with `delegate_to_agent_readonly`, which
+  strips it anyway. The heredoc the body recommended for quote-checking goes with it.
+- The runbook corrects the old body's "run at most two passes at once": only a pass
+  estimated above `large_prefill_tokens` counts against `max_inflight_large_prefills`, so
+  smaller passes do not contend and more than two can run.
+
 ## #158 — 2026-09-10 — fix: the shipped skill's worked example was refused by its own format
 
 ### Fixed
