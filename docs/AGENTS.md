@@ -1,4 +1,6 @@
-<!-- BUDGET: 455
+<!-- BUDGET: 463
+     Raised from 455 on 2026-09-10: layer 3 gained an exemption prefix, and why it is an
+     exemption rather than a narrowed pattern is this document's to state (ADR-0067).
      Raised from 424 on 2026-09-10: the format reference is generated now, from the spec
      that ships inside the package, and the spec carries three facts this document never
      had -- that a frontmatter block is required, that no individual field is, and that a
@@ -292,6 +294,13 @@ path is worse than reading one rather than better.
 | 2 | Extension allowlist | Anything whose extension is not listed |
 | 3 | Secret denylist | `.env*`, `*.pem`, `*.key`, `id_*`, `*credential*`, `*secret*`, `.git/**`, and more |
 | 4 | Gitignore | Anything git ignores |
+
+A pattern may be prefixed `!` to **exempt** rather than deny, and every exemption is
+checked before any deny. It is for the case where a broad pattern is right about a family
+and wrong about one tracked member of it: `.env.*` denies every environment file and was
+also denying the committed `.env.example`. Narrowing the pattern would be an allowlist by
+omission — a `.env.production` added later would be readable, with nothing to say so —
+where an exemption stays closed by default and opens exactly one name. (ADR-0067)
 
 Allowlist first, deliberately. A *pure* allowlist cannot work for file contents — you
 cannot enumerate every source file you might ever delegate — so extension is the axis that

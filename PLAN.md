@@ -435,7 +435,7 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
   delegated model. Adding one line fixes it and changes what a delegation may read, which
   is why it is an item rather than a detail of that commit
 
-- ⬜ **`.env.example` is covered by `.env.*`, so a tracked example file is unreadable.**
+- ✅ 2026-09-10 **`.env.example` is covered by `.env.*`, so a tracked example file is unreadable.**
   Found 2026-09-09 by running this repository's suite nested for the first time, which the
   ADR-0065 fix made possible. Inside the sandbox `.env.example` is a character device owned
   by `nobody` and reads as `Permission denied`, while `models.toml.example` is readable —

@@ -591,13 +591,38 @@ def check_pr_text(event_path: str | None) -> list[Finding]:
     return out
 
 
+def denying_glob(rel: str, globs: list[str]) -> str | None:
+    """The first denylist pattern matching `rel`, honouring `!` exemptions, or None.
+
+    The gate's copy of `paths.secret_match`. It has to be a copy: this script runs from a
+    bare clone with nothing installed, so it cannot import the package -- which is exactly
+    why a test asserts the two agree on the same paths rather than trusting that they do.
+
+    Until 2026-09-10 this had no `!` handling and carried an exemption of its own instead,
+    `r.endswith(".example")`, applied after a match. The two enforcers therefore disagreed
+    in both directions: the gate exempted every `*.example`, the server exempted none, and
+    `.env.example` was tracked cleanly here while reading as `Permission denied` inside a
+    sandbox. One list read two ways is the failure the shared file exists to prevent.
+    """
+    name = Path(rel).name
+
+    def hit(pattern: str) -> bool:
+        return fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(name, pattern)
+
+    if any(hit(g[1:]) for g in globs if g.startswith("!")):
+        return None
+    for g in globs:
+        if not g.startswith("!") and hit(g):
+            return g
+    return None
+
+
 def check_secret_paths() -> list[Finding]:
     globs = load_lines(ROOT / "security" / "secret_globs.txt")
     if not globs:
         return [Finding(BLOCK, "secret-path", "security/secret_globs.txt is empty.")]
     out = []
     for r in run("git", "ls-files").splitlines():
-        name = Path(r).name
         # Exempt the policy files BY NAME, not the whole directory. secret_globs.txt
         # matches its own '*secret*' pattern -- the gate's first self-inflicted false
         # positive -- but exempting all of security/ also exempted the one file in there
@@ -606,13 +631,9 @@ def check_secret_paths() -> list[Finding]:
         # and the gap was demonstrated: an empty forbidden_strings.txt committed cleanly.
         if r in POLICY_FILES:
             continue
-        for g in globs:
-            if fnmatch.fnmatch(r, g) or fnmatch.fnmatch(name, g):
-                if r.endswith(".example"):
-                    continue
-                out.append(Finding(BLOCK, "secret-path",
-                                   f"{r} is tracked but matches secret glob {g!r}."))
-                break
+        if (g := denying_glob(r, globs)) is not None:
+            out.append(Finding(BLOCK, "secret-path",
+                               f"{r} is tracked but matches secret glob {g!r}."))
     return out
 
 
@@ -1207,8 +1228,10 @@ def check_agent_capabilities() -> list[Finding]:
             needed = COMMAND_NEEDS_PATH.get(command)
             if needed is None:
                 continue
-            if not any(fnmatch.fnmatch(needed, g) or fnmatch.fnmatch(f"{needed}/x", g)
-                       for g in globs):
+            # Both spellings, through the one reader, so a `!` exemption is honoured here
+            # too: a path the denylist lets through is not covered by the sandbox, so
+            # reporting the command as impossible would be a false block.
+            if denying_glob(needed, globs) is None and denying_glob(f"{needed}/x", globs) is None:
                 continue
             out.append(Finding(
                 BLOCK, "agent-capability",

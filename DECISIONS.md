@@ -19,6 +19,39 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0067 — 2026-09-10 — A broad pattern is exempted at one name, never narrowed — Accepted
+
+**Context.** `security/secret_globs.txt` is one list with two enforcers: `paths.py`'s layer
+3 and `scripts/docs_gate.py`. `.env.*` denies every environment file, and was also denying
+`.env.example`, which is tracked and which the list's own comment calls the readable control
+on that pair. Found 2026-09-09 by running this repository's suite nested for the first time:
+inside the sandbox the file was a character device owned by `nobody` and read as `Permission
+denied`, while `models.toml.example` read normally.
+
+**The two enforcers already disagreed, and nothing reported it.** The gate carried an
+exemption of its own — `r.endswith(".example")`, applied after a match — so it exempted
+every `*.example` while the server exempted none. One list, two readings, in opposite
+directions. That is the failure the shared file exists to prevent, and it had been live.
+
+**Decision — a leading `!` exempts, checked before every deny, and neither enforcer carries
+an exemption of its own.** The alternative was narrowing `.env.*` to the suffixes seen
+today, which is an allowlist by omission: a `.env.production` added later would be readable
+and nothing would say so. An exemption stays closed by default and names exactly what it
+opens, so the blast radius is one filename rather than one pattern.
+
+**The duplication is kept and made checkable.** The gate must run from a bare clone with
+nothing installed, so it cannot import the package and cannot share `secret_match`. Each
+holds its own reader, and a parametrised test asserts the two return the same verdict for
+the same paths — denied and exempt alike, since a test over exempt paths alone would pass
+against enforcers that agree on nothing else. Negative-tested by removing the gate's half
+alone and confirming the test fails on `.env.example`; that is the asymmetry CLAUDE.md
+warns extending one site silently produces.
+
+**Consequences.** An exemption is a deliberate, reviewable line in the list rather than a
+condition in code, and a future one costs nothing new. `!` is now reserved as the first
+character of a pattern; a literal filename beginning with it cannot be expressed, which is
+accepted because no such file is plausible here.
+
 ## ADR-0066 — 2026-09-09 — The contract has four homes, because a description is an index and not a manual — Accepted
 
 **Context.** CLAUDE.md calls the tool descriptions the model-facing contract and treats
