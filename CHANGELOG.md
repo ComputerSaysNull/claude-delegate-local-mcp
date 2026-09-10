@@ -34,6 +34,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #160 — 2026-09-10 — fix: the shipped skill called the agent body a system prompt
+
+### Fixed
+- **`write-delegate-agent` told callers the body "becomes the system prompt". It does not.**
+  `Delegation.render` puts it at the head of the *user* message — body, files, then task —
+  and its docstring says why that is load-bearing: the system prompt is a byte-for-byte
+  constant the cluster caches, so nothing varying per delegation may enter it, *"the agent
+  body included, however much it reads like one"* (ADR-0011).
+- The symptom is a caller writing the wrong kind of body. Believed to be a system prompt, it
+  is believed to be cached once and to outrank the task; it is neither. It is resent every
+  turn, ahead of the prefetched files, and competes for the same prompt they do.
+- Found the same way as the list-syntax defect — by using the skill rather than reading it,
+  while checking whether a dispatched agent actually receives its own output format. It does.
+- A regression test pins the claim to the behaviour: one half asserts the wording is gone,
+  the other asserts `render` still puts the body in the user message, so if that ever changes
+  the test fails rather than silently blessing the old wording. Negative-tested with the
+  sentence that shipped.
+
 ## #159 — 2026-09-10 — docs: docs-audit-local splits into an agent and a runbook
 
 ### Added
