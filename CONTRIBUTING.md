@@ -1,4 +1,5 @@
-<!-- BUDGET: 348
+<!-- BUDGET: 357
+     Raised from 348 on 2026-09-10: `.claude/skills/` is a second directory of build-time recipes this document now owns.
      Raised from 337 on 2026-09-07: a seventh sighting, and the first about a program other
      than the agent itself -- a body credited the gate with a check it had never had.
      Raised from 330 on 2026-09-06: granting an agent a tool and telling it how to use the
@@ -122,7 +123,7 @@ Regression tests are named after the bug and live in `tests/regression/`. If you
 something subtle, the test goes in the same commit.
 
 **Negative-test every check**: assert it fires on a real violation, not merely that it
-passes on clean input. Four checks here have already been found unable to fail — CLAUDE.md
+passes on clean input. Six checks here have already been found unable to fail — CLAUDE.md
 lists them.
 
 Mark anything needing the live cluster or a real `bwrap` as `@pytest.mark.integration`.
@@ -319,6 +320,14 @@ not budgeted and the original keeps its header.
 There is deliberately **no scheduled workflow**. It would need an API key, and a key sitting
 in CI is standing billing exposure for a job that fires whether or not anything changed.
 Running the agent locally uses the Claude Code subscription instead.
+
+## Session skills
+
+`.claude/skills/` holds the skills invoked with `/<name>` while working on this repository —
+same distinction as the agents above, and `session-plan`'s procedure stays in
+[its own file](.claude/skills/session-plan/SKILL.md) rather than being summarised here.
+**A skill only runs when it is invoked**, so a rule that must hold whether or not anyone
+typed a slash command belongs in [CLAUDE.md](CLAUDE.md) instead.
 
 ## Secrets
 
