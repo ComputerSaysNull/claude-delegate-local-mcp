@@ -33,7 +33,7 @@ effort: low
 max_turns: 20
 max_tokens: 32768
 keep_tool_results: 6
-allowed_tools: read_file, write_file, run_bash
+allowed_tools: [read_file, write_file, run_bash]
 network: false
 ---
 
@@ -60,9 +60,9 @@ prevent:
 | `max_turns` | integer ≥ 1 | Above the server's hard cap the file is **refused, not clamped**: a caller's number is transient, a file is committed and trusted |
 | `max_tokens` | integer ≥ 1 | Reply budget; the model's own cap still applies afterwards |
 | `keep_tool_results` | integer ≥ 0 | How many recent tool results survive history eviction. `0` evicts each one as the next turn starts |
-| `allowed_tools` | comma-separated | From `read_file`, `search_files`, `read_git`, `run_bash`, `write_file`, `edit_file`. Naming an unimplemented tool is refused |
+| `allowed_tools` | `[a, b]` | From `read_file`, `search_files`, `read_git`, `run_bash`, `write_file`, `edit_file`. Naming an unimplemented tool is refused. Brackets are the format: bare `a, b` is refused, and so is a `-` block list |
 | `network` | `true` / `false` | Default false. An **operator grant**: the agent must also be listed in `DELEGATE_AGENT_NETWORK_ALLOWED` and found in the personal tier |
-| `extra_binds` | comma-separated paths | Extra directories visible in the sandbox, within operator-set roots. Read-only, and the denylist still reaches inside |
+| `extra_binds` | `[a, b]` | Extra directories visible in the sandbox, within operator-set roots. Read-only, and the denylist still reaches inside. Bracketed like `allowed_tools`, and refused the same way |
 
 Precedence for a value: the call argument, then this file, then the registry row (for
 `model` and `effort` only), then the server default.

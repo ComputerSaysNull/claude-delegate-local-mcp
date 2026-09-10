@@ -34,6 +34,28 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #158 — 2026-09-10 — fix: the shipped skill's worked example was refused by its own format
+
+### Fixed
+- **`write-delegate-agent` documented a list syntax the parser refuses, in the one file that
+  travels to a host holding nothing else.** The skill says of itself "This file is itself a
+  valid agent file in the format it describes, so it doubles as the worked example", and its
+  example spelled `allowed_tools: read_file, write_file, run_bash`. `_coerce_list` requires a
+  flow sequence, so `list_agents` reported a file copied from the example under `skipped`,
+  with `is not a list`. `extra_binds` was described the same wrong way. The symptom is M10's
+  exit condition failing rather than a wording slip: the skill is the whole of what a caller
+  gets, so an example the server rejects makes the milestone's promise false.
+- The cause is that both list rows were written as prose descriptions of the *shape*
+  ("comma-separated") rather than of the *syntax*, and the example was then written to match
+  the prose instead of the parser. Nothing caught it because every existing agent-format test
+  builds its frontmatter inline; none read the shipped example back through the loader.
+- Fixed by bracketing the example and both table rows, and by a regression test that extracts
+  every fenced agent file from the skill and loads it through `agents.load_agent`. It is
+  negative-tested three ways, per CLAUDE.md: one control asserts a bare comma-separated field
+  is still refused, one asserts the bracketed form parses, and one asserts the extractor found
+  an example at all — without the last, a broken extractor would report zero failures forever.
+- `docs/AGENTS.md` is rendered from the skill, so one fix reached both.
+
 ## #157 — 2026-09-10 — fix: the leak test watched a temp namespace it did not own
 
 ### Fixed
