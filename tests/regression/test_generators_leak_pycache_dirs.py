@@ -1,29 +1,34 @@
-"""Four scripts redirect the bytecode cache to a temp directory and never remove it.
+"""Four scripts redirect the bytecode cache to a temp directory and never removed it.
 
-CLAUDE.md requires it: a tool comparing a committed artefact against live source must not
-read a cached compile, and `sys.pycache_prefix` pointed at a fresh temp directory is what
-forces one. The freshness is right. The cleanup was missing.
+CLAUDE.md requires the redirect: a tool comparing a committed artefact against live source
+must not read a cached compile, and `sys.pycache_prefix` pointed at a fresh temp directory
+is what forces one. The freshness was right. The cleanup was missing.
 
-Measured 2026-09-10 in WSL: `/tmp` held **2,268 `cdl-gen-pyc-*` directories totalling
-3.5 GB**, the oldest dated 25 August. The gate runs on every commit, so every commit since
-then leaked one, on a machine with 7.5 GB free on its system drive.
+Measured 2026-09-10 in WSL: `/tmp` held **34,405 `cdl-*-pyc-*` directories totalling
+4.6 GB**, the oldest dated 25 August, on a machine with 7.5 GB free on its system drive.
+`docs_gate.py` runs on every commit and on every gate invocation, so it produced most of
+them.
 
-The test runs each script as a subprocess, because that is how they are used and because a
-finalizer registered with `atexit` only runs when a real process exits -- importing the
-module would test a path nothing takes.
+**Each subprocess gets its own temp directory**, rather than the test watching the shared
+one. The first version of this test snapshotted the system temp directory for
+`cdl-*-pyc-*` before and after its own subprocess, which is a namespace every other test
+writes to as well: under `pytest-xdist` the 56 gate self-check tests each spawn
+`docs_gate.py`, so another worker's in-flight directory landed in this test's "after" set
+and was attributed to a subprocess that had already cleaned up after itself. It passed on
+one CI matrix entry and failed on the other, from the same commit. Isolating the child's
+`TMPDIR` removes the shared namespace instead of trying to time around it.
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-TMP = Path(tempfile.gettempdir())
 
 # Each script with the prefix it redirects the cache to, and an argument list that makes it
 # do its work and exit without writing to the repository.
@@ -33,21 +38,40 @@ SCRIPTS = [
     ("scripts/gen_gitleaks_config.py", "cdl-gl-pyc-", ["--check"]),
     ("scripts/gen_tools_docs.py", "cdl-gentools-pyc-", ["--check"]),
 ]
+IDS = [s[0] for s in SCRIPTS]
 
 
-def dirs_with(prefix: str) -> set[Path]:
-    return {p for p in TMP.glob(f"{prefix}*") if p.is_dir()}
+def run_isolated(script: str, args: list[str], private_tmp: Path) -> subprocess.CompletedProcess:
+    """Run one script with `tempfile` pointed at a directory only this test can see.
 
-
-@pytest.mark.parametrize(("script", "prefix", "args"), SCRIPTS, ids=[s[0] for s in SCRIPTS])
-def test_a_script_removes_the_cache_directory_it_created(
-    script: str, prefix: str, args: list[str]
-) -> None:
-    before = dirs_with(prefix)
-
-    result = subprocess.run(
-        [sys.executable, script, *args], cwd=REPO_ROOT, capture_output=True, text=True
+    All three names are set because `tempfile.gettempdir()` consults TMPDIR, TEMP and TMP,
+    and which one wins differs between POSIX and Windows -- setting one would silently
+    leave the child on the shared directory on the other platform, which is the bug this
+    function exists to remove.
+    """
+    env = {
+        **os.environ,
+        "TMPDIR": str(private_tmp),
+        "TEMP": str(private_tmp),
+        "TMP": str(private_tmp),
+    }
+    return subprocess.run(
+        [sys.executable, script, *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        env=env,
     )
+
+
+@pytest.mark.parametrize(("script", "prefix", "args"), SCRIPTS, ids=IDS)
+def test_a_script_removes_the_cache_directory_it_created(
+    script: str, prefix: str, args: list[str], tmp_path: Path
+) -> None:
+    private_tmp = tmp_path / "private"
+    private_tmp.mkdir()
+
+    result = run_isolated(script, args, private_tmp)
 
     # The run has to have actually happened, or "no directory was left behind" is what a
     # script that died on its first line would also produce.
@@ -55,15 +79,66 @@ def test_a_script_removes_the_cache_directory_it_created(
         f"{script} did not run to a normal conclusion:\n{result.stdout}\n{result.stderr}"
     )
 
-    leaked = dirs_with(prefix) - before
+    leaked = [p for p in private_tmp.glob(f"{prefix}*") if p.is_dir()]
     assert not leaked, (
-        f"{script} left {len(leaked)} cache director(y/ies) behind: {sorted(leaked)}. "
+        f"{script} left {len(leaked)} cache director(y/ies) behind: {leaked}. "
         "sys.pycache_prefix must still point at a fresh temp directory -- the fix is to "
         "remove it on exit, not to stop creating it."
     )
 
 
-@pytest.mark.parametrize(("script", "prefix", "args"), SCRIPTS, ids=[s[0] for s in SCRIPTS])
+@pytest.mark.parametrize(("script", "prefix", "args"), SCRIPTS, ids=IDS)
+def test_the_script_really_used_the_private_temp_directory(
+    script: str, prefix: str, args: list[str], tmp_path: Path
+) -> None:
+    """The control on the isolation itself.
+
+    If the child ignored the environment and kept using the shared temp directory, the
+    test above would find an empty private directory and pass without ever observing the
+    script's cleanup -- a check that cannot fail. This proves the redirect lands where the
+    other test looks, by running the script with cleanup suppressed and requiring the
+    directory to appear there.
+    """
+    private_tmp = tmp_path / "private"
+    private_tmp.mkdir()
+
+    # `-X` cannot disable atexit, so the suppression is done the way the runtime offers:
+    # os._exit skips atexit handlers entirely. The script is imported and run under a
+    # wrapper rather than edited, so the committed source is what is under test.
+    wrapper = tmp_path / "no_atexit.py"
+    wrapper.write_text(
+        "import os, runpy, sys\n"
+        "sys.argv = [sys.argv[1], *sys.argv[2:]]\n"
+        "try:\n"
+        "    runpy.run_path(sys.argv[0], run_name='__main__')\n"
+        "except SystemExit:\n"
+        "    pass\n"
+        "os._exit(0)\n",
+        encoding="utf-8",
+    )
+    env = {
+        **os.environ,
+        "TMPDIR": str(private_tmp),
+        "TEMP": str(private_tmp),
+        "TMP": str(private_tmp),
+    }
+    subprocess.run(
+        [sys.executable, str(wrapper), script, *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    created = [p for p in private_tmp.glob(f"{prefix}*") if p.is_dir()]
+    assert created, (
+        f"{script} created no {prefix}* directory in the private temp directory, so the "
+        "cleanup test above is watching somewhere the script never writes and could not "
+        "fail. Check that TMPDIR/TEMP/TMP reach the child."
+    )
+
+
+@pytest.mark.parametrize(("script", "prefix", "args"), SCRIPTS, ids=IDS)
 def test_the_cache_is_still_redirected_away_from_the_source_tree(
     script: str, prefix: str, args: list[str]
 ) -> None:

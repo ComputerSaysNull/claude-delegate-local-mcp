@@ -34,6 +34,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #157 — 2026-09-10 — fix: the leak test watched a temp namespace it did not own
+
+### Fixed
+- **#156's regression test was racy, and it broke `main`.** It snapshotted the system temp
+  directory for `cdl-*-pyc-*` before and after its own subprocess and blamed the difference
+  on that subprocess. Every other test writes to the same directory: under `pytest-xdist`
+  the 56 gate self-check tests each spawn `docs_gate.py`, so another worker's *in-flight*
+  cache directory landed in the "after" set and was attributed to a process that had
+  already cleaned up after itself. `docs_gate.py` is the most-spawned of the four, which is
+  why it was the one that failed.
+- **It passed on `tests (3.12)` and failed on `tests (3.11)` from the same commit**, and
+  passed on the pull request before failing on `main` — the signature of a race rather than
+  a defect in the code under test. The fix under test was never wrong: `/tmp` holds zero
+  leaked directories after a full local suite.
+- Fixed by giving each subprocess a private `TMPDIR`/`TEMP`/`TMP` rather than timing around
+  the shared one. All three names are set because `tempfile.gettempdir()` consults them in
+  a different order per platform, so setting one would leave the child on the shared
+  directory on the other — the same class of half-fix as extending one denylist reader.
+
+### Added
+- **A control on the isolation itself.** If the child ignored the environment and kept
+  using the shared directory, the cleanup assertion would find an empty private directory
+  and pass without ever observing the cleanup — a check that cannot fail. The new test runs
+  each script under a wrapper that ends in `os._exit(0)`, skipping `atexit`, and requires
+  the cache directory to *appear* in the private directory. Negative-tested both ways:
+  removing the environment plumbing fails the isolation control, and removing the `atexit`
+  cleanup fails the leak test.
+- Verified by running the leak test three times under `xdist` alongside
+  `test_gate_checks_can_fail.py`, the file whose subprocesses caused the collision.
+
 ## #156 — 2026-09-10 — fix: the bytecode-cache redirect cleans up after itself
 
 ### Fixed
