@@ -30,6 +30,12 @@ dev = [
     # fetches hatchling before it can answer. One would have had to sit behind the
     # `integration` marker and never run; this one runs in the default suite.
     "hatchling",
+    # Also a *test* dependency, and deliberately not a runtime one. `agents.py` parses
+    # frontmatter itself and must keep doing so. But an agent file has two readers, and the
+    # bespoke one is the more permissive: it accepted a description whose unquoted `: `
+    # makes real YAML raise, so the file loaded here and broke in every editor and in
+    # Claude Code. Testing that both readers accept a file needs the other reader.
+    "pyyaml>=6,<7",
 ]
 
 [build-system]

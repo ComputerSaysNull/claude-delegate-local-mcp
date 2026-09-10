@@ -1,6 +1,6 @@
 <!-- BUDGET: 369
-     Raised from 365 on 2026-09-10: a skill can now be caller-side guidance for an agent
-     rather than a slash command -- a third kind; two of its four lines were paid for by trimming.
+     Raised from 365 on 2026-09-10: an agent's runbook is a third kind of file this
+     document owns, and both readers of one must accept it -- which needs saying once.
      Raised from 357 on 2026-09-10: there are two skill directories now and only one of
      them ships, so which is which is this document's to state (M10).
      Raised from 348 on 2026-09-10: `.claude/skills/` is a second directory of build-time recipes this document now owns.
@@ -276,7 +276,7 @@ looks runnable and shells out to git underneath. Read the pair yourself for that
 | Agent | Model | Effort | For |
 |---|---|---|---|
 | `code-reviewer` | sonnet | high | Reviews a diff for correctness and for regressions in this pr… |
-| `docs-audit-local` | deepseek-v4-flash | high | The delegated documentation audit, in this server's own agent… |
+| `docs-audit-local` | deepseek-v4-flash | high | Audits this repository's documentation against its code and r… |
 | `docs-audit` | haiku | medium | Audits documentation for staleness, verbosity, misplaced fact… |
 | `researcher` | haiku | low | Read-only exploration of this repository |
 | `test-writer` | sonnet | medium | Writes and extends pytest tests for this repository |
@@ -337,9 +337,9 @@ working on this repository and is never installed anywhere. `src/claude_delegate
 ships inside the wheel and `--install-skills` copies it into someone else's project, so
 nothing in it may assume this repository — the reason it exists, since `docs/` does not travel.
 
-`docs-audit-dispatch` is a third kind: not a slash command but the caller-side half of
-`docs-audit-local`, split out so a pass stops paying to read fifty lines it cannot act on.
-It also appears in `list_agents`, because `.claude/skills/` is tier 2 of agent lookup.
+`docs-audit-dispatch` is the runbook for `docs-audit-local` — the pass list, the check-class
+definitions and each pass's effort — what makes two audits comparable. **Both readers must
+accept these files**: `agents.py` is the permissive one, so quote any value holding a colon.
 
 ## Secrets
 
