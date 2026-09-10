@@ -34,6 +34,28 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #151 — 2026-09-10 — feat: a session-plan skill, and the test comes before the fix
+
+### Added
+- **`.claude/skills/session-plan/`, owned by `CONTRIBUTING.md`.** Session planning was
+  re-derived each time and drifted with it: it went looking for `STATUS.md`, retired weeks
+  ago, and ranked items without checking the milestone exit condition they sit under. The
+  skill states the steps once — read through a delegation, `🔄` before `⬜`, one plan rather
+  than a menu, an assumption pass that measures rather than reasons, marker-and-reflow-only
+  edits to a ticked item, and stop for approval. The procedure stays in the skill file and
+  `CONTRIBUTING.md` links to it rather than summarising it, because the second copy is the
+  drift this scheme exists to stop.
+- **An ordering for the negative-test rule: red before green.** `CLAUDE.md` said a check
+  that cannot fail is worse than no check, but not *when* the test is written — and a test
+  written after the fix is never observed failing, so nothing distinguishes it from a blind
+  one. The test now goes first and runs against the unfixed code, and the pull request body
+  states that result.
+
+### Fixed
+- **`CONTRIBUTING.md` credited four unfailable checks where `CLAUDE.md` lists six.** Two
+  more were found on 2026-09-09 and only one of the two documents was updated, which is the
+  drift a stated count invites. The count lives in `CLAUDE.md`; this document points at it.
+
 ## #150 — 2026-09-09 — feat: each fact moves to the channel that owns it
 
 ### Fixed

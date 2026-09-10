@@ -1,4 +1,5 @@
-<!-- BUDGET: 158 -->
+<!-- BUDGET: 162 -->
+<!-- Raised from 158 on 2026-09-10: the negative-test rule needed its ordering, which is the half a blind test satisfies. -->
 <!-- Raised from 152 on 2026-09-09: the contract has four homes rather than one, and two more
      checks that could not fail were found (ADR-0066, ADR-0065). -->
 <!-- Raised from 144 on 2026-09-03: one invariant, for the trap ADR-0049 closed. -->
@@ -99,6 +100,10 @@ Rules a machine cannot check, so they land here:
   Negative-test every check — assert it fires on a real violation, not merely that it passes.
   Two tests written *for* the fourth passed against the bug before they were rewritten, so
   the rule applies to the tests as much as to the checks.
+- **Red before green, in that order.** The test is written first and run against the unfixed
+  code, and its failure output is kept: a test that passes before the fix is blind and gets
+  rewritten rather than trusted. Ordering is what makes the rule above checkable instead of
+  merely believed, so the PR body states that result.
 - **Verify network isolation by address, never by hostname.** A hostname-only test passes on
   broken DNS and reports a tight sandbox either way. (ADR-0021; mechanism in `docs/AGENTS.md`.)
 
