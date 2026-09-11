@@ -19,6 +19,51 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0068 — 2026-09-11 — A waiter passed over long enough becomes a barrier — Accepted
+
+**Context.** `_binding` refuses any waiter whose `ahead` is non-zero, and `ahead` counts
+only earlier-ticketed waiters that could be admitted *now*. A waiter no rule would currently
+admit is therefore invisible to everyone behind it. That is deliberate and ADR-0040's
+ticket ordering depends on it: counting an infeasible waiter would reintroduce the
+head-of-line blocking the single predicate exists to prevent.
+
+**It had no floor, and one shape abused it.** A waiter needing more of a shared budget than
+its successors is never feasible at the moment they ask — they hold the very budget it is
+short of — so it is never counted as ahead, and every fresh arrival wins the same race
+again. Measured 2026-09-11 by driving the gate directly: against `kv_token_budget`, five
+successive smaller requests were admitted while the larger one parked ahead of all of them
+stayed blocked, and nothing in the design would ever have ended that.
+
+**`max_inflight_large_prefills` is not where this lives, and PLAN.md said it was.** The same
+probe showed that cap behaving correctly: smalls do stream past a large parked on it, but
+only while another *large* holds the slot, and larges take tickets and queue behind each
+other — so the waiter was admitted the instant the blocker released, and a newcomer could
+not overtake it once feasible. Bounded blocking, not starvation. A fix aimed there would
+have serialised the gate for no gain, which is why the probe came before the change.
+
+**Decision — past `admission_starvation_grace`, an infeasible waiter counts as ahead
+anyway.** It becomes a barrier: arrivals queue behind it, the in-flight work drains, and the
+budget falls to it rather than to the next caller. The grace is what keeps this from being
+strict ticket order, which ADR-0040 rejected: inside it, overtaking is still the intent.
+
+**Aging, not reservation.** Reserving capacity for a parked waiter would hold it idle while
+the waiter is still blocked on something else, which is the "holds capacity it is not using"
+failure the four-rules-as-one-predicate shape was written to avoid. Aging costs nothing
+until a waiter is actually being passed over.
+
+**One site, because `rival_fits` is already the shared primitive.** Both the in-process
+queue and `SharedSlots` receive it as a callback, so the barrier reaches the cross-process
+path without a second implementation — the asymmetry CLAUDE.md warns that extending one
+enforcer alone produces. The waiter's age travels in its spec as wall-clock rather than
+monotonic time, because across processes only wall clock is comparable, and it is stamped
+by the caller once rather than per attempt: a timestamp refreshed on every retry measures
+the gap between polls, so nothing would ever age.
+
+**Consequences.** `admission_starvation_grace` is a new setting, defaulting to 30 seconds
+and disabled at zero. Today it is close to inert, because `kv_token_budget` is set well
+above the pool the endpoint reports and so rarely binds — correcting that is what will make
+this reachable, which is the reverse of the order the roadmap ranked the two.
+
 ## ADR-0067 — 2026-09-10 — A broad pattern is exempted at one name, never narrowed — Accepted
 
 **Context.** `security/secret_globs.txt` is one list with two enforcers: `paths.py`'s layer

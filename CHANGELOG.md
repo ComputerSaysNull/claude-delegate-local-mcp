@@ -34,6 +34,44 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #164 — 2026-09-11 — fix: a waiter passed over long enough becomes a barrier
+
+### Added
+- **`admission_starvation_grace`, defaulting to 30 seconds.** Past it, a waiter counts as
+  ahead of later arrivals even while no rule would admit it. Zero disables the barrier.
+  ADR-0068.
+
+### Fixed
+- **A waiter needing more of a shared budget than its successors was passed over for as
+  long as they kept arriving.** *Symptom:* nothing yet, which is the point — see the
+  consequence below. *Cause:* `_binding` refuses a waiter whose `ahead` is non-zero, and
+  `ahead` counts only earlier-ticketed waiters that could be admitted *now*. A waiter short
+  of `kv_token_budget` is never feasible at the instant its successors ask, because they
+  hold the very budget it is short of, so it was never counted and every fresh arrival won
+  the same race again. *Fix:* aging, applied in `rival_fits` — the one primitive both the
+  in-process queue and `SharedSlots` already receive, so the barrier reaches the
+  cross-process path without a second implementation.
+- **PLAN.md named the wrong rule, and the probe is why that was caught before the fix.**
+  The roadmap attributed this to `max_inflight_large_prefills`. Driving the gate directly on
+  2026-09-11 showed that cap behaving correctly: smalls do stream past a large parked on it,
+  but only while another *large* holds the slot, and larges take tickets and queue behind
+  each other — so the waiter was admitted the instant the blocker released, and a newcomer
+  could not overtake it once feasible. Bounded blocking, not starvation. A fix aimed there
+  would have serialised the gate for no gain. `test_the_large_prefill_cap_releases_its_waiter`
+  keeps that true.
+- **The mechanism is close to inert today, deliberately recorded as such.**
+  `kv_token_budget` is set to 2,400,000 against the 1,467,988 the endpoint reports, so rule
+  2 rarely binds. Correcting that is what makes this reachable — the reverse of the order
+  the roadmap ranks the two items.
+
+### Changed
+- `docs/ARCHITECTURE.md`'s budget rises 1054 → 1061, the only raise this needed: the file sat
+  exactly at its cap, and the ticket-ordering section stated the rule the barrier qualifies
+  with no room to name its floor. `docs/CONFIGURATION.md` needed none — its new row fits.
+- `gen_config_docs.py` places the new setting under **Admission control**. Without that it
+  landed in the generated *Other* section, which
+  `test_every_field_has_a_section_so_other_stays_empty` caught in the full suite.
+
 ## #163 — 2026-09-11 — fix: a finished roadmap item cannot stay marked open
 
 ### Added

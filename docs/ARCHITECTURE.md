@@ -1,4 +1,6 @@
-<!-- BUDGET: 1054
+<!-- BUDGET: 1061
+     Raised from 1054 on 2026-09-11: admission grew an anti-starvation barrier, and the
+     ticket-ordering section stated the rule it qualifies without room to name the floor.
      Raised from 1030 on 2026-09-10: `--install-skills` is a fourth entry point, and the
      reason it exists -- that documentation does not travel with a wheel -- is the M10
      argument and has nowhere else to live.
@@ -665,6 +667,11 @@ single predicate exists to prevent: a large request parked on the prefill cap wo
 every small request behind it for as long as the request ahead of *it* kept running. A
 waiter that cannot spend its turn does not hold one, so a ticket orders contention rather
 than serialising the gate.
+
+That qualification had no floor: a waiter needing more of a shared budget than its
+successors is never feasible at the instant they ask, because they hold what it is short of.
+Past `admission_starvation_grace` it counts as ahead regardless, and becomes a barrier.
+(ADR-0068)
 
 A ticket is given up on every exit from the wait — admitted, timed out, cancelled, raised
 — from a `finally` rather than from the timeout path, because one abandoned at the front

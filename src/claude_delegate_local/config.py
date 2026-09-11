@@ -467,6 +467,18 @@ class Config:
         "is one running plus one staged -- pipelining, not throttling. Raising it makes "
         "every large request slower rather than any of them faster.",
     )
+    admission_starvation_grace: float = _f(
+        30.0,
+        "How long a waiter may be passed over before it starts counting as ahead of "
+        "later arrivals even while it cannot yet run. Queue position normally ignores a "
+        "waiter no rule would currently admit, so that one request blocked on capacity "
+        "does not block everything behind it -- but a waiter needing more of a shared "
+        "budget than its successors is then never feasible at the moment they ask, and "
+        "is passed over for as long as they keep arriving. Past this, it becomes a "
+        "barrier: arrivals queue behind it, the in-flight work drains, and the budget "
+        "falls to it. Zero disables the barrier and restores indefinite overtaking.",
+        unit="seconds",
+    )
     admission_wait_timeout: int = _f(
         1800,
         "Bound on time spent waiting for a slot, before dispatch_timeout starts its own "

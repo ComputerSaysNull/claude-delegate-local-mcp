@@ -162,6 +162,7 @@ class Admission:
         self._token_budget = cfg.kv_token_budget
         self._large_threshold = cfg.large_prefill_tokens
         self._max_large = cfg.max_inflight_large_prefills
+        self._grace = cfg.admission_starvation_grace
         self._cond = asyncio.Condition()
 
         self._inflight_seqs = 0
@@ -238,8 +239,15 @@ class Admission:
             if (ticket is None or other < ticket) and fits(spec)
         )
 
-    async def _try_take(
-        self, tokens: int, is_large: bool, key: str, limit: int, ticket: int | None
+    async def _try_take(  # noqa: PLR0913 -- the request, its place in line, and its age
+        self,
+        tokens: int,
+        is_large: bool,
+        key: str,
+        limit: int,
+        ticket: int | None,
+        *,
+        since: float,
     ) -> tuple[tuple[str, int] | None, int | None]:
         """Test the rules and, if they admit, take the slot. One atomic step.
 
@@ -255,8 +263,13 @@ class Admission:
         stops a slot and a queue position ever being held at once.
         """
 
+        # `since` is the caller's own first attempt, passed in rather than stamped here:
+        # this runs once per retry, and a timestamp refreshed on every attempt would
+        # measure the gap between polls instead of the wait, so nothing could ever age.
+        # Wall clock, not monotonic, because the shared file compares across processes.
         spec: dict[str, Any] = {
-            "tokens": tokens, "large": is_large, "key": key, "limit": limit
+            "tokens": tokens, "large": is_large, "key": key, "limit": limit,
+            "since": since,
         }
 
         def decide(live: Totals) -> tuple[str, int] | None:
@@ -268,7 +281,23 @@ class Admission:
             The capacity rules only, with `ahead` left at zero: asking whether a rival is
             itself at the front would recurse, and the question here is narrower -- is it
             spending its turn, or holding one it cannot spend.
+
+            One exception, and it is the whole anti-starvation mechanism. A waiter that
+            has been passed over for `admission_starvation_grace` counts as ahead whether
+            or not it currently fits. Without it a waiter needing more of a shared budget
+            than its successors is never feasible at the instant they ask -- they hold
+            the very budget it is short of -- so it is never counted, and they overtake
+            it for as long as they keep arriving. Aging makes it a barrier instead: the
+            arrivals queue, the in-flight work drains, and the budget falls to it. The
+            grace is what keeps this from becoming the head-of-line blocking the queue
+            check was written to avoid; inside it, overtaking is still the intent.
             """
+            if self._grace > 0:
+                since = other.get("since")
+                if isinstance(since, (int, float)) and (
+                    time.time() - since >= self._grace
+                ):
+                    return True
             return (
                 self._binding(
                     live,
@@ -371,6 +400,10 @@ class Admission:
         # whole server at `max_inflight_large_prefills` while appearing to bound nothing.
         is_large = prefill_tokens > self._large_threshold
         started = time.monotonic()
+        # Beside `started`, not instead of it: `started` measures this wait and must not
+        # jump if the clock is set, while the age a rival judges us by has to be
+        # comparable across processes, which only wall clock is.
+        queued_at = time.time()
         waited = False
         ticket: int | None = None
 
@@ -382,7 +415,7 @@ class Admission:
             async with self._cond:
                 while True:
                     binding, ticket = await self._try_take(
-                        tokens, is_large, entry_key, entry_limit, ticket
+                        tokens, is_large, entry_key, entry_limit, ticket, since=queued_at
                     )
                     if binding is None:
                         break
