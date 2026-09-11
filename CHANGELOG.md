@@ -34,6 +34,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #166 — 2026-09-11 — fix: the reply budget is sized to the attempt that must deliver it
+
+### Fixed
+- **The budget authorised a reply no single backend call could return.** *Symptom:* nine
+  delegations abandoned at 2100s having completed zero turns — 1800s of attempt plus 300s
+  of a retry that never had the time to succeed. *Cause:* `DecodeRate.ceiling` was handed
+  `min(stall_left(), deadline - clock())`, the two *delegation* deadlines, while the reply
+  is carried by one backend call bounded by `turn_timeout` — tighter than both at the
+  defaults (1800 against 2100 and 14400). *Fix:* `budget_seconds` takes the tightest of the
+  three. This is wrong independently of the decode rate: `reply_budget_margin` is a fraction
+  of the time available, and the time available to one attempt is `turn_timeout`.
+
+### Changed
+- `docs/DISPATCH.md`'s budget rises 615 → 619; the formula it states gained a third bound.
+
+### Notes
+- The placeholder implementation was committed to nothing, but it was *run*: `budget_seconds`
+  was first written with the old two-bound behaviour to prove the new tests fail against it.
+  Three of seven did, including both directions of the parametrised case. An `ImportError`
+  red proves only that a function is absent, never that the assertions discriminate.
+- One parametrised case asserted a configuration the validator refuses — `turn_timeout`
+  above `stall_timeout` — and failed with `ConfigError` rather than an assertion. Replaced
+  with 2100, the upper end config permits, where the fix correctly changes nothing.
+
 ## #165 — 2026-09-11 — feat: a turn records what its budget was priced on
 
 ### Added
