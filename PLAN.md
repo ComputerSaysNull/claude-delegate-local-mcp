@@ -348,8 +348,8 @@ nothing was configured, and no tool result changes shape.
 
 ### M12 — Admission that queues instead of starving
 
-**Exit:** a large request parked on `max_inflight_large_prefills` is no longer overtaken
-indefinitely by later small ones, shown by a test that reproduces the starvation first.
+**Exit:** a waiter parked on `kv_token_budget` is no longer overtaken indefinitely by later
+smaller ones, shown by a test that reproduces the starvation first. Met 2026-09-11.
 
 Needed before a second person shares the cluster, and worth having alone.
 
@@ -357,15 +357,15 @@ Raised by a documentation audit that was truncated by its own turn budget, then 
 three settings below were each sized against a constraint that has since moved, and none of
 them was re-derived when it did.
 
-- ⬜ **Admission has no anti-starvation, and 2026-09-05's measurements make it sharper.**
-  `_binding` ends with a queue-position check refusing any waiter with `ahead > 0`, where
-  `ahead` counts only earlier-ticketed waiters *that currently fit*. Of the four rules only
-  `max_inflight_large_prefills` is guarded by `is_large`, so a small request never tests it
-  — and a large request parked on that cap therefore counts every later small request as
-  ahead of it, and they go first. Deliberate, and the docstring says why: strict ticket
-  order would reintroduce head-of-line blocking. But there is **no aging, no reservation
-  and no barrier.** The only escape is the caller's `admission_wait_timeout`, a bail-out
-  rather than a guarantee, and the ticket staleness is a crash backstop.
+- 🔄 **Admission has no anti-starvation, and 2026-09-05's measurements make it
+  sharper.** `_binding` refuses any waiter with `ahead > 0`, where `ahead` counts only
+  earlier-ticketed waiters *that currently fit*. Deliberate — strict ticket order would
+  reintroduce head-of-line blocking — but there was **no aging, no reservation, no barrier.**
+  - **Barrier landed 2026-09-11, and the rule named here was the wrong one, measured.**
+    `max_inflight_large_prefills` is held by other *large* requests, which queue by ticket,
+    so a waiter on it is admitted the moment the blocker releases — bounded, not starvation.
+    `kv_token_budget` is held by the newcomers themselves, so a waiter short of it is never
+    feasible when they ask. Aging in `rival_fits`, ADR-0068. **`is_large` keeps this open.**
   - **What changed:** the eviction half was reasoned, not measured, and now can be. The
     KV pool is `kv_cache_size_tokens` from the endpoint's own metric, and
     `vllm:kv_cache_usage_perc` says how full it is, so "the prefix a starved request was
