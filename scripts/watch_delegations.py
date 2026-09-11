@@ -357,6 +357,19 @@ def render(event: dict, width: int) -> list[str]:
     if kind == "turn":
         return _turn_lines(event, stamp, width)
 
+    if kind == "priced":
+        # What the turn below was allowed, and what that was worked out from. Shown
+        # because a turn that dies at a deadline prints nothing else: the ceiling and the
+        # load it was read against are the two numbers that say whether the budget was
+        # ever payable, and they are meaningless apart.
+        cap = event.get("budget_ceiling")
+        rate = event.get("decode_rate")
+        running = event.get("requests_running")
+        cap_s = f"{cap:,} tok" if isinstance(cap, int) else "uncapped"
+        rate_s = f"{rate:.1f} tok/s" if isinstance(rate, (int, float)) else "rate unknown"
+        load_s = f", {running:.0f} running" if isinstance(running, (int, float)) else ""
+        return [f"{stamp}  {DIM}budget {cap_s} · {rate_s}{load_s}{R}"]
+
     if kind == "alive":
         # One line, dim, no rule. It reports that nothing has happened, which is worth
         # knowing during a one-shot and worth not shouting about.

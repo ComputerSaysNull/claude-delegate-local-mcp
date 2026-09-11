@@ -294,8 +294,8 @@ the rate is **measured, never configured**: it belongs to the deployment and mov
 one week. `DecodeRate` seeds from the cluster's since-boot figure so the first turn is
 bounded — a one-shot and a tool-forbidden final turn both live there — and every later turn
 replaces the seed with what this delegation achieved, which is the rate its own deadline is
-paid in. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055,
-not a guess. Every recovery stage is bounded, the enlarged retry included, or that retry
+paid in. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055, not a
+guess — and the `priced` event says so per turn, so an uncapped turn is visible not inferred. Every recovery stage is bounded, the enlarged retry included, or that retry
 would be the way back to a budget no deadline can pay.
 
 ## Reasoning is controlled per request, never inherited

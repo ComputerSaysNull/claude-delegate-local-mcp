@@ -314,10 +314,21 @@ class DecodeRate:
     # estimate. Five turns move it roughly 90% of the way to a changed rate.
     WEIGHT = 0.4
 
-    __slots__ = ("_rate",)
+    # `seen_running` is not used in any calculation. It is carried so the record can say
+    # what load the seed was read against: the seed is a since-boot mean over every
+    # concurrency regime the engine has served, so the rate alone cannot be checked
+    # afterwards against what the cluster was actually doing.
+    __slots__ = ("_rate", "seen_running")
 
-    def __init__(self, seed: float | None = None) -> None:
+    def __init__(self, seed: float | None = None,
+                 seen_running: float | None = None) -> None:
         self._rate = seed if seed and seed > 0 else None
+        self.seen_running = seen_running
+
+    @property
+    def rate(self) -> float | None:
+        """What a turn would currently be priced at, or None if nothing is known."""
+        return self._rate
 
     @property
     def known(self) -> bool:
@@ -361,7 +372,11 @@ async def seed_decode_rate(backend: Backend) -> DecodeRate:
     except Exception:  # a monitoring read must never fail a delegation
         return DecodeRate()
     rate = (cluster or {}).get("decode_tokens_per_second_since_boot")
-    return DecodeRate(rate if isinstance(rate, (int, float)) else None)
+    running = (cluster or {}).get("requests_running")
+    return DecodeRate(
+        rate if isinstance(rate, (int, float)) else None,
+        running if isinstance(running, (int, float)) else None,
+    )
 
 
 def resolve_max_tokens(
@@ -789,6 +804,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     effort: str | None = None,
     max_tokens: int | None = None,
     on_alive: Callable[[float, int], Awaitable[None]] | None = None,
+    on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
@@ -839,10 +855,19 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         # is the shape with the least slack: it completes no turns, so its deadline runs
         # from entry and it must fit a whole answer inside one of them (ADR-0055).
         rate = await seed_decode_rate(backend)
+        ceiling = rate.ceiling(cfg, stall_left())
+        # The one-shot completes no turns, so without this it can only ever be explained
+        # by what it was *asked*, never by what it was allowed.
+        if on_priced is not None:
+            await on_priced({
+                "turn": 1, "effort": resolved, "max_tokens": max_tokens,
+                "budget_ceiling": ceiling, "decode_rate": rate.rate,
+                "requests_running": rate.seen_running,
+            })
         return await dispatch_with_recovery(
             cfg, entry, backend, request_at,
             effort=resolved, max_tokens=max_tokens,
-            budget_ceiling=rate.ceiling(cfg, stall_left()),
+            budget_ceiling=ceiling,
             sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
         )
 
@@ -1846,6 +1871,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
     on_alive: Callable[[float, int], Awaitable[None]] | None = None,
+    on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_turn_done: Callable[[TurnDiagnostic, str, float], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
@@ -1995,12 +2021,21 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # turn completing, so this tracks the clock the model is actually racing, and
             # the rate below tracks what the cluster is giving us as other tenants come and
             # go. A ceiling fixed at entry would be a guess about the rest of the run.
+            ceiling = decode_rate.ceiling(cfg, min(stall_left(), deadline - clock()))
+            # Recorded before the call, not after it. A turn killed at a deadline having
+            # finished nothing writes no `turn` event, so pricing reported afterwards is
+            # reported only for the turns that never needed explaining.
+            if on_priced is not None:
+                await on_priced({
+                    "turn": turn, "effort": resolved_effort,
+                    "max_tokens": max_tokens, "budget_ceiling": ceiling,
+                    "decode_rate": decode_rate.rate,
+                    "requests_running": decode_rate.seen_running,
+                })
             dispatch = await dispatch_with_recovery(
                 cfg, entry, backend, build,
                 effort=resolved_effort, max_tokens=max_tokens,
-                budget_ceiling=decode_rate.ceiling(
-                    cfg, min(stall_left(), deadline - clock())
-                ),
+                budget_ceiling=ceiling,
                 sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
             )
             # The backend call alone, separate from the turn's wall clock. Tokens per second

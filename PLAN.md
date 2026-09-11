@@ -1,4 +1,6 @@
-<!-- BUDGET: 514
+<!-- BUDGET: 539
+     Raised from 514 on 2026-09-11: four dispatch defects found by reading the transcripts
+     of nine dead delegations, none of which the roadmap had a place for.
      Raised from 505 on 2026-09-11: the metrics sampler prices the reply budget rather than
      only reporting it, the audit's root cause. Nine lines, trimmed from fifteen.
      Raised from 492 on 2026-09-09: the first nested run of this suite found a second
@@ -458,6 +460,29 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
   other way, so this is a convenience and ranks below the search tool. The work is in the
   budget rather than the matching — a glob hitting two hundred files has to skip and account
   for them the way `context.prefetch` already does, not spend `prefetch_budget` silently
+
+- ⬜ **The reply budget is priced while the cluster is idle and spent while it is busy.**
+  Measured 2026-09-11: six delegations fanned out in one message each read
+  `requests_running` of 0 or 1 at dispatch and were all priced at 35.0 tok/s for a ~44,111
+  token ceiling, because admission serialises them and the contention they will meet does
+  not exist yet. Prose decodes at 19.4 tok/s at six concurrent, so that budget needs 2,218s
+  against a 2,100s stall deadline. Nine delegations died exactly this way in one session.
+  **No dispatch-time reading can see it**, which is why the metrics sampler above is not the
+  fix it was filed as: the rate has to be pessimistic rather than current. `DecodeRate.observe`
+  already measures the true rate under load and throws it away at the end of each delegation,
+  which is the cheapest place to get a measured pessimistic number rather than a guessed one
+- ⬜ **`turn_timeout` is absent from the ceiling's `min`.** `decode_rate.ceiling` is sized
+  against `min(stall_left(), deadline - clock())`, so it authorises a reply that the 1,800s
+  per-attempt bound cannot deliver even when the rate is right. One line, and wrong
+  independently of everything above
+- ⬜ **A generation overrun is retried as though it were a network blip.** `_is_retryable`
+  is true for every `BackendUnavailable`, so a read timeout at 1,800s is sent again with the
+  same budget against whatever clock remains — 300s in the measured case. It cannot succeed,
+  and it discards 1,800s of decode to prove it. Refuse the retry, or re-derive the budget
+  from the time actually left
+- ⬜ **The heartbeat names a deadline that will not kill the turn.** `_keepalive` reports
+  `cfg.dispatch_timeout`, so all nine deaths showed "60s of 14400s" — 0.4% elapsed — while
+  half an hour from being killed by a deadline the stream never mentions
 
 ## Deferred
 
