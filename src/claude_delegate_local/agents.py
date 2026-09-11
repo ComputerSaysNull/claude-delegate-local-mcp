@@ -1,7 +1,7 @@
 """Agent files: where they are found, what their frontmatter means, and what it binds.
 
-An agent is a markdown file, not a tool. That is the whole point of the design: there are
-five MCP tools and there will stay five, so a new *kind* of delegated task -- review,
+An agent is a markdown file, not a tool. That is the whole point of the design: the tool
+count is fixed and small, so a new *kind* of delegated task -- review,
 test-writing, migration -- is a file someone writes rather than a code change and a
 release. (ADR-0005)
 

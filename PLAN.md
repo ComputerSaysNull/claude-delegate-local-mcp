@@ -1,4 +1,6 @@
-<!-- BUDGET: 505
+<!-- BUDGET: 514
+     Raised from 505 on 2026-09-11: the metrics sampler prices the reply budget rather than
+     only reporting it, the audit's root cause. Nine lines, trimmed from fifteen.
      Raised from 492 on 2026-09-09: the first nested run of this suite found a second
      over-broad cover, and five integration tests that cannot run without the network.
      Raised from 480 on 2026-09-08: a captured exit code of zero is not proof of success,
@@ -219,6 +221,15 @@ nothing was configured, and no tool result changes shape.
 - ⬜ A sampler polling the metrics reader on an interval into a windowed series, because it
   derives only since-boot figures and a lifetime average cannot say how the cluster is doing
   now. `backend_status` keeps the output it has, so no client behaviour changes
+  - **Raised 2026-09-11 from reporting to correctness, which re-ranks it.** The windowed rate
+    is what the *reply budget* should be priced from: `DecodeRate` seeds from the since-boot
+    mean and only a **completed** turn replaces it, so a delegation sized for an idle cluster
+    that cannot then finish never corrects itself and dies at `stall_timeout` at zero turns.
+    Seven did in one audit session, endpoint healthy throughout
+  - `vllm:generation_tokens_total` is published and **not** in the allowlist; differenced over
+    a window, over `num_requests_running`, it is a live per-request rate. The histogram in use
+    records only on *completion*, so it is blind during the stall it must detect. And
+    ADR-0055's "conservative" blend is flattering whenever the present is busier than history
 - ⬜ **Spike answered** — a `status` subcommand printing one plain-text block, since a TUI
   cannot run inside an agent's shell. Measure whether a detached terminal window can be
   launched from one; if not, print the command to paste

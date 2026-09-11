@@ -34,6 +34,48 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #162 — 2026-09-11 — docs: the 2026-09-11 audit, and the drifts it confirmed
+
+### Added
+- **`docs/audits/2026-09-11-audit.md`**, raised by the gate at 37 commits. Twelve findings
+  survived verification out of 23 reported; eight were retracted, three of them because the
+  file set handed to a pass was chosen badly — once by excluding the generated document that
+  actually owned the fact, which proved nothing by its absence.
+- **The record carries three findings about the audit machinery rather than the documents.**
+  The CLAIMS definition in the dispatch skill names only ADR and JOURNAL as evidence, so
+  changelog-sourced measurements return as unsourced; the 2026-09-06 audit retracted an
+  identical finding and diagnosed it as a caller error in the instruction, the instruction
+  was never changed, and this run reproduced it on one of the same measurements. The
+  concurrency guidance tells you to overlap passes, which killed seven delegations. And
+  `effort: high` is not what a broad pass receives.
+
+### Fixed
+- **`docs/DISPATCH.md` explained the skipped budget-retry stage as a model-cap edge.** The
+  code skips it whenever *anything* pinned the first budget, and `budget_ceiling` clamps
+  `enlarged` before the model cap is applied — so ADR-0055's deadline ceiling skips it too.
+  On this deployment that is the only thing that ever does: the model cap is 65,536 and
+  `thinking_max_tokens_floor` is 131,072, so by the document's stated condition the stage
+  should fire and it never does. Measured: a turn asked at high effort decoded 44,854 tokens
+  and stopped at length, against a ceiling computed as 44,806. The consequence was invisible
+  and expensive — every broad high-effort delegation spends one full generation proving high
+  does not fit, then answers at low.
+- **`docs/DISPATCH.md` said a turn's duration is bounded "only by `turn_timeout`".** Each
+  attempt is bounded by the tighter of that and the per-attempt ceiling, which the document's
+  own "Two deadlines" section already stated — so it contradicted itself.
+- **`docs/DISPATCH.md` described `on_turn_done` as firing unconditionally.** It fires only
+  when the turn recorded a ledger entry, which happens only under `diagnostics`. The shipped
+  caller enables diagnostics whenever the transcript needs it, so nothing is broken today;
+  a second caller passing the hook alone would have got silence.
+- **`docs/DISPATCH.md` attributed all three seam conditions to ADR-0008.** Model selection
+  by registry lookup is ADR-0009, which is what `backends/base.py` cites.
+- **The agent format claimed a frontmatter block needs "at least one key".** It does not.
+  Measured against `parse_frontmatter`: adjacent `---` lines are refused, but a block holding
+  one blank line or one comment is accepted and yields an all-default agent. Fixed in the
+  shipped skill, which is where the text lives, and regenerated into `docs/AGENTS.md`.
+- **`agents.py` said there are "five MCP tools and there will stay five".** There are six.
+  The count now goes unstated rather than restated — this cell has drifted three times, in
+  both directions, and a hand-maintained count against a decorator list is the wrong shape.
+
 ## #161 — 2026-09-10 — docs: server-format twins move to Deferred
 
 ### Changed

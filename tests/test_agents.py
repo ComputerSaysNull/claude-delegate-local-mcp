@@ -269,6 +269,24 @@ def test_a_file_with_no_frontmatter_is_refused(tmp_path):
         agents.load_agent(c, "plain")
 
 
+def test_adjacent_marker_lines_are_refused_but_a_blank_block_is_not(tmp_path):
+    """Both halves of what docs/AGENTS.md claims, because it claimed the wrong one until
+    2026-09-11: that a block needs "at least one key". It does not. The closing `---` has to
+    be on its own line, so adjacent markers are not a block at all and are refused -- but one
+    blank line between them parses, yields no fields, and is an all-default agent."""
+    c = cfg(tmp_path)
+    write(Path(c.agents_dir) / "adjacent.md", "---\n---\nbody\n")
+    with pytest.raises(AgentError, match="no frontmatter"):
+        agents.load_agent(c, "adjacent")
+
+    write(Path(c.agents_dir) / "bare.md", "---\n\n---\nbody\n")
+    spec = agents.load_agent(c, "bare")
+    assert spec.name == "bare"
+    assert spec.model is None
+    assert spec.effort is None
+    assert spec.allowed_tools is None
+
+
 def test_the_flat_format_refuses_what_it_cannot_read(tmp_path):
     """A nested block is YAML this parser does not implement. Refusing beats reading it as
     something else, which is the failure mode a hand-written parser has to design out."""
