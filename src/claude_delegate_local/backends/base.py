@@ -62,7 +62,19 @@ class CanonicalShapeError(BackendError):
 
 
 class BackendUnavailable(BackendError):
-    """The endpoint could not be reached: connect failure, DNS, or timeout."""
+    """The endpoint could not be reached: connect failure, DNS, or timeout.
+
+    `while_generating` separates the two shapes the adapter otherwise flattens. A connect
+    failure means nothing was delivered and nothing was spent; a read timeout means the
+    request arrived, the endpoint took its whole allowance and never answered. Both are
+    "unavailable" to a caller deciding whether the endpoint works, and they are not the
+    same thing at all to one deciding whether to try again -- the second has already
+    consumed the time a retry would need.
+    """
+
+    def __init__(self, *args: object, while_generating: bool = False) -> None:
+        super().__init__(*args)
+        self.while_generating = while_generating
 
 
 class BackendRefused(BackendError):

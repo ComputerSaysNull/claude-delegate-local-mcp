@@ -34,6 +34,37 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #167 — 2026-09-12 — fix: a generation overrun is not a network blip
+
+### Fixed
+- **A read timeout was retried with the same budget against a fraction of the clock.**
+  *Symptom:* an attempt that spent the whole of `turn_timeout` without answering was sent
+  again with 300s to do what it could not do in 1800 — spending the rest of the delegation
+  to prove it. *Cause:* the adapter wraps every `httpx.HTTPError` into `BackendUnavailable`,
+  and `_is_retryable` is true for all of them, so a connect failure at five seconds and a
+  read timeout at 1800 were the same accident. *Fix:* `BackendUnavailable` carries
+  `while_generating`, set only for `httpx.ReadTimeout` on a POST, and `_retry_is_plausible`
+  time-tests just that shape — a retry is refused when less time remains than the failed
+  attempt already used.
+
+### Notes
+- The rule is about **time, not error class**, and both directions are asserted. The same
+  read timeout is still retried where the deadline has room, because the class alone cannot
+  say whether another attempt is hopeless. A blanket refusal would have passed the
+  fires-on-the-bug test and been wrong.
+- `ConnectTimeout` is deliberately excluded despite sharing a base class with `ReadTimeout`:
+  it spent nothing, and applying the time rule to it would refuse the retry that most
+  deserves one.
+- `None` seconds-left means no bound at all — the behaviour that preceded ADR-0055 — not
+  zero. Reading it as no-time-left would turn a missing bound into the strictest one.
+- Red proved by implementing the old behaviour first: one assertion failed, six controls
+  passed. A second failure was the test's own fault — it called `BackendRefused` with the
+  wrong signature — and is the kind of red worth reading rather than counting.
+
+### Changed
+- `docs/DISPATCH.md`'s budget rises 619 → 623; retry is now a question about the clock as
+  well as the error kind.
+
 ## #166 — 2026-09-11 — fix: the reply budget is sized to the attempt that must deliver it
 
 ### Fixed

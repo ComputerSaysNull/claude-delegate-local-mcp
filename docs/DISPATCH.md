@@ -1,4 +1,4 @@
-<!-- BUDGET: 619      Raised from 615 on 2026-09-11: the reply budget gained a third bound, turn_timeout. -->
+<!-- BUDGET: 623      Raised from 619 on 2026-09-11: retry became a question about the clock as well as the error kind. -->
 <!-- Raised from 610 on 2026-09-07: a tool call's record carries its arguments and
      its refusal, which is behaviour this document owns. Three net lines after two
      trims of the addition itself. ADR-0060. -->
@@ -177,8 +177,12 @@ Connect is therefore bound by its own, much shorter setting.
 ## Retry sits above the adapter, and honours what the endpoint asks for
 
 The four error kinds exist so retry can be selective, and `loop.py` is where that selection
-happens — never in the adapter, which stays a translator. Unreachable is always worth
-another attempt; a refusal only for an exact set of statuses, 429 and 500/502/503/504.
+happens — never in the adapter, which stays a translator. Unreachable is worth another
+attempt *if the clock can afford one*: "unreachable" covers both a connect failure, which
+spent nothing, and a read timeout, which spent the whole of `turn_timeout` without
+answering. Only the second is time-tested, because only it has already consumed what a
+retry would need — and an absent deadline is not zero time, it is no bound at all.
+A refusal is retried only for an exact set of statuses, 429 and 500/502/503/504.
 Everything else — 400, 401, 403, 404 — describes the request, and sending it again cannot
 change the answer. The set is a module constant, not a setting: which codes mean *temporary*
 is a fact rather than a preference. A protocol error is never retried. On exhaustion the
