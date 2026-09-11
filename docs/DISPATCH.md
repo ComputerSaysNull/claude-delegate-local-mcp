@@ -1,4 +1,4 @@
-<!-- BUDGET: 615 -->
+<!-- BUDGET: 619      Raised from 615 on 2026-09-11: the reply budget gained a third bound, turn_timeout. -->
 <!-- Raised from 610 on 2026-09-07: a tool call's record carries its arguments and
      its refusal, which is behaviour this document owns. Three net lines after two
      trims of the addition itself. ADR-0060. -->
@@ -289,9 +289,12 @@ deadline can deliver and no version of the request beats it. A budget above it b
 same answer discarded at `stall_timeout` — which is how productive turns came to be
 reported as stalls.
 
-It is `stall_timeout × rate × reply_budget_margin`, floored at `reply_budget_floor`, and
-the rate is **measured, never configured**: it belongs to the deployment and moved twice in
-one week. `DecodeRate` seeds from the cluster's since-boot figure so the first turn is
+It is the tightest of `turn_timeout`, the stall clock and the delegation ceiling, times
+`rate × reply_budget_margin`, floored at `reply_budget_floor`. `turn_timeout` is in that
+comparison because one backend call carries the reply: sized against the delegation alone
+the budget authorised what the attempt could not deliver, which then overran and was retried
+with the same budget against a fraction of the clock. The rate is **measured, never
+configured**: it belongs to the deployment and moved twice in one week. `DecodeRate` seeds from the cluster's since-boot figure so the first turn is
 bounded — a one-shot and a tool-forbidden final turn both live there — and every later turn
 replaces the seed with what this delegation achieved, which is the rate its own deadline is
 paid in. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055, not a

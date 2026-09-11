@@ -358,6 +358,26 @@ class DecodeRate:
         )
 
 
+def budget_seconds(cfg: Config, *, stall_left: float, dispatch_left: float) -> float:
+    """Seconds the reply about to be asked for can actually be delivered in.
+
+    Three bounds, not two. The delegation deadlines say how long the *run* may continue;
+    `turn_timeout` says how long the one backend call carrying this reply may take, and it
+    is the tighter of the three at the defaults (1800 against 2100 and 14400). Sizing the
+    budget against the delegation alone authorised a reply the attempt could not deliver,
+    which then overran and was retried with the same budget against a third of the clock.
+
+    `turn_timeout` is a constant where the others are countdowns, and it still belongs in
+    the comparison: config enforces `turn_timeout <= stall_timeout`, so it binds at the
+    start of a delegation, while `stall_left` binds late in one. Dropping either would be
+    correct only for half a run.
+
+    Never negative. A negative would multiply through `ceiling` into `reply_budget_floor`
+    and read as a small budget rather than as no time remaining.
+    """
+    return max(min(stall_left, dispatch_left, float(cfg.turn_timeout)), 0.0)
+
+
 async def seed_decode_rate(backend: Backend) -> DecodeRate:
     """The estimator, seeded from the cluster if it will say and empty if it will not.
 
@@ -855,7 +875,9 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         # is the shape with the least slack: it completes no turns, so its deadline runs
         # from entry and it must fit a whole answer inside one of them (ADR-0055).
         rate = await seed_decode_rate(backend)
-        ceiling = rate.ceiling(cfg, stall_left())
+        ceiling = rate.ceiling(cfg, budget_seconds(
+            cfg, stall_left=stall_left(), dispatch_left=deadline - clock()
+        ))
         # The one-shot completes no turns, so without this it can only ever be explained
         # by what it was *asked*, never by what it was allowed.
         if on_priced is not None:
@@ -2021,7 +2043,9 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # turn completing, so this tracks the clock the model is actually racing, and
             # the rate below tracks what the cluster is giving us as other tenants come and
             # go. A ceiling fixed at entry would be a guess about the rest of the run.
-            ceiling = decode_rate.ceiling(cfg, min(stall_left(), deadline - clock()))
+            ceiling = decode_rate.ceiling(cfg, budget_seconds(
+                cfg, stall_left=stall_left(), dispatch_left=deadline - clock()
+            ))
             # Recorded before the call, not after it. A turn killed at a deadline having
             # finished nothing writes no `turn` event, so pricing reported afterwards is
             # reported only for the turns that never needed explaining.
