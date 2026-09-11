@@ -302,7 +302,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]],
-    on_alive: Callable[[float, int], Awaitable[None]] | None = None,
+    on_alive: Callable[[float, int, float], Awaitable[None]] | None = None,
     on_turn_done: Callable[[Any, str], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> Dispatch | AgenticDispatch:
@@ -688,7 +688,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         """
         await progress(0, 0)
 
-    async def alive(elapsed_seconds: float, of_seconds: int) -> None:
+    async def alive(elapsed_seconds: float, of_seconds: int, ends_in: float) -> None:
         """ADR-0018 once more, for the path that has no turns to hang it on.
 
         A one-shot is a single backend call, so nothing lands between `start` and `end`
@@ -703,7 +703,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         """
         await progress(0, 0)
         if stream is not None:
-            stream.alive(elapsed_seconds=elapsed_seconds, of_seconds=of_seconds)
+            stream.alive(elapsed_seconds=elapsed_seconds, of_seconds=of_seconds,
+                         ends_in_seconds=ends_in)
 
     # Captured before anything is attempted, and never re-derived afterwards. The upstream
     # bug this shape exists to prevent is a failure path with no agent name to report, so

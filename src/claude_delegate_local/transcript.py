@@ -204,7 +204,8 @@ class Stream:
             "requests_running": requests_running,
         })
 
-    def alive(self, *, elapsed_seconds: float, of_seconds: int) -> None:
+    def alive(self, *, elapsed_seconds: float, of_seconds: int,
+              ends_in_seconds: float | None = None) -> None:
         """A one-shot is still running. The only event that reports no work done.
 
         Every other event marks something that happened. This one exists because on the
@@ -220,6 +221,13 @@ class Stream:
         self._put({
             "t": "alive", "at": datetime.now(UTC).isoformat(),
             "elapsed_seconds": round(elapsed_seconds, 3), "of_seconds": of_seconds,
+            # Added rather than replacing `of_seconds`, which stays the delegation
+            # ceiling: that is true, and transcripts already carry it. This is the one a
+            # reader needs -- how long until the tightest deadline fires -- because the
+            # ceiling is the deadline least likely to be what ends the run.
+            "ends_in_seconds": (
+                None if ends_in_seconds is None else round(ends_in_seconds, 3)
+            ),
         })
 
     def end(  # noqa: PLR0913 -- one event's fields, all keyword-only

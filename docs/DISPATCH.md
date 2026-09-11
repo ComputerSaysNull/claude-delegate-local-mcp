@@ -1,4 +1,4 @@
-<!-- BUDGET: 623      Raised from 619 on 2026-09-11: retry became a question about the clock as well as the error kind. -->
+<!-- BUDGET: 631      Raised from 623 on 2026-09-12: the heartbeat carries a countdown as well as a ceiling, and why those are two figures. -->
 <!-- Raised from 610 on 2026-09-07: a tool call's record carries its arguments and
      its refusal, which is behaviour this document owns. Three net lines after two
      trims of the addition itself. ADR-0060. -->
@@ -502,9 +502,15 @@ admission slots for 300s longer, until the work finished on its own, then carrie
 the same session. So `keepalive_interval` is a correctness setting rather than a convenience:
 the server cannot discover that nobody is listening, and sending something is the only guard.
 The same heartbeat writes an `alive` event to the stream, a silent stream and a silent wire
-being one problem from two sides. It carries elapsed and the deadline it is measured
-against, and **not** what the model is doing: there is no streaming, so the server does not
-know. Nothing is cancelled when the interval passes.
+being one problem from two sides. It carries elapsed, the delegation ceiling it is measured
+against, and — since it was found reporting "60s of 14400s" while minutes from death —
+**how long until the tightest deadline actually fires**. Those are two figures because they
+answer two questions, and the ceiling is the deadline least likely to be the one that ends
+a run. The countdown is the stall and delegation clocks only: `turn_timeout` restarts with
+every attempt, so reported here it would sit unchanged while the time ran out beneath it —
+which is why sizing an attempt and counting down a delegation use different functions. It
+still carries **nothing** about what the model is doing: there is no streaming, so the
+server does not know. Nothing is cancelled when the interval passes.
 
 Each runs beside the work rather than inside it, cancelled and awaited in a `finally`
 covering every exit including the raised ones, so none outlives its dispatch. A callback

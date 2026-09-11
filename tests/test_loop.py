@@ -1136,7 +1136,7 @@ def test_the_heartbeat_task_does_not_outlive_the_dispatch():
     """
     beats: list[float] = []
 
-    async def on_alive(elapsed, of):
+    async def on_alive(elapsed, of, ends_in):
         beats.append(elapsed)
 
     async def go():
@@ -1166,7 +1166,7 @@ def test_a_heartbeat_that_raises_stops_beating_and_nothing_else():
     """
     calls: list[int] = []
 
-    async def on_alive(elapsed, of):
+    async def on_alive(elapsed, of, ends_in):
         calls.append(1)
         raise RuntimeError("nowhere to send it")
 
