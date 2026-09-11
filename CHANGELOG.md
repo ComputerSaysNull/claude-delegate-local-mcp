@@ -34,6 +34,31 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #163 — 2026-09-11 — fix: a finished roadmap item cannot stay marked open
+
+### Added
+- **`roadmap-marker`, a gate check reading PLAN.md's markers against its own prose.** An
+  item marked open whose first line declares itself closed -- `**Spike answered**`, or
+  `**Answered <date>**` -- now blocks. Only the marker line is read: an item may settle one
+  question in a sub-bullet while staying genuinely open, which the streaming entry does,
+  and reading bodies would call those closed.
+
+### Fixed
+- **Two completed roadmap items were still marked open.** The caller-side split of
+  `docs-audit-local.md` shipped in #159, and the `status`-subcommand spike was answered on
+  2026-09-07, yet both still read as not started -- the second with its own first line
+  saying "Spike answered" and its body saying "Measured 2026-09-07: a detached launch
+  works, so the fallback is not needed". *Cause:* nothing obliges a commit to touch
+  PLAN.md, and nothing compared a marker against the text beside it, so six consecutive
+  pull requests, #155 through #160, changed the roadmap not at all. The one earlier late
+  tick -- #137 answered a spike on 2026-09-07 and #152 stamped it three days later -- set a
+  precedent instead of raising a flag. *Fix:* both markers are flipped and dated by when
+  the work completed; the bodies are untouched.
+- **The check is deliberately narrow, and the narrowness is the honest part.** It cannot see
+  the other half of the same drift -- an item finished by work its own text never mentions,
+  which is how the first of the two hid for four days. That needs a reader who knows what
+  shipped, not a pattern, so the check does not pretend to cover it.
+
 ## #162 — 2026-09-11 — docs: the 2026-09-11 audit, and the drifts it confirmed
 
 ### Added

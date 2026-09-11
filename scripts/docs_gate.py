@@ -762,6 +762,47 @@ def check_budgets() -> list[Finding]:
     return out
 
 
+# Ways a roadmap item declares itself closed in its own words. Matched only against an
+# item's marker line, never its body: a sub-bullet may answer one question while the item
+# it sits under stays genuinely open, which the streaming entry does, and reading bodies
+# would call those closed.
+ROADMAP_CLOSED = (
+    re.compile(r"\*\*Spike answered\*\*"),
+    re.compile(r"\*\*Answered \d{4}-\d{2}-\d{2}"),
+)
+
+
+def check_roadmap_markers() -> list[Finding]:
+    """An item that declares itself closed while marked open is a marker nobody flipped.
+
+    PLAN.md drifts quietly, because nothing forces a commit to touch it: six in a row,
+    #155 to #160, changed it not at all, and the work in #159 that finished an item never
+    reached the roadmap. A spike then sat `⬜` for four days with its own first line
+    reading "Spike answered".
+
+    Only the marker line is read, for the reason in ROADMAP_CLOSED. What this cannot see
+    is the other half of the same drift -- an item finished by work its text never
+    mentions, which needs a reader who knows what shipped, not a pattern.
+    """
+    path = ROOT / "PLAN.md"
+    if not path.exists():
+        return [Finding(SKIP, "roadmap-marker", "there is no PLAN.md to check.")]
+    out = []
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not re.match(r"^- (⬜|🔄) ", line):
+            continue
+        for pat in ROADMAP_CLOSED:
+            hit = pat.search(line)
+            if hit:
+                out.append(Finding(
+                    BLOCK, "roadmap-marker",
+                    f"PLAN.md line {n} is marked open but says {hit.group(0)!r}. A closed "
+                    f"item takes the done marker and the date the work completed, and its "
+                    f"body is frozen -- flip the marker and change nothing else."))
+                break
+    return out
+
+
 def check_adr_format(text: str | None = None) -> list[Finding]:
     """The ADR headings ARE the index, so their shape is load-bearing.
 
@@ -1392,6 +1433,7 @@ CHECKS = {
     "generated-doc": check_generated_docs,
     "generated-coverage": check_generated_docs_are_all_checked,
     "budget": check_budgets,
+    "roadmap-marker": check_roadmap_markers,
     "adr": check_adr_format,
     "owning-doc": check_ownership,
     "orphan-doc": check_orphan_docs,
