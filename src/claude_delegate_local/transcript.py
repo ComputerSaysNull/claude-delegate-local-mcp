@@ -177,6 +177,33 @@ class Stream:
             "text": text,
         })
 
+    def priced(  # noqa: PLR0913 -- one event's fields, all keyword-only
+        self, *, turn: int | None, effort: str | None, max_tokens: int | None,
+        budget_ceiling: int | None, decode_rate: float | None,
+        requests_running: float | None,
+    ) -> None:
+        """What a turn was allowed, and what that allowance was calculated from.
+
+        Written *before* the turn rather than with it, which is the whole point. A `turn`
+        event is produced when a turn completes, so the turns that most need explaining --
+        the ones killed at a deadline having finished nothing -- are exactly the ones that
+        record no figures at all. Nine did in one session, and the diagnosis had to be
+        rebuilt afterwards from a benchmark run separately.
+
+        `budget_ceiling` is written even when it is `None`, because "no cap was applied"
+        is the most incriminating thing this record can say and an absent key reads as
+        "not recorded". `requests_running` is here for the same reason `decode_rate`
+        alone would not do: the rate is a since-boot mean over every concurrency regime
+        the engine has served, so without the load it was read against it cannot be
+        checked afterwards, only believed.
+        """
+        self._put({
+            "t": "priced", "at": datetime.now(UTC).isoformat(), "turn": turn,
+            "effort": effort, "max_tokens": max_tokens,
+            "budget_ceiling": budget_ceiling, "decode_rate": decode_rate,
+            "requests_running": requests_running,
+        })
+
     def alive(self, *, elapsed_seconds: float, of_seconds: int) -> None:
         """A one-shot is still running. The only event that reports no work done.
 

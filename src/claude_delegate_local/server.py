@@ -304,6 +304,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     report_progress: Callable[[int, int], Awaitable[None]],
     on_alive: Callable[[float, int], Awaitable[None]] | None = None,
     on_turn_done: Callable[[Any, str], Awaitable[None]] | None = None,
+    on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
 
@@ -318,7 +319,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
                 max_turns=max_turns, policy=policy,
                 diagnostics=diagnostics, report_progress=report_progress,
-                on_alive=on_alive, on_turn_done=on_turn_done,
+                on_alive=on_alive, on_turn_done=on_turn_done, on_priced=on_priced,
             )
         # An explicitly empty toolset. Not the loop with nothing declared: the one-shot
         # prompt tells the model plainly that it cannot open anything and has no second
@@ -328,7 +329,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
         # been waiting and what it is waiting against, which is a different shape.
         return await run_one_shot(
             cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens,
-            on_alive=on_alive,
+            on_alive=on_alive, on_priced=on_priced,
         )
     except ContextOverflowAborted as e:
         # Before the plain InvalidDelegation branch, which is its base class. The report is
@@ -708,6 +709,16 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     # bug this shape exists to prevent is a failure path with no agent name to report, so
     # the very dispatches the transcript explains logged as unknown -- and the only place
     # the name is in scope is here, before the attempt. ADR-0024.
+    async def priced(row: dict) -> None:
+        """What the turn about to run was allowed, and what that was calculated from.
+
+        Written before the turn, because a turn killed at a deadline having completed
+        nothing produces no `turn` event -- so anything recorded afterwards is recorded
+        only for the turns that never needed explaining.
+        """
+        if stream is not None:
+            stream.priced(**row)
+
     started = time.monotonic()
     lease: AdmissionLease | None = None
     dispatched: Dispatch | AgenticDispatch | None = None
@@ -734,6 +745,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 report_progress=progress,
                 on_alive=alive,
                 on_turn_done=streamed_turn,
+                on_priced=priced,
             )
     except AdmissionError as e:
         # Not routed through `_refuse`, for the same reason `DispatchTimedOut` is not:

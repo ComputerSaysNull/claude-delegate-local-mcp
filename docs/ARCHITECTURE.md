@@ -1,4 +1,6 @@
-<!-- BUDGET: 1061
+<!-- BUDGET: 1069
+     Raised from 1061 on 2026-09-11: the stream gained a fifth event, and the paragraph
+     naming the other four could not carry it without saying what it is written for.
      Raised from 1054 on 2026-09-11: admission grew an anti-starvation barrier, and the
      ticket-ordering section stated the rule it qualifies without room to name the floor.
      Raised from 1030 on 2026-09-10: `--install-skills` is a fourth entry point, and the
@@ -1015,6 +1017,12 @@ shape can be silent for a long time — a one-shot has no turns at all, and one 
 outlast the client's idle timer unaided. A synthetic `turn` is written when a one-shot's
 answer arrives, so the record is never the empty shape a failed delegation has.
 [DISPATCH.md](DISPATCH.md) owns what the heartbeat carries and why (ADR-0018).
+
+A fifth, `priced`, is written *before* each turn, carrying the ceiling that turn was given,
+the rate it came from and the load that rate was read against. Ordering is the whole of it:
+a `turn` event lands only when a turn completes, so a turn killed at a deadline having
+finished nothing recorded nothing. An absent ceiling is written as null rather than omitted,
+because "no cap applied" is the most incriminating thing the record can say.
 
 The `end` event reports turns even when the dispatch died on a deadline, where it used to
 carry nothing — recording a timed-out delegation as having run none, which is the same gap

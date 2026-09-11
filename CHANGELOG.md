@@ -34,6 +34,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #165 — 2026-09-11 — feat: a turn records what its budget was priced on
+
+### Added
+- **A fifth stream event, `priced`, written before each turn rather than after it.** It
+  carries the token ceiling the turn was given, the decode rate that ceiling was derived
+  from, and `requests_running` at the moment the rate was scraped. The viewer renders it as
+  one dim line above the turn it prices.
+- `DecodeRate` carries `seen_running` beside its rate. It is used in no calculation: a
+  since-boot mean is an average over every concurrency regime the engine has served, so
+  without the load it was read against the number can only be believed, not checked.
+
+### Fixed
+- **Nine delegations died in one session recording nothing that could explain them.**
+  *Symptom:* all nine abandoned at `stall_timeout` with zero turns completed — a `start`,
+  thirty-four heartbeats, an `end`, and not one figure about the budget or the load.
+  *Cause:* a `turn` event is written when a turn *completes*, so the turns that most need
+  explaining are precisely the ones that record nothing. The diagnosis had to be rebuilt
+  afterwards from a cluster benchmark run separately. *Fix:* the pricing is written before
+  the work it prices, so a turn that finishes nothing still says what it was allowed.
+- An absent ceiling reaches the stream as null rather than being dropped. "No cap was
+  applied" is the most incriminating thing the record can say, and a missing key reads as
+  "not recorded" instead.
+
+### Changed
+- `docs/ARCHITECTURE.md`'s budget rises 1061 → 1069. That is its second raise today; the
+  file is a candidate for a trim pass rather than a third.
+
 ## #164 — 2026-09-11 — fix: a waiter passed over long enough becomes a barrier
 
 ### Added
