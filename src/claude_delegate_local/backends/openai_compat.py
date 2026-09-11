@@ -233,8 +233,14 @@ class OpenAICompatBackend:
         try:
             r = await self._client.post(url, json=body, headers=self._headers)
         except httpx.HTTPError as e:
+            # A read timeout is the one shape here that spent the whole allowance: the
+            # request was delivered and the endpoint never answered within `turn_timeout`.
+            # `ConnectTimeout` is deliberately not included -- it is a subclass of the same
+            # `TimeoutException` and spent nothing, which is the distinction the caller
+            # retries on.
             raise BackendUnavailable(
-                f"{type(e).__name__} posting to {path} on model {self._entry.key!r}."
+                f"{type(e).__name__} posting to {path} on model {self._entry.key!r}.",
+                while_generating=isinstance(e, httpx.ReadTimeout),
             ) from e
         return _decode(r, path)
 

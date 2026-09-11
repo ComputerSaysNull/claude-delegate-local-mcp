@@ -517,6 +517,38 @@ def _is_retryable(error: Exception) -> bool:
     return isinstance(error, BackendRefused) and error.status in _RETRYABLE_STATUSES
 
 
+def _retry_is_plausible(
+    error: Exception, *, attempt_seconds: float, seconds_left: float | None
+) -> bool:
+    """Whether sending it again could plausibly end differently *in the time that is left*.
+
+    `_is_retryable` answers whether the failure is the kind that can change; this answers
+    whether there is room for it to. The two are separate because the error class alone
+    cannot say: the same read timeout is worth another attempt against a deadline with
+    room for one, and worth nothing against a deadline without.
+
+    Only a failure raised *while generating* is time-tested. A connect failure spent
+    nothing and can succeed in a moment, so applying the rule to it would refuse the retry
+    that most deserves one. A read timeout has already consumed the whole allowance
+    without answering, so a retry that gets less time than that cannot do the same work --
+    it can only spend the rest of the delegation proving it. Nine did.
+
+    `None` is not zero. An absent deadline means nothing bounds the attempt, which is the
+    behaviour that preceded ADR-0055; reading it as no-time-left would turn a missing
+    bound into the strictest one there is.
+
+    Inclusive at the boundary: exactly as much time as the failed attempt used is enough
+    to try again, because that attempt is the only evidence of what the work costs.
+    """
+    if not _is_retryable(error):
+        return False
+    if not getattr(error, "while_generating", False):
+        return True
+    if seconds_left is None:
+        return True
+    return seconds_left >= attempt_seconds
+
+
 def _delay_before_retry(
     cfg: Config, error: Exception, attempt: int, jitter: Callable[[float, float], float]
 ) -> float:
@@ -638,6 +670,7 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
             raise DispatchTimedOut(spent(), cfg.dispatch_timeout, "while waiting on the backend")
         stalled()
         attempts += 1
+        attempt_started = clock()
         try:
             cap = ceiling()
             if cap is None:
@@ -665,7 +698,13 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
                 spent(), cfg.dispatch_timeout, "while waiting on the backend"
             ) from e
         except (BackendUnavailable, BackendRefused) as e:
-            if not _is_retryable(e) or attempts >= cfg.retry_max_attempts:
+            # Time-tested, not just kind-tested. An attempt that consumed its whole
+            # allowance without answering cannot do the same work in less, so retrying it
+            # only spends the rest of the delegation discovering that (ADR-0055's clock,
+            # nine deaths' worth of evidence).
+            if attempts >= cfg.retry_max_attempts or not _retry_is_plausible(
+                e, attempt_seconds=clock() - attempt_started, seconds_left=ceiling()
+            ):
                 raise
             wait = _delay_before_retry(cfg, e, attempts, jitter)
             left = ceiling()
