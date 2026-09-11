@@ -43,9 +43,9 @@ caught the bug described in the task. Run them. Iterate until they pass.
 Report the outcome of the final test run.
 ```
 
-A frontmatter block is **required** — a `---` line, at least one key, a closing `---`. A
-file with no block, or with an empty one, is refused. **No individual field is required**,
-so the smallest valid file is one key and nothing else.
+A frontmatter block is **required** — a `---` line, a closing `---`, and something between
+them: a file with no block, or whose `---` lines are adjacent, is refused. **No individual
+field is required**, so a block of one blank line yields an all-default agent.
 
 Every key must be one of these ten. An unknown key is **refused, not ignored**, because a
 typo that costs you a setting in silence is the failure this format was rewritten to

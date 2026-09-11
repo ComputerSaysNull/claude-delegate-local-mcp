@@ -60,10 +60,10 @@ retry and empty-answer machinery, which is why they share a document.
 ## The loop reports a finished turn as well as a starting one
 
 `report_progress` fires as a turn begins and carries a counter, because its job is resetting
-the client's idle timer (ADR-0018). `on_turn_done` fires as one ends and carries what the
-turn produced: its ledger entry and the model's reply. They are separate hooks because they
-answer to different callers — one to the MCP session, one to whatever is recording the
-dispatch — and because the useful moments are not the same moment.
+the client's idle timer (ADR-0018). `on_turn_done` fires as one ends *and diagnostics are
+on*, carrying the ledger entry — recorded only when asked — and the model's reply. They are
+separate hooks because they answer to different callers — one to the MCP session, one to
+whatever is recording the dispatch — and because the useful moments are not the same moment.
 
 It is called from both places a turn can end: after tool outcomes are attached, and at the
 break taken when a turn returns no tool calls. A single call site would have to pick one,
@@ -85,7 +85,7 @@ Anthropic adapter later is one new file rather than a refactor.
 Three conditions keep that true, and breaking any turns it back into a refactor: the
 canonical shape stays block-structured and is never flattened to strings; SSE accumulation
 lives per adapter behind one contract; model selection is a registry lookup and never a
-reintroduced prefix function. (ADR-0008)
+reintroduced prefix function. (ADR-0008; the last of the three is ADR-0009)
 
 Built. The seam holds three things the layer above depends on. Flattening lives in the
 adapter and nowhere else, so the canonical side stays block-structured. Failures arrive as
@@ -338,11 +338,11 @@ level is part of the rendered prompt, so `prompt_tokens` moves with it (measured
 on top of its generation. The stepped budget is resolved again for the new level rather than
 inherited, since a lower level no longer needs the headroom the higher one forced up.
 
-One stage is skipped rather than spent: when the model's own cap already pinned the first
-budget there is no larger budget to retry at, and re-sending the request unchanged buys a
-full generation for a result that cannot differ. That is not a rare edge — high and max
-effort already resolve to `thinking_max_tokens_floor`, so where the model cap equals it the
-budget stage never fires and the level steps down on the second call. Measured, and the
+One stage is skipped rather than spent: when something already pinned the first budget there
+is no larger budget to retry at, and re-sending it unchanged buys a full generation for a
+result that cannot differ. Not a rare edge — high and max resolve to `thinking_max_tokens_floor`,
+so the stage never fires where the model cap equals it, **nor where the deadline ceiling lands
+below it, which on a busy cluster is every high and max dispatch**. Measured, and the
 measurement is why the skip matters rather than being a tidiness: at max effort raising the
 budget is not the mitigation at all, and lowering the level is (JOURNAL 2026-08-27, which
 also notes what an exhausted max-effort delegation costs in wall clock against the idle
@@ -485,9 +485,9 @@ well inside [`dispatch_timeout`](CONFIGURATION.md). (ADR-0018)
 
 One per turn is not enough, and the one-shot path has no turns to hang it on at all, so
 both report on a timer as well, every [`keepalive_interval`](CONFIGURATION.md). A turn's own
-duration is bounded only by `turn_timeout`, which defaults to exactly the client's idle
-timeout, so one slow turn outlasts it unaided -- a one-shot was measured running 1645s with
-nothing sent between its start and its answer, and a turn may do the same.
+duration is bounded by `turn_timeout` and by the per-attempt ceiling above, whichever is
+tighter, and `turn_timeout` defaults to the client's idle timeout -- so a one-shot was
+measured running 1645s with nothing sent between its start and its answer.
 
 **Measured on 2026-09-01**, against a deliberately silenced two-item batch: at 1800s the
 client aborts and **nothing reaches the server** -- no cancellation, no EOF. It held both
