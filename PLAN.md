@@ -170,7 +170,7 @@ their own project without ever reading this repository.
 - ✅ 2026-09-10 `install-skills`, shipping `write-delegate-agent`: it writes an agent file in this
   server's format and validates it by calling `list_agents` and checking the name lands
   under `agents` rather than `skipped` or `other_format`
-- ⬜ Move the caller-side half of `docs-audit-local.md` into a repository-local skill, so
+- ✅ 2026-09-10 Move the caller-side half of `docs-audit-local.md` into a repository-local skill, so
   the agent body keeps only what one pass reads — the file says exactly that of the section
   itself. It stays local rather than shipping, because the check list, the ownership map and
   the gate integration are specific to this repository
@@ -230,7 +230,7 @@ nothing was configured, and no tool result changes shape.
     a window, over `num_requests_running`, it is a live per-request rate. The histogram in use
     records only on *completion*, so it is blind during the stall it must detect. And
     ADR-0055's "conservative" blend is flattering whenever the present is busier than history
-- ⬜ **Spike answered** — a `status` subcommand printing one plain-text block, since a TUI
+- ✅ 2026-09-07 **Spike answered** — a `status` subcommand printing one plain-text block, since a TUI
   cannot run inside an agent's shell. Measure whether a detached terminal window can be
   launched from one; if not, print the command to paste
   - **Measured 2026-09-07: a detached launch works, so the fallback is not needed.**
