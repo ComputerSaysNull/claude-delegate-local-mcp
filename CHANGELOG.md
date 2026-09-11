@@ -34,6 +34,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #168 — 2026-09-12 — fix: the heartbeat named a deadline that cannot fire
+
+### Fixed
+- **The heartbeat measured elapsed against the one deadline least likely to end the run.**
+  *Symptom:* nine delegations abandoned at 2100s spent their last half hour reporting
+  "60s of 14400s" — four tenths of one percent elapsed, minutes from death. *Cause:*
+  `_keepalive` sent `cfg.dispatch_timeout`, the whole-delegation ceiling, while what kills
+  a turn is `stall_timeout` or the per-attempt `turn_timeout`. *Fix:* `on_alive` and the
+  `alive` stream event carry `ends_in_seconds` beside `of_seconds` — how long until the
+  tightest deadline actually fires. The viewer renders it beside the elapsed figure.
+
+### Notes
+- **Added, not redefined.** `of_seconds` still means the delegation ceiling, which is true
+  and which existing transcripts already carry. Two figures, because they answer two
+  questions.
+- **The countdown deliberately excludes `turn_timeout`,** though `budget_seconds` includes
+  it and the shapes look identical. That function sizes one *attempt*, and `turn_timeout`
+  restarts with every attempt — a constant, not a countdown. Reported here it sat unchanged
+  at its ceiling while the delegation ran out of time beneath it.
+  `test_what_is_left_shrinks_as_the_turn_runs` is what caught that, after the first
+  implementation reused the wrong abstraction.
+- The red was instructive beyond its assertions: the heartbeat's `except Exception: return`
+  swallowed the arity mismatch and simply stopped beating, so every test failed with an
+  empty list rather than a `TypeError`. A heartbeat that fails silently is working as
+  designed — it must never kill a delegation — which is also why nothing else would have
+  reported the change as broken.
+
+### Changed
+- `docs/DISPATCH.md`'s budget rises 623 → 631.
+
 ## #167 — 2026-09-12 — fix: a generation overrun is not a network blip
 
 ### Fixed

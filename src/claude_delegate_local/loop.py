@@ -862,7 +862,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     *,
     effort: str | None = None,
     max_tokens: int | None = None,
-    on_alive: Callable[[float, int], Awaitable[None]] | None = None,
+    on_alive: Callable[[float, int, float], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
@@ -940,7 +940,15 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     # torn down with it. The `finally` is what makes that safe: cancel, then await the
     # cancellation, so no task outlives the dispatch it was reporting on. `run_agentic_loop`
     # now does the same around its turn loop; this was once the only concurrency here.
-    beat = asyncio.create_task(_keepalive(cfg, on_alive, clock))
+    beat = asyncio.create_task(_keepalive(
+        cfg, on_alive, clock,
+        # Deliberately not `budget_seconds`, though it is the same shape. That one sizes
+        # one *attempt* and so includes `turn_timeout`, which restarts with every attempt
+        # and is therefore a constant rather than a countdown -- reported here it would sit
+        # unchanged at its ceiling while the delegation ran out of time underneath it. The
+        # two deadlines below are the ones genuinely counting down for this delegation.
+        lambda: max(min(stall_left(), deadline - clock()), 0.0),
+    ))
     try:
         return await dispatch()
     finally:
@@ -955,8 +963,9 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
 
 async def _keepalive(
     cfg: Config,
-    on_alive: Callable[[float, int], Awaitable[None]],
+    on_alive: Callable[[float, int, float], Awaitable[None]],
     clock: Callable[[], float],
+    ends_in: Callable[[], float],
 ) -> None:
     """Say the delegation is still running, on a timer, until cancelled.
 
@@ -973,7 +982,12 @@ async def _keepalive(
     while True:
         await asyncio.sleep(cfg.keepalive_interval)
         try:
-            await on_alive(clock() - started, cfg.dispatch_timeout)
+            # Two figures, because they answer different questions and the second was
+            # missing. `dispatch_timeout` is what the delegation is allowed; `ends_in` is
+            # how long until the tightest deadline actually fires, which is the one a
+            # reader needs. Reporting only the first showed nine delegations as 0.4%
+            # elapsed while minutes from being killed.
+            await on_alive(clock() - started, cfg.dispatch_timeout, ends_in())
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -1931,7 +1945,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
-    on_alive: Callable[[float, int], Awaitable[None]] | None = None,
+    on_alive: Callable[[float, int, float], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_turn_done: Callable[[TurnDiagnostic, str, float], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -2039,7 +2053,15 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     # Created as `None` rather than early-returning the way the one-shot does, because
     # there the guarded part is one `await` and here it is the whole loop: duplicating it
     # to avoid a nullable task would be two copies of the turn lifecycle.
-    beat = asyncio.create_task(_keepalive(cfg, on_alive, clock)) if on_alive else None
+    beat = asyncio.create_task(_keepalive(
+        cfg, on_alive, clock,
+        # Deliberately not `budget_seconds`, though it is the same shape. That one sizes
+        # one *attempt* and so includes `turn_timeout`, which restarts with every attempt
+        # and is therefore a constant rather than a countdown -- reported here it would sit
+        # unchanged at its ceiling while the delegation ran out of time underneath it. The
+        # two deadlines below are the ones genuinely counting down for this delegation.
+        lambda: max(min(stall_left(), deadline - clock()), 0.0),
+    )) if on_alive else None
     try:
         while turn < turns:
             turn += 1

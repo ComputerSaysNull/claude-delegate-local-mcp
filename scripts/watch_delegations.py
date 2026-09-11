@@ -378,7 +378,15 @@ def render(event: dict, width: int) -> list[str]:
         spent = f"{secs / 60:.0f}m" if isinstance(secs, (int, float)) and secs >= 90 else (
             f"{secs:.0f}s" if isinstance(secs, (int, float)) else "?")
         budget = f" of {of // 60}m" if isinstance(of, int) else ""
-        return [f"{stamp}  {DIM}still running · {spent}{budget}{R}"]
+        # The countdown is what a reader is actually asking for. `of` is the delegation
+        # ceiling and is rarely what ends a run, so a heartbeat carrying only that reads
+        # as enormous headroom right up to the moment a tighter deadline fires.
+        left = event.get("ends_in_seconds")
+        ends = ""
+        if isinstance(left, (int, float)):
+            ends = (f", ends in {left / 60:.0f}m" if left >= 90
+                    else f", ends in {left:.0f}s")
+        return [f"{stamp}  {DIM}still running · {spent}{budget}{ends}{R}"]
 
     if kind == "end":
         ok = event.get("ok")
