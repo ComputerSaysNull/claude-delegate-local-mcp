@@ -1,4 +1,5 @@
-<!-- BUDGET: 378      Raised from 369 on 2026-09-12: a check class names every place its evidence can live, and CLAIMS named two of three. -->
+<!-- BUDGET: 390      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- Raised from 369 on 2026-09-12: a check class names every place its evidence can live, and CLAIMS named two of three. -->
 <!--
      Raised from 365 on 2026-09-10: an agent's runbook is a third kind of file this
      document owns, and both readers of one must accept it -- which needs saying once.
@@ -348,6 +349,12 @@ sourced, by this document's own rule that entries carry the why — so a definit
 two of the three turns a correct record into a finding. That happened, was diagnosed as a
 caller error, went unfixed because the diagnosis never reached the instruction, and
 recurred. A test now asserts the definition names all three.
+
+**A runbook is revised on evidence, and evidence has a date.** A measurement contradicting a
+pass's effort or the concurrency rule is grounds to change it — but not one taken while a
+defect was live that has since been fixed. Reproducing a symptom is not confirming its cause,
+and a column rewritten on the wrong one reads as measured while measuring something else.
+Deferring, with the reason and the fix to re-measure against, is a finished remedy.
 
 ## Secrets
 

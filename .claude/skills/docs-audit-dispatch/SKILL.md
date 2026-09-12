@@ -62,6 +62,19 @@ Effort is `high` everywhere but pass 13. An audit is a search across kinds of vi
 `low` narrows it to retrieval — more instances of one violation, fewer kinds. Pass 13 *is*
 retrieval, so `low` is both correct and cheaper there.
 
+**Asking for `high` does not guarantee getting it, and the column stands anyway.** Measured
+2026-09-12: six STALE passes dispatched at `high`, and four of the five that answered came
+back at `low` after two attempts — the empty-answer recovery ladder stepping the effort down.
+That is the audit's own long-standing suspicion reproduced, and it would look like an
+argument for asking for `low` outright.
+
+It is not, because the cause was elsewhere. The step-down fires when a reply is empty at
+length, and those replies were empty because the budget ceiling was priced from a
+contaminated decode rate — fixed in #172. **So re-measure before changing this column**, and
+change it only if the step-down survives a fan-out run against the fixed pricing. A column
+rewritten on evidence taken under a defect that no longer exists is worse than one left
+alone: it would read as measured, and the measurement would be of something else.
+
 **Split by check class, never by document.** Four of the seven classes cannot see a split by
 document: WRONG DOCUMENT and CROSS-PLANE LEAK need every document that could hold the
 restatement, MISSING needs every document or absence cannot be established, and CLAIMS needs
@@ -136,6 +149,18 @@ not assume them — they are configuration, and this file is not their home.
 
 In practice passes 1-6 and 9-12 prefetch whole modules and are large, so check the bound
 before overlapping them. Pass 13 prefetches nothing and never contends.
+
+**Overlap them anyway — but know what exceeding the bound costs.** Issuing six large passes
+in one message was measured on 2026-09-12: all six were accepted, two ran, and the rest
+queued. The wait is **silent**. A queued pass has a `start` record and no `priced` record,
+and it reports nothing at all until it is admitted — one waited sixteen minutes. So a
+fan-out that looks stalled is usually a fan-out that is queueing correctly, and the way to
+tell is to look for a missing `priced` event rather than to assume the endpoint is sick.
+
+Do **not** serialise them to avoid this. Six identical passes dispatched together share a
+cached prefix and five of them read it; running them one at a time throws that away and
+buys nothing, because the queue was never what killed a pass. What killed passes was the
+reply budget, which is a different problem with its own history (ADR-0070).
 
 ## Sizing
 

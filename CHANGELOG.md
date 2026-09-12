@@ -34,6 +34,37 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #175 — 2026-09-12 — docs: the audit runbook's two wrong remedies, re-derived
+
+### Changed
+- **The concurrency guidance said to check the bound and not what exceeding it costs.** The
+  2026-09-11 audit's proposed remedy was *"run passes serially"*, which is the opposite of
+  what a fan-out shows: six identical passes share a cached prefix and five of them read it,
+  so serialising throws that away and buys nothing. *Measured 2026-09-12:* six large passes
+  issued in one message were all accepted, two ran and the rest queued, and **the wait is
+  silent** — a queued pass has a `start` record and no `priced` record, and one waited
+  sixteen minutes reporting nothing. The runbook now says to overlap them and how to tell a
+  queueing fan-out from a sick endpoint, which is a missing `priced` event rather than a
+  guess about the cluster.
+- **The effort column is deliberately left alone, and now says why.** The audit's premise was
+  that a broad pass at `high` exhausts its budget on reasoning and answers at `low`. The
+  2026-09-11 notes recorded it as not reproduced; it **did** reproduce — six STALE passes
+  dispatched at `high`, four of the five that answered came back at `low` after two attempts.
+  But the step-down is the empty-answer recovery ladder firing, and it fired because the
+  ceiling was priced from the contaminated decode rate that #172 replaced. So the evidence is
+  real and its cause is gone, and rewriting the column on it would read as measured while
+  measuring something else. Re-measure against the fixed pricing first.
+
+### Added
+- CONTRIBUTING.md gains the rule the pair above is an instance of: **a runbook is revised on
+  evidence, and evidence has a date.** Reproducing a symptom is not confirming its cause, and
+  deferring with the reason and the fix to re-measure against is a finished remedy rather
+  than a postponed one.
+- M12's eviction half is answered in `PLAN.md`, which had been waiting on a reader to make it
+  answerable at all. Read during the same fan-out with two passes actually queued:
+  `kv_cache_used_fraction` 0.047, `preemptions` 0. Nothing was evicted because the pool was
+  never near full, so the eviction question no longer blocks `is_large`.
+
 ## #173 — 2026-09-12 — fix: the gate died while printing its own finding
 
 ### Fixed

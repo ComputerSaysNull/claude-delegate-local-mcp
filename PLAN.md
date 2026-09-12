@@ -1,4 +1,6 @@
-<!-- BUDGET: 570
+<!-- BUDGET: 580
+     Raised from 570 on 2026-09-12: the fan-out answered M12's eviction half, which that
+     item had been waiting on a reader to make answerable at all.
      Raised from 551 on 2026-09-12: streaming's first slice landed and the audit fan-out
      surfaced the asymmetry in `expect`; the measurements are in the hand-off notes.
      Raised from 535 on 2026-09-12: three findings this session surfaced and nothing else
@@ -383,6 +385,12 @@ them was re-derived when it did.
     `vllm:kv_cache_usage_perc` says how full it is, so "the prefix a starved request was
     queued to reuse gets evicted meanwhile" is now a question with an instrument. Decide
     after step 5 lands the reader, not before.
+    - **Measured 2026-09-12, and the eviction worry is answered for this workload.** Read
+      during a six-way fan-out with two passes actually queued: `kv_cache_used_fraction`
+      **0.047**, `preemptions` **0**, `kv_cache_size_tokens` 1,467,988. Nothing was evicted
+      because the pool was never near full — six passes at ~45k are about 19% of it, which
+      is the figure the deferral below already predicted. So the eviction half does not
+      block `is_large`, and `is_large` is what remains
   - **What is settled:** the related worry that `max_inflight_large_prefills = 2` trades
     cache hits for pipelining is **answered and dead.** Three concurrent large prefills
     over a shared prefix cost the same as three serial ones and hit cache identically, and
@@ -501,11 +509,11 @@ local, because they are working notes rather than a product fact.
   The hooks run under Git Bash, where stdout is cp1252, and the printing loop covers warnings
   and runs before the verdict — so a non-ASCII warning killed a commit that was about to pass.
   Invisible because the agent's own shell exports UTF-8
-- ⬜ **The 2026-09-11 audit's remaining findings**: the `read_metrics` note that calls the
-  blend conservative when it is flattering under load, five cross-plane duplications, two
-  unsourced claims in `docs/ARCHITECTURE.md`, and the three runbook findings in
-  `docs-audit-dispatch`. One of those three is measured wrong — "run passes serially" is
-  the opposite of what a fan-out showed. See the audit record and the hand-off notes
+- 🔄 **The 2026-09-11 audit's remaining findings**: the `read_metrics` note that calls the
+  blend conservative when it is flattering under load, five cross-plane duplications, and two
+  unsourced claims in `docs/ARCHITECTURE.md`. The three runbook findings are closed — CLAIMS
+  in #171, the concurrency remedy re-derived in #175, and the effort column deliberately left
+  alone there because its premise reproduced only under the pricing defect #172 fixed
 - ⬜ **`admission_wait_timeout` bails out after 30 minutes having produced nothing**, and
   its own help text says it was sized for an era when the queue was unordered. Tickets and
   the starvation barrier removed that premise and nobody re-derived the number. Fail fast
