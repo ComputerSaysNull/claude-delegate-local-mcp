@@ -108,9 +108,16 @@ leak. Only a restatement of the same substance counts.
 **MISSING** — a module or behaviour with no documentation coverage at all. Check `PLAN.md`
 and `archive/PLAN-milestones.md` first: not-yet-built is not undocumented.
 
-**CLAIMS** — documentation asserting a measurement that no ADR or JOURNAL entry
-substantiates. Quote the substantiating sentence where there is one. Numbers decay, and an
-unsourced one cannot be rechecked.
+**CLAIMS** — documentation asserting a measurement that no ADR, JOURNAL **or CHANGELOG**
+entry substantiates. Quote the substantiating sentence where there is one. Numbers decay,
+and an unsourced one cannot be rechecked.
+
+CHANGELOG.md counts, and forgetting it is how this check misfires. A measurement recorded in
+the section for the pull request that made it *is* sourced — that is where every change's
+why lives, by CONTRIBUTING's rule — and a pass told to look in two of the three places
+reports it as unsourced. The 2026-09-06 audit retracted exactly such a finding and diagnosed
+it as a caller error; the instruction was not changed, so 2026-09-11 reported four more, one
+of them the same measurement. Search all three before calling a number unsourced.
 
 **ESCAPE ABUSE** — gather the waivers with `read_git`: `log` over the last ninety days for
 `Docs-Gate-Skip:` trailers, grouped by the document each names. Any document waived more than

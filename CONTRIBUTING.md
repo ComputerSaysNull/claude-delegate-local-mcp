@@ -1,4 +1,5 @@
-<!-- BUDGET: 369
+<!-- BUDGET: 378      Raised from 369 on 2026-09-12: a check class names every place its evidence can live, and CLAIMS named two of three. -->
+<!--
      Raised from 365 on 2026-09-10: an agent's runbook is a third kind of file this
      document owns, and both readers of one must accept it -- which needs saying once.
      Raised from 357 on 2026-09-10: there are two skill directories now and only one of
@@ -340,6 +341,13 @@ nothing in it may assume this repository — the reason it exists, since `docs/`
 `docs-audit-dispatch` is the runbook for `docs-audit-local` — the pass list, the check-class
 definitions and each pass's effort — what makes two audits comparable. **Both readers must
 accept these files**: `agents.py` is the permissive one, so quote any value holding a colon.
+
+A check class names every place its evidence can live, and CLAIMS names three: ADR, JOURNAL
+and CHANGELOG. A measurement recorded in the section for the pull request that made it is
+sourced, by this document's own rule that entries carry the why — so a definition listing
+two of the three turns a correct record into a finding. That happened, was diagnosed as a
+caller error, went unfixed because the diagnosis never reached the instruction, and
+recurred. A test now asserts the definition names all three.
 
 ## Secrets
 

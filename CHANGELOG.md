@@ -34,6 +34,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #171 — 2026-09-12 — fix: the CLAIMS check forgot where a measurement lives
+
+### Fixed
+- **A check class that names two of the three places its evidence can live turns a correct
+  record into a finding.** *Symptom:* the 2026-09-11 audit reported four CLAIMS findings
+  that were substantiated in `CHANGELOG.md` all along, one of them the *same* measurement
+  the 2026-09-06 audit had already retracted. *Cause:* `docs-audit-dispatch` defined CLAIMS
+  as a measurement "that no ADR or JOURNAL entry substantiates", while this project records
+  measurements in the CHANGELOG section for the pull request that made them — by
+  CONTRIBUTING's own rule that entries carry the why. *Fix:* the definition names all three,
+  and says why the third is evidence.
+- **The 2026-09-06 audit diagnosed this exactly and it recurred anyway**, because the
+  diagnosis was recorded and the instruction was not changed. A test now asserts the
+  definition names all three, so the third retraction cannot be the thing that catches it.
+
+### Notes
+- The test reads **only the CLAIMS paragraph**, not the whole skill. `CHANGELOG.md` is named
+  elsewhere in the runbook — the recording step points at it — so a search over the file
+  would pass on a mention no auditor reading the check class ever sees. Three further
+  assertions pin that scoping, because a scope that quietly widened would make the check
+  unfailable.
+- Two of the audit's other three machinery findings are **deliberately not fixed here**,
+  because this session measured their remedies to be wrong: "run passes serially" is the
+  opposite of what a six-way fan-out showed (five passes shared 53,248 cached tokens each),
+  and the claim that a broad high-effort pass answers at `low` did not reproduce. Both want
+  a real audit fan-out against the new pricing first.
+
+### Changed
+- `CONTRIBUTING.md`'s budget rises 369 → 378.
+
 ## #170 — 2026-09-12 — feat: the budget is priced for the concurrency it will meet
 
 ### Added
