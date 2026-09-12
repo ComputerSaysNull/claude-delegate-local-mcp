@@ -12,9 +12,11 @@ refactor:
 
   a. The canonical shape stays block-structured and is never flattened to strings.
      Flattening is what an adapter is *for*, and it happens only at the wire edge.
-  b. SSE accumulation lives per adapter, behind one contract. No streaming ships in v1
-     (ADR-0018), so `complete()` is request/response -- but that is a method on the
-     protocol, not a shape baked into the caller.
+  b. SSE accumulation lives per adapter, behind one contract. The transport streams and
+     the contract does not (ADR-0070): `complete()` still takes one request and returns
+     one whole `CanonicalResponse`, because accumulation happens inside the adapter. That
+     it was always a method on the protocol rather than a shape baked into the caller is
+     what made streaming a new branch in one file instead of a refactor.
   c. Model selection is a registry lookup, never a reintroduced prefix function
      (ADR-0009). Nothing in this layer inspects a model name to decide anything.
 
@@ -319,6 +321,14 @@ class CanonicalResponse:
     total_tokens: int | None = None
     stop_reason: str | None = None
     system_fingerprint: str | None = None
+    # How long the tokens took to arrive: last token minus first, and nothing else. The
+    # quantity the rate estimators want and the one no non-streaming adapter can supply,
+    # so `None` means "time the attempt instead" rather than "zero". Dividing output by
+    # the whole attempt charges prefill to the decoder, and on a short answer over a large
+    # prompt prefill is most of the interval -- measured 2026-09-12 as a remembered rate
+    # of 13.4 tok/s taken from 855- and 1,170-token answers, on a cluster that delivered
+    # 17,779 tokens at 45.2 tok/s in the same regime (ADR-0070).
+    decode_seconds: float | None = None
 
     @property
     def text(self) -> str:

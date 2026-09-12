@@ -25,17 +25,17 @@ import json
 import sys
 from pathlib import Path
 
-import httpx
 from fastmcp import Client
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from claude_delegate_local import server
 from test_server import DoubleCache, cfg, chat_reply, entry, payload, registry
+from wire_double import as_stream
 
 
 def handler(request):
-    return httpx.Response(200, json=chat_reply(content="the answer"))
+    return as_stream(chat_reply(content="the answer"))
 
 
 def response_with(config) -> dict:

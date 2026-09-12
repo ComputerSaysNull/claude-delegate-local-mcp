@@ -15,6 +15,7 @@ from claude_delegate_local.backends import base
 from claude_delegate_local.backends import openai_compat as oc
 from claude_delegate_local.config import EFFORT_LEVELS, Config, ConfigError
 from claude_delegate_local.registry import ModelEntry
+from wire_double import Clock, as_stream, delta, paced, sse, sse_response, stream_reply
 
 HOST = "http://example.com:8000"  # on the gate's placeholder allowlist
 
@@ -35,15 +36,18 @@ def cfg(**over) -> Config:
     return Config(**kw)  # type: ignore[arg-type]
 
 
-def backend(handler=None, *, config=None, model=None) -> oc.OpenAICompatBackend:
+def backend(handler=None, *, config=None, model=None, clock=None) -> oc.OpenAICompatBackend:
     """An adapter wired to a transport double. No socket is ever opened."""
-    handler = handler or (lambda request: httpx.Response(200, json=reply()))
+    handler = handler or (lambda request: sse_response(stream_reply()))
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return oc.OpenAICompatBackend(config or cfg(), model or entry(), client=client)
+    kw = {"client": client}
+    if clock is not None:
+        kw["clock"] = clock
+    return oc.OpenAICompatBackend(config or cfg(), model or entry(), **kw)
 
 
 def reply(**over) -> dict:
-    """A minimal well-formed chat completion."""
+    """A minimal well-formed chat completion, in the shape `_from_wire` reads."""
     body = {
         "model": "served-id-1",
         "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}],
@@ -73,7 +77,7 @@ def capture():
         seen["url"] = str(req.url)
         seen["headers"] = dict(req.headers)
         seen["body"] = json.loads(req.content)
-        return httpx.Response(200, json=reply())
+        return as_stream(reply())
 
     return handler, seen
 
@@ -229,27 +233,38 @@ async def test_no_error_message_leaks_the_endpoint():
 # --- malformed 2xx ---------------------------------------------------------------------
 
 
+# The chat call streams since ADR-0070, so these four now aim at the two places the
+# whole-body checks still govern: `_decode`, which the probe paths keep using, and
+# `_from_wire`, which the accumulator feeds. Pointed at `complete()` they would assert
+# against a message the streaming parser raises for a different reason -- a check that
+# still passes while testing nothing it names.
+
+
 async def test_a_2xx_that_is_not_json_is_a_protocol_error():
+    """Still the probes' concern: `/v1/models` and `/metrics` answer with a whole body."""
     with pytest.raises(base.BackendProtocolError, match="not JSON"):
-        await backend(lambda req: httpx.Response(200, text="<html>oops</html>")).complete(
-            request()
-        )
+        await backend(lambda req: httpx.Response(200, text="<html>oops</html>")).probe()
 
 
 async def test_a_2xx_json_array_is_a_protocol_error():
     with pytest.raises(base.BackendProtocolError, match="not a JSON object"):
-        await backend(lambda req: httpx.Response(200, json=[1, 2])).complete(request())
+        await backend(lambda req: httpx.Response(200, json=[1, 2])).probe()
 
 
 async def test_missing_choices_is_a_protocol_error():
+    """Asserted against `_from_wire` directly, because nothing else can produce it now.
+
+    The accumulator always emits one choice, so this guard is unreachable from the wire.
+    It is kept and tested here rather than deleted: it is the contract `_from_wire` states
+    for its input, and an accumulator change is exactly what would break it.
+    """
     with pytest.raises(base.BackendProtocolError, match="no choices"):
-        await backend(lambda req: httpx.Response(200, json={"usage": {}})).complete(request())
+        backend()._from_wire({"usage": {}})
 
 
 async def test_missing_message_is_a_protocol_error():
-    body = {"choices": [{"finish_reason": "stop"}]}
     with pytest.raises(base.BackendProtocolError, match="no message object"):
-        await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+        backend()._from_wire({"choices": [{"finish_reason": "stop"}]})
 
 
 async def test_tool_call_arguments_that_are_not_json_are_a_protocol_error():
@@ -268,7 +283,7 @@ async def test_tool_call_arguments_that_are_not_json_are_a_protocol_error():
         ]
     )
     with pytest.raises(base.BackendProtocolError, match=r"not.*JSON"):
-        await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+        await backend(lambda req: as_stream(body)).complete(request())
 
 
 async def test_tool_call_arguments_that_decode_to_a_scalar_are_a_protocol_error():
@@ -286,7 +301,7 @@ async def test_tool_call_arguments_that_decode_to_a_scalar_are_a_protocol_error(
         ]
     )
     with pytest.raises(base.BackendProtocolError, match="not an object"):
-        await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+        await backend(lambda req: as_stream(body)).complete(request())
 
 
 async def test_tool_call_without_a_function_name_is_a_protocol_error():
@@ -299,7 +314,7 @@ async def test_tool_call_without_a_function_name_is_a_protocol_error():
         ]
     )
     with pytest.raises(base.BackendProtocolError, match="no function name"):
-        await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+        await backend(lambda req: as_stream(body)).complete(request())
 
 
 # --- the incoming response -------------------------------------------------------------
@@ -441,7 +456,7 @@ async def test_an_endpoint_without_metrics_says_nothing_rather_than_failing():
     def handler(request):
         if request.url.path == "/metrics":
             return httpx.Response(404, text="Not Found")
-        return httpx.Response(200, json=reply())
+        return as_stream(reply())
 
     assert await backend(handler).probe_cluster() is None
 
@@ -452,7 +467,7 @@ async def test_a_200_that_is_not_metrics_is_also_nothing_to_say():
     def handler(request):
         if request.url.path == "/metrics":
             return httpx.Response(200, text="<html>a proxy error page</html>")
-        return httpx.Response(200, json=reply())
+        return as_stream(reply())
 
     assert await backend(handler).probe_cluster() is None
 
@@ -463,7 +478,7 @@ async def test_an_unreachable_metrics_path_raises_rather_than_reporting_absence(
     def handler(request):
         if request.url.path == "/metrics":
             raise httpx.ConnectError("no route")
-        return httpx.Response(200, json=reply())
+        return as_stream(reply())
 
     with pytest.raises(base.BackendUnavailable):
         await backend(handler).probe_cluster()
@@ -483,7 +498,7 @@ async def test_the_four_fields_the_endpoint_reports_are_carried():
         usage={"prompt_tokens": 44905, "completion_tokens": 16, "total_tokens": 44921,
                "prompt_tokens_details": {"cached_tokens": 44800}},
     )
-    r = await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+    r = await backend(lambda req: as_stream(body)).complete(request())
     assert r.cached_tokens == 44800
     assert r.total_tokens == 44921
     assert r.stop_reason == "eos"
@@ -498,11 +513,11 @@ async def test_a_cache_miss_is_zero_and_an_endpoint_that_cannot_say_is_none():
     """
     missed = reply(usage={"prompt_tokens": 7, "completion_tokens": 3,
                           "prompt_tokens_details": {"cached_tokens": 0}})
-    r = await backend(lambda req: httpx.Response(200, json=missed)).complete(request())
+    r = await backend(lambda req: as_stream(missed)).complete(request())
     assert r.cached_tokens == 0, "a measured miss must not read as absent"
 
     silent = reply()  # no prompt_tokens_details at all
-    r = await backend(lambda req: httpx.Response(200, json=silent)).complete(request())
+    r = await backend(lambda req: as_stream(silent)).complete(request())
     assert r.cached_tokens is None, "an endpoint that says nothing must not read as a miss"
     assert r.total_tokens is None
     assert r.stop_reason is None
@@ -515,7 +530,7 @@ async def test_a_null_stop_reason_is_absent_not_the_empty_string():
     uses for a different thing -- a wire value that was genuinely empty."""
     body = reply(choices=[{"finish_reason": "stop", "stop_reason": None,
                            "message": {"role": "assistant", "content": "ok"}}])
-    r = await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+    r = await backend(lambda req: as_stream(body)).complete(request())
     assert r.stop_reason is None
     assert r.finish_reason == "stop"
 
@@ -530,7 +545,7 @@ async def test_null_content_at_length_is_a_response_not_an_error():
         choices=[{"finish_reason": "length", "message": {"role": "assistant", "content": None}}],
         usage={"prompt_tokens": 11, "completion_tokens": 2048},
     )
-    r = await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+    r = await backend(lambda req: as_stream(body)).complete(request())
     assert r.content == ()
     assert r.text == ""
     assert r.finish_reason == "length"
@@ -546,7 +561,7 @@ async def test_reasoning_content_becomes_its_own_block():
             }
         ]
     )
-    r = await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+    r = await backend(lambda req: as_stream(body)).complete(request())
     assert r.thinking == "why"
     assert r.text == "answer"
     assert isinstance(r.content[0], base.ThinkingBlock)
@@ -578,7 +593,7 @@ async def test_tool_calls_become_tool_use_blocks():
             }
         ]
     )
-    r = await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+    r = await backend(lambda req: as_stream(body)).complete(request())
     assert len(r.tool_uses) == 1
     call = r.tool_uses[0]
     assert (call.id, call.name, call.input) == ("call_7", "read_file", {"path": "a.py"})
@@ -596,7 +611,7 @@ async def test_empty_tool_arguments_decode_to_an_empty_object():
             }
         ]
     )
-    r = await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+    r = await backend(lambda req: as_stream(body)).complete(request())
     assert r.tool_uses[0].input == {}
 
 
@@ -790,7 +805,7 @@ async def test_reasoning_under_the_key_this_stack_actually_uses():
         # the *variable*, so this happens to work only because it is called in the same
         # iteration. That is a trap for whoever restructures the loop.
         r = await backend(
-            lambda req, b=body: httpx.Response(200, json=b)
+            lambda req, b=body: as_stream(b)
         ).complete(request())
         assert r.thinking == "the thinking", key
 
@@ -812,7 +827,7 @@ async def test_unknown_message_keys_are_ignored_not_fatal():
             }
         ]
     )
-    r = await backend(lambda req: httpx.Response(200, json=body)).complete(request())
+    r = await backend(lambda req: as_stream(body)).complete(request())
     assert r.text == "a"
 
 
@@ -887,3 +902,227 @@ async def test_one_real_completion_against_the_live_endpoint():
     # A real answer, in real text blocks. "Pacific" is not the assertion -- having any
     # text at all, from a level that disables reasoning, is.
     assert r.text.strip(), f"no text returned; finish_reason={r.finish_reason!r}"
+
+
+# --- streaming: the transport streams, the contract does not (ADR-0070) -----------------
+
+
+async def test_the_request_asks_to_stream_and_for_usage():
+    """Both, or the trade is a bad one.
+
+    Streaming without `include_usage` buys the decode interval and loses every token
+    count, which would leave the budget and the cost record reading zero -- a worse
+    instrument than the one being replaced, not a better one.
+    """
+    body = backend().wire_body(request())
+    assert body["stream"] is True
+    assert body["stream_options"] == {"include_usage": True}
+
+
+async def test_a_streamed_reply_is_accumulated_into_one_response():
+    """`complete()` still returns one whole response. Accumulation happens below it."""
+    handler = lambda req: sse_response(  # noqa: E731
+        sse(
+            {"model": "served-id-1", "choices": [{"index": 0, "delta": {"role": "assistant"}}]},
+            delta(content="Hel"),
+            delta(content="lo"),
+            {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+            {"choices": [], "usage": {"prompt_tokens": 11, "completion_tokens": 2}},
+        )
+    )
+    r = await backend(handler).complete(request())
+    assert r.text == "Hello"
+    assert r.finish_reason == "stop"
+    assert r.input_tokens == 11
+    assert r.output_tokens == 2
+    assert r.model == "served-id-1"
+
+
+async def test_the_decode_interval_times_the_tokens_not_the_request():
+    """The whole point, and the one number this change exists to make honest.
+
+    The request begins at t=0 and the first token lands at t=5.0: five seconds of prefill
+    and queueing that the decoder did not spend. Dividing 100 output tokens by the whole
+    interval reports 16.7 tok/s; dividing by the token span reports 100. Measured on the
+    live cluster 2026-09-12, that inversion had a remembered rate of 13.4 tok/s pricing a
+    ceiling of 14,475 tokens on a cluster that had just delivered 17,779 in one turn.
+    """
+    clock = Clock()
+    schedule = [
+        (5.0, "data: " + json.dumps(delta(content="a")) + "\n\n"),
+        (6.0, "data: " + json.dumps(delta(content="b")) + "\n\n"),
+        (6.0, "data: " + json.dumps(
+            {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+             "usage": {"prompt_tokens": 9000, "completion_tokens": 100}}) + "\n\n"),
+        (6.0, "data: [DONE]\n\n"),
+    ]
+    r = await backend(paced(clock, schedule), clock=clock).complete(request())
+
+    assert r.decode_seconds == pytest.approx(1.0)
+    assert r.output_tokens / r.decode_seconds == pytest.approx(100.0)
+    # The negative control, stated rather than implied: timing the whole request would
+    # have reported this instead, and it is the number that priced the deaths.
+    assert r.output_tokens / clock.t == pytest.approx(16.67, abs=0.01)
+
+
+async def test_one_token_frame_reports_no_interval_rather_than_zero():
+    """Unknown is not instantaneous. A zero here would be divided by upstream."""
+    clock = Clock()
+    schedule = [
+        (5.0, "data: " + json.dumps(delta(content="all of it")) + "\n\n"),
+        (5.0, "data: " + json.dumps(
+            {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+             "usage": {"prompt_tokens": 3, "completion_tokens": 4}}) + "\n\n"),
+        (5.0, "data: [DONE]\n\n"),
+    ]
+    r = await backend(paced(clock, schedule), clock=clock).complete(request())
+    assert r.decode_seconds is None
+    assert r.text == "all of it"
+
+
+async def test_bookkeeping_frames_do_not_start_the_clock():
+    """The `role` frame and the trailing `usage` frame carry no tokens.
+
+    Counting either would put prefill back inside the interval: the opening frame arrives
+    with the prefill, so timing from it measures exactly what this change removes.
+    """
+    clock = Clock()
+    schedule = [
+        (5.0, "data: " + json.dumps(
+            {"choices": [{"index": 0, "delta": {"role": "assistant"}}]}) + "\n\n"),
+        (7.0, "data: " + json.dumps(delta(content="a")) + "\n\n"),
+        (8.0, "data: " + json.dumps(delta(content="b")) + "\n\n"),
+        (9.9, "data: " + json.dumps(
+            {"choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 2}}) + "\n\n"),
+        (9.9, "data: [DONE]\n\n"),
+    ]
+    r = await backend(paced(clock, schedule), clock=clock).complete(request())
+    # 8.0 - 7.0, not 9.9 - 5.0.
+    assert r.decode_seconds == pytest.approx(1.0)
+
+
+async def test_reasoning_deltas_become_a_thinking_block():
+    handler = lambda req: sse_response(  # noqa: E731
+        sse(
+            delta(reasoning="thinking "),
+            delta(reasoning="hard"),
+            delta(content="answer"),
+            {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+             "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+        )
+    )
+    r = await backend(handler).complete(request())
+    thinking = [b for b in r.content if isinstance(b, base.ThinkingBlock)]
+    assert [b.text for b in thinking] == ["thinking hard"]
+    assert r.text == "answer"
+
+
+async def test_tool_call_arguments_split_across_frames_are_rejoined():
+    """Arguments arrive a fragment at a time and are not valid JSON until the last one."""
+    handler = lambda req: sse_response(  # noqa: E731
+        sse(
+            delta(tool_calls=[{"index": 0, "id": "call_1", "type": "function",
+                               "function": {"name": "read_file", "arguments": ""}}]),
+            delta(tool_calls=[{"index": 0, "function": {"arguments": '{"path"'}}]),
+            delta(tool_calls=[{"index": 0, "function": {"arguments": ': "a.py"}'}}]),
+            {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+             "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+        )
+    )
+    r = await backend(handler).complete(request())
+    assert len(r.tool_uses) == 1
+    assert r.tool_uses[0].name == "read_file"
+    assert r.tool_uses[0].input == {"path": "a.py"}
+
+
+async def test_two_tool_calls_interleaved_stay_separate():
+    """Keyed by the wire's `index`, because a model interleaves the fragments.
+
+    Joining them in arrival order would splice one call's arguments into the other's, and
+    the result would be two calls that each parse and neither of which was asked for.
+    """
+    handler = lambda req: sse_response(  # noqa: E731
+        sse(
+            delta(tool_calls=[
+                {"index": 0, "id": "a", "function": {"name": "one", "arguments": ""}}]),
+            delta(tool_calls=[
+                {"index": 1, "id": "b", "function": {"name": "two", "arguments": ""}}]),
+            delta(tool_calls=[{"index": 0, "function": {"arguments": '{"x": 1}'}}]),
+            delta(tool_calls=[{"index": 1, "function": {"arguments": '{"y": 2}'}}]),
+            {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+             "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+        )
+    )
+    r = await backend(handler).complete(request())
+    assert [(t.name, t.input) for t in r.tool_uses] == [("one", {"x": 1}), ("two", {"y": 2})]
+
+
+async def test_a_2xx_that_is_not_sse_is_a_protocol_error():
+    """An endpoint answering 200 with a JSON body is not speaking the agreed format.
+
+    Skipping the line instead would turn a wrong endpoint into an empty answer, and an
+    empty answer is a diagnosis this layer is not entitled to make.
+    """
+    with pytest.raises(base.BackendProtocolError, match="not an SSE data frame"):
+        await backend(lambda req: httpx.Response(200, json=reply())).complete(request())
+
+
+async def test_a_data_frame_that_is_not_json_is_a_protocol_error():
+    """Matched on the *streamed* wording deliberately.
+
+    "not JSON" alone is what the old buffered path said about a whole body, so asserting
+    that much passes against code with no SSE parsing at all -- caught by running this
+    against HEAD before the fix, where it was one of two new tests that could not fail.
+    """
+    with pytest.raises(base.BackendProtocolError, match="streamed a data frame that is not JSON"):
+        await backend(
+            lambda req: sse_response("data: {not json}\n\n")
+        ).complete(request())
+
+
+async def test_a_refusal_is_read_before_it_is_raised():
+    """A streamed response has not been read when the status arrives.
+
+    `BackendRefused` carries the body so ADR-0017's feature detection can read it, so the
+    body has to be pulled before the stream is closed or the refusal arrives empty.
+
+    The body here is a real lazy stream rather than `httpx.Response(429, text=...)`,
+    because a transport double buffers the latter: `.text` then works whether or not the
+    adapter read it, and the first version of this test passed with `await r.aread()`
+    deleted. Mutation-checked 2026-09-12 -- with the read removed this raises
+    `ResponseNotRead` instead, which is the failure it now actually guards.
+    """
+    async def body():
+        yield b"slow down"
+
+    def handler(req):
+        return httpx.Response(429, content=body(), headers={"Retry-After": "3"})
+
+    with pytest.raises(base.BackendRefused) as caught:
+        await backend(handler).complete(request())
+    assert caught.value.status == 429
+    assert caught.value.body == "slow down"
+    assert caught.value.retry_after == "3"
+
+
+async def test_a_stream_that_outlives_turn_timeout_is_unavailable():
+    """The bound the non-streaming call got for free.
+
+    httpx applies its read timeout per chunk once the body streams, so a stream that keeps
+    trickling would never trip it. Without this the deadline would simply have been
+    removed, which is the failure this change is in the middle of fixing.
+    """
+    clock = Clock()
+    schedule = [
+        (1.0, "data: " + json.dumps(delta(content="a")) + "\n\n"),
+        (999.0, "data: " + json.dumps(delta(content="b")) + "\n\n"),
+        (999.0, "data: [DONE]\n\n"),
+    ]
+    # 60 rather than something smaller because the deadlines have to nest and
+    # `connect_timeout` defaults to 30: a turn_timeout below it is a ConfigError, which
+    # would have failed this test for a reason that has nothing to do with streaming.
+    with pytest.raises(base.BackendUnavailable, match="turn_timeout") as caught:
+        await backend(
+            paced(clock, schedule), config=cfg(turn_timeout=60), clock=clock
+        ).complete(request())
+    assert caught.value.while_generating is True

@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import json
 
-import httpx
 
 from test_server import cfg, chat_reply
+from wire_double import as_stream
 from test_transcript import records, run
 
 
@@ -47,7 +47,7 @@ def wants(tool: str, **arguments: object):
         sent = json.loads(request.content or b"{}").get("messages") or []
         answered = any(message.get("role") == "tool" for message in sent)
         body = chat_reply(content="done") if answered else chat_reply(choices=[asked])
-        return httpx.Response(200, json=body)
+        return as_stream(body)
 
     return handler
 
