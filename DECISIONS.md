@@ -19,6 +19,66 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0071 — 2026-09-12 — A minimum needs a stricter admission test than an average — Accepted
+
+**Context.** Two estimators now consume the same observation and they are not alike.
+`DecodeRate` re-prices the next turn of a delegation already running, keeps an exponential
+average, and dies with the run, so one bad sample is diluted by the next four and forgotten
+within the hour. `RateHistory` (ADR-0069) prices a delegation that does not exist yet, and
+`expect` returns the **minimum** — so one bad sample is not diluted at all. It wins, and
+goes on winning.
+
+Only the first had an admission test. `DecodeRate.observe` refuses a turn below 64 tokens
+or one second, for the reason `loop.py` states beside it: *"A turn answering in a few tokens
+spends most of its backend interval on prefill and queueing, so its apparent decode rate
+describes the queue rather than the decoder."* The call site feeding `RateHistory` divided
+first and passed a bare rate, so the memory could not have applied that test had it wanted
+to — a rate carries no evidence of how it was arrived at.
+
+Measured 2026-09-12. A 237-token turn over a 14.2s decode interval recorded 16.64 tok/s,
+against a benchmarked 44.1 for one stream — a 2.6x understatement that `expect(1)` then
+kept. The first call admitted in each of two later fan-outs was handed a ceiling of 17,969
+tokens where an honest solo rate would have paid for roughly 47,000. In the second, the five
+calls asking `expect(2)` through `expect(6)` priced close to what they went on to achieve.
+The defect was never in `expect`.
+
+**Decision.** `RateHistory.observe` takes the turn's tokens and its decode interval rather
+than the quotient, and applies its own floor of 512 tokens. The guard lives on the memory,
+not at the call site, because a second caller dividing on its own would reintroduce the
+defect silently — the reason `paths.py` returns a handle instead of a path (ADR-0049).
+
+The floor is **not** shared with `DecodeRate` and must not be derived from it: 237 clears
+64, so one constant would have left this bug where it was. 512 is sized from the
+deployment's decode benchmark, which measures stable per-stream rates at a 400-token cap —
+so a few hundred tokens is enough to describe the decoder, and this sits just above that.
+
+**This does not supersede ADR-0070**, and the distinction is why this is separate. That
+ruling was against a threshold as a *substitute for the instrument*: while the interval was
+the whole attempt, no token count could separate a slow decoder from a large prompt, because
+the contamination scaled with the prompt and not the answer. Streaming removed it. What is
+left is small-sample noise — a few seconds of jitter across a 237-token decode moves the rate
+by half — and a floor is the right instrument for that. A threshold on top of a sound
+instrument is not the threshold that was rejected.
+
+`expect` is deliberately untouched, and the guard exists partly to protect it. Keeping the
+minimum at the asked concurrency *or busier* prices a burst's first member at the six-way
+floor with no counter knowing a burst is forming — but that is a cost, not a fix: it exists
+because the concurrency label cannot be trusted, and charges a solo call 2.5x. PLAN.md's
+coalescing hold would make the label true, which is the precondition for lifting it.
+
+**Consequences.** The guard on a non-positive rate is removed rather than kept: with both
+floors positive the quotient cannot be, so a check on it could never fire, and a check that
+cannot fail is worse than none because it is trusted. Degenerate input is refused by the two
+comparisons, and the test asserts it there.
+
+A deployment whose answers are habitually shorter than 512 tokens now records nothing and
+falls through to the since-boot blend — the pre-ADR-0069 behaviour, optimistic rather than
+wrong, and visible in `rate_source`. That is the trade: a memory with no samples recovers,
+one with a bad sample does not.
+
+ADR-0069's cold-start half is untouched and still open: measured the same day at 1.29x
+optimistic, and keyed on concurrency where the passes that died differed by effort.
+
 ## ADR-0070 — 2026-09-12 — The transport streams; the contract does not — Accepted
 
 **Context.** ADR-0055 prices the reply budget from a decode rate, and ADR-0069 remembers that

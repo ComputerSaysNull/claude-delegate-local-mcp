@@ -407,19 +407,46 @@ class RateHistory:
     # ancient bad sample pin the estimate for the life of the server.
     DEFAULT_KEEP = 64
 
+    # Stricter than `DecodeRate`'s pair, deliberately, and not derived from them: a
+    # minimum is permanent where an average decays. `DecodeRate` re-prices the next turn
+    # of a delegation already running, so a bad sample is diluted by the next four; this
+    # feeds `expect`, which takes a minimum and keeps it for `DEFAULT_KEEP` observations
+    # and prices delegations that do not exist yet.
+    #
+    # Sized from the deployment's own decode benchmark rather than from one incident. That
+    # benchmark measures stable per-stream rates with a 400-token cap, so a few hundred
+    # tokens is enough to describe the decoder; this sits just above it. Below that the
+    # interval is dominated by whatever happened before the first token: a turn emitting
+    # 237 tokens recorded 16.64 tok/s against a benchmarked 44.1 alone, a 2.6x
+    # understatement that then floored `expect(1)` -- the question the first call admitted
+    # in any fan-out asks. 237 clears `DecodeRate`'s 64, which is why sharing one constant
+    # would have left the defect in place.
+    MIN_TOKENS = 512
+    MIN_SECONDS = 1.0
+
     __slots__ = ("_keep", "_seen")
 
     def __init__(self, keep: int = DEFAULT_KEEP) -> None:
         self._keep = max(1, keep)
         self._seen: deque[tuple[int, float]] = deque(maxlen=self._keep)
 
-    def observe(self, rate: float, *, concurrency: int) -> None:
-        """Record what one completed turn achieved, and how contended it was."""
-        if rate <= 0:
-            # Zero and negative are arithmetic accidents rather than measurements, and one
-            # admitted here would price every later delegation against it.
+    def observe(self, output_tokens: int, seconds: float, *, concurrency: int) -> None:
+        """Record what one completed turn achieved, and how contended it was.
+
+        Takes the turn's tokens and its decode interval rather than a finished rate,
+        because a rate cannot be judged: the caller that divided first handed this a
+        number with no way to tell a throughput measurement from a 237-token turn whose
+        interval was mostly prefill and queueing. The guard lives here rather than at the
+        call site so a second caller cannot bypass it by dividing on its own.
+        """
+        # Zero, negative and degenerate inputs are arithmetic accidents rather than
+        # measurements, and one admitted here would price every later delegation against
+        # it. They are refused by these two comparisons rather than by a check on the
+        # quotient: with both floors positive the quotient cannot be, so a guard on it
+        # would be a check that can never fire and would be trusted anyway.
+        if output_tokens < self.MIN_TOKENS or seconds < self.MIN_SECONDS:
             return
-        self._seen.append((max(int(concurrency), 1), float(rate)))
+        self._seen.append((max(int(concurrency), 1), output_tokens / seconds))
 
     def expect(self, concurrency: int) -> float | None:
         """The worst rate seen at this concurrency or worse, or None if never seen.
@@ -2242,11 +2269,14 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # is the only thing that can price a *later* delegation's first turn, which
             # has no observation of its own and is the one that dies.
             if rate_history is not None:
-                if interval > 0 and dispatch.response.output_tokens:
-                    rate_history.observe(
-                        dispatch.response.output_tokens / interval,
-                        concurrency=expected_concurrency,
-                    )
+                # Tokens and the interval, not the quotient. Dividing here is what left the
+                # memory unable to tell a throughput measurement from a turn too short to
+                # be one, and its own floor is stricter than `DecodeRate`'s above.
+                rate_history.observe(
+                    dispatch.response.output_tokens,
+                    interval,
+                    concurrency=expected_concurrency,
+                )
             watch.turn_cost(dispatch, evicted=dropped)
             guard.observe(
                 dispatch.response, evicted_this_turn=dropped, turn=turn, turns=turns,

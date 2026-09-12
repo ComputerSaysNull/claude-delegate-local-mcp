@@ -34,6 +34,47 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #177 — 2026-09-12 — fix: one short turn priced every later delegation
+
+### Fixed
+- **A 237-token turn floored the rate memory for every delegation behind it.** *Symptom:*
+  the first call admitted in a fan-out was handed a ceiling of 17,969 output tokens, twice
+  in one session and in two unrelated fan-outs, where an honest solo rate would have paid
+  for roughly 47,000 — the memory had been priced at 16.64 tok/s against a benchmarked 44.1
+  for one stream. *Cause:* `RateHistory.observe` was handed a finished
+  rate and had no floor of its own. `DecodeRate.observe` refuses a turn too short to
+  measure, for the reason loop.py line 309 already gave — a turn answering in a few tokens
+  spends most of its interval on prefill and queueing — but the memory that outlives the
+  delegation applied no such test, and a 237-token turn reading 16.64 tok/s entered it. It
+  then floored `expect`, which keeps a minimum for 64 observations, and `expect(1)` is the
+  question the first call admitted in any fan-out asks. *Fix:* the memory takes the turn's
+  tokens and its decode interval rather than the quotient, so it can judge what it is
+  given, and applies its own floor of 512 tokens — stricter than `DecodeRate`'s 64, which
+  237 clears, because a minimum is permanent where an exponential average decays. The floor
+  is sized from the deployment's decode benchmark, which measures stable per-stream rates at
+  a 400-token cap, rather than from the incident that exposed the defect.
+- ADR-0070 ruled a threshold out as a *substitute* for the instrument, and that still
+  holds: while the interval was the whole attempt, no floor could separate a slow decoder
+  from a large prompt. This is a floor on top of the instrument, against a different
+  defect — short-sample noise in an interval that no longer contains prefill.
+
+### Changed
+- `expect` is untouched. Its minimum over every sample at the asked concurrency *or
+  busier* already prices a burst's first member at the six-way floor, so narrowing it here
+  would have removed that protection while the concurrency label is still untrustworthy.
+  Measured 2026-09-12: with the memory populated, five of six simultaneous calls priced
+  close to the rate they then achieved, and only the one asking `expect(1)` was wrong. The
+  pessimism is a cost, not a fix — a call running alone is priced at the six-way floor, and
+  the benchmark puts those 2.3x apart — and PLAN.md's coalescing hold is what would make the
+  label true enough to lift it. That item is not closed by this one.
+- The guard on a non-positive rate is gone rather than kept. With both floors positive the
+  quotient cannot be, so a check on it could never fire — and a check that cannot fail is
+  worse than none, because it is trusted. The refusal is asserted on the inputs instead.
+- `test_the_decode_rate_charged_prefill_to_the_decoder`'s fixture is scaled 4x, to 1,768
+  tokens over 200.0s with an 80.0s decode interval. Both ratios are preserved exactly and
+  are still the two rates it exists to tell apart, 22.1 against 8.84; the observed 442
+  tokens now sit below the floor this entry adds.
+
 ## #176 — 2026-09-12 — docs: verifying #172 end to end re-ranked three items
 
 ### Changed

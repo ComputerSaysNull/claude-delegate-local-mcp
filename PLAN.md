@@ -1,4 +1,6 @@
-<!-- BUDGET: 600
+<!-- BUDGET: 610
+     Raised from 600 on 2026-09-12: the rate memory's floor landed, which struck one
+     item's premise and re-ranked the coalescing hold with what measured against it.
      Raised from 580 on 2026-09-12: verifying #172 end to end re-ranked three items on
      evidence -- the cold start, the admission bail-out, and the margin nobody had filed.
      Raised from 570 on 2026-09-12: the fan-out answered M12's eviction half, which that
@@ -490,23 +492,34 @@ local, because they are working notes rather than a product fact.
   Admission serialises a fan-out, so every sibling prices against a cluster that has not
   filled yet. Priced from admission's own counters since #169; a burst's *first* member
   still cannot know the burst is coming
-- ⬜ **Hold a large delegation briefly when the gate is idle**, so a burst's first member
-  prices against the burst. Buys the one case above; costs latency on every solo large
-  call. Default off. **Measured 2026-09-12**: a first member did die at
-  `expected_concurrency: 1`, so the case is real — but it is one instance of the asymmetry
-  below rather than the mechanism, and that ranks first
-- ⬜ **`RateHistory.expect` is asymmetric, and answers a busier question more optimistically
-  than a quieter one.** It keeps the minimum over every sample at the asked concurrency *or
-  busier*, so a low expectation searches widely and keeps the worst while a high one searches
-  an empty set and falls through to the since-boot blend. One six-way fan-out on 2026-09-12
-  produced both failures at once: four ceilings below what the work needed, and one above what
-  the clock could decode. Streaming (#172) fixes the contamination, not this
-  - **Ranked first of these after the 2026-09-12 verification run, on evidence.** Against a
-    freshly reconnected server the history is empty, so all six passes fell through to
-    `cluster_since_boot` at 34.86 tok/s where the real six-way rate is ~19.4 — a 1.8x
-    overestimate, one 37,648-token ceiling each, and **zero of six answered**. The cold-start
-    half is what the deaths are made of; the contamination half is already fixed and was
-    never the larger one
+- ⬜ **Hold a delegation briefly when the gate is idle**, so a burst's first member prices
+  against the burst. ~~Buys the one case above; costs latency on every solo large call.
+  Default off.~~ **Re-ranked 2026-09-12 and the "large" in the title was backwards**: six
+  large calls are already coalesced by `max_inflight_large_prefills` — admitted in three
+  waves of two, at 0s/28.9s/57.1s — while six *small* ones ran together and priced 1,2,3,4,5,6
+  - **What it actually buys, which is more than a first member's ceiling.** `expect` keeps a
+    minimum over every sample at that concurrency *or busier* precisely because the label
+    cannot be trusted, and that costs a genuinely solo call 2.5x: dispatch 0027 decoded
+    **alone at 65.6 tok/s** and is priced at 26.57. No guard fixes that — `expect(1)` is
+    min-over-everything by design. A hold makes the label true, and a true label is the
+    precondition for `expect` returning anything less pessimistic. **That is the item**
+  - Hold only while the gate is idle, so it costs nothing when concurrency is already known
+    and 10s when it is not. The arrival distribution measured that day is bimodal, which is
+    what makes a fixed window work: six probes inside 8.5s, or one alone
+- ⬜ **`RateHistory.expect` falls through to the since-boot blend when it has nothing at the
+  asked concurrency**, which is the optimistic answer to the busier question. Measured
+  2026-09-12: six probes priced from that fall-through at 34.85 tok/s and then decoded at
+  27.1 six-way — a 1.29x overestimate, not the 1.8x recorded before the instrument was
+  fixed. A 37,638-token ceiling still decodes inside an 1,800s turn at that rate, so the
+  fall-through alone did not kill the fan-out at `effort: low`; the dying passes ran at
+  `high`, and the memory is keyed on concurrency only, never on effort. That is the half
+  that remains
+  - **The other half was a different defect and shipped in #177.** "A low expectation
+    searches widely and keeps the worst" is the design working, not the asymmetry: a
+    six-way sample bounds a solo question from below, which is what already prices a
+    burst's first member at the six-way floor. What made it look broken was that the
+    memory had no floor of its own, so a 237-token turn reading 16.64 tok/s entered it and
+    became permanent. Guarded at the memory; `expect` deliberately untouched
 - ✅ 2026-09-11 **`turn_timeout` is absent from the ceiling's `min`**, so the budget
   authorises a reply one attempt cannot deliver (#166)
 - ✅ 2026-09-12 **A generation overrun is retried as though it were a network blip**, with
