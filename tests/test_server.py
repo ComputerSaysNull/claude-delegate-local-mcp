@@ -27,6 +27,7 @@ from claude_delegate_local import tools as tools_module
 from claude_delegate_local.backends import openai_compat as oc
 from claude_delegate_local.config import Config
 from claude_delegate_local.registry import ModelEntry, Registry
+from wire_double import as_stream
 
 HOST = "http://example.com:8000"  # on the gate's placeholder allowlist
 
@@ -401,7 +402,7 @@ def payload(result):
 
 
 def chat_handler(**over):
-    return lambda request: httpx.Response(200, json=chat_reply(**over))
+    return lambda request: as_stream(chat_reply(**over))
 
 
 def delegated(handler, *, entries=None, config=None, **kwargs):
@@ -522,7 +523,7 @@ def scripted_handler(replies):
 
     def handle(request):
         item = remaining.pop(0) if remaining else replies[-1]
-        return httpx.Response(200, json=chat_reply(**item))
+        return as_stream(chat_reply(**item))
 
     return serves_metrics(handle)
 
@@ -679,7 +680,7 @@ def files_cfg(tmp_path, **over) -> Config:
 def recording_handler(sent: list):
     def handler(request):
         sent.append(json.loads(request.content))
-        return httpx.Response(200, json=chat_reply())
+        return as_stream(chat_reply())
 
     return handler
 
@@ -1101,7 +1102,7 @@ def turn_handler(*replies):
     remaining = list(replies)
 
     def handler(request):
-        return httpx.Response(200, json=remaining.pop(0))
+        return as_stream(remaining.pop(0))
 
     return serves_metrics(handler)
 
@@ -1210,7 +1211,7 @@ def test_the_default_delegation_offers_every_available_tool(monkeypatch):
 
     def handler(request):
         seen.append(json.loads(request.content))
-        return httpx.Response(200, json=chat_reply(content="done"))
+        return as_stream(chat_reply(content="done"))
 
     delegated(handler, task="a question")
     declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
@@ -1238,7 +1239,7 @@ def test_a_host_without_bubblewrap_is_not_offered_run_bash(monkeypatch):
 
     def handler(request):
         seen.append(json.loads(request.content))
-        return httpx.Response(200, json=chat_reply(content="done"))
+        return as_stream(chat_reply(content="done"))
 
     delegated(handler, task="a question")
     declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
@@ -1315,7 +1316,7 @@ def test_a_caller_named_budget_reaches_the_wire():
 
     def handler(request):
         seen.append(json.loads(request.content))
-        return httpx.Response(200, json=chat_reply(content="done"))
+        return as_stream(chat_reply(content="done"))
 
     delegated(handler, task="a question", max_tokens=4096)
     assert seen[0]["max_tokens"] == 4096
@@ -1327,7 +1328,7 @@ def test_without_one_the_configured_budget_is_used():
 
     def handler(request):
         seen.append(json.loads(request.content))
-        return httpx.Response(200, json=chat_reply(content="done"))
+        return as_stream(chat_reply(content="done"))
 
     delegated(handler, config=cfg(max_tokens=1234), task="a question")
     assert seen[0]["max_tokens"] == 1234
@@ -1447,7 +1448,7 @@ def test_the_agent_body_reaches_the_model_and_the_system_prompt_does_not_move(tm
 
     def handler(request):
         seen.append(json.loads(request.content))
-        return httpx.Response(200, json=chat_reply(content="done"))
+        return as_stream(chat_reply(content="done"))
 
     called(handler, "delegate_to_agent",
            config=cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere")),
@@ -1475,7 +1476,7 @@ def test_the_frontmatter_model_actually_binds(tmp_path):
 
     def handler(request):
         seen.append(json.loads(request.content)["model"])
-        return httpx.Response(200, json=chat_reply(content="done"))
+        return as_stream(chat_reply(content="done"))
 
     called(handler, "delegate_to_agent",
            entries=(entry(), entry(key="second", served_model_id="served-id-2")),
@@ -1494,7 +1495,7 @@ def test_an_explicit_model_still_beats_the_agent_file(tmp_path):
 
     def handler(request):
         seen.append(json.loads(request.content)["model"])
-        return httpx.Response(200, json=chat_reply(content="done"))
+        return as_stream(chat_reply(content="done"))
 
     called(handler, "delegate_to_agent",
            entries=(entry(), entry(key="second", served_model_id="served-id-2")),
@@ -1552,7 +1553,7 @@ def test_delegate_takes_a_workdir_and_reaches_the_backend_with_it(tmp_path):
 
     def handler(request):
         seen["called"] = True
-        return httpx.Response(200, json=chat_reply(content="done"))
+        return as_stream(chat_reply(content="done"))
 
     out = called(handler, "delegate",
                  config=cfg(workspace_roots=(str(tmp_path),)),
@@ -1601,7 +1602,7 @@ def test_delegate_can_write_without_a_workdir_at_all(tmp_path):
         reported.extend(
             str(m.get("content")) for m in body.get("messages", []) if m.get("role") == "tool"
         )
-        return httpx.Response(200, json=next(turns))
+        return as_stream(next(turns))
 
     out = called(handler, "delegate",
                  config=files_cfg(tmp_path, ext_allowlist=(".txt",)),
@@ -1763,7 +1764,7 @@ def test_a_single_delegate_is_bounded_by_the_endpoints_concurrency_too():
         live["peak"] = max(live["peak"], live["now"])
         await asyncio.sleep(0.02)
         live["now"] -= 1
-        return httpx.Response(200, json=chat_reply(content="done"))
+        return as_stream(chat_reply(content="done"))
 
     config = cfg()
     entries = (entry(concurrency=1),)
@@ -1831,7 +1832,7 @@ def test_delegate_readonly_offers_only_tools_that_cannot_write():
 
     def handler(request):
         sent.append(json.loads(request.content))
-        return httpx.Response(200, json=chat_reply(content="an answer"))
+        return as_stream(chat_reply(content="an answer"))
 
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, handler))
@@ -1875,7 +1876,7 @@ def test_an_agent_file_cannot_widen_a_caller_supplied_tool_set(tmp_path):
 
     def handler(request):
         sent.append(json.loads(request.content))
-        return httpx.Response(200, json=chat_reply(content="an answer"))
+        return as_stream(chat_reply(content="an answer"))
 
     called(handler, "delegate_to_agent",
            config=cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere")),
@@ -1926,7 +1927,7 @@ def test_delegate_to_agent_readonly_offers_only_tools_that_cannot_write(tmp_path
 
     def handler(request):
         sent.append(json.loads(request.content))
-        return httpx.Response(200, json=chat_reply(content="an answer"))
+        return as_stream(chat_reply(content="an answer"))
 
     called(handler, "delegate_to_agent_readonly",
            config=cfg(workspace_roots=(str(tmp_path),),
@@ -2045,7 +2046,7 @@ def slow_chat_handler(seconds: float, **over):
     """A backend that takes its time, so a heartbeat has something to beat through."""
     async def handler(request):
         await asyncio.sleep(seconds)
-        return httpx.Response(200, json=chat_reply(**over))
+        return as_stream(chat_reply(**over))
     return handler
 
 
@@ -2213,7 +2214,7 @@ def _effort_on_the_wire(handler_box, **called_kwargs):
     """
     def handler(request):
         handler_box.append(json.loads(request.content))
-        return httpx.Response(200, json=chat_reply(content="ok"))
+        return as_stream(chat_reply(content="ok"))
 
     called(handler, **called_kwargs)
     return handler_box[0]["reasoning_effort"]
@@ -2424,7 +2425,7 @@ def _turns_spent(**called_kwargs) -> int:
 
     def handler(request):
         seen.append(json.loads(request.content))
-        return httpx.Response(200, json=tool_call_reply("read_file", {"path": "/nope"}))
+        return as_stream(tool_call_reply("read_file", {"path": "/nope"}))
 
     result = called(handler, allowed_tools=["read_file"], **called_kwargs)
     assert result["hit_turn_limit"], "the handler must exhaust the budget for this to measure it"

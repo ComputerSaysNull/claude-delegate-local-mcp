@@ -1,4 +1,6 @@
-<!-- BUDGET: 551
+<!-- BUDGET: 570
+     Raised from 551 on 2026-09-12: streaming's first slice landed and the audit fan-out
+     surfaced the asymmetry in `expect`; the measurements are in the hand-off notes.
      Raised from 535 on 2026-09-12: three findings this session surfaced and nothing else
      records -- the audit remainder, the admission bail-out, and work too large for a turn.
      Lowered from 539 on 2026-09-12: the dispatch defects are short pointers now, with the
@@ -250,7 +252,11 @@ nothing was configured, and no tool result changes shape.
     while the same arguments as one string work
   - And a lesson about the probe rather than the feature: a marker file written *first* in
     the command reported success while the tail was being mangled. Write the marker last
-- ⬜ **Streaming, reopened 2026-09-05 with a scope.** Filed and cancelled the same day,
+- 🔄 **Streaming, reopened 2026-09-05 with a scope.** **Slice 1 landed 2026-09-12 (#172,
+  ADR-0070)**: the transport streams, `complete()` is unchanged, and the decode interval no
+  longer contains prefill. Slices 2-4 remain, in this order — `stall_left` reset on token
+  arrival, deltas feeding `stream.turn`, a partial returned at `dispatch_timeout`.
+  Filed and cancelled the same day,
   2026-08-25, on the grounds that MCP tool calls are request/response so the caller sees
   nothing incrementally either way. That is still true of the caller and was never the
   whole picture: it never had its own ADR (ADR-0018 is about the progress notifications
@@ -470,13 +476,21 @@ measurements, what each fix does and does not cover, and what the next session s
 with are in the hand-off notes — `~/.claude/plans/handoff-dispatch-budget.md`, untracked and
 local, because they are working notes rather than a product fact.
 
-- 🔄 **The reply budget is priced while the cluster is idle and spent while it is busy.**
+- ✅ 2026-09-12 **The reply budget is priced while the cluster is idle and spent while it is busy.**
   Admission serialises a fan-out, so every sibling prices against a cluster that has not
   filled yet. Priced from admission's own counters since #169; a burst's *first* member
   still cannot know the burst is coming
 - ⬜ **Hold a large delegation briefly when the gate is idle**, so a burst's first member
   prices against the burst. Buys the one case above; costs latency on every solo large
-  call. Default off until the records say the first member is what dies
+  call. Default off. **Measured 2026-09-12**: a first member did die at
+  `expected_concurrency: 1`, so the case is real — but it is one instance of the asymmetry
+  below rather than the mechanism, and that ranks first
+- ⬜ **`RateHistory.expect` is asymmetric, and answers a busier question more optimistically
+  than a quieter one.** It keeps the minimum over every sample at the asked concurrency *or
+  busier*, so a low expectation searches widely and keeps the worst while a high one searches
+  an empty set and falls through to the since-boot blend. One six-way fan-out on 2026-09-12
+  produced both failures at once: four ceilings below what the work needed, and one above what
+  the clock could decode. Streaming (#172) fixes the contamination, not this
 - ✅ 2026-09-11 **`turn_timeout` is absent from the ceiling's `min`**, so the budget
   authorises a reply one attempt cannot deliver (#166)
 - ✅ 2026-09-12 **A generation overrun is retried as though it were a network blip**, with

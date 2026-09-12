@@ -1251,3 +1251,52 @@ single distinction is what let the descriptions shrink from 6087 characters to 5
 
 What is left in a description is the only thing a schema cannot say: which of four
 near-twins to reach for.
+
+---
+
+## 2026-09-12 — The largest answer decoded fastest, and that inverted the whole budget
+
+Five delegations over the same documents, read back from their `priced` events. The
+17,779-token answer managed **45.2 tok/s**; the 855- and 1,170-token answers managed
+**13.4 and 26.1**. Bigger answers decoding *faster* is not a property of the decoder — it
+is prefill. The rate was `output_tokens / answered_seconds`, and on a short answer over a
+large prompt the prompt is most of the interval.
+
+`RateHistory.expect` keeps the **minimum**, so the most contaminated sample wins and stays
+won for 64 observations. It learned 13.4 and priced a ceiling of 14,475 tokens on a cluster
+that had, minutes earlier, delivered 17,779 in a single turn.
+
+Then the audit fan-out, six STALE passes issued in one message at `effort: high`:
+
+| pass | expected concurrency | rate | ceiling | source | outcome |
+|---|---|---|---|---|---|
+| 1 | 1 | 13.40 | 14,475 | remembered | empty, 14,475 out |
+| 2 | 2 | 13.40 | 14,475 | remembered | empty, 14,475 out |
+| 3 | 4 | 21.31 | 23,016 | remembered | empty, 23,016 out |
+| 4 | 5 | 21.31 | 23,016 | remembered | empty, 23,016 out |
+| 5 | 6 | 34.95 | 37,746 | since-boot | **answered, 23,701 out** |
+| 6 | 6 | 34.98 | 37,778 | since-boot | 2100s, zero turns |
+
+One of six produced an answer, and it needed 23,701 output tokens. Every other outcome
+follows from that number. Four ceilings sat below it — by 9,226 and by **685** — and each
+of those passes spent its entire budget reasoning and returned an empty string while
+reporting `ok: true`. The count is exact: output tokens equal the ceiling, to the token.
+
+The sixth is the other failure and the more familiar one: its ceiling was large enough, but
+37,778 tokens at the real six-way rate of ~19.4 tok/s needs 1,947s against an 1,800s
+`turn_timeout`. It died at the stall deadline having completed no turn — the signature of
+the nine deaths that started this work.
+
+So the rate was wrong in **both directions in a single fan-out**, and the mechanism is one
+function. `expect` searches every sample at the asked concurrency *or busier* and keeps the
+worst, so a low expectation searches the widest set and gets the meanest answer, while a
+high one searches an empty set and falls through to the optimistic since-boot blend. The
+passes that expected the most contention got the most generous budgets.
+
+Two things worth keeping separately. `ok: true` with an empty answer is what four of these
+reported, so the server's own success flag does not distinguish "answered" from "spent the
+budget thinking". And the survivor needed 23,701 tokens in one turn, which means this is not
+the "work too large for a turn" item — the work fitted, the budget did not.
+
+Streaming (ADR-0070) removes the contamination by replacing the instrument. It does not
+touch the asymmetry, which is now filed on its own.

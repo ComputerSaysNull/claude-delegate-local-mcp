@@ -1,4 +1,5 @@
-<!-- BUDGET: 653      Raised from 639 on 2026-09-12: the decode rate is remembered across delegations and keyed by concurrency. -->
+<!-- BUDGET: 670      Raised from 653 on 2026-09-12: the chat call streams, so the decode interval excludes prefill and the whole-turn bound moves into the adapter. -->
+<!-- Raised from 639 on 2026-09-12: the decode rate is remembered across delegations and keyed by concurrency. -->
 <!-- Raised from 631 on 2026-09-12: the decode observation names which interval it times, and which contamination it still carries. -->
 <!-- Raised from 610 on 2026-09-07: a tool call's record carries its arguments and
      its refusal, which is behaviour this document owns. Three net lines after two
@@ -87,6 +88,16 @@ Three conditions keep that true, and breaking any turns it back into a refactor:
 canonical shape stays block-structured and is never flattened to strings; SSE accumulation
 lives per adapter behind one contract; model selection is a registry lookup and never a
 reintroduced prefix function. (ADR-0008; the last of the three is ADR-0009)
+
+The second of those is no longer hypothetical. The chat call streams (ADR-0070) and
+`complete()` is unchanged by it: frames are accumulated inside the adapter into the payload
+the non-streaming parser already reads, and the whole response is returned once the stream
+ends, so the promise never to return a partial still holds and no tool result changes shape.
+Two things follow that a reader would otherwise be caught by. `stream_options.include_usage`
+is required, or the final chunk carries no `usage` and every token count reads zero. And
+`turn_timeout` no longer bounds the call for free — httpx applies its read timeout per chunk
+once a body streams — so the adapter enforces the whole-turn bound itself, against a clock
+injected for the purpose.
 
 Built. The seam holds three things the layer above depends on. Flattening lives in the
 adapter and nowhere else, so the canonical side stays block-structured. Failures arrive as
@@ -306,11 +317,14 @@ paid in. That observation is timed over the attempt that **answered**, not over 
 the token count comes from one attempt (ADR-0014), so dividing it by every recovery stage
 and transport retry measures two different events — across 46 recorded turns it halved the
 apparent rate, and the halved figure then seeded the next delegation's first turn. The
-backoff between attempts is outside the interval by construction. Prefill is **not**: a
-short answer over a large prompt still reads slow, because only streaming can separate
-time-to-first-token from decode, and `MIN_TOKENS` guards the size of the answer rather
-than the size of the prompt. Known, measured, and pessimistic — which is the safe
-direction for a budget.
+backoff between attempts is outside the interval by construction, and since ADR-0070 so is
+prefill: the chat call streams, so the adapter reports `decode_seconds` — last token minus
+first — and the estimators divide by that. An adapter that cannot time the tokens reports
+`None`, the whole attempt is used instead, and the result is pessimistic, which is the safe
+direction for a budget. Until streaming it always was the whole attempt, and that mattered:
+a remembered 13.4 tok/s, learned from two answers under 1,200 tokens, priced a 14,475-token
+ceiling on a cluster that had just delivered 17,779 in one turn. `MIN_TOKENS` cannot catch
+that — it guards the size of the answer, and the problem is the size of the prompt.
 
 What a turn achieved is also **remembered past its delegation**, in `RateHistory`, tagged
 with how contended it was. `DecodeRate` learns within one delegation and dies with it, so
@@ -321,8 +335,12 @@ survive the bad case, and a busier measurement bounds a quieter one from below w
 reverse is never true. The concurrency comes from the lease, not the cluster
 ([ARCHITECTURE.md](ARCHITECTURE.md)), and is remembered rather than modelled — a curve
 fitted to rate-against-concurrency would be a constant baked to one deployment's hardware.
-An empty memory falls through to the since-boot figure, which is the cold start and is
-merely optimistic rather than wrong. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055, not a
+An empty memory falls through to the since-boot figure. That is **not** the benign cold start
+it reads as: `expect` searches every sample at the asked concurrency *or busier*, so a low
+expectation searches widely and keeps the worst, while a high one searches an empty set and
+takes the optimistic blend. Measured 2026-09-12 — in one six-way fan-out the two passes
+expecting the most contention got the most generous ceilings, and one then died at the stall
+deadline having completed no turn. Filed, not yet fixed. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055, not a
 guess — and the `priced` event says so per turn, so an uncapped turn is visible not inferred. Every recovery stage is bounded, the enlarged retry included, or that retry
 would be the way back to a budget no deadline can pay.
 

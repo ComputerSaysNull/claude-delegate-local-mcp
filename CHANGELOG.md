@@ -34,6 +34,51 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #172 — 2026-09-12 — feat: the decode rate times the tokens, not the request
+
+### Added
+- **The chat call streams, and nothing above the adapter can tell.** Frames are accumulated
+  inside `openai_compat.py` into the payload the non-streaming parser already reads, so
+  `complete()` keeps its signature and its promise never to return a partial, and no tool
+  result changes shape. `CanonicalResponse` gains `decode_seconds` — last token minus first —
+  and `None` there means an adapter that cannot time the tokens, not an interval of zero.
+  (ADR-0070)
+- A clock injected into the adapter. Not a convenience: a transport double hands over every
+  frame at once, so a test of the decode interval reads zero whether the code is right or
+  wrong. The first version of that test could not fail, and this is what fixed it.
+
+### Fixed
+- **The decode rate charged prefill to the decoder, and the memory kept the worst of it.**
+  *Symptom:* an audit fan-out of six passes produced one answer. It needed 23,701 output
+  tokens; four of the others were given ceilings below that — by 9,226 and by 685 — and each
+  spent its whole budget reasoning and returned an empty answer while reporting `ok`.
+  *Cause:* the rate was `output_tokens / answered_seconds`, an interval containing the
+  answering attempt's own prefill. On a short answer over a large prompt prefill is most of
+  it, so the rate described the queue rather than the decoder — measured the same day, the
+  largest answer decoded fastest at 17,779 tokens and 45.2 tok/s while 855- and 1,170-token
+  answers reported 13.4. `RateHistory.expect` keeps the **minimum**, so the most contaminated
+  sample won and priced a 14,475-token ceiling on a cluster that had just delivered 17,779 in
+  one turn. `MIN_TOKENS` could not catch it: it guards the size of the answer when the problem
+  is the size of the prompt, and 855 clears 64 easily. *Fix:* replace the instrument rather
+  than filter its output. Streaming makes last-token-minus-first observable, and that quantity
+  does not contain prefill; the estimators divide by it where the adapter supplies it and fall
+  back to the whole attempt where it does not.
+- `turn_timeout` stopped bounding the call once the body streamed — httpx applies its read
+  timeout per chunk — so the adapter now enforces the whole-turn bound itself. Dropping the
+  one without adding the other would have removed the deadline silently.
+- The test doubles for the chat wire moved into `tests/wire_double.py`. Five files faked a
+  chat reply and the shape they had to fake changed on the same day; a copy per file is the
+  drift that makes the next wire change cost five edits instead of one.
+
+### Changed
+- Nothing about retry. Streaming makes a read timeout before the first token distinguishable
+  from one mid-stream — prefill versus slow decode — and acting on that would change what
+  #167 retries. Left for its own evidence, and stated in ADR-0070 so it is not mistaken for an
+  oversight. `expect`'s asymmetry is filed the same way: asking it for concurrency 1 searches
+  every sample and keeps the worst, asking for 6 searches an empty set and takes the
+  optimistic since-boot blend, so in the same fan-out the passes expecting the most contention
+  got the most generous ceilings and one died at the stall deadline with no turn completed.
+
 ## #171 — 2026-09-12 — fix: the CLAIMS check forgot where a measurement lives
 
 ### Fixed

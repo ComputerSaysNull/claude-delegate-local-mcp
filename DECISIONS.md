@@ -19,6 +19,65 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0070 — 2026-09-12 — The transport streams; the contract does not — Accepted
+
+**Context.** ADR-0055 prices the reply budget from a decode rate, and ADR-0069 remembers that
+rate across delegations keyed by contention. Both rest on a number the server cannot actually
+measure: `output_tokens / answered_seconds`, where the interval is the whole answering
+attempt and therefore contains its own prefill. `loop.py` line 308 already names the effect —
+"its apparent decode rate describes the queue rather than the decoder" — in a guard applied
+to the estimator that dies with the delegation, and not to the memory that outlives it.
+
+Measured 2026-09-12. Five delegations over the same documents: the largest answer decoded
+fastest, 17,779 tokens at 45.2 tok/s, while 855- and 1,170-token answers reported 13.4. Since
+`RateHistory.expect` keeps the **minimum**, the most contaminated sample won and priced a
+ceiling of 14,475 tokens on a cluster that had just delivered 17,779 in one turn. In the audit
+fan-out that followed, one pass of six produced an answer and needed 23,701 output tokens;
+four were given ceilings below that — by 9,226 and by 685 — and each spent its whole budget
+reasoning and returned an empty answer while reporting `ok`.
+
+A threshold cannot fix this. `MIN_TOKENS` guards the size of the *answer* when the problem is
+the size of the *prompt*, 855 tokens clears 64 easily, and any figure chosen here is a
+constant fitted to one deployment's prefill speed — PLAN.md's standing complaint against
+`kv_token_budget`.
+
+**Decision.** The chat call streams, and nothing above the adapter can tell. `complete()`
+keeps its signature and its promise never to return a partial: frames are accumulated inside
+the adapter into the same payload `_from_wire` already reads, and the whole response is
+returned once the stream ends. What streaming buys here is not incremental delivery to the
+caller — it is knowing *when the tokens arrived*. `CanonicalResponse` gains `decode_seconds`,
+last token minus first, and the rate estimators divide by that where it is present. This is
+one file changing rather than a refactor because `base.py` condition (b) anticipated it: SSE
+accumulation was always specified as living per adapter, behind one contract.
+
+Three things are deliberately not done here, each because it would change behaviour this
+evidence does not cover:
+
+- **The retry rule is untouched.** Streaming makes a read timeout before the first token
+  distinguishable from one mid-stream — prefill versus slow decode — and acting on that would
+  change what ADR-0067's sibling fix retries. It wants its own evidence.
+- **No percentile is tuned.** A statistic chosen against the contaminated distribution would
+  have to be chosen again once the contamination is gone. The instrument first.
+- **`expect`'s asymmetry is filed, not fixed.** Concurrency 1 searches every sample and keeps
+  the worst; 6 searches an empty set and falls through to the optimistic since-boot mean. In
+  the same fan-out, the two passes expecting most contention got the most generous budgets and
+  one then died at the stall deadline with zero turns. A second defect, and not this one's.
+
+**Consequences.** `turn_timeout` no longer bounds the call for free: httpx applies its read
+timeout per chunk once a body streams, so the adapter enforces the whole-turn bound itself
+against an injected clock. That clock also makes the interval testable — a transport double
+delivers every frame at once, so without it a test of the decode interval reads zero whether
+the code is right or wrong, and cannot fail.
+
+`stream_options.include_usage` is mandatory rather than an optimisation: without it the final
+chunk carries no `usage` and every token count in the budget, the ledger and the cost record
+silently reads zero — trading the counts for the interval, which is a worse instrument than
+the one being replaced.
+
+Neither ADR-0018 nor ADR-0047 is superseded: the first decides progress notifications, not a
+ban on streaming, and the second's deadline still resets on turn completion. The later slice
+that resets it on token arrival is what would change that heading.
+
 ## ADR-0069 — 2026-09-12 — The reply budget is priced from what was measured at this much contention — Accepted
 
 **Context.** ADR-0055 derives the reply budget from a decode rate, seeded from the cluster's

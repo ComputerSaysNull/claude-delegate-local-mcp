@@ -17,7 +17,6 @@ import json
 import os
 from pathlib import Path
 
-import httpx
 import pytest
 from fastmcp import Client
 
@@ -34,6 +33,7 @@ from test_server import (
     payload,
     registry,
 )
+from wire_double import as_stream
 
 
 def run(handler, *, config: Config, tool: str = "delegate", **kwargs) -> dict:
@@ -57,7 +57,7 @@ def run(handler, *, config: Config, tool: str = "delegate", **kwargs) -> dict:
 
 def ok(**over):
     async def handler(request):
-        return httpx.Response(200, json=chat_reply(**over))
+        return as_stream(chat_reply(**over))
 
     return handler
 

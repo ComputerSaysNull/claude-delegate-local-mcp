@@ -15,6 +15,7 @@ import httpx
 from fastmcp import Client
 
 from claude_delegate_local import server, transcript
+from wire_double import as_stream
 from test_server import (
     DoubleCache,
     cfg,
@@ -53,8 +54,8 @@ def _run(tmp_path: Path, handler, tool: str, args: dict) -> list[dict]:
 def two_turns(request: httpx.Request) -> httpx.Response:
     body = json.loads(request.content)
     if any(m.get("role") == "tool" for m in body.get("messages", [])):
-        return httpx.Response(200, json=chat_reply(content="the retry is bounded by time"))
-    return httpx.Response(200, json=tool_call_reply("read_file", {"path": "/nope.py"}))
+        return as_stream(chat_reply(content="the retry is bounded by time"))
+    return as_stream(tool_call_reply("read_file", {"path": "/nope.py"}))
 
 
 def test_a_delegation_streams_start_turns_and_end(tmp_path):
@@ -86,7 +87,7 @@ def test_a_one_shot_delegation_still_streams_its_answer(tmp_path):
     delegation that produced nothing -- indistinguishable from one that failed silently."""
     events = _run(
         tmp_path,
-        lambda r: httpx.Response(200, json=chat_reply(content="a one-shot answer")),
+        lambda r: as_stream(chat_reply(content="a one-shot answer")),
         "delegate_readonly", {"task": "summarise"},
     )
     turns = [e for e in events if e["t"] == "turn"]
@@ -151,7 +152,7 @@ def test_a_one_shot_reports_no_eviction_rather_than_an_absence(tmp_path):
     """
     events = _run(
         tmp_path,
-        lambda r: httpx.Response(200, json=chat_reply(content="a one-shot answer")),
+        lambda r: as_stream(chat_reply(content="a one-shot answer")),
         "delegate_readonly", {"task": "summarise"},
     )
     turns = [e for e in events if e["t"] == "turn"]

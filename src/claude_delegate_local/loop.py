@@ -2229,18 +2229,22 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # turns that halved the apparent rate, and the halved number then seeded the
             # next delegation's first turn -- the one with no observation of its own and
             # the only one that can die before making any.
-            decode_rate.observe(
-                dispatch.response.output_tokens,
-                dispatch.answered_seconds or backend_seconds,
-            )
+            # The tokens' own interval where the adapter could time it, the whole attempt
+            # where it could not. `decode_seconds` is last token minus first and so
+            # excludes prefill; `answered_seconds` includes it, and on a short answer over
+            # a large prompt prefill is most of the interval -- which made the rate
+            # describe the queue rather than the decoder (ADR-0070). `None` means the
+            # adapter does not stream, not that the interval was zero.
+            measured = dispatch.response.decode_seconds
+            interval = measured or dispatch.answered_seconds or backend_seconds
+            decode_rate.observe(dispatch.response.output_tokens, interval)
             # And remembered past this delegation, tagged with how contended it was. This
             # is the only thing that can price a *later* delegation's first turn, which
             # has no observation of its own and is the one that dies.
             if rate_history is not None:
-                seconds = dispatch.answered_seconds or backend_seconds
-                if seconds > 0 and dispatch.response.output_tokens:
+                if interval > 0 and dispatch.response.output_tokens:
                     rate_history.observe(
-                        dispatch.response.output_tokens / seconds,
+                        dispatch.response.output_tokens / interval,
                         concurrency=expected_concurrency,
                     )
             watch.turn_cost(dispatch, evicted=dropped)

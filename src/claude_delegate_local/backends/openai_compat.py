@@ -28,6 +28,8 @@ from __future__ import annotations
 import json
 import re
 import os
+import time
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -117,6 +119,12 @@ class OpenAICompatBackend:
     `client` is injectable so the tests can drive a transport double instead of a socket.
     A backend that can only be tested against a live cluster is a backend that is tested
     rarely.
+
+    `clock` is injectable for the reason `loop.py` already gives for its own: a test of a
+    duration must not spend the duration. It times the gap between the first streamed
+    token and the last, which is the whole point of streaming here, and a transport double
+    delivers every frame at once -- so without a fake clock the decode interval a test
+    measures is zero whether the code is right or wrong, and the test cannot fail.
     """
 
     def __init__(
@@ -124,6 +132,7 @@ class OpenAICompatBackend:
         cfg: Config,
         entry: ModelEntry,
         client: httpx.AsyncClient | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if entry.api_format != "openai":
             raise CanonicalShapeError(
@@ -135,7 +144,12 @@ class OpenAICompatBackend:
         self._entry = entry
         self._api_key = _resolve_api_key(entry)
         self._owns_client = client is None
-        # turn_timeout bounds the request body: a single non-streaming call *is* the turn.
+        self._clock = clock
+        # turn_timeout bounds the turn, but since ADR-0070 the chat call streams, and
+        # httpx applies `read` per chunk rather than to the whole body -- so a stream that
+        # keeps trickling would never trip it. `_accumulate` therefore enforces the bound
+        # itself against `clock`, and the httpx `read` timeout now means "no chunk for this
+        # long". Dropping one without adding the other would have removed the deadline.
         # dispatch_timeout spans a whole delegation and belongs to the caller above.
         #
         # connect_timeout bounds the connect phase separately, and much shorter. An earlier
@@ -157,6 +171,12 @@ class OpenAICompatBackend:
             "messages": _wire_messages(request, resend_reasoning=self._cfg.resend_reasoning),
             "max_tokens": self._entry.cap_tokens(request.max_tokens),
             "temperature": request.temperature,
+            "stream": True,
+            # Without this the final chunk carries no `usage` and every token count in the
+            # ledger, the budget and the cost record silently becomes zero. It is not an
+            # optimisation: streaming without it trades the decode interval for the token
+            # counts, which is a worse instrument than the one being replaced.
+            "stream_options": {"include_usage": True},
         }
         if request.tools:
             body["tools"] = [
@@ -179,8 +199,76 @@ class OpenAICompatBackend:
         return body
 
     async def complete(self, request: CanonicalRequest) -> CanonicalResponse:
-        payload = await self._post(self._entry.chat_url, self.wire_body(request), _CHAT_PATH)
-        return self._from_wire(payload)
+        payload, decode_seconds = await self._post_stream(
+            self._entry.chat_url, self.wire_body(request), _CHAT_PATH
+        )
+        return self._from_wire(payload, decode_seconds=decode_seconds)
+
+    async def _post_stream(
+        self, url: str, body: dict[str, Any], path: str
+    ) -> tuple[dict[str, Any], float | None]:
+        """Stream the chat call and hand back one payload plus the decode interval.
+
+        The contract above is unchanged: this returns only once the stream has ended, so
+        `complete()` still never returns a partial. What streaming buys is not incremental
+        delivery to the caller -- it is knowing *when the tokens arrived*, which is the
+        only way to time decoding without also timing prefill.
+        """
+        acc = _StreamAccumulator()
+        first: float | None = None
+        last: float | None = None
+        started = self._clock()
+        try:
+            async with self._client.stream(
+                "POST", url, json=body, headers=self._headers
+            ) as r:
+                if r.status_code < 200 or r.status_code >= 300:
+                    # The body has not been read yet on a streamed response, and
+                    # `BackendRefused` carries it verbatim -- so read it before raising or
+                    # the refusal arrives with an empty explanation.
+                    await r.aread()
+                    raise BackendRefused(
+                        r.status_code, r.text, path, r.headers.get("Retry-After")
+                    )
+                async for line in r.aiter_lines():
+                    if self._clock() - started > self._cfg.turn_timeout:
+                        # httpx's `read` timeout is per chunk once the body streams, so a
+                        # stream that trickles for ever would never trip it. This is the
+                        # whole-turn bound the non-streaming call used to get for free.
+                        raise BackendUnavailable(
+                            f"stream from {path} on model {self._entry.key!r} ran past "
+                            f"turn_timeout of {self._cfg.turn_timeout}s.",
+                            while_generating=True,
+                        )
+                    frame = _sse_frame(line, path)
+                    if frame is _SSE_DONE:
+                        break
+                    if frame is None:
+                        continue
+                    if acc.feed(frame):
+                        now = self._clock()
+                        if first is None:
+                            first = now
+                        last = now
+        except httpx.HTTPError as e:
+            # A read timeout is the one shape here that spent the whole allowance: the
+            # request was delivered and the endpoint never answered in time. `ConnectTimeout`
+            # is deliberately not included -- it is a subclass of the same
+            # `TimeoutException` and spent nothing, which is the distinction the caller
+            # retries on.
+            #
+            # Streaming makes a further distinction available -- a read timeout before the
+            # first token is prefill or queueing, one mid-stream is slow decode -- and it is
+            # deliberately not acted on. Splitting it would change what #167 retries, which
+            # wants its own evidence rather than arriving as a side effect of this change.
+            raise BackendUnavailable(
+                f"{type(e).__name__} posting to {path} on model {self._entry.key!r}.",
+                while_generating=isinstance(e, httpx.ReadTimeout),
+            ) from e
+        # `None` rather than 0.0 when one frame carried every token: the interval is
+        # unknown, not instantaneous, and a zero would be divided by downstream.
+        span = None if first is None or last is None or last <= first else last - first
+        return acc.payload(), span
 
     async def probe(self) -> tuple[str, ...]:
         """Model ids this endpoint reports. /v1/models is the health check (MODELS.md)."""
@@ -229,21 +317,6 @@ class OpenAICompatBackend:
             h["Authorization"] = f"Bearer {self._api_key}"
         return h
 
-    async def _post(self, url: str, body: dict[str, Any], path: str) -> dict[str, Any]:
-        try:
-            r = await self._client.post(url, json=body, headers=self._headers)
-        except httpx.HTTPError as e:
-            # A read timeout is the one shape here that spent the whole allowance: the
-            # request was delivered and the endpoint never answered within `turn_timeout`.
-            # `ConnectTimeout` is deliberately not included -- it is a subclass of the same
-            # `TimeoutException` and spent nothing, which is the distinction the caller
-            # retries on.
-            raise BackendUnavailable(
-                f"{type(e).__name__} posting to {path} on model {self._entry.key!r}.",
-                while_generating=isinstance(e, httpx.ReadTimeout),
-            ) from e
-        return _decode(r, path)
-
     async def probe_cluster(self) -> dict[str, float | int | str | None] | None:
         """The serving stack's own load figures, or `None` if it publishes none.
 
@@ -281,7 +354,9 @@ class OpenAICompatBackend:
 
     # --- inbound -----------------------------------------------------------------------
 
-    def _from_wire(self, payload: dict[str, Any]) -> CanonicalResponse:
+    def _from_wire(
+        self, payload: dict[str, Any], decode_seconds: float | None = None
+    ) -> CanonicalResponse:
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
             raise BackendProtocolError(
@@ -329,10 +404,181 @@ class OpenAICompatBackend:
             total_tokens=int(total) if isinstance(total, (int, float)) else None,
             stop_reason=str(stop) if stop is not None else None,
             system_fingerprint=str(fingerprint) if fingerprint is not None else None,
+            decode_seconds=decode_seconds,
         )
 
 
 # --- helpers, module level so the tests can reach them without a client -----------------
+
+# The terminator is a sentinel rather than `None` because a blank line and the end of the
+# stream are different facts, and one loop has to tell them apart.
+_SSE_DONE = object()
+
+
+def _sse_frame(line: str, path: str) -> Any:
+    """One SSE line to a frame, to `_SSE_DONE`, or to `None` when it carries neither.
+
+    Blank lines separate events and a line opening with a colon is a comment; both belong
+    to the protocol rather than to the model. Anything else that is not a `data:` line
+    means the endpoint is not speaking SSE at all, which is a protocol error and not
+    something to skip quietly -- skipping it would turn a wrong endpoint into an empty
+    answer, and an empty answer is a diagnosis this layer is not entitled to make.
+    """
+    line = line.strip()
+    if not line or line.startswith(":"):
+        return None
+    if not line.startswith("data:"):
+        raise BackendProtocolError(
+            f"{path} streamed a line that is not an SSE data frame: {line[:80]!r}"
+        )
+    data = line[len("data:") :].strip()
+    if data == "[DONE]":
+        return _SSE_DONE
+    try:
+        frame = json.loads(data)
+    except ValueError as e:
+        raise BackendProtocolError(
+            f"{path} streamed a data frame that is not JSON: {e}"
+        ) from e
+    if not isinstance(frame, dict):
+        raise BackendProtocolError(
+            f"{path} streamed a {type(frame).__name__} frame, not a JSON object."
+        )
+    return frame
+
+
+class _StreamAccumulator:
+    """Rebuilds one chat-completions payload from a sequence of SSE deltas.
+
+    Reconstructs the *non-streaming* shape rather than emitting blocks as they arrive, so
+    `_from_wire` stays the single place that reads the wire and `complete()` keeps its
+    promise never to return a partial. Streaming is a transport change here, not a
+    contract change (ADR-0070).
+    """
+
+    __slots__ = (
+        "_content",
+        "_fingerprint",
+        "_finish",
+        "_model",
+        "_reasoning",
+        "_reasoning_key",
+        "_stop",
+        "_tools",
+        "_usage",
+    )
+
+    def __init__(self) -> None:
+        self._content: list[str] = []
+        self._reasoning: list[str] = []
+        self._reasoning_key = _REASONING_KEYS[0]
+        self._tools: dict[int, dict[str, Any]] = {}
+        self._finish: str | None = None
+        self._stop: Any = None
+        self._usage: dict[str, Any] | None = None
+        self._model: str | None = None
+        self._fingerprint: Any = None
+
+    def feed(self, frame: dict[str, Any]) -> bool:
+        """Absorb one frame. True when that frame carried generated tokens.
+
+        The return value is what the clock times, so it has to mean *tokens* and not
+        *frames*. The opening frame announcing `role` and the closing one carrying only
+        `usage` are bookkeeping: counting either would put prefill back inside the
+        interval this whole mechanism exists to keep it out of.
+        """
+        if self._model is None and isinstance(frame.get("model"), str):
+            self._model = frame["model"]
+        if self._fingerprint is None:
+            self._fingerprint = frame.get("system_fingerprint")
+        usage = frame.get("usage")
+        if isinstance(usage, dict):
+            self._usage = usage
+
+        choices = frame.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return False
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            return False
+        if choice.get("finish_reason") is not None:
+            self._finish = str(choice["finish_reason"])
+        if choice.get("stop_reason") is not None:
+            self._stop = choice["stop_reason"]
+
+        delta = choice.get("delta")
+        return self._feed_delta(delta) if isinstance(delta, dict) else False
+
+    def _feed_delta(self, delta: dict[str, Any]) -> bool:
+        """The generated half of a frame. True when any of it was tokens."""
+        carried = False
+        for key in _REASONING_KEYS:
+            piece = delta.get(key)
+            if isinstance(piece, str) and piece:
+                self._reasoning.append(piece)
+                self._reasoning_key = key
+                carried = True
+                break
+        piece = delta.get("content")
+        if isinstance(piece, str) and piece:
+            self._content.append(piece)
+            carried = True
+        for call in delta.get("tool_calls") or []:
+            if isinstance(call, dict) and self._feed_tool_call(call):
+                carried = True
+        return carried
+
+    def _feed_tool_call(self, call: dict[str, Any]) -> bool:
+        """One tool-call delta. Arguments arrive split across frames and are concatenated.
+
+        Keyed by the wire's own `index`, because a model emitting two calls interleaves
+        their fragments and joining them in arrival order would splice one call's
+        arguments into the other's.
+        """
+        index = call.get("index")
+        index = index if isinstance(index, int) else len(self._tools)
+        slot = self._tools.setdefault(
+            index,
+            {"id": None, "type": "function", "function": {"name": None, "arguments": ""}},
+        )
+        if call.get("id"):
+            slot["id"] = call["id"]
+        if call.get("type"):
+            slot["type"] = call["type"]
+        fn = call.get("function")
+        if not isinstance(fn, dict):
+            return False
+        carried = False
+        if fn.get("name"):
+            slot["function"]["name"] = fn["name"]
+            carried = True
+        args = fn.get("arguments")
+        if isinstance(args, str) and args:
+            slot["function"]["arguments"] += args
+            carried = True
+        return carried
+
+    def payload(self) -> dict[str, Any]:
+        """The frames as one non-streaming payload, for `_from_wire` to read unchanged."""
+        message: dict[str, Any] = {"role": "assistant"}
+        if self._reasoning:
+            message[self._reasoning_key] = "".join(self._reasoning)
+        message["content"] = "".join(self._content)
+        if self._tools:
+            message["tool_calls"] = [self._tools[i] for i in sorted(self._tools)]
+        choice: dict[str, Any] = {
+            "index": 0,
+            "message": message,
+            "finish_reason": self._finish or "",
+        }
+        if self._stop is not None:
+            choice["stop_reason"] = self._stop
+        out: dict[str, Any] = {"choices": [choice], "usage": self._usage or {}}
+        if self._model is not None:
+            out["model"] = self._model
+        if self._fingerprint is not None:
+            out["system_fingerprint"] = self._fingerprint
+        return out
 
 
 def _resolve_api_key(entry: ModelEntry) -> str:
