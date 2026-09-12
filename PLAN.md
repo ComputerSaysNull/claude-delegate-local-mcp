@@ -1,4 +1,6 @@
-<!-- BUDGET: 580
+<!-- BUDGET: 600
+     Raised from 580 on 2026-09-12: verifying #172 end to end re-ranked three items on
+     evidence -- the cold start, the admission bail-out, and the margin nobody had filed.
      Raised from 570 on 2026-09-12: the fan-out answered M12's eviction half, which that
      item had been waiting on a reader to make answerable at all.
      Raised from 551 on 2026-09-12: streaming's first slice landed and the audit fan-out
@@ -499,6 +501,12 @@ local, because they are working notes rather than a product fact.
   an empty set and falls through to the since-boot blend. One six-way fan-out on 2026-09-12
   produced both failures at once: four ceilings below what the work needed, and one above what
   the clock could decode. Streaming (#172) fixes the contamination, not this
+  - **Ranked first of these after the 2026-09-12 verification run, on evidence.** Against a
+    freshly reconnected server the history is empty, so all six passes fell through to
+    `cluster_since_boot` at 34.86 tok/s where the real six-way rate is ~19.4 — a 1.8x
+    overestimate, one 37,648-token ceiling each, and **zero of six answered**. The cold-start
+    half is what the deaths are made of; the contamination half is already fixed and was
+    never the larger one
 - ✅ 2026-09-11 **`turn_timeout` is absent from the ceiling's `min`**, so the budget
   authorises a reply one attempt cannot deliver (#166)
 - ✅ 2026-09-12 **A generation overrun is retried as though it were a network blip**, with
@@ -518,9 +526,20 @@ local, because they are working notes rather than a product fact.
   its own help text says it was sized for an era when the queue was unordered. Tickets and
   the starvation barrier removed that premise and nobody re-derived the number. Fail fast
   on a queue too deep to serve, or do not fail at all
+  - **It has now fired, twice, on 2026-09-12** — the first time on this deployment. Two
+    passes of a six-way fan-out waited the full 1800s on `max_inflight_large_prefills` and
+    were refused having produced nothing. Not latent. `admission_timeouts` reads 0 while
+    waiters are still waiting because it counts *completed* waits, so that counter cannot
+    be used to argue the bail-out is unreachable — it was, that morning, and wrongly
 - ⬜ **Work that does not fit one turn.** Two turns produced 13,268 and 16,909 output
   tokens, the first needing 1,750s at 7.6 tok/s. No budget makes that fit an 1,800s
   attempt; it is a splitting problem, not a pricing one
+  - **`reply_budget_margin` is the binding constraint, measured 2026-09-12, and was not
+    filed as one.** A STALE pass wants ~23,700 output tokens. An 1,800s turn at the real
+    six-way rate of 19.4 authorises `1800 x 19.4 x 0.6` = **20,952** — so the margin alone
+    puts the task out of reach whatever the rate estimate does. Below it a pass returns
+    empty at length; above it the clock cannot decode what was authorised. Re-derive the
+    margin before splitting anything, or the split will be sized against the wrong number
 
 ## Deferred
 

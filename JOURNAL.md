@@ -1300,3 +1300,53 @@ the "work too large for a turn" item — the work fitted, the budget did not.
 
 Streaming (ADR-0070) removes the contamination by replacing the instrument. It does not
 touch the asymmetry, which is now filed on its own.
+
+---
+
+## 2026-09-12 — The fix worked, the fan-out died anyway, and that is the useful half
+
+The same six STALE passes, dispatched the same way, against #172's streamed decode interval.
+**Zero of six answered.** The morning's run, before the fix, answered one.
+
+That is not a regression, and why it is not is the finding.
+
+| pass | outcome | at | turns |
+|---|---|---|---|
+| 0001 0002 0004 0006 | stall deadline, no turn completed | 2100.0s | 0 |
+| 0003 0005 | `admission_timed_out` on `max_inflight_large_prefills` | 1800.0s | 0 |
+
+The mechanism is verified separately and does work: a probe returned three tokens with
+`usage` populated in a single attempt, so the accumulator reassembles a streamed reply and
+`stream_options.include_usage` keeps the token counts.
+
+**What killed them is the cold start.** `RateHistory` lives in the server process, the
+server had just been reconnected, so every pass fell through to `cluster_since_boot` at
+34.86 tok/s. The real six-way rate is about 19.4. All four admitted passes therefore got the
+same 37,648-token ceiling, which needs ~1,940s to decode against an 1,800s `turn_timeout`.
+#172 fixes what the history *learns*; it cannot help a delegation that has no history to
+read. The cold-start fallback is the dominant defect, not the contamination.
+
+**The morning's run answered one pass because most of it failed early.** Four had
+contaminated, small ceilings, returned empty within minutes and freed the cluster, so the
+survivor ran nearly alone and finished in 23,701 tokens. Giving every pass a fair, large
+budget made them all fail together. Worth keeping as a systems lesson rather than a
+one-off: removing an unfairness can remove the slack that unfairness was producing, and a
+fan-out that partly fails fast can outperform one that fairly does not.
+
+**And no ceiling fits this task at this concurrency.** It wants ~23,700 output tokens;
+1,800s x 19.4 tok/s x a `reply_budget_margin` of 0.6 authorises 20,952. Too small a ceiling
+returns empty at length; too large a one cannot be decoded before the deadline. The margin
+is the binding constraint, and it was not on the roadmap as one.
+
+Two of the same day's rankings were wrong, both from this run:
+
+- `admission_wait_timeout` was ranked fourth and called latent on `admission_timeouts: 0`.
+  It fired twice here, the first time on this deployment, costing thirty minutes each and
+  producing nothing. That counter reads zero while waiters are still waiting, because it
+  counts *completed* waits — so it cannot support the claim it was used for.
+- The `expect` asymmetry was filed as a successor to the contamination. It is the primary
+  item: its cold-start half is what this run died of.
+
+The cheap discriminator, for next time: after a reconnect, dispatch numbering restarts at
+0001 and every admission peak reads zero. That is how to tell a fresh process — and a fresh
+process is exactly when the budget is least trustworthy.

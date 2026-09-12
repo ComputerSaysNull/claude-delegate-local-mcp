@@ -34,6 +34,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #176 — 2026-09-12 — docs: verifying #172 end to end re-ranked three items
+
+### Changed
+- **#172 is verified as a mechanism and is not what the deaths were made of.** Running the
+  same six STALE passes against the streamed decode interval, **zero of six answered**,
+  where the run before the fix answered one. That is not a regression: the accumulator works
+  — a probe returned three tokens with `usage` populated in one attempt — and what killed
+  the fan-out was the *cold start*. `RateHistory` is per-process, the server had just been
+  reconnected, so every pass fell through to `cluster_since_boot` at 34.86 tok/s against a
+  real six-way rate near 19.4. All four admitted passes got the same 37,648-token ceiling,
+  which needs ~1,940s to decode against an 1,800s `turn_timeout`. #172 fixes what the history
+  *learns*; nothing can help a delegation with no history to read.
+- **The morning's run answered one pass because most of it failed early**, and that is worth
+  keeping as a systems lesson. Four passes had contaminated, small ceilings, returned empty
+  within minutes and freed the cluster, so the survivor ran nearly alone. Giving every pass a
+  fair, large budget made them all fail together — removing an unfairness can remove the
+  slack that unfairness was producing.
+- Three roadmap items re-ranked on that evidence, all of them wrong the same morning:
+  `expect`'s asymmetry is the primary item rather than a successor, because its cold-start
+  half is what the deaths are made of; `admission_wait_timeout` is live rather than latent,
+  having fired twice for the first time on this deployment and cost thirty minutes each; and
+  `reply_budget_margin` is filed as the binding constraint it turns out to be — at 0.6 it
+  authorises 20,952 tokens for a task that wants ~23,700, so no rate estimate can rescue it.
+
+### Fixed
+- A claim of this repository's own making: `admission_timeouts` reads 0 while waiters are
+  still waiting, because it counts *completed* waits. It was used that morning to argue the
+  bail-out was unreachable. The roadmap now says so beside the item rather than leaving the
+  next reader to repeat it.
+
 ## #175 — 2026-09-12 — docs: the audit runbook's two wrong remedies, re-derived
 
 ### Changed
