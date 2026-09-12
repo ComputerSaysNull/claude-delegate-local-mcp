@@ -674,12 +674,18 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
         try:
             cap = ceiling()
             if cap is None:
-                return await backend.complete(request), attempts
+                answer = await backend.complete(request)
+                # Timed from this attempt's start, not the call's. A turn that failed once
+                # and answered on the second try divides one attempt's tokens by every
+                # attempt's seconds otherwise -- and the backoff between them is not
+                # generation either, so it is outside this interval by construction.
+                return answer, attempts, clock() - attempt_started
             # The per-attempt ceiling. `turn_timeout` already bounds one call inside the
             # adapter's client, but it is a fixed budget that knows nothing about how much
             # of the delegation is left, so without this the deadline could still be
             # overshot by a whole turn.
-            return await asyncio.wait_for(backend.complete(request), timeout=cap), attempts
+            answer = await asyncio.wait_for(backend.complete(request), timeout=cap)
+            return answer, attempts, clock() - attempt_started
         except TimeoutError as e:
             # Which of the two expired decides the diagnosis, so ask before blaming the
             # ceiling: a stall inside a raised `dispatch_timeout` would otherwise be
@@ -741,6 +747,12 @@ class Dispatch:
     effort: str
     attempts: int
     reasoning_exhausted: bool = False
+    # How long the attempt that *answered* took, which is not how long the turn took.
+    # The token counts come from that attempt alone (ADR-0014), so a rate derived from
+    # them must divide by the same event -- a turn that failed once and answered on the
+    # second try otherwise reports one attempt tokens over every attempt seconds, and
+    # across 46 recorded turns that halved the apparent rate.
+    answered_seconds: float = 0.0
 
 
 def is_empty_at_length(response: CanonicalResponse) -> bool:
@@ -808,13 +820,13 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     asked_budget = resolve_max_tokens(cfg, entry, effort, max_tokens, ceiling=budget_ceiling)
     attempts = 0
 
-    response, spent = await complete_with_retry(
+    response, spent, answered = await complete_with_retry(
         cfg, backend, build(effort, asked_budget),
         sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
     )
     attempts += spent
     if not is_empty_at_length(response):
-        return Dispatch(response, effort, attempts)
+        return Dispatch(response, effort, attempts, answered_seconds=answered)
 
     # Stage 2: the same level, more room. `thinking_max_tokens_floor` documents itself as
     # the size retried after an empty answer, so there is no second setting for it.
@@ -823,13 +835,13 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
         enlarged = min(enlarged, budget_ceiling)
     floor = entry.cap_tokens(enlarged)
     if floor > asked_budget:
-        response, spent = await complete_with_retry(
+        response, spent, answered = await complete_with_retry(
             cfg, backend, build(effort, floor),
             sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
         )
         attempts += spent
         if not is_empty_at_length(response):
-            return Dispatch(response, effort, attempts)
+            return Dispatch(response, effort, attempts, answered_seconds=answered)
     # Otherwise the model's own cap already pinned the first budget, and "retry at a larger
     # budget" would send a byte-identical request. Skipped rather than spent: an identical
     # dispatch cannot produce a different outcome at temperature zero, and even where it
@@ -841,9 +853,9 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
         # small for the answer -- NOT reasoning exhaustion. Reporting it as exhaustion
         # would be a diagnosis the caller could act on wrongly, sending them to lower the
         # effort that is already lowest instead of raising the budget or shortening the task.
-        return Dispatch(response, effort, attempts)
+        return Dispatch(response, effort, attempts, answered_seconds=answered)
 
-    response, spent = await complete_with_retry(
+    response, spent, answered = await complete_with_retry(
         cfg, backend, build(
             stepped,
             resolve_max_tokens(cfg, entry, stepped, max_tokens, ceiling=budget_ceiling),
@@ -851,7 +863,8 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
         sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
     )
     attempts += spent
-    return Dispatch(response, stepped, attempts, is_empty_at_length(response))
+    return Dispatch(response, stepped, attempts, is_empty_at_length(response),
+                    answered_seconds=answered)
 
 
 async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
@@ -2130,11 +2143,17 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # gets believed.
             backend_seconds = max(clock() - backend_started, 0.0)
             # What this turn actually achieved, which replaces the cluster's lifetime mean
-            # for every turn after it. Measured over the backend interval alone for the
-            # same reason the throughput figure below it is: folding tool execution into
-            # the divisor would report the decoder as slower than it is, and here that
-            # error would tighten the next turn's budget rather than merely mislead.
-            decode_rate.observe(dispatch.response.output_tokens, backend_seconds)
+            # for every turn after it. Measured over the *answering attempt* rather than
+            # `backend_seconds`, which spans every recovery stage and every transport retry
+            # inside them: the token count comes from one attempt (ADR-0014), so dividing
+            # it by all of them is arithmetic over two different events. Across 46 recorded
+            # turns that halved the apparent rate, and the halved number then seeded the
+            # next delegation's first turn -- the one with no observation of its own and
+            # the only one that can die before making any.
+            decode_rate.observe(
+                dispatch.response.output_tokens,
+                dispatch.answered_seconds or backend_seconds,
+            )
             watch.turn_cost(dispatch, evicted=dropped)
             guard.observe(
                 dispatch.response, evicted_this_turn=dropped, turn=turn, turns=turns,
