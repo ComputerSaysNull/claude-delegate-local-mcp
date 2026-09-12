@@ -48,7 +48,7 @@ def seed(backend, history=None, expected=1):
 def test_a_remembered_rate_beats_the_clusters_since_boot_blend():
     """The behaviour change. 19 tok/s seen at six concurrent, not 35 averaged over all."""
     h = RateHistory()
-    h.observe(19.0, concurrency=6)
+    h.observe(1900, 100.0, concurrency=6)
     rate = seed(Cluster(35.0), h, expected=6)
     assert rate.rate == 19.0
     assert rate.source == "observed_at_concurrency"
@@ -61,7 +61,7 @@ def test_the_cluster_is_not_even_asked_when_memory_answers():
     outside, and only the first is what was intended.
     """
     h = RateHistory()
-    h.observe(19.0, concurrency=6)
+    h.observe(1900, 100.0, concurrency=6)
     backend = Cluster(35.0)
     seed(backend, h, expected=6)
     assert backend.probed == 0
@@ -95,9 +95,9 @@ def test_nothing_observed_yet_is_not_a_rate():
 def test_the_worst_seen_at_that_concurrency_is_what_is_returned():
     """Pessimism is the point: the budget must survive the bad case, not the mean one."""
     h = RateHistory()
-    h.observe(30.0, concurrency=4)
-    h.observe(19.0, concurrency=4)
-    h.observe(25.0, concurrency=4)
+    h.observe(3000, 100.0, concurrency=4)
+    h.observe(1900, 100.0, concurrency=4)
+    h.observe(2500, 100.0, concurrency=4)
     assert h.expect(4) == 19.0
 
 
@@ -109,14 +109,14 @@ def test_a_busier_observation_counts_for_a_quieter_question():
     matter most, which are the ones taken while the cluster was busy.
     """
     h = RateHistory()
-    h.observe(19.0, concurrency=6)
+    h.observe(1900, 100.0, concurrency=6)
     assert h.expect(4) == 19.0
 
 
 def test_a_quieter_observation_does_not_answer_a_busier_question():
     """The direction that would be unsafe. A solo rate says nothing about six-way."""
     h = RateHistory()
-    h.observe(44.0, concurrency=1)
+    h.observe(4400, 100.0, concurrency=1)
     assert h.expect(6) is None
 
 
@@ -127,17 +127,21 @@ def test_observations_do_not_accumulate_without_bound():
     """
     h = RateHistory(keep=3)
     for n in range(10):
-        h.observe(float(n + 1), concurrency=2)
+        h.observe((n + 1) * 1000, 1000.0, concurrency=2)
     assert h.expect(2) == 8.0, "the oldest observations should have fallen off"
 
 
-def test_an_implausible_rate_is_refused():
+def test_an_implausible_observation_is_refused():
     """Zero and negative are arithmetic accidents, not measurements.
 
     `DecodeRate` already refuses implausible observations for the same reason; letting one
-    in here would price every later delegation against it.
+    in here would price every later delegation against it. Asserted on the inputs rather
+    than on the quotient: the two floors make a non-positive rate unreachable, so a guard
+    on the division would be a check that can never fire.
     """
     h = RateHistory()
-    h.observe(0.0, concurrency=2)
-    h.observe(-5.0, concurrency=2)
+    h.observe(0, 100.0, concurrency=2)
+    h.observe(5000, 0.0, concurrency=2)
+    h.observe(-5000, 100.0, concurrency=2)
+    h.observe(5000, -100.0, concurrency=2)
     assert h.expect(2) is None

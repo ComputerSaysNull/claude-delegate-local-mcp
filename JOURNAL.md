@@ -1350,3 +1350,47 @@ Two of the same day's rankings were wrong, both from this run:
 The cheap discriminator, for next time: after a reconnect, dispatch numbering restarts at
 0001 and every admission peak reads zero. That is how to tell a fresh process — and a fresh
 process is exactly when the budget is least trustworthy.
+
+## 2026-09-12 — One 237-token turn priced every delegation behind it
+
+Seven runs of one identical task — reproduce README.md verbatim, `effort: low`,
+`max_turns: 1`, ~2,290 output tokens against a cached prefix, so `out_tok_s` is within ~1%
+of true decode rate. Six issued in one message, then one alone.
+
+| dispatch | expect(n) | rate priced | source | ceiling | decoded at |
+|---|---|---|---|---|---|
+| 0015 | 1 | **16.64** | observed | **17,969** | 26.6 |
+| 0016 | 2 | 37.33 | observed | 40,313 | 26.9 |
+| 0017-0020 | 3,4,5,6 | 34.85 | since-boot | 37,638 | 26.7-27.7 |
+| 0027 | 1 | **16.64** | observed | **17,969** | **65.6** (alone) |
+
+**Solo 65.6, six-way 27.1, since-boot 34.85.** The blend is wrong in both directions —
+1.29x optimistic for six-way, 1.88x pessimistic for solo — which is what a mean over every
+concurrency regime the engine has served has to be.
+
+The 16.64 came from a 237-token turn earlier the same hour. `RateHistory` had no floor, so
+it entered; `expect` keeps a minimum, so it stayed. A second fan-out — six *large* calls,
+so all six filed `large_prefill: true` — reproduced it independently: five priced 26.94 to
+27.89 and then decoded at about that, and only the one asking `expect(1)` got 17,969.
+
+**The first call admitted in any burst is the one that asks `expect(1)`**, which is why
+this reads as "a burst's first member is mispriced". The counter was never the defect.
+
+Three things that cost time, and would again:
+
+- **`expect(1)` searching every sample and keeping the worst is the design, not the bug.**
+  A six-way measurement bounds a solo question from below, so the minimum already prices a
+  burst's first member at the six-way floor. PLAN.md had a coalescing hold filed to buy
+  that. It would have bought what the minimum already buys — dropped on this evidence.
+- **The transcript's `out_tok_s` is not the number that prices anything.** It is
+  `output_tokens / backend_ms`, the whole turn; the estimators divide by `decode_seconds`
+  since #172. Turn 1 of dispatch 0009 shows 6.8 where the estimator observed 16.6. Read
+  `priced` events, and recover a turn's own sample by inverting the EMA at `WEIGHT = 0.4`.
+- **`max_inflight_large_prefills = 2` is doing more than it looks.** Six large calls were
+  admitted at 0s, 0s, 28.9s, 28.9s, 57.1s, 57.1s — three waves of two. Small calls are
+  ungated and all six ran together. So per-turn `is_large` re-derivation would throttle a
+  six-way audit fan-out to two-way from turn 2, which is a bigger change than "cheap".
+
+Prefill measures ~1,220 tok/s here, derived independently from two dispatches to within
+2%, so a 45k-token prefill costs ~37s of an 1,800s turn. Worth knowing before believing
+any argument that reserves budget for it.

@@ -1,4 +1,6 @@
-<!-- BUDGET: 670      Raised from 653 on 2026-09-12: the chat call streams, so the decode interval excludes prefill and the whole-turn bound moves into the adapter. -->
+<!-- BUDGET: 674 -->
+<!-- Raised from 670 on 2026-09-12: a floor on the rate memory, and why it is stricter than the estimator's. -->
+<!-- Raised from 653 on 2026-09-12: the chat call streams, so the decode interval excludes prefill and the whole-turn bound moves into the adapter. -->
 <!-- Raised from 639 on 2026-09-12: the decode rate is remembered across delegations and keyed by concurrency. -->
 <!-- Raised from 631 on 2026-09-12: the decode observation names which interval it times, and which contamination it still carries. -->
 <!-- Raised from 610 on 2026-09-07: a tool call's record carries its arguments and
@@ -325,6 +327,10 @@ direction for a budget. Until streaming it always was the whole attempt, and tha
 a remembered 13.4 tok/s, learned from two answers under 1,200 tokens, priced a 14,475-token
 ceiling on a cluster that had just delivered 17,779 in one turn. `MIN_TOKENS` cannot catch
 that — it guards the size of the answer, and the problem is the size of the prompt.
+Taking prefill out of the interval leaves a floor useful against a *different* defect, and
+`RateHistory` keeps its own, stricter than `DecodeRate`'s: `expect` holds a minimum for 64
+observations where an average decays, so a 237-token turn reading 16.64 tok/s — against
+65.6 for the same model alone — floored every later first turn until the memory refused it.
 
 What a turn achieved is also **remembered past its delegation**, in `RateHistory`, tagged
 with how contended it was. `DecodeRate` learns within one delegation and dies with it, so

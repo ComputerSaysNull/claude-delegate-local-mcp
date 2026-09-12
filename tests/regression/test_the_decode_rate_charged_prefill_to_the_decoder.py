@@ -38,10 +38,16 @@ HOST = "http://example.com:8000"  # on the gate's placeholder allowlist
 
 # The measurement this test is named for, used as its fixture so the numbers stay tied to
 # the observation rather than becoming round ones that mean nothing.
+#
+# Scaled 4x from the observed 442 tokens / 50.0s / 20.0s so the sample clears
+# `RateHistory.MIN_TOKENS`, which a later fix raised to 512 after a 237-token turn floored
+# the memory for every delegation behind it. Both ratios are preserved exactly and are the
+# two rates this file exists to tell apart: 22.1 tok/s against the tokens' own interval,
+# 8.84 against the whole attempt -- the same pair the docstring above names.
 INPUT_TOKENS = 54_052
-OUTPUT_TOKENS = 442
-ATTEMPT_SECONDS = 50.0
-DECODE_SECONDS = 20.0  # the rest was prefill
+OUTPUT_TOKENS = 1_768
+ATTEMPT_SECONDS = 200.0
+DECODE_SECONDS = 80.0  # the rest was prefill
 
 
 class PrefillHeavy:
