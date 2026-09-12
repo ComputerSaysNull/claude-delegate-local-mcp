@@ -34,6 +34,54 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #170 — 2026-09-12 — feat: the budget is priced for the concurrency it will meet
+
+### Added
+- **`RateHistory`, one per server process, outliving every delegation in it.** Each
+  completed turn records what it achieved *and how contended it was*; pricing asks for the
+  **worst** rate seen at that concurrency or above. Remembered rather than modelled: a curve
+  fitted to rate-against-concurrency would be a constant baked to one deployment's hardware,
+  which is the mistake PLAN.md already records against `kv_token_budget`.
+- **`AdmissionLease` carries `seqs_at_grant` and `waiting_at_grant`** — what the gate saw
+  when it granted the slot, read from the predicate's own look under the same lock, so it
+  costs no second read of the file.
+- `priced` records `rate_source` and `expected_concurrency`, so a ceiling can be argued with
+  rather than only read.
+
+### Fixed
+- **Every delegation priced its reply against a cluster that was about to stop being idle.**
+  *Symptom:* six delegations fanned out in one message each read `requests_running` of 0 or
+  1 and were all given a ~44,111 token ceiling at 35.0 tok/s; prose decodes at 19.4 tok/s at
+  six concurrent. *Cause:* admission serialises a fan-out, so at the instant any of them
+  prices, the contention it is about to meet does not exist. *Fix:* concurrency comes from
+  the lease — `seqs_at_grant + waiting_at_grant + 1`, capped at `max_inflight_seqs`. A lease
+  is taken before the request is issued, so the gate sees a sibling that
+  `num_requests_running` cannot while it prefills.
+
+### Notes
+- **A burst's first member is still mispriced, and no counter can fix it.** It arrives to an
+  empty gate and is admitted before its siblings exist. Only a coalescing hold can, which is
+  filed as its own item and stays off until the records say the first member is what dies.
+- **`waiting` is the half that matters for the shape that kills.** In the measured fan-out
+  it stayed 0, because six small requests fit under `max_inflight_seqs`. Under the large
+  cap, `seqs` sits at 2 and the rest are queued — so `seqs` alone undercounts the width
+  exactly when it counts.
+- **No percentile tuning, deliberately.** The distribution is still prefill-contaminated, so
+  a tuned percentile would need re-picking once streaming cleans it. "Worst seen at this
+  concurrency" is crude and survives.
+- Both directions are asserted: a busier observation answers a quieter question, a quieter
+  one does not answer a busier, and an empty memory falls through to the since-boot figure
+  rather than inventing a pessimistic constant. A test also asserts the cluster is **not
+  probed** when memory answers, because "prefers the memory" and "reads both and picks" look
+  identical from outside.
+
+### Changed
+- PLAN.md's dispatch items are short pointers now, with the measurements moved to the
+  session hand-off notes. Three of them were merged and still read `⬜` — the same drift
+  `roadmap-marker` was added for, in the one shape that check cannot see.
+- Budgets: `docs/ARCHITECTURE.md` 1069 → 1080, `docs/DISPATCH.md` 639 → 653, PLAN.md
+  539 → 535.
+
 ## #169 — 2026-09-12 — fix: the decode rate measured the wrong interval
 
 ### Fixed

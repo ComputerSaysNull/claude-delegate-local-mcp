@@ -147,6 +147,15 @@ class AdmissionLease:
     tokens: int
     is_large: bool
     entry_key: str
+    # What the gate saw at the instant it granted this slot: sequences already in flight,
+    # and everyone still queued behind. Neither is a rule -- they are carried so the
+    # delegation can price its reply for the concurrency it is about to *meet* rather than
+    # the one the cluster happens to be showing. The cluster's own gauge cannot answer
+    # that: a lease is taken before the request is issued, so a sibling admitted moments
+    # ago is invisible to `num_requests_running` while it prefills. Measured 2026-09-11:
+    # six delegations fanned out in one message each read that gauge at 0 or 1.
+    seqs_at_grant: int = 0
+    waiting_at_grant: int = 0
     # This request's own wait, not the running total. The gate's counters answer "is the
     # cluster saturated"; this answers "was *this* delegation slow because it queued",
     # which is the question asked of one dispatch after the fact.
@@ -227,6 +236,7 @@ class Admission:
             tokens=self._inflight_tokens,
             large=self._inflight_large,
             per_entry=self._per_entry,
+            waiting=len(self._waiting),
         )
 
     def _local_ahead(
@@ -248,7 +258,7 @@ class Admission:
         ticket: int | None,
         *,
         since: float,
-    ) -> tuple[tuple[str, int] | None, int | None]:
+    ) -> tuple[tuple[str, int] | None, int | None, dict[str, int]]:
         """Test the rules and, if they admit, take the slot. One atomic step.
 
         Atomic in both scopes, for the same reason. Within the process the caller holds
@@ -271,9 +281,18 @@ class Admission:
             "tokens": tokens, "large": is_large, "key": key, "limit": limit,
             "since": since,
         }
+        seen: dict[str, int] = {}
 
         def decide(live: Totals) -> tuple[str, int] | None:
-            return self._binding(live, tokens, is_large, key, limit)
+            binding = self._binding(live, tokens, is_large, key, limit)
+            if binding is None:
+                # Captured from the predicate's own read, under the same lock that grants
+                # the slot, so the numbers are exactly what admission decided against and
+                # cost no second look at the file. Only the admitting call is recorded:
+                # a refusal describes a cluster this request did not join.
+                seen["seqs"] = live.seqs
+                seen["waiting"] = live.waiting
+            return binding
 
         def rival_fits(live: Totals, other: dict[str, Any]) -> bool:
             """Could the waiter described by `other` be admitted against these totals?
@@ -333,9 +352,9 @@ class Admission:
                     self._waiting.pop(ticket, None)
                 ticket = None
         if binding is not None:
-            return binding, ticket
+            return binding, ticket, seen
         self._take_locally(tokens, is_large, key)
-        return None, None
+        return None, None, seen
 
     async def _drop_ticket(self, ticket: int) -> None:
         """Give up a place in line without having taken a slot.
@@ -414,7 +433,7 @@ class Admission:
         try:
             async with self._cond:
                 while True:
-                    binding, ticket = await self._try_take(
+                    binding, ticket, seen = await self._try_take(
                         tokens, is_large, entry_key, entry_limit, ticket, since=queued_at
                     )
                     if binding is None:
@@ -457,7 +476,8 @@ class Admission:
         if waited:
             self._record_wait(elapsed)
         return AdmissionLease(
-            tokens=tokens, is_large=is_large, entry_key=entry_key, waited=elapsed
+            tokens=tokens, is_large=is_large, entry_key=entry_key, waited=elapsed,
+            seqs_at_grant=seen.get("seqs", 0), waiting_at_grant=seen.get("waiting", 0),
         )
 
     def _record_wait(self, seconds: float) -> None:

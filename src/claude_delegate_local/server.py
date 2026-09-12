@@ -49,6 +49,7 @@ from .loop import (
     Dispatch,
     DispatchTimedOut,
     InvalidDelegation,
+    RateHistory,
     run_agentic_loop,
     run_one_shot,
 )
@@ -305,6 +306,8 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     on_alive: Callable[[float, int, float], Awaitable[None]] | None = None,
     on_turn_done: Callable[[Any, str], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    rate_history: RateHistory | None = None,
+    expected_concurrency: int = 1,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
 
@@ -320,6 +323,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 max_turns=max_turns, policy=policy,
                 diagnostics=diagnostics, report_progress=report_progress,
                 on_alive=on_alive, on_turn_done=on_turn_done, on_priced=on_priced,
+                rate_history=rate_history, expected_concurrency=expected_concurrency,
             )
         # An explicitly empty toolset. Not the loop with nothing declared: the one-shot
         # prompt tells the model plainly that it cannot open anything and has no second
@@ -330,6 +334,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
         return await run_one_shot(
             cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens,
             on_alive=on_alive, on_priced=on_priced,
+            rate_history=rate_history, expected_concurrency=expected_concurrency,
         )
     except ContextOverflowAborted as e:
         # Before the plain InvalidDelegation branch, which is its base class. The report is
@@ -488,6 +493,10 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     windows: WindowCheck,
     admission: Admission,
     *,
+    # Keyword-only: the five above are the collaborators a dispatch is built from and are
+    # positional by design, and a sixth in that list would be one more thing a call site
+    # can transpose silently.
+    rates: RateHistory,
     task: str,
     files: list[str] | None = None,
     model: str | None = None,
@@ -733,6 +742,15 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             deadline=time.monotonic() + cfg.admission_wait_timeout,
             on_wait=ticked,
         ) as lease:
+            # The concurrency this delegation is about to *meet*, not the one the cluster
+            # is showing. `seqs_at_grant` excludes this request -- the gate tested the
+            # rules before taking the slot -- so it is +1 for ourselves, plus everyone
+            # still queued, who will contend as soon as they are released. Capped at the
+            # gate's own ceiling, because a queue ten deep cannot produce eleven-way
+            # concurrency when six is all the rules permit.
+            expected = min(
+                lease.seqs_at_grant + lease.waiting_at_grant + 1, cfg.max_inflight_seqs
+            )
             dispatched = await dispatch_delegation(
                 loop_cfg, entry, backend, delegation,
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
@@ -747,6 +765,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 on_alive=alive,
                 on_turn_done=streamed_turn,
                 on_priced=priced,
+                rate_history=rates,
+                expected_concurrency=expected,
             )
     except AdmissionError as e:
         # Not routed through `_refuse`, for the same reason `DispatchTimedOut` is not:
@@ -1225,6 +1245,11 @@ def build(
     # scope looks exactly like one that is working.
     slots, slots_reason = build_slots(cfg)
     admission = Admission(cfg, slots)
+    # One per server process, deliberately outliving every delegation in it: a delegation
+    # learns its own decode rate and dies with it, so without this each first turn is
+    # priced from the cluster's since-boot blend -- and the first turn is the one that can
+    # die before it has an observation of its own.
+    rates = RateHistory()
 
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncIterator[dict[str, Any]]:
@@ -1268,7 +1293,7 @@ def build(
         `delegate_to_agent` when the work has a *kind* an agent file already shapes.
         """
         return await run_delegation(
-            cfg, registry, cache, windows, admission,
+            cfg, registry, cache, windows, admission, rates=rates,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             workdir=_rooted(workdir),
@@ -1299,7 +1324,7 @@ def build(
         Use `delegate_to_agent_readonly` when an agent file should shape the work.
         """
         return await run_delegation(
-            cfg, registry, cache, windows, admission,
+            cfg, registry, cache, windows, admission, rates=rates,
             task=task, files=files, model=model, effort=effort,
             # Fixed, never defaulted, and still not a caller argument -- `resolve_allowed`
             # intersects rather than unions, so there is no way to widen it back. That is
@@ -1376,7 +1401,7 @@ def build(
         resolved_project = _rooted(project) if project is not None else resolved_workdir
         agent = _load(agent_name, resolved_project)
         return await run_delegation(
-            cfg, registry, cache, windows, admission,
+            cfg, registry, cache, windows, admission, rates=rates,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             agent=agent, workdir=resolved_workdir,
@@ -1410,7 +1435,7 @@ def build(
         resolved_project = _rooted(project)
         agent = _load(agent_name, resolved_project)
         return await run_delegation(
-            cfg, registry, cache, windows, admission,
+            cfg, registry, cache, windows, admission, rates=rates,
             task=task, files=files, model=model, effort=effort,
             # Fixed here, and not a parameter, for ADR-0042's reason: an annotation a caller
             # could falsify by passing an argument is exactly the check that cannot fail.

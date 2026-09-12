@@ -19,6 +19,52 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0069 — 2026-09-12 — The reply budget is priced from what was measured at this much contention — Accepted
+
+**Context.** ADR-0055 derives the reply budget from a decode rate, seeded from the cluster's
+`decode_tokens_per_second_since_boot` and replaced by this delegation's own turns. Measured
+2026-09-11: six delegations fanned out in one message each read `requests_running` of 0 or 1
+at dispatch and were all given a ~44,111 token ceiling at 35.0 tok/s, while prose decodes at
+19.4 tok/s at six concurrent. Admission serialises a fan-out, so at the instant any of them
+prices its reply, the contention it is about to meet does not exist. Nine delegations died
+at the stall deadline having completed zero turns.
+
+**No dispatch-time reading of the cluster can fix it.** A windowed rate reads the idle rate
+for the same reason the since-boot mean does: both are consulted at the one moment the
+cluster is quiet. That is why PLAN.md's metrics-sampler item was not the fix it was filed
+as, and the correction is recorded there rather than here.
+
+**Decision — the rate is remembered per concurrency, and the concurrency comes from the
+lease.** `RateHistory` outlives the delegation that fed it, keyed by how contended the turn
+was, and pricing asks for the *worst* rate seen at that concurrency or above. The
+concurrency is `seqs_at_grant + waiting_at_grant + 1`, capped at `max_inflight_seqs`, read
+from the predicate's own look under the lock that grants the slot.
+
+**Admission rather than the cluster, because a lease leads the request.** A slot is taken
+before the HTTP call is issued, so the gate sees a sibling that `num_requests_running`
+cannot while it prefills. The waiters count too: they hold no seat, but they contend the
+moment they are released, which is exactly the shape the large-prefill cap produces.
+
+**Remembered rather than modelled.** A curve fitted to rate-against-concurrency would be a
+constant baked to one deployment's hardware — the mistake this roadmap already records
+against `kv_token_budget`, which sits 1.66x above the pool the endpoint reports. A memory
+costs a cold start; a model costs a silent drift at the next hardware change.
+
+**The worst, not the mean.** A budget has to survive the bad case. When this was measured
+the mean sat exactly on the failure threshold: the tolerance for a rate overestimate is
+1.43x and the observed mean overestimate was 1.43x, which is why deaths looked random.
+
+**No percentile, deliberately.** The observation still contains prefill, so the distribution
+is contaminated and a percentile tuned against it would need re-tuning once streaming
+separates time-to-first-token from decode. "Worst seen at this concurrency" is crude and
+survives that change unaltered.
+
+**Consequences.** A burst's *first* member is still priced against an empty gate: it is
+admitted before its siblings exist, and no counter can report what has not arrived. Only
+holding it at admission could, which is a deliberate latency injection and is filed
+unbuilt. An empty memory falls through to the since-boot figure, so a cold start keeps the
+previous behaviour rather than inventing a pessimistic constant.
+
 ## ADR-0068 — 2026-09-11 — A waiter passed over long enough becomes a barrier — Accepted
 
 **Context.** `_binding` refuses any waiter whose `ahead` is non-zero, and `ahead` counts

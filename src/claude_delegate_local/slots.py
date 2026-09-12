@@ -149,6 +149,11 @@ class Totals:
     # in them can distinguish the request whose turn it is. Zero means "go if the rules
     # allow", which is also what an uncontended first attempt sees.
     ahead: int = 0
+    # Everyone queued, not only those ahead. No rule reads this -- it is carried so a
+    # granted lease can say what concurrency it is about to meet. `ahead` cannot answer
+    # that: it is zero for the request being admitted, by definition, while the waiters
+    # behind it are exactly the ones that will contend with it once it runs.
+    waiting: int = 0
 
 
 def default_dir() -> Path:
@@ -356,7 +361,8 @@ class SharedSlots:
             for key, count in (record.get("per_entry") or {}).items():
                 per_entry[key] = per_entry.get(key, 0) + int(count)
         return Totals(
-            seqs=seqs, tokens=tokens, large=large, per_entry=per_entry, ahead=ahead
+            seqs=seqs, tokens=tokens, large=large, per_entry=per_entry, ahead=ahead,
+            waiting=len(_waiting(records)),
         )
 
     @staticmethod
