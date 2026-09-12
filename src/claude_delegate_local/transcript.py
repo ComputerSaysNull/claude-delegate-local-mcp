@@ -180,7 +180,8 @@ class Stream:
     def priced(  # noqa: PLR0913 -- one event's fields, all keyword-only
         self, *, turn: int | None, effort: str | None, max_tokens: int | None,
         budget_ceiling: int | None, decode_rate: float | None,
-        requests_running: float | None,
+        requests_running: float | None, rate_source: str | None = None,
+        expected_concurrency: int | None = None,
     ) -> None:
         """What a turn was allowed, and what that allowance was calculated from.
 
@@ -202,6 +203,12 @@ class Stream:
             "effort": effort, "max_tokens": max_tokens,
             "budget_ceiling": budget_ceiling, "decode_rate": decode_rate,
             "requests_running": requests_running,
+            # Where the rate came from, and the concurrency it was asked for. Without
+            # these the ceiling can be read but not argued with: a remembered rate and a
+            # since-boot mean are different claims, and the second is a blend over every
+            # regime the engine has served.
+            "rate_source": rate_source,
+            "expected_concurrency": expected_concurrency,
         })
 
     def alive(self, *, elapsed_seconds: float, of_seconds: int,

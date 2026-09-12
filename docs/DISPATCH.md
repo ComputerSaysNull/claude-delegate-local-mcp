@@ -1,4 +1,5 @@
-<!-- BUDGET: 639      Raised from 631 on 2026-09-12: the decode observation names which interval it times, and which contamination it still carries. -->
+<!-- BUDGET: 653      Raised from 639 on 2026-09-12: the decode rate is remembered across delegations and keyed by concurrency. -->
+<!-- Raised from 631 on 2026-09-12: the decode observation names which interval it times, and which contamination it still carries. -->
 <!-- Raised from 610 on 2026-09-07: a tool call's record carries its arguments and
      its refusal, which is behaviour this document owns. Three net lines after two
      trims of the addition itself. ADR-0060. -->
@@ -309,7 +310,19 @@ backoff between attempts is outside the interval by construction. Prefill is **n
 short answer over a large prompt still reads slow, because only streaming can separate
 time-to-first-token from decode, and `MIN_TOKENS` guards the size of the answer rather
 than the size of the prompt. Known, measured, and pessimistic — which is the safe
-direction for a budget. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055, not a
+direction for a budget.
+
+What a turn achieved is also **remembered past its delegation**, in `RateHistory`, tagged
+with how contended it was. `DecodeRate` learns within one delegation and dies with it, so
+without this every first turn is priced from the cluster's since-boot blend — and the first
+turn is the one with no observation of its own and the only one that can die before making
+any. Pricing asks for the *worst* rate seen at that concurrency or above: a budget has to
+survive the bad case, and a busier measurement bounds a quieter one from below while the
+reverse is never true. The concurrency comes from the lease, not the cluster
+([ARCHITECTURE.md](ARCHITECTURE.md)), and is remembered rather than modelled — a curve
+fitted to rate-against-concurrency would be a constant baked to one deployment's hardware.
+An empty memory falls through to the since-boot figure, which is the cold start and is
+merely optimistic rather than wrong. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055, not a
 guess — and the `priced` event says so per turn, so an uncapped turn is visible not inferred. Every recovery stage is bounded, the enlarged retry included, or that retry
 would be the way back to a budget no deadline can pay.
 

@@ -25,7 +25,7 @@ import asyncio
 import json
 import random
 import time
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
@@ -318,12 +318,16 @@ class DecodeRate:
     # what load the seed was read against: the seed is a since-boot mean over every
     # concurrency regime the engine has served, so the rate alone cannot be checked
     # afterwards against what the cluster was actually doing.
-    __slots__ = ("_rate", "seen_running")
+    __slots__ = ("_rate", "seen_running", "source")
 
     def __init__(self, seed: float | None = None,
-                 seen_running: float | None = None) -> None:
+                 seen_running: float | None = None,
+                 source: str = "unknown") -> None:
         self._rate = seed if seed and seed > 0 else None
         self.seen_running = seen_running
+        # Which of the two answers this came from, carried only so the record can say.
+        # A rate that cannot be traced to its source cannot be argued with afterwards.
+        self.source = source
 
     @property
     def rate(self) -> float | None:
@@ -378,7 +382,63 @@ def budget_seconds(cfg: Config, *, stall_left: float, dispatch_left: float) -> f
     return max(min(stall_left, dispatch_left, float(cfg.turn_timeout)), 0.0)
 
 
-async def seed_decode_rate(backend: Backend) -> DecodeRate:
+class RateHistory:
+    """What this deployment has actually decoded, kept across delegations.
+
+    `DecodeRate` learns within one delegation and dies with it, so every delegation's
+    *first* turn is priced from the cluster's since-boot mean -- and the first turn is the
+    one with no observation of its own and the only one that can die before making any.
+    This is that memory, and it is a memory rather than a model on purpose: a curve
+    fitted to rate-against-concurrency would be a constant baked to one deployment's
+    hardware, which is the mistake PLAN.md already records against `kv_token_budget`.
+
+    Keyed by how contended the turn was, because the rate is not one number. Measured on
+    this cluster: prose decodes at 44.1 tok/s alone and 19.4 at six concurrent. Asking for
+    "the rate" without saying at what concurrency is asking a question with six answers.
+
+    `expect` returns the **worst** rate seen at that concurrency or above, never the mean.
+    A budget has to survive the bad case; pricing at the average leaves every
+    below-average turn unpayable, and the average sat exactly on the failure threshold
+    when this was measured.
+    """
+
+    # Enough to outlast one fan-out and forget a cluster that has since been reconfigured.
+    # Unbounded would be a slow leak in a process that runs for days, and would let one
+    # ancient bad sample pin the estimate for the life of the server.
+    DEFAULT_KEEP = 64
+
+    __slots__ = ("_keep", "_seen")
+
+    def __init__(self, keep: int = DEFAULT_KEEP) -> None:
+        self._keep = max(1, keep)
+        self._seen: deque[tuple[int, float]] = deque(maxlen=self._keep)
+
+    def observe(self, rate: float, *, concurrency: int) -> None:
+        """Record what one completed turn achieved, and how contended it was."""
+        if rate <= 0:
+            # Zero and negative are arithmetic accidents rather than measurements, and one
+            # admitted here would price every later delegation against it.
+            return
+        self._seen.append((max(int(concurrency), 1), float(rate)))
+
+    def expect(self, concurrency: int) -> float | None:
+        """The worst rate seen at this concurrency or worse, or None if never seen.
+
+        Busier observations answer quieter questions and not the reverse: contention only
+        slows a stream, so a six-way measurement bounds a four-way one from below, while a
+        solo measurement says nothing about six. Discarding the busier ones would throw
+        away exactly the observations worth keeping.
+        """
+        want = max(int(concurrency), 1)
+        rates = [rate for seen_at, rate in self._seen if seen_at >= want]
+        return min(rates) if rates else None
+
+
+async def seed_decode_rate(
+    backend: Backend,
+    history: RateHistory | None = None,
+    expected_concurrency: int = 1,
+) -> DecodeRate:
     """The estimator, seeded from the cluster if it will say and empty if it will not.
 
     Never raises. This is one scrape of a monitoring surface, and a delegation that
@@ -387,15 +447,26 @@ async def seed_decode_rate(backend: Backend) -> DecodeRate:
     that publishes nothing simply leaves the first turn uncapped, which is the behaviour
     that existed before ADR-0055 and is stated in the ledger rather than hidden.
     """
+    # What this deployment has actually managed at this much contention beats what the
+    # cluster averaged since boot, because the since-boot figure is a blend over every
+    # concurrency regime the engine has served and the first turn is about to meet a
+    # specific one. Consulted first, and only falls through when nothing has been seen
+    # this busy -- the cold start, where the old behaviour is merely optimistic.
+    if history is not None:
+        remembered = history.expect(expected_concurrency)
+        if remembered is not None:
+            return DecodeRate(remembered, float(expected_concurrency),
+                              source="observed_at_concurrency")
     try:
         cluster = await backend.probe_cluster()
     except Exception:  # a monitoring read must never fail a delegation
-        return DecodeRate()
+        return DecodeRate(source="unknown")
     rate = (cluster or {}).get("decode_tokens_per_second_since_boot")
     running = (cluster or {}).get("requests_running")
     return DecodeRate(
         rate if isinstance(rate, (int, float)) else None,
         running if isinstance(running, (int, float)) else None,
+        source="cluster_since_boot" if isinstance(rate, (int, float)) else "unknown",
     )
 
 
@@ -877,6 +948,8 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     max_tokens: int | None = None,
     on_alive: Callable[[float, int, float], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    rate_history: RateHistory | None = None,
+    expected_concurrency: int = 1,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
@@ -926,7 +999,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         # Seeded from the cluster, because a one-shot has no earlier turn to learn from and
         # is the shape with the least slack: it completes no turns, so its deadline runs
         # from entry and it must fit a whole answer inside one of them (ADR-0055).
-        rate = await seed_decode_rate(backend)
+        rate = await seed_decode_rate(backend, rate_history, expected_concurrency)
         ceiling = rate.ceiling(cfg, budget_seconds(
             cfg, stall_left=stall_left(), dispatch_left=deadline - clock()
         ))
@@ -936,6 +1009,8 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
             await on_priced({
                 "turn": 1, "effort": resolved, "max_tokens": max_tokens,
                 "budget_ceiling": ceiling, "decode_rate": rate.rate,
+                "rate_source": rate.source,
+                "expected_concurrency": expected_concurrency,
                 "requests_running": rate.seen_running,
             })
         return await dispatch_with_recovery(
@@ -1960,6 +2035,8 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
     on_alive: Callable[[float, int, float], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    rate_history: RateHistory | None = None,
+    expected_concurrency: int = 1,
     on_turn_done: Callable[[TurnDiagnostic, str, float], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
@@ -2055,7 +2132,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     # the seed with what this delegation itself achieved (ADR-0055). Doing it here rather
     # than lazily on the first turn keeps the network call outside the stall clock the
     # turn is about to be measured against.
-    decode_rate = await seed_decode_rate(backend)
+    decode_rate = await seed_decode_rate(backend, rate_history, expected_concurrency)
 
     # The heartbeat, beside the loop rather than inside it. `run_one_shot` has had one
     # since ADR-0018; this path reported only at the top of each turn, so a single long
@@ -2128,6 +2205,8 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
                     "turn": turn, "effort": resolved_effort,
                     "max_tokens": max_tokens, "budget_ceiling": ceiling,
                     "decode_rate": decode_rate.rate,
+                    "rate_source": decode_rate.source,
+                    "expected_concurrency": expected_concurrency,
                     "requests_running": decode_rate.seen_running,
                 })
             dispatch = await dispatch_with_recovery(
@@ -2154,6 +2233,16 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
                 dispatch.response.output_tokens,
                 dispatch.answered_seconds or backend_seconds,
             )
+            # And remembered past this delegation, tagged with how contended it was. This
+            # is the only thing that can price a *later* delegation's first turn, which
+            # has no observation of its own and is the one that dies.
+            if rate_history is not None:
+                seconds = dispatch.answered_seconds or backend_seconds
+                if seconds > 0 and dispatch.response.output_tokens:
+                    rate_history.observe(
+                        dispatch.response.output_tokens / seconds,
+                        concurrency=expected_concurrency,
+                    )
             watch.turn_cost(dispatch, evicted=dropped)
             guard.observe(
                 dispatch.response, evicted_this_turn=dropped, turn=turn, turns=turns,

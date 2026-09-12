@@ -1,4 +1,5 @@
-<!-- BUDGET: 1069
+<!-- BUDGET: 1080      Raised from 1069 on 2026-09-12: a granted lease carries the concurrency it was granted against, which is admission behaviour this document owns. -->
+<!-- Ceiling was 1069 before that.
      Raised from 1061 on 2026-09-11: the stream gained a fifth event, and the paragraph
      naming the other four could not carry it without saying what it is written for.
      Raised from 1054 on 2026-09-11: admission grew an anti-starvation barrier, and the
@@ -674,6 +675,13 @@ That qualification had no floor: a waiter needing more of a shared budget than i
 successors is never feasible at the instant they ask, because they hold what it is short of.
 Past `admission_starvation_grace` it counts as ahead regardless, and becomes a barrier.
 (ADR-0068)
+
+A granted lease carries what the gate saw when it granted: sequences already in flight, and
+everyone still queued behind. Neither is a rule — they are read from the predicate's own
+look under the same lock, so they cost nothing, and they are the only honest answer to what
+concurrency the delegation is about to *meet*. The cluster's gauge cannot say: a lease is
+taken before the request is issued, so a sibling admitted a moment ago is invisible to it
+while it prefills. [DISPATCH.md](DISPATCH.md) owns what the budget does with them.
 
 A ticket is given up on every exit from the wait — admitted, timed out, cancelled, raised
 — from a `finally` rather than from the timeout path, because one abandoned at the front

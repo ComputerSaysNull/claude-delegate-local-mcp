@@ -1,4 +1,8 @@
-<!-- BUDGET: 539
+<!-- BUDGET: 551
+     Raised from 535 on 2026-09-12: three findings this session surfaced and nothing else
+     records -- the audit remainder, the admission bail-out, and work too large for a turn.
+     Lowered from 539 on 2026-09-12: the dispatch defects are short pointers now, with the
+     measurements moved to the session hand-off notes.
      Raised from 514 on 2026-09-11: four dispatch defects found by reading the transcripts
      of nine dead delegations, none of which the roadmap had a place for.
      Raised from 505 on 2026-09-11: the metrics sampler prices the reply budget rather than
@@ -461,28 +465,36 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
   budget rather than the matching — a glob hitting two hundred files has to skip and account
   for them the way `context.prefetch` already does, not spend `prefetch_budget` silently
 
-- ⬜ **The reply budget is priced while the cluster is idle and spent while it is busy.**
-  Measured 2026-09-11: six delegations fanned out in one message each read
-  `requests_running` of 0 or 1 at dispatch and were all priced at 35.0 tok/s for a ~44,111
-  token ceiling, because admission serialises them and the contention they will meet does
-  not exist yet. Prose decodes at 19.4 tok/s at six concurrent, so that budget needs 2,218s
-  against a 2,100s stall deadline. Nine delegations died exactly this way in one session.
-  **No dispatch-time reading can see it**, which is why the metrics sampler above is not the
-  fix it was filed as: the rate has to be pessimistic rather than current. `DecodeRate.observe`
-  already measures the true rate under load and throws it away at the end of each delegation,
-  which is the cheapest place to get a measured pessimistic number rather than a guessed one
-- ⬜ **`turn_timeout` is absent from the ceiling's `min`.** `decode_rate.ceiling` is sized
-  against `min(stall_left(), deadline - clock())`, so it authorises a reply that the 1,800s
-  per-attempt bound cannot deliver even when the rate is right. One line, and wrong
-  independently of everything above
-- ⬜ **A generation overrun is retried as though it were a network blip.** `_is_retryable`
-  is true for every `BackendUnavailable`, so a read timeout at 1,800s is sent again with the
-  same budget against whatever clock remains — 300s in the measured case. It cannot succeed,
-  and it discards 1,800s of decode to prove it. Refuse the retry, or re-derive the budget
-  from the time actually left
-- ⬜ **The heartbeat names a deadline that will not kill the turn.** `_keepalive` reports
-  `cfg.dispatch_timeout`, so all nine deaths showed "60s of 14400s" — 0.4% elapsed — while
-  half an hour from being killed by a deadline the stream never mentions
+These came out of nine delegations dying at the stall deadline with zero turns. The
+measurements, what each fix does and does not cover, and what the next session should start
+with are in the hand-off notes — `~/.claude/plans/handoff-dispatch-budget.md`, untracked and
+local, because they are working notes rather than a product fact.
+
+- 🔄 **The reply budget is priced while the cluster is idle and spent while it is busy.**
+  Admission serialises a fan-out, so every sibling prices against a cluster that has not
+  filled yet. Priced from admission's own counters since #169; a burst's *first* member
+  still cannot know the burst is coming
+- ⬜ **Hold a large delegation briefly when the gate is idle**, so a burst's first member
+  prices against the burst. Buys the one case above; costs latency on every solo large
+  call. Default off until the records say the first member is what dies
+- ✅ 2026-09-11 **`turn_timeout` is absent from the ceiling's `min`**, so the budget
+  authorises a reply one attempt cannot deliver (#166)
+- ✅ 2026-09-12 **A generation overrun is retried as though it were a network blip**, with
+  the same budget against a fraction of the clock (#167)
+- ✅ 2026-09-12 **The heartbeat names a deadline that will not kill the turn**, reporting
+  `dispatch_timeout` while a tighter one fires (#168)
+- ⬜ **The 2026-09-11 audit's remaining findings**: the `read_metrics` note that calls the
+  blend conservative when it is flattering under load, five cross-plane duplications, two
+  unsourced claims in `docs/ARCHITECTURE.md`, and the three runbook findings in
+  `docs-audit-dispatch`. One of those three is measured wrong — "run passes serially" is
+  the opposite of what a fan-out showed. See the audit record and the hand-off notes
+- ⬜ **`admission_wait_timeout` bails out after 30 minutes having produced nothing**, and
+  its own help text says it was sized for an era when the queue was unordered. Tickets and
+  the starvation barrier removed that premise and nobody re-derived the number. Fail fast
+  on a queue too deep to serve, or do not fail at all
+- ⬜ **Work that does not fit one turn.** Two turns produced 13,268 and 16,909 output
+  tokens, the first needing 1,750s at 7.6 tok/s. No budget makes that fit an 1,800s
+  attempt; it is a splitting problem, not a pricing one
 
 ## Deferred
 
