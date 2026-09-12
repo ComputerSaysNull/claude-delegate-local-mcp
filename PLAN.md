@@ -1,4 +1,8 @@
-<!-- BUDGET: 630
+<!-- BUDGET: 692
+     Raised from 670 on 2026-09-12: three things established in a session and filed
+     nowhere -- a doc/code mismatch, a blocked design, and what the lease fix retires.
+     Raised from 630 on 2026-09-12: an outside benchmark withdrew every probe figure and an A-B
+     on the large-prefill gate answered what it was for.
      Raised from 610 on 2026-09-12: re-deriving the margin confirmed the entry rather than
      replacing it, and the reading that briefly said otherwise is recorded beside it.
      Raised from 600 on 2026-09-12: the rate memory's floor landed, which struck one
@@ -225,6 +229,14 @@ their own project without ever reading this repository.
 **Exit:** the viewer shows a running delegation and live cluster figures on a host where
 nothing was configured, and no tool result changes shape.
 
+- ⬜ **`transcript_dir`'s fallback needs a state directory that does not exist yet, and the
+  argument the item cites does not reach it.** The only server-owned directory helper,
+  `slots.default_dir()`, is tmpfs in both branches — right for ephemeral slots, wrong for an
+  audit record that must survive a reboot. And ADR-0024 argues what an operator can audit
+  should not depend on the *caller's* flag, where `transcript_dir` is the *operator's*, so it
+  does not support defaulting this on. Defaulting it on also writes task text to disk without
+  anyone choosing to, which the setting's own help text calls "a trade rather than a rule".
+  **Decide the durability and the privacy question before writing the fallback.** Original:
 - ⬜ `transcript_dir` falls back to the server's own state directory when unset, so the
   viewer and the cost record work without setup. ADR-0024 already argues that what an
   operator can audit should not depend on the caller's flag
@@ -431,6 +443,12 @@ them was re-derived when it did.
 
 Neither queued nor deferred: real work not yet ranked against a milestone.
 
+- ⬜ **An empty `name:` is accepted where the document says it is refused.** `agents.py` line
+  330 reads `if declared and declared != name`, so a bare `name:` with no value is falsy and
+  treated as absent, while `docs/AGENTS.md` says a `name` that is present "must equal the
+  filename, or the file is refused". Either the code distinguishes present-but-empty from
+  absent, or the document stops promising it does — the second is cheaper and probably right.
+  Found by a STALE pass during the 2026-09-12 verification fan-out
 - ⬜ Content-level detection for a renamed secret — every path-policy layer inspects the
   path and none the bytes, so `config.json` holding a private key passes all of them and is
   inlined, and `run_bash` can read one the mount-level scan did not match by name. One
@@ -487,7 +505,7 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
 
 These came out of nine delegations dying at the stall deadline with zero turns. The
 measurements, what each fix does and does not cover, and what the next session should start
-with are in the hand-off notes — `~/.claude/plans/handoff-dispatch-budget.md`, untracked and
+with are in the hand-off notes — `~/.claude/plans/handoff-notebook.md`, untracked and
 local, because they are working notes rather than a product fact.
 
 - ✅ 2026-09-12 **The reply budget is priced while the cluster is idle and spent while it is busy.**
@@ -513,9 +531,24 @@ local, because they are working notes rather than a product fact.
   2026-09-12: six probes priced from that fall-through at 34.85 tok/s and then decoded at
   27.1 six-way — a 1.29x overestimate, not the 1.8x recorded before the instrument was
   fixed. A 37,638-token ceiling still decodes inside an 1,800s turn at that rate, so the
-  fall-through alone did not kill the fan-out at `effort: low`; the dying passes ran at
-  `high`, and the memory is keyed on concurrency only, never on effort. That is the half
-  that remains
+  fall-through alone did not kill the fan-out. **Both of those figures came from a task that
+  reproduced its own prompt and are withdrawn** — see the tick below. Against the rates that
+  stand, the cold start is not marginal but decisive: the blend reads 34.96 where six
+  concurrent delivers just under **20 tok/s**, so it is **1.75x** optimistic, and the 37,756
+  tokens it authorises need **1,888s of an 1,800s turn**. Two of four died there at zero
+  turns. An honest rate prices 20,952 — which is itself below what a STALE pass needs, so
+  the rate and the margin have to be fixed together or neither helps. That is what remains
+  - **Persisting the memory across restarts would have saved all four** at no cluster cost,
+    unlike a synthetic warm-up, because the samples are real work at real concurrency and
+    effort. `slots.default_dir()` is tmpfs — wrong for an audit record, right for a rate —
+    and a `served_model_id` stamp discards it on a swap rather than a constant
+- ✅ 2026-09-12 **Every rate measured from a synthetic probe is an artefact, and the cause is
+  confirmed.** Seven probes reproducing README.md verbatim read 65.6 tok/s solo and 27.1 at
+  six concurrent — faster at six than the 23 measured at four, which cannot be true of one
+  decoder, because contention only slows. The served model has a speculative-decoding module
+  attached, and copying in-prompt text is close to a best case for acceptance. **A benchmark
+  task must not be answerable from its own prompt**; the figures that stand are the owner's,
+  44.1 solo, ~23 at four and just under 20 at six
   - **The other half was a different defect and shipped in #177.** "A low expectation
     searches widely and keeps the worst" is the design working, not the asymmetry: a
     six-way sample bounds a solo question from below, which is what already prices a
@@ -546,6 +579,36 @@ local, because they are working notes rather than a product fact.
     were refused having produced nothing. Not latent. `admission_timeouts` reads 0 while
     waiters are still waiting because it counts *completed* waits, so that counter cannot
     be used to argue the bail-out is unreachable — it was, that morning, and wrongly
+  - **Then twice more that evening with two passes answering**, which kills the theory
+    that a working budget dissolves this: the wait is a 2-wide gate holding each slot for a
+    whole delegation, not passes producing nothing. 3,600s of waiting against
+    `kv_cache_used_fraction` **0.031** and 0 preemptions — binding on an idle cluster.
+    **Re-ranked up**, but the item below is probably the fix, so measure that before
+    moving 1800
+- ⬜ **Release the *large* half of an admission lease at first token, not at the end of the
+  run.** `admit()` holds it for the whole delegation, and the prefill it exists to serialise
+  is over once decoding starts. Measured 2026-09-12 at `effort: high`: time to first token
+  **64.1s**, delegations running 271-847s, and the two that died holding a slot for 2,100s —
+  4x to 33x longer than the work it protects, which is what made two passes wait out
+  `admission_wait_timeout` behind a limit of 2 on a cluster at 3% KV
+  - **Only reachable since ADR-0070**, which made first-token arrival observable
+  - **It probably retires `max_inflight_large_prefills` rather than competing with it.** Once
+    a slot is held only while a request is prefilling, the number held at any moment is the
+    number the *engine* is prefilling — one running plus one staged — so a limit of 6 can
+    never bind and even 2 would rarely. The setting goes inert, which is a cleaner answer
+    than tuning it and is why both belong in one ADR
+  - **A slot is taken on the estimate, not on the work, measured 2026-09-12.** At limit 2,
+    four of six calls waited 28.9s and 57.1s for a large-prefill slot *while doing no cold
+    prefill at all* — the prefix cache served 98% of each. `is_large` reads `prefill_tokens`
+    from the opening estimate, which cannot know that. Hit rate here is 59%, and a fan-out
+    over shared documents is the shape that triggers it most reliably
+  - **Measured properly 2026-09-12, over twelve disjoint cold-prefill sets: the gate is
+    pure overhead here.** Limit 2 against 6 — 4 of 6 queued against none, 286.3s of
+    aggregate waiting against zero, batch 12.1s slower, each call 10.2s slower, nothing
+    bought. Limit 6's span is the floor the engine sets by serialising prefills itself, and
+    limit 2 cannot beat it. **So the setting is a candidate for removal, not retuning**, and
+    that decision belongs in the same ADR as the first-token release above — a slot released
+    at first token may make the question moot either way
 - ⬜ **Work that does not fit one turn.** Two turns produced 13,268 and 16,909 output
   tokens, the first needing 1,750s at 7.6 tok/s. No budget makes that fit an 1,800s
   attempt; it is a splitting problem, not a pricing one

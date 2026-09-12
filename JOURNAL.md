@@ -1394,3 +1394,139 @@ Three things that cost time, and would again:
 Prefill measures ~1,220 tok/s here, derived independently from two dispatches to within
 2%, so a 45k-token prefill costs ~37s of an 1,800s turn. Worth knowing before believing
 any argument that reserves budget for it.
+
+## 2026-09-12 — A copy task is not a decode benchmark, and the cold start is load-bearing
+
+Six STALE passes at `effort: high` against a freshly reconnected server — the regime that
+killed all six that morning, re-run after the rate memory gained a floor.
+
+| dispatch | exp_conc | ceiling | outcome |
+|---|---|---|---|
+| 0001 | 1 | 37,756 | stall deadline, 0 turns, 2100s |
+| 0002 | 2 | 37,756 | stall deadline, 0 turns, 2100s |
+| 0003 | 3 | 37,756 | **answered**, 21,262 out, 3 turns |
+| 0005 | 5 | 37,756 | **answered**, 12,352 out, 1 turn |
+| — | — | — | `admission_timed_out`, 1800s |
+| — | — | — | `admission_timed_out`, 1800s |
+
+Two answered where none had. All six priced identically from `cluster_since_boot` at 34.96:
+a fresh process has no history, so `expect(n)` finds nothing at any n.
+**23.19 tok/s, at four concurrent** — inverting the EMA at `WEIGHT = 0.4` on dispatch
+0003's first turn, with 64.1s before its first token. Four, not six: `peak_inflight_seqs`
+read 4, because the two admission-timed-out passes never took a slot. It matches the
+owner's benchmark at four, so **effort is not what shapes it**: two unrelated workloads at
+one concurrency give one rate — see the benchmark entry below, whose x4 row reads 23.3.
+
+**The probe task was the flawed instrument, and it flattered everything.** Seven earlier
+probes that day measured 65.6 tok/s solo and 27.1 at six concurrent, and were used to argue
+the cold start was survivable. They reproduced README.md verbatim from text already in the
+prompt. 27.1 at six is *faster* than 23 at four, which cannot be true of one decoder —
+contention only slows. **The served model has a speculative-decoding module attached**, and
+copying in-prompt text is close to a best case for acceptance. Both probe figures are
+withdrawn. The rates that stand are the owner's benchmark, filed in the entry below.
+
+That makes the cold start decisive. The blend reads 34.96 where six concurrent delivers
+just under 20, so the 37,756 tokens it authorises need **1,888s of an 1,800s turn**. Two of
+four died there; the two that answered wanted 12,352 and 21,262, under the ceiling. An
+honest rate prices 20,952 — itself below the ~23,700 a STALE pass wants, so the rate and
+`reply_budget_margin` move together or neither helps.
+
+**A large-prefill slot is held for the whole delegation to protect 64 seconds of work.**
+First token measured 64.1s against delegations running 271-847s, and 2,100s for the two
+that died. `admission_timeouts` reached 2 and `admission_wait_seconds_total` 3,600s while
+the cluster sat at `kv_cache_used_fraction` 0.031 with 0 preemptions: binding on an idle
+cluster, not saturation.
+
+Three traps worth keeping:
+
+- **A benchmark task must not be answerable from its own prompt.** With speculative decoding
+  attached, copying in-prompt text measures the accept path and reads high — in the exact
+  direction that gets delegations killed.
+- **The rate table existed and was not findable.** It had been pasted into a session and
+  never filed; only two of its numbers reached the repository, inside a docstring. A whole
+  evening of re-measurement bought figures that already existed. It is filed below now.
+- **A six-way fan-out is not a six-way measurement.** Read `peak_inflight_seqs`, never the
+  number of calls issued.
+- **`admission_wait_timeout` does not need passes to be failing.** Two answered here and it
+  still fired twice: the wait is a 2-wide gate holding slots for whole delegations.
+
+## 2026-09-12 — The decode benchmark this project prices against, finally written down
+
+Measured by the operator against `deepseek-v4-flash-vision-exp`, prose, one prompt per
+stream. Two token caps, because the cap changes the answer. **agg** is the cluster's total,
+**/str** is what one delegation actually gets, and only the second prices a reply budget.
+
+**max 2000 tokens/stream** — the shape real work has:
+
+| streams | agg | /str | TTFT |
+|---|---|---|---|
+| 1 | 44.1 | **44.1** | 2.86s |
+| 2 | 58.4 | 29.3 | 555ms |
+| 3 | 76.3 | 26.5 | 795ms |
+| 4 | 90.8 | **23.3** | 288ms |
+| 5 | 98.4 | 20.1 | 312ms |
+| 6 | 114.0 | **19.4** | 301ms |
+
+**max 400 tokens/stream**, which runs slightly differently and is the reason to record both:
+
+| streams | agg | /str | TTFT |
+|---|---|---|---|
+| 1 | 41.8 | 41.8 | 165ms |
+| 2 | 60.8 | 31.3 | 312ms |
+| 3 | 77.5 | 26.6 | 501ms |
+| 4 | 80.9 | 22.7 | 1.11s |
+| 5 | 96.6 | 20.7 | 708ms |
+| 6 | 118.0 | 20.3 | 572ms |
+| 8 | 97.6 | 23.2 | 5.19s |
+
+Four things worth taking from it:
+
+- **`RateHistory`'s docstring is this table.** "44.1 tok/s alone and 19.4 at six concurrent"
+  are the x1 and x6 rows of the 2000-token cap, exactly. They were briefly called stale on
+  2026-09-12 on the strength of probe figures; the probes were the artefact, not these.
+- **It supersedes the 2026-09-04 entry's numbers**, which read 36 tok/s single-stream and
+  ~85 aggregate at six. Concurrency is a **2.6x** aggregate lever here, not 2.35x, and the
+  single-stream figure moved with the served model.
+- **Per-stream falls by 2.3x from one to six while aggregate rises by 2.6x.** Both are true
+  and they answer different questions: aggregate is what the cluster is worth, per-stream is
+  what a deadline is paid in. A budget priced from an aggregate figure is 6x wrong.
+- **TTFT here is a few hundred milliseconds because the prompts are small.** A delegation
+  prefilling ~23k tokens measured 64.1s to first token the same evening, so TTFT in this
+  table isolates queueing and says nothing about prefill cost. Do not price a prefill from
+  it.
+
+The x8 row inverts — 23.2/str above x6's 20.3, with a 5.19s TTFT — which is the one figure
+here not to build on without repeating it.
+
+## 2026-09-12 — The large-prefill gate costs 286 seconds of waiting and buys nothing
+
+`max_inflight_large_prefills` at 2 against 6. Six delegations per arm, **twelve disjoint
+file sets**, none read earlier that day, so all twelve were genuine cold prefills — the
+first attempt used one shared file and measured 0 and 1 cold prefills, which is why the
+sets had to be built.
+
+| | limit 6 | limit 2 |
+|---|---|---|
+| queued | **0 of 6** | **4 of 6** |
+| total wait | **0.0s** | **286.3s** |
+| mean elapsed | 88.2s | 98.4s |
+| issue to last finish | **155.4s** | **167.5s** |
+
+**The gate is pure overhead for this workload.** It adds 286 seconds of aggregate waiting,
+makes the batch 12.1s slower end to end and each call 10.2s slower, and buys nothing
+measurable. Limit 6's 155.4s is the floor set by the engine serialising six cold prefills
+by itself; limit 2 cannot beat that floor and adds queueing on top of it.
+
+**Why, and it is the reason the fix is first-token release.** A large slot is held until the
+delegation *ends*, not until its prefill does. Between first token and completion the
+prefill capacity the slot represents sits idle, and with two slots that idle window is what
+gates turnover. At limit 6 the staircase is still visible — elapsed 41.9, 61.6, 85.1, 99.5,
+115.3, 125.6s with **zero** admission waits — which is the engine queueing prefills on its
+own, exactly as the 2026-09-04 entry said it would.
+
+**Do not read a decode rate off these runs.** `output_tokens / elapsed_seconds` comes out at
+0.21 to 4.82 tok/s, and none of that is decode: the answers were 27 to 265 tokens after a
+~35,000-token prefill, so decode is a second or two of a hundred-second call. `elapsed`
+also *includes* `waited_seconds`, so a queued call's apparent rate is diluted by up to 102s
+of pure queueing. The rate under either limit is the concurrency curve in the benchmark
+entry above; the gate changes how many streams decode at once, never how fast one decodes.
