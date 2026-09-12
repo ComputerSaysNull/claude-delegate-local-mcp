@@ -1,4 +1,4 @@
-<!-- BUDGET: 631      Raised from 623 on 2026-09-12: the heartbeat carries a countdown as well as a ceiling, and why those are two figures. -->
+<!-- BUDGET: 639      Raised from 631 on 2026-09-12: the decode observation names which interval it times, and which contamination it still carries. -->
 <!-- Raised from 610 on 2026-09-07: a tool call's record carries its arguments and
      its refusal, which is behaviour this document owns. Three net lines after two
      trims of the addition itself. ADR-0060. -->
@@ -301,7 +301,15 @@ with the same budget against a fraction of the clock. The rate is **measured, ne
 configured**: it belongs to the deployment and moved twice in one week. `DecodeRate` seeds from the cluster's since-boot figure so the first turn is
 bounded — a one-shot and a tool-forbidden final turn both live there — and every later turn
 replaces the seed with what this delegation achieved, which is the rate its own deadline is
-paid in. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055, not a
+paid in. That observation is timed over the attempt that **answered**, not over the turn:
+the token count comes from one attempt (ADR-0014), so dividing it by every recovery stage
+and transport retry measures two different events — across 46 recorded turns it halved the
+apparent rate, and the halved figure then seeded the next delegation's first turn. The
+backoff between attempts is outside the interval by construction. Prefill is **not**: a
+short answer over a large prompt still reads slow, because only streaming can separate
+time-to-first-token from decode, and `MIN_TOKENS` guards the size of the answer rather
+than the size of the prompt. Known, measured, and pessimistic — which is the safe
+direction for a budget. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055, not a
 guess — and the `priced` event says so per turn, so an uncapped turn is visible not inferred. Every recovery stage is bounded, the enlarged retry included, or that retry
 would be the way back to a budget no deadline can pay.
 

@@ -367,7 +367,13 @@ def dispatch(config, backend, *, sleep=None, jitter=None):
     as the only things varying.
     """
     kw = {"sleep": sleep or SleepSpy(), "jitter": jitter or (lambda lo, hi: hi)}
-    return asyncio.run(loop.complete_with_retry(config, backend, one_shot("hello"), **kw))
+    # The third value is how long the *answering* attempt took, which these tests do not
+    # assert on; it has its own regression file. Dropped here so every retry test keeps
+    # reading as the two-part question it is.
+    response, attempts, _answered = asyncio.run(
+        loop.complete_with_retry(config, backend, one_shot("hello"), **kw)
+    )
+    return response, attempts
 
 
 def test_an_unreachable_endpoint_is_tried_again_and_can_still_succeed():
@@ -952,7 +958,7 @@ def test_a_delegation_that_finishes_inside_the_deadline_is_untouched():
     """The deadline must be invisible when it is not reached, or it is not a deadline."""
     clock = FakeClock()
     backend = SlowBackend([ok_response("done")], clock, seconds=5)
-    response, attempts = asyncio.run(
+    response, attempts, _answered = asyncio.run(
         loop.complete_with_retry(
             cfg(dispatch_timeout=3600),
             backend,

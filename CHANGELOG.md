@@ -34,6 +34,37 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #169 — 2026-09-12 — fix: the decode rate measured the wrong interval
+
+### Fixed
+- **One attempt's tokens were divided by every attempt's seconds.** *Symptom:* across 46
+  recorded turns, single-attempt turns averaged 27.2 tok/s and multi-attempt turns 11.1,
+  with the slowest at 0.9 — six of the ten slowest had made two attempts. *Cause:*
+  `backend_seconds` is measured around `dispatch_with_recovery`, which spans three recovery
+  stages and a transport retry inside each, while `output_tokens` comes only from the
+  attempt that answered (ADR-0014 requires that). *Fix:* `complete_with_retry` returns how
+  long the answering attempt took, `Dispatch` carries it as `answered_seconds`, and
+  `DecodeRate.observe` divides by that. The backoff between attempts is outside the
+  interval by construction.
+
+### Notes
+- This mattered because the contaminated average **seeds the next delegation's first
+  turn** — the one turn with no observation of its own, and the only one that can die
+  before making any.
+- **Prefill is still in the divisor and is left there deliberately.** A short answer over a
+  large prompt still reads slow: 442 output tokens against 54,052 of input took 50.2s, of
+  which roughly 30 is prefill. Only streaming separates time-to-first-token from decode,
+  and `MIN_TOKENS` guards the size of the answer rather than the size of the prompt. The
+  bias is pessimistic, which is the safe direction for a budget, and it is now stated in
+  `docs/DISPATCH.md` rather than modelled away with a constant.
+- The figure of 24.4 tok/s quoted during investigation was this contaminated quantity and
+  should not be used as a decode rate.
+
+### Changed
+- `complete_with_retry` returns a third value. The shared test helper drops it so the
+  fourteen retry tests keep reading as the two-part question they are.
+- `docs/DISPATCH.md`'s budget rises 631 → 639.
+
 ## #168 — 2026-09-12 — fix: the heartbeat named a deadline that cannot fire
 
 ### Fixed
