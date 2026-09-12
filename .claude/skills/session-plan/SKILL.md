@@ -1,6 +1,6 @@
 ---
 name: session-plan
-description: Plan this session's work from PLAN.md — rank the open items, propose one plan, challenge its own assumptions by measuring them, then stop for approval. Use at the start of a working session, or when asked to plan, re-plan or pick up the next milestone item.
+description: Plan this session's work from PLAN.md — rank the open items, fill the session from that ranking, argue against the resulting plan and settle what it rests on by measuring, then stop for approval. Use at the start of a working session, or when asked to plan, re-plan or pick up the next milestone item.
 ---
 
 # Session plan
@@ -27,10 +27,12 @@ blocking impact ÷ effort. `✅`, `❌` and **Deferred** are out of scope for th
   spike first, and say what would be run to settle it.
 - Check the milestone exit condition the items sit under. An item that does not move that
   condition is not this session's work, however cheap it looks.
-- **The exit condition orders the session; it does not size it.** Ranking stops when the
-  items run out, not when the first one is picked. A plan holding one item is right only if
-  that item is genuinely a session's worth — say how long you think it is, and if the
-  answer is "half a session", keep ranking.
+- **The exit condition orders the session; it does not size it.** Rank every `⬜` item —
+  ranking stops when the items run out, not when the list starts to look long enough. Then
+  fill the session from the top of that ranking: estimate each item, keep taking until the
+  estimates meet the session you have, and show both numbers. **There is no right number of
+  items.** One is right only when that one item is genuinely a session's worth, and a count
+  you could have named before opening `PLAN.md` is a habit, not a plan.
 
 ## 3. Propose ONE plan
 
@@ -56,13 +58,21 @@ Constraints that shape the split, not afterthoughts:
 - A fact belongs to one document and one plane. If the plan says "and document X in two
   places", the plan is wrong.
 
-## 4. Assumption pass — before presenting, every time
+## 4. Argue against the plan — before presenting, every time
 
-1. Name the three assumptions in the plan that would most change its design if wrong.
-2. For each, answer exactly one of: **verified by running `<command>`** or **assumed**.
+You wrote the plan, so it already looks right to you. Switch sides here and try to break
+it: this pass has worked when it finds something, not when it agrees with you. A pass that
+finds nothing usually means the plan got re-read rather than attacked.
+
+1. List what the plan rests on — every assumption that would change its *design*, not just
+   its wording, if it turned out false. **There is no target number** — the list is as long
+   as the plan makes it. Finding only one means the parts you feel sure about were skipped,
+   and those are the ones worth attacking.
+2. Against each, answer exactly one of: **verified by running `<command>`** or **assumed**.
    There is no third answer, and "it follows from" is `assumed`.
 3. Go verify the assumed ones **live — measurement, not reasoning** — and revise the plan
-   with the raw results inline.
+   with the raw results inline. A measurement that kills an item is this pass working: drop
+   the item, say what killed it, and pull the next one up from the ranking.
 
 Claims about nested pytest, the sandbox, prefix caching, admission, git behaviour or the
 network are measured. Plausible inference about those has been wrong here repeatedly.
