@@ -34,6 +34,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #173 — 2026-09-12 — fix: the gate died while printing its own finding
+
+### Fixed
+- **A finding carrying a character the terminal could not encode killed the gate instead of
+  being reported.** *Symptom:* `UnicodeEncodeError: 'charmap' codec can't encode character`
+  raised inside the print, so the check fired and the gate exited with a traceback rather
+  than saying what it found. *Cause:* the hooks run under Git Bash on Windows, where
+  `sys.stdout.encoding` is cp1252, and the printing loop covers blocks **and warnings** and
+  runs before the verdict — so a non-ASCII *warning* killed a commit that was about to pass.
+  Nothing had hit it because every message written so far happens to be ASCII, which is a
+  property of the messages rather than of the gate; the next one to quote a document back,
+  a roadmap marker or a smart quote, is the one that finds out. *Fix:* reconfigure stdout and
+  stderr with `backslashreplace` on entry, before any argument is parsed, so a finding is
+  always printable and the character survives as an escape rather than being dropped.
+- Worth recording because it explains why this was invisible: the agent's own shell exports
+  `PYTHONIOENCODING=utf-8`, so the environment most likely to run the gate is the one where
+  it cannot crash. Measured both ways — cp1252 under Git Bash raises, UTF-8 under PowerShell
+  does not.
+
 ## #172 — 2026-09-12 — feat: the decode rate times the tokens, not the request
 
 ### Added

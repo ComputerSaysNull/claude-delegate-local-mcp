@@ -497,6 +497,10 @@ local, because they are working notes rather than a product fact.
   the same budget against a fraction of the clock (#167)
 - ✅ 2026-09-12 **The heartbeat names a deadline that will not kill the turn**, reporting
   `dispatch_timeout` while a tighter one fires (#168)
+- ✅ 2026-09-12 **The docs gate dies while printing a finding that is not pure ASCII** (#173).
+  The hooks run under Git Bash, where stdout is cp1252, and the printing loop covers warnings
+  and runs before the verdict — so a non-ASCII warning killed a commit that was about to pass.
+  Invisible because the agent's own shell exports UTF-8
 - ⬜ **The 2026-09-11 audit's remaining findings**: the `read_metrics` note that calls the
   blend conservative when it is flattering under load, five cross-plane duplications, two
   unsourced claims in `docs/ARCHITECTURE.md`, and the three runbook findings in
