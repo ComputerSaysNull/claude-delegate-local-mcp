@@ -34,6 +34,87 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #179 — 2026-09-12 — docs: a copy task is not a decode benchmark
+
+### Changed
+- **The verification fan-out finally ran in the regime that kills things**, six STALE passes
+  at `effort: high` against a freshly reconnected server. Two answered where none had that
+  morning; two died at the stall deadline with zero turns, and two were refused by admission
+  after 1,800s each. The raw table is in JOURNAL.md.
+- **Every rate this project measured from a synthetic probe is withdrawn.** 65.6 tok/s solo
+  and 27.1 at six concurrent came from probes reproducing README.md verbatim out of their
+  own prompt. 27.1 at six is *faster* than the 23 measured at four, which cannot be true of
+  one decoder — contention only slows. The served model has a **speculative-decoding module
+  attached**, and copying in-prompt text is close to a best case for acceptance. The rule
+  this leaves: a benchmark task must not be answerable from its own prompt.
+- **The roadmap's original figures stand, unchanged.** 44.1 tok/s solo and 19.4 at six
+  concurrent were briefly called stale in this session on the strength of those probes. An
+  independent prose benchmark puts six concurrent just under 20, so the docstring carrying
+  them is left exactly as it was.
+- **The measured rate for real work is 23.19 tok/s at four concurrent** — four, not six,
+  because `peak_inflight_seqs` read 4 after the two admission-timed-out passes never took a
+  slot. Corroborated by the same outside benchmark at the same concurrency, which is what
+  rules out reasoning effort as the factor.
+
+### Fixed
+- **The cold start is decisive, not marginal, and the arithmetic is now exact.** A fresh
+  process has no history, so `expect(n)` finds nothing and every pass prices from
+  `cluster_since_boot` at 34.96 — **1.75x** above the six-way rate. The 37,756 tokens that
+  authorises need **1,888s of an 1,800s turn**, and two of four passes died there having
+  completed no turn. An honest rate prices 20,952, which is *itself* below the ~23,700 a
+  STALE pass wants, so the rate and `reply_budget_margin` have to move together or neither
+  helps.
+- **`admission_wait_timeout` was dropped from a session plan on reasoning this refutes.** It
+  had been filed as a consequence of passes producing nothing for 1,800-2,100s, and the plan
+  argued a working budget would dissolve it. Two passes answered here and it fired twice
+  anyway: `admission_timeouts` 2, `admission_wait_seconds_total` 3,600s, against
+  `kv_cache_used_fraction` **0.031** and 0 preemptions. The wait comes from a 2-wide gate
+  holding each slot for a whole delegation, not from what the delegations produce.
+
+### Added
+- **An item for releasing the *large* half of an admission lease at first token.** `admit()`
+  holds it until the delegation ends, and the prefill it exists to serialise is over once
+  decoding starts: first token at **64.1s** against delegations running 271-847s, and 2,100s
+  for the two that died — a slot held 4x to 33x longer than the work it protects. Only
+  reachable since ADR-0070, which made first-token arrival observable; before streaming,
+  nothing could tell a queued prefill from a running decode.
+- **`max_inflight_large_prefills` measured over twelve disjoint cold-prefill sets, and it is
+  pure overhead on this workload.** Limit 2 against 6: **4 of 6 queued against none, 286.3s
+  of aggregate waiting against zero**, the batch 12.1s slower and each call 10.2s slower,
+  with nothing bought. Limit 6's span is the floor the engine sets by serialising prefills
+  itself, and limit 2 cannot beat it. The setting is now a candidate for **removal** rather
+  than retuning, to be decided in the same ADR as the first-token release — the 2026-09-05
+  finding against raising it predates streaming, so it timed whole requests and could not
+  tell a queued prefill from a running decode.
+- **Three things established in this session and filed nowhere, found by re-reading the
+  roadmap against it rather than by trusting that it was current.** An empty `name:` in an
+  agent file is accepted where `docs/AGENTS.md` says it is refused — `agents.py` line 330
+  reads `if declared and declared != name`, and an empty string is falsy, so present-but-empty
+  is indistinguishable from absent. `transcript_dir`'s fallback is blocked on a decision, not
+  on effort: the only server-owned directory helper is tmpfs, which is wrong for an audit
+  record, and the ADR the item cites argues about the *caller's* flag where this is the
+  *operator's*. And releasing the large lease at first token would make
+  `max_inflight_large_prefills` **inert** rather than merely redundant, since the slots held
+  would then match what the engine is prefilling — one running plus one staged.
+- **A first attempt at that A/B was invalid and is recorded as such.** Both arms named one
+  file, so the prefix cache served everything after the first and the arms ran 0 and 1 cold
+  prefills against a gate that exists to serialise them. Check `input_tokens - cached_tokens`
+  per arm before believing a prefill measurement, and give each arm disjoint inputs — an A/B
+  otherwise contaminates its own second arm.
+- **A note that persisting `RateHistory` across restarts would have saved all four
+  non-admission deaths**, at no cluster cost — unlike a synthetic warm-up, whose samples
+  would be guesses at a concurrency and an effort no real work met, entering a structure
+  whose `min()` makes one bad sample permanent.
+- **The operator's decode benchmark, written down for the first time.** It is the table the
+  whole reply budget is priced against, and only two of its numbers had ever reached the
+  repository — `RateHistory`'s docstring, "44.1 tok/s alone and 19.4 at six concurrent",
+  which are its x1 and x6 rows at a 2,000-token cap. The rest lived in a session
+  transcript, which is why an evening was spent re-deriving figures that already existed.
+  Both token caps are filed, with the aggregate column beside the per-stream one: per-stream
+  falls 2.3x from one to six while aggregate rises 2.6x, and a budget priced from the
+  aggregate figure is six times wrong. It supersedes the 2026-09-04 entry's 36 tok/s
+  single-stream and ~85 aggregate.
+
 ## #178 — 2026-09-12 — docs: the margin named the wrong deadline and the wrong reason
 
 ### Fixed
