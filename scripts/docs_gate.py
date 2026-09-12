@@ -1540,7 +1540,38 @@ def ownership_findings(changed: list[str], reused_message: bool, mode: str) -> l
         "this one.")]
 
 
+def _printable_findings() -> None:
+    """Make stdout survive a finding message this gate did not choose the characters of.
+
+    The hooks run under Git Bash on Windows, where stdout is cp1252. A finding carrying a
+    character outside it -- a roadmap marker quoted back, a smart quote from a document --
+    raises `UnicodeEncodeError` *while printing the finding*, so the check fires and the
+    gate dies with a traceback instead of reporting what it found. Worse than the report it
+    replaces: the crash happens in the loop over blocks and warnings, which runs before the
+    verdict, so a non-ASCII **warning** kills a commit that was about to pass.
+
+    Nothing has hit this because every message written so far happens to be ASCII, and
+    because the agent's own shell sets PYTHONIOENCODING to UTF-8 -- so the one environment
+    that would have caught it is the one that masks it.
+
+    `backslashreplace` rather than a wider encoding: it cannot fail, it cannot lose
+    information, and on a terminal that could not have shown the character anyway an escape
+    is more use than a replacement glyph. A no-op where stdout is already UTF-8.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(errors="backslashreplace")
+            except (ValueError, OSError):
+                # A stream that refuses is one this cannot help -- a pipe already closed,
+                # or a double a test substituted. Printing is still attempted; failing here
+                # would be this function causing the crash it exists to prevent.
+                pass
+
+
 def main() -> int:
+    _printable_findings()
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=("pre-commit", "commit-msg", "ci"),
                     default="pre-commit")
