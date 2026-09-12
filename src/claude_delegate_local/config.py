@@ -263,11 +263,20 @@ class Config:
     )
     reply_budget_margin: float = _f(
         0.6,
-        "Share of the stall deadline a single reply may spend generating. The reply "
-        "budget is capped at this fraction of stall_timeout multiplied by the decode rate "
-        "measured at runtime, so the model is never handed more tokens than the clock can "
-        "pay for -- ADR-0055. Below 1.0 because a turn also prefills, and a turn that "
-        "decodes until the instant of its deadline is killed rather than delivered.",
+        "Share of whichever deadline binds that a single reply may spend generating: the "
+        "tightest of turn_timeout, the stall deadline's remainder and the delegation's, "
+        "multiplied by the decode rate measured at runtime, so the model is never handed "
+        "more tokens than the clock can pay for -- ADR-0055. On a first turn that is "
+        "turn_timeout, not stall_timeout, which sits above it. Below 1.0 to absorb error "
+        "in the rate, not the cost of prefilling, which measured about 2% of a turn here: "
+        "a cold start falls through to a since-boot mean blended over every concurrency "
+        "the engine has served, and that reads about 1.75x optimistic against a six-way "
+        "rate. This value does not cover that. Measured 2026-09-12: the cold-start "
+        "ceiling it authorises needs 1,888s of an 1,800s turn at six concurrent, and two "
+        "of four passes died there having completed no turn -- it would have to be about "
+        "0.57 to fit. Not moved here, because the rate is the thing that is wrong and a "
+        "constant chosen against a wrong rate is the mistake PLAN.md records against "
+        "kv_token_budget.",
     )
     reply_budget_floor: int = _f(
         4096,
