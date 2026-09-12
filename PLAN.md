@@ -1,4 +1,6 @@
-<!-- BUDGET: 610
+<!-- BUDGET: 630
+     Raised from 610 on 2026-09-12: re-deriving the margin confirmed the entry rather than
+     replacing it, and the reading that briefly said otherwise is recorded beside it.
      Raised from 600 on 2026-09-12: the rate memory's floor landed, which struck one
      item's premise and re-ranked the coalescing hold with what measured against it.
      Raised from 580 on 2026-09-12: verifying #172 end to end re-ranked three items on
@@ -547,12 +549,27 @@ local, because they are working notes rather than a product fact.
 - ⬜ **Work that does not fit one turn.** Two turns produced 13,268 and 16,909 output
   tokens, the first needing 1,750s at 7.6 tok/s. No budget makes that fit an 1,800s
   attempt; it is a splitting problem, not a pricing one
-  - **`reply_budget_margin` is the binding constraint, measured 2026-09-12, and was not
+  - ~~**`reply_budget_margin` is the binding constraint, measured 2026-09-12, and was not
     filed as one.** A STALE pass wants ~23,700 output tokens. An 1,800s turn at the real
     six-way rate of 19.4 authorises `1800 x 19.4 x 0.6` = **20,952** — so the margin alone
     puts the task out of reach whatever the rate estimate does. Below it a pass returns
     empty at length; above it the clock cannot decode what was authorised. Re-derive the
-    margin before splitting anything, or the split will be sized against the wrong number
+    margin before splitting anything, or the split will be sized against the wrong number~~
+  - **Re-derived 2026-09-12, and the original stands: the margin is the constraint.** An
+    intermediate reading put the six-way rate at 27.1 and concluded the pass fitted at
+    28,698. That rate came from probes reproducing their own prompt on a cluster with a
+    speculative-decoding module, so it was an artefact; the owner's independent benchmark
+    puts six concurrent just under 20 tok/s, which restores the 19.4 recorded here. At that
+    rate `1800 x 19.4 x 0.6` = **20,952** and ~23,700 is out of reach, exactly as filed
+  - **What the re-derivation did settle.** The denominator is `turn_timeout`, not the
+    `stall_timeout` the help text named, and the "a turn also prefills" justification is
+    wrong by twenty-fold — prefill measured ~2% of a turn. The value is untouched because
+    the rate is what is wrong: 0.6 would have to be about 0.57 for the cold-start ceiling
+    to fit an 1,800s turn at six concurrent, and fitting a constant to a wrong rate is the
+    mistake this roadmap records against `kv_token_budget`
+  - **This entry's own premise is next** — 7.6 tok/s is the same pre-#172 instrument, and a
+    turn needing 1,750s of an 1,800s attempt is the claim to re-measure before treating it
+    as a splitting problem
 
 ## Deferred
 

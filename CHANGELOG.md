@@ -34,6 +34,39 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #178 — 2026-09-12 — docs: the margin named the wrong deadline and the wrong reason
+
+### Fixed
+- **`reply_budget_margin` said it was a share of `stall_timeout`. It is not.** The ceiling
+  divides whichever deadline binds — `min(stall_left, dispatch_left, turn_timeout)` — and
+  on a first turn that is `turn_timeout` (1,800s), with `stall_timeout` (2,100s) sitting
+  above it and never binding. *Symptom:* a reader deriving the ceiling from the documented
+  formula gets 43,873 where the server prices 37,605. *Cause:* the help text predates
+  `turn_timeout` entering the `min`, and nothing re-read it when that landed. *Fix:* the
+  text names what the code uses. The behaviour is unchanged and was already covered by
+  `test_the_bound_follows_the_setting_rather_than_a_literal`, so no test is added — a new
+  one asserting what is already asserted could not fail.
+- **Its stated justification was measured and is wrong.** "Below 1.0 because a turn also
+  prefills" — prefill runs about 1,220 tok/s here, so a 45,000-token prefill costs ~37s of
+  an 1,800s turn, 2% against a reservation of 40%. What the margin absorbs is error in the
+  *rate*, and the help text now says so and says how much it fails to absorb.
+
+### Changed
+- **The value is untouched at 0.6, and it is not enough.** A cold start falls through to a
+  since-boot mean of 34.96 against a six-way rate just under 20 tok/s — about 1.75x
+  optimistic. The ceiling that authorises, 37,756 tokens, needs **1,888s of an 1,800s
+  turn**; two of four passes died there having completed no turn. To fit, the margin would
+  have to be about 0.57. It is not moved, because the rate is the thing that is wrong and
+  fitting a constant to a wrong rate is the mistake this roadmap records against
+  `kv_token_budget`.
+- **An intermediate reading of this, briefly held in this branch, was an artefact and is
+  withdrawn.** Probes measuring 65.6 tok/s solo and 27.1 six-way suggested `expect(1)`
+  would return 26.57 and the work would fit at 28,698. Those probes reproduced their own
+  prompt on a cluster with a speculative-decoding module attached — close to a best case
+  for acceptance — and an independent prose benchmark puts six concurrent just under 20.
+  The roadmap's original figures, 44.1 solo and 19.4 six-way, stand unchanged, and so does
+  its original claim that the margin puts ~23,700 output tokens out of reach.
+
 ## #177 — 2026-09-12 — fix: one short turn priced every later delegation
 
 ### Fixed
