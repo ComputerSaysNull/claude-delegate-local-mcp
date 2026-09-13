@@ -34,6 +34,53 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #184 — 2026-09-13 — docs: the first-token release did not retire the gate
+
+### Changed
+- **The roadmap's prediction for `max_inflight_large_prefills` had two halves and they
+  split.** It said a limit of 6 "can never bind and even 2 would rarely", so the setting
+  goes inert. Measured against a live cluster, six delegations per arm over disjoint sets of
+  37k–45k tokens: **at 6 that is confirmed** — nothing queued, every call took a lease at
+  once, and from this deployment's `.env` the setting really is inert. **At 2 it is refuted**
+  — still **4 of 6** queued, exactly as before the release existed, because a slot returned
+  at first token is still held for the whole prefill and six cold prefills do not fit in
+  two. What the release bought is *shorter* waits, 286.3s against **217.9s**, not fewer.
+- **That split is what argues for removal.** The setting does nothing at the value this host
+  runs and costs 217.9s at the value `config.py` ships to everyone else. A knob that is
+  inert where it is set and harmful at its default has no setting at which it earns its keep.
+- **The gate is still pure overhead on this workload, now shown after the release rather
+  than before it.** Limit 6 against limit 2: **0 of 6 queued against 4, 0.0s of waiting
+  against 217.9s**, mean elapsed 75.6s against 82.0s, and first-to-last finish 115.6s
+  against 126.2s. KV peaked at 0.034 against 0.032 and neither arm preempted anything, so
+  the waiting protects nothing measurable.
+- **`admission_wait_timeout`'s 1,800s is re-derivable now, and the answer is that it should
+  not be re-derived yet.** It was reachable only because the gate made it so; the longest
+  wait here was 89.0s, against a bound twenty times that. Fixing the gate removes the
+  pressure, so moving the number first would be tuning around a defect.
+
+### Added
+- **The setting counts leases, not prefills.** `peak_inflight_large_prefills` is what
+  *admission* granted, never what the cluster ran — six leases at limit 6 is not six
+  concurrent prefills, because the engine queues those itself. The clearest evidence is the
+  staircase, present in **both** arms: elapsed 24.7, 46.5, 71.4, 94.0, 116.2, 139.0 at limit
+  2 against 23.9, 44.7, 67.6, 82.2, 106.6, 128.4 at limit 6. So the setting bounds a number
+  it does not measure, and the thing it meant to bound is bounded already by the only
+  component that can see it.
+- **Coldness is now measured rather than argued.** 2026-09-12 built disjoint sets and
+  reasoned they must be cold because nothing had read them that day.
+  `prefix_cache_hit_tokens` answers directly: flat at 20,137,472 across arm 1 against
+  214,775 query tokens, so 100% cold, and +8,448 across arm 2, so 96.1%, from one file an
+  earlier delegation had read. The 96.1% is reported rather than hidden — it is the arm that
+  favours removal, so its contamination is the one worth declaring.
+- **The tension the removal will create, stated now rather than discovered later.** Taking
+  the gate out makes the first-token release vestigial, since returning a slot early matters
+  only where slots are scarce. That is the smaller half of ADR-0072: the token-arrival seam,
+  the stall deadline resetting on real output, and the heartbeat reporting what has arrived
+  are independent of the gate and stay.
+- **A trap for whoever repeats this.** `.env` here ships 6 where `config.py` ships 2, so
+  measuring the *shipped* behaviour means editing `.env` and reconnecting. At 6 the gate
+  cannot bind, and the run silently measures nothing while looking like it worked.
+
 ## #183 — 2026-09-13 — feat: a rate memory that outlives the process that learned it
 
 ### Fixed

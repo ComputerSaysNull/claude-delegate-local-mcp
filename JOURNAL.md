@@ -1566,3 +1566,59 @@ slot after two minutes for the ordinary reason: it had not reached first token, 
 engine serialises cold prefills itself. That is the gate's own justification arriving from
 the engine rather than from the setting, which is what makes the setting redundant rather
 than merely oversized.
+
+## 2026-09-13 — The gate is inert where it is set and harmful where it ships
+
+The roadmap expected releasing the large half of a lease at first token to make
+`max_inflight_large_prefills` inert: slots would be held only while a request was actually
+prefilling, so a limit of 2 would rarely bind. Measured against a live cluster, both arms at
+six delegations issued in one message over disjoint sets of 37k–45k tokens each.
+
+| | limit 2 | limit 6 |
+|---|---|---|
+| queued | **4 of 6** | 0 of 6 |
+| total wait | **217.9s** | 0.0s |
+| longest wait | 89.0s | 0.0s |
+| mean elapsed | 82.0s | 75.6s |
+| first to last finish | 126.2s | 115.6s |
+| peak large-prefill *leases* | 2 | 6 |
+| peak in-flight sequences | 3 | 6 |
+| KV peak / preemptions | 0.032 / 0 | 0.034 / 0 |
+
+**The prediction had two halves and split.** It said "a limit of 6 can never bind and even 2
+would rarely". The first is **confirmed**: at 6 nothing queued, every call took a lease
+immediately, and from this deployment's own `.env` the setting is indeed inert. The second
+is **refuted**: at 2 it still queues four of six, exactly as it did before the release
+existed, because a slot returned at first token is still a slot held for the whole prefill
+and six cold prefills do not fit in two. What the release bought is shorter waits — 286.3s
+then, 217.9s now, about 24% — not fewer of them.
+
+**That split is the argument for removal, not against it.** The setting does nothing at the
+value this host runs and costs 217.9s at the value `config.py` ships to everyone else. A
+knob that is inert where it is set and harmful at its default has no setting at which it
+earns its keep.
+
+**It buys nothing either, because it counts leases rather than prefills.** Limit 6 is faster
+on every axis while KV differs by 0.2 percentage points and neither arm preempted anything.
+Six leases at limit 6 is not six concurrent prefills: the engine queues those itself, which
+is what the staircase is — 24.7, 46.5, 71.4, 94.0, 116.2, 139.0 at limit 2 against 23.9,
+44.7, 67.6, 82.2, 106.6, 128.4 at limit 6, the same shape in both arms. So it bounds a number
+it does not measure, while the thing it meant to bound is bounded already by the only
+component that can see it. Read `peak_inflight_large_prefills` as leases granted, never as
+prefills run.
+
+**Coldness was measured rather than assumed, which is new.** 2026-09-12 argued its sets must
+be cold because nothing had read them that day. `prefix_cache_hit_tokens` answers directly:
+flat at 20,137,472 across arm 1 against 214,775 query tokens, so 100% cold; +8,448 across
+arm 2, so 96.1%, from one file an earlier delegation had read. One gauge settles what a
+paragraph of argument only suggests.
+
+**The tension this leaves, stated rather than buried.** Removing the setting makes the
+first-token release vestigial, since returning a slot early matters only where slots are
+scarce. That is the *smaller* half of ADR-0072 — the token-arrival seam, the deadline
+resetting on real output and the heartbeat are independent of the gate and stay.
+
+**Two traps for whoever runs this next.** `ACK`-sized answers cannot perturb the rate memory
+— 3 output tokens are refused by the 512 floor, and the file was byte-identical after twelve
+dispatches. And `.env` ships 6 where `config.py` ships 2, so measuring the *shipped*
+behaviour means editing `.env` and reconnecting, or the run measures nothing.
