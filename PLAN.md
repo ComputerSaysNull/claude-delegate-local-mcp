@@ -1,5 +1,6 @@
-<!-- BUDGET: 795
+<!-- BUDGET: 799 -->
      Raised from 775 (to 795) on 2026-09-13: reasoning is no longer discarded, plus four findings this session measured -- two about eviction, one about server-side tool time, one re-filing the M10 spike.
+     Raised from 775 on 2026-09-13: a search names its scope and is shown the map, which ticks one item and re-costs the walk item beneath it.
      Raised from 758 on 2026-09-13: four findings this session measured but no branch owned -- the third liveness state, and four viewer defects that state true things in ways that read false.
      Raised from 752 on 2026-09-13: the empty-name item closed against its own leaning, and why the code moved rather than the document is the part worth keeping.
      Raised from 744 on 2026-09-13: closing the 2026-09-11 audit, where two findings turned out to be wrong and saying why is worth more than the tick.
@@ -493,9 +494,12 @@ them was re-derived when it did.
 - ⬜ **A turn's independent tool calls run serially.** `_run_calls` holds one thread to preserve
   result order, but returned order need not be executed order and reads do not affect each
   other. `run_bash` stays ordered; the work is locking `cached` and `watch`
+- ✅ 2026-09-13 **Scoping was asked for and never shown** — `path` is required with an
+  `_unscoped_` escape, and the description carries the workspace layout, folders and files
+  (ADR-0076, #TBD). Unproven until a delegation's *first* search names a subdirectory
 - ⬜ **`search_files` walks in Python.** A thread pool over the per-file policy and read, or
   `ripgrep` for candidates with the policy applied after — the second crosses the boundary
-  `_search_files` holds, so its own ADR. ~2x against scoping's ~100x
+  `_search_files` holds, so its own ADR. ~2x, and the ~100x half is now taken
 - ⬜ **The deadline counts down while the *server* works on the delegation's behalf.** A third
   liveness state ADR-0072 does not name: producing, silent, and producing nothing on the wire
   because a tool is running. Measured 2026-09-13 — 505s of one turn with `chunks_seen` frozen

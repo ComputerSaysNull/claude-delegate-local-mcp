@@ -54,19 +54,19 @@ def workspace(tmp_path: Path) -> Path:
 # --- the declaration site ---------------------------------------------------------------
 
 
-def test_declared_tools_returns_only_the_permitted_ones():
-    names = [s.name for s in tools.declared_tools({"read_file"})]
+def test_declared_tools_returns_only_the_permitted_ones(tmp_path):
+    names = [s.name for s in tools.declared_tools(cfg(tmp_path), {"read_file"})]
     assert names == ["read_file"]
 
 
-def test_declared_tools_returns_nothing_for_an_empty_set():
-    assert tools.declared_tools(set()) == ()
+def test_declared_tools_returns_nothing_for_an_empty_set(tmp_path):
+    assert tools.declared_tools(cfg(tmp_path), set()) == ()
 
 
-def test_declared_order_is_the_registry_order_not_the_callers():
+def test_declared_order_is_the_registry_order_not_the_callers(tmp_path):
     """Schemas sit in the cached prefix (ADR-0011), so the same set must render the same."""
-    forward = [s.name for s in tools.declared_tools(["read_file", "write_file"])]
-    backward = [s.name for s in tools.declared_tools(["write_file", "read_file"])]
+    forward = [s.name for s in tools.declared_tools(cfg(tmp_path), ["read_file", "write_file"])]
+    backward = [s.name for s in tools.declared_tools(cfg(tmp_path), ["write_file", "read_file"])]
     assert forward == backward == ["read_file", "write_file"]
 
 
@@ -558,10 +558,11 @@ def test_edit_file_refuses_a_missing_file_rather_than_creating_one(workspace):
     assert not (workspace / "nope.py").exists()
 
 
-def test_edit_file_is_not_offered_to_a_read_only_delegation():
+def test_edit_file_is_not_offered_to_a_read_only_delegation(tmp_path):
     """Derived from `writes`, so this cannot pass by anyone remembering to update a list."""
     assert "edit_file" not in tools.READ_ONLY_TOOL_NAMES
-    assert "edit_file" not in {s.name for s in tools.declared_tools(tools.READ_ONLY_TOOL_NAMES)}
+    declared = {s.name for s in tools.declared_tools(cfg(tmp_path), tools.READ_ONLY_TOOL_NAMES)}
+    assert "edit_file" not in declared
 
 # --- run_bash ---------------------------------------------------------------------------
 
@@ -617,7 +618,7 @@ def test_the_route_is_open_and_nothing_narrows_it_any_more(workspace, monkeypatc
     assert "run_bash" in tools.available_tool_names(c)
     assert "run_bash" in tools.resolve_allowed(None, c)
     assert "run_bash" in tools.resolve_allowed(["run_bash", "read_file"], c)
-    assert [s for s in tools.declared_tools(tools.resolve_allowed(None, c))
+    assert [s for s in tools.declared_tools(c, tools.resolve_allowed(None, c))
             if s.name == "run_bash"]
 
 
@@ -640,7 +641,8 @@ def test_run_bash_is_not_declared_where_bubblewrap_is_absent(workspace, monkeypa
     # And a caller naming it explicitly still cannot widen the set back, which is the
     # property `resolve_allowed` exists for.
     assert "run_bash" not in tools.resolve_allowed(["run_bash"], c)
-    assert "run_bash" not in {s.name for s in tools.declared_tools(tools.resolve_allowed(None, c))}
+    declared = {s.name for s in tools.declared_tools(c, tools.resolve_allowed(None, c))}
+    assert "run_bash" not in declared
     # The other two are untouched: this narrows one tool for one reason, not the set.
     assert tools.available_tool_names(c) == frozenset(
         {"read_file", "search_files", "read_git", "write_file", "edit_file"})
@@ -937,6 +939,9 @@ def haystack(tmp_path: Path) -> Path:
 
 
 def _search(root: Path, **args) -> str:
+    # `path` is required, so the default here is the root these fixtures build. A test that
+    # is *about* scope passes its own, and the unscoped case names the sentinel explicitly.
+    args.setdefault("path", str(root))
     result = tools.execute_tool(
         cfg(root), call("search_files", **args), tools.ALL_TOOL_NAMES)
     assert not result.is_error, result.content
@@ -966,9 +971,14 @@ def test_the_citation_never_joins_the_name_and_number_with_a_colon(haystack):
 
 
 @posix_only
-def test_it_searches_the_whole_workspace_when_no_path_is_given(haystack):
-    """The point of the tool. With `path` required it would be a second `read_file`."""
-    out = _search(haystack, pattern=r"alpha")
+def test_it_searches_the_whole_workspace_when_the_sentinel_is_given(haystack):
+    """The point of the tool, and what the sentinel exists to keep reachable.
+
+    `path` is required now, so this capability is expressed by naming `_unscoped_` rather
+    than by omitting an argument. Without it the tool would be a second `read_file`, which
+    is why the escape is a real one and is tested as such rather than assumed.
+    """
+    out = _search(haystack, pattern=r"alpha", path=tools.UNSCOPED)
     assert "core.py" in out
     assert "helper.py" in out
     assert "notes.md" in out
@@ -1120,7 +1130,8 @@ def test_the_scan_cap_is_reported_rather_than_passing_as_exhaustive(haystack):
         (haystack / "pkg" / f"m{i}.py").write_text("filler\n", encoding="utf-8")
     result = tools.execute_tool(
         cfg(haystack, search_max_files_scanned=2),
-        call("search_files", pattern="zzz_absent"), tools.ALL_TOOL_NAMES)
+        call("search_files", pattern="zzz_absent", path=str(haystack)),
+        tools.ALL_TOOL_NAMES)
     assert not result.is_error
     assert "not exhaustive" in result.content
 
@@ -1179,7 +1190,7 @@ def test_a_write_is_refused_at_execution_for_a_read_only_toolset(workspace):
 
 def test_the_read_only_set_is_what_is_declared_to_the_model(workspace):
     """Site one, for completeness: offered and executable agree for this set."""
-    names = sorted(s.name for s in tools.declared_tools(tools.READ_ONLY_TOOL_NAMES))
+    names = sorted(s.name for s in tools.declared_tools(cfg(workspace), tools.READ_ONLY_TOOL_NAMES))
     assert names == ["read_file", "read_git", "search_files"]
 
 
@@ -1336,13 +1347,13 @@ def test_long_output_is_truncated_on_a_line_boundary_and_says_so(repo):
     assert "[truncated:" in result.content
 
 
-def test_read_git_is_declared_and_executable_from_one_registry_entry():
+def test_read_git_is_declared_and_executable_from_one_registry_entry(tmp_path):
     """Both enforcement sites read `REGISTRY`, so a tool cannot be offered without being
     runnable or the other way round. Asserted rather than assumed, because the asymmetry
     is the trap CLAUDE.md records for `allowed_tools`."""
     assert "read_git" in tools.REGISTRY
-    assert "read_git" in {s.name for s in tools.declared_tools({"read_git"})}
-    assert "read_git" not in {s.name for s in tools.declared_tools({"read_file"})}
+    assert "read_git" in {s.name for s in tools.declared_tools(cfg(tmp_path), {"read_git"})}
+    assert "read_git" not in {s.name for s in tools.declared_tools(cfg(tmp_path), {"read_file"})}
     # Withheld from the declared list, it must still be refused by the executor.
     result = tools.execute_tool(
         cfg(Path.cwd()), call("read_git", repo=".", command="log"), {"read_file"}
