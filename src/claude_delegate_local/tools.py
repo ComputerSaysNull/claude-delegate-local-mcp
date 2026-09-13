@@ -360,13 +360,35 @@ def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
     return _Hits(tuple(lines), files, truncated)
 
 
-def _search_report(cfg: Config, hits: _Hits, *, capped: bool) -> str:
+def _unscoped_note(cfg: Config) -> str:
+    """What an omitted `path` actually cost, said where the model will read it.
+
+    The result rather than the schema, because a schema is read once and a result is read
+    every time -- and because the alternative, refusing a `glob` with no `path`, would
+    break a legitimate search: finding every `conftest.py` anywhere is exactly that shape.
+
+    Measured 2026-09-13 on this deployment: all-roots searches took 490-572s where the same
+    call scoped to a subdirectory took under 6s. The note names the roots rather than the
+    multiple, because the multiple is this hardware's and the roots are the caller's.
+    (ADR-0074)
+    """
+    return (
+        "Scanned every workspace root, because `path` was omitted: "
+        + ", ".join(resolved_roots(cfg))
+        + ". Naming a directory in `path` is far faster -- a `glob` does not narrow this, "
+          "it only narrows which of the walked files are opened."
+    )
+
+
+def _search_report(cfg: Config, hits: _Hits, *, capped: bool, unscoped: bool) -> str:
     """The result, with every reason it might be incomplete stated in it.
 
     A truncated search that reads like an exhaustive one is the failure worth avoiding:
     the model will conclude a symbol does not exist, and say so confidently.
     """
     tail: list[str] = [f"{len(hits.lines)} matching line(s) in {hits.files} file(s)."]
+    if unscoped:
+        tail.append(_unscoped_note(cfg))
     if hits.truncated:
         tail.append(
             "Stopped early, so there are more matches than these -- raise max_results, or "
@@ -439,9 +461,10 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
             else "The pattern is absent from everything the path policy lets you read "
                  "there; it may still exist in a file that policy declines."
         )
-        return f"No line matched {raw!r} in {where}{scope_note}. {why}"
+        note = f" {_unscoped_note(cfg)}" if "path" not in args else ""
+        return f"No line matched {raw!r} in {where}{scope_note}. {why}{note}"
 
-    return _search_report(cfg, hits, capped=capped)
+    return _search_report(cfg, hits, capped=capped, unscoped="path" not in args)
 
 
 def _write_file(cfg: Config, args: dict[str, object]) -> str:
@@ -1030,9 +1053,10 @@ SEARCH_FILES = RegisteredTool(
             "lines, each as a file name, the word line, and a line number -- so you can "
             "read the part you want with read_file and cite it. This is how you find "
             "something whose location you do not know; read_file is for when you do. "
-            "Omit path to search everywhere, or give a directory to narrow it, and use "
-            "glob to restrict which file names are opened (a test helper is found far "
-            "faster with glob=test_*.py than by reading directories). Files the path "
+            "Give path a directory whenever you can even roughly guess one: it is the only "
+            "argument that narrows the walk, and omitting it scans every workspace root. "
+            "glob narrows which of the walked files are opened, not how many are walked, "
+            "so it is not a substitute. Files the path "
             "policy declines are not searched and are not reported: they are not results. "
             "The reply says when it stopped early or hit its scan cap -- read that before "
             "concluding something does not exist, because a narrowed search that found "
@@ -1048,13 +1072,18 @@ SEARCH_FILES = RegisteredTool(
                 },
                 "path": {
                     "type": "string",
-                    "description": "Absolute path to a directory or file to search. Omit "
-                                   "to search the whole workspace.",
+                    "description": "Absolute path to a directory or file to search, and "
+                                   "the only argument that narrows the walk. Omitting it "
+                                   "walks every workspace root and policy-checks every "
+                                   "file in them, which is far slower than naming even a "
+                                   "roughly right directory.",
                 },
                 "glob": {
                     "type": "string",
                     "description": "Only open files whose NAME matches this glob, e.g. "
-                                   "*.py or test_*.py. Matches the name, not the path.",
+                                   "*.py or test_*.py. Matches the name, not the path. It "
+                                   "narrows what is opened, never what is walked, so it "
+                                   "does not replace path.",
                 },
                 "max_results": {
                     "type": "integer",

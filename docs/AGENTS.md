@@ -1,4 +1,6 @@
-<!-- BUDGET: 469
+<!-- BUDGET: 473
+     Raised from 469 on 2026-09-13: a remedy now names the configured roots, because the one
+     it used to suggest instead -- dropping the argument -- was the slowest call available.
      Raised from 463 on 2026-09-10: the format said the body becomes the system prompt and
      it does not, so where it is actually delivered has to be stated (ADR-0011).
      Raised from 455 on 2026-09-10: layer 3 gained an exemption prefix, and why it is an
@@ -221,7 +223,9 @@ before anything is dispatched, so its refusal ends the call and says so. A `path
 the delegation continues from — so it names the `path` argument and makes no claim about a
 dispatch. Until 2026-09-06 every one of those reported "path(s) in `files[]` were refused,
 so nothing was sent to the model", which named an argument the model had not written and a
-consequence that had not happened.
+consequence that had not happened. A remedy names the configured roots rather than offering
+to drop the argument — a refusal fires when the caller has just shown it does not know the
+layout, and for a search that fallback was the slowest call available (ADR-0074).
 
 All three run the same four layers through the same function, so a pattern cannot deny
 `read_file` while leaving the same file findable by search. Separate functions rather than a

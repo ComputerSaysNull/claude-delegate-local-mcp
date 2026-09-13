@@ -19,6 +19,57 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0074 — 2026-09-13 — A glob is not a scope, and a cost is taught in the result — Accepted
+
+**Context.** `search_files` walks every workspace root when `path` is omitted, policy-checks
+every candidate and opens each permitted file, in the server process and in series. Measured
+2026-09-13, taking tool time as `ms` minus `backend_ms`:
+
+| shape | tool time |
+|---|---|
+| no `path`, all roots | 490s, 505s, 572s |
+| `path` = the whole repository | 121s |
+| `path` = a subdirectory | 0.7s, 2.4s, 6.1s |
+| `read_file` | 0.12s – 1.1s |
+
+One delegation spent about 2,400s of a 44-minute run inside six unscoped searches. It was not
+being careless: **the contract recommended it, in two of the four homes ADR-0066 assigns.**
+The `glob` argument claimed a helper is "found far *faster* with glob=test_\*.py", which is
+false — `glob` narrows what is opened, never what is walked — and the three worst calls set
+`glob` and omitted `path`. The refusal for a bad `path` then said "or omit it to search
+everywhere"; a delegation that guessed a root took exactly that advice and spent 239s.
+
+**Decision.** Three changes, one per home.
+
+- **`inputSchema`** says what each argument narrows: `path` is the only one that narrows the
+  walk, `glob` narrows which walked files are opened and is not a substitute. `glob` is not
+  useless — `scanned` increments after the glob test, so a globbed search reaches further
+  before the scan cap — but every filename is still walked and `os.path.islink`-ed first,
+  and on `/mnt/c` that is where the time goes.
+- **The result** carries a note naming the roots actually scanned whenever `path` was
+  omitted. The result rather than the schema, because a schema is read once and a result is
+  read every time.
+- **The refusal** names the configured roots instead of offering to drop `path`. A refusal
+  fires exactly when the model has shown it does not know the layout, so recommending the
+  most expensive call at that moment is the worst available advice, and the roots are the
+  one thing it was missing.
+
+**Rejected: refusing a `glob` with no `path`.** It would break a legitimate search — finding
+every `conftest.py` anywhere is that exact shape — and trading a real capability away to fix
+an expensive default is the wrong bargain. A note cannot false-refuse anything.
+
+**Rejected: naming the measured multiple in the shipped text.** "About 100x" is this
+hardware's number, on `/mnt/c` at roughly 12x the syscall cost (ADR-0020). Baking it into a
+description repeats the mistake `PLAN.md` records against `kv_token_budget`. The text states
+the shape — every root walked, every file policy-checked — which is true anywhere.
+
+**Not decided here.** Making the walk itself faster: a thread pool over `resolve_permitted`
+and `_search_hits`, or `ripgrep` for candidates with the path policy applied to its matches.
+Both are worth roughly 2x against scoping's 100x, and the second crosses the boundary
+`_search_files` exists to hold, so neither rides along with this.
+
+---
+
 ## ADR-0073 — 2026-09-13 — Taking prefill out of the interval inverted the floor's job — Accepted
 
 **Context.** ADR-0071 gave `RateHistory` a 512-token floor after a 237-token turn recorded

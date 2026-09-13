@@ -1,4 +1,5 @@
-<!-- BUDGET: 710
+<!-- BUDGET: 722
+     Raised from 710 on 2026-09-13: measuring one delegation end to end filed four items nobody knew were there -- a rate above the cluster's physical maximum, an unscoped search costing 500s, and the two ways of making tool execution concurrent.
      Raised from 692 on 2026-09-13: the lease item ticked with streaming slices 2-3, what slice 4 now carries, and the setting-removal work carried out of the ticked body before it froze.
      Raised from 670 on 2026-09-12: three things established in a session and filed
      nowhere -- a doc/code mismatch, a blocked design, and what the lease fix retires.
@@ -453,6 +454,16 @@ them was re-derived when it did.
   estimators; one shared floor now, and the cost is tested rather than hidden (ADR-0073, #181)
 - ⬜ **`rate_source` names where the *seed* came from, not the number beside it.** It is set once
   in `__init__`, so `observed_at_concurrency` can label an EMA no observation at it produced
+- ✅ 2026-09-13 **An unscoped `search_files` cost 490-572s, and the contract recommended it** —
+  `glob` claimed to be the speed lever and the bad-`path` refusal said "omit it to search
+  everywhere", which one delegation did, at 239s. Scope is worth ~100x; `read_file` was never
+  the problem. Schema, result note and refusal all fixed (ADR-0074, #182)
+- ⬜ **A turn's independent tool calls run serially.** `_run_calls` holds one thread to preserve
+  result order, but returned order need not be executed order and reads do not affect each
+  other. `run_bash` stays ordered; the work is locking `cached` and `watch`
+- ⬜ **`search_files` walks in Python.** A thread pool over the per-file policy and read, or
+  `ripgrep` for candidates with the policy applied after — the second crosses the boundary
+  `_search_files` holds, so its own ADR. ~2x against scoping's ~100x
 
 Neither queued nor deferred: real work not yet ranked against a milestone.
 
