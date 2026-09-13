@@ -86,7 +86,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_MAX_TURNS_DEFAULT` | 25 | Round trips a delegation gets before the server stops it. One turn is one model reply plus any tool it ran. |
 | `DELEGATE_MAX_TURNS_HARD_CAP` | 100 | Ceiling no agent file or caller may exceed. Stops an agent definition asking for 500 turns and occupying the cluster for hours. Raised from 40 once max_turns became overridable per call: the cap exists to refuse an absurd number, not to decide what a hard case may ask for, and 40 was low enough to be the second. A caller's number is clamped here silently; an agent file's is refused, so the file is fixed rather than quietly ignored. |
-| `DELEGATE_KEEP_TOOL_RESULTS` | 6 | Most recent tool results kept intact; older ones collapse to a one-line stub. Every turn resends the whole history, so this is what stops quadratic growth. |
+| `DELEGATE_KEEP_TOOL_RESULTS` | 16 | Most recent tool results kept intact; older ones collapse to a one-line stub. Every turn resends the whole history, so this is what stops quadratic growth. Raised from 6, which was sized against no measurement: a real 36-result run held about 104,730 tokens in total, roughly 10% of a 1,048,576-token window, where 6 retained 2.71% and 16 retains 5.25%. A count is the wrong unit for the question -- those 36 results ranged from 200 bytes to 50,068, so it prices a one-line refusal and a 50KB file identically -- and that is filed rather than fixed here. |
 
 ### Context overflow
 

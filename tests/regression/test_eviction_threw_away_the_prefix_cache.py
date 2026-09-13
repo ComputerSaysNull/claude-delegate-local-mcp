@@ -32,6 +32,8 @@ instrument being right rather than a coincidence.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from claude_delegate_local.backends.base import (
@@ -104,25 +106,36 @@ def _shared_prefix_chars(a: tuple[Message, ...], b: tuple[Message, ...]) -> int:
     return total
 
 
-def _guard(*, under_pressure: bool, armed: bool = True) -> _OverflowGuard:
+def _guard(
+    *, under_pressure: bool, armed: bool = True, window_declared: bool = True
+) -> _OverflowGuard:
     """A guard whose pressure reading is fixed, so a test names its own case.
 
     `share()` is a projection over token counts the backend reports; driving it from real
     counts here would make these tests depend on the estimator rather than on the eviction
     boundary, which is what they are about.
+
+    `window_declared` says whether the entry's context window is a number the operator
+    chose. It decides whether `share()` means anything, and so whether the boundary is
+    driven by pressure or by a count.
     """
-    guard = _OverflowGuard(_cfg(context_overflow_enabled=armed), _entry())
+    entry = replace(_entry(), context_window_defaulted=not window_declared)
+    guard = _OverflowGuard(_cfg(context_overflow_enabled=armed), entry)
     guard.share = lambda: 0.9 if under_pressure else 0.05  # type: ignore[method-assign]
     return guard
 
 
-def _walk(*, under_pressure: bool, armed: bool = True) -> list[float]:
+def _walk(
+    *, under_pressure: bool, armed: bool = True, window_declared: bool = True
+) -> list[float]:
     """Reusable share of each turn's prompt against the turn before it.
 
     One guard for the whole walk, because the boundary it carries between turns is the
     property under test. Rebuilding it per turn would test the old behaviour.
     """
-    guard = _guard(under_pressure=under_pressure, armed=armed)
+    guard = _guard(
+        under_pressure=under_pressure, armed=armed, window_declared=window_declared
+    )
     shares: list[float] = []
     previous = stub_oldest_tool_results(_history(KEEP), guard.evict_upto(KEEP))[0]
     for turn in range(KEEP + 1, TURNS + 1):
@@ -182,13 +195,31 @@ def test_an_unarmed_guard_still_bounds_the_history() -> None:
     left the default configuration never evicting at all -- trading a cache bug for an
     unbounded history, which is worse. Stepping is therefore unconditional, and this is the
     test that says so.
+
+    Narrowed once: stepping is unconditional where pressure cannot be *read*, which is the
+    case this was written for -- a window the entry inherited, so `share()` is measured
+    against a number nobody chose. Where the operator declared a window, the bound moved
+    from a count to the pressure threshold rather than being removed, and the test below
+    holds that. Not a weakening: a stable prefix is nearly free to resend, and eviction both
+    resets the prefix cache and makes the model fetch what it dropped.
     """
-    guard = _guard(under_pressure=False, armed=False)
+    guard = _guard(under_pressure=False, armed=False, window_declared=False)
     assert guard.evict_upto(TURNS) > 0
 
     # And it is still stepped rather than per-turn, which is the other half.
-    shares = _walk(under_pressure=False, armed=False)
+    shares = _walk(under_pressure=False, armed=False, window_declared=False)
     assert sum(shares) / len(shares) > 0.50
+
+
+def test_a_declared_window_bounds_on_pressure_rather_than_on_count() -> None:
+    """The other side of the narrowing, and the reason it is not an unbounded history.
+
+    Below the threshold nothing is stubbed, so the prefix survives whole. Above it the
+    bound applies exactly as before -- the history is bounded either way, at a ceiling the
+    operator's own window sets rather than at a count sized against nothing.
+    """
+    assert _guard(under_pressure=False, window_declared=True).evict_upto(TURNS) == 0
+    assert _guard(under_pressure=True, window_declared=True).evict_upto(TURNS) > 0
 
 
 def test_the_boundary_never_retreats() -> None:

@@ -45,7 +45,10 @@ def cfg(**over) -> Config:
 
 
 def entry(**over) -> ModelEntry:
-    kw = {"key": "flash", "base_url": HOST, "served_model_id": "served-id-1"}
+    kw = {"key": "flash", "base_url": HOST, "served_model_id": "served-id-1",
+          # No context_window, so it is inherited -- which is what the registry would
+          # record for this entry, and what decides whether `share()` means anything.
+          "context_window_defaulted": True}
     kw.update(over)
     return ModelEntry(**kw)  # type: ignore[arg-type]
 
