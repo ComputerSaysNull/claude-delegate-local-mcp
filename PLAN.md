@@ -1,5 +1,5 @@
-<!-- BUDGET: 700
-     Raised from 692 on 2026-09-13: the lease item ticked, and streaming slices 2-3 with it -- plus what slice 4 now carries and the viewer question it raises.
+<!-- BUDGET: 710
+     Raised from 692 on 2026-09-13: the lease item ticked with streaming slices 2-3, what slice 4 now carries, and the setting-removal work carried out of the ticked body before it froze.
      Raised from 670 on 2026-09-12: three things established in a session and filed
      nowhere -- a doc/code mismatch, a blocked design, and what the lease fix retires.
      Raised from 630 on 2026-09-12: an outside benchmark withdrew every probe figure and an A-B
@@ -591,8 +591,8 @@ local, because they are working notes rather than a product fact.
     `kv_cache_used_fraction` **0.031** and 0 preemptions — binding on an idle cluster.
     **Re-ranked up**, but the item below is probably the fix, so measure that before
     moving 1800
-- ✅ **Release the *large* half of an admission lease at first token, not at the end of the
-  run.** `admit()` holds it for the whole delegation, and the prefill it exists to serialise
+- ✅ 2026-09-13 **Release the *large* half of an admission lease at first token, not at the
+  end of the run.** `admit()` holds it for the whole delegation, and the prefill it serialises
   is over once decoding starts. Measured 2026-09-12 at `effort: high`: time to first token
   **64.1s**, delegations running 271-847s, and the two that died holding a slot for 2,100s —
   4x to 33x longer than the work it protects, which is what made two passes wait out
@@ -615,6 +615,14 @@ local, because they are working notes rather than a product fact.
     limit 2 cannot beat it. **So the setting is a candidate for removal, not retuning**, and
     that decision belongs in the same ADR as the first-token release above — a slot released
     at first token may make the question moot either way
+- ⬜ **Remove `max_inflight_large_prefills`, or find the fan-out where it earns its keep.**
+  Carried out of the ticked item above, whose body is frozen. 2026-09-13, three delegations
+  on the first-token release: the gate never bound, and the one still holding a slot after
+  two minutes was held by the *engine* queueing its prefill, not by the rule. Evidence of
+  redundancy, not a decision — three calls on one machine is not the case that matters, so
+  re-run it wider at the shipped limit of **2**. **`admission_wait_timeout` and M12's
+  `is_large` both wait on this**: 1,800s is re-derivable only once the gate that made it
+  reachable is settled, and `is_large` is read by this rule alone
 - ⬜ **Work that does not fit one turn.** Two turns produced 13,268 and 16,909 output
   tokens, the first needing 1,750s at 7.6 tok/s. No budget makes that fit an 1,800s
   attempt; it is a splitting problem, not a pricing one
