@@ -1,4 +1,5 @@
-<!-- BUDGET: 752
+<!-- BUDGET: 758
+     Raised from 752 on 2026-09-13: the empty-name item closed against its own leaning, and why the code moved rather than the document is the part worth keeping.
      Raised from 744 on 2026-09-13: closing the 2026-09-11 audit, where two findings turned out to be wrong and saying why is worth more than the tick.
      Raised from 726 on 2026-09-13: the gate measurement answered three items at once, and the removal it calls for carries five consumers that must not be rediscovered.
      Raised from 722 on 2026-09-13: verifying the rate memory against a live cluster found the copy-from-prompt artefact reproducing on real work, which no floor catches.
@@ -477,12 +478,17 @@ them was re-derived when it did.
 
 Neither queued nor deferred: real work not yet ranked against a milestone.
 
-- ⬜ **An empty `name:` is accepted where the document says it is refused.** `agents.py` line
+- ✅ 2026-09-13 **An empty `name:` is accepted where the document says it is refused.**
+  `agents.py` line
   330 reads `if declared and declared != name`, so a bare `name:` with no value is falsy and
   treated as absent, while `docs/AGENTS.md` says a `name` that is present "must equal the
   filename, or the file is refused". Either the code distinguishes present-but-empty from
   absent, or the document stops promising it does — the second is cheaper and probably right.
   Found by a STALE pass during the 2026-09-12 verification fan-out
+  - **Closed the other way, 2026-09-13** (#186). The code moved, not the document: the
+    unknown-key refusal eleven lines above calls a silently-ignored setting "the bug this
+    format was rewritten to prevent", and a bare `name:` is that shape. Refusing costs
+    nothing — a matching `name` is redundant and a disagreeing one was already refused
 - ⬜ Content-level detection for a renamed secret — every path-policy layer inspects the
   path and none the bytes, so `config.json` holding a private key passes all of them and is
   inlined, and `run_bash` can read one the mount-level scan did not match by name. One

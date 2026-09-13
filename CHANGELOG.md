@@ -34,6 +34,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #186 — 2026-09-13 — fix: refuse an empty agent name
+
+### Fixed
+- **A bare `name:` loaded cleanly where `docs/AGENTS.md` says the file is refused.**
+  `validate` read `_scalar(raw.get("name", ""))` and then `if declared and declared != name`.
+  YAML parses `name:` as null and `_scalar` renders it `""`, which is exactly what an absent
+  key gives — so present-but-empty was indistinguishable from absent and the promise that a
+  present `name` must equal the filename quietly did not hold. Now refused, with the
+  filename it would have had to be.
+
+### Changed
+- **`PLAN.md` filed this leaning towards changing the document instead, as the cheaper of
+  the two, and that is the half this rejects.** The argument sits eleven lines above the
+  bug: `validate` refuses an *unknown* key rather than ignoring it because "a typo would
+  otherwise cost you the setting in silence, and a setting that silently does nothing is the
+  bug this format was rewritten to prevent". A bare `name:` is that shape exactly — a key
+  typed on purpose whose value went missing. The document was right and the code was wrong,
+  so the code moved.
+- **Refusing it costs nothing real**, which is why the cheaper fix was also the worse one. A
+  `name` equal to the filename is redundant and one that disagrees was already refused, so
+  no working file carries a bare `name:` on purpose. Two controls hold the line: an absent
+  `name` still loads, and a matching one still loads — a guard that broke either would pass
+  every assertion about the empty case while breaking every agent file in the repository.
+
 ## #185 — 2026-09-13 — docs: close the 2026-09-11 audit, including two findings that were wrong
 
 ### Fixed

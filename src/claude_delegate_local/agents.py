@@ -326,6 +326,21 @@ def validate(
             "nothing is the bug this format was rewritten to prevent."
         )
 
+    # Present-but-empty is a third case, and it used to read as absent. `name:` with no
+    # value parses as null and renders as "", which is indistinguishable from the key not
+    # being there -- so the file loaded and `docs/AGENTS.md`'s promise that a present `name`
+    # must match the filename quietly did not hold. It is the same shape as the unknown-key
+    # refusal above: a key typed on purpose whose value went missing, silently doing
+    # nothing. Refusing costs nothing real, because a `name` equal to the filename is
+    # redundant and one that disagrees was already refused.
+    if "name" in raw and not _scalar(raw["name"] or ""):
+        raise AgentError(
+            f"{where} declares an empty 'name:'. A name that is present must equal the "
+            f"filename, so it would have to be {name!r} -- and a key with no value is a "
+            "setting that silently does nothing, which this format refuses on principle. "
+            "Give it a value or delete the line; the filename already names the agent."
+        )
+
     declared = _scalar(raw.get("name", ""))
     if declared and declared != name:
         raise AgentError(
