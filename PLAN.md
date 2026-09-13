@@ -1,4 +1,5 @@
-<!-- BUDGET: 758
+<!-- BUDGET: 775
+     Raised from 758 on 2026-09-13: four findings this session measured but no branch owned -- the third liveness state, and four viewer defects that state true things in ways that read false.
      Raised from 752 on 2026-09-13: the empty-name item closed against its own leaning, and why the code moved rather than the document is the part worth keeping.
      Raised from 744 on 2026-09-13: closing the 2026-09-11 audit, where two findings turned out to be wrong and saying why is worth more than the tick.
      Raised from 726 on 2026-09-13: the gate measurement answered three items at once, and the removal it calls for carries five consumers that must not be rediscovered.
@@ -475,6 +476,22 @@ them was re-derived when it did.
 - ⬜ **`search_files` walks in Python.** A thread pool over the per-file policy and read, or
   `ripgrep` for candidates with the policy applied after — the second crosses the boundary
   `_search_files` holds, so its own ADR. ~2x against scoping's ~100x
+- ⬜ **The deadline counts down while the *server* works on the delegation's behalf.** A third
+  liveness state ADR-0072 does not name: producing, silent, and producing nothing on the wire
+  because a tool is running. Measured 2026-09-13 — 505s of one turn with `chunks_seen` frozen
+  and `ends_in_seconds` falling 60s per minute, then jumping back when the turn completed. Two
+  such turns cost 40% of a 2,100s stall budget; one long enough is killed while working. The
+  event loop is *not* blocked — `_run_calls` goes through `asyncio.to_thread` — so this bounds
+  the delegation only
+- ⬜ **The viewer states true things in ways that read false.** Four findings, one branch:
+  `requests_running` in a `priced` row is the lease's grant-time concurrency echoed, not live
+  cluster state, and the viewer renders it as "N running"; a turn boundary collapses into one
+  displayed second, so a budget line attaches to the wrong turn (turn 15's end and turn 16's
+  pricing were 5ms apart); the state column is 9 wide against a 2-wide gutter, so "queued 38s"
+  has no room and "queued 120s" overflows — count minutes past 59s; and a queued delegation
+  paints a row per second, which should be once a minute plus one line when it ends
+- ⬜ **The registry's `concurrency` default is 5** while this deployment's `models.toml` sets
+  6. Carried out of the session hand-off notes, which are not a document anyone else reads
 
 Neither queued nor deferred: real work not yet ranked against a milestone.
 
