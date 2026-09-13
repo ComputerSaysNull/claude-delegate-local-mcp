@@ -1,7 +1,8 @@
-<!-- BUDGET: 728 -->
+<!-- BUDGET: 736 -->
 <!-- Raised from 700 (to 706) on 2026-09-13: reasoning is returned instead of discarded, which adds a result field and narrows what empty_response means. -->
 <!-- Raised from 700 on 2026-09-13: the tool set is built per deployment now, because one description carries the workspace layout. -->
 <!-- Raised from 700 on 2026-09-13: the pressure gate applies wherever pressure can be read, and which half still waits for the flag. -->
+<!-- Raised from 700 on 2026-09-13: the pricing scrape reports the KV pool to admission rather than dropping it. -->
 <!-- Raised from 674 on 2026-09-13: token arrival reaches the caller, moves the deadline (which now needs a live ceiling), and is what the heartbeat reports. -->
 <!-- Raised from 670 on 2026-09-12: a floor on the rate memory, and why it is stricter than the estimator's. -->
 <!-- Raised from 653 on 2026-09-12: the chat call streams, so the decode interval excludes prefill and the whole-turn bound moves into the adapter. -->
@@ -518,6 +519,7 @@ the leading prefix could ever be cache-stable was wrong. An append-only history 
 gap between 93% and 79% is the price of bounding the history at all.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 The loop asks for its tool set with the config, because one description is built per
 deployment rather than fixed: `search_files` carries the workspace layout, which is the only
 thing that can tell a model a directory name (ADR-0076). It stays a pure function of the
@@ -536,6 +538,12 @@ would have cost about 10%. The preventive half — tighten, nudge, abort and the
 — still waits for the flag, because those act on a delegation and arming them everywhere is a
 larger claim than the one measured.
 >>>>>>> 500427e (fix: eviction fired at 4% of the window against a 50% gate)
+=======
+That same scrape carries the size of the KV pool, and it used to be dropped. It is reported
+to admission instead, which is the only sighting of the figure on the dispatch path and costs
+nothing because the read has already happened. What admission does with it is
+[ARCHITECTURE.md](ARCHITECTURE.md)'s.
+>>>>>>> 4f2a9c5 (fix: the KV budget outran the pool it protects)
 
 **The final turn keeps its tools and is forbidden to call them** (ADR-0057). The loop
 breaks on the last turn whether or not the model asked for anything, so the intent — leave it

@@ -1,8 +1,9 @@
-<!-- BUDGET: 819 -->
+<!-- BUDGET: 824 -->
      Raised from 775 (to 795) on 2026-09-13: reasoning is no longer discarded, plus four findings this session measured -- two about eviction, one about server-side tool time, one re-filing the M10 spike.
      Raised from 775 on 2026-09-13: a search names its scope and is shown the map, which ticks one item and re-costs the walk item beneath it.
      Raised from 775 on 2026-09-13: the viewer group ticked, plus the two findings it turned up that its frozen body could not carry.
      Raised from 775 on 2026-09-13: the pressure gate never applied to the shipped configuration, plus the two follow-ups that finding named.
+     Raised from 775 on 2026-09-13: the KV budget binds on the pool as well, and the precedent its entry cited turned out not to be one.
      Raised from 758 on 2026-09-13: four findings this session measured but no branch owned -- the third liveness state, and four viewer defects that state true things in ways that read false.
      Raised from 752 on 2026-09-13: the empty-name item closed against its own leaning, and why the code moved rather than the document is the part worth keeping.
      Raised from 744 on 2026-09-13: closing the 2026-09-11 audit, where two findings turned out to be wrong and saying why is worth more than the tick.
@@ -447,8 +448,8 @@ them was re-derived when it did.
     item above is what makes a delegation's prefill grow**, so fix that first and re-measure;
     re-deriving `is_large` per turn is cheap but may then be unnecessary
 
-- ⬜ **`kv_token_budget` is 1.64x the real KV pool, and the number to fix it is now
-  readable.** The setting defaults to 2,400,000 and its help text says it "sits just under
+- ✅ 2026-09-13 **`kv_token_budget` is 1.64x the real KV pool, and the number to fix it is
+  now readable.** The setting defaults to 2,400,000 and its help text says it "sits just under
   the measured KV pool". The endpoint reports `kv_cache_size_tokens = 1,467,988`, re-read
   2026-09-13, so it sits well over. Nothing has failed, because the setting protects latency rather than
   correctness — over-admitting queues and preempts rather than erroring — which is exactly
@@ -462,6 +463,10 @@ them was re-derived when it did.
     the whole argument of the 2026-09-05 session.
   - Deferred deliberately on 2026-09-05: our delegations run ~45k tokens, so six of them
     is 19% of the pool and the gap is not currently reachable.
+- **Correction to the ticked item above**, filed beside it rather than edited into it:
+  `WindowCheck` **validates and never derives**, and says why, so it is not the precedent
+  that entry claims. What allows this is narrower — the two numbers are ceilings on the same
+  physical thing, and the lower of two ceilings overrules neither (#TBD)
 
 ### Unscheduled — open, real, and in no milestone
 

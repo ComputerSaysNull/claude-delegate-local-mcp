@@ -568,6 +568,7 @@ async def seed_decode_rate(
     backend: Backend,
     history: RateHistory | None = None,
     expected_concurrency: int = 1,
+    on_pool: Callable[[int | None], None] | None = None,
 ) -> DecodeRate:
     """The estimator, seeded from the cluster if it will say and empty if it will not.
 
@@ -591,6 +592,12 @@ async def seed_decode_rate(
         cluster = await backend.probe_cluster()
     except Exception:  # a monitoring read must never fail a delegation
         return DecodeRate(source="unknown")
+    # The same payload carries the size of the KV pool, and it used to be dropped here.
+    # Reporting it costs nothing -- this scrape already happened to price the turn -- and it
+    # is the only place on the dispatch path that sees the figure at all.
+    if on_pool is not None:
+        pool = (cluster or {}).get("kv_cache_size_tokens")
+        on_pool(pool if isinstance(pool, int) else None)
     rate = (cluster or {}).get("decode_tokens_per_second_since_boot")
     running = (cluster or {}).get("requests_running")
     return DecodeRate(
@@ -1146,6 +1153,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     max_tokens: int | None = None,
     on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -1224,7 +1232,9 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         # Seeded from the cluster, because a one-shot has no earlier turn to learn from and
         # is the shape with the least slack: it completes no turns, so its deadline runs
         # from entry and it must fit a whole answer inside one of them (ADR-0055).
-        rate = await seed_decode_rate(backend, rate_history, expected_concurrency)
+        rate = await seed_decode_rate(
+            backend, rate_history, expected_concurrency, on_pool=on_pool
+        )
         ceiling = rate.ceiling(cfg, budget_seconds(
             cfg, stall_left=stall_left(), dispatch_left=deadline - clock()
         ))
@@ -2289,6 +2299,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
     on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
     on_turn_done: Callable[[TurnDiagnostic, str, float], Awaitable[None]] | None = None,
@@ -2414,7 +2425,9 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     # the seed with what this delegation itself achieved (ADR-0055). Doing it here rather
     # than lazily on the first turn keeps the network call outside the stall clock the
     # turn is about to be measured against.
-    decode_rate = await seed_decode_rate(backend, rate_history, expected_concurrency)
+    decode_rate = await seed_decode_rate(
+        backend, rate_history, expected_concurrency, on_pool=on_pool
+    )
 
     # The heartbeat, beside the loop rather than inside it. `run_one_shot` has had one
     # since ADR-0018; this path reported only at the top of each turn, so a single long

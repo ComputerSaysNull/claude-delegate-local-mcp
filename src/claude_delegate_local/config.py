@@ -465,9 +465,12 @@ class Config:
     )
     kv_token_budget: int = _f(
         2400000,
-        "Summed estimated live tokens permitted in flight. Sits just under the measured "
-        "KV pool. Exceeding the pool queues rather than failing, so this protects latency "
-        "rather than correctness.",
+        "Summed estimated live tokens permitted in flight, and a ceiling rather than a "
+        "target: the gate binds on this or on the KV pool the endpoint reports, whichever "
+        "is lower. Exceeding the pool queues rather than failing, so this protects latency "
+        "rather than correctness -- which is why it drifted to about 1.64x the real pool "
+        "unnoticed after a model swap, and why the pool is now read rather than assumed. "
+        "backend_status reports both numbers and which one is binding.",
         unit="tokens",
     )
     large_prefill_tokens: int = _f(
