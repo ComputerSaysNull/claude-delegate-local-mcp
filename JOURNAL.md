@@ -1530,3 +1530,39 @@ own, exactly as the 2026-09-04 entry said it would.
 also *includes* `waited_seconds`, so a queued call's apparent rate is diluted by up to 102s
 of pure queueing. The rate under either limit is the concurrency curve in the benchmark
 entry above; the gate changes how many streams decode at once, never how fast one decodes.
+
+## 2026-09-13 — A heartbeat that shows both halves of the deadline at once
+
+Verifying the first-token lease release end to end, three `delegate_readonly` calls issued
+together over disjoint large file sets, against the server running the change.
+
+**The lease.** `peak_inflight_large_prefills` **3**, and while all three were still running
+`inflight_large_prefills` read **3 → 1 → 0** against `inflight_seqs` held at **3** and the
+cluster's own `requests_running` at **3**. So every large slot came back while its sequence
+was still in flight, which is the whole claim; before the change the counter would have sat
+at 3 for the life of the batch, and the shipped limit of 2 would have refused the third.
+`admission_wait_seconds_total` **0**, `kv_cache_used_fraction` 0.06 to 0.074, preemptions 0.
+
+**The transcripts are the better instrument, and the surprise is that they show the *stall
+deadline* rather than the counter.** `ends_in_seconds` on an `alive` event is the tightest
+deadline's own countdown, so reading it across two heartbeats says directly whether token
+arrival is resetting it:
+
+| dispatch | at 60s | at 120s | reading |
+|---|---|---|---|
+| 0001 | `ends_in` 2099.942, 19 chunks | `ends_in` 2099.988, 97 chunks | producing; deadline pushed out |
+| 0002 | `ends_in` 2039.963, 0 chunks | `ends_in` 1979.958, 0 chunks | silent; counts down 60s per minute |
+| 0003 | `ends_in` 2039.590, 0 chunks | `ends_in` 1979.582, 0 chunks | silent; same |
+
+Both halves of the rule, on real work, in one file: a call producing tokens is never killed,
+a call producing nothing still dies. No unit test can show the pair against a live cluster,
+and nothing else in a transcript distinguishes them — before `chunks_seen` existed, all three
+of these rows read identically.
+
+**Two things worth knowing next time.** `chunks_seen` is sampled when the heartbeat fires,
+not when it is read, so a transcript showing 0 and a gauge showing the slot released are not
+in conflict — the token arrived between the two. And the third dispatch still held its large
+slot after two minutes for the ordinary reason: it had not reached first token, because the
+engine serialises cold prefills itself. That is the gate's own justification arriving from
+the engine rather than from the setting, which is what makes the setting redundant rather
+than merely oversized.

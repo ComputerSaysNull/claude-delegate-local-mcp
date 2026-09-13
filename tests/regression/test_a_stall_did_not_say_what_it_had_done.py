@@ -76,7 +76,7 @@ class WedgesAfter:
         self.good = good
         self.calls = 0
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.calls += 1
         self.clock.now += self.seconds
         if self.calls <= self.good:

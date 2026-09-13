@@ -61,7 +61,7 @@ class SpyBackend:
         self.requests: list = []
         self._response = response
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.requests.append(request)
         return self._response
 
@@ -334,7 +334,7 @@ class ScriptedBackend:
         self.script = list(script)
         self.calls = 0
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.calls += 1
         item = self.script.pop(0) if self.script else ok_response()
         if isinstance(item, Exception):
@@ -672,7 +672,7 @@ class RecordingBackend(ScriptedBackend):
         super().__init__(script)
         self.seen: list = []
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.seen.append(request)
         return await super().complete(request)
 
@@ -949,7 +949,7 @@ class SlowBackend(ScriptedBackend):
         self.clock = clock
         self.seconds = seconds
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.clock.advance(self.seconds)
         return await super().complete(request)
 
@@ -1092,7 +1092,7 @@ def test_a_single_attempt_is_capped_by_what_is_left_of_the_deadline():
     class Hanging:
         calls = 0
 
-        async def complete(self, request):
+        async def complete(self, request, *, on_token=None):
             Hanging.calls += 1
             await asyncio.sleep(30)
 
@@ -1125,7 +1125,7 @@ class SleepingBackend(SpyBackend):
         super().__init__(response)
         self._seconds = seconds
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         await asyncio.sleep(self._seconds)
         return await super().complete(request)
 
@@ -1142,7 +1142,7 @@ def test_the_heartbeat_task_does_not_outlive_the_dispatch():
     """
     beats: list[float] = []
 
-    async def on_alive(elapsed, of, ends_in):
+    async def on_alive(elapsed, of, ends_in, chunks=0, since=None):
         beats.append(elapsed)
 
     async def go():
@@ -1172,7 +1172,7 @@ def test_a_heartbeat_that_raises_stops_beating_and_nothing_else():
     """
     calls: list[int] = []
 
-    async def on_alive(elapsed, of, ends_in):
+    async def on_alive(elapsed, of, ends_in, chunks=0, since=None):
         calls.append(1)
         raise RuntimeError("nowhere to send it")
 
@@ -1195,7 +1195,7 @@ class CountingBackend(SpyBackend):
         super().__init__(response)
         self.others = -1
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         await asyncio.sleep(0.05)
         me = asyncio.current_task()
         self.others = len([t for t in asyncio.all_tasks() if t is not me])
@@ -1216,7 +1216,7 @@ def test_without_a_callback_no_heartbeat_task_is_started():
         )
         return backend.others
 
-    async def beat(elapsed, of):
+    async def beat(elapsed, of, ends_in, chunks, since):
         pass
 
     without = asyncio.run(go(None))

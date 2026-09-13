@@ -1,4 +1,5 @@
-<!-- BUDGET: 674 -->
+<!-- BUDGET: 700 -->
+<!-- Raised from 674 on 2026-09-13: token arrival reaches the caller, moves the deadline (which now needs a live ceiling), and is what the heartbeat reports. -->
 <!-- Raised from 670 on 2026-09-12: a floor on the rate memory, and why it is stricter than the estimator's. -->
 <!-- Raised from 653 on 2026-09-12: the chat call streams, so the decode interval excludes prefill and the whole-turn bound moves into the adapter. -->
 <!-- Raised from 639 on 2026-09-12: the decode rate is remembered across delegations and keyed by concurrency. -->
@@ -100,6 +101,12 @@ is required, or the final chunk carries no `usage` and every token count reads z
 `turn_timeout` no longer bounds the call for free — httpx applies its read timeout per chunk
 once a body streams — so the adapter enforces the whole-turn bound itself, against a clock
 injected for the purpose.
+
+Streaming also made token arrival observable, and until ADR-0072 `decode_seconds` was its
+only consumer. `complete()` now takes an optional `on_token`, fired on each frame carrying
+generated output — the same predicate the interval is measured from, so a role preamble or
+a finish reason is not an arrival. It is synchronous and argument-free because it runs on
+the read loop; a consumer that must act once guards its own once-ness.
 
 Built. The seam holds three things the layer above depends on. Flattening lives in the
 adapter and nowhere else, so the canonical side stays block-structured. Failures arrive as
@@ -234,21 +241,27 @@ turn*. Both bound every attempt and the tighter one wins; without that, the ceil
 let a single wedged call sit for its whole duration, which is the failure the pair exists
 to split apart. (ADR-0047)
 
-The progress signal is turn **completion**, and which signal is a real design constraint
-rather than a detail. The per-turn progress notification fires at the *top* of a turn, so
-it would reset the clock on entry to the very turn that then wedges; the keepalive proves
-liveness on a timer regardless of progress, which is precisely what must not count. A
-one-shot completes no turns at all, so its no-progress deadline runs from entry and its
-effective bound becomes the tighter of the two settings — no special case, and the failure
-still names whichever setting actually expired.
+The progress signal is turn **completion** or **token arrival**, and which signals count is
+a real design constraint. The per-turn notification fires at the *top* of a turn, so it
+would reset the clock on entry to the very turn that then wedges; the keepalive proves
+liveness on a timer regardless of progress. Token arrival is neither — it happens only when
+the model produced something — and it is the one signal that sees *inside* a turn:
+completion alone killed a pass in its thirtieth, having completed twenty-nine, and gave a
+one-shot no progress signal at all. A moving deadline cannot be enforced by a fixed timeout,
+so the attempt runs beside a watchdog re-reading the budget while the call is in flight,
+rather than inside `asyncio.wait_for`. (ADR-0072)
+
+Arrival is forwarded to the loop's own caller as well as consumed here, because the deadline
+is not its only consumer: [ARCHITECTURE.md](ARCHITECTURE.md) owns the other, an admission
+lease whose large half is given back once prefilling has demonstrably finished.
 
 Both are enforced at the same three points, because a deadline checked in only one of them
 is a deadline that can be walked past:
 
 - **Before an attempt**, so an expired budget costs nothing.
-- **As a ceiling on the attempt**, from what is left. `turn_timeout` already bounds one call
-  inside the adapter's client, but it is a fixed budget that knows nothing of how much
-  delegation remains, so without this the deadline could be overshot by a whole turn.
+- **As a live ceiling on the attempt**, re-read from what is left rather than fixed when it
+  starts. `turn_timeout` already bounds one call inside the adapter's client, but it knows
+  nothing of how much delegation remains, so without this it could be overshot by a turn.
 - **Against the backoff wait**, before sleeping. A wait that would end past the deadline
   ends the delegation instead — sleeping first would spend the rest of the budget and then
   report a deadline reached by a wait this server chose rather than by the work.
@@ -554,13 +567,18 @@ answer two questions, and the ceiling is the deadline least likely to be the one
 a run. The countdown is the stall and delegation clocks only: `turn_timeout` restarts with
 every attempt, so reported here it would sit unchanged while the time ran out beneath it —
 which is why sizing an attempt and counting down a delegation use different functions. It
-still carries **nothing** about what the model is doing: there is no streaming, so the
-server does not know. Nothing is cancelled when the interval passes.
+Since ADR-0072 it also carries what the model is *doing*: how many frames carrying output
+have arrived, and how long since the last — the gap being what separates a delegation
+producing from one gone quiet. **Chunks, and named so**: a frame usually carries one token
+here and is not promised to, and the real count lands in the final usage frame, after a
+heartbeat has stopped mattering. Nothing is cancelled when the interval passes.
 
 Each runs beside the work rather than inside it, cancelled and awaited in a `finally`
 covering every exit including the raised ones, so none outlives its dispatch. A callback
 that raises stops the heartbeat alone: one that killed a delegation over an undeliverable
-notification would be worse than none.
+notification would be worse than none. Its cost is that a `TypeError` from an arity mismatch
+looks exactly like a delivery failure, so the callback's shape is asserted in the tests —
+otherwise changing it and missing one caller stops the heartbeat with no symptom at all.
 
 A timer fires only while the event loop is free, which is why the turn loop runs its tool
 calls through `asyncio.to_thread`. `_run_calls` is synchronous and `run_bash` reaches

@@ -56,7 +56,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from .slots import SharedSlots, SlotsUnavailable, Totals
@@ -135,6 +135,21 @@ class AdmissionImpossible(AdmissionError):
         )
 
 
+class _LargeHold:
+    """Whether this lease still holds the large-prefill counter.
+
+    A mutable box inside a deliberately immutable lease, because exactly one fact about a
+    lease genuinely changes during its life: the prefill it protects finishes long before
+    the delegation does, and the slot is given back then (ADR-0072). Everything else on the
+    lease describes what was counted at admission and must not move.
+    """
+
+    __slots__ = ("held",)
+
+    def __init__(self, held: bool) -> None:
+        self.held = held
+
+
 @dataclass(frozen=True, slots=True)
 class AdmissionLease:
     """What was counted, so releasing subtracts exactly what acquiring added.
@@ -142,11 +157,17 @@ class AdmissionLease:
     `is_large` travels rather than being re-derived on release: recomputing it against a
     threshold reached through config a second time is how a counter drifts permanently
     upward, and a large-prefill count that only ever grows wedges the gate for good.
+
+    `large_hold` answers the other direction of the same question -- whether the large half
+    is *still* held -- so `release` can subtract it exactly once whether or not first token
+    already gave it back. It defaults to not-held so a lease built without one cannot
+    accidentally free a slot it never took.
     """
 
     tokens: int
     is_large: bool
     entry_key: str
+    large_hold: _LargeHold = field(default_factory=lambda: _LargeHold(False))
     # What the gate saw at the instant it granted this slot: sequences already in flight,
     # and everyone still queued behind. Neither is a rule -- they are carried so the
     # delegation can price its reply for the concurrency it is about to *meet* rather than
@@ -478,12 +499,42 @@ class Admission:
         return AdmissionLease(
             tokens=tokens, is_large=is_large, entry_key=entry_key, waited=elapsed,
             seqs_at_grant=seen.get("seqs", 0), waiting_at_grant=seen.get("waiting", 0),
+            large_hold=_LargeHold(is_large),
         )
 
     def _record_wait(self, seconds: float) -> None:
         self._wait_seconds_total += seconds
         self._wait_seconds_max = max(self._wait_seconds_max, seconds)
         self._wait_count += 1
+
+    async def release_large(self, lease: AdmissionLease) -> None:
+        """Give back the large-prefill slot alone, its prefill being over (ADR-0072).
+
+        The sequence, its token estimate and its per-entry count stay held: the request is
+        still running, and a gate that forgot them would over-admit against the KV budget.
+        Only the counter that serialises *prefills* is freed, because only prefilling has
+        finished.
+
+        Idempotent, because the signal that triggers it -- token arrival -- fires on every
+        frame rather than once. A counter driven downward by a talkative delegation would
+        stop binding at all, which is the same permanent drift the lease guards against in
+        the other direction. A lease that was never large is a no-op, so a caller need not
+        ask whether it was.
+        """
+        async with self._cond:
+            if not lease.large_hold.held:
+                return
+            lease.large_hold.held = False
+            if self._slots is not None:
+                try:
+                    await self._slots.release_large()
+                except SlotsUnavailable:
+                    log.warning(
+                        "could not return a large-prefill slot to the shared file; it "
+                        "will be reclaimed when this process exits"
+                    )
+            self._inflight_large -= 1
+            self._cond.notify_all()
 
     async def release(self, lease: AdmissionLease) -> None:
         async with self._cond:
@@ -497,7 +548,10 @@ class Admission:
                 try:
                     await self._slots.release(
                         tokens=lease.tokens,
-                        is_large=lease.is_large,
+                        # What is still held, not what was taken. First token may already
+                        # have given the large half back, and this runs in a `finally` that
+                        # cannot know -- so it asks rather than assuming (ADR-0072).
+                        is_large=lease.large_hold.held,
                         entry_key=lease.entry_key,
                     )
                 except SlotsUnavailable:
@@ -507,7 +561,8 @@ class Admission:
                     )
             self._inflight_seqs -= 1
             self._inflight_tokens -= lease.tokens
-            if lease.is_large:
+            if lease.large_hold.held:
+                lease.large_hold.held = False
                 self._inflight_large -= 1
             remaining = self._per_entry.get(lease.entry_key, 0) - 1
             if remaining > 0:

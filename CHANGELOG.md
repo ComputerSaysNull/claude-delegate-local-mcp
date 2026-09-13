@@ -34,6 +34,98 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #180 — 2026-09-13 — feat: a lease sized to the work it protects
+
+### Added
+
+- **`complete()` can tell its caller when tokens arrive.** *Symptom:* three things needed to
+  know that decoding had begun and none could find out — the admission lease held a
+  large-prefill slot for a whole delegation to protect a prefill over after 64s, the stall
+  deadline reset only on turn completion so a productive long turn was indistinguishable from
+  a wedged one, and the transcript could report elapsed time but never progress. *Cause:*
+  ADR-0070 made first-token arrival observable *inside* the adapter — it is what
+  `decode_seconds` is measured from — and stopped there, because `complete()` returns one
+  whole response once the stream has ended and carried no other channel. *Fix:* an optional
+  `on_token` on the backend protocol, fired on each frame carrying generated output. It is the
+  same predicate the decode interval uses, so a role preamble or a finish reason is not an
+  arrival; synchronous and argument-free, because it runs on the read loop where an await
+  would put network latency between two tokens; and added alongside the return value, so the
+  promise never to return a partial still holds and an adapter that cannot stream simply never
+  calls it. (ADR-0072)
+
+### Changed
+
+- **The no-progress deadline counts token arrival as progress.** *Symptom:* a model reasoning
+  productively inside one long turn was indistinguishable from a wedged one and the deadline
+  killed both — one pass died in its thirtieth turn having completed twenty-nine, and a
+  one-shot, which completes no turns at all, had no progress signal whatever and counted from
+  entry however well the call was going. *Cause:* ADR-0047 chose turn completion because every
+  other signal available then was fake — the per-turn notification fires at the *top* of a turn
+  and the keepalive is a timer, so both reset the clock on the turn that wedged. *Fix:* token
+  arrival is a third signal and is neither of those, because it happens only when the model
+  produced something. It supplies what ADR-0047 lacked rather than contradicting it: a call
+  producing tokens is no longer killed, and a call producing nothing still is.
+- **A deadline that moves is no longer enforced by a timeout that cannot.** *Symptom:* resetting
+  the stall clock on token arrival had no effect on the call it was resetting. *Cause:* the
+  per-attempt ceiling was handed to `asyncio.wait_for` once when the attempt started, so a
+  budget that grew afterwards was invisible and the call was still cancelled at whatever was
+  left when it began. *Fix:* the attempt runs beside a watchdog that re-reads the remaining
+  budget while the call is in flight and cancels only once it has genuinely run out. It still
+  raises `TimeoutError`, so the diagnosis that asks *which* deadline expired is unchanged.
+- **A lease's large-prefill half is returned at first token, not at the end of the run.**
+  *Symptom:* two passes of a six-way fan-out waited the full 1,800s on
+  `max_inflight_large_prefills` and were refused having produced nothing, on a cluster reading
+  `kv_cache_used_fraction` 0.031 with zero preemptions — the gate binding on an idle machine.
+  At the shipped limit of 2, six calls over twelve disjoint cold-prefill sets paid 286.3s of
+  aggregate waiting, a batch 12.1s slower and each call 10.2s slower, and bought nothing.
+  *Cause:* `admit()` takes the slot on the opening estimate and returns it in the context
+  manager's `finally`, so it is held for the whole delegation — 271 to 847s, and 2,100s for
+  the two that died — to protect a prefill measured at 64.1s. *Fix:* the large count alone is
+  given back when the first token arrives, which is when prefilling has demonstrably finished.
+  The sequence, its token estimate and its per-entry count stay held, because the request is
+  still running and still occupying KV. The early release is idempotent, since token arrival
+  fires on every frame, and the full release now subtracts what is *still* held rather than
+  what was taken — it runs in a `finally` that cannot know whether the early one happened.
+- **The heartbeat says whether the model is producing, not only that time is passing.**
+  *Symptom:* a delegation working perfectly and one whose server had been killed produced the
+  same `alive` line, and the viewer called both of them live. *Cause:* the event carried
+  elapsed and a deadline and deliberately nothing about the model, because there was no
+  streaming and the server genuinely did not know (ADR-0018). *Fix:* it now carries how many
+  frames carrying generated output have arrived and how long since the last, and the viewer
+  renders both. **Chunks, and named so** — a frame usually carries one token on this stack and
+  is not promised to, and the only real count arrives in the final usage frame, after a
+  heartbeat has stopped mattering; reporting frames as tokens would be a guess presented as a
+  measurement.
+- **The heartbeat callback's shape is asserted rather than discovered.** *Symptom:* none, which
+  is the problem — widening `on_alive` and missing one of its four declarations would stop the
+  heartbeat with no error anywhere. *Cause:* `_keepalive` catches `Exception` and returns, a
+  deliberate trade so an undeliverable notification cannot kill a delegation, but it makes a
+  `TypeError` from an arity mismatch indistinguishable from a delivery failure. *Fix:* a test
+  asserting every declaration has the same shape, and a second that a correct callback beats
+  where a mismatched one is silent. The trade in `_keepalive` is unchanged; it is the right
+  one. This widening tripped four callbacks in the existing tests, each of which failed loudly
+  instead of quietly — which is the whole point.
+- **A delegation queued at the gate reads as `queued`, not as `quiet`.** *Symptom:* the picker
+  showed `quiet 5m` for a delegation waiting on an admission slot and for one whose server had
+  been killed — true of both and useful about neither, and the states most worth telling apart.
+  *Cause:* `state_of` had only two facts, whether an `end` event existed and how long since the
+  file was touched, and neither distinguishes them; its docstring was right that the file
+  cannot, and right that a pid in the stream would only mean something on the machine that
+  wrote it. *Fix:* the server writes a `waiting` event from the tick that already resets the
+  client's idle timer during an admission wait, so the fact is recorded when it is known
+  rather than inferred later from silence. It is not sticky: the picker keeps the last
+  progress event written, so a delegation that queued and then ran stops reporting as queued.
+- **The selected row keeps its colours and stops shouting.** *Symptom:* the highlight was very
+  bright, and the state column — the one cue saying at a glance whether a row is live, queued
+  or failed — went monochrome on exactly the row being looked at. *Cause:* `_highlight`
+  stripped every escape before inverting, because a reset inside the row ends the inverse as
+  surely as it ends a dim, so the band would otherwise have died two columns in. *Fix:* the
+  selection is re-opened after each reset instead of the colour being removed, which keeps
+  both the full width and the colour, and it is dim inverse rather than plain, so the row
+  reads as a band rather than a flash. Inverse at all because it is the one selection style
+  every terminal renders the same way; a chosen background colour is legible on one theme and
+  invisible on another, and the viewer cannot ask which it is on.
+
 ## #179 — 2026-09-12 — docs: a copy task is not a decode benchmark
 
 ### Changed

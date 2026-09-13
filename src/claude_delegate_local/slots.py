@@ -486,8 +486,27 @@ class SharedSlots:
                 records.pop(self._me, None)
             self._write(fd, records, next_ticket)
 
+    async def release_large(self) -> None:
+        """Give back the large-prefill count alone, leaving the rest of the record held.
+
+        `release` is a whole admission; this is the half of one that ends early, because a
+        prefill finishes long before the delegation that paid for it (ADR-0072). `seqs`,
+        `tokens` and `per_entry` are untouched: the sequence is still running. No
+        `entry_key`, unlike `release` -- the large count is per process, not per entry, so
+        there is nothing to look up.
+
+        The record is never dropped here, however empty the counters look: it still holds a
+        sequence, and `_is_idle` is for a record that holds nothing at all.
+        """
+        async with self._locked() as fd:
+            records, next_ticket = self._read(fd)
+            mine = self._mine(records)
+            mine["large"] = max(0, int(mine.get("large", 0)) - 1)
+            mine["updated_at"] = time.time()
+            self._write(fd, records, next_ticket)
+
     async def release(self, *, tokens: int, is_large: bool, entry_key: str) -> None:
-        """Give back exactly what `admit` took."""
+        """Give back exactly what `admit` took, minus anything already given back early."""
         async with self._locked() as fd:
             records, next_ticket = self._read(fd)
             mine = self._mine(records)

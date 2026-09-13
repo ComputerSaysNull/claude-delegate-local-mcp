@@ -303,11 +303,12 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]],
-    on_alive: Callable[[float, int, float], Awaitable[None]] | None = None,
+    on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]] | None = None,
     on_turn_done: Callable[[Any, str], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
+    on_token: Callable[[], None] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
 
@@ -324,6 +325,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 diagnostics=diagnostics, report_progress=report_progress,
                 on_alive=on_alive, on_turn_done=on_turn_done, on_priced=on_priced,
                 rate_history=rate_history, expected_concurrency=expected_concurrency,
+                on_token=on_token,
             )
         # An explicitly empty toolset. Not the loop with nothing declared: the one-shot
         # prompt tells the model plainly that it cannot open anything and has no second
@@ -335,6 +337,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
             cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens,
             on_alive=on_alive, on_priced=on_priced,
             rate_history=rate_history, expected_concurrency=expected_concurrency,
+            on_token=on_token,
         )
     except ContextOverflowAborted as e:
         # Before the plain InvalidDelegation branch, which is its base class. The report is
@@ -688,16 +691,28 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             tools=allowed, prefetched=prefetched,
         )
 
+    waiting_since = time.monotonic()
+
     async def ticked() -> None:
         """ADR-0018 again, one layer earlier.
 
         A queued delegation runs no turns, so nothing else resets the client's idle
         timer while it waits. Without this a delegation that is merely queued is
         abandoned by the caller exactly as a slow one used to be.
+
+        It writes to the transcript as well as the wire, for the reason `alive` does: a
+        queued delegation and one whose server was killed leave identical files, and the
+        server is the only thing that can tell them apart (ADR-0072).
         """
         await progress(0, 0)
+        if stream is not None:
+            stream.waiting(
+                waited_seconds=time.monotonic() - waiting_since,
+                of_seconds=cfg.admission_wait_timeout,
+            )
 
-    async def alive(elapsed_seconds: float, of_seconds: int, ends_in: float) -> None:
+    async def alive(elapsed_seconds: float, of_seconds: int, ends_in: float,
+                    chunks_seen: int = 0, since_chunk: float | None = None) -> None:
         """ADR-0018 once more, for the path that has no turns to hang it on.
 
         A one-shot is a single backend call, so nothing lands between `start` and `end`
@@ -713,7 +728,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         await progress(0, 0)
         if stream is not None:
             stream.alive(elapsed_seconds=elapsed_seconds, of_seconds=of_seconds,
-                         ends_in_seconds=ends_in)
+                         ends_in_seconds=ends_in, chunks_seen=chunks_seen,
+                         since_chunk_seconds=since_chunk)
 
     # Captured before anything is attempted, and never re-derived afterwards. The upstream
     # bug this shape exists to prevent is a failure path with no agent name to report, so
@@ -731,6 +747,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
 
     started = time.monotonic()
     lease: AdmissionLease | None = None
+    pending: set[asyncio.Task] = set()
     dispatched: Dispatch | AgenticDispatch | None = None
     failure: BaseException | None = None
     try:
@@ -751,6 +768,26 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             expected = min(
                 lease.seqs_at_grant + lease.waiting_at_grant + 1, cfg.max_inflight_seqs
             )
+
+            def first_token(_lease: AdmissionLease = lease) -> None:
+                """Give the large-prefill slot back the moment decoding starts.
+
+                The slot exists to serialise cold prefills, and the prefill is over once
+                the first token lands -- 64.1s measured, against delegations running 271
+                to 847s and two that died holding a slot for 2,100. Holding it to the end
+                is what made a six-way fan-out wait out `admission_wait_timeout` on a
+                cluster at 3% KV with zero preemptions (ADR-0072).
+
+                Scheduled rather than awaited because this fires on the adapter's read
+                loop, where an await would put the slots file between two tokens. The
+                task is kept alive by `pending` -- a bare `create_task` may be collected
+                before it runs -- and `release_large` is idempotent, so the arrival that
+                fires on every frame, and a task that lands after the lease has already
+                been released in full, both cost nothing.
+                """
+                pending.add(task := asyncio.create_task(admission.release_large(_lease)))
+                task.add_done_callback(pending.discard)
+
             dispatched = await dispatch_delegation(
                 loop_cfg, entry, backend, delegation,
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
@@ -766,6 +803,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 on_turn_done=streamed_turn,
                 on_priced=priced,
                 rate_history=rates,
+                on_token=first_token,
                 expected_concurrency=expected,
             )
     except AdmissionError as e:

@@ -79,7 +79,7 @@ class CompliantBackend:
         self.requests: list = []
         self.calls = calls
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.requests.append(request)
         forbidden = not request.tools or request.tool_choice == "none"
         if forbidden or len(self.requests) > self.calls:
@@ -97,7 +97,7 @@ class IgnoresTheWithdrawal:
     def __init__(self) -> None:
         self.requests: list = []
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.requests.append(request)
         return _tool_call()
 

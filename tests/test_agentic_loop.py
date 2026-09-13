@@ -92,7 +92,7 @@ class ScriptedTurns:
         self.replies = list(replies)
         self.requests: list = []
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.requests.append(request)
         if not self.replies:
             raise AssertionError("the loop called the backend more times than scripted")
@@ -589,7 +589,7 @@ def test_one_deadline_covers_the_whole_delegation(registered):
         return now[0]
 
     class Slow(ScriptedTurns):
-        async def complete(self, request):
+        async def complete(self, request, *, on_token=None):
             now[0] += 40.0
             return await super().complete(request)
 

@@ -155,7 +155,7 @@ class _RecordingBackend:
     def __init__(self) -> None:
         self.budgets: list[int] = []
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.budgets.append(request.max_tokens)
         return CanonicalResponse(
             content=(), finish_reason="length", input_tokens=10, output_tokens=0,

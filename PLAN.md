@@ -1,4 +1,5 @@
-<!-- BUDGET: 692
+<!-- BUDGET: 710
+     Raised from 692 on 2026-09-13: the lease item ticked with streaming slices 2-3, what slice 4 now carries, and the setting-removal work carried out of the ticked body before it froze.
      Raised from 670 on 2026-09-12: three things established in a session and filed
      nowhere -- a doc/code mismatch, a blocked design, and what the lease fix retires.
      Raised from 630 on 2026-09-12: an outside benchmark withdrew every probe figure and an A-B
@@ -274,8 +275,13 @@ nothing was configured, and no tool result changes shape.
     the command reported success while the tail was being mangled. Write the marker last
 - 🔄 **Streaming, reopened 2026-09-05 with a scope.** **Slice 1 landed 2026-09-12 (#172,
   ADR-0070)**: the transport streams, `complete()` is unchanged, and the decode interval no
-  longer contains prefill. Slices 2-4 remain, in this order — `stall_left` reset on token
-  arrival, deltas feeding `stream.turn`, a partial returned at `dispatch_timeout`.
+  longer contains prefill. **Slices 2-3 landed 2026-09-13 (ADR-0072)**: `stall_left` resets
+  on token arrival against a live ceiling, and the heartbeat carries what has arrived.
+  **Slice 4 remains** — a partial at `dispatch_timeout` — plus the retry split streaming
+  makes available (a read timeout *before* first token is prefill or queueing, *after* is
+  slow decode; untouched in #172), and showing the stream itself. **Weigh a non-terminal
+  viewer first**: `follow` never repaints and making it is the expensive half, where a
+  browser over the same `.jsonl` gets repaint, scrollback and selection for nothing.
   Filed and cancelled the same day,
   2026-08-25, on the grounds that MCP tool calls are request/response so the caller sees
   nothing incrementally either way. That is still true of the caller and was never the
@@ -423,10 +429,10 @@ them was re-derived when it did.
     item above is what makes a delegation's prefill grow**, so fix that first and re-measure;
     re-deriving `is_large` per turn is cheap but may then be unnecessary
 
-- ⬜ **`kv_token_budget` is 1.66x the real KV pool, and the number to fix it is now
+- ⬜ **`kv_token_budget` is 1.64x the real KV pool, and the number to fix it is now
   readable.** The setting defaults to 2,400,000 and its help text says it "sits just under
-  the measured KV pool". The endpoint reports `kv_cache_size_tokens = 1,444,236`, so it
-  sits well over. Nothing has failed, because the setting protects latency rather than
+  the measured KV pool". The endpoint reports `kv_cache_size_tokens = 1,467,988`, re-read
+  2026-09-13, so it sits well over. Nothing has failed, because the setting protects latency rather than
   correctness — over-admitting queues and preempts rather than erroring — which is exactly
   why it drifted unnoticed. Likely cause is the 2026-09-04 model swap: a vision model
   carries more weights, so less memory is left for KV and the pool shrank underneath a
@@ -585,8 +591,8 @@ local, because they are working notes rather than a product fact.
     `kv_cache_used_fraction` **0.031** and 0 preemptions — binding on an idle cluster.
     **Re-ranked up**, but the item below is probably the fix, so measure that before
     moving 1800
-- ⬜ **Release the *large* half of an admission lease at first token, not at the end of the
-  run.** `admit()` holds it for the whole delegation, and the prefill it exists to serialise
+- ✅ 2026-09-13 **Release the *large* half of an admission lease at first token, not at the
+  end of the run.** `admit()` holds it for the whole delegation, and the prefill it serialises
   is over once decoding starts. Measured 2026-09-12 at `effort: high`: time to first token
   **64.1s**, delegations running 271-847s, and the two that died holding a slot for 2,100s —
   4x to 33x longer than the work it protects, which is what made two passes wait out
@@ -609,6 +615,14 @@ local, because they are working notes rather than a product fact.
     limit 2 cannot beat it. **So the setting is a candidate for removal, not retuning**, and
     that decision belongs in the same ADR as the first-token release above — a slot released
     at first token may make the question moot either way
+- ⬜ **Remove `max_inflight_large_prefills`, or find the fan-out where it earns its keep.**
+  Carried out of the ticked item above, whose body is frozen. 2026-09-13, three delegations
+  on the first-token release: the gate never bound, and the one still holding a slot after
+  two minutes was held by the *engine* queueing its prefill, not by the rule. Evidence of
+  redundancy, not a decision — three calls on one machine is not the case that matters, so
+  re-run it wider at the shipped limit of **2**. **`admission_wait_timeout` and M12's
+  `is_large` both wait on this**: 1,800s is re-derivable only once the gate that made it
+  reachable is settled, and `is_large` is read by this rule alone
 - ⬜ **Work that does not fit one turn.** Two turns produced 13,268 and 16,909 output
   tokens, the first needing 1,750s at 7.6 tok/s. No budget makes that fit an 1,800s
   attempt; it is a splitting problem, not a pricing one

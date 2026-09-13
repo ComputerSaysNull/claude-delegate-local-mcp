@@ -211,19 +211,44 @@ class Stream:
             "expected_concurrency": expected_concurrency,
         })
 
+    def waiting(self, *, waited_seconds: float, of_seconds: int) -> None:
+        """Still queued at the admission gate, having reached no backend at all.
+
+        Written from the same tick that resets the client's idle timer while a delegation
+        waits. Without it a queued delegation and a killed one leave identical files --
+        both silent, both unfinished -- and the viewer called the pair `quiet`, which is
+        true of both and useful about neither.
+
+        The server is the only thing that can tell them apart. A reader cannot: the file
+        says nothing either way, and a pid in the stream would only mean something on the
+        machine that wrote it, which is not where these are read. So the fact is recorded
+        when it is known rather than inferred later from silence.
+        """
+        self._put({
+            "t": "waiting", "at": datetime.now(UTC).isoformat(),
+            "waited_seconds": round(waited_seconds, 3), "of_seconds": of_seconds,
+        })
+
     def alive(self, *, elapsed_seconds: float, of_seconds: int,
-              ends_in_seconds: float | None = None) -> None:
-        """A one-shot is still running. The only event that reports no work done.
+              ends_in_seconds: float | None = None,
+              chunks_seen: int = 0, since_chunk_seconds: float | None = None) -> None:
+        """A delegation is still running, and -- since ADR-0072 -- what it is doing.
 
         Every other event marks something that happened. This one exists because on the
         one-shot path nothing happens between `start` and `end` -- one backend call, no
         turns -- so a delegation that is working perfectly writes nothing for as long as
         it takes, and a reader cannot tell it from a delegation whose server was killed.
 
-        It carries elapsed and the deadline it is elapsed against, and deliberately not a
-        description of what the model is doing: there is no streaming (ADR-0018), so the
-        server genuinely does not know. Reporting a guess would be worse than reporting
-        the two numbers it actually has.
+        It once carried elapsed and its deadline and deliberately nothing about the model,
+        because there was no streaming (ADR-0018) and the server genuinely did not know.
+        It does now. `chunks_seen` counts frames that carried generated output and
+        `since_chunk_seconds` is how long since the last, which together separate a
+        delegation that is producing from one that has gone quiet -- the distinction the
+        event was invented for and could not previously make.
+
+        Chunks rather than tokens, and named so. A frame usually carries one token on this
+        stack and is not promised to, and the only real count arrives in the final usage
+        frame. Reporting frames as tokens would be the guess this docstring used to refuse.
         """
         self._put({
             "t": "alive", "at": datetime.now(UTC).isoformat(),
@@ -234,6 +259,10 @@ class Stream:
             # ceiling is the deadline least likely to be what ends the run.
             "ends_in_seconds": (
                 None if ends_in_seconds is None else round(ends_in_seconds, 3)
+            ),
+            "chunks_seen": chunks_seen,
+            "since_chunk_seconds": (
+                None if since_chunk_seconds is None else round(since_chunk_seconds, 3)
             ),
         })
 

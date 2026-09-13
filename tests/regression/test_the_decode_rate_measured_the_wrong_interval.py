@@ -44,7 +44,7 @@ class SlowThenFast:
     def __init__(self, clock: FakeClock, first: float, second: float) -> None:
         self.clock, self.first, self.second, self.calls = clock, first, second, 0
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.calls += 1
         if self.calls == 1:
             self.clock.advance(self.first)
@@ -80,7 +80,7 @@ def test_a_single_attempt_is_timed_the_same_way():
     clock = FakeClock()
 
     class Answers:
-        async def complete(self, request):
+        async def complete(self, request, *, on_token=None):
             clock.advance(7.0)
             return a_reply()
 

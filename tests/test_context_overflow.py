@@ -364,7 +364,7 @@ class Scripted:
         self.replies = list(replies)
         self.requests: list = []
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.requests.append(request)
         if not self.replies:
             raise AssertionError("the loop called the backend more times than scripted")
@@ -503,7 +503,7 @@ class _WindowEndpoint:
     async def probe_window(self):
         return self.reported
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         raise AssertionError("not used")
 
     async def probe(self):

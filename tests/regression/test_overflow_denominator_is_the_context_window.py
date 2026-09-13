@@ -85,7 +85,7 @@ class Scripted:
     def __init__(self, *replies: CanonicalResponse) -> None:
         self.replies = list(replies)
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         if not self.replies:
             raise AssertionError("the loop called the backend more times than scripted")
         return self.replies.pop(0)

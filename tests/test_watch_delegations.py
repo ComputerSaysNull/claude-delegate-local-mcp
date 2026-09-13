@@ -807,20 +807,23 @@ def test_no_token_figures_at_all_means_no_columns_rather_than_zeroes(viewer, tmp
 
 
 def test_the_highlight_survives_the_rows_own_colour_codes(viewer):
-    """The selected row is inverted across its whole width, not up to its first reset.
+    """The selected row is selected across its whole width, not up to its first reset.
 
-    A row carries `DIM`/reset pairs of its own, and a reset ends the inverse as surely
-    as it ends the dim -- so wrapping the coloured string highlighted only as far as the
-    first reset, which landed two columns in. Asserted as the absence of any reset before
-    the end, because that is the mechanism rather than the symptom.
+    A row carries colour/reset pairs of its own, and a reset ends the selection as surely
+    as it ends a dim -- so wrapping the coloured string selected only as far as the first
+    reset, which landed two columns in. The fix was once to strip every escape; since
+    ADR-0072 it is to re-open the selection after each reset, which keeps the row's colour
+    as well as its width. Asserted as the mechanism rather than the symptom: no reset may
+    be the last thing standing before the end.
     """
     row = f"{viewer.DIM}12:00:00{viewer.R}  {viewer.DIM}high{viewer.R}  a task"
     out = viewer._highlight(row)
 
-    assert out.startswith(viewer.INVERT)
+    assert out.startswith(viewer.SELECT)
     assert out.endswith(viewer.R)
-    # Exactly one reset, at the very end. Any earlier one would end the inverse there.
-    assert out.count(viewer.R) == 1, out
+    # Every reset but the final one is immediately followed by the selection re-opening.
+    # Any that is not would end the band there, which is the bug this guards.
+    assert out.count(viewer.R) - 1 == out.count(viewer.R + viewer.SELECT), out
     assert "12:00:00" in out and "a task" in out
 
 

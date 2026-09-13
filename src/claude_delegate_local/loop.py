@@ -668,7 +668,59 @@ def _delay_before_retry(
     return jitter(0.0, backoff)
 
 
-async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test seams
+# How often a live deadline is re-read while a call is in flight. Not a config setting:
+# it trades a wakeup per quarter second against how sharply a deadline lands, and neither
+# side of that is a knob an operator should have to reason about -- the deadlines
+# themselves are the settings.
+_DEADLINE_TICK = 0.25
+
+
+async def _until_deadline(
+    coro,
+    left: Callable[[], float | None],
+    *,
+    tick: float,
+    tick_sleep: Callable[[float], Awaitable[None]] | None = None,
+):
+    """Run `coro`, cancelling it once `left()` has actually run out.
+
+    Deliberately not `asyncio.wait_for`, which takes one budget at call time and cannot see
+    it move. Since ADR-0072 token arrival resets the stall deadline, so the budget grows
+    while the call runs -- and a fixed timeout would kill a turn that had been producing
+    tokens the whole way, which is the failure this exists to stop.
+
+    `tick_sleep` is a test seam, for the reason `clock` and `sleep` already are: this is the
+    one place that waits on the wall rather than on the injected clock, so a test of a
+    deadline would otherwise have to spend it. `None` -- always, outside the tests -- waits
+    on the call itself, which costs one suspension and returns the instant it answers.
+    Polling unconditionally instead would add a tick of latency to every backend call.
+
+    Raises `TimeoutError` on expiry, so the diagnosis below is unchanged: the caller still
+    asks which of the two deadlines expired rather than assuming.
+    """
+    task = asyncio.ensure_future(coro)
+    while True:
+        budget = left()
+        if budget is not None and budget <= 0:
+            task.cancel()
+            try:
+                await task
+            except BaseException:  # the cancellation itself; TimeoutError below reports it
+                pass
+            raise TimeoutError
+        wait_for = tick if budget is None else min(tick, budget)
+        if tick_sleep is None:
+            done, _ = await asyncio.wait({task}, timeout=wait_for)
+            if done:
+                return task.result()
+            continue
+        done, _ = await asyncio.wait({task}, timeout=0)
+        if done:
+            return task.result()
+        await tick_sleep(wait_for)
+
+
+async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test seams
     cfg: Config,
     backend: Backend,
     request: CanonicalRequest,
@@ -677,6 +729,8 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
     jitter: Callable[[float, float], float] = random.uniform,
     deadline: float | None = None,
     stall_left: Callable[[], float] | None = None,
+    on_token: Callable[[], None] | None = None,
+    tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[CanonicalResponse, int]:
     """Send until it answers, a failure is not worth repeating, or the attempts run out.
@@ -757,7 +811,14 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
         )
 
     def ceiling() -> float | None:
-        """The tighter of the two deadlines, which is what each attempt is given."""
+        """The tighter of the two deadlines, read *now* rather than fixed for the call.
+
+        Since ADR-0072 token arrival moves `stall_left`, so this is re-read while a call is
+        in flight rather than handed to `asyncio.wait_for` once at the top. A fixed budget
+        cannot see the thing that moves it: a turn streaming tokens the whole way would
+        still be killed at whatever was left when it started, which is exactly the death
+        this is meant to stop.
+        """
         s = None if stall_left is None else stall_left()
         both = [x for x in (remaining(), s) if x is not None]
         return min(both) if both else None
@@ -770,9 +831,8 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
         attempts += 1
         attempt_started = clock()
         try:
-            cap = ceiling()
-            if cap is None:
-                answer = await backend.complete(request)
+            if ceiling() is None:
+                answer = await backend.complete(request, on_token=on_token)
                 # Timed from this attempt's start, not the call's. A turn that failed once
                 # and answered on the second try divides one attempt's tokens by every
                 # attempt's seconds otherwise -- and the backoff between them is not
@@ -782,7 +842,10 @@ async def complete_with_retry(  # noqa: PLR0913 -- four of the seven are test se
             # adapter's client, but it is a fixed budget that knows nothing about how much
             # of the delegation is left, so without this the deadline could still be
             # overshot by a whole turn.
-            answer = await asyncio.wait_for(backend.complete(request), timeout=cap)
+            answer = await _until_deadline(
+                backend.complete(request, on_token=on_token), ceiling,
+                tick=_DEADLINE_TICK, tick_sleep=tick_sleep,
+            )
             return answer, attempts, clock() - attempt_started
         except TimeoutError as e:
             # Which of the two expired decides the diagnosis, so ask before blaming the
@@ -876,9 +939,11 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     effort: str,
     deadline: float | None,
     stall_left: Callable[[], float] | None = None,
+    on_token: Callable[[], None] | None = None,
     max_tokens: int | None = None,
     budget_ceiling: int | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
     """One dispatch, plus the two mitigations for an answer that ran out of room.
@@ -920,7 +985,8 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
 
     response, spent, answered = await complete_with_retry(
         cfg, backend, build(effort, asked_budget),
-        sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
+        sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=on_token,
+        tick_sleep=tick_sleep, clock=clock,
     )
     attempts += spent
     if not is_empty_at_length(response):
@@ -935,7 +1001,8 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     if floor > asked_budget:
         response, spent, answered = await complete_with_retry(
             cfg, backend, build(effort, floor),
-            sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
+            sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=on_token,
+            tick_sleep=tick_sleep, clock=clock,
         )
         attempts += spent
         if not is_empty_at_length(response):
@@ -958,7 +1025,8 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
             stepped,
             resolve_max_tokens(cfg, entry, stepped, max_tokens, ceiling=budget_ceiling),
         ),
-        sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
+        sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=on_token,
+        tick_sleep=tick_sleep, clock=clock,
     )
     attempts += spent
     return Dispatch(response, stepped, attempts, is_empty_at_length(response),
@@ -973,11 +1041,13 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     *,
     effort: str | None = None,
     max_tokens: int | None = None,
-    on_alive: Callable[[float, int, float], Awaitable[None]] | None = None,
+    on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    on_token: Callable[[], None] | None = None,
+    tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
     """One turn, no tools, and the recovery cascade around it.
@@ -1004,15 +1074,40 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     origin = clock()
     deadline = origin + cfg.dispatch_timeout
 
-    def stall_left() -> float:
-        """A one-shot has exactly one unit of progress to make, and makes it at the end.
+    # Separate from `origin`, which anchors `deadline` and must not move. Since ADR-0072
+    # token arrival is progress, and this is the path with the most to gain from that: a
+    # one-shot completes no turns, so before streaming it had no progress signal at all and
+    # its stall clock ran from entry no matter how well the call was going.
+    last_progress = origin
 
-        So there is no turn completion to reset this, and it counts from entry: the
-        effective bound becomes the tighter of `stall_timeout` and `dispatch_timeout`
-        rather than the ceiling alone, which matters because that ceiling is now four
-        hours and this path has nothing else holding it (ADR-0047).
+    def stall_left() -> float:
+        """The no-progress deadline, counting from the last token this call produced.
+
+        A one-shot has exactly one unit of *turn* progress to make and makes it at the end,
+        so until ADR-0072 there was nothing to reset this and it counted from entry: the
+        effective bound was the tighter of `stall_timeout` and `dispatch_timeout` rather
+        than the ceiling alone (ADR-0047). Token arrival is the signal that was missing.
         """
-        return cfg.stall_timeout - (clock() - origin)
+        return cfg.stall_timeout - (clock() - last_progress)
+
+    chunks = 0
+
+    def token_arrived() -> None:
+        nonlocal last_progress, chunks
+        last_progress = clock()
+        chunks += 1
+        if on_token is not None:
+            on_token()
+
+    def streamed() -> tuple[int, float | None]:
+        """What has arrived, and how long since. Chunks, deliberately not tokens.
+
+        A frame usually carries one token on this stack and is not promised to, and the
+        only real token count arrives in the final usage frame -- after the heartbeat has
+        stopped mattering. Reporting frames as tokens would be a guess dressed as a
+        measurement, which is the thing this event's own history warns against.
+        """
+        return chunks, None if not chunks else clock() - last_progress
 
     def request_at(level: str, budget: int) -> CanonicalRequest:
         return build_one_shot_request(
@@ -1044,7 +1139,8 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
             cfg, entry, backend, request_at,
             effort=resolved, max_tokens=max_tokens,
             budget_ceiling=ceiling,
-            sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
+            sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=token_arrived,
+            tick_sleep=tick_sleep, clock=clock,
         )
 
     if on_alive is None:
@@ -1063,6 +1159,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         # unchanged at its ceiling while the delegation ran out of time underneath it. The
         # two deadlines below are the ones genuinely counting down for this delegation.
         lambda: max(min(stall_left(), deadline - clock()), 0.0),
+        streamed,
     ))
     try:
         return await dispatch()
@@ -1078,9 +1175,10 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
 
 async def _keepalive(
     cfg: Config,
-    on_alive: Callable[[float, int, float], Awaitable[None]],
+    on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]],
     clock: Callable[[], float],
     ends_in: Callable[[], float],
+    streamed: Callable[[], tuple[int, float | None]] = lambda: (0, None),
 ) -> None:
     """Say the delegation is still running, on a timer, until cancelled.
 
@@ -1091,18 +1189,24 @@ async def _keepalive(
     A failing callback stops the heartbeat and nothing else. It exists to protect a long
     delegation from being abandoned, and a heartbeat that instead killed one -- because a
     notification could not be delivered, which is not even evidence the client is gone --
-    would be strictly worse than not having it.
+    would be strictly worse than not having it. The cost of that trade is that a `TypeError`
+    from an arity mismatch looks exactly like a delivery failure, so `on_alive`'s shape is
+    asserted in the tests rather than discovered here as a heartbeat that quietly stopped.
     """
     started = clock()
     while True:
         await asyncio.sleep(cfg.keepalive_interval)
         try:
-            # Two figures, because they answer different questions and the second was
-            # missing. `dispatch_timeout` is what the delegation is allowed; `ends_in` is
-            # how long until the tightest deadline actually fires, which is the one a
-            # reader needs. Reporting only the first showed nine delegations as 0.4%
-            # elapsed while minutes from being killed.
-            await on_alive(clock() - started, cfg.dispatch_timeout, ends_in())
+            # Four figures, because they answer different questions. `dispatch_timeout` is
+            # what the delegation is allowed; `ends_in` is how long until the tightest
+            # deadline actually fires, which is the one a reader needs -- reporting only
+            # the first showed nine delegations as 0.4% elapsed while minutes from being
+            # killed. The last two are what streaming made knowable: how much has arrived,
+            # and how long since any of it did (ADR-0072).
+            chunks, since = streamed()
+            await on_alive(
+                clock() - started, cfg.dispatch_timeout, ends_in(), chunks, since
+            )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -2060,12 +2164,14 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
-    on_alive: Callable[[float, int, float], Awaitable[None]] | None = None,
+    on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
     on_turn_done: Callable[[TurnDiagnostic, str, float], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    on_token: Callable[[], None] | None = None,
+    tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> AgenticDispatch:
     """Turns, until the model answers or the budget runs out.
@@ -2118,9 +2224,35 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     # it proves liveness on a timer regardless of progress, which is precisely the signal
     # a no-progress deadline must not count as progress (ADR-0047).
     last_progress = clock()
+    chunks = 0
 
     def stall_left() -> float:
         return cfg.stall_timeout - (clock() - last_progress)
+
+    def token_arrived() -> None:
+        """The second progress signal, and since ADR-0072 the finer of the two.
+
+        Turn completion still counts -- nothing here replaces it -- but it cannot see
+        inside a turn, which is why a pass that had completed twenty-nine of them was
+        killed in its thirtieth. Token arrival can, and unlike the notification and the
+        keepalive it is real: it happens because the model produced something.
+        """
+        nonlocal last_progress, chunks
+        last_progress = clock()
+        chunks += 1
+        if on_token is not None:
+            on_token()
+
+    def streamed() -> tuple[int, float | None]:
+        """What has arrived this delegation, and how long since. Chunks, not tokens.
+
+        Frames, because that is what the wire carries one of and the only honest token
+        count lands in the final usage frame. Not reset per turn: a reader watching a
+        delegation wants to know it is still producing, and a counter that restarted at
+        every turn boundary would read as though it had stopped.
+        """
+        return chunks, None if not chunks else clock() - last_progress
+
     bash_policy = policy or BashPolicy()
 
     history: list[Message] = [Message("user", (TextBlock(delegation.render()),))]
@@ -2178,6 +2310,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         # unchanged at its ceiling while the delegation ran out of time underneath it. The
         # two deadlines below are the ones genuinely counting down for this delegation.
         lambda: max(min(stall_left(), deadline - clock()), 0.0),
+        streamed,
     )) if on_alive else None
     try:
         while turn < turns:
@@ -2240,7 +2373,8 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
                 cfg, entry, backend, build,
                 effort=resolved_effort, max_tokens=max_tokens,
                 budget_ceiling=ceiling,
-                sleep=sleep, deadline=deadline, stall_left=stall_left, clock=clock,
+                sleep=sleep, deadline=deadline, stall_left=stall_left,
+                on_token=token_arrived, tick_sleep=tick_sleep, clock=clock,
             )
             # The backend call alone, separate from the turn's wall clock. Tokens per second
             # over the whole turn would fold tool execution and any retry wait into the
