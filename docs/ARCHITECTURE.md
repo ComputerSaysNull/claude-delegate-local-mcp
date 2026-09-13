@@ -746,6 +746,8 @@ because holding the event loop inside it would stall delegations that are alread
 totals, and how many processes hold slots — observed rather than assumed, since a gate that
 has quietly narrowed to one process looks exactly like a working one until the cluster is
 oversubscribed. Where no POSIX lock exists it degrades to per-process counting and says so.
+The same tmpfs directory holds the decode-rate memory, unlocked because every failure path
+leaves it empty: it merges on write instead ([DISPATCH.md](DISPATCH.md), ADR-0075).
 Defaults and the two settings are in [CONFIGURATION.md](CONFIGURATION.md). (ADR-0040)
 
 ### The operator transcript is not the caller's diagnostics

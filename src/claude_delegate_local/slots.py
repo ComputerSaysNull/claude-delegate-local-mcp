@@ -169,6 +169,22 @@ def default_dir() -> Path:
     return Path("/dev/shm") / f"claude-delegate-local-{os.getuid()}"
 
 
+def default_dir_if_available() -> Path | None:
+    """`default_dir()` where the platform has one, else None.
+
+    The check comes *before* the call, not after: `default_dir` reads `os.getuid`, which
+    does not exist on the platform being checked for -- the same ordering trap `build_slots`
+    documents, and the one that turned a missing guard into 119 failures rather than one.
+
+    Probed with `fcntl` not because this caller needs a lock, but because it is what
+    distinguishes a POSIX host with a tmpfs runtime directory from one without. A caller
+    that gets None keeps whatever in-memory behaviour it had.
+    """
+    if fcntl is None:
+        return None
+    return default_dir()
+
+
 def _proc_start_time(pid: int) -> int | None:
     """Field 22 of `/proc/<pid>/stat`, or None where that cannot be read.
 

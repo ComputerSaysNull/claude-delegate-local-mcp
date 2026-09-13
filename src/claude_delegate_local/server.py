@@ -55,7 +55,7 @@ from .loop import (
 )
 from .paths import PathPolicyError, PathRefused, resolve_files, resolve_workdir
 from .registry import ModelEntry, Registry, RegistryError
-from .slots import build_slots, cross_process_status
+from .slots import build_slots, cross_process_status, default_dir_if_available
 from . import transcript
 from .tools import READ_ONLY_TOOL_NAMES, BashPolicy, resolve_allowed
 
@@ -1287,7 +1287,20 @@ def build(
     # learns its own decode rate and dies with it, so without this each first turn is
     # priced from the cluster's since-boot blend -- and the first turn is the one that can
     # die before it has an observation of its own.
-    rates = RateHistory()
+    #
+    # And now outliving the process too, because a reconnect is a new process and that is
+    # a thing the operator does casually, several times a session. Measured 2026-09-12: it
+    # cost four of six passes, which died at zero turns priced from a blend 1.75x above the
+    # rate they actually met, seconds after the same server had measured the right one.
+    # Stamped with the served model, so a swap discards the memory rather than pricing the
+    # new model at the old one's speed (ADR-0075).
+    # `default_dir_if_available`, never `default_dir`: off POSIX there is no tmpfs runtime
+    # directory to write to, and the memory falls back to the per-process behaviour it had.
+    rate_dir = default_dir_if_available()
+    rates = RateHistory(
+        path=None if rate_dir is None else rate_dir / "rate-history.json",
+        stamp=registry.resolve(None).served_model_id,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncIterator[dict[str, Any]]:

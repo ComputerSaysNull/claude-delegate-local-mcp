@@ -19,6 +19,56 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0075 — 2026-09-13 — The rate memory outlives the process that learned it — Accepted
+
+**Context.** `RateHistory` is built once per server process and dies with it. Reconnecting
+the MCP starts a new process, which the operator does casually and several times a session,
+and the memory resets to empty. `expect` then finds nothing at any concurrency and every
+delegation falls through to the cluster's since-boot blend.
+
+Measured 2026-09-12: that blend read 34.96 tok/s where six concurrent delivers just under
+20 — 1.75x optimistic. The 37,756 tokens it authorised need 1,888s of an 1,800s turn, and
+**two of four admitted passes died there having completed no turn**, seconds after the same
+server had measured the right rate.
+
+**Decision.** The memory loads on construction and writes after each accepted observation,
+to `slots.default_dir()`, stamped with the served model id.
+
+**Where, and why this is not the blocked state-directory question.** `PLAN.md` had it right
+— "tmpfs, wrong for an audit record, right for a rate" — and the session hand-off notes had
+coupled this to `transcript_dir`'s missing durable directory, so it read as blocked on a
+decision it never needed. Measured 2026-09-13: tmpfs survives a reconnect
+(`findmnt --target /mnt/wslg/runtime-dir` → tmpfs, and the slots directory's own mtime
+predates the distro boot), and a reconnect is the entire failure. A rate *should* be
+discarded on a reboot, because it describes hardware that may have changed; the stamp covers
+a model swap in between. The transcript's durability and privacy question is untouched.
+
+**After the floor, never before it.** The write sits below `MIN_TOKENS`, so persistence
+cannot become a second way in for a sample ADR-0073 just refused — a durable bad sample
+would be permanent for `DEFAULT_KEEP` observations rather than merely long-lived.
+
+**Merged on write, not clobbered.** stdio gives every client its own process (ADR-0040), so
+two servers can share the file. Writing only this process's view would drop the other's
+samples, and since `expect` takes a *minimum*, the sample most worth keeping is exactly the
+one a clobber is likeliest to lose. Written to a sibling and renamed, so no reader sees a
+half-written file.
+
+**Never a dependency.** Every failure path — unreadable, unparseable, wrong version, wrong
+stamp, malformed pair, unwritable directory — leaves an empty memory rather than raising.
+The worst it can cost is the pricing it was already missing. Fields are shape-checked
+rather than trusted: the file is on a tmpfs any process of this user can write, and a
+sample that reaches `expect` is permanent for 64 observations.
+
+**Rejected: a synthetic warm-up.** A generated sample is a guess at a concurrency and an
+effort no real work met, entering a structure whose `min()` makes one bad sample permanent.
+Keeping what was actually measured costs nothing and guesses nothing.
+
+**Sizing.** Measured across every transcript on this host, 599 of 1144 turns clear the
+512-token floor, so slightly over half of all turns feed this and a reconnect was throwing
+all of them away.
+
+---
+
 ## ADR-0074 — 2026-09-13 — A glob is not a scope, and a cost is taught in the result — Accepted
 
 **Context.** `search_files` walks every workspace root when `path` is omitted, policy-checks

@@ -1,4 +1,5 @@
-<!-- BUDGET: 722
+<!-- BUDGET: 726
+     Raised from 722 on 2026-09-13: verifying the rate memory against a live cluster found the copy-from-prompt artefact reproducing on real work, which no floor catches.
      Raised from 710 on 2026-09-13: measuring one delegation end to end filed four items nobody knew were there -- a rate above the cluster's physical maximum, an unscoped search costing 500s, and the two ways of making tool execution concurrent.
      Raised from 692 on 2026-09-13: the lease item ticked with streaming slices 2-3, what slice 4 now carries, and the setting-removal work carried out of the ticked body before it froze.
      Raised from 670 on 2026-09-12: three things established in a session and filed
@@ -454,6 +455,10 @@ them was re-derived when it did.
   estimators; one shared floor now, and the cost is tested rather than hidden (ADR-0073, #181)
 - ⬜ **`rate_source` names where the *seed* came from, not the number beside it.** It is set once
   in `__init__`, so `observed_at_concurrency` can label an EMA no observation at it produced
+- ⬜ **A quoting turn measures the accept path, not the decoder, and no floor catches it.**
+  Measured 2026-09-13 at one concurrency: quoting a prefetched file read 63.75 tok/s against
+  41.83 for generated prose and a 44.1 benchmark, from a turn well clear of ADR-0073's floor.
+  `expect`'s minimum contains it — immune to *fast* samples, vulnerable only to slow ones
 - ✅ 2026-09-13 **An unscoped `search_files` cost 490-572s, and the contract recommended it** —
   `glob` claimed to be the speed lever and the bad-`path` refusal said "omit it to search
   everywhere", which one delegation did, at 239s. Scope is worth ~100x; `read_file` was never
@@ -550,8 +555,8 @@ local, because they are working notes rather than a product fact.
   - Hold only while the gate is idle, so it costs nothing when concurrency is already known
     and 10s when it is not. The arrival distribution measured that day is bimodal, which is
     what makes a fixed window work: six probes inside 8.5s, or one alone
-- ⬜ **`RateHistory.expect` falls through to the since-boot blend when it has nothing at the
-  asked concurrency**, which is the optimistic answer to the busier question. Measured
+- ✅ 2026-09-13 **`RateHistory.expect` falls through to the since-boot blend when it has
+  nothing at the asked concurrency**, which is the optimistic answer to the busier question. Measured
   2026-09-12: six probes priced from that fall-through at 34.85 tok/s and then decoded at
   27.1 six-way — a 1.29x overestimate, not the 1.8x recorded before the instrument was
   fixed. A 37,638-token ceiling still decodes inside an 1,800s turn at that rate, so the
