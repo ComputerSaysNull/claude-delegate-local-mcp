@@ -34,6 +34,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #192 — 2026-09-13 — fix: the KV budget outran the pool it protects
+
+### Fixed
+- **`kv_token_budget` was about 1.64x the pool it describes itself as sitting under.**
+  *Symptom:* 2,400,000 configured against a `kv_cache_size_tokens` of **1,467,988**, re-read
+  2026-09-13 and unchanged. *Cause:* a constant measured against the model served before the
+  2026-09-04 swap — a vision model carries more weights, so less memory is left for KV and
+  the pool shrank underneath it. Nothing failed, which is why it went unnoticed:
+  over-admitting queues and preempts rather than erroring, so the setting protects latency
+  and cannot announce that it has stopped. *Fix:* the gate binds on the lower of the
+  configured ceiling and the pool the endpoint reports. A new constant would drift the same
+  way the next time the pool moves.
+- The reading costs nothing. `seed_decode_rate` already scrapes the cluster on the dispatch
+  path to price the first turn, and `kv_cache_size_tokens` comes back in the same payload —
+  it was being dropped. Until a scrape has happened the configured value stands, and a
+  `None`, zero or negative reading is ignored: that read swallows every failure by design,
+  and a budget of zero would refuse every delegation.
+
+### Changed
+- **`backend_status` reports three numbers**, not one: the configured budget, the effective
+  one, and the pool actually seen. A lowered ceiling nobody can see would be exactly the
+  silent override this is meant not to be.
+- **PLAN.md's justification for this item was wrong and is corrected.** It called for
+  deriving the value "the way `WindowCheck` already derives" — `WindowCheck` **validates and
+  never derives**, and its docstring says why. What makes this allowable is a different
+  argument: `context_window` is the operator's claim about a *model*, so adopting the
+  endpoint's figure would overrule them, whereas these two are ceilings on the same physical
+  thing and the lower of two ceilings overrules neither. The control test holds that line —
+  a pool *larger* than the budget does not raise it.
+
 ## #191 — 2026-09-13 — fix: eviction fired at 4% of the window against a 50% gate
 
 ### Fixed

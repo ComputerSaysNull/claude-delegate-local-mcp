@@ -186,10 +186,56 @@ class AdmissionLease:
 class Admission:
     """The four-rule gate. One per process, over counters the whole machine shares."""
 
+    @property
+    def effective_token_budget(self) -> int:
+        """The lower of what the operator allowed and what the machine actually has.
+
+        `kv_token_budget` describes itself as sitting just under the measured KV pool, and
+        by 2026-09-13 it did not: 2,400,000 configured against a `kv_cache_size_tokens` of
+        1,467,988, about 1.64x. Nothing had failed, which is why it went unnoticed --
+        over-admitting queues and preempts rather than erroring, so this protects latency
+        and cannot announce that it has stopped. A new constant would drift the same way
+        the next time the pool moves, as it did on the 2026-09-04 model swap.
+
+        **Not the silent override `WindowCheck` refuses.** That validates and never derives,
+        because `context_window` is the operator's claim about a *model* and adopting the
+        server's figure would overrule them. These two are ceilings on the same physical
+        thing, so taking the lower overrules neither: the operator's number still caps, and
+        so does the hardware. Both are reported in `status()`, because a ceiling nobody can
+        see would be the silent override after all.
+        """
+        if self._pool_tokens is None:
+            return self._token_budget
+        return min(self._token_budget, self._pool_tokens)
+
+    def observe_pool(self, tokens: int | None) -> None:
+        """Record what the endpoint says its KV pool is. Ignores anything unusable.
+
+        Called from the dispatch path, where `seed_decode_rate` already scrapes the cluster
+        to price the first turn and `kv_cache_size_tokens` arrives in the same payload. That
+        read swallows every failure by design, so `None` is the ordinary case on an endpoint
+        publishing no metrics -- and a zero or a negative would tighten this gate to nothing
+        and refuse every delegation, which is a worse failure than the drift it fixes.
+        """
+        if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens > 0:
+            self._pool_tokens = tokens
+
+    def would_bind_on_tokens(self, tokens: int) -> str | None:
+        """Which rule an estimate of this size would hit on an idle gate, or None.
+
+        Exists for the tests and for a reader: `_binding` needs a `Totals` and a registry
+        key, and neither says anything about the token rule on its own.
+        """
+        return "kv_token_budget" if tokens > self.effective_token_budget else None
+
     def __init__(self, cfg: Config, slots: SharedSlots | None = None) -> None:
         self._slots = slots
         self._max_seqs = cfg.max_inflight_seqs
         self._token_budget = cfg.kv_token_budget
+        # The pool the endpoint says it has, once anything has looked. `None` until then,
+        # which is different from zero: an endpoint publishing no metrics must leave the
+        # configured value standing rather than tighten this gate to nothing.
+        self._pool_tokens: int | None = None
         self._large_threshold = cfg.large_prefill_tokens
         self._max_large = cfg.max_inflight_large_prefills
         self._grace = cfg.admission_starvation_grace
@@ -231,8 +277,8 @@ class Admission:
         """
         if live.seqs >= self._max_seqs:
             return ("max_inflight_seqs", self._max_seqs)
-        if live.tokens + tokens > self._token_budget:
-            return ("kv_token_budget", self._token_budget)
+        if live.tokens + tokens > self.effective_token_budget:
+            return ("kv_token_budget", self.effective_token_budget)
         if is_large and live.large >= self._max_large:
             return ("max_inflight_large_prefills", self._max_large)
         if live.per_entry.get(key, 0) >= limit:
@@ -609,6 +655,11 @@ class Admission:
             "peak_inflight_seqs": self._peak_seqs,
             "peak_inflight_tokens": self._peak_tokens,
             "peak_inflight_large_prefills": self._peak_large,
+            # Three numbers rather than one, because the lowered ceiling is only honest if
+            # a reader can see both halves of it and which one is binding.
+            "kv_token_budget": self._token_budget,
+            "kv_token_budget_effective": self.effective_token_budget,
+            "kv_cache_size_tokens_seen": self._pool_tokens,
             "per_entry": {
                 key: {"inflight": self._per_entry.get(key, 0), "peak": peak}
                 for key, peak in sorted(self._peak_per_entry.items())

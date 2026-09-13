@@ -307,6 +307,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]] | None = None,
     on_turn_done: Callable[[Any, str], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
     on_token: Callable[[], None] | None = None,
@@ -325,6 +326,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 max_turns=max_turns, policy=policy,
                 diagnostics=diagnostics, report_progress=report_progress,
                 on_alive=on_alive, on_turn_done=on_turn_done, on_priced=on_priced,
+                on_pool=on_pool,
                 rate_history=rate_history, expected_concurrency=expected_concurrency,
                 on_token=on_token,
             )
@@ -336,7 +338,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
         # been waiting and what it is waiting against, which is a different shape.
         return await run_one_shot(
             cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens,
-            on_alive=on_alive, on_priced=on_priced,
+            on_alive=on_alive, on_priced=on_priced, on_pool=on_pool,
             rate_history=rate_history, expected_concurrency=expected_concurrency,
             on_token=on_token,
         )
@@ -803,6 +805,9 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 on_alive=alive,
                 on_turn_done=streamed_turn,
                 on_priced=priced,
+                # The KV pool arrives free in the scrape that prices the first turn,
+                # and is the only sighting of it on the dispatch path.
+                on_pool=admission.observe_pool,
                 rate_history=rates,
                 on_token=first_token,
                 expected_concurrency=expected,

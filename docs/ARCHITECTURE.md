@@ -1,7 +1,8 @@
-<!-- BUDGET: 1119 -->
+<!-- BUDGET: 1130 -->
 <!-- Raised from 1069 on 2026-09-12: a granted lease carries the concurrency it was granted against, which is admission behaviour this document owns. -->
 <!-- Raised from 1100 (to 1103) on 2026-09-13: the record reads emptiness through the same helper as the reply. -->
 <!-- Raised from 1100 on 2026-09-13: the viewer states what it knows rather than what reads well, and the end event carries why a reply stopped. -->
+<!-- Raised from 1100 on 2026-09-13: the token rule binds on the lower of the configured ceiling and the pool the endpoint reports. -->
 <!-- Raised from 1080 on 2026-09-13: a lease is released in two parts, the large half at first token; and a queued delegation is recorded as queued rather than left to read as silent. -->
 <!-- Ceiling was 1069 before that.
      Raised from 1061 on 2026-09-11: the stream gained a fifth event, and the paragraph
@@ -658,6 +659,16 @@ The four are **one predicate, not four gates in series**. A request that took a 
 slot and then blocked on the large-prefill cap would hold capacity it is not using for the
 whole wait, starving smaller requests that fit every rule. Nothing is ever partially
 acquired: a waiter that does not fit holds nothing.
+
+**The token rule binds on the lower of two ceilings.** `kv_token_budget` is what the operator
+allows; `kv_cache_size_tokens` is what the machine has, and it arrives free in the scrape that
+already prices a delegation's first turn. Until 2026-09-13 only the first was read, and it had
+drifted to about 1.64x the pool it describes itself as sitting under — invisibly, because
+over-admitting queues rather than errors, so this protects latency and cannot report that it
+has stopped. This is deliberately *not* the silent override `WindowCheck` refuses: that
+validates a declared `context_window` because adopting the endpoint's figure would overrule
+the operator, whereas these two are ceilings on the same physical thing and the lower of two
+ceilings overrules neither. Both, and which is binding, are in `backend_status`.
 
 **Queueing is ordered, which it was not until 2026-09-04.** "Queues" above was true about
 waiting and false about a place in line. `acquire` was a re-test loop, so a request that
