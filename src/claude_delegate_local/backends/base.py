@@ -345,6 +345,49 @@ class CanonicalResponse:
         return "".join(b.text for b in self.content if isinstance(b, ThinkingBlock))
 
 
+REASONING_ONLY_BANNER = (
+    "[no answer was written: the reply stopped at its token limit with every token spent "
+    "reasoning. What follows is that reasoning, returned in place of the empty string it "
+    "used to be. Treat it as working notes, not a conclusion.]\n\n"
+)
+
+
+def answer_of(response: CanonicalResponse) -> tuple[str, bool]:
+    """The text a caller is handed, and whether it is reasoning rather than an answer.
+
+    A reply that spent its whole budget thinking parses into a `ThinkingBlock` and no
+    `TextBlock`, and `text` above joins text blocks only -- so the answer was the empty
+    string while every token the cluster produced sat in the response, already parsed, and
+    was dropped. Measured over one machine's 446 transcript summaries: nine dispatches at
+    `finish_reason` `'length'` and `ok` true, carrying 14,475 to 44,854 output tokens
+    apiece, 265,092 in total. A length stop is neither a timeout nor a cancellation, so
+    returning a partial at a deadline would not have rescued any of them.
+
+    Returned under a banner rather than bare, because reasoning is working notes and a
+    caller that cannot tell it from a conclusion would be worse off than with the empty
+    string. The flag is what a caller branches on; the banner is what a reader sees.
+
+    Only when there is no text at all. Appending reasoning to a reply that *has* an answer
+    would change every successful dispatch on the way to fixing the empty ones, and
+    `resend_reasoning` already governs whether thinking travels onward -- that is a
+    question about history, and this is a question about what the caller is handed.
+
+    Here rather than in `server.py` because `transcript.py` needs the same answer and must
+    not import the server: a record disagreeing with the reply it records is how nine
+    dispatches came to read as empty while holding everything they had produced.
+    """
+    text = response.text
+    if text:
+        return text, False
+    thinking = response.thinking
+    if not thinking.strip():
+        # Whitespace is what an emptied reasoning stream leaves behind. A banner with
+        # nothing under it would make `empty_response` unreachable, which is the one
+        # signal a caller has that the dispatch produced nothing at all.
+        return "", False
+    return REASONING_ONLY_BANNER + thinking, True
+
+
 # --- the protocol ---------------------------------------------------------------------
 
 

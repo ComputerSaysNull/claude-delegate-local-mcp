@@ -34,6 +34,38 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #TBD — 2026-09-13 — fix: reasoning was generated, paid for, and then discarded
+
+### Fixed
+- **A reply that spent its whole budget reasoning came back as the empty string.**
+  *Symptom:* nine dispatches across this machine's 446 transcript summaries reported
+  `empty_response` with `answer_chars` 0 — every one of them at `finish_reason` `'length'`
+  with `ok` true, carrying 14,475 to 44,854 output tokens apiece, **265,092 in total**.
+  `reasoning_exhausted` was true on all nine, so ADR-0014's recovery had already spent a
+  larger budget and a lower effort on each before the result was thrown away. *Cause:*
+  `run_delegation` ended with `answer = response.text`, and `text` joins `TextBlock`s only.
+  A reply with no conclusion parses into a `ThinkingBlock` and nothing else, so every token
+  the cluster produced sat in the response, already parsed, and was dropped at the last
+  step. *Fix:* `answer_of` returns that reasoning under a banner and reports
+  `answer_is_reasoning`. Only when there is no text at all — appending reasoning to a reply
+  that has an answer would change every successful dispatch on the way to fixing the empty
+  ones.
+- It lives in `backends/base.py` beside `text` and `thinking` rather than in `server.py`,
+  because `transcript.py` must reach the same verdict and must not import the server. The
+  record read `response.text` directly, which is how those nine came to be filed as empty
+  while holding everything they had produced.
+
+### Changed
+- **`empty_response` narrows to mean nothing came back at all**, rather than no *text*.
+  It stays derived from the answer actually returned, so it keeps naming the case a caller
+  needs it for; a reply that reasoned its budget away is now `answer_is_reasoning` instead.
+  A contract change, and the reason the output schema carries both.
+- **This does not close the streaming item.** Slice 4 — a partial at `dispatch_timeout` —
+  remains open and remains the fix for a *cancelled* turn. A length stop is neither a
+  timeout nor a cancellation, so returning a partial at a deadline would have rescued none
+  of these nine; they completed exactly as asked. The two were conflated in planning, and
+  the measurement is what separated them.
+
 ## #186 — 2026-09-13 — fix: refuse an empty agent name
 
 ### Fixed

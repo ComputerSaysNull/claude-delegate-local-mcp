@@ -1,4 +1,5 @@
-<!-- BUDGET: 775
+<!-- BUDGET: 795
+     Raised from 775 (to 795) on 2026-09-13: reasoning is no longer discarded, plus four findings this session measured -- two about eviction, one about server-side tool time, one re-filing the M10 spike.
      Raised from 758 on 2026-09-13: four findings this session measured but no branch owned -- the third liveness state, and four viewer defects that state true things in ways that read false.
      Raised from 752 on 2026-09-13: the empty-name item closed against its own leaning, and why the code moved rather than the document is the part worth keeping.
      Raised from 744 on 2026-09-13: closing the 2026-09-11 audit, where two findings turned out to be wrong and saying why is worth more than the tick.
@@ -283,8 +284,13 @@ nothing was configured, and no tool result changes shape.
   ADR-0070)**: the transport streams, `complete()` is unchanged, and the decode interval no
   longer contains prefill. **Slices 2-3 landed 2026-09-13 (ADR-0072)**: `stall_left` resets
   on token arrival against a live ceiling, and the heartbeat carries what has arrived.
-  **Slice 4 remains** — a partial at `dispatch_timeout` — plus the retry split streaming
-  makes available (a read timeout *before* first token is prefill or queueing, *after* is
+  **Slice 4 remains** — a partial at `dispatch_timeout`, and narrower than it looked. Two
+  populations were conflated: a *length stop* returns normally with its tokens already parsed
+  into the response, fixed above without streaming; a *cancelled* turn leaves them in the
+  adapter's accumulator, which is what this still owns. Since #172 they are no longer "only on
+  the backend" as the scope note below says — they are in `_StreamAccumulator`, discarded on
+  the exception path — plus the retry split
+  streaming makes available (a read timeout *before* first token is prefill or queueing, *after* is
   slow decode; untouched in #172), and showing the stream itself. **Weigh a non-terminal
   viewer first**: `follow` never repaints and making it is the expensive half, where a
   browser over the same `.jsonl` gets repaint, scrollback and selection for nothing.
@@ -456,6 +462,20 @@ them was re-derived when it did.
 
 ### Unscheduled — open, real, and in no milestone
 
+- ✅ 2026-09-13 **Reasoning was generated, paid for, and then discarded** — nine dispatches of 446
+  reported empty at a *length stop* holding 265,092 output tokens, because `answer` joined text
+  blocks only. Bannered now, with `answer_is_reasoning` (#TBD)
+- ⬜ **Eviction and dedup undo each other** — a stubbed 34KB result is handed straight back on the
+  next identical call, plus the turn spent asking. Neither half can see the other
+- ⬜ **Eviction is sized in tokens and cannot see what a result cost** — it will drop a 657s read
+  to save a few thousand
+- ⬜ **A delegation's budget pays for server-side tool time** — 1,135.7s of 1,271.7s, 89.3%,
+  cluster idle throughout (2026-09-13). Feeds the third-liveness-state item
+- ⬜ **The M10 spike is misfiled and stale** — it does not move M10's exit, and the workaround it
+  meant to avoid writing down is now in CLAUDE.md. Its accuracy half is still unmeasured
+- ⬜ **The docs gate measures the last append-only entry a line short** — length runs to the next
+  heading, so the newest entry omits its trailing separator and an over-budget one lands, then
+  blocks whoever appends next. Found by being that next person
 - ✅ 2026-09-13 **The priced rate climbed past what the cluster can physically decode** — 88.53
   tok/s and a 95,612-token ceiling against a benchmark of 44.1. ADR-0070's move to
   `decode_seconds` inverted the short-turn defect ADR-0071 had fixed in only one of the two

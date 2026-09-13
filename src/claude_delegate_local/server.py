@@ -35,6 +35,7 @@ from .backends.base import (
     BackendRefused,
     BackendUnavailable,
     CanonicalShapeError,
+    answer_of,
 )
 from .backends.openai_compat import OpenAICompatBackend
 from .admission import Admission, AdmissionError, AdmissionLease
@@ -866,7 +867,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         )
 
     response = dispatched.response
-    answer = response.text
+    answer, answer_is_reasoning = answer_of(response)
     return {
         **prefetched.accounting(),
         # Which file shaped this, when one did. A delegation that behaved unexpectedly is
@@ -900,7 +901,15 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         # Still the mechanical fact, and still reported on its own: "" must never read
         # as a successful reply. What changed is that reaching here means the state
         # machine already tried a larger budget and a lower effort.
+        #
+        # It stays derived from `answer` rather than from `response.text`, so it keeps
+        # meaning "nothing came back" now that reasoning can come back instead. A reply
+        # that reasoned its whole budget away is no longer empty; it is `answer_is_reasoning`.
         "empty_response": answer == "",
+        # Whether what is in `answer` is reasoning rather than an answer. A caller that
+        # branches on this is the reason the reasoning is returned at all -- the banner
+        # is for whoever reads it, and a flag is for whoever does not.
+        "answer_is_reasoning": answer_is_reasoning,
         # The diagnosis, which is a different claim and only earned once the
         # mitigations have actually been spent. True means every one was tried and the
         # answer is still empty at a length stop -- ADR-0014's reasoning_exhausted_budget.
@@ -939,12 +948,20 @@ _DELEGATION_RESULT: dict[str, Any] = {
     "properties": {
         "answer": {"type": "string", "description": (
             "The model's reply. Empty is never a successful answer -- read "
-            "`empty_response` beside it."
+            "`empty_response` beside it. When `answer_is_reasoning` is true this holds the "
+            "model's reasoning under a banner instead, because the reply stopped at its "
+            "token limit with nothing else written."
         )},
         "empty_response": {"type": "boolean", "description": (
-            "The answer came back empty. Reaching this means the server already retried at "
-            "a larger budget and then at a lower effort, so it is a result and not a "
-            "transient -- do not simply ask again."
+            "Nothing came back at all -- neither an answer nor reasoning. Reaching this "
+            "means the server already retried at a larger budget and then at a lower "
+            "effort, so it is a result and not a transient -- do not simply ask again."
+        )},
+        "answer_is_reasoning": {"type": "boolean", "description": (
+            "`answer` holds reasoning, not an answer: the reply spent its whole token "
+            "budget thinking and wrote no conclusion. Working notes, so do not quote it as "
+            "a result -- but it is what the work produced, and a narrower follow-up task "
+            "usually finishes where this one ran out."
         )},
         "reasoning_exhausted": {"type": "boolean", "description": (
             "Why the answer was empty, which is a different claim from that it was. True: "

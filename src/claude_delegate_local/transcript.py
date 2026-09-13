@@ -50,6 +50,7 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .backends.base import answer_of as _answer_of
 from .wsl import UntranslatablePath, to_local
 
 if TYPE_CHECKING:
@@ -380,7 +381,13 @@ def _usage(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
         "attempts": dispatched.attempts,
         "reasoning_exhausted": dispatched.reasoning_exhausted,
         "answer_chars": len(response.text),
-        "empty_response": response.text == "",
+        # Both derived from `answer_of`, the same helper the result dict uses, so the
+        # record and the reply cannot disagree about whether anything came back. Reading
+        # `response.text` here instead is what made nine dispatches look empty in this
+        # directory while the reasoning they produced sat in the response unread.
+        "empty_response": _answer_of(response)[0] == "",
+        "answer_is_reasoning": _answer_of(response)[1],
+        "reasoning_chars": len(response.thinking),
     }
 
 
