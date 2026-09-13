@@ -447,6 +447,13 @@ them was re-derived when it did.
 
 ### Unscheduled — open, real, and in no milestone
 
+- ✅ 2026-09-13 **The priced rate climbed past what the cluster can physically decode** — 88.53
+  tok/s and a 95,612-token ceiling against a benchmark of 44.1. ADR-0070's move to
+  `decode_seconds` inverted the short-turn defect ADR-0071 had fixed in only one of the two
+  estimators; one shared floor now, and the cost is tested rather than hidden (ADR-0073, #181)
+- ⬜ **`rate_source` names where the *seed* came from, not the number beside it.** It is set once
+  in `__init__`, so `observed_at_concurrency` can label an EMA no observation at it produced
+
 Neither queued nor deferred: real work not yet ranked against a milestone.
 
 - ⬜ **An empty `name:` is accepted where the document says it is refused.** `agents.py` line

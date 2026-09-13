@@ -340,10 +340,13 @@ direction for a budget. Until streaming it always was the whole attempt, and tha
 a remembered 13.4 tok/s, learned from two answers under 1,200 tokens, priced a 14,475-token
 ceiling on a cluster that had just delivered 17,779 in one turn. `MIN_TOKENS` cannot catch
 that — it guards the size of the answer, and the problem is the size of the prompt.
-Taking prefill out of the interval leaves a floor useful against a *different* defect, and
-`RateHistory` keeps its own, stricter than `DecodeRate`'s: `expect` holds a minimum for 64
-observations where an average decays, so a 237-token turn reading 16.64 tok/s — against
-65.6 for the same model alone — floored every later first turn until the memory refused it.
+Taking prefill out of the interval inverted the defect a floor must catch. With prefill
+inside, a short turn read slow — 237 tokens at 16.64 tok/s against a benchmarked 44.1 alone.
+With it outside, a short turn reads fast: measured 2026-09-13, turns near a hundred tokens
+read 91–106 tok/s where turns above four hundred read 45–52, and one estimate climbed 19.57
+to 88.53 across 24 turns without once falling back. Both estimators apply the same floor
+now — a sample either describes the decoder or it does not, and average-versus-minimum
+decides only how a bad one propagates.
 
 What a turn achieved is also **remembered past its delegation**, in `RateHistory`, tagged
 with how contended it was. `DecodeRate` learns within one delegation and dies with it, so

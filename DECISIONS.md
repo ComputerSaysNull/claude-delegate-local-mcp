@@ -19,6 +19,51 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0073 — 2026-09-13 — Taking prefill out of the interval inverted the floor's job — Accepted
+
+**Context.** ADR-0071 gave `RateHistory` a 512-token floor after a 237-token turn recorded
+16.64 tok/s, and deliberately left `DecodeRate` at 64: an average that decays was held to
+need a weaker admission test than a minimum that does not. That reasoning was sound for the
+instrument it was measured on, where `seconds` still contained prefill and queueing, so a
+short turn read **slow** and only the permanent minimum needed defending.
+
+ADR-0070 changed the denominator to `decode_seconds` — last token minus first. A short turn's
+frames arrive in one burst, so the interval is barely over `MIN_SECONDS` and the quotient is
+now too **high**. The sign of the defect flipped and only one of the two estimators was
+guarded against the new direction.
+
+Measured 2026-09-13, recovering each turn's own sample from the next turn's `priced` event by
+inverting the EMA at `WEIGHT = 0.4`, across two live delegations:
+
+| output tokens | decode interval | recovered sample |
+|---|---|---|
+| 105–119 | 1.00–1.30s | 91.3, 102.1, 104.8, 105.9 tok/s |
+| 438–1478 | 8.6–31.2s | 45.3, 47.4, 50.3, 51.1, 52.5 tok/s |
+
+The cluster's benchmark is 44.1 tok/s alone. The large-turn samples agree with it; every
+sample above 85 came from a turn of about a hundred tokens. Decay is no defence when nearly
+every turn is short — across 24 turns the estimate climbed **19.57 → 88.53** and never once
+fell back, authorising 95,612 tokens for a turn the clock can pay roughly 20,000 of.
+
+**Decision.** One floor, `MIN_MEASURABLE_TOKENS`, referenced by both estimators rather than
+restated in each. Since both now divide by the same quantity, whether a sample describes the
+decoder is a property of the sample and not of who is asking; average-versus-minimum decides
+how a bad sample propagates, never whether it is one. The value stays 512 — sized from the
+deployment's benchmark, which measures stable per-stream rates with a 400-token cap — rather
+than fitted to this incident, which would bake one day's data in.
+
+**Consequence, accepted rather than hidden.** A tool-heavy agentic delegation now rarely
+learns its own rate: the 44-minute run above had a largest turn of 453 tokens, so under the
+shared floor it teaches the estimator nothing and holds its seed. That is the conservative
+direction — an under-authorised turn is short of budget, never killed — and it makes
+persisting `RateHistory` across a reconnect the item that follows this one.
+
+**Alternative rejected.** A second constant sized between 267 and 438 tokens, where this
+day's data breaks. It would fit one deployment's hardware, which is the mistake `PLAN.md`
+already records against `kv_token_budget`.
+
+---
+
 ## ADR-0072 — 2026-09-13 — A lease sized to the work it protects — Accepted
 
 **Context.** `max_inflight_large_prefills` exists to stop the engine being asked for several
@@ -79,7 +124,7 @@ reads as healthy, which is what the 2026-09-04 stalls looked like from outside.
 recorded against it — decided once from the opening estimate, never revisited — is dead code
 rather than a defect.
 
-## ADR-0071 — 2026-09-12 — A minimum needs a stricter admission test than an average — Accepted
+## ADR-0071 — 2026-09-12 — A minimum needs a stricter admission test than an average — Partially superseded by ADR-0073
 
 **Context.** Two estimators now consume the same observation and they are not alike.
 `DecodeRate` re-prices the next turn of a delegation already running, keeps an exponential
