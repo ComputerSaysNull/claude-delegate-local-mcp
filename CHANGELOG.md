@@ -34,7 +34,44 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #TBD — 2026-09-13 — fix: reasoning was generated, paid for, and then discarded
+## #189 — 2026-09-13 — fix: a search cannot name a scope it was never shown
+
+### Fixed
+- **Three homes told the model to scope a search and none said what the scopes were.**
+  *Symptom:* the session after ADR-0074 shipped, a delegation opened with four unscoped
+  `search_files` calls costing **657.6s** — worse than the 490/505/572s that ADR-0074 had
+  measured as the bug. Its task text named the four directories to search. *Cause:*
+  ADR-0074 spent three of ADR-0066's four homes on claims *about* the argument and kept
+  `path` optional. The model was climbing toward scope by trial — 657.6s unscoped, 391.8s
+  at the repository root, 4.4s at subdirectories once a result had shown it one — because
+  it had never been told a directory name. *Fix:* `path` is required, and the declared
+  description carries the workspace layout, one level deep. (ADR-0076)
+- **Directories and files both**, directories marked with a trailing slash. A directory
+  holding only files would otherwise advertise as empty and be ruled out; this repository's
+  root is that shape, and the markdown files at its top level are what the delegation that
+  produced the measurement was looking for.
+
+### Added
+- **`_unscoped_`**, a sentinel `path` that walks every root. ADR-0074 was right that the
+  all-roots search is legitimate and wrong that optionality preserved it: an omission is
+  indistinguishable from a model that decided nothing, which is what the 657.6s call was.
+  A sentinel is a decision, cannot collide with a real path — layer 1 refuses anything
+  non-absolute — and makes a deliberate full walk one greppable string in a transcript.
+
+### Changed
+- **`declared_tools` takes the `Config`**, because the layout is appended at declaration
+  time and deliberately never stored in `REGISTRY`: `gen_tools_docs.py` renders the registry
+  into the committed `docs/TOOLS.md`, and a workspace root is an absolute path carrying the
+  operator's home directory. Storing it would publish a local filesystem layout, and a
+  personal identifier inside it, into a public artefact.
+- It can now raise `PathPolicyError`, since it reads the denylist. Declaring tools could
+  previously not fail, so a misconfigured denylist ends a delegation at declaration rather
+  than at the first tool call — the better moment, but a new failure site.
+- `test_a_glob_was_not_a_scope`'s unscoped case is re-pointed at the sentinel rather than
+  removed, and its docstring records why its own reasoning was superseded. What it protects
+  is unchanged: an all-roots search says what it scanned.
+
+## #188 — 2026-09-13 — fix: reasoning was generated, paid for, and then discarded
 
 ### Fixed
 - **A reply that spent its whole budget reasoning came back as the empty string.**

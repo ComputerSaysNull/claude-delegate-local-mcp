@@ -19,6 +19,66 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0076 — 2026-09-13 — A scope cannot be asked for without a map — Accepted
+
+**Context.** ADR-0074 required `search_files` to name its scope and spent three of
+ADR-0066's four homes saying so: the `inputSchema`, the result note, and the refusal
+remedy. It kept `path` optional, on the reasoning that a `glob` with no `path` is a
+legitimate search and refusing it would break a real use to fix an expensive one.
+
+Measured the next session, tool time as `ms` minus `backend_ms`, one delegation issuing
+the same four patterns each turn: `path` omitted cost **657.6s**; `path` set to the
+repository root cost **391.8s**; `path` set to subdirectories cost **4.4s**. ADR-0074's
+own before-figures were 490s, 505s and 572s, so the session after the fix was worse than
+anything the fix had measured. The delegation's task text named the four directories to
+search and that did not help either.
+
+The climb is the finding. Told to narrow, the model narrowed to the only place it had
+ever been told the name of — a root — and reached a subdirectory only after a result
+showed it one. Every one of the three homes was a *claim about an argument*. None of them
+was a map, and a fourth wording would not have been one either.
+
+**Decision.** `path` is required, and the declared description carries this deployment's
+workspace layout: every root, and what is directly inside it, one level deep.
+
+`_unscoped_` is the escape, a sentinel value rather than an omitted argument. ADR-0074 was
+right that the all-roots search is a legitimate shape and wrong that keeping it optional
+was how to preserve it: an omission is indistinguishable from a model that decided
+nothing, which is exactly what the 657.6s call was. A sentinel is a decision, it cannot
+collide with a real path because layer 1 refuses anything non-absolute, and it makes a
+deliberate full walk one greppable string in a transcript.
+
+The listing names **directories and files**, directories marked with a trailing slash. A
+directory holding only files would otherwise advertise as empty and be ruled out — this
+repository's own root is that shape, and the delegation that produced the measurement
+above was looking for the markdown files in it.
+
+**Consequences.** The layout is appended at declaration time and never stored in
+`REGISTRY`, because `scripts/gen_tools_docs.py` renders the registry into the committed
+`docs/TOOLS.md` and a workspace root is an absolute path carrying the operator's home
+directory. Storing it would publish a local filesystem layout, and a personal identifier
+inside it, into a public artefact.
+
+`declared_tools` therefore takes the `Config`. It can now also raise `PathPolicyError`,
+since it reads the denylist: declaring tools could previously not fail, and a misconfigured
+denylist now ends a delegation at declaration rather than at the first tool call. That is
+the better moment — the server already refuses to run without the denylist — but it is a
+new failure site.
+
+The description changes when a top-level entry appears or disappears in a root, costing
+one cold prefill. Not what ADR-0011 forbids: there is no timestamp, session id or counter,
+and it stays a pure function of the config and the tree, so two delegations against an
+unchanged tree send identical bytes. Rarer than a delegation, and cheaper than one unscoped
+search by two orders of magnitude.
+
+The listing is capped per root, with the count of what it omitted — a map exists to be read
+at a glance and to sit in a cached prefix, and the count tells the model a directory is
+dense and worth scoping into where silent truncation would imply it had seen everything.
+
+**What this does not claim.** The mechanism is tested; the fix is not proven until a real
+delegation's *first* `search_files` call carries a subdirectory. That is the thing ADR-0074
+got wrong, and the numbers above measure the bug rather than the remedy.
+
 ## ADR-0075 — 2026-09-13 — The rate memory outlives the process that learned it — Accepted
 
 **Context.** `RateHistory` is built once per server process and dies with it. Reconnecting

@@ -25,8 +25,8 @@ import posixpath
 import re
 import shutil
 import subprocess
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, replace
 
 from . import provision, sandbox
 from .backends.base import BashOutcome, ToolResultBlock, ToolSpec, ToolUseBlock
@@ -255,6 +255,118 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
     )
 
 
+# The one `path` value that means "every workspace root". A sentinel rather than an omitted
+# argument, and that is the whole change: an omission is indistinguishable from a model that
+# decided nothing, which is exactly what the 657.6s call was. It cannot collide with a real
+# `path` because layer 1 refuses anything not absolute, and it makes a deliberate full walk
+# one greppable string in a transcript.
+UNSCOPED = "_unscoped_"
+
+# Entries listed per root before the rest are summarised. A map exists to be read in one
+# glance and to sit in a cached prefix; an unbounded listing of a directory holding nine
+# hundred files is neither.
+LAYOUT_MAX_ENTRIES = 40
+
+
+def _top_level(root: str, globs: Sequence[str]) -> tuple[str, ...]:
+    """What is directly inside `root`: directories marked with a trailing slash, then files.
+
+    One level, never recursive. That is a cost decision rather than a simplification -- this
+    runs at declaration time, and a recursive listing would reintroduce the very walk this
+    change exists to stop paying for, before a token had been spent.
+
+    **Files as well as directories**, because a directory holding only files would otherwise
+    be advertised as empty and the model would rule it out. The repository root is exactly
+    that shape: `PLAN.md`, `CHANGELOG.md` and `DECISIONS.md` live there with no subdirectory
+    of their own, and a directories-only map would have hidden the three files a search for
+    "the repository-root markdown files" most needed.
+
+    Filtered the way the walk prunes, with the same denylist. Symlinks are skipped so one
+    tree is not offered under two names, and a denylisted entry is not named at all --
+    advertising one is worse than silence, because the model scopes a search to it, the walk
+    declines to enter, and an empty result reads as proof of absence rather than as policy.
+    """
+    try:
+        entries = sorted(os.listdir(root))
+    except OSError:
+        # A root that has gone missing is the operator's problem, not this call's. The
+        # root's name is still correct and still useful, so the listing degrades to nothing
+        # rather than taking a delegation down at declaration time.
+        return ()
+    dirs: list[str] = []
+    files: list[str] = []
+    for name in entries:
+        full = posixpath.join(root, name)
+        if os.path.islink(full) or secret_match(full, globs) is not None:
+            continue
+        if os.path.isdir(full):
+            dirs.append(name + "/")
+        elif os.path.isfile(full):
+            files.append(name)
+    # Directories first because they are where a search is usually scoped to; files second
+    # because they are what tells the model the directory is not empty.
+    return tuple(dirs + files)
+
+
+def _render_entries(inside: Sequence[str]) -> str:
+    """One root's listing, capped, saying how many it did not name.
+
+    The count matters more than the names it replaces: "+312 more" tells the model the
+    directory is dense and worth scoping *into*, where a silent truncation would suggest it
+    had been shown everything.
+    """
+    if not inside:
+        return "(empty)"
+    if len(inside) <= LAYOUT_MAX_ENTRIES:
+        return ", ".join(inside)
+    shown = ", ".join(inside[:LAYOUT_MAX_ENTRIES])
+    return f"{shown}, +{len(inside) - LAYOUT_MAX_ENTRIES} more"
+
+
+def _workspace_layout(cfg: Config) -> str:
+    """Every workspace root and what is directly inside it, as one block of text.
+
+    This exists because three attempts at wording an argument did not work, and could not
+    have. ADR-0074 fixed what the contract *claimed* about `path` in three of its four homes
+    and the next session's delegation opened with an unscoped search anyway: 657.6s, then
+    391.8s scoped to a repository root, then 4.4s once a result had finally shown it a
+    subdirectory name. Told to narrow, the model narrowed to the only place it had ever been
+    told the name of. The missing thing was never a claim. It was the map.
+
+    The denylist is read once here rather than once per root, which is why `_top_level` takes
+    the globs instead of the `Config`.
+
+    Deterministic for a given config -- sorted names, no counts of anything that moves, no
+    timestamps -- because a tool schema sits in the cached prompt prefix (ADR-0011). It does
+    change when a top-level entry appears or disappears, and that costs one cold prefill:
+    rarer than a delegation, and cheaper than one unscoped search by two orders of magnitude.
+    """
+    globs = load_secret_globs(cfg)
+    roots = resolved_roots(cfg)
+    if not roots:
+        return "No workspace roots are configured, so there is nothing to search."
+    lines = [f"  {root} -> {_render_entries(_top_level(root, globs))}" for root in roots]
+    return "Workspace roots, and what is directly inside each one:\n" + "\n".join(lines)
+
+
+def _scope_help(cfg: Config) -> str:
+    """The map plus what to do with it. One string, used in two homes.
+
+    The description and the refusal say the same thing deliberately. ADR-0066 gives them
+    different jobs, but this is the one fact both need, and two copies of a map is two copies
+    that drift. The refusal is the backstop: it fires exactly when the model has just shown
+    it does not know the layout, which is the worst moment to be told only the root names and
+    the best one to be handed the whole map.
+    """
+    return (
+        _workspace_layout(cfg)
+        + f"\nA name ending in `/` is a directory. Give `path` one of them, or something "
+          f"deeper. Pass the exact string {UNSCOPED!r} only when you genuinely need every "
+          "root walked: it is the slowest call this server offers, by roughly two orders of "
+          "magnitude."
+    )
+
+
 def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[str], bool]:
     """Enumerate files under `scope` that are worth asking the policy about.
 
@@ -421,18 +533,27 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
     if max_results < 1:
         raise ToolRefused("max_results must be at least 1; a search for no results is not one.")
 
-    if "path" in args:
+    # Required, and refused with the map rather than with another instruction. ADR-0074 put
+    # "name a directory" in three homes and the next delegation still omitted it -- because
+    # the model had never been told a directory name. The remedy travels with the refusal.
+    given = _text_arg(args, "path", required=False)
+    if not given:
+        raise ToolRefused(
+            "`path` is required: name the directory to search. " + _scope_help(cfg)
+        )
+
+    if given == UNSCOPED:
+        # The escape, taken deliberately and spelled so a transcript can be grepped for it.
+        # Checked before layer 1, which would refuse the sentinel for not being absolute --
+        # and that refusal is exactly why no real path can collide with it.
+        scopes = resolved_roots(cfg)
+    else:
         # `resolve_search_root`, not `_one_path`: the latter refuses a directory at layer 1
         # because a directory is not a thing to read, and a search scope is exactly that.
         # A file is accepted too, so pointing this at one narrows to it.
         scopes = (resolve_search_root(
-            cfg, _text_arg(args, "path"),
-            surface="`path` argument", before_dispatch=False,
+            cfg, given, surface="`path` argument", before_dispatch=False,
         ),)
-    else:
-        # No path means the whole workspace, which is what makes this a search rather than
-        # a second `read_file`. The roots arrive translated and symlink-resolved.
-        scopes = resolved_roots(cfg)
 
     candidates: list[str] = []
     capped = False
@@ -452,7 +573,7 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
     hits = _search_hits(cfg, permitted, needle, max_results)
 
     if not hits.lines:
-        where = str(args["path"]) if "path" in args else "the workspace"
+        where = "every workspace root" if given == UNSCOPED else given
         scope_note = f" among files matching {name_glob!r}" if name_glob else ""
         why = (
             "The scan cap was reached first, so this is not exhaustive -- narrow it with "
@@ -461,10 +582,10 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
             else "The pattern is absent from everything the path policy lets you read "
                  "there; it may still exist in a file that policy declines."
         )
-        note = f" {_unscoped_note(cfg)}" if "path" not in args else ""
+        note = f" {_unscoped_note(cfg)}" if given == UNSCOPED else ""
         return f"No line matched {raw!r} in {where}{scope_note}. {why}{note}"
 
-    return _search_report(cfg, hits, capped=capped, unscoped="path" not in args)
+    return _search_report(cfg, hits, capped=capped, unscoped=given == UNSCOPED)
 
 
 def _write_file(cfg: Config, args: dict[str, object]) -> str:
@@ -1053,10 +1174,10 @@ SEARCH_FILES = RegisteredTool(
             "lines, each as a file name, the word line, and a line number -- so you can "
             "read the part you want with read_file and cite it. This is how you find "
             "something whose location you do not know; read_file is for when you do. "
-            "Give path a directory whenever you can even roughly guess one: it is the only "
-            "argument that narrows the walk, and omitting it scans every workspace root. "
-            "glob narrows which of the walked files are opened, not how many are walked, "
-            "so it is not a substitute. Files the path "
+            "path is required and names the directory to search: it is the only argument "
+            "that narrows the walk, and the workspace layout below tells you what to put "
+            "there. glob narrows which of the walked files are opened, not how many are "
+            "walked, so it is not a substitute. Files the path "
             "policy declines are not searched and are not reported: they are not results. "
             "The reply says when it stopped early or hit its scan cap -- read that before "
             "concluding something does not exist, because a narrowed search that found "
@@ -1073,10 +1194,10 @@ SEARCH_FILES = RegisteredTool(
                 "path": {
                     "type": "string",
                     "description": "Absolute path to a directory or file to search, and "
-                                   "the only argument that narrows the walk. Omitting it "
-                                   "walks every workspace root and policy-checks every "
-                                   "file in them, which is far slower than naming even a "
-                                   "roughly right directory.",
+                                   "the only argument that narrows the walk. Required. "
+                                   f"Pass the exact string {UNSCOPED!r} to walk every "
+                                   "workspace root -- the slowest call this server offers, "
+                                   "by roughly two orders of magnitude.",
                 },
                 "glob": {
                     "type": "string",
@@ -1090,7 +1211,7 @@ SEARCH_FILES = RegisteredTool(
                     "description": "Most matching lines to return. Defaults to 100.",
                 },
             },
-            "required": ["pattern"],
+            "required": ["pattern", "path"],
         },
     ),
     handler=_search_files,
@@ -1268,7 +1389,22 @@ def resolve_allowed(requested: Iterable[str] | None, cfg: Config) -> frozenset[s
 # --- the two enforcement sites ------------------------------------------------------------
 
 
-def declared_tools(allowed: Iterable[str]) -> tuple[ToolSpec, ...]:
+def _with_layout(spec: ToolSpec, cfg: Config) -> ToolSpec:
+    """`search_files` with this deployment's workspace map appended to its description.
+
+    Appended here rather than stored in `REGISTRY`, and that is load-bearing rather than
+    tidiness: `scripts/gen_tools_docs.py` renders the registry into the committed
+    `docs/TOOLS.md`, and a workspace root is an absolute path on the operator's machine,
+    home directory included. A map in the registry would publish a local filesystem layout
+    -- and a personal identifier inside it -- into a public artefact. The generator has no
+    `Config`, so it renders the static contract and nothing else.
+    """
+    if spec.name != SEARCH_FILES.spec.name:
+        return spec
+    return replace(spec, description=f"{spec.description}\n\n{_scope_help(cfg)}")
+
+
+def declared_tools(cfg: Config, allowed: Iterable[str]) -> tuple[ToolSpec, ...]:
     """Site one: what the model is offered.
 
     Registry order, not the caller's and not sorted, so the same resolved set always renders
@@ -1282,7 +1418,9 @@ def declared_tools(allowed: Iterable[str]) -> tuple[ToolSpec, ...]:
     a description below is a prefill bill as well as a contract change (JOURNAL 2026-09-02).
     """
     permitted = set(allowed)
-    return tuple(t.spec for name, t in REGISTRY.items() if name in permitted)
+    return tuple(
+        _with_layout(t.spec, cfg) for name, t in REGISTRY.items() if name in permitted
+    )
 
 
 # A shell command that rewrites file text, which `write_file` does better. Upstream found a

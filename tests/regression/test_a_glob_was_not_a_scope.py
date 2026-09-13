@@ -77,11 +77,17 @@ def _search(root: Path, **args) -> str:
 def test_an_unscoped_search_says_what_it_scanned(haystack):
     """The half with teeth. The model reads results, so the cost is taught there.
 
-    A note rather than a refusal, because a `glob` with no `path` is a legitimate search --
-    finding every `conftest.py` anywhere is exactly that -- and refusing it would break a
-    real use to fix an expensive one.
+    This originally argued for a note *rather than* a refusal, on the grounds that a `glob`
+    with no `path` is a legitimate search -- finding every `conftest.py` anywhere is exactly
+    that -- and that refusing would break a real use to fix an expensive one. That reasoning
+    was right about the use and wrong about the remedy: the measurement after it shipped
+    found the next delegation still opening unscoped, because a note cannot tell a model a
+    directory name it has never been given. `path` is required now and `_unscoped_` keeps
+    the legitimate use reachable, so the note survives and attaches to the sentinel.
+
+    What this protects is unchanged: an all-roots search says what it scanned.
     """
-    out = _search(haystack, pattern=r"alpha")
+    out = _search(haystack, pattern=r"alpha", path=tools.UNSCOPED)
     assert str(haystack) in out, out
     assert "path" in out
 

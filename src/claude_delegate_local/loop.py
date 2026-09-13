@@ -2319,7 +2319,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     """
     resolved_effort = resolve_effort(cfg, entry, effort)
     turns = resolve_max_turns(cfg, max_turns)
-    specs = declared_tools(allowed)
+    specs = declared_tools(cfg, allowed)
     deadline = clock() + cfg.dispatch_timeout
     # When a turn last *finished*. Deliberately not when one last started, which is what
     # `report_progress` reports: that fires at the top of a turn, so it would reset the
