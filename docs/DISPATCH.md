@@ -1,5 +1,5 @@
-<!-- BUDGET: 680 -->
-<!-- Raised from 674 on 2026-09-13: token arrival is reportable to the caller, not just to the decode interval. -->
+<!-- BUDGET: 690 -->
+<!-- Raised from 674 on 2026-09-13: token arrival reaches the caller, and the deadline it now moves needs a live ceiling rather than a fixed one. -->
 <!-- Raised from 670 on 2026-09-12: a floor on the rate memory, and why it is stricter than the estimator's. -->
 <!-- Raised from 653 on 2026-09-12: the chat call streams, so the decode interval excludes prefill and the whole-turn bound moves into the adapter. -->
 <!-- Raised from 639 on 2026-09-12: the decode rate is remembered across delegations and keyed by concurrency. -->
@@ -241,21 +241,23 @@ turn*. Both bound every attempt and the tighter one wins; without that, the ceil
 let a single wedged call sit for its whole duration, which is the failure the pair exists
 to split apart. (ADR-0047)
 
-The progress signal is turn **completion**, and which signal is a real design constraint
-rather than a detail. The per-turn progress notification fires at the *top* of a turn, so
-it would reset the clock on entry to the very turn that then wedges; the keepalive proves
-liveness on a timer regardless of progress, which is precisely what must not count. A
-one-shot completes no turns at all, so its no-progress deadline runs from entry and its
-effective bound becomes the tighter of the two settings — no special case, and the failure
-still names whichever setting actually expired.
+The progress signal is turn **completion** or **token arrival**, and which signals count is
+a real design constraint. The per-turn notification fires at the *top* of a turn, so it
+would reset the clock on entry to the very turn that then wedges; the keepalive proves
+liveness on a timer regardless of progress. Token arrival is neither — it happens only when
+the model produced something — and it is the one signal that sees *inside* a turn:
+completion alone killed a pass in its thirtieth, having completed twenty-nine, and gave a
+one-shot no progress signal at all. A moving deadline cannot be enforced by a fixed timeout,
+so the attempt runs beside a watchdog re-reading the budget while the call is in flight,
+rather than inside `asyncio.wait_for`. (ADR-0072)
 
 Both are enforced at the same three points, because a deadline checked in only one of them
 is a deadline that can be walked past:
 
 - **Before an attempt**, so an expired budget costs nothing.
-- **As a ceiling on the attempt**, from what is left. `turn_timeout` already bounds one call
-  inside the adapter's client, but it is a fixed budget that knows nothing of how much
-  delegation remains, so without this the deadline could be overshot by a whole turn.
+- **As a live ceiling on the attempt**, re-read from what is left rather than fixed when it
+  starts. `turn_timeout` already bounds one call inside the adapter's client, but it knows
+  nothing of how much delegation remains, so without this it could be overshot by a turn.
 - **Against the backoff wait**, before sleeping. A wait that would end past the deadline
   ends the delegation instead — sleeping first would spend the rest of the budget and then
   report a deadline reached by a wait this server chose rather than by the work.

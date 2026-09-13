@@ -64,7 +64,7 @@ class Endpoint:
             raise self.answer
         return self.answer
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         raise AssertionError("not used")
 
     async def probe(self):

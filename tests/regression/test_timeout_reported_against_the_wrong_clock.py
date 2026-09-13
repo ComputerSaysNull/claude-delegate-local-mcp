@@ -77,7 +77,7 @@ class Dropping:
         self.seconds = seconds
         self.calls = 0
 
-    async def complete(self, _request):
+    async def complete(self, _request, *, on_token=None):
         self.calls += 1
         self.clock.advance(self.seconds)
         raise BackendUnavailable("dropped")
@@ -86,7 +86,7 @@ class Dropping:
 class Hanging:
     """Raises the timeout an adapter's own client budget would raise."""
 
-    async def complete(self, _request):
+    async def complete(self, _request, *, on_token=None):
         raise TimeoutError
 
 

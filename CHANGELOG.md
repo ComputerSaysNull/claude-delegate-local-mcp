@@ -53,6 +53,26 @@ Older entries, in the previous flat format, are in
   promise never to return a partial still holds and an adapter that cannot stream simply never
   calls it. (ADR-0072)
 
+### Changed
+
+- **The no-progress deadline counts token arrival as progress.** *Symptom:* a model reasoning
+  productively inside one long turn was indistinguishable from a wedged one and the deadline
+  killed both — one pass died in its thirtieth turn having completed twenty-nine, and a
+  one-shot, which completes no turns at all, had no progress signal whatever and counted from
+  entry however well the call was going. *Cause:* ADR-0047 chose turn completion because every
+  other signal available then was fake — the per-turn notification fires at the *top* of a turn
+  and the keepalive is a timer, so both reset the clock on the turn that wedged. *Fix:* token
+  arrival is a third signal and is neither of those, because it happens only when the model
+  produced something. It supplies what ADR-0047 lacked rather than contradicting it: a call
+  producing tokens is no longer killed, and a call producing nothing still is.
+- **A deadline that moves is no longer enforced by a timeout that cannot.** *Symptom:* resetting
+  the stall clock on token arrival had no effect on the call it was resetting. *Cause:* the
+  per-attempt ceiling was handed to `asyncio.wait_for` once when the attempt started, so a
+  budget that grew afterwards was invisible and the call was still cancelled at whatever was
+  left when it began. *Fix:* the attempt runs beside a watchdog that re-reads the remaining
+  budget while the call is in flight and cancels only once it has genuinely run out. It still
+  raises `TimeoutError`, so the diagnosis that asks *which* deadline expired is unchanged.
+
 ## #179 — 2026-09-12 — docs: a copy task is not a decode benchmark
 
 ### Changed

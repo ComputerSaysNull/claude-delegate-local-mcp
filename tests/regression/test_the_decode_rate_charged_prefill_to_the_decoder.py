@@ -62,7 +62,7 @@ class PrefillHeavy:
         self.decode_seconds = decode_seconds
         self.calls = 0
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.calls += 1
         self.clock.advance(ATTEMPT_SECONDS)
         return CanonicalResponse(

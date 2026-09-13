@@ -81,7 +81,7 @@ class Backend:
         self.replies = list(replies)
         self.calls = 0
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.calls += 1
         self.clock.now += self.seconds
         if not self.replies:
@@ -108,7 +108,7 @@ class NeverFinishes(Backend):
     def __init__(self, clock: Clock, seconds: float) -> None:
         super().__init__(clock, seconds)
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.calls += 1
         self.clock.now += self.seconds
         return wants()
@@ -120,7 +120,7 @@ class Failing(Backend):
     def __init__(self, clock: Clock, seconds: float) -> None:
         super().__init__(clock, seconds)
 
-    async def complete(self, request):
+    async def complete(self, request, *, on_token=None):
         self.calls += 1
         self.clock.now += self.seconds
         raise BackendUnavailable("dropped")

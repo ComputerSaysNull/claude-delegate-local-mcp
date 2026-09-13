@@ -204,7 +204,7 @@ def test_every_error_kind_is_distinguishable_from_the_others():
 
 def test_protocol_accepts_a_complete_implementation():
     class Stub:
-        async def complete(self, request):
+        async def complete(self, request, *, on_token=None):
             ...
 
         async def probe(self):
@@ -224,7 +224,7 @@ def test_protocol_accepts_a_complete_implementation():
 
 def test_protocol_rejects_an_incomplete_implementation():
     class Partial:
-        async def complete(self, request):
+        async def complete(self, request, *, on_token=None):
             ...
 
     assert not isinstance(Partial(), base.Backend)
