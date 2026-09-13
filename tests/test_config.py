@@ -231,9 +231,7 @@ def test_admission_wait_timeout_must_be_positive():
     [
         "DELEGATE_MAX_INFLIGHT_SEQS",
         "DELEGATE_KV_TOKEN_BUDGET",
-        "DELEGATE_LARGE_PREFILL_TOKENS",
-        "DELEGATE_MAX_INFLIGHT_LARGE_PREFILLS",
-    ],
+            ],
 )
 def test_an_admission_limit_of_zero_is_refused_at_load(name):
     """Zero does not mean unlimited here; it means nothing is ever admitted.

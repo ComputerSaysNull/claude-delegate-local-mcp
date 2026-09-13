@@ -750,7 +750,6 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
 
     started = time.monotonic()
     lease: AdmissionLease | None = None
-    pending: set[asyncio.Task] = set()
     dispatched: Dispatch | AgenticDispatch | None = None
     failure: BaseException | None = None
     try:
@@ -772,25 +771,6 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 lease.seqs_at_grant + lease.waiting_at_grant + 1, cfg.max_inflight_seqs
             )
 
-            def first_token(_lease: AdmissionLease = lease) -> None:
-                """Give the large-prefill slot back the moment decoding starts.
-
-                The slot exists to serialise cold prefills, and the prefill is over once
-                the first token lands -- 64.1s measured, against delegations running 271
-                to 847s and two that died holding a slot for 2,100. Holding it to the end
-                is what made a six-way fan-out wait out `admission_wait_timeout` on a
-                cluster at 3% KV with zero preemptions (ADR-0072).
-
-                Scheduled rather than awaited because this fires on the adapter's read
-                loop, where an await would put the slots file between two tokens. The
-                task is kept alive by `pending` -- a bare `create_task` may be collected
-                before it runs -- and `release_large` is idempotent, so the arrival that
-                fires on every frame, and a task that lands after the lease has already
-                been released in full, both cost nothing.
-                """
-                pending.add(task := asyncio.create_task(admission.release_large(_lease)))
-                task.add_done_callback(pending.discard)
-
             dispatched = await dispatch_delegation(
                 loop_cfg, entry, backend, delegation,
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
@@ -809,7 +789,6 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 # and is the only sighting of it on the dispatch path.
                 on_pool=admission.observe_pool,
                 rate_history=rates,
-                on_token=first_token,
                 expected_concurrency=expected,
             )
     except AdmissionError as e:
@@ -1269,15 +1248,15 @@ def _server_instructions(cfg: Config) -> str:
     Everything below the `return` is the delivered text; this docstring is not. They read
     as one block in the file and reach entirely different audiences.
     """
-    return f"""
+    return """
 Delegation to a local model, on hardware the user hosts: it costs no cloud tokens, so
 prefer it for bulk, mechanical or read-heavy work and keep your own context for judgement.
 
 Name files in `files[]` rather than pasting them -- the server reads them, so their
 contents never enter your context. Send one question per call.
 
-At most {cfg.max_inflight_large_prefills} calls prefetching over {cfg.large_prefill_tokens}
-tokens run at once; further ones wait. Smaller calls do not contend.
+Calls do not contend on prefetch size: the serving engine serialises cold prefills itself,
+so issuing several at once costs no more than issuing them one at a time.
 
 Read the `delegate://orchestration` resource before a wide pass -- sizing, fan-out and the
 failure modes worth knowing, kept there rather than here so it costs nothing until wanted.
@@ -1617,7 +1596,7 @@ def build(
     )
     def orchestration_guide() -> str:
         """The cost model and the failure modes, measured on this deployment."""
-        return f"""
+        return """
 # Orchestrating delegations
 
 ## What a call costs
@@ -1634,12 +1613,14 @@ looking, so name the obvious material and let the delegation find the rest.
 
 ## How many run at once
 
-A prefetch estimated over {cfg.large_prefill_tokens} tokens counts as a large call, and
-admission admits {cfg.max_inflight_large_prefills} of them concurrently. It does not queue
-politely: a waiter that does not fit is refused after `admission_wait_timeout`, so issuing
-many large calls together loses the ones that time out rather than delaying them.
+Admission bounds concurrent sequences and the summed token estimate, not the size of any
+one prefetch. A cap on concurrent large prefills was removed on 2026-09-13: measured, it
+added 286.3s of aggregate waiting for a batch 12.1s slower end to end, because the engine
+already serialises cold prefills itself (ADR-0077). Admission still does not queue
+politely -- a waiter that never fits is refused after `admission_wait_timeout` -- but the
+rule that used to refuse a wide fan-out on prompt size is gone.
 
-Calls under that threshold do not contend and can overlap freely. Several tasks over the
+Calls can overlap freely. Several tasks over the
 same files are several calls, and they share the cached prefix however they are sent,
 because the task is rendered last under a byte-constant prefix.
 

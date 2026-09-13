@@ -34,7 +34,44 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #TBD — 2026-09-14 — fix: conflict markers reached main, and took four PR numbers with them
+## #194 — 2026-09-14 — fix: remove the large-prefill cap the measurement condemned
+
+### Removed
+- **`max_inflight_large_prefills` and `large_prefill_tokens`.** *Symptom:*
+  `admission_wait_timeout` fired four times on 2026-09-12, each a 1,800s wait ending in a
+  refusal that had produced nothing, on a cluster at `kv_cache_used_fraction` 0.031 with
+  zero preemptions. *Cause:* a 2-wide gate on prompt size, binding on an idle machine.
+  *Measured*, six delegations per arm over twelve disjoint cold-prefill sets: at 6, none of
+  six queued and the batch finished in 155.4s; at 2, **four of six queued**, paying 286.3s
+  of aggregate waiting for a batch **12.1s slower** and each call 10.2s slower. Nothing got
+  faster. 155.4s is the floor the engine sets by serialising cold prefills itself — the
+  cap's own justification, arriving from somewhere that needs no configuring. (ADR-0077)
+- With them: the classification, the per-process counter, the cross-process counter, both
+  gauges, the large dimension of `rival_fits`, and ADR-0072's early release. Three rules
+  remain — sequences, summed tokens, and the endpoint's declared concurrency.
+- `peak_inflight_large_prefills` counted **leases**, never prefills the cluster ran, so the
+  gauge most likely to be cited in the cap's defence was measuring the cap, not the hardware.
+
+### Changed
+- **A contract change in both homes the server publishes.** The instructions said large
+  calls contend and further ones wait; `delegate://orchestration` said a wide fan-out loses
+  the calls that time out. Neither is true now, and a caller that had learned to serialise
+  its own fan-out would be pessimising for nothing.
+- **ADR-0072 is partially superseded.** Its other halves stand untouched — the stall
+  deadline still resets on token arrival, the heartbeat still reports what has arrived. Only
+  the early release goes, its sole purpose having been to shorten the hold on a counter that
+  no longer exists. `on_token` survives as the seam it introduced; the server passes none.
+- **Two test properties are re-pointed rather than deleted**, in both scopes: a request
+  blocked on one rule must hold no capacity under another, and a waiter that cannot run must
+  not block one that can. Both are properties of checking the rules as *one predicate*, not
+  of any particular rule, and both now bind on the token budget.
+  `tests/test_large_lease_released_at_first_token.py` is deleted: it tested only the release.
+- **PLAN.md's entry was wrong about one of its five consequences.** It said to keep
+  `large_prefill_tokens` because it "still classifies for the estimate". It classifies for
+  nothing else — the token budget counts the whole footprint, prefill plus reply allowance —
+  so it goes with the rule it served.
+
+## #193 — 2026-09-14 — fix: conflict markers reached main, and took four PR numbers with them
 
 ### Fixed
 - **`PLAN.md` and `docs/DISPATCH.md` carried literal conflict markers on `main`**, from the

@@ -63,8 +63,7 @@ def cfg(**over) -> Config:
         "workspace_roots": (".",),
         "max_inflight_seqs": 5,
         "kv_token_budget": 100_000,
-        "large_prefill_tokens": 10_000,
-        "max_inflight_large_prefills": 2,
+
     }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
@@ -218,23 +217,23 @@ async def test_a_cancelled_waiter_gives_up_its_place(tmp_path):
 async def test_a_waiter_that_cannot_run_does_not_block_one_that_can(tmp_path):
     """Head-of-line blocking, refused for the shared path too.
 
-    A large request parked on the large-prefill cap is not spending its turn, so it must
-    not hold one. Strict ticket order would stall the small request behind it for as long
-    as the running large request lasts -- the same starvation the four rules are checked as
-    one predicate to avoid.
+    A request parked on the token budget is not spending its turn, so it must not hold one.
+    Strict ticket order would stall the small request behind it for as long as the running
+    request lasts -- the same starvation the rules are checked as one predicate to avoid.
+
+    Written against the large-prefill cap until that rule was removed (ADR-0077), and
+    re-pointed rather than deleted: the property is of the predicate, not of any one rule.
     """
     path = tmp_path / "slots.json"
     over = {
-        "max_inflight_seqs": 2,
-        "kv_token_budget": 1_000_000,
-        "large_prefill_tokens": 100,
-        "max_inflight_large_prefills": 1,
+        "max_inflight_seqs": 5,
+        "kv_token_budget": 1000,
     }
     running, blocked, small = (gate_at(path, **over) for _ in range(3))
 
-    held = await take(running, 500)
-    stuck = await parked(blocked, 500)
-    assert not stuck.done(), "the large-prefill cap did not bind"
+    held = await take(running, 600)
+    stuck = await parked(blocked, 600)
+    assert not stuck.done(), "the token budget did not bind"
     assert len(waiting_in(path)) == 1
 
     # One sequence slot is still free and this request fits every rule, so the queued

@@ -492,7 +492,6 @@ def write(  # noqa: PLR0913 -- one record's worth of facts, from four different 
         if lease is not None:
             record["admission"] = {
                 "estimated_tokens": lease.tokens,
-                "large_prefill": lease.is_large,
                 "waited_seconds": round(lease.waited, 3),
             }
         if error is not None:

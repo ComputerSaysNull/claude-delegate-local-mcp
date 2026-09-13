@@ -31,8 +31,6 @@ def cfg(**over) -> Config:
         "workspace_roots": (".",),
         "max_inflight_seqs": 5,
         "kv_token_budget": 100_000,
-        "large_prefill_tokens": 10_000,
-        "max_inflight_large_prefills": 2,
     }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
@@ -96,7 +94,7 @@ async def test_rule_one_total_sequences_binds() -> None:
 @pytest.mark.asyncio
 async def test_rule_two_token_budget_binds() -> None:
     # Two requests well under the sequence cap, whose tokens together exceed the budget.
-    g = gate(max_inflight_seqs=5, kv_token_budget=1000, large_prefill_tokens=10_000)
+    g = gate(max_inflight_seqs=5, kv_token_budget=1000)
     first = await take(g, 600)
     second = await parked(g, 600)
 
@@ -105,24 +103,6 @@ async def test_rule_two_token_budget_binds() -> None:
     await g.release(first)
     await g.release(await asyncio.wait_for(second, timeout=1))
 
-
-@pytest.mark.asyncio
-async def test_rule_three_large_prefills_binds() -> None:
-    # Both are large, and *nothing else* can be what blocks the second: the sequence cap
-    # and the token budget both have ample room.
-    g = gate(
-        max_inflight_seqs=5,
-        kv_token_budget=1_000_000,
-        large_prefill_tokens=100,
-        max_inflight_large_prefills=1,
-    )
-    first = await take(g, 500)
-    second = await parked(g, 500)
-
-    assert not second.done(), "a second large prefill was admitted past a cap of 1"
-
-    await g.release(first)
-    await g.release(await asyncio.wait_for(second, timeout=1))
 
 
 @pytest.mark.asyncio
@@ -153,7 +133,7 @@ async def test_endpoint_concurrency_is_per_endpoint() -> None:
 @pytest.mark.asyncio
 async def test_a_gate_with_room_admits_without_waiting() -> None:
     """Guards the opposite failure: a gate that serialises everything also passes rule tests."""
-    g = gate(max_inflight_seqs=5, kv_token_budget=1_000_000, large_prefill_tokens=10_000)
+    g = gate(max_inflight_seqs=5, kv_token_budget=1_000_000)
     leases = [await take(g, 100) for _ in range(3)]
 
     assert g.status()["admission_wait_count"] == 0
@@ -164,22 +144,21 @@ async def test_a_gate_with_room_admits_without_waiting() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_blocked_large_prefill_holds_no_other_capacity() -> None:
+async def test_a_blocked_request_holds_no_other_capacity() -> None:
     """The nested-semaphore bug, stated as a test.
 
-    A large request blocked on rule 3 must not be holding a sequence slot while it waits.
-    Acquire-then-block-on-the-next-rule would fail this: the parked large request would
-    have taken the only sequence slot, and the small one behind it -- which fits every
-    rule -- would never run.
+    A request blocked on the token budget must not be holding a sequence slot while it
+    waits. Acquire-then-block-on-the-next-rule would fail this: the parked request would
+    have taken a sequence slot, and the small one behind it -- which fits every rule --
+    would never run.
+
+    Written against the large-prefill rule until that rule was removed (ADR-0077). The
+    concern is a property of the predicate rather than of any one rule, so it is re-pointed
+    at a surviving rule rather than deleted: one predicate, nothing partially acquired.
     """
-    g = gate(
-        max_inflight_seqs=2,
-        kv_token_budget=1_000_000,
-        large_prefill_tokens=100,
-        max_inflight_large_prefills=1,
-    )
-    running_large = await take(g, 500)
-    blocked_large = await parked(g, 500)
+    g = gate(max_inflight_seqs=2, kv_token_budget=1000)
+    running_large = await take(g, 600)
+    blocked_large = await parked(g, 600)
     assert not blocked_large.done()
 
     # One sequence slot is used by `running_large`. The blocked one must not be holding
@@ -208,14 +187,13 @@ async def test_admit_releases_when_the_body_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_release_clears_every_counter() -> None:
-    g = gate(large_prefill_tokens=100)
+    g = gate()
     lease = await take(g, 5000, key="flash", limit=5)
     await g.release(lease)
 
     live = g.status()
     assert live["inflight_seqs"] == 0
     assert live["inflight_tokens"] == 0
-    assert live["inflight_large_prefills"] == 0
     assert live["per_entry"]["flash"]["inflight"] == 0
 
 
@@ -279,7 +257,7 @@ async def test_a_request_larger_than_the_whole_budget_is_refused_at_once() -> No
 @pytest.mark.asyncio
 async def test_high_water_marks_survive_release() -> None:
     """The bug: reporting the live counter instead of a separately tracked peak."""
-    g = gate(max_inflight_seqs=5, kv_token_budget=1_000_000, large_prefill_tokens=100)
+    g = gate(max_inflight_seqs=5, kv_token_budget=1_000_000)
     a = await take(g, 400)
     b = await take(g, 600)
     await g.release(a)
@@ -289,7 +267,6 @@ async def test_high_water_marks_survive_release() -> None:
     assert live["inflight_seqs"] == 0
     assert live["peak_inflight_seqs"] == 2
     assert live["peak_inflight_tokens"] == 1000
-    assert live["peak_inflight_large_prefills"] == 2
     assert live["per_entry"]["flash"]["peak"] == 2
 
 
@@ -338,34 +315,11 @@ async def test_a_long_wait_keeps_ticking(monkeypatch: pytest.MonkeyPatch) -> Non
     await g.release(await asyncio.wait_for(waiter, timeout=1))
 
 
-@pytest.mark.asyncio
-async def test_a_reply_allowance_does_not_make_a_request_a_large_prefill() -> None:
-    """The reply is decode, not prefill, and classifying on it bounds the whole server.
-
-    `max_tokens` defaults to 65536 against a 32768 threshold, so folding the reply
-    allowance into the classification makes *every* delegation a large prefill and rule 3
-    silently caps the server at `max_inflight_large_prefills` -- while every other rule
-    reads as though it were the one doing the bounding.
-    """
-    g = gate(
-        max_inflight_seqs=10,
-        kv_token_budget=1_000_000,
-        large_prefill_tokens=32_768,
-        max_inflight_large_prefills=1,
-    )
-    # A short prompt with a large reply allowance: 100 tokens of prefill, 65_636 of KV.
-    first = await take(g, 65_636, prefill=100)
-    second = await asyncio.wait_for(take(g, 65_636, prefill=100), timeout=1)
-
-    assert g.status()["inflight_large_prefills"] == 0
-    await g.release(first)
-    await g.release(second)
-
 
 @pytest.mark.asyncio
 async def test_the_token_budget_still_counts_the_reply_allowance() -> None:
     """The other half of the split: the reply occupies KV even though it is not prefill."""
-    g = gate(max_inflight_seqs=10, kv_token_budget=1000, large_prefill_tokens=100_000)
+    g = gate(max_inflight_seqs=10, kv_token_budget=1000)
     first = await take(g, 600, prefill=10)
     second = await parked(g, 600, prefill=10)
 
