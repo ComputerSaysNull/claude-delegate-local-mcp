@@ -1,4 +1,5 @@
-<!-- BUDGET: 700 -->
+<!-- BUDGET: 706 -->
+<!-- Raised from 700 (to 706) on 2026-09-13: reasoning is returned instead of discarded, which adds a result field and narrows what empty_response means. -->
 <!-- Raised from 674 on 2026-09-13: token arrival reaches the caller, moves the deadline (which now needs a live ceiling), and is what the heartbeat reports. -->
 <!-- Raised from 670 on 2026-09-12: a floor on the rate memory, and why it is stricter than the estimator's. -->
 <!-- Raised from 653 on 2026-09-12: the chat call streams, so the decode interval excludes prefill and the whole-turn bound moves into the adapter. -->
@@ -428,6 +429,11 @@ to the wrong fix. Still empty after both mitigations is ADR-0014's exhaustion â€
 inside its budget. Still empty with the level *already* at its lowest is not: there was
 nothing left to disable, so the budget was too small for the answer, and reporting that as
 exhaustion would tell the caller to lower an effort that is already lowest.
+
+Whatever the diagnosis, the reasoning is handed back rather than binned: `answer_of` returns it
+under a banner and sets `answer_is_reasoning`, narrowing `empty_response` to mean nothing came
+back at all. Nine dispatches on one machine reported empty while holding 265,092 output tokens â€”
+every one at a length stop, so no partial returned at a deadline would have rescued them.
 
 `attempts` counts every real call across all three stages and every transport retry inside
 them, and across every turn when this runs inside the loop. ADR-0014 requires the retry not

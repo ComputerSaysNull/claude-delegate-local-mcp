@@ -1,4 +1,5 @@
-<!-- BUDGET-PER-ENTRY: 55 -->
+<!-- BUDGET-PER-ENTRY: 56
+     Raised from 55 on 2026-09-13: an entry is measured to the next heading, so the last entry is measured a line short and the 2026-09-13 gate entry landed at a true 56 reading as 55. Raising rather than editing a committed entry; the measurement asymmetry is filed in PLAN.md. -->
 # Journal
 
 Things that took real work to figure out, so the next person does not pay for them
@@ -1622,3 +1623,46 @@ resetting on real output and the heartbeat are independent of the gate and stay.
 — 3 output tokens are refused by the 512 floor, and the file was byte-identical after twelve
 dispatches. And `.env` ships 6 where `config.py` ships 2, so measuring the *shipped*
 behaviour means editing `.env` and reconnecting, or the run measures nothing.
+
+## 2026-09-13 — 89% of a delegation was the server working, and the model's own output was binned
+
+Four measurements from one session, three of them from a single delegation (dispatch 0002)
+that was asked an exhaustive search question with no `files[]`.
+
+**The cluster is idle for most of a tool-using delegation.** Taking server-side tool time as
+`ms` minus `backend_ms`: **1,135.7s of 1,271.7s, 89.3%**, across nine turns. Turn 1 alone was
+657.6s at 98.9%. The deadline counts down throughout, so a long enough turn is killed while
+the server is working on its behalf.
+
+**Scope, re-measured, and #182 did not take.** The same four patterns, three ways, in one run:
+
+| turn | `path` | tool time |
+|---|---|---|
+| 1 | omitted | 657.6s |
+| 2 | the repository root | 391.8s |
+| 3 | `src`, `tests`, `scripts`, `docs` | **4.4s** |
+
+#182's own before-figures were 490/505/572s, so the *next* session's first turn was worse than
+anything it measured. ADR-0074 had already spent three of ADR-0066's four homes — the schema
+description, the result note, the refusal remedy — and `path` stayed optional. The model was
+climbing toward scope by trial: it cannot name a subdirectory it has never been told exists.
+The task text named the four directories and that did not help either.
+
+**Nine dispatches generated 265,092 tokens and returned the empty string.** Across 446
+transcript summaries, nine report `empty_response` with `answer_chars` 0 — all at
+`finish_reason` `'length'`, `ok` true, `reasoning_exhausted` true, 14,475 to 44,854 output
+tokens each. A length stop is neither a timeout nor a cancellation, so the streaming item's
+slice 4 would have rescued none of them: `answer = response.text` joins text blocks only, and
+a reply with no conclusion is a `ThinkingBlock` and nothing else.
+
+**Eviction fires nowhere near the pressure it is for.** `_OverflowGuard.evict_upto` gates its
+pressure check on `context_overflow_enabled`, which ships `False` and is unset here — unarmed,
+it skips pressure and evicts on count. That run evicted 30 results at **3.9%** of a 1,048,576
+window, against `OVERFLOW_EVICT_AT` of **50%**. Retaining the whole 36-result history would
+have cost ~104,730 tokens, **~10%**. Keep at 6 retains 2.71%, at 24 retains 9.39% — but the
+results ranged 200 bytes to 50,068, so a count is the wrong unit for the question.
+
+And eviction fights dedup: a stubbed result is handed back in full on the next identical call,
+verified by arithmetic — turn 6 read 34,208 bytes, turn 9's `repeat` returned 34,269, and
+`REPEAT_PREFIX` is exactly 61 bytes. Nothing re-ran, so the banner is true; the eviction simply
+bought nothing and cost a turn.

@@ -1,4 +1,5 @@
-<!-- BUDGET: 1100      Raised from 1069 on 2026-09-12: a granted lease carries the concurrency it was granted against, which is admission behaviour this document owns. -->
+<!-- BUDGET: 1103      Raised from 1069 on 2026-09-12: a granted lease carries the concurrency it was granted against, which is admission behaviour this document owns. -->
+<!-- Raised from 1100 (to 1103) on 2026-09-13: the record reads emptiness through the same helper as the reply. -->
 <!-- Raised from 1080 on 2026-09-13: a lease is released in two parts, the large half at first token; and a queued delegation is recorded as queued rather than left to read as silent. -->
 <!-- Ceiling was 1069 before that.
      Raised from 1061 on 2026-09-11: the stream gained a fifth event, and the paragraph
@@ -776,7 +777,9 @@ as the backend reported it, and the server-captured ledger — but **not file co
 which are recoverable from the repository by path and are the only bulky part. The task is
 written verbatim: it exists nowhere else, and whoever configures the directory owns what
 lands in it. A write that fails is swallowed to stderr, never to stdout and never into the
-dispatch: a full disk must not fail work that already succeeded. (ADR-0024, ADR-0039)
+dispatch: a full disk must not fail work that already succeeded. Whether anything came back is
+read through the same helper as the reply, so a record cannot call a dispatch empty that the
+caller was handed reasoning for ([DISPATCH.md](DISPATCH.md)). (ADR-0024, ADR-0039)
 
 ### Token estimates are per file type
 
