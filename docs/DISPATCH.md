@@ -1,4 +1,4 @@
-<!-- BUDGET: 736 -->
+<!-- BUDGET: 733 -->
 <!-- Raised from 700 (to 706) on 2026-09-13: reasoning is returned instead of discarded, which adds a result field and narrows what empty_response means. -->
 <!-- Raised from 700 on 2026-09-13: the tool set is built per deployment now, because one description carries the workspace layout. -->
 <!-- Raised from 700 on 2026-09-13: the pressure gate applies wherever pressure can be read, and which half still waits for the flag. -->
@@ -518,15 +518,13 @@ the leading prefix could ever be cache-stable was wrong. An append-only history 
 93% of each prompt; stepped eviction reuses about 79%; the per-turn boundary reused 2.9%. The
 gap between 93% and 79% is the price of bounding the history at all.
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 The loop asks for its tool set with the config, because one description is built per
 deployment rather than fixed: `search_files` carries the workspace layout, which is the only
 thing that can tell a model a directory name (ADR-0076). It stays a pure function of the
 config and the tree, so two delegations against an unchanged tree send identical bytes — but a
 new top-level entry moves the front of the prompt, which by the measurement below is the edit
 the prefix cache cannot absorb. Rarer than a delegation, and cheaper than one unscoped search.
-=======
+
 The pressure gate applies wherever pressure can be *read*, rather than only where
 `context_overflow_enabled` is set. That setting ships off for a stated reason — every
 threshold is measured against the model's `context_window`, and an entry omitting that field
@@ -537,13 +535,12 @@ threshold this design is built around never applied to the shipped configuration
 would have cost about 10%. The preventive half — tighten, nudge, abort and the plateau check
 — still waits for the flag, because those act on a delegation and arming them everywhere is a
 larger claim than the one measured.
->>>>>>> 500427e (fix: eviction fired at 4% of the window against a 50% gate)
-=======
-That same scrape carries the size of the KV pool, and it used to be dropped. It is reported
+
+The scrape that prices the first turn also carries the size of the KV pool, and it used
+to be dropped. It is reported
 to admission instead, which is the only sighting of the figure on the dispatch path and costs
 nothing because the read has already happened. What admission does with it is
 [ARCHITECTURE.md](ARCHITECTURE.md)'s.
->>>>>>> 4f2a9c5 (fix: the KV budget outran the pool it protects)
 
 **The final turn keeps its tools and is forbidden to call them** (ADR-0057). The loop
 breaks on the last turn whether or not the model asked for anything, so the intent — leave it

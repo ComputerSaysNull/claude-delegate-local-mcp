@@ -466,14 +466,13 @@ them was re-derived when it did.
 - **Correction to the ticked item above**, filed beside it rather than edited into it:
   `WindowCheck` **validates and never derives**, and says why, so it is not the precedent
   that entry claims. What allows this is narrower — the two numbers are ceilings on the same
-  physical thing, and the lower of two ceilings overrules neither (#TBD)
+  physical thing, and the lower of two ceilings overrules neither (#192)
 
 ### Unscheduled — open, real, and in no milestone
 
-<<<<<<< HEAD
 - ✅ 2026-09-13 **Reasoning was generated, paid for, and then discarded** — nine dispatches of 446
   reported empty at a *length stop* holding 265,092 output tokens, because `answer` joined text
-  blocks only. Bannered now, with `answer_is_reasoning` (#TBD)
+  blocks only. Bannered now, with `answer_is_reasoning` (#188)
 - ⬜ **Eviction and dedup undo each other** — a stubbed 34KB result is handed straight back on the
   next identical call, plus the turn spent asking. Neither half can see the other
 - ⬜ **Eviction is sized in tokens and cannot see what a result cost** — it will drop a 657s read
@@ -485,10 +484,12 @@ them was re-derived when it did.
 - ⬜ **The docs gate measures the last append-only entry a line short** — length runs to the next
   heading, so the newest entry omits its trailing separator and an over-budget one lands, then
   blocks whoever appends next. Found by being that next person
-=======
+- ⬜ **Nothing stops a conflict marker reaching `main`.** Two did, in Markdown, where no test or
+  lint looks and the gate checks ownership and budgets rather than content. One line in the
+  gate; the nested shape is the one to write the negative test against
 - ✅ 2026-09-13 **Eviction fired at 4% of the window against a 50% gate** — the pressure check
   was gated on a setting that ships off, so it stubbed on count alone. It now applies wherever
-  the window was declared, and `keep_tool_results` is 16 (JOURNAL 2026-09-13, #TBD)
+  the window was declared, and `keep_tool_results` is 16 (JOURNAL 2026-09-13, #191)
 - ⬜ **A retained *count* is the wrong unit for a history.** One run's 36 results ranged from
   200 bytes to 50,068, so `keep_tool_results` prices a one-line refusal and a 50KB file
   identically. A share of the window is the unit; the count becomes its floor
@@ -496,7 +497,6 @@ them was re-derived when it did.
   still wait for `context_overflow_enabled`. Arming them everywhere failed 31 tests on doubles
   reporting a 7-token prompt — which says those doubles are unrealistic, not that the change
   is wrong, and settling which needs a real delegation rather than an argument
->>>>>>> 500427e (fix: eviction fired at 4% of the window against a 50% gate)
 - ✅ 2026-09-13 **The priced rate climbed past what the cluster can physically decode** — 88.53
   tok/s and a 95,612-token ceiling against a benchmark of 44.1. ADR-0070's move to
   `decode_seconds` inverted the short-turn defect ADR-0071 had fixed in only one of the two
@@ -516,7 +516,7 @@ them was re-derived when it did.
   other. `run_bash` stays ordered; the work is locking `cached` and `watch`
 - ✅ 2026-09-13 **Scoping was asked for and never shown** — `path` is required with an
   `_unscoped_` escape, and the description carries the workspace layout, folders and files
-  (ADR-0076, #TBD). Unproven until a delegation's *first* search names a subdirectory
+  (ADR-0076, #189). Unproven until a delegation's *first* search names a subdirectory
 - ⬜ **`search_files` walks in Python.** A thread pool over the per-file policy and read, or
   `ripgrep` for candidates with the policy applied after — the second crosses the boundary
   `_search_files` holds, so its own ADR. ~2x, and the ~100x half is now taken
