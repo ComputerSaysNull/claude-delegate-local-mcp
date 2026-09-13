@@ -75,8 +75,8 @@ moves an existing file aside rather than over, and prints the registration block
 filled in for this machine. Copying the two `.example` files by hand still works.
 
 Run the doctor before the first delegation. The server starts whether or not what it needs
-is there, so a missing root or an unreachable endpoint otherwise surfaces much later, as a
-refusal one layer away from its cause.
+is there, so a missing root or an unreachable endpoint otherwise surfaces much later, inside
+whichever delegation happens to reach it ([why](docs/ARCHITECTURE.md)).
 
 `provision` is needed only for `run_bash` to run a Python project's tests. It builds a
 virtualenv outside the workspace, where the sandbox can read it and the secret scan will

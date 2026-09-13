@@ -156,9 +156,12 @@ and `_count` are cumulative, so a mean derived from them is the mean since boot 
 looking like a current figure — worse than reporting nothing.
 `decode_tokens_per_second_since_boot` is read because a since-boot mean is the right answer
 to the only question asked of it: what to seed a decode-rate estimate with before a
-delegation has decoded anything (ADR-0055). Blending every concurrency regime since boot
-makes it conservative rather than flattering, and the suffix is what stops it reading as
-current. Nothing else follows it without asking that again.
+delegation has decoded anything (ADR-0055). Blending every concurrency regime since boot was
+recorded here as making it *conservative*; it does the opposite under load, and that error
+cost four of six passes — the blend read 34.96 tok/s where six concurrent delivers just under
+20, authorising 1.75x what the clock can pay. It is a floor only when the cluster is quiet,
+which is exactly when nothing needed one. Since ADR-0075 the remembered rate outlives the
+process, so this is the seed of last resort — and the suffix stops it reading as current.
 
 ## What the endpoint returns, recorded
 
