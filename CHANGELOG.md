@@ -34,6 +34,61 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #181 — 2026-09-13 — fix: a small turn is not a decode measurement
+
+### Fixed
+- **A delegation priced itself 95,612 tokens at 88.53 tok/s on a cluster that decodes 44.1
+  alone.** ADR-0071 gave `RateHistory` a 512-token floor and deliberately left `DecodeRate`
+  at 64, reasoning that an average which decays needs a weaker admission test than a minimum
+  which does not. Sound for the instrument it was measured on — with prefill still inside the
+  interval, a short turn read **slow**, which is the direction that only threatens a
+  permanent minimum. ADR-0070 moved the denominator to `decode_seconds`, and **the sign
+  inverted**: a short turn's frames arrive in one burst, the interval is barely over
+  `MIN_SECONDS`, and the quotient is now too high. Only one of the two estimators was
+  guarded against the new direction, and it was the wrong one for agentic work.
+- **Decay is no defence when nearly every turn is short.** The estimate climbed
+  **19.57 → 88.53 across 24 turns and never once fell back**, because every small turn
+  pushed the same way. The regression test replays the recovered samples through the real
+  estimator and reaches 88.5185 against the 88.53 the server reported — so the reproduction
+  is the production number, not a construction that merely resembles it.
+- **Both estimators now share one floor**, `MIN_MEASURABLE_TOKENS`, referenced rather than
+  restated so they cannot drift apart again. Since both divide by the same quantity, whether
+  a sample describes the decoder belongs to the sample and not to who is asking;
+  average-versus-minimum decides how a bad sample propagates, never whether it is one.
+  The value stays 512, sized from the deployment's benchmark rather than fitted to this
+  incident — a constant chosen against one day's data is the mistake `PLAN.md` already
+  records against `kv_token_budget`.
+
+### Changed
+- **`docs/DISPATCH.md` was carrying a withdrawn figure in a load-bearing sentence.** Its
+  explanation of the two floors cited **65.6 tok/s** for the model running alone. #179
+  withdrew that number: it came from probes reproducing their own prompt against a
+  speculative-decoding module. The paragraph now names the benchmark that stands, 44.1, and
+  describes the inversion rather than the asymmetry it no longer has. Found by rewriting the
+  sentence the fix made wrong, which is the only reason anyone looked at it.
+- **`test_the_guard_is_stricter_than_the_within_delegation_one` is superseded in place.** It
+  asserted `DecodeRate.MIN_TOKENS < 237 < RateHistory.MIN_TOKENS` and its docstring defended
+  the gap. It now asserts the 237-token turn is below a shared floor rather than between two,
+  and says why the old assertion was right when it was written.
+
+### Added
+- **The measurement, and the method that got it.** Each turn's own sample is recoverable
+  from the next turn's `priced` event by inverting the EMA at `WEIGHT = 0.4` — the only way
+  to see a real decode rate from a transcript, since `out_tok_s` is computed over
+  `backend_ms` and `decode_seconds` is not written down. Across two live delegations the
+  dose-response is exact: turns of 105–119 tokens over 1.00–1.30s recovered 91.3, 102.1,
+  104.8 and 105.9 tok/s, while turns of 438–1,478 tokens over 8.6–31.2s recovered 45.3,
+  47.4, 50.3, 51.1 and 52.5. The large-turn samples agree with the 44.1 benchmark; every
+  sample above 85 came from a turn of about a hundred tokens. Token count separates them
+  cleanly and the decode interval alone does not — 2.09s gave 45.94 while 2.42s gave 85.15.
+- **The cost of the fix, stated rather than hidden.** A tool-heavy agentic delegation now
+  rarely learns its own rate: the 44-minute run measured here had a largest turn of 453
+  tokens, so under the shared floor it teaches the estimator nothing and holds its seed. A
+  test asserts exactly that, so the trade-off cannot be forgotten. It is the conservative
+  direction — an under-authorised turn is short of budget, never killed — and it is what
+  makes persisting `RateHistory` across a reconnect the next item rather than the previous
+  one.
+
 ## #180 — 2026-09-13 — feat: a lease sized to the work it protects
 
 ### Added

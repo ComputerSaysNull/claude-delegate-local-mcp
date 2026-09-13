@@ -77,15 +77,18 @@ def test_the_minimum_still_answers_a_quiet_question_with_a_busy_measurement():
     assert h.expect(6) == pytest.approx(27.7, rel=0.01)
 
 
-def test_the_guard_is_stricter_than_the_within_delegation_one():
-    """The two are deliberately not equal, so neither may be derived from the other.
+def test_the_short_turn_no_longer_clears_either_guard():
+    """Superseded 2026-09-13. This asserted the two floors were deliberately unequal.
 
-    `DecodeRate` re-prices the next turn of a delegation already running and its average
-    decays; `RateHistory` prices a delegation that does not exist yet and its minimum does
-    not. The 237-token turn clears `DecodeRate`'s floor of 64 -- which is exactly why
-    sharing one constant would have left this bug in place.
+    That was right while they divided by different things: with prefill inside the
+    interval a short turn read *slow*, so only the permanent minimum needed protecting.
+    Since ADR-0070 both divide by `decode_seconds` and the sign inverted -- a short turn
+    now reads *fast* -- so the sample is refused by both, and the 237-token turn that named
+    this file is below the shared floor rather than between two.
+
+    See `test_a_small_turn_read_faster_than_the_cluster.py` for the measurement.
     """
-    assert DecodeRate.MIN_TOKENS < SHORT_TURN[0] < RateHistory.MIN_TOKENS
+    assert SHORT_TURN[0] < DecodeRate.MIN_TOKENS == RateHistory.MIN_TOKENS
 
 
 def test_a_zero_interval_is_not_divided_by():

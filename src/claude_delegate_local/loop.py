@@ -279,6 +279,26 @@ def resolve_effort(cfg: Config, entry: ModelEntry, explicit: str | None = None) 
     return entry.effective_effort(cfg)
 
 
+# Below these an observation is arithmetic on noise rather than a measurement, and the
+# test is the same for both estimators because since ADR-0070 both divide by the same
+# quantity: `decode_seconds`, last token minus first, with prefill and queueing outside it.
+# Whether a sample describes the decoder is therefore a property of the sample, not of who
+# is asking -- average-versus-minimum decides how a bad one propagates, never whether it is
+# one. ADR-0071 held the two apart at 64 and 512 on the opposite reasoning, correctly, while
+# the denominator still contained prefill and a short turn read *slow*.
+#
+# Sized from the deployment's own decode benchmark rather than from an incident. That
+# benchmark measures stable per-stream rates with a 400-token cap, so a few hundred tokens
+# is enough to describe the decoder; this sits just above it. Either side of that line,
+# measured 2026-09-13 by recovering each turn's own sample from the next turn's `priced`
+# event: turns of 105-119 tokens read 91-106 tok/s against a benchmarked 44.1 alone, while
+# turns of 438-1478 tokens read 45-52. The short ones are not noisy, they are wrong in one
+# direction, so an average that decays does not survive them -- across 24 such turns the
+# estimate climbed 19.57 to 88.53 and never fell back.
+MIN_MEASURABLE_TOKENS = 512
+MIN_MEASURABLE_SECONDS = 1.0
+
+
 class DecodeRate:
     """Tokens per second this deployment actually decodes, kept across turns.
 
@@ -305,11 +325,9 @@ class DecodeRate:
     throughput and would say it very loudly.
     """
 
-    # Below these, an observation is arithmetic on noise. A turn answering in a few tokens
-    # spends most of its backend interval on prefill and queueing, so its apparent decode
-    # rate describes the queue rather than the decoder.
-    MIN_TOKENS = 64
-    MIN_SECONDS = 1.0
+    # One test for both estimators, because since ADR-0070 they divide by the same thing.
+    MIN_TOKENS = MIN_MEASURABLE_TOKENS
+    MIN_SECONDS = MIN_MEASURABLE_SECONDS
     # New evidence is worth more than old, but not so much more that one turn is the
     # estimate. Five turns move it roughly 90% of the way to a changed rate.
     WEIGHT = 0.4
@@ -407,22 +425,10 @@ class RateHistory:
     # ancient bad sample pin the estimate for the life of the server.
     DEFAULT_KEEP = 64
 
-    # Stricter than `DecodeRate`'s pair, deliberately, and not derived from them: a
-    # minimum is permanent where an average decays. `DecodeRate` re-prices the next turn
-    # of a delegation already running, so a bad sample is diluted by the next four; this
-    # feeds `expect`, which takes a minimum and keeps it for `DEFAULT_KEEP` observations
-    # and prices delegations that do not exist yet.
-    #
-    # Sized from the deployment's own decode benchmark rather than from one incident. That
-    # benchmark measures stable per-stream rates with a 400-token cap, so a few hundred
-    # tokens is enough to describe the decoder; this sits just above it. Below that the
-    # interval is dominated by whatever happened before the first token: a turn emitting
-    # 237 tokens recorded 16.64 tok/s against a benchmarked 44.1 alone, a 2.6x
-    # understatement that then floored `expect(1)` -- the question the first call admitted
-    # in any fan-out asks. 237 clears `DecodeRate`'s 64, which is why sharing one constant
-    # would have left the defect in place.
-    MIN_TOKENS = 512
-    MIN_SECONDS = 1.0
+    # The same test `DecodeRate` applies, and shared rather than restated so the two
+    # cannot drift apart again. Why one constant now serves both is above the definition.
+    MIN_TOKENS = MIN_MEASURABLE_TOKENS
+    MIN_SECONDS = MIN_MEASURABLE_SECONDS
 
     __slots__ = ("_keep", "_seen")
 
