@@ -34,6 +34,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #TBD — 2026-09-14 — fix: conflict markers reached main, and took four PR numbers with them
+
+### Fixed
+- **`PLAN.md` and `docs/DISPATCH.md` carried literal conflict markers on `main`**, from the
+  rebases behind #191 and #192. *Cause:* the resolution was scripted and the script used a
+  first-match search, so a file with two conflicts had one resolved and the other committed
+  verbatim — `docs/DISPATCH.md` had a *nested* pair, which is the shape that gets missed.
+  Nothing was lost: every side was an addition, so the repair keeps all of them and removes
+  only the fences. *Why nothing caught it:* both files are Markdown, so no test or lint runs
+  over them, and the docs gate checks ownership and budgets rather than content.
+- One paragraph is re-anchored rather than pasted back: the KV-pool note opened "That same
+  scrape", whose antecedent stopped being adjacent once three paragraphs were interleaved, so
+  it now names the scrape it means.
+- **Four `#TBD` placeholders are filled in** — #188, #189, #191 and #192. The number is the
+  one thing this project writes after the fact, because it cannot be known until the pull
+  request exists, and four of them were left behind when their branches merged.
+
 ## #192 — 2026-09-13 — fix: the KV budget outran the pool it protects
 
 ### Fixed
