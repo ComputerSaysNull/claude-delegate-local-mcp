@@ -35,13 +35,13 @@ Read a UTF-8 text file from the workspace, with every line numbered, so you can 
 
 ## `search_files`
 
-Search the workspace for a regular expression and get back the matching lines, each as a file name, the word line, and a line number -- so you can read the part you want with read_file and cite it. This is how you find something whose location you do not know; read_file is for when you do. Omit path to search everywhere, or give a directory to narrow it, and use glob to restrict which file names are opened (a test helper is found far faster with glob=test_*.py than by reading directories). Files the path policy declines are not searched and are not reported: they are not results. The reply says when it stopped early or hit its scan cap -- read that before concluding something does not exist, because a narrowed search that found nothing is not proof of absence.
+Search the workspace for a regular expression and get back the matching lines, each as a file name, the word line, and a line number -- so you can read the part you want with read_file and cite it. This is how you find something whose location you do not know; read_file is for when you do. Give path a directory whenever you can even roughly guess one: it is the only argument that narrows the walk, and omitting it scans every workspace root. glob narrows which of the walked files are opened, not how many are walked, so it is not a substitute. Files the path policy declines are not searched and are not reported: they are not results. The reply says when it stopped early or hit its scan cap -- read that before concluding something does not exist, because a narrowed search that found nothing is not proof of absence.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `pattern` | string | yes | Python regular expression, matched per line. Prefix (?i) to ignore case. |
-| `path` | string | no | Absolute path to a directory or file to search. Omit to search the whole workspace. |
-| `glob` | string | no | Only open files whose NAME matches this glob, e.g. *.py or test_*.py. Matches the name, not the path. |
+| `path` | string | no | Absolute path to a directory or file to search, and the only argument that narrows the walk. Omitting it walks every workspace root and policy-checks every file in them, which is far slower than naming even a roughly right directory. |
+| `glob` | string | no | Only open files whose NAME matches this glob, e.g. *.py or test_*.py. Matches the name, not the path. It narrows what is opened, never what is walked, so it does not replace path. |
 | `max_results` | integer | no | Most matching lines to return. Defaults to 100. |
 
 ## `read_git`

@@ -34,6 +34,50 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #182 — 2026-09-13 — fix: a glob is not a scope
+
+### Fixed
+- **A delegation spent about 2,400s of a 44-minute run inside six unscoped `search_files`
+  calls, and the tool had told it to.** `glob`'s description claimed a test helper is "found
+  far *faster* with glob=test_\*.py than by reading directories". That is false: `glob`
+  narrows which files are **opened**, never which are walked or policy-checked. The three
+  most expensive calls in the transcript all set `glob` and omitted `path`. `path` now says
+  it is the only argument that narrows the walk, and `glob` says it does not replace it.
+- **The refusal recommended the most expensive call available, at the worst moment.** A bad
+  `path` was refused with "Name an existing directory or file, or omit it to search
+  everywhere." A delegation that guessed `/workspace/...` took that advice and spent 239s on
+  the retry. Both remedies in `resolve_search_root` now name the configured roots — the one
+  thing a model that just guessed wrong was actually missing.
+- **An unscoped result now says what it scanned.** A note, not a refusal: a `glob` with no
+  `path` is a legitimate search — finding every `conftest.py` anywhere is that shape — and
+  refusing it would trade a real capability away to fix an expensive default. It lands in
+  the result rather than the schema because a schema is read once and a result every time.
+
+### Changed
+- **`glob`'s real effect, stated precisely rather than removed.** It is not useless and the
+  scan-cap remedy still names it: `scanned` increments *after* the glob test, so a filtered
+  name never counts against `search_max_files_scanned` and a globbed search reaches further
+  before it caps. What `glob` cannot do is shorten the walk — `os.walk` still enumerates
+  every directory, and every filename still costs an `os.path.islink` before the glob is
+  tested, which on `/mnt/c` is where the 500 seconds go. A first draft of this change had it
+  narrowing nothing and was corrected by reading the loop.
+
+### Added
+- **The measurement, with tool time separated from backend time.** Tool time is `ms` minus
+  `backend_ms`; reading `ms` alone blames the model for time the tools spent. Measured
+  2026-09-13: all-roots searches took **490s, 505s and 572s**, the same call scoped to the
+  whole repository took 121s, scoped to a subdirectory 0.7–6.1s, and `read_file` never
+  exceeded 1.1s. So scope is worth roughly 100x and file reading was never the problem —
+  an earlier reading of this session's transcripts blamed `read_file` for 2–42s, which were
+  whole-turn times the backend dominated.
+- **Two follow-ups filed rather than smuggled in.** Running a turn's independent tool calls
+  concurrently, which `_run_calls` does not do because it holds one thread for the batch to
+  preserve result order — the order results are *returned* in is not the order they must be
+  *executed* in, and nine turns in the measured run issued two calls. And using `ripgrep`
+  for candidates with the path policy applied to its matches. Both are worth about 2x
+  against scoping's 100x, and the second crosses the boundary `_search_files` exists to
+  hold, so neither belongs in this change.
+
 ## #181 — 2026-09-13 — fix: a small turn is not a decode measurement
 
 ### Fixed

@@ -581,6 +581,13 @@ def resolve_search_root(
     **Resolved before it is compared.** A symlink inside a root pointing out of it is a
     real escape and is invisible to any check that compares the path as written.
     """
+    # Both remedies below name the roots rather than offering to drop `path`. Measured
+    # 2026-09-13: a delegation guessed a root, was refused, took the old advice to "omit it
+    # to search everywhere", and spent 239s on the retry. A refusal fires exactly when the
+    # model has shown it does not know the layout, which is the worst moment to recommend
+    # walking every root -- and the roots are the one thing it was missing. (ADR-0074)
+    roots = ", ".join(resolved_roots(cfg)) or "(none configured)"
+
     posix = to_posix(given)
     if not posixpath.isabs(posix):
         raise PathRefused([Refusal(
@@ -589,7 +596,7 @@ def resolve_search_root(
             reason="it is not an absolute path.",
             remedy=(
                 "The server has its own working directory and will not share yours. Give "
-                "an absolute path, or omit it to search every workspace root."
+                f"an absolute path under one of these roots: {roots}"
             ),
         )], 1, surface=surface, before_dispatch=before_dispatch)
 
@@ -599,7 +606,10 @@ def resolve_search_root(
             given=given,
             layer=LAYER_FORM,
             reason=f"its real location {real} does not exist.",
-            remedy="Name an existing directory or file, or omit it to search everywhere.",
+            remedy=(
+                "Name an existing directory or file under one of these roots, narrowing to "
+                f"a subdirectory where you can: {roots}"
+            ),
         )], 1, surface=surface, before_dispatch=before_dispatch)
 
     roots = resolved_roots(cfg)
