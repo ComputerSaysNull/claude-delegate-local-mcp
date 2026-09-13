@@ -1,6 +1,7 @@
-<!-- BUDGET: 799 -->
+<!-- BUDGET: 805 -->
      Raised from 775 (to 795) on 2026-09-13: reasoning is no longer discarded, plus four findings this session measured -- two about eviction, one about server-side tool time, one re-filing the M10 spike.
      Raised from 775 on 2026-09-13: a search names its scope and is shown the map, which ticks one item and re-costs the walk item beneath it.
+     Raised from 775 on 2026-09-13: the viewer group ticked, plus the two findings it turned up that its frozen body could not carry.
      Raised from 758 on 2026-09-13: four findings this session measured but no branch owned -- the third liveness state, and four viewer defects that state true things in ways that read false.
      Raised from 752 on 2026-09-13: the empty-name item closed against its own leaning, and why the code moved rather than the document is the part worth keeping.
      Raised from 744 on 2026-09-13: closing the 2026-09-11 audit, where two findings turned out to be wrong and saying why is worth more than the tick.
@@ -507,13 +508,18 @@ them was re-derived when it did.
   such turns cost 40% of a 2,100s stall budget; one long enough is killed while working. The
   event loop is *not* blocked — `_run_calls` goes through `asyncio.to_thread` — so this bounds
   the delegation only
-- ⬜ **The viewer states true things in ways that read false.** Four findings, one branch:
+- ✅ 2026-09-13 **The viewer states true things in ways that read false.** Four findings, one
+  branch:
   `requests_running` in a `priced` row is the lease's grant-time concurrency echoed, not live
   cluster state, and the viewer renders it as "N running"; a turn boundary collapses into one
   displayed second, so a budget line attaches to the wrong turn (turn 15's end and turn 16's
   pricing were 5ms apart); the state column is 9 wide against a 2-wide gutter, so "queued 38s"
   has no room and "queued 120s" overflows — count minutes past 59s; and a queued delegation
   paints a row per second, which should be once a minute plus one line when it ends
+- ✅ 2026-09-13 **Two more the branch above found, filed here rather than rewriting it** — a
+  selected row carrying an emoji over-padded and wrapped, because `len()` counts characters
+  and a cell is not one; and a cut-off reply read as a finished one, `ok` being true of both.
+  Its "queued 120s" is impossible and was corrected in the CHANGELOG, not in its body
 - ⬜ **The registry's `concurrency` default is 5** while this deployment's `models.toml` sets
   6. Carried out of the session hand-off notes, which are not a document anyone else reads
 

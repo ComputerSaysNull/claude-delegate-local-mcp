@@ -78,18 +78,22 @@ def test_the_selected_row_keeps_the_colour_of_its_state_column():
     assert wd.GREEN in out, "stripping the row's colour costs the state column its cue"
 
 
-def test_the_selected_row_still_spans_the_whole_width():
+def test_the_selected_row_reaches_the_end_of_its_text():
     """The other half, and the reason the old version stripped colour in the first place.
 
     A reset ends the selection as surely as it ends a dim, so simply *not* stripping
     highlights as far as the first reset and no further. This is the negative control for
     that naive fix: it passes the colour test above and fails this one.
+
+    It asserted a pad to the terminal width until that pad was removed: the pad was
+    measured in characters and an emoji costs two cells, so a selected row over-padded
+    and wrapped. The band ends with the text now, and what this holds is what it always
+    meant -- the selection must survive every reset the row carries.
     """
     row = f" 10:00  {wd.GREEN}ok{wd.R}  {wd.DIM}3{wd.R}  a task"
     out = wd._highlight(row)
 
-    trailing = out.split(wd.SELECT)[-1]
-    assert trailing.rstrip(wd.R).endswith("  "), "the selection must be padded to the width"
+    assert out.endswith("a task" + wd.R), "the band stops short of the task text"
     # Every reset the row carries is followed by the selection being re-opened, or the
     # band dies at the first one.
     assert wd.R + wd.SELECT in out

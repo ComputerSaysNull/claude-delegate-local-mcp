@@ -18,6 +18,7 @@ import select
 import signal
 import sys
 import time
+import unicodedata
 from datetime import datetime, timedelta, UTC
 from pathlib import Path
 
@@ -827,13 +828,6 @@ def test_the_highlight_survives_the_rows_own_colour_codes(viewer):
     assert "12:00:00" in out and "a task" in out
 
 
-def test_the_highlight_pads_but_never_truncates(viewer):
-    """Padding is what makes it span the row; truncating would lose the task text, which
-    is the part that tells two delegations apart."""
-    long_task = "x" * 400
-    out = viewer._highlight(f" 12:00:00  {long_task}")
-
-    assert long_task in out
 
 
 def test_a_frame_overwrites_rather_than_blanking_first(viewer):
@@ -955,3 +949,397 @@ def test_the_still_running_line_keeps_its_own_coarser_shape(viewer):
 
     assert "3m" in screen
     assert "3m20s" not in screen
+
+
+# --- defect 1 and 2: the budget line ------------------------------------------------
+
+
+def _priced(**over) -> dict:
+    """One `priced` event with every field `transcript.priced` writes.
+
+    Built from the writer's own keyword list rather than from what the renderer happens to
+    read, so a field the server starts writing does not have to be remembered here twice.
+    """
+    event = {
+        "t": "priced", "at": "2026-01-01T00:00:00+00:00", "turn": 16,
+        "effort": "high", "max_tokens": 4000, "budget_ceiling": 3200,
+        "decode_rate": 31.2, "requests_running": 4.0,
+        "rate_source": "cluster_since_boot", "expected_concurrency": 4,
+    }
+    event.update(over)
+    return event
+
+
+def test_a_budget_priced_from_the_grant_does_not_claim_a_live_cluster(viewer):
+    """`requests_running` is only sometimes a reading, and the line said it always was.
+
+    Where the rate came from `observed_at_concurrency`, the field is handed straight back
+    from the admission lease: it is the concurrency the grant was made at, frozen when the
+    slot was taken, and nothing went and looked at the cluster. Rendering it as `4 running`
+    offered a reader a measurement to reason about that no one ever took -- the worst kind
+    of wrong number, because it is exactly the number a stuck delegation is diagnosed with.
+    """
+    line = "\n".join(viewer.render(
+        _priced(rate_source="observed_at_concurrency",
+                requests_running=4.0, expected_concurrency=4), 100))
+
+    assert "running" not in line, f"a grant-time echo presented as a cluster reading: {line}"
+    assert "priced for 4" in line, line
+
+
+def test_a_budget_read_from_the_cluster_still_reports_what_was_running(viewer):
+    """The control, and the reason the fix is three branches rather than a deletion.
+
+    Under `cluster_since_boot` the figure is the engine's own `num_requests_running` gauge,
+    read in the same scrape as the rate. It is the load the rate was read against, and
+    without it the ceiling can be read but not argued with -- which is what the field was
+    added for. A change that made every priced line stop saying `running` would pass the
+    test above and fail this one.
+    """
+    line = "\n".join(viewer.render(
+        _priced(rate_source="cluster_since_boot", requests_running=3.0), 100))
+
+    assert "3 running" in line, line
+
+
+def test_a_budget_with_no_recorded_source_claims_neither(viewer):
+    """A stream written before `rate_source` existed cannot say which kind of number it
+    holds, so the line says neither. Absent is not `cluster`, in the same way absent is not
+    `default` for a turn's effort -- and the direction of the guess matters here, because
+    one of the two available guesses invents a cluster measurement."""
+    old = _priced()
+    del old["rate_source"]
+    line = "\n".join(viewer.render(old, 100))
+
+    assert "running" not in line, line
+    assert "concurrency 4" in line, line
+
+
+def test_a_budget_line_names_the_turn_it_priced(viewer):
+    """A budget is written *before* the turn it pays for, and lands beside the end of the
+    one before it. Measured on a real transcript: turn 15's `turn` event and turn 16's
+    `priced` event were 5 milliseconds apart, so both stamps rendered `10:42:07` and the
+    budget read as turn 15's epitaph rather than turn 16's allowance.
+
+    Naming the turn is what settles it. A finer stamp would not: the reader groups by the
+    blank line and by what the line says, not by a clock they are not comparing digit by
+    digit -- and `_clock` is shared with the picker's 8-wide `started` column, so
+    sub-second precision there would break a column to fix a sentence.
+    """
+    line = "\n".join(viewer.render(_priced(turn=16), 100))
+
+    assert "turn 16" in line, line
+    assert "3,200 tok" in line and "31.2 tok/s" in line, "the figures themselves went"
+
+
+def test_a_budget_line_opens_a_block_rather_than_closing_the_one_above(viewer):
+    """The other half of the same misattribution: whitespace is what groups a transcript.
+
+    Every other multi-line event here opens with a blank -- `turn`, `start` and `end` all
+    do -- and `priced` was the one that did not, so it butted straight onto the last
+    wrapped line of the turn above and inherited its paragraph.
+    """
+    lines = viewer.render(_priced(), 100)
+
+    assert lines[0] == "", f"the budget line still joins the turn above it: {lines}"
+    assert len(lines) == 2, lines
+
+
+def test_a_one_shot_budget_still_renders_without_a_turn_number(viewer):
+    """The negative direction. `turn` is written on every path today -- the one-shot writes
+    `1` -- but a renderer that only works where a field is present is a renderer that
+    crashes on the oldest transcript in the directory, which is the one being read when
+    something has gone wrong."""
+    without = _priced()
+    del without["turn"]
+    line = "\n".join(viewer.render(without, 100))
+
+    assert "budget" in line and "3,200 tok" in line, line
+
+
+# --- defect 3: the state column ------------------------------------------------------
+
+
+def test_the_state_column_fits_the_widest_state_that_can_occur(viewer):
+    """`queued 89m` is ten characters and the column was formatted nine wide.
+
+    Nothing truncates -- Python's `<` pads and never cuts -- so the overflow was silent:
+    the state ran into the `kind` beside it and every column right of it lost its
+    alignment for that row, on exactly the rows a reader is scanning the list to find.
+
+    Ten is the ceiling and not a guess: `_ago` truncates, so seconds stop at `59s`, minutes
+    run to `89m` before the hour unit takes over, and `queued ` is the longest prefix.
+    """
+    queued = {"done": False, "ok": None, "mtime": time.time(),
+              "last_signal": "waiting", "waited_seconds": 89 * 60}
+    word, _ = viewer.state_of(queued)
+
+    assert word == "queued 89m"
+    assert len(word) + 2 <= viewer.STATE_WIDTH, (
+        f"{word!r} is {len(word)} wide in a column of {viewer.STATE_WIDTH}, gutter included")
+
+
+@posix_only
+def test_the_state_column_keeps_its_gutter_when_the_state_is_widest(session, tmp_path):
+    """The unit test above proves the number; this proves the paint uses it.
+
+    A width asserted on a constant and then not threaded into both format strings is the
+    check that cannot fail: the header and the row are composed separately, and they have
+    drifted apart before -- which is why they are built from the same widths at all.
+    """
+    now = datetime.now(UTC)
+    path = stream(tmp_path, now - timedelta(minutes=95), "QUEUED ONE")
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"t": "waiting", "at": now.isoformat(),
+                             "waited_seconds": 89 * 60, "of_seconds": 1800}) + "\n")
+
+    screen = session(tmp_path).read()
+    assert "queued 89m  delegate" in screen, (
+        "the widest state ran into the kind column beside it")
+
+
+# --- defect 4: a queued delegation says so once a minute -----------------------------
+
+
+def test_a_queued_delegation_is_repeated_once_a_minute(viewer):
+    """The admission gate polls four times a second when the slot file is shared, and
+    writes a `waiting` event on every tick. The follow view prints and never repaints --
+    deliberately, so the terminal's scrollback holds what you have watched -- so a
+    ten-minute wait did not flicker, it *was* the scrollback, and it pushed the turns
+    either side of the wait out of it.
+    """
+    pacing = viewer.QueuedPacing()
+    ticks = [{"t": "waiting", "waited_seconds": n * 0.25, "of_seconds": 1800}
+             for n in range(301)]                      # 0.00s to 75.00s, every 0.25s
+
+    shown = [out for tick in ticks for out in pacing.admit(tick)]
+
+    assert [out["waited_seconds"] for out in shown] == [0.0, 60.0], shown
+
+
+def test_the_wait_is_painted_once_more_when_it_ends(viewer):
+    """Which line is held matters as much as the rate.
+
+    A throttle that simply drops what it skips under-reports every wait by up to a minute,
+    and reports it as a measurement -- a delegation queued for 119 seconds would close on
+    `60s`. The newest skipped line is kept instead and painted when the queue breaks, so
+    the last thing on screen is the wait's real total, immediately above whatever ended it.
+    """
+    pacing = viewer.QueuedPacing()
+    for n in range(191):                               # 0.00s to 47.50s
+        pacing.admit({"t": "waiting", "waited_seconds": n * 0.25, "of_seconds": 1800})
+
+    out = pacing.admit({"t": "priced", "turn": 1, "budget_ceiling": 3200})
+
+    assert [event["t"] for event in out] == ["waiting", "priced"], out
+    assert out[0]["waited_seconds"] == 47.5, "the final line is not the newest wait"
+
+
+def test_nothing_that_is_not_a_wait_is_ever_held_back(viewer):
+    """The control. A pacer that swallowed anything else would be invisible in the tests
+    above and catastrophic on screen -- the events it would swallow are the turns."""
+    pacing = viewer.QueuedPacing()
+    events = [{"t": "start", "task": "x"}, {"t": "turn", "turn": 1},
+              {"t": "alive", "elapsed_seconds": 3}, {"t": "turn", "turn": 2},
+              {"t": "end", "ok": True}]
+
+    assert [out for event in events for out in pacing.admit(event)] == events
+
+
+def test_a_second_wait_starts_its_minute_again(viewer):
+    """A delegation can be queued, run, and be queued again on a later turn. The clock
+    restarts with the new wait rather than carrying the last one's mark, or the first line
+    of the second wait would be withheld for up to a minute -- the one line that matters
+    most, because it is the one that says the delegation has stopped moving."""
+    pacing = viewer.QueuedPacing()
+    pacing.admit({"t": "waiting", "waited_seconds": 0.0})
+    pacing.admit({"t": "waiting", "waited_seconds": 30.0})
+    pacing.admit({"t": "turn", "turn": 1})
+
+    assert pacing.admit({"t": "waiting", "waited_seconds": 0.25}) != []
+
+
+@posix_only
+def test_a_queued_transcript_does_not_fill_the_screen_with_itself(session, tmp_path):
+    """End to end, because the pacer is only worth anything if `follow` routes through it.
+
+    Two lines for a fifty-second wait: the one that opened it, and the one that closed it.
+    """
+    now = datetime.now(UTC)
+    path = stream(tmp_path, now - timedelta(minutes=2), "QUEUED")
+    with path.open("a", encoding="utf-8") as fh:
+        for n in range(200):                           # 0.00s to 49.75s
+            fh.write(json.dumps({"t": "waiting", "at": now.isoformat(),
+                                 "waited_seconds": n * 0.25, "of_seconds": 1800}) + "\n")
+        fh.write(json.dumps({"t": "turn", "at": now.isoformat(), "turn": 1,
+                             "input_tokens": 10, "output_tokens": 5}) + "\n")
+
+    live = session(tmp_path)
+    live.read(1.0)
+    live.send(b"\r")
+    screen = live.read(2.5)
+
+    assert screen.count("queued at the gate") == 2, (
+        f"{screen.count('queued at the gate')} queued lines for one wait")
+    assert "queued at the gate · 49s" in screen, "the closing line lost the wait's total"
+    assert "turn 1" in screen, "the turn the wait was hiding"
+
+
+# --- defect 5: the selected row and the width of an emoji ----------------------------
+
+
+def _columns(text: str) -> int:
+    """How many cells a terminal spends on a string, which is not how many characters
+    Python counts in it. `W` and `F` are the two east-asian widths that render double."""
+    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+
+
+def test_a_selected_row_with_an_emoji_stays_inside_the_terminal(viewer, monkeypatch):
+    """The control this defect was fixed for: a row must not wrap because it was selected.
+
+    `_highlight` padded to the terminal using `len()`, and a character is not a column.
+    Every emoji a task text carries is east-asian-width `W` and renders two cells wide, so
+    the count came up short by one per emoji, the pad overshot by exactly that much, and
+    the row spilled onto a second line -- which the list then left as a stray blank
+    directly under the selected row, since the frame only erases to the end of each line
+    it wrote.
+    """
+    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setenv("LINES", "24")
+    row = f" 12:00:00  {viewer.GREEN}ok{viewer.R}  ✅ ship the thing"
+
+    assert unicodedata.east_asian_width("✅") == "W", (
+        "the premise: this emoji really does cost two cells")
+    assert _columns(viewer._plain(row)) < 80, "the fixture row must fit before it is selected"
+    assert _columns(viewer._plain(viewer._highlight(row))) <= 80
+
+
+def test_the_selection_band_is_no_longer_padded_to_the_terminal(viewer, monkeypatch):
+    """The mechanism, stated as what it now is: the band ends where the text does.
+
+    Measuring columns properly would mean carrying a width table in a viewer, for a cue a
+    shorter band already gives -- so the padding went rather than the measurement changing.
+    """
+    monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.setenv("LINES", "24")
+    row = f" 12:00:00  {viewer.GREEN}ok{viewer.R}  a task"
+
+    assert viewer._plain(viewer._highlight(row)) == viewer._plain(row)
+
+
+def test_the_selection_still_never_cuts_the_row_back(viewer, monkeypatch):
+    """The concern the padding was written around, kept. A truncated row loses the end of
+    the task text, which is the part that tells two delegations apart -- and removing a pad
+    cannot truncate, which is the whole argument for removing it rather than fixing it."""
+    monkeypatch.setenv("COLUMNS", "40")
+    monkeypatch.setenv("LINES", "24")
+    long_task = "x" * 400
+
+    assert long_task in viewer._highlight(f" 12:00:00  {long_task}")
+
+
+def test_the_highlight_still_survives_the_rows_own_colour_codes(viewer):
+    """Unchanged behaviour, re-asserted because the line that produces it was rewritten.
+
+    A row carries colour/reset pairs of its own and a reset ends the selection as surely as
+    it ends a dim, so the selection is re-opened after each one. No reset may be the last
+    thing standing before the end of the row.
+    """
+    row = f"{viewer.DIM}12:00:00{viewer.R}  {viewer.GREEN}ok{viewer.R}  a task"
+    out = viewer._highlight(row)
+
+    assert out.startswith(viewer.SELECT) and out.endswith(viewer.R)
+    assert out.count(viewer.R) - 1 == out.count(viewer.R + viewer.SELECT), out
+    assert viewer.GREEN in out, "the state column lost its colour on the selected row"
+
+
+# --- defect 6: the unit switch in _ago ------------------------------------------------
+
+
+def test_a_staleness_switches_to_minutes_where_the_minute_starts(viewer):
+    """It switched at 90 seconds while truncating, so the display read `88s`, `89s`, `1m`.
+
+    A reader watching a number count up saw it fall, and `1m` then covered 90 through 119
+    seconds -- a minute-and-a-half reported as a minute, on the column that says how long
+    a delegation has been silent. At 60 the unit changes where the word does.
+    """
+    assert viewer._ago(59.9) == "59s"
+    assert viewer._ago(60) == "1m"
+    assert viewer._ago(89) == "1m"
+    assert viewer._ago(119.9) == "1m"
+    assert viewer._ago(120) == "2m"
+
+
+def test_a_staleness_never_reads_lower_than_the_second_before_it(viewer):
+    """The property rather than the boundary, because the boundary alone would pass on a
+    version that only moved the reversal somewhere else -- rounding to the nearest minute
+    puts it back at 90 seconds, printing `2m` where `1m30s` would have been."""
+    seen = [viewer._ago(float(s)) for s in range(0, 5400)]
+    minutes = [int(word[:-1]) for word in seen if word.endswith("m")]
+
+    assert all(word.endswith("s") for word in seen[:60])
+    assert all(word.endswith("m") for word in seen[60:])
+    assert minutes == sorted(minutes), "the minute count goes backwards somewhere"
+    assert minutes[0] == 1 and minutes[-1] == 89
+
+
+def test_the_hour_switch_is_left_where_it_was(viewer):
+    """Only the first boundary moved. The second one is not a reversal -- `89m` to `1h` is
+    a coarsening, not a number falling -- and moving it would make every quiet row in a
+    quiet directory read `1h`."""
+    assert viewer._ago(5399) == "89m"
+    assert viewer._ago(5400) == "1h"
+    assert viewer._ago(7200) == "2h"
+
+
+# --- defect 7: a truncated reply reads as a finished one ------------------------------
+
+
+def _end(**over) -> dict:
+    """One `end` event, with the fields the writer actually puts in it."""
+    event = {
+        "t": "end", "at": "2026-01-01T00:00:00+00:00", "ok": True,
+        "turns": 3, "elapsed_seconds": 12.5, "output_tokens": 4000,
+        "cached_tokens": 0, "backend_ms": 9000, "out_tok_s": 444.4,
+    }
+    event.update(over)
+    return event
+
+
+def test_a_reply_cut_off_at_its_token_limit_says_so(viewer):
+    """A truncated dispatch is a *successful* one: `ok` is true and nothing raised.
+
+    So "done" is the one word that reads most wrongly about it, and the reader who believes
+    it treats a reply that stopped mid-sentence as the whole answer.
+    """
+    out = "\n".join(viewer.render(_end(finish_reason="length"), 100))
+
+    assert "cut off" in out
+    assert "token limit" in out, "and why, or the reader cannot tell which fix applies"
+
+
+def test_a_reply_the_endpoint_stopped_names_a_different_cause(viewer):
+    """The reason has to discriminate, or it sends the reader to the wrong fix.
+
+    A token limit is a budget to raise. A content filter is not, and saying only "cut off"
+    would have someone raising max_tokens at a wall that does not move.
+    """
+    out = "\n".join(viewer.render(_end(finish_reason="content_filter"), 100))
+
+    assert "cut off" in out
+    assert "token limit" not in out
+
+
+def test_an_ordinary_completion_is_not_labelled_cut_off(viewer):
+    """Control. A warning on every finished dispatch is noise, and noise is ignored."""
+    for reason in ("stop", "tool_calls", "", None):
+        out = "\n".join(viewer.render(_end(finish_reason=reason), 100))
+        assert "cut off" not in out, reason
+
+
+def test_an_end_event_from_before_this_change_still_renders(viewer):
+    """Control. Older transcripts carry no `finish_reason` at all and must not break."""
+    out = "\n".join(viewer.render(_end(), 100))
+
+    assert "done" in out
+    assert "cut off" not in out

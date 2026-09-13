@@ -850,6 +850,9 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 cached_tokens=streamed_cached_tokens,
                 backend_ms=streamed_backend_ms or None,
                 error=str(failure) if failure is not None else None,
+                finish_reason=getattr(
+                    getattr(dispatched, "response", None), "finish_reason", None
+                ),
             )
         transcript.write(
             cfg,
