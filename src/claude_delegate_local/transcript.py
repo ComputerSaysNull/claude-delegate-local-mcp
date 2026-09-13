@@ -211,6 +211,24 @@ class Stream:
             "expected_concurrency": expected_concurrency,
         })
 
+    def waiting(self, *, waited_seconds: float, of_seconds: int) -> None:
+        """Still queued at the admission gate, having reached no backend at all.
+
+        Written from the same tick that resets the client's idle timer while a delegation
+        waits. Without it a queued delegation and a killed one leave identical files --
+        both silent, both unfinished -- and the viewer called the pair `quiet`, which is
+        true of both and useful about neither.
+
+        The server is the only thing that can tell them apart. A reader cannot: the file
+        says nothing either way, and a pid in the stream would only mean something on the
+        machine that wrote it, which is not where these are read. So the fact is recorded
+        when it is known rather than inferred later from silence.
+        """
+        self._put({
+            "t": "waiting", "at": datetime.now(UTC).isoformat(),
+            "waited_seconds": round(waited_seconds, 3), "of_seconds": of_seconds,
+        })
+
     def alive(self, *, elapsed_seconds: float, of_seconds: int,
               ends_in_seconds: float | None = None,
               chunks_seen: int = 0, since_chunk_seconds: float | None = None) -> None:

@@ -105,6 +105,26 @@ Older entries, in the previous flat format, are in
   where a mismatched one is silent. The trade in `_keepalive` is unchanged; it is the right
   one. This widening tripped four callbacks in the existing tests, each of which failed loudly
   instead of quietly — which is the whole point.
+- **A delegation queued at the gate reads as `queued`, not as `quiet`.** *Symptom:* the picker
+  showed `quiet 5m` for a delegation waiting on an admission slot and for one whose server had
+  been killed — true of both and useful about neither, and the states most worth telling apart.
+  *Cause:* `state_of` had only two facts, whether an `end` event existed and how long since the
+  file was touched, and neither distinguishes them; its docstring was right that the file
+  cannot, and right that a pid in the stream would only mean something on the machine that
+  wrote it. *Fix:* the server writes a `waiting` event from the tick that already resets the
+  client's idle timer during an admission wait, so the fact is recorded when it is known
+  rather than inferred later from silence. It is not sticky: the picker keeps the last
+  progress event written, so a delegation that queued and then ran stops reporting as queued.
+- **The selected row keeps its colours and stops shouting.** *Symptom:* the highlight was very
+  bright, and the state column — the one cue saying at a glance whether a row is live, queued
+  or failed — went monochrome on exactly the row being looked at. *Cause:* `_highlight`
+  stripped every escape before inverting, because a reset inside the row ends the inverse as
+  surely as it ends a dim, so the band would otherwise have died two columns in. *Fix:* the
+  selection is re-opened after each reset instead of the colour being removed, which keeps
+  both the full width and the colour, and it is dim inverse rather than plain, so the row
+  reads as a band rather than a flash. Inverse at all because it is the one selection style
+  every terminal renders the same way; a chosen background colour is legible on one theme and
+  invisible on another, and the viewer cannot ask which it is on.
 
 ## #179 — 2026-09-12 — docs: a copy task is not a decode benchmark
 

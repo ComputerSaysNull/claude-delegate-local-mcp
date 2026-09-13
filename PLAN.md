@@ -1,4 +1,5 @@
-<!-- BUDGET: 692
+<!-- BUDGET: 700
+     Raised from 692 on 2026-09-13: the lease item ticked, and streaming slices 2-3 with it -- plus what slice 4 now carries and the viewer question it raises.
      Raised from 670 on 2026-09-12: three things established in a session and filed
      nowhere -- a doc/code mismatch, a blocked design, and what the lease fix retires.
      Raised from 630 on 2026-09-12: an outside benchmark withdrew every probe figure and an A-B
@@ -274,8 +275,13 @@ nothing was configured, and no tool result changes shape.
     the command reported success while the tail was being mangled. Write the marker last
 - 🔄 **Streaming, reopened 2026-09-05 with a scope.** **Slice 1 landed 2026-09-12 (#172,
   ADR-0070)**: the transport streams, `complete()` is unchanged, and the decode interval no
-  longer contains prefill. Slices 2-4 remain, in this order — `stall_left` reset on token
-  arrival, deltas feeding `stream.turn`, a partial returned at `dispatch_timeout`.
+  longer contains prefill. **Slices 2-3 landed 2026-09-13 (ADR-0072)**: `stall_left` resets
+  on token arrival against a live ceiling, and the heartbeat carries what has arrived.
+  **Slice 4 remains** — a partial at `dispatch_timeout` — plus the retry split streaming
+  makes available (a read timeout *before* first token is prefill or queueing, *after* is
+  slow decode; untouched in #172), and showing the stream itself. **Weigh a non-terminal
+  viewer first**: `follow` never repaints and making it is the expensive half, where a
+  browser over the same `.jsonl` gets repaint, scrollback and selection for nothing.
   Filed and cancelled the same day,
   2026-08-25, on the grounds that MCP tool calls are request/response so the caller sees
   nothing incrementally either way. That is still true of the caller and was never the
@@ -423,10 +429,10 @@ them was re-derived when it did.
     item above is what makes a delegation's prefill grow**, so fix that first and re-measure;
     re-deriving `is_large` per turn is cheap but may then be unnecessary
 
-- ⬜ **`kv_token_budget` is 1.66x the real KV pool, and the number to fix it is now
+- ⬜ **`kv_token_budget` is 1.64x the real KV pool, and the number to fix it is now
   readable.** The setting defaults to 2,400,000 and its help text says it "sits just under
-  the measured KV pool". The endpoint reports `kv_cache_size_tokens = 1,444,236`, so it
-  sits well over. Nothing has failed, because the setting protects latency rather than
+  the measured KV pool". The endpoint reports `kv_cache_size_tokens = 1,467,988`, re-read
+  2026-09-13, so it sits well over. Nothing has failed, because the setting protects latency rather than
   correctness — over-admitting queues and preempts rather than erroring — which is exactly
   why it drifted unnoticed. Likely cause is the 2026-09-04 model swap: a vision model
   carries more weights, so less memory is left for KV and the pool shrank underneath a
@@ -585,7 +591,7 @@ local, because they are working notes rather than a product fact.
     `kv_cache_used_fraction` **0.031** and 0 preemptions — binding on an idle cluster.
     **Re-ranked up**, but the item below is probably the fix, so measure that before
     moving 1800
-- ⬜ **Release the *large* half of an admission lease at first token, not at the end of the
+- ✅ **Release the *large* half of an admission lease at first token, not at the end of the
   run.** `admit()` holds it for the whole delegation, and the prefill it exists to serialise
   is over once decoding starts. Measured 2026-09-12 at `effort: high`: time to first token
   **64.1s**, delegations running 271-847s, and the two that died holding a slot for 2,100s —

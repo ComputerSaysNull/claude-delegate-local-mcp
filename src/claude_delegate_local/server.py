@@ -691,14 +691,25 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             tools=allowed, prefetched=prefetched,
         )
 
+    waiting_since = time.monotonic()
+
     async def ticked() -> None:
         """ADR-0018 again, one layer earlier.
 
         A queued delegation runs no turns, so nothing else resets the client's idle
         timer while it waits. Without this a delegation that is merely queued is
         abandoned by the caller exactly as a slow one used to be.
+
+        It writes to the transcript as well as the wire, for the reason `alive` does: a
+        queued delegation and one whose server was killed leave identical files, and the
+        server is the only thing that can tell them apart (ADR-0072).
         """
         await progress(0, 0)
+        if stream is not None:
+            stream.waiting(
+                waited_seconds=time.monotonic() - waiting_since,
+                of_seconds=cfg.admission_wait_timeout,
+            )
 
     async def alive(elapsed_seconds: float, of_seconds: int, ends_in: float,
                     chunks_seen: int = 0, since_chunk: float | None = None) -> None:

@@ -96,20 +96,27 @@ def _plain(text: str) -> str:
 
 
 def _highlight(line: str) -> str:
-    """One row, inverted across its whole width.
+    """One row, selected across its whole width, keeping the colours it came with.
 
-    The colours have to come out first. A row carries its own `DIM`/reset pairs, and a
-    reset ends the inverse as surely as it ends the dim -- so wrapping the coloured string
-    highlighted only as far as the first reset, which was two columns in. Stripping and
-    padding is what makes the highlight the width of the row rather than the width of its
-    first field.
+    A row carries its own colour/reset pairs, and a reset ends the selection as surely as
+    it ends a dim -- so wrapping the coloured string selected only as far as the first
+    reset, two columns in. The old fix was to strip every escape first, which worked and
+    cost the state column its colour: the one cue that says at a glance whether a row is
+    live, queued or failed went monochrome exactly on the row being looked at. Re-opening
+    the selection after each reset keeps both the full width and the colour.
+
+    Dim inverse rather than plain inverse, so the selected row reads as a band rather than
+    a flash. Inverse at all because it is the one selection style every terminal renders
+    the same way -- a chosen background colour is legible on one theme and invisible on
+    another, and this has no way to ask which it is on.
     """
-    text = _plain(line)
+    visible = len(_plain(line))
     # Padded out to the terminal, never cut back to it. A highlight that truncates loses
     # the end of the task text, which is the part that tells two delegations apart -- and
     # a row wider than the window wraps, which is what it did before it was highlighted.
-    width = max(shutil.get_terminal_size((100, 24)).columns, len(text))
-    return f"{INVERT}{text.ljust(width)}{R}"
+    width = max(shutil.get_terminal_size((100, 24)).columns, visible)
+    body = line.replace(R, R + SELECT)
+    return f"{SELECT}{body}{' ' * (width - visible)}{R}"
 
 R = "\033[0m"
 DIM = "\033[2m"
@@ -120,6 +127,9 @@ RED = "\033[31m"
 YELLOW = "\033[33m"
 BLUE = "\033[34m"
 INVERT = "\033[7m"
+# The selected row. Dim inverse: a band rather than a flash, and inverse at all because it
+# is the one selection style that renders the same on every terminal theme.
+SELECT = "\033[2;7m"
 
 
 def _clock(value: str | float | None) -> str:
@@ -371,6 +381,24 @@ def _alive_line(event: dict) -> str:
     return f"{DIM}still running · {spent}{budget}{ends}{flow}{R}"
 
 
+def _waiting_line(event: dict) -> str:
+    """Queued at the admission gate, having reached no backend at all.
+
+    Its own line rather than a variant of `alive`, because the two say different things:
+    one is the model working, the other is this server not having started.
+    """
+    waited = event.get("waited_seconds")
+    of = event.get("of_seconds")
+    spent = _ago(waited) if isinstance(waited, (int, float)) else "?"
+    cap = f" of {of // 60}m" if isinstance(of, int) else ""
+    return f"{DIM}queued at the gate · {spent}{cap}{R}"
+
+
+# The events that render as one dim line with no rule. Kept as a table so `render` does
+# not grow a branch and a return for each.
+_ONE_LINERS = {"waiting": _waiting_line, "alive": _alive_line}
+
+
 def render(event: dict, width: int) -> list[str]:
     """One event, as a block a person reads rather than a line a machine parses."""
     kind = event.get("t")
@@ -403,8 +431,8 @@ def render(event: dict, width: int) -> list[str]:
         load_s = f", {running:.0f} running" if isinstance(running, (int, float)) else ""
         return [f"{stamp}  {DIM}budget {cap_s} · {rate_s}{load_s}{R}"]
 
-    if kind == "alive":
-        return [f"{stamp}  {_alive_line(event)}"]
+    if kind in _ONE_LINERS:
+        return [f"{stamp}  {_ONE_LINERS[kind](event)}"]
 
     if kind == "end":
         ok = event.get("ok")
@@ -460,9 +488,15 @@ def started_at(row: dict) -> float:
     return row.get("created", 0.0)
 
 
+# The events that say where a delegation has got to. Ordered by nothing -- only the last
+# one written matters, and only for telling "still queued" from "ran, then went silent".
+_SIGNALS = frozenset({"waiting", "priced", "turn", "alive", "end"})
+
+
 def summarise(path: Path) -> dict:
     """One row for the picker, read cheaply: the head of the file plus its mtime."""
     row = {"path": path, "task": "", "model": "", "turns": 0, "done": False,
+           "last_signal": "", "waited_seconds": None,
            "tool": "", "tools": None, "effort": "", "elapsed_seconds": None,
            "turn_cached": None, "end_cached": None, "turn_sent": 0, "end_sent": None,
            "turn_peak": 0, "turn_out": 0, "end_out": None, "turn_outs": [],
@@ -474,6 +508,11 @@ def summarise(path: Path) -> dict:
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                # Which of the recurring events came last, which is what separates a
+                # delegation still queued from one that got a slot and then went quiet.
+                # A flag set by `waiting` alone would stay set for the rest of the run.
+                if event.get("t") in _SIGNALS:
+                    row["last_signal"] = event["t"]
                 if event.get("t") == "start":
                     row["task"] = (event.get("task") or "").replace("\n", " ")
                     row["model"] = event.get("model_key", "")
@@ -503,6 +542,8 @@ def summarise(path: Path) -> dict:
                     if out is not None:
                         row["turn_out"] += out
                         row["turn_outs"].append(out)
+                elif event.get("t") == "waiting":
+                    row["waited_seconds"] = event.get("waited_seconds")
                 elif event.get("t") == "end":
                     row["done"] = True
                     row["ok"] = event.get("ok")
@@ -755,6 +796,14 @@ def state_of(row: dict) -> tuple[str, str]:
     if row["done"]:
         return ("ok", GREEN) if row.get("ok") else ("fail", RED)
     idle = max(time.time() - row.get("mtime", 0), 0)
+    # Queued is a fact the server wrote down, not silence this reader interpreted. It is
+    # reported however long the wait has run: a delegation parked at the gate is not
+    # getting anywhere, but it is not a candidate for having died either, and `quiet`
+    # said both of those at once by saying neither. (ADR-0072)
+    if row.get("last_signal") == "waiting":
+        waited = row.get("waited_seconds")
+        age = _ago(waited if isinstance(waited, (int, float)) else idle)
+        return f"queued {age}", CYAN
     if idle < STALL_SECONDS:
         return "live", YELLOW
     return f"quiet {_ago(idle)}", DIM
