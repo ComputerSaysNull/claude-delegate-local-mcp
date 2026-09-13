@@ -141,7 +141,7 @@ prevent:
 
 | Key | Value | Notes |
 |---|---|---|
-| `name` | the agent's name | Optional, but if present it **must equal the filename**, or the file is refused |
+| `name` | the agent's name | Optional, but if present it **must equal the filename**, or the file is refused — and a bare `name:` counts as present, because a key whose value went missing is a setting that silently does nothing |
 | `description` | one line | What `list_agents` reports, so a caller can choose without opening the file |
 | `model` | a model-registry key | Binds the dispatch |
 | `effort` | `off`, `low`, `high`, `max` | Refused loudly if misspelt. **Not** `medium` — the backend has no such level. **Not** `inherit` — that is what a *caller* passes to defer to this file |
