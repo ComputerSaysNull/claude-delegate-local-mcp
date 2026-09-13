@@ -1,6 +1,7 @@
-<!-- BUDGET: 714 -->
+<!-- BUDGET: 728 -->
 <!-- Raised from 700 (to 706) on 2026-09-13: reasoning is returned instead of discarded, which adds a result field and narrows what empty_response means. -->
 <!-- Raised from 700 on 2026-09-13: the tool set is built per deployment now, because one description carries the workspace layout. -->
+<!-- Raised from 700 on 2026-09-13: the pressure gate applies wherever pressure can be read, and which half still waits for the flag. -->
 <!-- Raised from 674 on 2026-09-13: token arrival reaches the caller, moves the deadline (which now needs a live ceiling), and is what the heartbeat reports. -->
 <!-- Raised from 670 on 2026-09-12: a floor on the rate memory, and why it is stricter than the estimator's. -->
 <!-- Raised from 653 on 2026-09-12: the chat call streams, so the decode interval excludes prefill and the whole-turn bound moves into the adapter. -->
@@ -516,12 +517,25 @@ the leading prefix could ever be cache-stable was wrong. An append-only history 
 93% of each prompt; stepped eviction reuses about 79%; the per-turn boundary reused 2.9%. The
 gap between 93% and 79% is the price of bounding the history at all.
 
+<<<<<<< HEAD
 The loop asks for its tool set with the config, because one description is built per
 deployment rather than fixed: `search_files` carries the workspace layout, which is the only
 thing that can tell a model a directory name (ADR-0076). It stays a pure function of the
 config and the tree, so two delegations against an unchanged tree send identical bytes — but a
 new top-level entry moves the front of the prompt, which by the measurement below is the edit
 the prefix cache cannot absorb. Rarer than a delegation, and cheaper than one unscoped search.
+=======
+The pressure gate applies wherever pressure can be *read*, rather than only where
+`context_overflow_enabled` is set. That setting ships off for a stated reason — every
+threshold is measured against the model's `context_window`, and an entry omitting that field
+inherits a silent default — and the reason simply does not cover an entry whose window was
+declared. Unarmed, `evict_upto` skipped the check and stubbed on count alone, so the
+threshold this design is built around never applied to the shipped configuration: measured,
+30 results evicted at 3.9% of a 1M window against a 50% gate, on a run whose entire history
+would have cost about 10%. The preventive half — tighten, nudge, abort and the plateau check
+— still waits for the flag, because those act on a delegation and arming them everywhere is a
+larger claim than the one measured.
+>>>>>>> 500427e (fix: eviction fired at 4% of the window against a 50% gate)
 
 **The final turn keeps its tools and is forbidden to call them** (ADR-0057). The loop
 breaks on the last turn whether or not the model asked for anything, so the intent — leave it

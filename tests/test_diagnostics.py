@@ -99,7 +99,8 @@ def run(*replies, diagnostics: bool = False, **over):
     return asyncio.run(
         loop.run_agentic_loop(
             cfg(**over),
-            ModelEntry(key="flash", base_url=HOST, served_model_id="served-id-1"),
+            ModelEntry(key="flash", base_url=HOST, served_model_id="served-id-1",
+                       context_window_defaulted=True),
             Scripted(*replies),
             loop.Delegation("do the thing"),
             allowed=frozenset({"reader"}),

@@ -1,7 +1,8 @@
-<!-- BUDGET: 805 -->
+<!-- BUDGET: 819 -->
      Raised from 775 (to 795) on 2026-09-13: reasoning is no longer discarded, plus four findings this session measured -- two about eviction, one about server-side tool time, one re-filing the M10 spike.
      Raised from 775 on 2026-09-13: a search names its scope and is shown the map, which ticks one item and re-costs the walk item beneath it.
      Raised from 775 on 2026-09-13: the viewer group ticked, plus the two findings it turned up that its frozen body could not carry.
+     Raised from 775 on 2026-09-13: the pressure gate never applied to the shipped configuration, plus the two follow-ups that finding named.
      Raised from 758 on 2026-09-13: four findings this session measured but no branch owned -- the third liveness state, and four viewer defects that state true things in ways that read false.
      Raised from 752 on 2026-09-13: the empty-name item closed against its own leaning, and why the code moved rather than the document is the part worth keeping.
      Raised from 744 on 2026-09-13: closing the 2026-09-11 audit, where two findings turned out to be wrong and saying why is worth more than the tick.
@@ -464,6 +465,7 @@ them was re-derived when it did.
 
 ### Unscheduled — open, real, and in no milestone
 
+<<<<<<< HEAD
 - ✅ 2026-09-13 **Reasoning was generated, paid for, and then discarded** — nine dispatches of 446
   reported empty at a *length stop* holding 265,092 output tokens, because `answer` joined text
   blocks only. Bannered now, with `answer_is_reasoning` (#TBD)
@@ -478,6 +480,18 @@ them was re-derived when it did.
 - ⬜ **The docs gate measures the last append-only entry a line short** — length runs to the next
   heading, so the newest entry omits its trailing separator and an over-budget one lands, then
   blocks whoever appends next. Found by being that next person
+=======
+- ✅ 2026-09-13 **Eviction fired at 4% of the window against a 50% gate** — the pressure check
+  was gated on a setting that ships off, so it stubbed on count alone. It now applies wherever
+  the window was declared, and `keep_tool_results` is 16 (JOURNAL 2026-09-13, #TBD)
+- ⬜ **A retained *count* is the wrong unit for a history.** One run's 36 results ranged from
+  200 bytes to 50,068, so `keep_tool_results` prices a one-line refusal and a 50KB file
+  identically. A share of the window is the unit; the count becomes its floor
+- ⬜ **Arming the preventive half is unmeasured.** Tighten, nudge, abort and the plateau check
+  still wait for `context_overflow_enabled`. Arming them everywhere failed 31 tests on doubles
+  reporting a 7-token prompt — which says those doubles are unrealistic, not that the change
+  is wrong, and settling which needs a real delegation rather than an argument
+>>>>>>> 500427e (fix: eviction fired at 4% of the window against a 50% gate)
 - ✅ 2026-09-13 **The priced rate climbed past what the cluster can physically decode** — 88.53
   tok/s and a 95,612-token ceiling against a benchmark of 44.1. ADR-0070's move to
   `decode_seconds` inverted the short-turn defect ADR-0071 had fixed in only one of the two

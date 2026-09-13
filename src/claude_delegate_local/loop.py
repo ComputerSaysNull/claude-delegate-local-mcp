@@ -1942,6 +1942,26 @@ class _OverflowGuard:
     def armed(self) -> bool:
         return self.cfg.context_overflow_enabled
 
+    @property
+    def pressure_known(self) -> bool:
+        """Whether `share()` is measured against a window somebody actually chose.
+
+        `context_overflow_enabled` ships `False` for one stated reason: every threshold here
+        is measured against `ModelEntry.context_window`, and a registry entry omitting that
+        field inherits a silent default, so arming against it would compute each threshold
+        from a number the operator never picked. That reason is as good as it ever was, and
+        it says nothing about an entry whose window *was* declared.
+
+        Only `evict_upto` reads this, deliberately. The flag still governs the preventive
+        half -- tighten, nudge, abort, and the plateau check -- because those act on a
+        delegation, and turning them on for every deployment that names a window is a much
+        larger claim than the one measured. What was measured is narrower: unarmed,
+        `evict_upto` skips the pressure check and stubs on count alone, so the threshold the
+        design is built around never applied to the shipped configuration. 2026-09-13: 30
+        results evicted at 3.9% of a 1,048,576-token window against a 50% threshold.
+        """
+        return not self.entry.context_window_defaulted
+
     def share(self) -> float:
         return projected_fraction(
             self.cfg, self.entry, self.prev_input_tokens, self.pending_tokens
@@ -1975,7 +1995,7 @@ class _OverflowGuard:
         """
         step = max(self.keep, 1)
         want = (max(results - self.keep, 0) // step) * step
-        if self.armed and self.share() < OVERFLOW_EVICT_AT:
+        if (self.armed or self.pressure_known) and self.share() < OVERFLOW_EVICT_AT:
             return self.evicted_upto
         self.evicted_upto = max(self.evicted_upto, want)
         return self.evicted_upto

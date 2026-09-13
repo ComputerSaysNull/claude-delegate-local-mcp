@@ -34,6 +34,40 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #191 — 2026-09-13 — fix: eviction fired at 4% of the window against a 50% gate
+
+### Fixed
+- **The pressure gate never applied to the shipped configuration.** *Symptom:* one
+  delegation stubbed **30** tool results with a largest prompt of 41,016 tokens against a
+  1,048,576-token window — **3.9%**, where `OVERFLOW_EVICT_AT` is **0.50**. Retaining the
+  whole 36-result history would have cost about 104,730 tokens, roughly 10% of the window.
+  *Cause:* `_OverflowGuard.evict_upto` gates its pressure check on
+  `context_overflow_enabled`, which ships `False`; unarmed it skips pressure entirely and
+  stubs on count alone. *Fix:* the gate applies wherever pressure can be *read* — that is,
+  wherever the entry's `context_window` was declared rather than inherited, which
+  `context_window_defaulted` already records.
+- Off-by-default stays correct for the case it was written for. Its stated reason is that a
+  threshold measured against an inherited window is computed from a number nobody chose, and
+  that reason says nothing about a window the operator set.
+
+### Changed
+- **`keep_tool_results` 6 → 16.** Six was sized against no measurement: it retains 2.71% of
+  a 1M window where the whole history of a real 36-result run cost about 10%, and 16 retains
+  5.25%. A count remains the wrong unit — those 36 results ranged from 200 bytes to 50,068,
+  so it prices a one-line refusal and a 50KB file identically — and that is filed rather than
+  fixed here.
+- **Only `evict_upto` reads the new condition.** Arming the whole guard was tried first and
+  the suite refused it: 31 tests failed because the plateau check fired against doubles
+  reporting a 7-token prompt. Tighten, nudge, abort and the plateau check still wait for the
+  flag, since they act on a delegation and arming them everywhere is a much larger claim than
+  the one measured.
+- `test_an_unarmed_guard_still_bounds_the_history` is narrowed rather than deleted: stepping
+  stays unconditional where pressure cannot be read, which is the case it was written for, and
+  a new test holds the other side — a declared window bounds on pressure rather than on count,
+  so the history is bounded either way.
+- Three test helpers now say `context_window_defaulted=True`. They omit `context_window`, so
+  that is what the registry would record for them; the dataclass default claimed the opposite.
+
 ## #190 — 2026-09-13 — fix: the viewer stated true things in ways that read false
 
 ### Fixed
