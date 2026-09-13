@@ -1,4 +1,5 @@
-<!-- BUDGET: 726
+<!-- BUDGET: 744
+     Raised from 726 on 2026-09-13: the gate measurement answered three items at once, and the removal it calls for carries five consumers that must not be rediscovered.
      Raised from 722 on 2026-09-13: verifying the rate memory against a live cluster found the copy-from-prompt artefact reproducing on real work, which no floor catches.
      Raised from 710 on 2026-09-13: measuring one delegation end to end filed four items nobody knew were there -- a rate above the cluster's physical maximum, an unscoped search costing 500s, and the two ways of making tool execution concurrent.
      Raised from 692 on 2026-09-13: the lease item ticked with streaming slices 2-3, what slice 4 now carries, and the setting-removal work carried out of the ticked body before it froze.
@@ -397,7 +398,7 @@ Raised by a documentation audit that was truncated by its own turn budget, then 
 three settings below were each sized against a constraint that has since moved, and none of
 them was re-derived when it did.
 
-- 🔄 **Admission has no anti-starvation, and 2026-09-05's measurements make it
+- ✅ 2026-09-13 **Admission has no anti-starvation, and 2026-09-05's measurements make it
   sharper.** `_binding` refuses any waiter with `ahead > 0`, where `ahead` counts only
   earlier-ticketed waiters *that currently fit*. Deliberate — strict ticket order would
   reintroduce head-of-line blocking — but there was **no aging, no reservation, no barrier.**
@@ -417,6 +418,9 @@ them was re-derived when it did.
       because the pool was never near full — six passes at ~45k are about 19% of it, which
       is the figure the deferral below already predicted. So the eviction half does not
       block `is_large`, and `is_large` is what remains
+    - **`is_large` closed 2026-09-13** (#184). Re-deriving it per turn is moot: the only rule
+      that reads it for a *decision* is the gate the measurement condemned, so the question
+      leaves with the setting rather than being answered on its own
   - **What is settled:** the related worry that `max_inflight_large_prefills = 2` trades
     cache hits for pipelining is **answered and dead.** Three concurrent large prefills
     over a shared prefix cost the same as three serial ones and hit cache identically, and
@@ -603,6 +607,9 @@ local, because they are working notes rather than a product fact.
   its own help text says it was sized for an era when the queue was unordered. Tickets and
   the starvation barrier removed that premise and nobody re-derived the number. Fail fast
   on a queue too deep to serve, or do not fail at all
+  - **Do not re-derive it yet, measured 2026-09-13** (#184). It is reachable only because the
+    gate makes it so, and the longest wait at the shipped limit was 89.0s against a bound
+    twenty times that. Remove the gate first, or this is tuning around the defect
   - **It has now fired, twice, on 2026-09-12** — the first time on this deployment. Two
     passes of a six-way fan-out waited the full 1800s on `max_inflight_large_prefills` and
     were refused having produced nothing. Not latent. `admission_timeouts` reads 0 while
@@ -638,7 +645,8 @@ local, because they are working notes rather than a product fact.
     limit 2 cannot beat it. **So the setting is a candidate for removal, not retuning**, and
     that decision belongs in the same ADR as the first-token release above — a slot released
     at first token may make the question moot either way
-- ⬜ **Remove `max_inflight_large_prefills`, or find the fan-out where it earns its keep.**
+- ✅ 2026-09-13 **Remove `max_inflight_large_prefills`, or find the fan-out where it earns
+  its keep.**
   Carried out of the ticked item above, whose body is frozen. 2026-09-13, three delegations
   on the first-token release: the gate never bound, and the one still holding a slot after
   two minutes was held by the *engine* queueing its prefill, not by the rule. Evidence of
@@ -646,6 +654,16 @@ local, because they are working notes rather than a product fact.
   re-run it wider at the shipped limit of **2**. **`admission_wait_timeout` and M12's
   `is_large` both wait on this**: 1,800s is re-derivable only once the gate that made it
   reachable is settled, and `is_large` is read by this rule alone
+  - **Answered 2026-09-13, and the answer is remove** (#184). Two arms of six over disjoint
+    cold sets: limit 2 queued 4 of 6 for 217.9s; limit 6 queued none and finished 10.6s
+    sooner, at 0.034 KV and zero preemptions either way. "Inert at 6" is confirmed; "even 2
+    would rarely" is not. Inert where set, harmful at the shipped default — so no value earns
+    its keep
+- ⬜ **Remove the setting the measurement condemned.** Five consumers, one a decision: the
+  `_binding` rule; ADR-0072's early release, which goes vestigial; `rival_fits`'s ordering;
+  the server instructions and `delegate://orchestration`, making it a contract change with
+  an ADR; the cross-process counter and two gauges. `peak_inflight_large_prefills` counts
+  *leases*, never prefills the cluster ran — the engine queues those itself
 - ⬜ **Work that does not fit one turn.** Two turns produced 13,268 and 16,909 output
   tokens, the first needing 1,750s at 7.6 tok/s. No budget makes that fit an 1,800s
   attempt; it is a splitting problem, not a pricing one
