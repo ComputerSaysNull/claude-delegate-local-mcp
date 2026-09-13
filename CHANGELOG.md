@@ -86,6 +86,25 @@ Older entries, in the previous flat format, are in
   still running and still occupying KV. The early release is idempotent, since token arrival
   fires on every frame, and the full release now subtracts what is *still* held rather than
   what was taken — it runs in a `finally` that cannot know whether the early one happened.
+- **The heartbeat says whether the model is producing, not only that time is passing.**
+  *Symptom:* a delegation working perfectly and one whose server had been killed produced the
+  same `alive` line, and the viewer called both of them live. *Cause:* the event carried
+  elapsed and a deadline and deliberately nothing about the model, because there was no
+  streaming and the server genuinely did not know (ADR-0018). *Fix:* it now carries how many
+  frames carrying generated output have arrived and how long since the last, and the viewer
+  renders both. **Chunks, and named so** — a frame usually carries one token on this stack and
+  is not promised to, and the only real count arrives in the final usage frame, after a
+  heartbeat has stopped mattering; reporting frames as tokens would be a guess presented as a
+  measurement.
+- **The heartbeat callback's shape is asserted rather than discovered.** *Symptom:* none, which
+  is the problem — widening `on_alive` and missing one of its four declarations would stop the
+  heartbeat with no error anywhere. *Cause:* `_keepalive` catches `Exception` and returns, a
+  deliberate trade so an undeliverable notification cannot kill a delegation, but it makes a
+  `TypeError` from an arity mismatch indistinguishable from a delivery failure. *Fix:* a test
+  asserting every declaration has the same shape, and a second that a correct callback beats
+  where a mismatched one is silent. The trade in `_keepalive` is unchanged; it is the right
+  one. This widening tripped four callbacks in the existing tests, each of which failed loudly
+  instead of quietly — which is the whole point.
 
 ## #179 — 2026-09-12 — docs: a copy task is not a decode benchmark
 

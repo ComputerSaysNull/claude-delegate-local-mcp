@@ -338,6 +338,39 @@ def _turn_lines(event: dict, stamp: str, width: int) -> list[str]:
     return lines
 
 
+def _alive_line(event: dict) -> str:
+    """One dim line, no rule. Since ADR-0072 it can say that something *is* happening.
+
+    Worth knowing during a one-shot, where nothing else lands between start and end, and
+    still worth not shouting about.
+    """
+    secs = event.get("elapsed_seconds")
+    of = event.get("of_seconds")
+    spent = f"{secs / 60:.0f}m" if isinstance(secs, (int, float)) and secs >= 90 else (
+        f"{secs:.0f}s" if isinstance(secs, (int, float)) else "?")
+    budget = f" of {of // 60}m" if isinstance(of, int) else ""
+    # The countdown is what a reader is actually asking for. `of` is the delegation
+    # ceiling and is rarely what ends a run, so a heartbeat carrying only that reads as
+    # enormous headroom right up to the moment a tighter deadline fires.
+    left = event.get("ends_in_seconds")
+    ends = ""
+    if isinstance(left, (int, float)):
+        ends = (f", ends in {left / 60:.0f}m" if left >= 90
+                else f", ends in {left:.0f}s")
+    # What streaming made knowable. "chunks" rather than "tokens" because that is what was
+    # counted -- a frame usually carries one token on this stack and is not promised to.
+    # The gap since the last is the half that separates a delegation generating from one
+    # that has gone quiet, so it appears whenever it is long enough to mean anything.
+    seen = event.get("chunks_seen")
+    since = event.get("since_chunk_seconds")
+    flow = ""
+    if isinstance(seen, int) and seen > 0:
+        flow = f", {seen:,} chunks"
+        if isinstance(since, (int, float)) and since >= 2:
+            flow += f" (last {since:.0f}s ago)"
+    return f"{DIM}still running · {spent}{budget}{ends}{flow}{R}"
+
+
 def render(event: dict, width: int) -> list[str]:
     """One event, as a block a person reads rather than a line a machine parses."""
     kind = event.get("t")
@@ -371,22 +404,7 @@ def render(event: dict, width: int) -> list[str]:
         return [f"{stamp}  {DIM}budget {cap_s} · {rate_s}{load_s}{R}"]
 
     if kind == "alive":
-        # One line, dim, no rule. It reports that nothing has happened, which is worth
-        # knowing during a one-shot and worth not shouting about.
-        secs = event.get("elapsed_seconds")
-        of = event.get("of_seconds")
-        spent = f"{secs / 60:.0f}m" if isinstance(secs, (int, float)) and secs >= 90 else (
-            f"{secs:.0f}s" if isinstance(secs, (int, float)) else "?")
-        budget = f" of {of // 60}m" if isinstance(of, int) else ""
-        # The countdown is what a reader is actually asking for. `of` is the delegation
-        # ceiling and is rarely what ends a run, so a heartbeat carrying only that reads
-        # as enormous headroom right up to the moment a tighter deadline fires.
-        left = event.get("ends_in_seconds")
-        ends = ""
-        if isinstance(left, (int, float)):
-            ends = (f", ends in {left / 60:.0f}m" if left >= 90
-                    else f", ends in {left:.0f}s")
-        return [f"{stamp}  {DIM}still running · {spent}{budget}{ends}{R}"]
+        return [f"{stamp}  {_alive_line(event)}"]
 
     if kind == "end":
         ok = event.get("ok")

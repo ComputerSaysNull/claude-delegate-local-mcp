@@ -1041,7 +1041,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     *,
     effort: str | None = None,
     max_tokens: int | None = None,
-    on_alive: Callable[[float, int, float], Awaitable[None]] | None = None,
+    on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
@@ -1090,11 +1090,24 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         """
         return cfg.stall_timeout - (clock() - last_progress)
 
+    chunks = 0
+
     def token_arrived() -> None:
-        nonlocal last_progress
+        nonlocal last_progress, chunks
         last_progress = clock()
+        chunks += 1
         if on_token is not None:
             on_token()
+
+    def streamed() -> tuple[int, float | None]:
+        """What has arrived, and how long since. Chunks, deliberately not tokens.
+
+        A frame usually carries one token on this stack and is not promised to, and the
+        only real token count arrives in the final usage frame -- after the heartbeat has
+        stopped mattering. Reporting frames as tokens would be a guess dressed as a
+        measurement, which is the thing this event's own history warns against.
+        """
+        return chunks, None if not chunks else clock() - last_progress
 
     def request_at(level: str, budget: int) -> CanonicalRequest:
         return build_one_shot_request(
@@ -1146,6 +1159,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         # unchanged at its ceiling while the delegation ran out of time underneath it. The
         # two deadlines below are the ones genuinely counting down for this delegation.
         lambda: max(min(stall_left(), deadline - clock()), 0.0),
+        streamed,
     ))
     try:
         return await dispatch()
@@ -1161,9 +1175,10 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
 
 async def _keepalive(
     cfg: Config,
-    on_alive: Callable[[float, int, float], Awaitable[None]],
+    on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]],
     clock: Callable[[], float],
     ends_in: Callable[[], float],
+    streamed: Callable[[], tuple[int, float | None]] = lambda: (0, None),
 ) -> None:
     """Say the delegation is still running, on a timer, until cancelled.
 
@@ -1174,18 +1189,24 @@ async def _keepalive(
     A failing callback stops the heartbeat and nothing else. It exists to protect a long
     delegation from being abandoned, and a heartbeat that instead killed one -- because a
     notification could not be delivered, which is not even evidence the client is gone --
-    would be strictly worse than not having it.
+    would be strictly worse than not having it. The cost of that trade is that a `TypeError`
+    from an arity mismatch looks exactly like a delivery failure, so `on_alive`'s shape is
+    asserted in the tests rather than discovered here as a heartbeat that quietly stopped.
     """
     started = clock()
     while True:
         await asyncio.sleep(cfg.keepalive_interval)
         try:
-            # Two figures, because they answer different questions and the second was
-            # missing. `dispatch_timeout` is what the delegation is allowed; `ends_in` is
-            # how long until the tightest deadline actually fires, which is the one a
-            # reader needs. Reporting only the first showed nine delegations as 0.4%
-            # elapsed while minutes from being killed.
-            await on_alive(clock() - started, cfg.dispatch_timeout, ends_in())
+            # Four figures, because they answer different questions. `dispatch_timeout` is
+            # what the delegation is allowed; `ends_in` is how long until the tightest
+            # deadline actually fires, which is the one a reader needs -- reporting only
+            # the first showed nine delegations as 0.4% elapsed while minutes from being
+            # killed. The last two are what streaming made knowable: how much has arrived,
+            # and how long since any of it did (ADR-0072).
+            chunks, since = streamed()
+            await on_alive(
+                clock() - started, cfg.dispatch_timeout, ends_in(), chunks, since
+            )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -2143,7 +2164,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
-    on_alive: Callable[[float, int, float], Awaitable[None]] | None = None,
+    on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
@@ -2203,6 +2224,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     # it proves liveness on a timer regardless of progress, which is precisely the signal
     # a no-progress deadline must not count as progress (ADR-0047).
     last_progress = clock()
+    chunks = 0
 
     def stall_left() -> float:
         return cfg.stall_timeout - (clock() - last_progress)
@@ -2215,10 +2237,21 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         killed in its thirtieth. Token arrival can, and unlike the notification and the
         keepalive it is real: it happens because the model produced something.
         """
-        nonlocal last_progress
+        nonlocal last_progress, chunks
         last_progress = clock()
+        chunks += 1
         if on_token is not None:
             on_token()
+
+    def streamed() -> tuple[int, float | None]:
+        """What has arrived this delegation, and how long since. Chunks, not tokens.
+
+        Frames, because that is what the wire carries one of and the only honest token
+        count lands in the final usage frame. Not reset per turn: a reader watching a
+        delegation wants to know it is still producing, and a counter that restarted at
+        every turn boundary would read as though it had stopped.
+        """
+        return chunks, None if not chunks else clock() - last_progress
 
     bash_policy = policy or BashPolicy()
 
@@ -2277,6 +2310,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         # unchanged at its ceiling while the delegation ran out of time underneath it. The
         # two deadlines below are the ones genuinely counting down for this delegation.
         lambda: max(min(stall_left(), deadline - clock()), 0.0),
+        streamed,
     )) if on_alive else None
     try:
         while turn < turns:

@@ -1035,7 +1035,9 @@ work done. The other three mark something that happened; this one exists because
 shape can be silent for a long time — a one-shot has no turns at all, and one turn can
 outlast the client's idle timer unaided. A synthetic `turn` is written when a one-shot's
 answer arrives, so the record is never the empty shape a failed delegation has.
-[DISPATCH.md](DISPATCH.md) owns what the heartbeat carries and why (ADR-0018).
+[DISPATCH.md](DISPATCH.md) owns what the heartbeat carries and why (ADR-0018, ADR-0072).
+The viewer renders it as one dim line, and its chunk count is what makes a running
+delegation legible as *working* rather than merely *unfinished*.
 
 A fifth, `priced`, is written *before* each turn, carrying the ceiling that turn was given,
 the rate it came from and the load that rate was read against. Ordering is the whole of it:

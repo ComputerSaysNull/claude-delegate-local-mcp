@@ -1,5 +1,5 @@
-<!-- BUDGET: 690 -->
-<!-- Raised from 674 on 2026-09-13: token arrival reaches the caller, and the deadline it now moves needs a live ceiling rather than a fixed one. -->
+<!-- BUDGET: 700 -->
+<!-- Raised from 674 on 2026-09-13: token arrival reaches the caller, moves the deadline (which now needs a live ceiling), and is what the heartbeat reports. -->
 <!-- Raised from 670 on 2026-09-12: a floor on the rate memory, and why it is stricter than the estimator's. -->
 <!-- Raised from 653 on 2026-09-12: the chat call streams, so the decode interval excludes prefill and the whole-turn bound moves into the adapter. -->
 <!-- Raised from 639 on 2026-09-12: the decode rate is remembered across delegations and keyed by concurrency. -->
@@ -567,13 +567,18 @@ answer two questions, and the ceiling is the deadline least likely to be the one
 a run. The countdown is the stall and delegation clocks only: `turn_timeout` restarts with
 every attempt, so reported here it would sit unchanged while the time ran out beneath it —
 which is why sizing an attempt and counting down a delegation use different functions. It
-still carries **nothing** about what the model is doing: there is no streaming, so the
-server does not know. Nothing is cancelled when the interval passes.
+Since ADR-0072 it also carries what the model is *doing*: how many frames carrying output
+have arrived, and how long since the last — the gap being what separates a delegation
+producing from one gone quiet. **Chunks, and named so**: a frame usually carries one token
+here and is not promised to, and the real count lands in the final usage frame, after a
+heartbeat has stopped mattering. Nothing is cancelled when the interval passes.
 
 Each runs beside the work rather than inside it, cancelled and awaited in a `finally`
 covering every exit including the raised ones, so none outlives its dispatch. A callback
 that raises stops the heartbeat alone: one that killed a delegation over an undeliverable
-notification would be worse than none.
+notification would be worse than none. Its cost is that a `TypeError` from an arity mismatch
+looks exactly like a delivery failure, so the callback's shape is asserted in the tests —
+otherwise changing it and missing one caller stops the heartbeat with no symptom at all.
 
 A timer fires only while the event loop is free, which is why the turn loop runs its tool
 calls through `asyncio.to_thread`. `_run_calls` is synchronous and `run_bash` reaches
