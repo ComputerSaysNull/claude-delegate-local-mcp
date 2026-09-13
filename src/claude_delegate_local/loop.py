@@ -1046,6 +1046,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    on_token: Callable[[], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
@@ -1092,6 +1093,8 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     def token_arrived() -> None:
         nonlocal last_progress
         last_progress = clock()
+        if on_token is not None:
+            on_token()
 
     def request_at(level: str, budget: int) -> CanonicalRequest:
         return build_one_shot_request(
@@ -2146,6 +2149,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     expected_concurrency: int = 1,
     on_turn_done: Callable[[TurnDiagnostic, str, float], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    on_token: Callable[[], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> AgenticDispatch:
@@ -2213,6 +2217,8 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         """
         nonlocal last_progress
         last_progress = clock()
+        if on_token is not None:
+            on_token()
 
     bash_policy = policy or BashPolicy()
 

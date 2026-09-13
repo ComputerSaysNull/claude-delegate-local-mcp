@@ -308,6 +308,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
+    on_token: Callable[[], None] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
 
@@ -324,6 +325,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 diagnostics=diagnostics, report_progress=report_progress,
                 on_alive=on_alive, on_turn_done=on_turn_done, on_priced=on_priced,
                 rate_history=rate_history, expected_concurrency=expected_concurrency,
+                on_token=on_token,
             )
         # An explicitly empty toolset. Not the loop with nothing declared: the one-shot
         # prompt tells the model plainly that it cannot open anything and has no second
@@ -335,6 +337,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
             cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens,
             on_alive=on_alive, on_priced=on_priced,
             rate_history=rate_history, expected_concurrency=expected_concurrency,
+            on_token=on_token,
         )
     except ContextOverflowAborted as e:
         # Before the plain InvalidDelegation branch, which is its base class. The report is
@@ -731,6 +734,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
 
     started = time.monotonic()
     lease: AdmissionLease | None = None
+    pending: set[asyncio.Task] = set()
     dispatched: Dispatch | AgenticDispatch | None = None
     failure: BaseException | None = None
     try:
@@ -751,6 +755,26 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             expected = min(
                 lease.seqs_at_grant + lease.waiting_at_grant + 1, cfg.max_inflight_seqs
             )
+
+            def first_token(_lease: AdmissionLease = lease) -> None:
+                """Give the large-prefill slot back the moment decoding starts.
+
+                The slot exists to serialise cold prefills, and the prefill is over once
+                the first token lands -- 64.1s measured, against delegations running 271
+                to 847s and two that died holding a slot for 2,100. Holding it to the end
+                is what made a six-way fan-out wait out `admission_wait_timeout` on a
+                cluster at 3% KV with zero preemptions (ADR-0072).
+
+                Scheduled rather than awaited because this fires on the adapter's read
+                loop, where an await would put the slots file between two tokens. The
+                task is kept alive by `pending` -- a bare `create_task` may be collected
+                before it runs -- and `release_large` is idempotent, so the arrival that
+                fires on every frame, and a task that lands after the lease has already
+                been released in full, both cost nothing.
+                """
+                pending.add(task := asyncio.create_task(admission.release_large(_lease)))
+                task.add_done_callback(pending.discard)
+
             dispatched = await dispatch_delegation(
                 loop_cfg, entry, backend, delegation,
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
@@ -766,6 +790,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 on_turn_done=streamed_turn,
                 on_priced=priced,
                 rate_history=rates,
+                on_token=first_token,
                 expected_concurrency=expected,
             )
     except AdmissionError as e:

@@ -1,4 +1,5 @@
-<!-- BUDGET: 1080      Raised from 1069 on 2026-09-12: a granted lease carries the concurrency it was granted against, which is admission behaviour this document owns. -->
+<!-- BUDGET: 1090      Raised from 1069 on 2026-09-12: a granted lease carries the concurrency it was granted against, which is admission behaviour this document owns. -->
+<!-- Raised from 1080 on 2026-09-13: a lease is released in two parts, the large half at first token. -->
 <!-- Ceiling was 1069 before that.
      Raised from 1061 on 2026-09-11: the stream gained a fifth event, and the paragraph
      naming the other four could not carry it without saying what it is written for.
@@ -675,6 +676,16 @@ That qualification had no floor: a waiter needing more of a shared budget than i
 successors is never feasible at the instant they ask, because they hold what it is short of.
 Past `admission_starvation_grace` it counts as ahead regardless, and becomes a barrier.
 (ADR-0068)
+
+**A lease is released in two parts, because its two halves protect different things.** The
+large-prefill count is given back at first token; the sequence, the token estimate and the
+per-entry count are held until the delegation ends. The prefill that count exists to
+serialise is over once decoding starts — 64.1s measured, against delegations running 271 to
+847s — so holding it to the end made a six-way fan-out wait out `admission_wait_timeout` on
+a cluster at 3% KV with zero preemptions. The sequence is a different claim: the request is
+still running and still occupying KV, so forgetting it would over-admit against the budget.
+The early release is idempotent, since token arrival fires on every frame, and the full
+release subtracts what is *still* held rather than what was taken. (ADR-0072)
 
 A granted lease carries what the gate saw when it granted: sequences already in flight, and
 everyone still queued behind. Neither is a rule — they are read from the predicate's own

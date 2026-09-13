@@ -251,6 +251,10 @@ one-shot no progress signal at all. A moving deadline cannot be enforced by a fi
 so the attempt runs beside a watchdog re-reading the budget while the call is in flight,
 rather than inside `asyncio.wait_for`. (ADR-0072)
 
+Arrival is forwarded to the loop's own caller as well as consumed here, because the deadline
+is not its only consumer: [ARCHITECTURE.md](ARCHITECTURE.md) owns the other, an admission
+lease whose large half is given back once prefilling has demonstrably finished.
+
 Both are enforced at the same three points, because a deadline checked in only one of them
 is a deadline that can be walked past:
 

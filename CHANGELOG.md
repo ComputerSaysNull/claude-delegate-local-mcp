@@ -72,6 +72,20 @@ Older entries, in the previous flat format, are in
   left when it began. *Fix:* the attempt runs beside a watchdog that re-reads the remaining
   budget while the call is in flight and cancels only once it has genuinely run out. It still
   raises `TimeoutError`, so the diagnosis that asks *which* deadline expired is unchanged.
+- **A lease's large-prefill half is returned at first token, not at the end of the run.**
+  *Symptom:* two passes of a six-way fan-out waited the full 1,800s on
+  `max_inflight_large_prefills` and were refused having produced nothing, on a cluster reading
+  `kv_cache_used_fraction` 0.031 with zero preemptions — the gate binding on an idle machine.
+  At the shipped limit of 2, six calls over twelve disjoint cold-prefill sets paid 286.3s of
+  aggregate waiting, a batch 12.1s slower and each call 10.2s slower, and bought nothing.
+  *Cause:* `admit()` takes the slot on the opening estimate and returns it in the context
+  manager's `finally`, so it is held for the whole delegation — 271 to 847s, and 2,100s for
+  the two that died — to protect a prefill measured at 64.1s. *Fix:* the large count alone is
+  given back when the first token arrives, which is when prefilling has demonstrably finished.
+  The sequence, its token estimate and its per-entry count stay held, because the request is
+  still running and still occupying KV. The early release is idempotent, since token arrival
+  fires on every frame, and the full release now subtracts what is *still* held rather than
+  what was taken — it runs in a `finally` that cannot know whether the early one happened.
 
 ## #179 — 2026-09-12 — docs: a copy task is not a decode benchmark
 
