@@ -56,16 +56,15 @@ Rules a machine cannot check, so they land here:
 - **Config defaults live only in `config.py`.** Never in a docstring, a README, a comment
   in another module, or a test. The reference table is generated from the dataclass, and
   the gate fails when they disagree.
-- **The model-facing contract has four homes, and a description is the smallest.** The
-  client delivers 2048 characters of one and nothing fetches the rest, so it is the index a
-  tool is *found* by: an argument's meaning belongs in `inputSchema`, a remedy in the
-  refusal that raises it, the long form in a resource. The trap is a fact in the wrong home;
+- **The model-facing contract has four homes, and a description is the smallest.** An
+  argument's meaning belongs in `inputSchema`, a remedy in the refusal that raises it, the
+  long form in a resource. Why a description cannot hold a contract, and what each home is
+  delivered by, is `docs/ARCHITECTURE.md`'s. The trap here is a fact in the wrong home:
   changing any of them is a behaviour change, not a wording fix. And a prompt is pulled by a
   *person* where a resource is pulled by the *model* — never interchangeable. (ADR-0066)
 - **The system prompt must be static, byte for byte.** No timestamp, session id, turn
-  number or counter. The cluster caches prefixes, so one dynamic byte silently disables
-  that with no error and no symptom beyond slower prefill. Dynamic content goes in the
-  tail, inside tool results. (ADR-0011)
+  number or counter; dynamic content goes in the tail, inside tool results. What that buys
+  and how breaking it stays silent is `docs/ARCHITECTURE.md`'s. (ADR-0011)
 - **`paths.py` and `sandbox.py` are independent layers, not redundant ones.** Which tool
   each one governs is `docs/ARCHITECTURE.md`'s. A bug in one is not covered by the other, and
   the sandbox reading the same denylist does not change that: it covers up matches inside what
@@ -74,10 +73,8 @@ Rules a machine cannot check, so they land here:
 - **Validating a path and opening it are one operation.** `open_resolved` is the only
   sanctioned way to open what `paths.py` approved: it returns a handle, not a path, so
   there is no string left for a handler to reopen. A second `open` on a `.posix` puts the
-  check-then-use gap back, against an adversary who holds a read-write workdir bind under
-  `run_bash` and can retry. What it proves is that the file is still *at* the approved
-  path — redirection, not substitution; a different regular file there is not a policy
-  question, and the ADR says why. (ADR-0049)
+  check-then-use gap back. What that proves, and what it deliberately does *not* treat as a
+  breach, is `docs/AGENTS.md`'s. (ADR-0049)
 - **`allowed_tools` is enforced at two sites**, `declared_tools` and `execute_tool` in
   `tools.py`, and neither trusts the other — why that is necessary is `docs/AGENTS.md`'s. The
   trap here is a maintenance one: change either site alone and enforcement goes back to being

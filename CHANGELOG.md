@@ -34,6 +34,42 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #185 — 2026-09-13 — docs: close the 2026-09-11 audit, including two findings that were wrong
+
+### Fixed
+- **The `read_metrics` note called the since-boot blend "conservative rather than
+  flattering", and it is flattering in the case that matters.** `docs/DISPATCH.md` had it
+  backwards: blending every concurrency regime makes the number a floor only while the
+  cluster is quiet, which is exactly when nothing needs one. Under load it read 34.96 tok/s
+  where six concurrent delivers just under 20 — 1.75x optimistic — and that is what killed
+  four of six passes on 2026-09-12. The note now says which direction the error runs and
+  points at the memory that made it the seed of last resort (ADR-0075).
+- **Three cross-plane duplications resolved by making the root-plane copy delegate.**
+  `CLAUDE.md` is a trap list, not a summary, and in three places it had restated the
+  mechanism its owning document explains: the static-system-prompt invariant and the
+  four-homes contract (both `docs/ARCHITECTURE.md`'s), and the `open_resolved`
+  check-then-use argument (`docs/AGENTS.md`'s). Each keeps the *trap* — the thing an editor
+  must not do — and hands off the reasoning. The audit had already noticed the third one
+  "does not delegate, unlike its neighbours", which is the shape of the fix.
+- **`README.md` stopped asserting an architectural characterisation** it shares with
+  `docs/ARCHITECTURE.md`. It keeps the instruction a reader needs — run the doctor first —
+  and links for why faults surface where they do.
+
+### Changed
+- **Two of the audit's fourteen findings are dismissed with evidence rather than fixed,
+  because the claims they call unsourced are sourced.** Finding 13 said the exit-code
+  measurement "appears in no other file in the repository"; it is in `PLAN.md`, twice.
+  Finding 14 said the same of the pasted-Windows-root measurement; it is in `CHANGELOG.md`,
+  in more detail than `docs/ARCHITECTURE.md` carries. **The audit searched for its own
+  phrasing.** `docs/ARCHITECTURE.md` says "three times out of four" where `PLAN.md` says
+  "from 0/4 to 3/4" — the same measurement, no shared string. A pattern cannot prove a
+  conclusion absent, and a near-miss reads exactly like a settled negative.
+- **The fifth duplication is a deliberate non-fix.** `CONTRIBUTING.md` and
+  `docs/ARCHITECTURE.md` both give the reason the skill ships inside the wheel, but
+  ARCHITECTURE's copy is inside its `BUDGET` comment, justifying a past raise. That is a
+  record of why the budget moved, not prose competing for ownership, and editing it would
+  falsify the record to satisfy a rule about live text.
+
 ## #184 — 2026-09-13 — docs: the first-token release did not retire the gate
 
 ### Changed

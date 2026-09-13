@@ -1,4 +1,5 @@
-<!-- BUDGET: 744
+<!-- BUDGET: 752
+     Raised from 744 on 2026-09-13: closing the 2026-09-11 audit, where two findings turned out to be wrong and saying why is worth more than the tick.
      Raised from 726 on 2026-09-13: the gate measurement answered three items at once, and the removal it calls for carries five consumers that must not be rediscovered.
      Raised from 722 on 2026-09-13: verifying the rate memory against a live cluster found the copy-from-prompt artefact reproducing on real work, which no floor catches.
      Raised from 710 on 2026-09-13: measuring one delegation end to end filed four items nobody knew were there -- a rate above the cluster's physical maximum, an unscoped search costing 500s, and the two ways of making tool execution concurrent.
@@ -598,11 +599,18 @@ local, because they are working notes rather than a product fact.
   The hooks run under Git Bash, where stdout is cp1252, and the printing loop covers warnings
   and runs before the verdict — so a non-ASCII warning killed a commit that was about to pass.
   Invisible because the agent's own shell exports UTF-8
-- 🔄 **The 2026-09-11 audit's remaining findings**: the `read_metrics` note that calls the
+- ✅ 2026-09-13 **The 2026-09-11 audit's remaining findings**: the `read_metrics` note that
+  calls the
   blend conservative when it is flattering under load, five cross-plane duplications, and two
   unsourced claims in `docs/ARCHITECTURE.md`. The three runbook findings are closed — CLAIMS
   in #171, the concurrency remedy re-derived in #175, and the effort column deliberately left
   alone there because its premise reproduced only under the pricing defect #172 fixed
+  - **Closed 2026-09-13** (#185). The note is corrected with the number that refutes it;
+    three duplications resolved by making `CLAUDE.md` delegate rather than restate, and one
+    by `README.md` linking. **Two findings were themselves wrong** — both "unsourced" claims
+    are sourced, in `PLAN.md` and `CHANGELOG.md`, and the audit missed them by searching for
+    its own phrasing. The fifth duplication is a deliberate non-fix: ARCHITECTURE's copy is
+    in a `BUDGET` comment justifying a past raise, which is a record, not competing prose
 - ⬜ **`admission_wait_timeout` bails out after 30 minutes having produced nothing**, and
   its own help text says it was sized for an era when the queue was unordered. Tickets and
   the starvation barrier removed that premise and nobody re-derived the number. Fail fast
