@@ -34,6 +34,46 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #190 — 2026-09-13 — fix: the viewer stated true things in ways that read false
+
+### Fixed
+- **A lease's grant-time concurrency was rendered as live cluster state.** `requests_running`
+  in a `priced` row echoes `expected_concurrency`, frozen when the lease was granted, and the
+  viewer printed it as "N running". It now says what priced the turn; only a
+  `cluster_since_boot` row carries a real reading, and that one still reports what was running.
+- **A budget line attached to the wrong turn.** A turn boundary can fall inside one displayed
+  second — turn 15's end and turn 16's pricing were 5ms apart — so the line names its turn and
+  opens its own block. The clock was not the lever: it is shared with the picker's column.
+- **The state column could not hold its widest state.** `queued 89m` is 10 characters against
+  a column of 9. `STATE_WIDTH` is threaded into the header and the row so they cannot drift.
+  *The roadmap's example, "queued 120s", cannot occur — `_ago` switches to minutes above 90
+  seconds — and is corrected rather than reproduced.*
+- **A queued delegation repainted every second.** Once a minute now, plus one line when the
+  wait breaks, holding the newest skipped event so nothing is lost.
+- **A selected row containing an emoji wrapped, leaving a blank line under it.** `_highlight`
+  padded to the terminal using `len()`, and a character is not a column: every emoji a task
+  carries is east-asian-width `W` and renders two cells, so the count came up short, the pad
+  overshot, and the row spilled. The padding is gone rather than the measurement fixed — a
+  width table is a lot of machinery for a cue a shorter band already gives. What the pad
+  protected survives: nothing truncates the row, because the end of the task text is what
+  tells two delegations apart.
+- **A staleness reading went backwards.** `_ago` switched unit at 90 seconds, so the display
+  read `88s`, `89s`, then `1m`. It switches at 60, where a reader expects it. The hour
+  boundary is untouched: `89m` to `1h` is a coarsening, not a number falling.
+
+### Added
+- **The `end` event carries `finish_reason`, and the viewer names a truncated reply.** A
+  cut-off reply is a *successful* dispatch — nothing raised, `ok` is true — so "done" was the
+  one word that read most wrongly about it, and a reader who believed it treated a reply that
+  stopped mid-sentence as the whole answer. A table rather than a truth test: "cut off"
+  without "by what" sends someone to raise `max_tokens` at a content filter.
+
+### Changed
+- `test_the_selected_row_still_spans_the_whole_width` asserted the padding, so it is renamed
+  and re-pointed at what it always meant — the band must survive every reset the row carries.
+  `test_the_highlight_pads_but_never_truncates` is replaced: its assertion still passed, but
+  its name and docstring had become false, which is worse than a failure.
+
 ## #189 — 2026-09-13 — fix: a search cannot name a scope it was never shown
 
 ### Fixed

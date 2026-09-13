@@ -1,5 +1,7 @@
-<!-- BUDGET: 1103      Raised from 1069 on 2026-09-12: a granted lease carries the concurrency it was granted against, which is admission behaviour this document owns. -->
+<!-- BUDGET: 1119 -->
+<!-- Raised from 1069 on 2026-09-12: a granted lease carries the concurrency it was granted against, which is admission behaviour this document owns. -->
 <!-- Raised from 1100 (to 1103) on 2026-09-13: the record reads emptiness through the same helper as the reply. -->
+<!-- Raised from 1100 on 2026-09-13: the viewer states what it knows rather than what reads well, and the end event carries why a reply stopped. -->
 <!-- Raised from 1080 on 2026-09-13: a lease is released in two parts, the large half at first token; and a queued delegation is recorded as queued rather than left to read as silent. -->
 <!-- Ceiling was 1069 before that.
      Raised from 1061 on 2026-09-11: the stream gained a fifth event, and the paragraph
@@ -941,6 +943,16 @@ JSON. It is owned by this document rather than its own, because a renderer and t
 it renders are one decision — split across two documents, a renderer ends up describing a
 shape the writer no longer produces.
 
+**It states what it knows and no more.** A `priced` row's `requests_running` is the lease's
+grant-time concurrency echoed back, not a cluster reading, so it is rendered as what priced
+the turn rather than as what is running — only a `cluster_since_boot` row carries a real one.
+A budget line names the turn it priced, because a turn boundary can fall inside one displayed
+second. The state column is sized from the widest state that can occur, and a queued
+delegation repaints once a minute plus once when the wait breaks, rather than once a second.
+The selection band ends with the row's text: it was padded to the terminal, measured with a
+character count, and an emoji occupies two cells — so a row carrying one over-padded, wrapped,
+and left a blank line under the selection.
+
 **Its picker carries four token figures, and no two answer the same question.** `cached` is
 prefill the cluster skipped from its own prefix cache; `reuse` is that as a share of the
 prompt tokens sent — input only, since output is never cached — and is the one that falls
@@ -1058,7 +1070,11 @@ a `turn` event lands only when a turn completes, so a turn killed at a deadline 
 finished nothing recorded nothing. An absent ceiling is written as null rather than omitted,
 because "no cap applied" is the most incriminating thing the record can say.
 
-The `end` event reports turns even when the dispatch died on a deadline, where it used to
+The `end` event carries `finish_reason` verbatim, and the viewer names the truncating ones
+with what to do about each. A cut-off reply is a *successful* dispatch — nothing raised, so
+`ok` is true — and "done" is the word that reads most wrongly about it; a table rather than a
+truth test, because "cut off" without "by what" sends a reader to raise a budget at a content
+filter. It also reports turns even when the dispatch died on a deadline, where it used to
 carry nothing — recording a timed-out delegation as having run none, which is the same gap
 as its error text in the file read afterwards. [DISPATCH.md](DISPATCH.md) owns what such a
 failure reports and why.

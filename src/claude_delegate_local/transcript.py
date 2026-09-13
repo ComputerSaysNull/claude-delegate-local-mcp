@@ -270,18 +270,25 @@ class Stream:
     def end(  # noqa: PLR0913 -- one event's fields, all keyword-only
             self, *, ok: bool, turns: int | None, elapsed_seconds: float,
             output_tokens: int | None = None, cached_tokens: int | None = None,
-            backend_ms: int | None = None, error: str | None = None) -> None:
+            backend_ms: int | None = None, error: str | None = None,
+            finish_reason: str | None = None) -> None:
         """The totals, which are a different figure from any turn's rate.
 
         `out_tok_s` here is over summed backend time across turns, so it is the rate the
         cluster actually sustained for this delegation. `elapsed_seconds` is everything,
         including waiting for an admission slot -- the gap between the two is what the
         delegation spent not generating.
+
+        `finish_reason` is carried verbatim so a reader can see a reply was cut off rather
+        than finished. `ok` is true for a truncated dispatch -- nothing failed -- so without
+        this the stream says "done" about a reply that stopped mid-sentence, and the one
+        state most worth spotting is the one it cannot show.
         """
         self._put({
             "t": "end", "at": datetime.now(UTC).isoformat(), "ok": ok,
             "turns": turns, "elapsed_seconds": round(elapsed_seconds, 3),
             "output_tokens": output_tokens,
+            **({"finish_reason": finish_reason} if finish_reason else {}),
             # Summed over the delegation's turns: what the cluster did not recompute.
             "cached_tokens": cached_tokens,
             "backend_ms": backend_ms,

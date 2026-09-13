@@ -24,7 +24,6 @@ import json
 import os
 import re
 import select
-import shutil
 import sys
 import time
 from datetime import datetime, UTC
@@ -67,6 +66,14 @@ MAX_ROWS = 20            # how far back the list reaches: the newest this many, 
 REFRESH_SECONDS = 2.0    # unattended redraw of the list
 POLL_SECONDS = 0.3       # how often a live stream is checked for new lines
 STALL_SECONDS = 120      # silence after which an unfinished stream stops claiming "live"
+QUEUED_EVERY = 60.0      # how often a delegation that is only queued is worth repeating
+
+# The state column, its two-space gutter included. Ten is what the widest state costs:
+# `_ago` truncates, so seconds stop at `59s` and minutes run to `89m` before the hour unit
+# takes over, and `queued ` is the longest prefix -- `queued 89m`. Python's `<` pads and
+# never cuts, so a column set too narrow does not truncate, it silently shoves every column
+# to its right out of line on exactly the rows a reader is scanning the list to find.
+STATE_WIDTH = 12
 
 # Home, then erase forward. `ESC[2J` and `ESC[3J` both cost scrollback in some terminals,
 # and scrollback is how you read back over a transcript you have just watched.
@@ -110,13 +117,8 @@ def _highlight(line: str) -> str:
     the same way -- a chosen background colour is legible on one theme and invisible on
     another, and this has no way to ask which it is on.
     """
-    visible = len(_plain(line))
-    # Padded out to the terminal, never cut back to it. A highlight that truncates loses
-    # the end of the task text, which is the part that tells two delegations apart -- and
-    # a row wider than the window wraps, which is what it did before it was highlighted.
-    width = max(shutil.get_terminal_size((100, 24)).columns, visible)
     body = line.replace(R, R + SELECT)
-    return f"{SELECT}{body}{' ' * (width - visible)}{R}"
+    return f"{SELECT}{body}{R}"
 
 R = "\033[0m"
 DIM = "\033[2m"
@@ -426,10 +428,20 @@ def render(event: dict, width: int) -> list[str]:
         cap = event.get("budget_ceiling")
         rate = event.get("decode_rate")
         running = event.get("requests_running")
+        source = event.get("rate_source")
+        n = event.get("turn")
+        whose = f"turn {n}" if isinstance(n, int) else "the turn below"
         cap_s = f"{cap:,} tok" if isinstance(cap, int) else "uncapped"
         rate_s = f"{rate:.1f} tok/s" if isinstance(rate, (int, float)) else "rate unknown"
-        load_s = f", {running:.0f} running" if isinstance(running, (int, float)) else ""
-        return [f"{stamp}  {DIM}budget {cap_s} · {rate_s}{load_s}{R}"]
+        load_s = ""
+        if isinstance(running, (int, float)):
+            if source == "cluster_since_boot":
+                load_s = f", {running:.0f} running"
+            elif source == "observed_at_concurrency":
+                load_s = f", priced for {running:.0f}"
+            else:
+                load_s = f", concurrency {running:.0f}"
+        return ["", f"{stamp}  {DIM}budget for {whose}: {cap_s} · {rate_s}{load_s}{R}"]
 
     if kind in _ONE_LINERS:
         return [f"{stamp}  {_ONE_LINERS[kind](event)}"]
@@ -448,6 +460,12 @@ def render(event: dict, width: int) -> list[str]:
             tail += f"  {GREEN}{rate:g} tok/s{R}"
             tail += f"{DIM} · {_tokens(out)} out{R}" if isinstance(out, int) else ""
         lines = ["", f"{stamp}  {BOLD}{verdict}{R}  {tail}"]
+        # A truncated reply is a *successful* dispatch -- `ok` is true and nothing raised --
+        # so "done" is the one word that reads most wrongly about it. Said on its own line,
+        # with the reason, because the failure worth catching here is a reader treating a
+        # reply that stopped mid-sentence as the whole answer.
+        if why := _TRUNCATED.get(str(event.get("finish_reason") or "")):
+            lines.append(f"  {YELLOW}cut off: {why}{R}")
         if err := event.get("error"):
             lines.extend(_wrap(err, width, f"  {RED}"))
             lines.append(R)
@@ -490,6 +508,16 @@ def started_at(row: dict) -> float:
 
 # The events that say where a delegation has got to. Ordered by nothing -- only the last
 # one written matters, and only for telling "still queued" from "ran, then went silent".
+# Wire `finish_reason` values that mean the reply stopped before the model was done, and
+# what each one tells a reader to do about it. Values outside this table -- `stop`, and
+# `tool_calls` -- are ordinary completions and say nothing. A table rather than a truth
+# test, because "it was cut off" without "by what" sends the reader to the wrong fix: a
+# token limit is a budget to raise, a content filter is not.
+_TRUNCATED = {
+    "length": "the reply hit its token limit. Raise max_tokens, or split the task.",
+    "content_filter": "the endpoint stopped the reply itself. Not a budget problem.",
+}
+
 _SIGNALS = frozenset({"waiting", "priced", "turn", "alive", "end"})
 
 
@@ -771,7 +799,8 @@ def reuse_of(row: dict) -> float | None:
 
 
 def _ago(seconds: float) -> str:
-    if seconds < 90:
+    """How stale something is, rounded hard."""
+    if seconds < 60:
         return f"{int(seconds)}s"
     if seconds < 5400:
         return f"{int(seconds / 60)}m"
@@ -884,7 +913,7 @@ def pick(directory: Path, start_at: Path | None = None) -> Path | None:
         # eyeballed. A header typed by hand drifts the moment a column is added -- which
         # is exactly what happened when the token figures became four columns.
         head_cols = (
-            f" {'started':<8}  {'duration':<8}  {'effort':<6}  {'state':<9} "
+            f" {'started':<8}  {'duration':<8}  {'effort':<6}  {'state':<{STATE_WIDTH}}"
             f"{'kind':<8} {'turns':>5}  {'cached':>6}  {'reuse':>5}  "
             f"{'return':>6}  {'load':>6}  task"
         )
@@ -894,7 +923,7 @@ def pick(directory: Path, start_at: Path | None = None) -> Path | None:
             task = row["task"][:60] or "(no task recorded)"
             # Pad the plain word, then colour it. Padding the coloured string counts the
             # escape bytes as width and the column stops lining up.
-            state = f"{colour}{word:<9}{R}"
+            state = f"{colour}{word:<{STATE_WIDTH}}{R}"
             kind = f"{DIM}{kind_of(row):<8}{R}"
             spent = f"{DIM}{_duration(elapsed_of(row)):<8}{R}"
             effort = f"{DIM}{(row.get('effort') or '?'):<6}{R}"
@@ -912,7 +941,7 @@ def pick(directory: Path, start_at: Path | None = None) -> Path | None:
             # thing again, the cluster's own prefix reuse rather than anything about a caller.
             spared = f"{DIM}{_tokens(returned_of(row)):>6}{R}"
             load = f"{DIM}{_tokens(load_of(row)):>6}{R}"
-            line = (f" {_clock(started_at(row))}  {spent}  {effort}  {state} "
+            line = (f" {_clock(started_at(row))}  {spent}  {effort}  {state}"
                     f"{kind} {DIM}{row['turns']:>5}{R}  {cached}  {reuse}  "
                     f"{spared}  {load}  {task}")
             out.append(_highlight(line) if n == i else line)
@@ -949,6 +978,28 @@ def pick(directory: Path, start_at: Path | None = None) -> Path | None:
             return rows[i]["path"]
 
 
+class QueuedPacing:
+    """How often a delegation that is only queued is worth saying so again."""
+
+    def __init__(self, every: float = QUEUED_EVERY) -> None:
+        self.every = every
+        self._painted: float | None = None
+        self._held: dict | None = None
+
+    def admit(self, event: dict) -> list[dict]:
+        """What to print for this event: nothing, itself, or a held line then itself."""
+        if event.get("t") != "waiting":
+            held, self._held, self._painted = self._held, None, None
+            return [held, event] if held is not None else [event]
+        waited = event.get("waited_seconds")
+        waited = float(waited) if isinstance(waited, (int, float)) else 0.0
+        if self._painted is None or waited - self._painted >= self.every:
+            self._painted, self._held = waited, None
+            return [event]
+        self._held = event
+        return []
+
+
 def follow(path: Path) -> None:
     """Print what is already there, then whatever arrives, until you leave.
 
@@ -959,6 +1010,7 @@ def follow(path: Path) -> None:
     width = min(os.get_terminal_size().columns, 100)
     print(CLEAR, end="")
     finished = False
+    pacing = QueuedPacing()
     with path.open(encoding="utf-8") as fh:
         while True:
             where = fh.tell()
@@ -968,8 +1020,9 @@ def follow(path: Path) -> None:
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                for out in render(event, width):
-                    print(out)
+                for shown in pacing.admit(event):
+                    for out in render(shown, width):
+                        print(out)
                 if event.get("t") == "end":
                     finished = True
                     print(f"\n{DIM}(finished — q to return, Ctrl-C to quit){R}")
