@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
 import time
 from collections import Counter, deque
@@ -430,11 +431,103 @@ class RateHistory:
     MIN_TOKENS = MIN_MEASURABLE_TOKENS
     MIN_SECONDS = MIN_MEASURABLE_SECONDS
 
-    __slots__ = ("_keep", "_seen")
+    # Bumped when the payload shape changes. A file written by an older server is
+    # discarded rather than guessed at -- the same reasoning as the stamp.
+    SCHEMA_VERSION = 1
 
-    def __init__(self, keep: int = DEFAULT_KEEP) -> None:
+    __slots__ = ("_keep", "_path", "_seen", "_stamp")
+
+    def __init__(
+        self,
+        keep: int = DEFAULT_KEEP,
+        *,
+        path: Path | None = None,
+        stamp: str = "",
+    ) -> None:
+        """`path` makes the memory outlive this process; without one it is unchanged.
+
+        The file belongs on tmpfs and `slots.default_dir()` is where the server already
+        keeps one. That was recorded as the wrong home for this and measured otherwise on
+        2026-09-13: tmpfs survives a reconnect, which is the entire failure, and it is
+        *discarded* on a reboot, which is correct -- a rate describes hardware that may
+        have changed by then. `stamp` covers the swap that can happen in between.
+
+        Never a hard dependency. Every failure below leaves an empty memory rather than
+        raising, because the worst this can cost is the pricing it was already missing.
+        """
         self._keep = max(1, keep)
         self._seen: deque[tuple[int, float]] = deque(maxlen=self._keep)
+        self._path = path
+        self._stamp = stamp
+        if path is not None:
+            self._seen.extend(self._read())
+
+    def _read(self) -> list[tuple[int, float]]:
+        """Whatever the file holds that is still trustworthy, and nothing else.
+
+        Every field is shape-checked rather than trusted. The file sits on a tmpfs any
+        process of this user can write, and a sample reaching `expect` is permanent for
+        `DEFAULT_KEEP` observations -- so a malformed pair is skipped and the rest are
+        kept, which is what a partial write during a reboot actually looks like.
+        """
+        assert self._path is not None
+        try:
+            raw = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        if not isinstance(raw, dict):
+            return []
+        if raw.get("version") != self.SCHEMA_VERSION or raw.get("stamp") != self._stamp:
+            return []
+
+        kept: list[tuple[int, float]] = []
+        for item in raw.get("seen") or ():
+            if not isinstance(item, list) or len(item) != 2:
+                continue
+            seen_at, rate = item
+            # `bool` is an `int` and `True` would become concurrency 1. Excluded rather
+            # than tolerated: it can only arrive from a file nothing here wrote.
+            if isinstance(seen_at, bool) or not isinstance(seen_at, int) or seen_at < 1:
+                continue
+            if isinstance(rate, bool) or not isinstance(rate, (int, float)) or rate <= 0:
+                continue
+            kept.append((seen_at, float(rate)))
+        return kept[-self._keep:]
+
+    def _write(self) -> None:
+        """Persist, merging with whatever another server process has written since.
+
+        stdio gives every connected client a process of its own (ADR-0040), so two can
+        share this file. Writing only what this process has seen would drop the other's
+        samples, and `expect` takes a *minimum* -- the sample most worth keeping is
+        exactly the one a clobber is most likely to lose. Merged as a set because for a
+        minimum a duplicate says nothing a single copy does not.
+
+        Written to a sibling and renamed, so a reader never sees a half-written file.
+        """
+        assert self._path is not None
+        merged = dict.fromkeys(self._read())
+        merged.update(dict.fromkeys(self._seen))
+        payload = json.dumps(
+            {
+                "version": self.SCHEMA_VERSION,
+                "stamp": self._stamp,
+                "seen": [[seen_at, rate] for seen_at, rate in list(merged)[-self._keep:]],
+            },
+            separators=(",", ":"),
+        )
+        tmp = self._path.with_name(f"{self._path.name}.{os.getpid()}.tmp")
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(payload, encoding="utf-8")
+            os.replace(tmp, self._path)
+        except OSError:
+            # An unwritable directory costs the next process its head start and nothing
+            # else. Raising here would turn an optimisation into an outage.
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def observe(self, output_tokens: int, seconds: float, *, concurrency: int) -> None:
         """Record what one completed turn achieved, and how contended it was.
@@ -453,6 +546,10 @@ class RateHistory:
         if output_tokens < self.MIN_TOKENS or seconds < self.MIN_SECONDS:
             return
         self._seen.append((max(int(concurrency), 1), output_tokens / seconds))
+        # After the floor, never before it: persistence must not be a second way in for a
+        # sample the admission test just refused.
+        if self._path is not None:
+            self._write()
 
     def expect(self, concurrency: int) -> float | None:
         """The worst rate seen at this concurrency or worse, or None if never seen.

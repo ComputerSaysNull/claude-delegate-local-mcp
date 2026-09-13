@@ -34,6 +34,81 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #183 — 2026-09-13 — feat: a rate memory that outlives the process that learned it
+
+### Fixed
+- **Reconnecting the MCP threw away every decode-rate sample the server had collected, and
+  it cost four of six passes.** `RateHistory` was built once per process and died with it,
+  so a reconnect — which the operator does casually, several times a session — emptied it.
+  `expect` then found nothing at any concurrency and every delegation fell through to the
+  cluster's since-boot blend, measured 2026-09-12 at **34.96 tok/s where six concurrent
+  delivers just under 20**. The 37,756 tokens that authorised need 1,888s of an 1,800s
+  turn; two of four admitted passes died there having completed no turn, seconds after the
+  same server had measured the right rate. It now loads on construction and writes after
+  each accepted observation (ADR-0075).
+- **The state directory this looked blocked on was never a blocker, and `PLAN.md` had
+  already said so.** Its own note reads "tmpfs — wrong for an audit record, right for a
+  rate"; the session hand-off notes were what coupled this to `transcript_dir`'s missing
+  durable directory, and the coupling was carried forward unchecked. Measured 2026-09-13:
+  tmpfs survives a reconnect — which is the entire failure — and the slots directory's own
+  mtime predates the distro boot. A rate *should* die when the machine is rebuilt, since it
+  describes hardware that may have changed, so tmpfs is the right home rather than a
+  compromise. The transcript's durability and privacy decision is untouched and still open.
+
+### Added
+- **Verified against a live cluster, because no unit test can show this.** The suite proves
+  a second `RateHistory` object reads the first's file; the claim is that a second
+  *process* does. Reconnected, ran two delegations, reconnected again, and the first turn
+  of the new process priced at `rate_source: observed_at_concurrency` with
+  `decode_rate: 41.83199709414128` — the earlier process's sample to fourteen significant
+  figures, where the same situation previously produced the since-boot blend at 34.73.
+  Dispatch numbering restarted at 0001 and every admission peak read zero, which is how a
+  genuinely fresh process is told from a reused one.
+- **A served-model stamp, so a swap discards the memory instead of pricing a new model at
+  the old one's speed.** With a wrong stamp the file is ignored, not merged.
+- **The write sits below the floor, never above it.** Persistence must not become a second
+  way in for a sample ADR-0073 refused: a durable bad sample would be permanent for 64
+  observations rather than merely long-lived, and `expect` keeps a minimum. A test asserts
+  a 105-token turn is still absent after a round trip through the file.
+- **Merged on write rather than clobbered.** stdio gives every client its own process
+  (ADR-0040), so two servers can share the file; writing only this process's view would
+  drop the other's samples, and the sample most worth keeping is exactly the one a clobber
+  is likeliest to lose. Written to a sibling and renamed, so no reader sees a partial file.
+- **Every field is shape-checked rather than trusted, and no failure raises.** Unreadable,
+  unparseable, wrong version, wrong stamp, malformed pair, unwritable directory — each
+  leaves an empty memory. The file sits on a tmpfs any process of this user can write and a
+  sample reaching `expect` is permanent for 64 observations, so a pair that is not two
+  numbers is skipped and the rest are kept, which is what a partial write looks like.
+- **`slots.default_dir_if_available`, because the unguarded call broke every Windows test
+  that builds a server.** `default_dir` reads `os.getuid`, which does not exist off POSIX,
+  so calling it in `build()` raised before anything else could run: **119 failures on
+  Windows against a clean WSL run**. `build_slots` documents this exact ordering trap two
+  lines above its own call — check the platform *before* `default_dir`, not after — and the
+  new call site ignored it. The helper now does the check first and returns `None` off
+  POSIX, where the memory keeps the per-process behaviour it always had. Probed with
+  `fcntl` not because a rate needs a lock, but because that is what distinguishes a host
+  with a tmpfs runtime directory from one without.
+- **The copy-from-prompt artefact reproduces on real work, and the floor does not catch
+  it.** Both figures #179 withdrew came from synthetic probes, which left open whether the
+  effect was an artefact of the probe. It is not. Measured minutes apart at the same solo
+  concurrency while seeding the memory: a task asked to quote a prefetched file exactly
+  recorded **63.75 tok/s**, and a task explicitly forbidden from quoting recorded
+  **41.83** against a benchmark of 44.1. That is **1.52x**, from a 1,599-token turn that
+  clears ADR-0073's floor comfortably — the floor catches turns that are *short*, and has
+  nothing to say about ones that are *copied*.
+- **What contains it is `expect`'s minimum, demonstrated live.** With both samples on disk
+  `expect(1)` returned 41.83, so one honest sample neutralised the artefact immediately.
+  The asymmetry is worth stating: the minimum is immune to a sample that reads too **fast**
+  and vulnerable only to one that reads too **slow**, which is exactly the 237-token case
+  ADR-0071 was built for. So persistence makes a fast artefact longer-lived but not more
+  dangerous, and the direction that would be dangerous is the one already guarded.
+- **The sizing that says this is worth having.** ADR-0073's shared 512-token floor made
+  good samples rarer and the obvious worry was that it made them absent. Measured across
+  every transcript on this host: **599 of 1144 turns clear the floor**, so slightly over
+  half still teach the memory and a reconnect was discarding all of them. The two
+  delegations that clear almost nothing (1 of 25, 3 of 12) are the ones sent with no
+  `files[]`, which spent their turns searching rather than answering.
+
 ## #182 — 2026-09-13 — fix: a glob is not a scope
 
 ### Fixed

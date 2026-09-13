@@ -362,7 +362,10 @@ it reads as: `expect` searches every sample at the asked concurrency *or busier*
 expectation searches widely and keeps the worst, while a high one searches an empty set and
 takes the optimistic blend. Measured 2026-09-12 — in one six-way fan-out the two passes
 expecting the most contention got the most generous ceilings, and one then died at the stall
-deadline having completed no turn. Filed, not yet fixed. An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055, not a
+deadline having completed no turn. A reconnect used to reach that state every time, because
+the memory died with the process; it now loads and saves under the server's tmpfs runtime
+directory, stamped with the served model so a swap discards it rather than pricing a new
+model at the old one's speed (ADR-0075). An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055, not a
 guess — and the `priced` event says so per turn, so an uncapped turn is visible not inferred. Every recovery stage is bounded, the enlarged retry included, or that retry
 would be the way back to a budget no deadline can pay.
 
