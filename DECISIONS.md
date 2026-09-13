@@ -19,6 +19,66 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0072 — 2026-09-13 — A lease sized to the work it protects — Accepted
+
+**Context.** `max_inflight_large_prefills` exists to stop the engine being asked for several
+cold prefills at once. `admit()` takes the slot on the opening estimate and returns it in
+the context manager's `finally`, so it is held for the whole delegation — every turn, every
+retry, every tool round trip. The prefill it protects is over once decoding starts.
+
+Measured 2026-09-12. Time to first token at `effort: high` was **64.1s**, against delegations
+running 271–847s and two that died still holding a slot at 2,100s — four to thirty-three times
+longer than the work the slot exists to serialise. Two passes of a six-way fan-out waited the
+full `admission_wait_timeout` of 1,800s on that gate and were refused having produced nothing,
+on a cluster reading `kv_cache_used_fraction` 0.031 with zero preemptions. The gate was binding
+on an idle machine.
+
+Measured the same day over twelve disjoint cold-prefill sets, limit 2 against limit 6: 4 of 6
+calls queued against none, **286.3s** of aggregate waiting against zero, the batch 12.1s slower
+and each call 10.2s slower, nothing bought. Limit 6's span is the floor the engine sets by
+serialising prefills itself, and limit 2 cannot beat it.
+
+The moment needed to fix this became observable with ADR-0070 and reachable with nothing:
+streaming timed first-token arrival for `decode_seconds` and kept it inside the adapter, so no
+caller could see it.
+
+**Decision.** Three parts, in one record because the second and third are consequences of the
+first rather than separate questions.
+
+`complete()` takes an optional `on_token`, fired on each frame carrying generated output — the
+same predicate `decode_seconds` is measured from, so a role preamble or a finish reason is not
+an arrival. It is **synchronous and argument-free**: it runs on the read loop, where an await
+would put network latency between two tokens, and a consumer that must act once guards its own
+once-ness rather than having the adapter decide how often arrival means. It is added
+*alongside* the return value, so `complete()` still never returns a partial and an adapter that
+cannot stream simply never calls it.
+
+The **large half** of an admission lease is released at first token. `seqs`, `tokens` and
+`per_entry` are still held — the sequence is genuinely running — and only the counter that
+serialises prefills is given back, because the prefill has genuinely finished. The slots record
+already carries `large` as an independent field, so this is representable without changing the
+file's shape.
+
+`max_inflight_large_prefills` then goes **inert rather than tuned**: once a slot is held only
+while a request is prefilling, the number held at any moment is the number the engine is
+prefilling — one running plus one staged — so even the shipped limit of 2 can rarely bind. Its
+fate, and whether `admission_wait_timeout`'s 1,800s still describes anything, are settled by
+re-measuring against this change rather than by argument.
+
+**Consequences.** This does **not** supersede ADR-0047. That ruling chose turn completion
+because every alternative was fake: the per-turn notification fires at the *top* of a turn and
+the keepalive is a timer, so both reset the clock on the turn that wedged. Token arrival is
+real liveness, so it *supplies* the signal ADR-0047 lacked rather than contradicting it.
+
+The trap, easy to get backwards: token flow is not turn completion. Anything reporting
+streamed tokens as liveness — the `alive` heartbeat especially — must land only after the
+stall deadline resets on arrival, or a delegation emitting tokens while making no progress
+reads as healthy, which is what the 2026-09-04 stalls looked like from outside.
+
+`is_large` is read in one place and used by one rule, so if that rule goes the staleness
+recorded against it — decided once from the opening estimate, never revisited — is dead code
+rather than a defect.
+
 ## ADR-0071 — 2026-09-12 — A minimum needs a stricter admission test than an average — Accepted
 
 **Context.** Two estimators now consume the same observation and they are not alike.

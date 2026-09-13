@@ -1,4 +1,5 @@
-<!-- BUDGET: 674 -->
+<!-- BUDGET: 680 -->
+<!-- Raised from 674 on 2026-09-13: token arrival is reportable to the caller, not just to the decode interval. -->
 <!-- Raised from 670 on 2026-09-12: a floor on the rate memory, and why it is stricter than the estimator's. -->
 <!-- Raised from 653 on 2026-09-12: the chat call streams, so the decode interval excludes prefill and the whole-turn bound moves into the adapter. -->
 <!-- Raised from 639 on 2026-09-12: the decode rate is remembered across delegations and keyed by concurrency. -->
@@ -100,6 +101,12 @@ is required, or the final chunk carries no `usage` and every token count reads z
 `turn_timeout` no longer bounds the call for free — httpx applies its read timeout per chunk
 once a body streams — so the adapter enforces the whole-turn bound itself, against a clock
 injected for the purpose.
+
+Streaming also made token arrival observable, and until ADR-0072 `decode_seconds` was its
+only consumer. `complete()` now takes an optional `on_token`, fired on each frame carrying
+generated output — the same predicate the interval is measured from, so a role preamble or
+a finish reason is not an arrival. It is synchronous and argument-free because it runs on
+the read loop; a consumer that must act once guards its own once-ness.
 
 Built. The seam holds three things the layer above depends on. Flattening lives in the
 adapter and nowhere else, so the canonical side stays block-structured. Failures arrive as

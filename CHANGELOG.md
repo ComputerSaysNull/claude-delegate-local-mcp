@@ -34,6 +34,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #180 — 2026-09-13 — feat: a lease sized to the work it protects
+
+### Added
+
+- **`complete()` can tell its caller when tokens arrive.** *Symptom:* three things needed to
+  know that decoding had begun and none could find out — the admission lease held a
+  large-prefill slot for a whole delegation to protect a prefill over after 64s, the stall
+  deadline reset only on turn completion so a productive long turn was indistinguishable from
+  a wedged one, and the transcript could report elapsed time but never progress. *Cause:*
+  ADR-0070 made first-token arrival observable *inside* the adapter — it is what
+  `decode_seconds` is measured from — and stopped there, because `complete()` returns one
+  whole response once the stream has ended and carried no other channel. *Fix:* an optional
+  `on_token` on the backend protocol, fired on each frame carrying generated output. It is the
+  same predicate the decode interval uses, so a role preamble or a finish reason is not an
+  arrival; synchronous and argument-free, because it runs on the read loop where an await
+  would put network latency between two tokens; and added alongside the return value, so the
+  promise never to return a partial still holds and an adapter that cannot stream simply never
+  calls it. (ADR-0072)
+
 ## #179 — 2026-09-12 — docs: a copy task is not a decode benchmark
 
 ### Changed

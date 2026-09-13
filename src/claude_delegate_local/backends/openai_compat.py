@@ -198,14 +198,24 @@ class OpenAICompatBackend:
         body.update(_effort_fields(request.effort))
         return body
 
-    async def complete(self, request: CanonicalRequest) -> CanonicalResponse:
+    async def complete(
+        self,
+        request: CanonicalRequest,
+        *,
+        on_token: Callable[[], None] | None = None,
+    ) -> CanonicalResponse:
         payload, decode_seconds = await self._post_stream(
-            self._entry.chat_url, self.wire_body(request), _CHAT_PATH
+            self._entry.chat_url, self.wire_body(request), _CHAT_PATH, on_token=on_token
         )
         return self._from_wire(payload, decode_seconds=decode_seconds)
 
     async def _post_stream(
-        self, url: str, body: dict[str, Any], path: str
+        self,
+        url: str,
+        body: dict[str, Any],
+        path: str,
+        *,
+        on_token: Callable[[], None] | None = None,
     ) -> tuple[dict[str, Any], float | None]:
         """Stream the chat call and hand back one payload plus the decode interval.
 
@@ -250,6 +260,13 @@ class OpenAICompatBackend:
                         if first is None:
                             first = now
                         last = now
+                        # Same predicate `decode_seconds` is measured from, so the caller
+                        # is told about exactly the frames the interval counts. A frame
+                        # carrying only the role preamble or a finish reason is not the
+                        # decoder producing anything, and reporting it would tell the
+                        # admission lease a prefill still running had finished.
+                        if on_token is not None:
+                            on_token()
         except httpx.HTTPError as e:
             # A read timeout is the one shape here that spent the whole allowance: the
             # request was delivered and the endpoint never answered in time. `ConnectTimeout`

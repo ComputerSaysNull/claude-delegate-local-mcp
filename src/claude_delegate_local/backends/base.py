@@ -34,6 +34,7 @@ Not a port. This file is new.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -356,8 +357,25 @@ class Backend(Protocol):
     moment the agentic loop needs two calls in flight.
     """
 
-    async def complete(self, request: CanonicalRequest) -> CanonicalResponse:
-        """Send one request. Raises a BackendError subclass; never returns a partial."""
+    async def complete(
+        self,
+        request: CanonicalRequest,
+        *,
+        on_token: Callable[[], None] | None = None,
+    ) -> CanonicalResponse:
+        """Send one request. Raises a BackendError subclass; never returns a partial.
+
+        `on_token` fires each time the wire carries generated output, and is how anything
+        above this layer learns that decoding has begun -- ADR-0070 made that moment
+        observable inside an adapter and stopped there, so `decode_seconds` was the only
+        thing that ever saw it. It is added *alongside* the return value: the contract
+        above still holds, and an adapter that cannot stream simply never calls it.
+
+        Synchronous and argument-free, deliberately. It runs on the read loop once per
+        frame, so awaiting here would put network latency between two tokens; and a
+        consumer that must act once -- the admission lease does -- guards its own
+        once-ness rather than having the adapter decide how often "arrival" means.
+        """
         ...
 
     async def probe(self) -> tuple[str, ...]:
