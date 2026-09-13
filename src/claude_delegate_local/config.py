@@ -473,17 +473,6 @@ class Config:
         "backend_status reports both numbers and which one is binding.",
         unit="tokens",
     )
-    large_prefill_tokens: int = _f(
-        32768,
-        "A request estimated above this counts as a large cold prefill.",
-        unit="tokens",
-    )
-    max_inflight_large_prefills: int = _f(
-        2,
-        "Concurrent large prefills. The engine admits one long prefill at a time, so this "
-        "is one running plus one staged -- pipelining, not throttling. Raising it makes "
-        "every large request slower rather than any of them faster.",
-    )
     admission_starvation_grace: float = _f(
         30.0,
         "How long a waiter may be passed over before it starts counting as ahead of "
@@ -773,8 +762,6 @@ class Config:
             "admission_wait_timeout",
             "max_inflight_seqs",
             "kv_token_budget",
-            "large_prefill_tokens",
-            "max_inflight_large_prefills",
         ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"DELEGATE_{name.upper()} must be positive.")

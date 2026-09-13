@@ -16,13 +16,18 @@ Every waiter now takes a ticket and the predicate refuses anyone who is not at t
 so the wait is bounded by the work ahead of it rather than by luck. Waiting is still
 polling: fairness decides *who* goes next, not how promptly anyone finds out.
 
-**Four rules, checked as one predicate.** Total in-flight sequences, summed token estimate
-against the budget, concurrent large prefills, and the endpoint's own declared limit. The
-third is what binds for big tasks and the reason the first three cannot be three
-semaphores acquired in turn: a request that takes a sequence slot and then blocks on the
-large-prefill cap holds capacity it is not using for the whole wait, starving smaller
+**Three rules, checked as one predicate.** Total in-flight sequences, summed token
+estimate against the budget, and the endpoint's own declared limit. One predicate rather
+than three semaphores acquired in turn: a request that takes a sequence slot and then
+blocks on another rule holds capacity it is not using for the whole wait, starving smaller
 requests that would have fit every rule. Nothing here is ever partially acquired. A waiter
 that does not fit holds nothing.
+
+There were four until 2026-09-13. A cap on concurrent large cold prefills measured as pure
+overhead -- 286.3s of aggregate waiting for a batch 12.1s slower end to end -- and fired
+`admission_wait_timeout` four times on a cluster at 3% KV use with zero preemptions. The
+engine serialises cold prefills itself, which is the cap's own justification arriving from
+somewhere that does not need configuring (ADR-0077).
 
 **Undersubscription is invisible where oversubscription announces itself**, which is why
 this counts as well as gates. The high-water marks and wait totals `status()` returns are
@@ -56,7 +61,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from .slots import SharedSlots, SlotsUnavailable, Totals
@@ -135,39 +140,18 @@ class AdmissionImpossible(AdmissionError):
         )
 
 
-class _LargeHold:
-    """Whether this lease still holds the large-prefill counter.
-
-    A mutable box inside a deliberately immutable lease, because exactly one fact about a
-    lease genuinely changes during its life: the prefill it protects finishes long before
-    the delegation does, and the slot is given back then (ADR-0072). Everything else on the
-    lease describes what was counted at admission and must not move.
-    """
-
-    __slots__ = ("held",)
-
-    def __init__(self, held: bool) -> None:
-        self.held = held
-
-
 @dataclass(frozen=True, slots=True)
 class AdmissionLease:
     """What was counted, so releasing subtracts exactly what acquiring added.
 
-    `is_large` travels rather than being re-derived on release: recomputing it against a
-    threshold reached through config a second time is how a counter drifts permanently
-    upward, and a large-prefill count that only ever grows wedges the gate for good.
-
-    `large_hold` answers the other direction of the same question -- whether the large half
-    is *still* held -- so `release` can subtract it exactly once whether or not first token
-    already gave it back. It defaults to not-held so a lease built without one cannot
-    accidentally free a slot it never took.
+    Until 2026-09-13 it also carried whether the request was a large cold prefill, and
+    whether that half of the lease was still held. Both existed only to enforce
+    `max_inflight_large_prefills`, which measured as pure overhead and was removed
+    (ADR-0077).
     """
 
     tokens: int
-    is_large: bool
     entry_key: str
-    large_hold: _LargeHold = field(default_factory=lambda: _LargeHold(False))
     # What the gate saw at the instant it granted this slot: sequences already in flight,
     # and everyone still queued behind. Neither is a rule -- they are carried so the
     # delegation can price its reply for the concurrency it is about to *meet* rather than
@@ -236,14 +220,11 @@ class Admission:
         # which is different from zero: an endpoint publishing no metrics must leave the
         # configured value standing rather than tighten this gate to nothing.
         self._pool_tokens: int | None = None
-        self._large_threshold = cfg.large_prefill_tokens
-        self._max_large = cfg.max_inflight_large_prefills
         self._grace = cfg.admission_starvation_grace
         self._cond = asyncio.Condition()
 
         self._inflight_seqs = 0
         self._inflight_tokens = 0
-        self._inflight_large = 0
         self._per_entry: dict[str, int] = {}
 
         # The queue, for the no-shared-file case only. With a shared file the tickets live
@@ -254,7 +235,6 @@ class Admission:
 
         self._peak_seqs = 0
         self._peak_tokens = 0
-        self._peak_large = 0
         self._peak_per_entry: dict[str, int] = {}
 
         self._wait_seconds_total = 0.0
@@ -264,7 +244,7 @@ class Admission:
 
     # ---- the predicate -----------------------------------------------------------
     def _binding(
-        self, live: Totals, tokens: int, is_large: bool, key: str, limit: int
+        self, live: Totals, tokens: int, key: str, limit: int
     ) -> tuple[str, int] | None:
         """The first rule that does not admit this request, or None if all four do.
 
@@ -279,8 +259,6 @@ class Admission:
             return ("max_inflight_seqs", self._max_seqs)
         if live.tokens + tokens > self.effective_token_budget:
             return ("kv_token_budget", self.effective_token_budget)
-        if is_large and live.large >= self._max_large:
-            return ("max_inflight_large_prefills", self._max_large)
         if live.per_entry.get(key, 0) >= limit:
             return (f"concurrency for {key}", limit)
         # Last, and the order is deliberate. A capacity rule is what an operator can act
@@ -301,7 +279,6 @@ class Admission:
         return Totals(
             seqs=self._inflight_seqs,
             tokens=self._inflight_tokens,
-            large=self._inflight_large,
             per_entry=self._per_entry,
             waiting=len(self._waiting),
         )
@@ -316,10 +293,9 @@ class Admission:
             if (ticket is None or other < ticket) and fits(spec)
         )
 
-    async def _try_take(  # noqa: PLR0913 -- the request, its place in line, and its age
+    async def _try_take(
         self,
         tokens: int,
-        is_large: bool,
         key: str,
         limit: int,
         ticket: int | None,
@@ -345,13 +321,13 @@ class Admission:
         # measure the gap between polls instead of the wait, so nothing could ever age.
         # Wall clock, not monotonic, because the shared file compares across processes.
         spec: dict[str, Any] = {
-            "tokens": tokens, "large": is_large, "key": key, "limit": limit,
+            "tokens": tokens, "key": key, "limit": limit,
             "since": since,
         }
         seen: dict[str, int] = {}
 
         def decide(live: Totals) -> tuple[str, int] | None:
-            binding = self._binding(live, tokens, is_large, key, limit)
+            binding = self._binding(live, tokens, key, limit)
             if binding is None:
                 # Captured from the predicate's own read, under the same lock that grants
                 # the slot, so the numbers are exactly what admission decided against and
@@ -388,7 +364,6 @@ class Admission:
                 self._binding(
                     live,
                     int(other.get("tokens", 0)),
-                    bool(other.get("large", False)),
                     str(other.get("key", "")),
                     int(other.get("limit", 0)),
                 )
@@ -398,7 +373,6 @@ class Admission:
         if self._slots is not None:
             binding, ticket = await self._slots.admit(
                 tokens=tokens,
-                is_large=is_large,
                 entry_key=key,
                 decide=decide,
                 rival_fits=rival_fits,
@@ -420,7 +394,7 @@ class Admission:
                 ticket = None
         if binding is not None:
             return binding, ticket, seen
-        self._take_locally(tokens, is_large, key)
+        self._take_locally(tokens, key)
         return None, None, seen
 
     async def _drop_ticket(self, ticket: int) -> None:
@@ -445,7 +419,7 @@ class Admission:
             self._waiting.pop(ticket, None)
             self._cond.notify_all()
 
-    def _take_locally(self, tokens: int, is_large: bool, key: str) -> None:
+    def _take_locally(self, tokens: int, key: str) -> None:
         """Mirror the slot into this process's own counters and peaks.
 
         The shared file is what the rules are tested against; these are what `status()`
@@ -453,13 +427,10 @@ class Admission:
         """
         self._inflight_seqs += 1
         self._inflight_tokens += tokens
-        if is_large:
-            self._inflight_large += 1
         self._per_entry[key] = self._per_entry.get(key, 0) + 1
 
         self._peak_seqs = max(self._peak_seqs, self._inflight_seqs)
         self._peak_tokens = max(self._peak_tokens, self._inflight_tokens)
-        self._peak_large = max(self._peak_large, self._inflight_large)
         self._peak_per_entry[key] = max(
             self._peak_per_entry.get(key, 0), self._per_entry[key]
         )
@@ -478,13 +449,6 @@ class Admission:
         if tokens > self._token_budget:
             raise AdmissionImpossible(tokens, self._token_budget)
 
-        # Classified on the prompt alone, never on the reply the request is allowed to
-        # generate. A prefill is prompt processing; the reply is decode, and it arrives a
-        # token at a time against a cache that is already warm. Folding the reply
-        # reservation in here makes every delegation large the moment `max_tokens`
-        # exceeds the threshold -- which is the default -- and rule 3 then bounds the
-        # whole server at `max_inflight_large_prefills` while appearing to bound nothing.
-        is_large = prefill_tokens > self._large_threshold
         started = time.monotonic()
         # Beside `started`, not instead of it: `started` measures this wait and must not
         # jump if the clock is set, while the age a rival judges us by has to be
@@ -501,7 +465,7 @@ class Admission:
             async with self._cond:
                 while True:
                     binding, ticket, seen = await self._try_take(
-                        tokens, is_large, entry_key, entry_limit, ticket, since=queued_at
+                        tokens, entry_key, entry_limit, ticket, since=queued_at
                     )
                     if binding is None:
                         break
@@ -543,44 +507,14 @@ class Admission:
         if waited:
             self._record_wait(elapsed)
         return AdmissionLease(
-            tokens=tokens, is_large=is_large, entry_key=entry_key, waited=elapsed,
+            tokens=tokens, entry_key=entry_key, waited=elapsed,
             seqs_at_grant=seen.get("seqs", 0), waiting_at_grant=seen.get("waiting", 0),
-            large_hold=_LargeHold(is_large),
         )
 
     def _record_wait(self, seconds: float) -> None:
         self._wait_seconds_total += seconds
         self._wait_seconds_max = max(self._wait_seconds_max, seconds)
         self._wait_count += 1
-
-    async def release_large(self, lease: AdmissionLease) -> None:
-        """Give back the large-prefill slot alone, its prefill being over (ADR-0072).
-
-        The sequence, its token estimate and its per-entry count stay held: the request is
-        still running, and a gate that forgot them would over-admit against the KV budget.
-        Only the counter that serialises *prefills* is freed, because only prefilling has
-        finished.
-
-        Idempotent, because the signal that triggers it -- token arrival -- fires on every
-        frame rather than once. A counter driven downward by a talkative delegation would
-        stop binding at all, which is the same permanent drift the lease guards against in
-        the other direction. A lease that was never large is a no-op, so a caller need not
-        ask whether it was.
-        """
-        async with self._cond:
-            if not lease.large_hold.held:
-                return
-            lease.large_hold.held = False
-            if self._slots is not None:
-                try:
-                    await self._slots.release_large()
-                except SlotsUnavailable:
-                    log.warning(
-                        "could not return a large-prefill slot to the shared file; it "
-                        "will be reclaimed when this process exits"
-                    )
-            self._inflight_large -= 1
-            self._cond.notify_all()
 
     async def release(self, lease: AdmissionLease) -> None:
         async with self._cond:
@@ -594,10 +528,6 @@ class Admission:
                 try:
                     await self._slots.release(
                         tokens=lease.tokens,
-                        # What is still held, not what was taken. First token may already
-                        # have given the large half back, and this runs in a `finally` that
-                        # cannot know -- so it asks rather than assuming (ADR-0072).
-                        is_large=lease.large_hold.held,
                         entry_key=lease.entry_key,
                     )
                 except SlotsUnavailable:
@@ -607,9 +537,6 @@ class Admission:
                     )
             self._inflight_seqs -= 1
             self._inflight_tokens -= lease.tokens
-            if lease.large_hold.held:
-                lease.large_hold.held = False
-                self._inflight_large -= 1
             remaining = self._per_entry.get(lease.entry_key, 0) - 1
             if remaining > 0:
                 self._per_entry[lease.entry_key] = remaining
@@ -651,10 +578,8 @@ class Admission:
         return {
             "inflight_seqs": self._inflight_seqs,
             "inflight_tokens": self._inflight_tokens,
-            "inflight_large_prefills": self._inflight_large,
             "peak_inflight_seqs": self._peak_seqs,
             "peak_inflight_tokens": self._peak_tokens,
-            "peak_inflight_large_prefills": self._peak_large,
             # Three numbers rather than one, because the lowered ceiling is only honest if
             # a reader can see both halves of it and which one is binding.
             "kv_token_budget": self._token_budget,

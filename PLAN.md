@@ -1,9 +1,10 @@
-<!-- BUDGET: 824 -->
+<!-- BUDGET: 832 -->
      Raised from 775 (to 795) on 2026-09-13: reasoning is no longer discarded, plus four findings this session measured -- two about eviction, one about server-side tool time, one re-filing the M10 spike.
      Raised from 775 on 2026-09-13: a search names its scope and is shown the map, which ticks one item and re-costs the walk item beneath it.
      Raised from 775 on 2026-09-13: the viewer group ticked, plus the two findings it turned up that its frozen body could not carry.
      Raised from 775 on 2026-09-13: the pressure gate never applied to the shipped configuration, plus the two follow-ups that finding named.
      Raised from 775 on 2026-09-13: the KV budget binds on the pool as well, and the precedent its entry cited turned out not to be one.
+     Raised from 775 on 2026-09-13: the large-prefill cap is gone, and one of the five consequences its entry named turned out to be wrong.
      Raised from 758 on 2026-09-13: four findings this session measured but no branch owned -- the third liveness state, and four viewer defects that state true things in ways that read false.
      Raised from 752 on 2026-09-13: the empty-name item closed against its own leaning, and why the code moved rather than the document is the part worth keeping.
      Raised from 744 on 2026-09-13: closing the 2026-09-11 audit, where two findings turned out to be wrong and saying why is worth more than the tick.
@@ -690,6 +691,9 @@ local, because they are working notes rather than a product fact.
   - **Do not re-derive it yet, measured 2026-09-13** (#184). It is reachable only because the
     gate makes it so, and the longest wait at the shipped limit was 89.0s against a bound
     twenty times that. Remove the gate first, or this is tuning around the defect
+  - **Unblocked 2026-09-13: the gate is gone** (ADR-0077). Every wait this fired on was on
+    that rule, so re-measure what reaches the bound now before moving the number — it may
+    have no reachable path left at all, which is a different answer from a smaller bound
   - **It has now fired, twice, on 2026-09-12** — the first time on this deployment. Two
     passes of a six-way fan-out waited the full 1800s on `max_inflight_large_prefills` and
     were refused having produced nothing. Not latent. `admission_timeouts` reads 0 while
@@ -739,11 +743,15 @@ local, because they are working notes rather than a product fact.
     sooner, at 0.034 KV and zero preemptions either way. "Inert at 6" is confirmed; "even 2
     would rarely" is not. Inert where set, harmful at the shipped default — so no value earns
     its keep
-- ⬜ **Remove the setting the measurement condemned.** Five consumers, one a decision: the
+- ✅ 2026-09-13 **Remove the setting the measurement condemned.** Five consumers, one a
+  decision: the
   `_binding` rule; ADR-0072's early release, which goes vestigial; `rival_fits`'s ordering;
   the server instructions and `delegate://orchestration`, making it a contract change with
   an ADR; the cross-process counter and two gauges. `peak_inflight_large_prefills` counts
   *leases*, never prefills the cluster ran — the engine queues those itself
+- **Correction to the ticked item above**, filed beside it rather than edited in:
+  `large_prefill_tokens` does not survive as that entry assumed. It classified for the rule
+  and for nothing else, so it went with it (ADR-0077, #194)
 - ⬜ **Work that does not fit one turn.** Two turns produced 13,268 and 16,909 output
   tokens, the first needing 1,750s at 7.6 tok/s. No budget makes that fit an 1,800s
   attempt; it is a splitting problem, not a pricing one

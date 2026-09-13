@@ -10,7 +10,6 @@ no counterweight.
 Whether that becomes starvation depends on **who holds the resource the waiter is blocked
 on**, and the two cases are opposite:
 
-  * `max_inflight_large_prefills` is held by other *large* requests, which take tickets
     and queue behind each other. Small newcomers stream past, but only while a large
     blocker holds the slot, and the waiter is admitted the moment it releases. Bounded,
     and `test_the_large_prefill_cap_releases_its_waiter` is here to keep it that way --
@@ -39,8 +38,6 @@ def gate(**over) -> Admission:
         "workspace_roots": (".",),
         "max_inflight_seqs": 6,
         "kv_token_budget": 100_000,
-        "large_prefill_tokens": 10_000,
-        "max_inflight_large_prefills": 2,
     }
     kw.update(over)
     return Admission(Config(**kw))  # type: ignore[arg-type]
@@ -69,8 +66,7 @@ async def test_a_newcomer_may_overtake_a_waiter_that_cannot_run():
     Kept as a control: a fix that refused these newcomers immediately would pass the test
     below while reintroducing the head-of-line blocking this design rejects.
     """
-    g = gate(kv_token_budget=100_000, max_inflight_large_prefills=9,
-             admission_starvation_grace=30.0)
+    g = gate(kv_token_budget=100_000,             admission_starvation_grace=30.0)
     held = await take(g, 50_000, 1)
     parked = asyncio.create_task(take(g, 60_000, 60_000))
     await settle()
@@ -93,8 +89,7 @@ async def test_a_waiter_left_behind_long_enough_stops_being_overtaken():
     That makes it a barrier: newcomers queue behind it, the in-flight work drains, and
     the budget it needs is the waiter's rather than the next arrival's.
     """
-    g = gate(kv_token_budget=100_000, max_inflight_large_prefills=9,
-             admission_starvation_grace=0.05)
+    g = gate(kv_token_budget=100_000,             admission_starvation_grace=0.05)
     held = await take(g, 50_000, 1)
     parked = asyncio.create_task(take(g, 60_000, 60_000))
     await settle()
@@ -109,29 +104,6 @@ async def test_a_waiter_left_behind_long_enough_stops_being_overtaken():
     lease = await asyncio.wait_for(parked, timeout=1)
     await g.release(lease)
 
-
-async def test_the_large_prefill_cap_releases_its_waiter():
-    """The control, and the reason the fix must not be aimed at rule 3.
-
-    Smalls do stream past a large parked on `max_inflight_large_prefills`, but only while
-    another large holds the slot. Nothing a small does keeps it there, so the wait ends.
-    A fix that treated this as starvation would serialise the server for no gain.
-    """
-    g = gate(max_inflight_large_prefills=1, kv_token_budget=10**9)
-    blocker = await take(g, 50_000, 50_000)
-    parked = asyncio.create_task(take(g, 50_000, 50_000))
-    await settle()
-    assert not parked.done()
-
-    for _ in range(5):
-        s = await asyncio.wait_for(take(g, 100, 100), timeout=1)
-        await g.release(s)
-        await settle()
-    assert not parked.done(), "the blocker still holds the only large slot"
-
-    await g.release(blocker)
-    lease = await asyncio.wait_for(parked, timeout=1)
-    await g.release(lease)
 
 
 async def test_a_newcomer_cannot_overtake_a_waiter_that_could_run():

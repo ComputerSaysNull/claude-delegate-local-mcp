@@ -19,6 +19,66 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0077 — 2026-09-13 — The large-prefill cap is removed; the engine already serialises — Accepted
+
+**Context.** `max_inflight_large_prefills` admitted N requests whose prompt exceeded
+`large_prefill_tokens` and queued the rest, described as "one running plus one staged --
+pipelining, not throttling".
+
+Measured 2026-09-12, six delegations per arm over twelve disjoint file sets so every
+prefill was genuinely cold:
+
+| limit | queued | total wait | mean elapsed | issue to last finish |
+|---|---|---|---|---|
+| 6 | 0 of 6 | 0.0s | 88.2s | **155.4s** |
+| 2 | 4 of 6 | **286.3s** | 98.4s | **167.5s** |
+
+Pure overhead for this workload: 286.3s of aggregate waiting, a batch 12.1s slower end to
+end and each call 10.2s slower, and nothing faster. Limit 6's 155.4s is the floor the
+engine sets by serialising six cold prefills itself — the cap's own justification arriving
+from somewhere that does not need configuring. Worse than redundant on a quiet machine:
+`admission_wait_timeout` fired four times on 2026-09-12, each a 1,800s wait ending in a
+refusal that had produced nothing, against `kv_cache_used_fraction` 0.031 and zero
+preemptions.
+
+ADR-0072 returned the large half of a lease at first token to fix exactly that, and #184
+measured the result: at 6 the cap is confirmed inert, at 2 it still queues 4 of 6. The
+early release did not retire it. Two attempts to make the cap pay have now failed, which
+is the argument for removing it rather than tuning it a third time.
+
+**Decision.** The rule goes, with everything that existed only to enforce it: the
+classification, both counters, both gauges, ADR-0072's early release, the large dimension of
+`rival_fits`, and the two settings. Three rules remain — sequences, summed tokens, and the
+endpoint's declared concurrency.
+
+**Consequences.** A contract change, in both homes the server publishes: the instructions
+said large calls contend and further ones wait, and `delegate://orchestration` said a wide
+fan-out loses the calls that time out. Neither is true now, and a caller that had learned
+to serialise its own fan-out would be pessimising for no reason.
+
+ADR-0072 is **partially superseded**. Its other halves are untouched — the stall deadline
+still resets on token arrival, the heartbeat still reports what has arrived. Only the early
+release goes, its sole purpose having been to shorten the hold on a counter that no longer
+exists. `on_token` survives as the seam it introduced; the server passes none.
+
+`peak_inflight_large_prefills` is not mourned: it counted **leases**, never prefills the
+cluster ran, so the gauge most likely to be cited in the cap's defence was measuring the cap
+rather than the hardware.
+
+Two test properties outlive the rule they were written against and are re-pointed rather
+than deleted, in both scopes: a request blocked on one rule must hold no capacity under
+another, and a waiter that cannot run must not block one that can. Both are properties of
+checking the rules as **one predicate**, and both now bind on the token budget.
+`tests/test_large_lease_released_at_first_token.py` is deleted: it tested only the release.
+
+**What this does not claim.** That no workload benefits from staging cold prefills — only
+that this deployment's does not, twice measured, and that a setting never shown to pay is
+not worth the wait it imposes. A deployment that needs it has this record to reintroduce it.
+
+**PLAN.md's entry named five consequences and was wrong about one**: it said to keep
+`large_prefill_tokens` because it "still classifies for the estimate". It classifies for
+nothing else — the token budget counts prefill plus reply allowance — so it goes too.
+
 ## ADR-0076 — 2026-09-13 — A scope cannot be asked for without a map — Accepted
 
 **Context.** ADR-0074 required `search_files` to name its scope and spent three of
@@ -225,7 +285,7 @@ already records against `kv_token_budget`.
 
 ---
 
-## ADR-0072 — 2026-09-13 — A lease sized to the work it protects — Accepted
+## ADR-0072 — 2026-09-13 — A lease sized to the work it protects — Partially superseded by ADR-0077
 
 **Context.** `max_inflight_large_prefills` exists to stop the engine being asked for several
 cold prefills at once. `admit()` takes the slot on the opening estimate and returns it in

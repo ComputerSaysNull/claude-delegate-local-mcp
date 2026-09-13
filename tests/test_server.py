@@ -1709,7 +1709,6 @@ def test_backend_status_reports_the_admission_gate():
     for key in (
         "peak_inflight_seqs",
         "peak_inflight_tokens",
-        "peak_inflight_large_prefills",
         "admission_wait_seconds_total",
         "admission_wait_seconds_max",
         "admission_wait_count",

@@ -142,7 +142,6 @@ class Totals:
 
     seqs: int = 0
     tokens: int = 0
-    large: int = 0
     per_entry: dict[str, int] = field(default_factory=dict)
     # Waiters ahead of this request in the queue, and the reason the predicate needs it:
     # the four rules describe the cluster, which every waiter sees identically, so nothing
@@ -369,15 +368,14 @@ class SharedSlots:
     @staticmethod
     def _totals(records: dict[str, dict[str, Any]], ahead: int = 0) -> Totals:
         per_entry: dict[str, int] = {}
-        seqs = tokens = large = 0
+        seqs = tokens = 0
         for record in records.values():
             seqs += int(record.get("seqs", 0))
             tokens += int(record.get("tokens", 0))
-            large += int(record.get("large", 0))
             for key, count in (record.get("per_entry") or {}).items():
                 per_entry[key] = per_entry.get(key, 0) + int(count)
         return Totals(
-            seqs=seqs, tokens=tokens, large=large, per_entry=per_entry, ahead=ahead,
+            seqs=seqs, tokens=tokens, per_entry=per_entry, ahead=ahead,
             waiting=len(_waiting(records)),
         )
 
@@ -424,7 +422,7 @@ class SharedSlots:
     def _mine(self, records: dict[str, dict[str, Any]]) -> dict[str, Any]:
         return records.setdefault(
             self._me,
-            {"seqs": 0, "tokens": 0, "large": 0, "per_entry": {}, "updated_at": time.time()},
+            {"seqs": 0, "tokens": 0, "per_entry": {}, "updated_at": time.time()},
         )
 
     # ---- what admission calls --------------------------------------------------------
@@ -432,7 +430,6 @@ class SharedSlots:
         self,
         *,
         tokens: int,
-        is_large: bool,
         entry_key: str,
         decide: Callable[[Totals], tuple[str, int] | None],
         rival_fits: Callable[[Totals, dict[str, Any]], bool],
@@ -479,8 +476,6 @@ class SharedSlots:
             mine = self._mine(records)
             mine["seqs"] = int(mine.get("seqs", 0)) + 1
             mine["tokens"] = int(mine.get("tokens", 0)) + tokens
-            if is_large:
-                mine["large"] = int(mine.get("large", 0)) + 1
             entries = mine.setdefault("per_entry", {})
             entries[entry_key] = int(entries.get(entry_key, 0)) + 1
             mine["updated_at"] = time.time()
@@ -502,34 +497,13 @@ class SharedSlots:
                 records.pop(self._me, None)
             self._write(fd, records, next_ticket)
 
-    async def release_large(self) -> None:
-        """Give back the large-prefill count alone, leaving the rest of the record held.
-
-        `release` is a whole admission; this is the half of one that ends early, because a
-        prefill finishes long before the delegation that paid for it (ADR-0072). `seqs`,
-        `tokens` and `per_entry` are untouched: the sequence is still running. No
-        `entry_key`, unlike `release` -- the large count is per process, not per entry, so
-        there is nothing to look up.
-
-        The record is never dropped here, however empty the counters look: it still holds a
-        sequence, and `_is_idle` is for a record that holds nothing at all.
-        """
-        async with self._locked() as fd:
-            records, next_ticket = self._read(fd)
-            mine = self._mine(records)
-            mine["large"] = max(0, int(mine.get("large", 0)) - 1)
-            mine["updated_at"] = time.time()
-            self._write(fd, records, next_ticket)
-
-    async def release(self, *, tokens: int, is_large: bool, entry_key: str) -> None:
+    async def release(self, *, tokens: int, entry_key: str) -> None:
         """Give back exactly what `admit` took, minus anything already given back early."""
         async with self._locked() as fd:
             records, next_ticket = self._read(fd)
             mine = self._mine(records)
             mine["seqs"] = max(0, int(mine.get("seqs", 0)) - 1)
             mine["tokens"] = max(0, int(mine.get("tokens", 0)) - tokens)
-            if is_large:
-                mine["large"] = max(0, int(mine.get("large", 0)) - 1)
             entries = mine.setdefault("per_entry", {})
             remaining = int(entries.get(entry_key, 0)) - 1
             if remaining > 0:
@@ -550,7 +524,6 @@ class SharedSlots:
         return not (
             int(record.get("seqs", 0))
             or int(record.get("tokens", 0))
-            or int(record.get("large", 0))
             or record.get("waiting")
         )
 
@@ -620,6 +593,5 @@ async def cross_process_status(
         "queued_waiters": queued,
         "inflight_seqs": totals.seqs,
         "inflight_tokens": totals.tokens,
-        "inflight_large_prefills": totals.large,
         "per_entry": dict(sorted(totals.per_entry.items())),
     }

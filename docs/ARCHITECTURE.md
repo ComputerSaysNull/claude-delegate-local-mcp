@@ -113,7 +113,7 @@ large file being dropped while the budget it would have fitted in sat unused (AD
 | `agents.py` | The three-tier agent lookup and the frontmatter — [AGENTS.md](AGENTS.md) |
 | `tools.py` | Model-facing tools, and both `allowed_tools` sites — [TOOLS.md](TOOLS.md) |
 | `sandbox.py` | bubblewrap invocation: the argv, the binds, and the refusal |
-| `admission.py` | The four-rule gate every delegation passes before it reaches a backend |
+| `admission.py` | The three-rule gate every delegation passes before it reaches a backend |
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
 | `server.py` | MCP wiring, the six tool declarations, the backend cache |
@@ -646,17 +646,20 @@ The real constraint is that summed live tokens stay under the KV pool; per-reque
 per-sequence limits are ceilings, not reservations.
 
 Oversubscription **queues** rather than failing, so this protects latency, not
-correctness — and it can degrade badly, because large cold prefills serialise. Four rules
-apply: total in-flight requests, summed token estimate against budget, a separate cap on
-concurrent large prefills, and the endpoint's own declared `concurrency`. The third is
-what actually binds for big tasks, and it is deliberate: the engine admits one long
-prefill at a time, so sending five makes all five slow rather than any of them fast. The
-fourth is per endpoint rather than global, and is checked on every path — a limit enforced
-only where requests happen to run in parallel bounds a caller against itself and nothing
-else.
+correctness — and it can degrade badly, because large cold prefills serialise. Three rules
+apply: total in-flight requests, summed token estimate against budget, and the endpoint's
+own declared `concurrency`. The last is per endpoint rather than global, and is checked on
+every path — a limit enforced only where requests happen to run in parallel bounds a caller
+against itself and nothing else.
 
-The four are **one predicate, not four gates in series**. A request that took a sequence
-slot and then blocked on the large-prefill cap would hold capacity it is not using for the
+There were four until 2026-09-13. A cap on concurrent large cold prefills was removed:
+measured twice, it added 286.3s of aggregate waiting for a batch 12.1s slower end to end,
+and fired `admission_wait_timeout` four times on a cluster at 3% KV use with zero
+preemptions. The engine serialises cold prefills itself, so the floor it sets is reached
+without the cap and cannot be beaten with it (ADR-0077).
+
+The three are **one predicate, not three gates in series**. A request that took a sequence
+slot and then blocked on the token budget would hold capacity it is not using for the
 whole wait, starving smaller requests that fit every rule. Nothing is ever partially
 acquired: a waiter that does not fit holds nothing.
 
@@ -691,15 +694,12 @@ successors is never feasible at the instant they ask, because they hold what it 
 Past `admission_starvation_grace` it counts as ahead regardless, and becomes a barrier.
 (ADR-0068)
 
-**A lease is released in two parts, because its two halves protect different things.** The
-large-prefill count is given back at first token; the sequence, the token estimate and the
-per-entry count are held until the delegation ends. The prefill that count exists to
-serialise is over once decoding starts — 64.1s measured, against delegations running 271 to
-847s — so holding it to the end made a six-way fan-out wait out `admission_wait_timeout` on
-a cluster at 3% KV with zero preemptions. The sequence is a different claim: the request is
-still running and still occupying KV, so forgetting it would over-admit against the budget.
-The early release is idempotent, since token arrival fires on every frame, and the full
-release subtracts what is *still* held rather than what was taken. (ADR-0072)
+**A lease is released once, at the end.** It was released in two parts between ADR-0072 and
+ADR-0077, the large-prefill count going back at first token because the prefill it serialised
+was over by then — 64.1s measured against delegations running 271 to 847s. That count no
+longer exists, so neither does the early release. What is held is held until the delegation
+ends, because the request is still running and still occupying KV, and forgetting it would
+over-admit against the budget.
 
 A granted lease carries what the gate saw when it granted: sequences already in flight, and
 everyone still queued behind. Neither is a rule — they are read from the predicate's own
@@ -746,7 +746,7 @@ against one KV pool. Each rule bounded a session, and the cluster saw the config
 ceiling multiplied by the number of windows open.
 
 So the counters live in a file under `flock` that every server on the machine shares, and
-`admission.py` tests the four rules against the sum. `slots.py` owns that file; the policy
+`admission.py` tests the three rules against the sum. `slots.py` owns that file; the policy
 did not change, only the scope it counts over. The test and the write are one critical
 section — reading totals, deciding, then writing would let two processes see the same room
 and both take it, precisely when the cluster is busy.

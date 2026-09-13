@@ -59,8 +59,6 @@ def cfg(**over) -> Config:
         "workspace_roots": (".",),
         "max_inflight_seqs": 5,
         "kv_token_budget": 100_000,
-        "large_prefill_tokens": 10_000,
-        "max_inflight_large_prefills": 2,
     }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
@@ -104,7 +102,6 @@ HOLDER = textwrap.dedent(
         slots.prepare()
         cfg = Config(
             workspace_roots=(".",), max_inflight_seqs=seqs, kv_token_budget=100000,
-            large_prefill_tokens=10000, max_inflight_large_prefills=2,
         )
         gate = Admission(cfg, slots)
         await gate.acquire(
@@ -394,4 +391,4 @@ async def test_without_a_shared_file_the_old_behaviour_is_exact() -> None:
 
 def test_totals_default_to_empty() -> None:
     t = Totals()
-    assert (t.seqs, t.tokens, t.large, t.per_entry) == (0, 0, 0, {})
+    assert (t.seqs, t.tokens, t.per_entry) == (0, 0, {})
