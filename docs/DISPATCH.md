@@ -1,4 +1,5 @@
-<!-- BUDGET: 750 -->
+<!-- BUDGET: 754 -->
+<!-- Raised from 750 on 2026-09-14: the pool scrape is now conditional, and the paragraph has to say what asks for it. -->
 <!-- Raised from 742 on 2026-09-14: dedup and eviction can see each other now, which is a third limit on a repeat and belongs beside the other two. -->
 <!-- Raised from 736 on 2026-09-14: eviction is sized in bytes, and the paragraph has to say what size does NOT decide -- which results go. -->
 <!-- Raised from 733 on 2026-09-14: a failing turn returns what it decoded, and the success-path paragraph could not carry that contract unamended. -->
@@ -548,9 +549,12 @@ larger claim than the one measured.
 
 The scrape that prices the first turn also carries the size of the KV pool, and it used
 to be dropped. It is reported
-to admission instead, which is the only sighting of the figure on the dispatch path and costs
-nothing because the read has already happened. What admission does with it is
-[ARCHITECTURE.md](ARCHITECTURE.md)'s.
+to admission instead, which is the only sighting of the figure on the dispatch path. That
+scrape is skipped when the rate memory already has an answer, which stopped the pool being
+read at all once the memory began surviving reconnects (ADR-0081) — so the caller passes
+`on_pool` only until the figure is in, and its presence is what asks for the scrape. The pool
+is a hardware fact, so that settles at one extra read per process. What admission does with
+it is [ARCHITECTURE.md](ARCHITECTURE.md)'s.
 
 **The final turn keeps its tools and is forbidden to call them** (ADR-0057). The loop
 breaks on the last turn whether or not the model asked for anything, so the intent — leave it

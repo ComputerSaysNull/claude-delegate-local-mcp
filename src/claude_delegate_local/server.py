@@ -835,9 +835,13 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 on_alive=alive,
                 on_turn_done=streamed_turn,
                 on_priced=priced,
-                # The KV pool arrives free in the scrape that prices the first turn,
-                # and is the only sighting of it on the dispatch path.
-                on_pool=admission.observe_pool,
+                # The KV pool arrives in the scrape that prices the first turn, and is the
+                # only sighting of it on the dispatch path. Passed only while the gate has
+                # never seen it: the pool is a hardware fact, so asking once per process is
+                # enough, and passing it forever would scrape on every delegation whose rate
+                # was already remembered. `None` here is what lets that scrape be skipped
+                # again once the figure is in (ADR-0081).
+                on_pool=None if admission.pool_known else admission.observe_pool,
                 rate_history=rates,
                 expected_concurrency=expected,
             )

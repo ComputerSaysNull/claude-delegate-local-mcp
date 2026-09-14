@@ -19,6 +19,45 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0081 — 2026-09-14 — The pool is asked for until it answers, not until the rate is known — Accepted
+
+**Context.** `seed_decode_rate` returned as soon as the rate memory had an answer for this
+concurrency, and the `on_pool` report sits after that return. That was harmless while the
+memory was per-process and cold on every reconnect: the scrape always ran, so the KV pool was
+always read. ADR-0075 made the memory survive reconnects, and the scrape stopped happening.
+
+Measured 2026-09-14 on a freshly reconnected server, after nine delegations: every dispatch
+priced `observed_at_concurrency`, `kv_cache_size_tokens_seen` **null**, and
+`kv_token_budget_effective` **2,400,000** against a reported pool of **1,467,988** — 1.63x,
+the exact drift the pool reporting was added to prevent.
+
+Neither half was broken. The rate memory returned the right rate; the pool reader reported
+the right pool whenever it ran. One improvement silently retired another, and every test on
+both sides still passed, because no test asserted the *pairing*.
+
+**Decision.** The caller passes `on_pool` only while it still wants the figure, and its
+presence is the request. Once the gate has the pool it passes `None`, the early return comes
+back, and the cost settles at one extra metrics read per process rather than per delegation —
+the pool being a hardware fact rather than a reading.
+
+Deliberately not a separate `pool_known` flag. It would have to be threaded through
+`run_one_shot` and `run_agentic_loop`, both of which already forward `on_pool` untouched, and
+a second parameter is a second thing an intermediate can forget — where forgetting restores
+this bug silently and every test still passes. That is the failure mode this ADR exists
+about, so the fix must not reintroduce its shape.
+
+**Consequences.** A warm memory now performs a scrape it previously skipped, which
+introduces a failure it did not have. A failed scrape therefore falls back to the remembered
+rate rather than to `unknown`: pricing a turn worse than before, in exchange for a figure
+that is only ever a ceiling, would be the wrong trade and is asserted against.
+
+The remembered rate still wins the pricing question. The scrape is for the pool, and
+deciding otherwise would make a warm memory worse than a cold one.
+
+The regression test asserts the pairing rather than either side, since both sides were
+green throughout. The lesson generalises: two correct mechanisms can cancel, and only a test
+that names both catches it.
+
 ## ADR-0080 — 2026-09-14 — Dedup is told what eviction dropped — Accepted
 
 **Context.** Eviction rewrote the *history*; the dedup cache is a separate dict keyed by

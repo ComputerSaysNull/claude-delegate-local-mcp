@@ -719,7 +719,7 @@ local, because they are working notes rather than a product fact.
     are sourced, in `PLAN.md` and `CHANGELOG.md`, and the audit missed them by searching for
     its own phrasing. The fifth duplication is a deliberate non-fix: ARCHITECTURE's copy is
     in a `BUDGET` comment justifying a past raise, which is a record, not competing prose
-- ⬜ **The rate memory surviving a reconnect switched off the KV-pool reading, so the
+- ✅ 2026-09-14 **The rate memory surviving a reconnect switched off the KV-pool reading, so the
   token budget is 1.63x the pool again.** `seed_decode_rate` returns early when the history
   remembers a rate for this concurrency, and `on_pool` is called *after* that return — so
   the scrape that reports `kv_cache_size_tokens` to admission only ever ran when the memory
