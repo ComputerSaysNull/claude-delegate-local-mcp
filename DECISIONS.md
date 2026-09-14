@@ -19,6 +19,51 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0079 — 2026-09-14 — Eviction is sized in bytes; the count becomes a floor — Accepted
+
+**Context.** `keep_tool_results` was a count of tool results. One measured run held 36
+results spanning 200 bytes to 50,068 — a 250x range priced identically. `config.py`'s own
+description said so and filed it rather than fixing it.
+
+Measured against the committed guard at `keep_tool_results = 4`, twelve results each way:
+
+| history | `evict_upto` | retained after |
+|---|---|---|
+| 12 one-line refusals, 200 bytes | 8 | 800 bytes |
+| 12 large files, 50,068 bytes | 8 | 200,272 bytes |
+
+The same policy, the same boundary, and 250x the retention. The cheap history was trimmed
+for nothing; the expensive one was barely bounded at all.
+
+**Decision.** The boundary is driven by `retained_tool_result_tokens`: stub oldest-first
+until what remains fits it. `keep_tool_results` survives as the floor and the step.
+
+Two properties are deliberately preserved, and each has a test that fails without it.
+
+*Selection stays oldest-first.* Dropping the largest result wherever it sits frees the most
+tokens for the fewest stubs, and is wrong: the prompt is cached by prefix, so lifting one
+out of the middle invalidates everything after it (ADR-0056). Only *where the cut falls* is
+driven by size.
+
+*The cut is floored to a whole step, not rounded up.* Rounding up looks more eager and is a
+bug: capped by the floor it advances by one every turn, which is exactly the per-turn
+boundary ADR-0056 exists to stop. Measured here while writing it — a 4.9% mean shared prefix
+against the 50% the flooring holds.
+
+**Consequences.** The unit is an absolute token count, not a share of the window. A share
+was the obvious choice and does not work: the denominator is `ModelEntry.context_window`,
+which is a silent 131,072 default whenever `models.toml` omits the key —
+`context_window_defaulted` exists to record exactly that — and a fraction of a number nobody
+chose is not a measurement. It is also why `evict_upto` consults `share()` only as a gate,
+which is unchanged here.
+
+`keep_tool_results` changes meaning rather than value, from "at most this many" to "at least
+this many". A history of small results is now left alone where it used to be trimmed for
+nothing, and a history of large ones is bounded where it used to overflow.
+
+The pressure gate is untouched: where the window was declared and there is room, the
+boundary is still held.
+
 ## ADR-0078 — 2026-09-14 — A turn that dies mid-stream returns what it decoded — Accepted
 
 **Context.** `_post_stream` reached `acc.payload()` from exactly one place: the normal

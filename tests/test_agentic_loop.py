@@ -466,7 +466,7 @@ def test_the_loop_evicts_as_the_history_grows(registered):
         wants(("echo", {"what": "c"})),
         says("done"),
     )
-    result = run(backend, cfg=cfg(keep_tool_results=1))
+    result = run(backend, cfg=cfg(keep_tool_results=1, retained_tool_result_tokens=1))
     assert result.evicted >= 1
     stubs = [
         b.content

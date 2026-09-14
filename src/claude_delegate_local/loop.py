@@ -27,7 +27,7 @@ import os
 import random
 import time
 from collections import Counter, deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
 from email.utils import parsedate_to_datetime
@@ -1358,10 +1358,23 @@ async def _keepalive(
 # What an evicted tool result is replaced by. The block stays and keeps its `tool_use_id`:
 # some backends validate that every tool_use has a matching result, so dropping the block
 # outright would make a long delegation fail at the wire rather than merely forget.
-def _count_tool_results(messages: tuple[Message, ...]) -> int:
-    return sum(
-        1 for m in messages for b in m.content if isinstance(b, ToolResultBlock)
-    )
+def _tool_result_sizes(cfg: Config, messages: tuple[Message, ...]) -> list[int]:
+    """Estimated tokens of each tool result, oldest first.
+
+    A list rather than a count, because what fills a context window is bytes and the
+    results in one real run spanned 200 of them to 50,068. Order is history order and the
+    eviction boundary walks it from the front, so this must not be sorted.
+
+    Extension-less, so `estimate_tokens` costs every result at the densest ratio it knows
+    and over-counts rather than under-counts -- the same bias `estimate_message_tokens`
+    takes, and for the same reason: under-counting here retains more than fits.
+    """
+    return [
+        cfg.estimate_tokens(len(b.content))
+        for m in messages
+        for b in m.content
+        if isinstance(b, ToolResultBlock)
+    ]
 
 
 EVICTED_STUB = "[dropped from the history to keep it bounded. Call the tool again if needed.]"
@@ -2003,8 +2016,17 @@ class _OverflowGuard:
             self.cfg, self.entry, self.prev_input_tokens, self.pending_tokens
         )
 
-    def evict_upto(self, results: int) -> int:
+    def evict_upto(self, sizes: Sequence[int]) -> int:
         """How many of the oldest tool results should be stubbed, now. Never retreats.
+
+        Takes the results' estimated sizes, oldest first, and not a count of them. A count
+        prices a one-line refusal and a 50KB file identically, and one real run held both:
+        36 results spanning 200 bytes to 50,068 (ADR-0079). What fills a context window is
+        bytes, so bytes are what the boundary is driven by.
+
+        `keep` survives as two things it was already doing and one it was not. It is the
+        floor -- the newest results are what the model is working from, so they stay intact
+        whatever they cost -- and it is the step. What it is no longer is the trigger.
 
         Two conditions, and measurement says both are needed. Gating on pressure alone left
         the reuse share at 5.1% once pressure arrived, barely above the 2.9% it replaced,
@@ -2030,7 +2052,24 @@ class _OverflowGuard:
         measures 93.0%. Better than today in either configuration, and never worse.
         """
         step = max(self.keep, 1)
-        want = (max(results - self.keep, 0) // step) * step
+        # The floor, applied first: whatever the sizes say, `keep` results survive intact.
+        evictable = max(len(sizes) - self.keep, 0)
+        # Oldest-first, never cheapest-first. Selection stays in history order because the
+        # prompt is cached by prefix, so dropping a large result out of the middle would
+        # invalidate everything after it -- trading the whole cache for a few thousand
+        # tokens (ADR-0056). Only *where the cut falls* is driven by size.
+        budget = self.cfg.retained_tool_result_tokens
+        need = 0
+        retained = sum(sizes)
+        while need < evictable and retained > budget:
+            retained -= sizes[need]
+            need += 1
+        # Floored to a whole step, so the boundary jumps by `keep` and one rewrite buys
+        # `keep` turns of stability. Rounding *up* instead looks more eager and is the bug:
+        # capped by `evictable` it advances by one every turn, which is precisely the
+        # per-turn boundary ADR-0056 exists to stop -- measured here at a 4.9% mean shared
+        # prefix against the 50% this holds.
+        want = (min(need, evictable) // step) * step
         if (self.armed or self.pressure_known) and self.share() < OVERFLOW_EVICT_AT:
             return self.evicted_upto
         self.evicted_upto = max(self.evicted_upto, want)
@@ -2484,7 +2523,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             guard.begin_turn(turn=turn, turns=turns, ledger=watch.calls)
             before = tuple(history)
             trimmed, dropped = stub_oldest_tool_results(
-                before, guard.evict_upto(_count_tool_results(before))
+                before, guard.evict_upto(_tool_result_sizes(cfg, before))
             )
             history = list(trimmed)
             watch.evicted(before, trimmed, dropped)

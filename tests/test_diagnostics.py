@@ -31,7 +31,13 @@ BULK = "y" * 20_000  # large enough that retention actually bites
 
 
 def cfg(**over) -> Config:
-    kw = {"workspace_roots": (".",), "keep_tool_results": 1}
+    # Since ADR-0079 the boundary is driven by retained tokens, so a budget of 1 is what
+    # makes retention bite here; `keep_tool_results` is now the floor beneath it.
+    kw = {
+        "workspace_roots": (".",),
+        "keep_tool_results": 1,
+        "retained_tool_result_tokens": 1,
+    }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
 

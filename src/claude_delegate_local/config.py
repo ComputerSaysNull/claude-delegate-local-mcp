@@ -323,13 +323,25 @@ class Config:
     )
     keep_tool_results: int = _f(
         16,
-        "Most recent tool results kept intact; older ones collapse to a one-line stub. "
-        "Every turn resends the whole history, so this is what stops quadratic growth. "
-        "Raised from 6, which was sized against no measurement: a real 36-result run held "
-        "about 104,730 tokens in total, roughly 10% of a 1,048,576-token window, where 6 "
-        "retained 2.71% and 16 retains 5.25%. A count is the wrong unit for the question -- "
-        "those 36 results ranged from 200 bytes to 50,068, so it prices a one-line refusal "
-        "and a 50KB file identically -- and that is filed rather than fixed here.",
+        "Floor on how many recent tool results stay intact, and the quantity the eviction "
+        "boundary steps by. No longer what decides that eviction happens -- "
+        "retained_tool_result_tokens does that, because a count prices a one-line refusal "
+        "and a 50KB file identically and those are both real results from one run "
+        "(ADR-0079). It survives as the floor because the newest results are the ones the "
+        "model is working from, and as the step because a boundary that moves every turn "
+        "costs the prefix cache everything after it (ADR-0056).",
+    )
+    retained_tool_result_tokens: int = _f(
+        55_000,
+        "How much of the history's tool output stays intact, in the unit that actually "
+        "fills a context window. The oldest results are stubbed, newest-last, until what "
+        "remains fits this. Sized to retain about what a count of 16 retained on the run "
+        "that produced the measurement: 36 results holding roughly 104,730 estimated "
+        "tokens, of which 16 was 5.25% of a 1,048,576-token window. Deliberately an "
+        "absolute number rather than a share of the window, because the window is "
+        "ModelEntry.context_window and that is a silent default whenever models.toml omits "
+        "it -- a fraction of a number nobody chose is not a measurement.",
+        unit="est. tokens",
     )
 
     # ---- context overflow (M4) ---------------------------------------------------
