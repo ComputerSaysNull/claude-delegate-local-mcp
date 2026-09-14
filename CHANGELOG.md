@@ -34,6 +34,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #TBD — 2026-09-14 — docs: file what the live cluster said after the reconnect
+
+### Added
+- **The `admission_wait_timeout` spike is answered: nothing reaches it.** A five-wide
+  fan-out of ~40k-token prefills, `peak_inflight_seqs` 5 and `peak_inflight_tokens` 498,392,
+  produced `admission_wait_count` 0, `admission_wait_seconds_total` 0 and `queued_waiters`
+  0. With the large-prefill gate gone (ADR-0077) nothing queues, so nothing can reach a
+  bound on queueing. The open question changes from what the number should be to whether the
+  bail-out has a purpose left.
+- **A new defect, measured and root-caused: persisting the rate memory retired the KV-pool
+  reading.** `seed_decode_rate` returns early when the history remembers a rate for this
+  concurrency, and `on_pool` is called after that return — so the scrape reporting
+  `kv_cache_size_tokens` to admission only ever ran when the memory was cold. ADR-0075 made
+  it warm on every reconnect and thereby undid #192 without touching it. Measured after nine
+  delegations on a freshly reconnected server: every dispatch priced
+  `observed_at_concurrency`, `kv_cache_size_tokens_seen` null, and `kv_token_budget_effective`
+  2,400,000 against a reported pool of 1,467,988 — **1.63x**, the exact drift #192 existed to
+  stop. Each half still passes its own tests; it is the pairing that broke.
+
 ## #TBD — 2026-09-14 — fix: dedup handed back in full what eviction had just dropped
 
 ### Fixed
