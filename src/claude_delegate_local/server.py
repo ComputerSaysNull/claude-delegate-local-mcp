@@ -72,6 +72,49 @@ STATUS_PROTOCOL_ERROR = "backend_protocol_error"
 STATUS_MISCONFIGURED = "misconfigured"
 
 
+def _partial_result(
+    error: BaseException, prefetched: Any, agent: AgentSpec | None
+) -> dict[str, Any] | None:
+    """What a delegation had decoded before its deadline killed it, or `None` (ADR-0078).
+
+    `None` for every failure that carries nothing -- which is most of them -- so the
+    caller re-raises and the behaviour is exactly what it has always been. The partial
+    path is entered only when tokens actually arrived, because an empty partial says
+    nothing the deadline message has not already said, and returning one would convert a
+    clean failure into a result that looks like an answer.
+
+    Deliberately a *reduced* dict rather than the full one. Almost everything in the whole
+    shape is read off the `Dispatch` the success path builds, and there is no `Dispatch`
+    here -- the turn never finished. Inventing zeroes for the counters would report a
+    delegation that ran no tools rather than one whose tally was never taken, and the
+    schema is `additionalProperties` with nothing required precisely so a short result is
+    legal.
+    """
+    partial = getattr(error, "partial", None)
+    if partial is None:
+        return None
+    answer, answer_is_reasoning = answer_of(partial)
+    turns = getattr(error, "turns", None)
+    tool_calls = getattr(error, "tool_calls", None)
+    return {
+        **prefetched.accounting(),
+        **({"agent": agent.name, "agent_source": agent.source_path} if agent else {}),
+        "answer": answer,
+        "answer_is_reasoning": answer_is_reasoning,
+        "empty_response": answer == "",
+        # The two keys that stop this reading as a success. Both, not one: a caller
+        # filtering on `error` and a caller filtering on `partial` are both right.
+        "partial": True,
+        "error": str(error),
+        "model": partial.model,
+        "finish_reason": partial.finish_reason,
+        "input_tokens": partial.input_tokens,
+        "output_tokens": partial.output_tokens,
+        **({"turns": turns} if turns is not None else {}),
+        **({"tool_calls": tool_calls} if tool_calls is not None else {}),
+    }
+
+
 def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
     """The turn-loop counters, present only when a loop actually ran.
 
@@ -353,7 +396,14 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
         # Not routed through _refuse: that names an endpoint, and this failure is a deadline
         # the operator set. The message already carries the elapsed time, the limit and
         # which stage was running when it expired.
-        raise ToolError(str(e)) from e
+        failed = ToolError(str(e))
+        # What the abandoned turn had decoded, carried across the one conversion that
+        # would otherwise drop it (ADR-0078). `str(e)` keeps the whole message, so the
+        # caller that ignores the partial sees exactly what it saw before.
+        failed.partial = e.partial  # type: ignore[attr-defined]
+        failed.turns = e.turns  # type: ignore[attr-defined]
+        failed.tool_calls = e.tool_calls  # type: ignore[attr-defined]
+        raise failed from e
     except (BackendUnavailable, BackendRefused, BackendProtocolError) as e:
         raise _refuse(e) from e
 
@@ -798,7 +848,19 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         raise ToolError(str(e)) from e
     except BaseException as e:
         failure = e
-        raise
+        # A deadline that fired after the model had already decoded something returns what
+        # it decoded rather than only the message saying it was abandoned (ADR-0078). Nine
+        # dispatches once generated 265,092 tokens between them and answered with nothing.
+        #
+        # It is still reported as a failure: `partial` is true and `error` carries the
+        # whole deadline message, so nothing here turns a timeout into a quiet success.
+        # Absent rather than empty when no token arrived -- `_partial_result` returns None
+        # and this re-raises, because a turn that produced nothing is what the deadline
+        # message already describes on its own.
+        partial = _partial_result(e, prefetched, agent)
+        if partial is None:
+            raise
+        return partial
     finally:
         # A side effect whose result nothing reads. The other upstream bug was the record
         # reaching the response through a dict merge, so there is deliberately no value
@@ -970,6 +1032,15 @@ _DELEGATION_RESULT: dict[str, Any] = {
             "Round trips the loop took. Absent on the one-shot path, where a turn budget "
             "never applied."
         ),
+        "partial": {"type": ["boolean", "null"], "description": (
+            "The delegation was abandoned at a deadline *after* the model had decoded "
+            "some of its reply, and `answer` holds that much of it. `error` beside it "
+            "carries which deadline fired and what it was set to. This is a failure with "
+            "the work salvaged, not a short answer: the reply stops mid-thought, so use "
+            "it as material and re-send the remainder rather than quoting it as a result. "
+            "Absent when the deadline fired before any token arrived, which is the "
+            "ordinary timeout and still raises."
+        )},
         "hit_turn_limit": {"type": ["boolean", "null"], "description": (
             "The delegation was still calling tools when its turns ran out, so the answer "
             "is whatever it could write once tools were withdrawn. Treat it as partial and "

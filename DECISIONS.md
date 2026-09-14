@@ -19,6 +19,57 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0078 — 2026-09-14 — A turn that dies mid-stream returns what it decoded — Accepted
+
+**Context.** `_post_stream` reached `acc.payload()` from exactly one place: the normal
+return after `[DONE]`. No `finally`, no `except` returning it. So every other way a stream
+ends — the turn bound, a transport failure, a malformed frame, and the caller's deadline
+cancelling the task — dropped the accumulator as a dead local.
+
+Measured 2026-09-13: nine dispatches generated 265,092 tokens between them and answered
+with the empty string. ADR-0070 made the transport stream and said so in its own docstring
+— "this returns only once the stream has ended, so `complete()` still never returns a
+partial" — which was the right scope then and is the line this changes.
+
+The cancellation path is the one that matters and the one an obvious fix misses.
+`_until_deadline` cancels the in-flight task, and `CancelledError` descends from
+`BaseException`, so an `except Exception` in the adapter would look complete and cover
+every path except the one the roadmap filed.
+
+**Decision.** What a turn decoded rides out on the exception that ends it. `BackendError`
+carries `partial`, a whole `CanonicalResponse` rather than a string, so every reader above
+uses `answer_of` on it exactly as on a completed reply — including the reasoning-only case,
+which a bare string would silently drop. The adapter attaches it on the way out;
+`_until_deadline` catches it off the cancellation and hangs it on the `TimeoutError`;
+`DispatchTimedOut` carries it, and `with_progress` copies it across rather than dropping it
+at the one seam every timed-out agentic delegation passes through.
+
+`None` and empty stay different facts. No token ever arrived means no partial and the
+failure raises exactly as before, because an empty partial says nothing the deadline
+message has not already said.
+
+The result is a *reduced* dict marked `partial: true` with `error` carrying the whole
+deadline message. Both keys, because a caller filtering on either is right, and neither
+alone stops this reading as a success. Reduced because almost every key on the success path
+is read off a `Dispatch` that was never built: zero-filled counters would report a
+delegation that ran no tools rather than one whose tally was never taken.
+
+**Consequences.** A contract change in two of ADR-0066's four homes: the `complete()`
+docstring said it never returns a partial, and `outputSchema` gains `partial`. A caller
+that treats any returned dict as a finished answer will now quote a reply that stops
+mid-thought — which is why the schema text says to use it as material and re-send the
+remainder, in the same voice `hit_turn_limit` already uses for the same shape of problem.
+
+A second defect fell out of the same lines and is fixed with it: the turn bound raised
+`while_generating=True` unconditionally, including for a turn killed before its first
+token. That is the field the retry decides on, and its whole purpose is to separate an
+allowance that was spent from one that was not.
+
+**Not decided here.** The retry split streaming makes available — a read timeout before
+first token is prefill or queueing, after it is slow decode — stays deferred with the
+comment that defers it. It wants its own evidence rather than arriving as a side effect,
+which is the same reason #172 declined it.
+
 ## ADR-0077 — 2026-09-13 — The large-prefill cap is removed; the engine already serialises — Accepted
 
 **Context.** `max_inflight_large_prefills` admitted N requests whose prompt exceeded

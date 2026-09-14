@@ -34,6 +34,41 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #TBD — 2026-09-14 — feat: a turn that dies mid-stream returns what it decoded
+
+### Added
+- **A failing turn carries what it had already decoded.** *Symptom:* nine dispatches
+  generated 265,092 tokens between them and answered with the empty string; a delegation
+  abandoned at its deadline reported only that it had been abandoned. *Cause:*
+  `_post_stream` reached `acc.payload()` from exactly one place — the normal return after
+  `[DONE]` — with no `finally` and no `except` returning it, so the accumulator was a dead
+  local on every other path out. *Fix:* `BackendError` carries `partial`, a whole
+  `CanonicalResponse` rather than a string, so `answer_of` reads it exactly as it reads a
+  finished reply. Attached in the adapter, caught off the cancellation by
+  `_until_deadline`, carried by `DispatchTimedOut` and copied across `with_progress`.
+- **`partial` in the result, beside `error`.** *Symptom:* a deadline could only ever be an
+  MCP error, so tokens that had been paid for were unreachable. *Fix:* where a partial
+  exists the caller gets a reduced result marked `partial: true` with the whole deadline
+  message under `error`. Both keys, because either alone lets a timeout read as a finished
+  answer. Reduced deliberately: the counters on the success path come off a `Dispatch` that
+  was never built, and zero-filling them would report a delegation that ran no tools rather
+  than one whose tally was never taken.
+- **`None` and empty kept apart.** A turn that decoded nothing carries no partial and
+  raises exactly as before — an empty partial says nothing the deadline message does not.
+
+### Fixed
+- **The turn bound claimed to be generating whatever had happened.** *Symptom:*
+  `while_generating=True` was raised unconditionally, including for a turn killed before
+  its first token. *Cause:* a literal where a predicate belonged. *Fix:* it now reports
+  whether a token actually arrived — the field the retry decides on, whose whole purpose is
+  separating an allowance that was spent from one that was not.
+
+### Notes
+- The retry split streaming makes available — a read timeout before the first token is
+  prefill or queueing, after it is slow decode — stays deferred, with the comment that
+  defers it. It wants its own evidence rather than arriving as a side effect.
+- ADR-0078. Closes the last slice of the streaming item reopened 2026-09-05.
+
 ## #194 — 2026-09-14 — fix: remove the large-prefill cap the measurement condemned
 
 ### Removed

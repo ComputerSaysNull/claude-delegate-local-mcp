@@ -195,6 +195,14 @@ class DispatchTimedOut(Exception):
         self.turns = turns
         self.tool_calls = tool_calls
         self.last_tool = last_tool
+        # What the abandoned turn had already decoded, when it had decoded anything
+        # (ADR-0078). Deliberately not a constructor argument and deliberately absent from
+        # the message: every raise site here is a deadline, none of them can see the
+        # backend's accumulator, and the caller that can attaches it afterwards. Keeping
+        # it out of the message is what lets it be assigned late without `str(e)` and the
+        # fields beside it drifting apart -- the thing `with_progress` copies rather than
+        # mutates precisely to avoid.
+        self.partial: Any = None
         super().__init__(
             f"Delegation abandoned after {elapsed:.1f}s, past the "
             f"{setting} of {limit}s, {stage}.{self._progress()} {remedy}"
@@ -226,10 +234,14 @@ class DispatchTimedOut(Exception):
         fields sitting beside it, which is the drift between a report and the thing it
         reports that ADR-0007 exists to refuse.
         """
-        return DispatchTimedOut(
+        copy = DispatchTimedOut(
             self.elapsed, self.limit, self.stage, self.setting, self.remedy,
             turns=turns, tool_calls=tool_calls, last_tool=last_tool,
         )
+        # Carried across explicitly. A copy that silently dropped it would lose the
+        # partial at the one seam every timed-out agentic delegation passes through.
+        copy.partial = self.partial
+        return copy
 
 
 @dataclass(frozen=True, slots=True)
@@ -813,11 +825,19 @@ async def _until_deadline(
         budget = left()
         if budget is not None and budget <= 0:
             task.cancel()
+            partial = None
             try:
                 await task
-            except BaseException:  # the cancellation itself; TimeoutError below reports it
-                pass
-            raise TimeoutError
+            except BaseException as e:  # the cancellation itself; TimeoutError reports it
+                # The one place the partial can be caught. The adapter hangs what it had
+                # decoded on whatever exception leaves it, cancellation included, and the
+                # attribute does survive `await task` -- measured on 3.12.3 and 3.14.6.
+                # The task object cannot be asked instead: once it is cancelled,
+                # `task.exception()` refuses rather than answering.
+                partial = getattr(e, "partial", None)
+            timed_out = TimeoutError()
+            timed_out.partial = partial  # type: ignore[attr-defined]
+            raise timed_out
         wait_for = tick if budget is None else min(tick, budget)
         if tick_sleep is None:
             done, _ = await asyncio.wait({task}, timeout=wait_for)
@@ -967,13 +987,19 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
                 # Nothing bounded this attempt but the adapter's own client budget, so
                 # the delegation deadline is not what expired. Naming it would send an
                 # operator to raise a setting that had no part in this.
-                raise DispatchTimedOut(
+                timed_out = DispatchTimedOut(
                     spent(), cfg.turn_timeout, "while waiting on one turn",
                     setting="DELEGATE_TURN_TIMEOUT",
-                ) from e
-            raise DispatchTimedOut(
-                spent(), cfg.dispatch_timeout, "while waiting on the backend"
-            ) from e
+                )
+            else:
+                timed_out = DispatchTimedOut(
+                    spent(), cfg.dispatch_timeout, "while waiting on the backend"
+                )
+            # `_until_deadline` cancelled the call, and what it had decoded came back on
+            # the TimeoutError. Both diagnoses carry it: which deadline expired decides
+            # the message, never whether the tokens are worth returning.
+            timed_out.partial = getattr(e, "partial", None)
+            raise timed_out from e
         except (BackendUnavailable, BackendRefused) as e:
             # Time-tested, not just kind-tested. An attempt that consumed its whole
             # allowance without answering cannot do the same work in less, so retrying it
