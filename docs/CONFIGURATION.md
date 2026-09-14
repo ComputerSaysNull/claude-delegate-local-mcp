@@ -86,7 +86,8 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_MAX_TURNS_DEFAULT` | 25 | Round trips a delegation gets before the server stops it. One turn is one model reply plus any tool it ran. |
 | `DELEGATE_MAX_TURNS_HARD_CAP` | 100 | Ceiling no agent file or caller may exceed. Stops an agent definition asking for 500 turns and occupying the cluster for hours. Raised from 40 once max_turns became overridable per call: the cap exists to refuse an absurd number, not to decide what a hard case may ask for, and 40 was low enough to be the second. A caller's number is clamped here silently; an agent file's is refused, so the file is fixed rather than quietly ignored. |
-| `DELEGATE_KEEP_TOOL_RESULTS` | 16 | Most recent tool results kept intact; older ones collapse to a one-line stub. Every turn resends the whole history, so this is what stops quadratic growth. Raised from 6, which was sized against no measurement: a real 36-result run held about 104,730 tokens in total, roughly 10% of a 1,048,576-token window, where 6 retained 2.71% and 16 retains 5.25%. A count is the wrong unit for the question -- those 36 results ranged from 200 bytes to 50,068, so it prices a one-line refusal and a 50KB file identically -- and that is filed rather than fixed here. |
+| `DELEGATE_KEEP_TOOL_RESULTS` | 16 | Floor on how many recent tool results stay intact, and the quantity the eviction boundary steps by. No longer what decides that eviction happens -- retained_tool_result_tokens does that, because a count prices a one-line refusal and a 50KB file identically and those are both real results from one run (ADR-0079). It survives as the floor because the newest results are the ones the model is working from, and as the step because a boundary that moves every turn costs the prefix cache everything after it (ADR-0056). |
+| `DELEGATE_RETAINED_TOOL_RESULT_TOKENS` | 55000 est. tokens | How much of the history's tool output stays intact, in the unit that actually fills a context window. The oldest results are stubbed, newest-last, until what remains fits this. Sized to retain about what a count of 16 retained on the run that produced the measurement: 36 results holding roughly 104,730 estimated tokens, of which 16 was 5.25% of a 1,048,576-token window. Deliberately an absolute number rather than a share of the window, because the window is ModelEntry.context_window and that is a silent default whenever models.toml omits it -- a fraction of a number nobody chose is not a measurement. |
 
 ### Context overflow
 
@@ -162,6 +163,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting, unlike ADR-0034's sandbox_enabled, because naming another transport should be an error rather than silence -- load() reads only variables matching a field, so deleting this one would make a stale value do nothing without saying so. |
 
-*64 settings.*
+*65 settings.*
 
 <!-- GEN:CONFIG:END -->

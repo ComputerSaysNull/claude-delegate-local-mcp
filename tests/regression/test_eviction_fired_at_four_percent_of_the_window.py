@@ -35,6 +35,13 @@ from claude_delegate_local.registry import ModelEntry
 WINDOW = 1_048_576
 PROMPT_TOKENS = 41_016      # the largest prompt in the run: 3.9% of the window
 RESULTS = 36                # tool results the run accumulated
+HISTORY_TOKENS = 104_730    # what retaining all 36 would have cost
+
+# Sizes, because eviction is driven by them since ADR-0079. Split evenly here: this file is
+# about the *pressure gate*, and an even split keeps the total tied to the measurement
+# without the spread confounding it. The spread is exercised where it belongs, in
+# test_eviction_priced_a_refusal_like_a_50kb_file.py.
+SIZES = [HISTORY_TOKENS // RESULTS] * RESULTS
 
 
 def entry(*, defaulted: bool) -> ModelEntry:
@@ -55,7 +62,7 @@ def test_a_window_the_operator_set_is_not_evicted_at_four_percent():
     g = guard_at(PROMPT_TOKENS, defaulted=False)
 
     assert g.share() < loop.OVERFLOW_EVICT_AT, "the fixture must sit below the threshold"
-    assert g.evict_upto(RESULTS) == 0
+    assert g.evict_upto(SIZES) == 0
 
 
 def test_a_defaulted_window_still_evicts_on_count():
@@ -68,7 +75,7 @@ def test_a_defaulted_window_still_evicts_on_count():
     """
     g = guard_at(PROMPT_TOKENS, defaulted=True)
 
-    assert g.evict_upto(RESULTS) > 0
+    assert g.evict_upto(SIZES) > 0
 
 
 def test_real_pressure_on_a_set_window_still_evicts():
@@ -80,7 +87,7 @@ def test_real_pressure_on_a_set_window_still_evicts():
     g = guard_at(int(WINDOW * 0.8), defaulted=False)
 
     assert g.share() > loop.OVERFLOW_EVICT_AT
-    assert g.evict_upto(RESULTS) > 0
+    assert g.evict_upto(SIZES) > 0
 
 
 def test_the_boundary_never_retreats_once_pressure_passes():
@@ -90,11 +97,11 @@ def test_the_boundary_never_retreats_once_pressure_passes():
     difference discards everything after it. Evicting and then un-evicting pays twice.
     """
     g = guard_at(int(WINDOW * 0.8), defaulted=False)
-    under_pressure = g.evict_upto(RESULTS)
+    under_pressure = g.evict_upto(SIZES)
     assert under_pressure > 0
 
     g.prev_input_tokens = PROMPT_TOKENS  # pressure falls away again
-    assert g.evict_upto(RESULTS) == under_pressure
+    assert g.evict_upto(SIZES) == under_pressure
 
 
 @pytest.mark.parametrize("keep", [16])

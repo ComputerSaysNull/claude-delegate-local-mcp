@@ -43,7 +43,11 @@ from claude_delegate_local.backends.base import (
     ToolUseBlock,
 )
 from claude_delegate_local.config import Config
-from claude_delegate_local.loop import _OverflowGuard, stub_oldest_tool_results
+from claude_delegate_local.loop import (
+    _OverflowGuard,
+    _tool_result_sizes,
+    stub_oldest_tool_results,
+)
 from claude_delegate_local.registry import ModelEntry
 
 KEEP = 6
@@ -55,7 +59,16 @@ TURNS = 24
 
 
 def _cfg(**over) -> Config:
-    kw = {"workspace_roots": (".",), "keep_tool_results": KEEP}
+    kw = {
+        "workspace_roots": (".",),
+        "keep_tool_results": KEEP,
+        # Since ADR-0079 the boundary is driven by retained tokens, so this test sets a
+        # budget that holds exactly KEEP results of RESULT_CHARS. Eviction then starts
+        # where a count of KEEP started it, and what this file measures -- whether the
+        # boundary moves every turn -- is unchanged.
+        "retained_tool_result_tokens": KEEP * Config(workspace_roots=(".",))
+        .estimate_tokens(RESULT_CHARS),
+    }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
 
@@ -137,10 +150,15 @@ def _walk(
         under_pressure=under_pressure, armed=armed, window_declared=window_declared
     )
     shares: list[float] = []
-    previous = stub_oldest_tool_results(_history(KEEP), guard.evict_upto(KEEP))[0]
+    _start = _history(KEEP)
+    previous = stub_oldest_tool_results(
+        _start, guard.evict_upto(_tool_result_sizes(guard.cfg, _start))
+    )[0]
     for turn in range(KEEP + 1, TURNS + 1):
         current = _history(turn)
-        current = stub_oldest_tool_results(current, guard.evict_upto(turn))[0]
+        current = stub_oldest_tool_results(
+            current, guard.evict_upto(_tool_result_sizes(guard.cfg, current))
+        )[0]
         shares.append(_shared_prefix_chars(previous, current) / _chars(current))
         previous = current
     return shares
@@ -204,7 +222,7 @@ def test_an_unarmed_guard_still_bounds_the_history() -> None:
     resets the prefix cache and makes the model fetch what it dropped.
     """
     guard = _guard(under_pressure=False, armed=False, window_declared=False)
-    assert guard.evict_upto(TURNS) > 0
+    assert guard.evict_upto(_tool_result_sizes(guard.cfg, _history(TURNS))) > 0
 
     # And it is still stepped rather than per-turn, which is the other half.
     shares = _walk(under_pressure=False, armed=False, window_declared=False)
@@ -218,27 +236,33 @@ def test_a_declared_window_bounds_on_pressure_rather_than_on_count() -> None:
     bound applies exactly as before -- the history is bounded either way, at a ceiling the
     operator's own window sets rather than at a count sized against nothing.
     """
-    assert _guard(under_pressure=False, window_declared=True).evict_upto(TURNS) == 0
-    assert _guard(under_pressure=True, window_declared=True).evict_upto(TURNS) > 0
+    _g = _guard(under_pressure=False, window_declared=True)
+    assert _g.evict_upto(_tool_result_sizes(_g.cfg, _history(TURNS))) == 0
+    _g2 = _guard(under_pressure=True, window_declared=True)
+    assert _g2.evict_upto(_tool_result_sizes(_g2.cfg, _history(TURNS))) > 0
 
 
 def test_the_boundary_never_retreats() -> None:
     """Un-stubbing rewrites the history too, in the other direction, at the same cost."""
     guard = _guard(under_pressure=True)
-    seen = [guard.evict_upto(n) for n in range(1, TURNS + 1)]
+    seen = [
+        guard.evict_upto(_tool_result_sizes(guard.cfg, _history(n)))
+        for n in range(1, TURNS + 1)
+    ]
     assert seen == sorted(seen), seen
 
     # And it holds where it is when the pressure goes away, rather than snapping back.
     guard.share = lambda: 0.05  # type: ignore[method-assign]
-    assert guard.evict_upto(TURNS) == seen[-1]
+    assert guard.evict_upto(_tool_result_sizes(guard.cfg, _history(TURNS))) == seen[-1]
 
 
 def test_a_stub_is_not_re_evicted_or_re_counted() -> None:
     """The count is work performed this turn, which is what the ledger reports."""
     guard = _guard(under_pressure=True)
     history = _history(TURNS)
-    once, first = stub_oldest_tool_results(history, guard.evict_upto(TURNS))
-    twice, second = stub_oldest_tool_results(once, guard.evict_upto(TURNS))
+    sizes = _tool_result_sizes(guard.cfg, history)
+    once, first = stub_oldest_tool_results(history, guard.evict_upto(sizes))
+    twice, second = stub_oldest_tool_results(once, guard.evict_upto(sizes))
 
     assert first > 0, "the walk never evicted anything, so this proves nothing"
     assert second == 0

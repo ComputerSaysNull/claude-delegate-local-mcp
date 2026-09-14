@@ -500,7 +500,7 @@ them was re-derived when it did.
 - ✅ 2026-09-13 **Eviction fired at 4% of the window against a 50% gate** — the pressure check
   was gated on a setting that ships off, so it stubbed on count alone. It now applies wherever
   the window was declared, and `keep_tool_results` is 16 (JOURNAL 2026-09-13, #191)
-- ⬜ **A retained *count* is the wrong unit for a history.** One run's 36 results ranged from
+- ✅ 2026-09-14 **A retained *count* is the wrong unit for a history.** One run's 36 results ranged from
   200 bytes to 50,068, so `keep_tool_results` prices a one-line refusal and a 50KB file
   identically. A share of the window is the unit; the count becomes its floor
   - **Corrected 2026-09-14, twice, before any code was written.** *A share of the window

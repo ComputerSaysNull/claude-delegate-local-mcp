@@ -1,4 +1,5 @@
-<!-- BUDGET: 736 -->
+<!-- BUDGET: 742 -->
+<!-- Raised from 736 on 2026-09-14: eviction is sized in bytes, and the paragraph has to say what size does NOT decide -- which results go. -->
 <!-- Raised from 733 on 2026-09-14: a failing turn returns what it decoded, and the success-path paragraph could not carry that contract unamended. -->
 <!-- Raised from 700 (to 706) on 2026-09-13: reasoning is returned instead of discarded, which adds a result field and narrows what empty_response means. -->
 <!-- Raised from 700 on 2026-09-13: the tool set is built per deployment now, because one description carries the workspace layout. -->
@@ -491,9 +492,14 @@ half rather than an hour.
 
 Each turn resends everything before it, so an untrimmed history makes a delegation cost the
 square of its length — the tenth turn paying again for the first nine tool results.
-[`keep_tool_results`](CONFIGURATION.md) keeps the most recent few intact and collapses the
-rest to a one-line stub. Oldest-first by count, which is what the setting says it is; a
-size-aware policy would evict differently and is not what was promised.
+[`retained_tool_result_tokens`](CONFIGURATION.md) decides how much survives and the oldest
+results collapse to a one-line stub until what remains fits it.
+[`keep_tool_results`](CONFIGURATION.md) is the floor and the step, no longer the trigger: a
+count priced a one-line refusal and a 50KB file identically, and one run held both — twelve
+of each produced the same boundary and 250x the retention (ADR-0079). What size does *not*
+decide is which results go. Selection stays oldest-first, because lifting a large one out of
+the middle would invalidate every cached prefix after it; only where the cut falls follows
+size, and it lands on a whole step.
 
 What goes is the *content*. The block and its `tool_use_id` stay, because some backends
 validate that every tool use has a matching result, and dropping the block outright would
@@ -728,7 +734,7 @@ The field worth asking for is `evicted_then_reread`: files the model read again 
 server had dropped the first read from the history. The aggregate ledger can already say a
 delegation was expensive. Only this says whether it was expensive because the work was large
 or because it kept paying twice for the same bytes — and those have different fixes, one of
-them being a larger `keep_tool_results`. It is a prerequisite for sizing eviction rather
+them being a larger `retained_tool_result_tokens`. It is a prerequisite for sizing eviction rather
 than a report about it.
 
 Correlation, and the arguments in the record, are the path the model supplied rather than

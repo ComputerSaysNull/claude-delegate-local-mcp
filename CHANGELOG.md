@@ -34,6 +34,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #TBD — 2026-09-14 — fix: eviction priced a one-line refusal like a 50KB file
+
+### Changed
+- **The eviction boundary is driven by `retained_tool_result_tokens`.** *Symptom:* measured
+  against the committed guard at `keep_tool_results = 4`, twelve one-line refusals and
+  twelve 50KB files produced the *same* boundary of 8 — retaining 800 bytes in one case and
+  200,272 in the other. *Cause:* the unit was a count, and one real run held results
+  spanning 200 bytes to 50,068; `config.py` said so and filed it. *Fix:* stub oldest-first
+  until what remains fits a token budget.
+- **`keep_tool_results` changes meaning, not value.** From "at most this many" to "at least
+  this many" — it is now the floor and the step. A history of small results is left alone
+  where it used to be trimmed for nothing; a large one is bounded where it used to overflow.
+
+### Notes
+- **Selection deliberately does not follow size.** Dropping the biggest result wherever it
+  sits frees the most tokens for the fewest stubs and is wrong: the prompt is cached by
+  prefix, so lifting one out of the middle invalidates everything after it (ADR-0056). Only
+  where the cut falls follows size.
+- **The cut is floored to a step, not rounded up.** Rounding up looks more eager and is a
+  bug — capped by the floor it advances one per turn, the exact per-turn boundary ADR-0056
+  exists to stop. Caught while writing this, by the existing prefix test: a 4.9% mean shared
+  prefix against the 50% the flooring holds.
+- **The unit is absolute, not a share of the window.** A share was the obvious choice and
+  does not work: the denominator is `ModelEntry.context_window`, a silent 131,072 default
+  whenever `models.toml` omits the key.
+- ADR-0079. The pressure gate is untouched.
+
 ## #TBD — 2026-09-14 — docs: re-file three roadmap entries that measurement contradicted
 
 ### Changed
