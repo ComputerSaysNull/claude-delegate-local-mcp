@@ -1,4 +1,5 @@
-<!-- BUDGET: 866 -->
+<!-- BUDGET: 888 -->
+<!-- Raised from 866 on 2026-09-14: the reconnect block answered the admission spike and found that persisting the rate memory retired the KV-pool reading. -->
 <!-- Raised from 835 on 2026-09-14: three entries argued from a mechanism that was removed or a consequence the code contradicts, and each correction is worth more than the line it costs. -->
 <!-- Raised from 832 on 2026-09-14: slice 4 splits -- the partial landed, the retry split and the viewer half did not, and the entry has to say which. -->
      Raised from 775 (to 795) on 2026-09-13: reasoning is no longer discarded, plus four findings this session measured -- two about eviction, one about server-side tool time, one re-filing the M10 spike.
@@ -718,6 +719,17 @@ local, because they are working notes rather than a product fact.
     are sourced, in `PLAN.md` and `CHANGELOG.md`, and the audit missed them by searching for
     its own phrasing. The fifth duplication is a deliberate non-fix: ARCHITECTURE's copy is
     in a `BUDGET` comment justifying a past raise, which is a record, not competing prose
+- ⬜ **The rate memory surviving a reconnect switched off the KV-pool reading, so the
+  token budget is 1.63x the pool again.** `seed_decode_rate` returns early when the history
+  remembers a rate for this concurrency, and `on_pool` is called *after* that return — so
+  the scrape that reports `kv_cache_size_tokens` to admission only ever ran when the memory
+  was cold. ADR-0075 made it warm on every reconnect and thereby retired #192 without
+  touching it. Measured 2026-09-14 after nine delegations on a freshly reconnected server:
+  every dispatch priced `observed_at_concurrency`, `kv_cache_size_tokens_seen` **null**, and
+  `kv_token_budget_effective` **2,400,000** against a reported pool of **1,467,988**. The
+  fix is to report the pool before the early return, or to scrape regardless; the trap is
+  that the better the rate memory gets, the less often the pool is seen. Also worth a
+  negative test that the *pairing* holds, since each half passes its own tests today
 - ⬜ **`admission_wait_timeout` bails out after 30 minutes having produced nothing**, and
   its own help text says it was sized for an era when the queue was unordered. Tickets and
   the starvation barrier removed that premise and nobody re-derived the number. Fail fast
@@ -728,6 +740,14 @@ local, because they are working notes rather than a product fact.
   - **Unblocked 2026-09-13: the gate is gone** (ADR-0077). Every wait this fired on was on
     that rule, so re-measure what reaches the bound now before moving the number — it may
     have no reachable path left at all, which is a different answer from a smaller bound
+  - **Re-measured 2026-09-14, and it has no reachable path on this workload.** A five-wide
+    fan-out of ~40k-token prefills, `peak_inflight_seqs` 5 and `peak_inflight_tokens`
+    498,392: `admission_wait_count` **0**, `admission_wait_seconds_total` **0**,
+    `queued_waiters` **0**. Nothing queued, so nothing can reach a bound on queueing. The
+    question is no longer what the number should be but whether the bail-out has any
+    remaining purpose — and note it cannot be answered from `admission_timeouts`, which
+    counts completed waits and reads 0 both when nothing waits and when everything is still
+    waiting. `peak_inflight_seqs` is the honest gauge here
   - **It has now fired, twice, on 2026-09-12** — the first time on this deployment. Two
     passes of a six-way fan-out waited the full 1800s on `max_inflight_large_prefills` and
     were refused having produced nothing. Not latent. `admission_timeouts` reads 0 while
