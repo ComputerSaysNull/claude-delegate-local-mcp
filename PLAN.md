@@ -485,7 +485,7 @@ them was re-derived when it did.
   cluster idle throughout (2026-09-13). Feeds the third-liveness-state item
 - ⬜ **The M10 spike is misfiled and stale** — it does not move M10's exit, and the workaround it
   meant to avoid writing down is now in CLAUDE.md. Its accuracy half is still unmeasured
-- ⬜ **The docs gate measures the last append-only entry a line short** — length runs to the next
+- ✅ 2026-09-14 **The docs gate measures the last append-only entry a line short** — length runs to the next
   heading, so the newest entry omits its trailing separator and an over-budget one lands, then
   blocks whoever appends next. Found by being that next person
 - ✅ 2026-09-14 **Nothing stops a conflict marker reaching `main`.** Two did, in Markdown, where no test or
