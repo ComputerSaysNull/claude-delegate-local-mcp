@@ -1,8 +1,11 @@
-<!-- BUDGET: 905 -->
+<!-- BUDGET: 925 -->
+<!-- Raised from 907 on 2026-09-14: 7.6 tok/s turned out to be one attempt of tokens over two attempts of time, plus the header opener this file had been missing. -->
 <!-- Raised from 888 on 2026-09-14: streaming closed, and the two things it was still carrying became items of their own rather than dying with it. -->
 <!-- Raised from 866 on 2026-09-14: the reconnect block answered the admission spike and found that persisting the rate memory retired the KV-pool reading. -->
 <!-- Raised from 835 on 2026-09-14: three entries argued from a mechanism that was removed or a consequence the code contradicts, and each correction is worth more than the line it costs. -->
 <!-- Raised from 832 on 2026-09-14: slice 4 splits -- the partial landed, the retry split and the viewer half did not, and the entry has to say which. -->
+<!-- The raise history below. This opener is load-bearing: line 1 self-closes, so
+     without it every line down to the closing marker renders as body text.
      Raised from 775 (to 795) on 2026-09-13: reasoning is no longer discarded, plus four findings this session measured -- two about eviction, one about server-side tool time, one re-filing the M10 spike.
      Raised from 775 on 2026-09-13: a search names its scope and is shown the map, which ticks one item and re-costs the walk item beneath it.
      Raised from 775 on 2026-09-13: the viewer group ticked, plus the two findings it turned up that its frozen body could not carry.
@@ -828,6 +831,23 @@ local, because they are working notes rather than a product fact.
 - ⬜ **Work that does not fit one turn.** Two turns produced 13,268 and 16,909 output
   tokens, the first needing 1,750s at 7.6 tok/s. No budget makes that fit an 1,800s
   attempt; it is a splitting problem, not a pricing one
+  - **Re-measured 2026-09-14, and 7.6 tok/s is an arithmetic artefact, not a rate.** The
+    turn is in the transcripts: `output_tokens` 13,268, `out_tok_s` **7.6**, `ms` 1,750,590,
+    `effort` **low**, and **`attempts` 2**. The first attempt came back empty and the loop
+    retried at a stepped-down effort, so the numerator is the *answering* attempt's tokens
+    while the denominator is *both* attempts' wall time. The two are not measurements of the
+    same thing. It was also concurrent: its sibling dispatch started twelve seconds later in
+    the same burst.
+  - **That sibling is the honest comparison, and it refutes the item from inside.** Same
+    burst, same contention: `output_tokens` **16,909** at **25.5 tok/s**, `attempts` 1,
+    `effort` high, finishing in **663s**. That is the larger of the two turns this entry
+    cites, and it fitted an 1,800s attempt with more than a thousand seconds to spare. **So
+    "no budget makes that fit" is refuted by the entry's own evidence** and this is not a
+    splitting problem.
+  - Corroborated independently 2026-09-14: one turn generated 11,403 output tokens in 242s
+    of backend time, a measured 47.1 tok/s solo against the owner's 44.1 benchmark. What
+    survives untouched is the `reply_budget_margin` half below -- ~23,700 against the 20,952
+    the margin authorises is arithmetic, not an instrument reading
   - ~~**`reply_budget_margin` is the binding constraint, measured 2026-09-12, and was not
     filed as one.** A STALE pass wants ~23,700 output tokens. An 1,800s turn at the real
     six-way rate of 19.4 authorises `1800 x 19.4 x 0.6` = **20,952** — so the margin alone

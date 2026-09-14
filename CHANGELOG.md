@@ -34,6 +34,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #TBD — 2026-09-14 — docs: the 7.6 tok/s premise re-measured, and the PLAN header repaired
+
+### Changed
+- **"Work that does not fit one turn" rests on an arithmetic artefact.** *Symptom:* the entry
+  says two turns of 13,268 and 16,909 output tokens could not fit an 1,800s attempt, the
+  first needing 1,750s at 7.6 tok/s, and concludes it is a splitting problem. *Cause:* found
+  in the transcript rather than inferred — that turn reports `attempts` **2**, `effort` low,
+  and `ms` 1,750,590. The first attempt returned empty and the loop retried at a stepped-down
+  effort, so the numerator is the answering attempt's tokens and the denominator is both
+  attempts' wall time. It was concurrent too; its sibling started twelve seconds later in the
+  same burst. *Fix:* filed beside the entry.
+- **The entry is refuted by its own second turn.** That sibling, under the same contention,
+  produced **16,909 output tokens at 25.5 tok/s in 663s** on a single attempt — the larger of
+  the two turns cited, inside an 1,800s attempt with over a thousand seconds spare.
+  Corroborated independently: one turn generated 11,403 output tokens in 242s of backend
+  time, 47.1 tok/s solo against the owner's 44.1 benchmark. The `reply_budget_margin` half
+  survives untouched, being arithmetic rather than an instrument reading.
+
+### Fixed
+- **PLAN.md's raise history rendered as body text.** Line 1 self-closed its comment, so every
+  line of the history below it was ordinary Markdown ending in a stray close marker. An
+  opener restores one block — pre-existing, and unrelated to any feature in this stack.
+
 ## #TBD — 2026-09-14 — fix: a warm rate memory stopped the KV pool being read at all
 
 ### Fixed
