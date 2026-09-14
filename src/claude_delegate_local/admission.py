@@ -192,6 +192,17 @@ class Admission:
             return self._token_budget
         return min(self._token_budget, self._pool_tokens)
 
+    @property
+    def pool_known(self) -> bool:
+        """Whether the endpoint's KV pool has ever been reported to this gate.
+
+        Read by the dispatch path to decide whether the cluster still needs scraping when
+        the rate memory already has an answer. Without it the scrape is skipped whenever the
+        memory is warm -- which, since the memory started surviving reconnects, is almost
+        always -- and the pool is never learned at all (ADR-0081).
+        """
+        return self._pool_tokens is not None
+
     def observe_pool(self, tokens: int | None) -> None:
         """Record what the endpoint says its KV pool is. Ignores anything unusable.
 

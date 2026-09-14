@@ -595,14 +595,37 @@ async def seed_decode_rate(
     # concurrency regime the engine has served and the first turn is about to meet a
     # specific one. Consulted first, and only falls through when nothing has been seen
     # this busy -- the cold start, where the old behaviour is merely optimistic.
-    if history is not None:
-        remembered = history.expect(expected_concurrency)
-        if remembered is not None:
-            return DecodeRate(remembered, float(expected_concurrency),
-                              source="observed_at_concurrency")
+    remembered = history.expect(expected_concurrency) if history is not None else None
+
+    # `on_pool` is why this is not simply `if remembered is not None: return`. The scrape
+    # below is the only place on the dispatch path that sees `kv_cache_size_tokens`, and
+    # returning here skips it -- harmless while the rate memory was per-process and cold on
+    # every reconnect, and not harmless once ADR-0075 made it warm. The pool was then never
+    # read at all and the token budget silently went back to the configured number:
+    # 2,400,000 against a reported 1,467,988, the exact 1.63x drift the reporting was added
+    # to stop. Measured 2026-09-14 (ADR-0081).
+    #
+    # So the caller passes `on_pool` only while it still wants the figure, and its presence
+    # is the request. Deliberately not a separate `pool_known` flag threaded through
+    # `run_one_shot` and `run_agentic_loop`: both already forward `on_pool` untouched, and a
+    # second parameter is a second thing an intermediate can forget -- where forgetting
+    # restores this bug silently and every test still passes.
+    #
+    # The pool is a hardware fact, so this costs one extra metrics read per process rather
+    # than per delegation: once it is known the caller stops asking and this returns early
+    # exactly as before.
+    if remembered is not None and on_pool is None:
+        return DecodeRate(remembered, float(expected_concurrency),
+                          source="observed_at_concurrency")
     try:
         cluster = await backend.probe_cluster()
     except Exception:  # a monitoring read must never fail a delegation
+        # A remembered rate outlives a failed scrape. Falling back to `unknown` here would
+        # let a momentary `/metrics` outage throw away a measurement already in hand, which
+        # is a worse trade than the one this whole function refuses to make.
+        if remembered is not None:
+            return DecodeRate(remembered, float(expected_concurrency),
+                              source="observed_at_concurrency")
         return DecodeRate(source="unknown")
     # The same payload carries the size of the KV pool, and it used to be dropped here.
     # Reporting it costs nothing -- this scrape already happened to price the turn -- and it
@@ -610,6 +633,11 @@ async def seed_decode_rate(
     if on_pool is not None:
         pool = (cluster or {}).get("kv_cache_size_tokens")
         on_pool(pool if isinstance(pool, int) else None)
+    # The remembered rate still wins the pricing question; the scrape above was for the
+    # pool. Deciding otherwise would make a warm memory worse than a cold one.
+    if remembered is not None:
+        return DecodeRate(remembered, float(expected_concurrency),
+                          source="observed_at_concurrency")
     rate = (cluster or {}).get("decode_tokens_per_second_since_boot")
     running = (cluster or {}).get("requests_running")
     return DecodeRate(

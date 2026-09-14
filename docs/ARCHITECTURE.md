@@ -1,4 +1,5 @@
-<!-- BUDGET: 1135 -->
+<!-- BUDGET: 1139 -->
+<!-- Raised from 1135 on 2026-09-14: a null kv_cache_size_tokens_seen is how the second ceiling being inert is spotted. -->
 <!-- Raised from 1130 on 2026-09-14: a deadline can now return a result rather than only an error, which is a caller-facing shape this document owns. -->
 <!-- Raised from 1069 on 2026-09-12: a granted lease carries the concurrency it was granted against, which is admission behaviour this document owns. -->
 <!-- Raised from 1100 (to 1103) on 2026-09-13: the record reads emptiness through the same helper as the reply. -->
@@ -676,7 +677,10 @@ over-admitting queues rather than errors, so this protects latency and cannot re
 has stopped. This is deliberately *not* the silent override `WindowCheck` refuses: that
 validates a declared `context_window` because adopting the endpoint's figure would overrule
 the operator, whereas these two are ceilings on the same physical thing and the lower of two
-ceilings overrules neither. Both, and which is binding, are in `backend_status`.
+ceilings overrules neither. Both, and which is binding, are in `backend_status` — where
+`kv_cache_size_tokens_seen` reading null means the second ceiling is not yet in force, which
+is how a whole reconnect's worth of delegations was found running against the configured
+number alone (ADR-0081).
 
 **Queueing is ordered, which it was not until 2026-09-04.** "Queues" above was true about
 waiting and false about a place in line. `acquire` was a re-test loop, so a request that

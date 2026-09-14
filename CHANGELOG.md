@@ -34,6 +34,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #TBD — 2026-09-14 — fix: a warm rate memory stopped the KV pool being read at all
+
+### Fixed
+- **The pool is asked for until it answers, not until the rate is known.** *Symptom:* after
+  nine delegations on a freshly reconnected server, `kv_cache_size_tokens_seen` was null and
+  `kv_token_budget_effective` stood at 2,400,000 against a reported pool of 1,467,988 —
+  1.63x, the exact drift the pool reporting exists to prevent. *Cause:* `seed_decode_rate`
+  returns as soon as the rate memory answers, and the `on_pool` report sits after that
+  return. Harmless while the memory was per-process and cold on every reconnect; not
+  harmless once ADR-0075 made it warm. *Fix:* the caller passes `on_pool` only while it
+  still wants the figure, and its presence asks for the scrape.
+- **One extra metrics read per process, not per delegation.** The pool is a hardware fact,
+  so once the gate has it the caller passes `None` and the early return comes back.
+- **A failed scrape no longer costs a remembered rate.** Scraping for the pool introduces a
+  failure a warm memory did not have; falling back to `unknown` would price the turn worse
+  than before the fix in exchange for a figure that is only ever a ceiling.
+
+### Notes
+- **Neither half was broken, and every test on both sides passed throughout.** The rate
+  memory returned the right rate; the pool reader reported the right pool when it ran. One
+  improvement silently retired another, so the regression test asserts the *pairing*.
+- Deliberately not a `pool_known` flag threaded through `run_one_shot` and
+  `run_agentic_loop`: both already forward `on_pool` untouched, and a second parameter is a
+  second thing an intermediate can forget — where forgetting restores this bug silently.
+  That is the failure mode this change is about, so the fix must not reproduce its shape.
+- ADR-0081.
+
 ## #TBD — 2026-09-14 — docs: file what the live cluster said after the reconnect
 
 ### Added
