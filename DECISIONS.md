@@ -19,6 +19,48 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0080 — 2026-09-14 — Dedup is told what eviction dropped — Accepted
+
+**Context.** Eviction rewrote the *history*; the dedup cache is a separate dict keyed by
+call rather than by `tool_use_id`, and nothing connected them. So a repeat after an eviction
+handed the whole result straight back into the window the trim had just made room in.
+
+Measured against the committed loop, one 34,208-byte result:
+
+| | bytes |
+|---|---|
+| history after eviction | 77 (the stub) |
+| the next identical call handed back | 34,269 |
+
+The trim freed 34,131 bytes and the repeat put 34,269 back, outcome `repeat`. Nothing
+re-ran, so the banner was true — the eviction simply had no effect, and the turn that asked
+was spent for nothing. This reproduces the 2026-09-13 arithmetic exactly: `REPEAT_PREFIX` is
+61 bytes, and 34,208 + 61 = 34,269.
+
+**Decision.** The cache entry carries its `tool_use_id`, so eviction can find what it just
+stubbed, and is **marked** rather than deleted. A marked entry serves `EVICTED_REPEAT`: a
+short line saying the result was dropped to stay inside the window, nothing was re-run, and
+the caller should ask for the part it needs.
+
+Marking and not deleting is the whole decision. Deleting means the next identical call
+re-runs the tool, and one of the reads this happened to took 657 seconds — paying that again
+to recover bytes deliberately discarded is worse than either mechanism alone. Marking keeps
+the answer instant, keeps nothing running, and stops the cache undoing the trim.
+
+The eviction diff is `newly_evicted_ids`, the same one the ledger already reads, so the two
+cannot disagree about what was dropped.
+
+**Consequences.** The outcome vocabulary is unchanged: both branches report `repeat`,
+because nothing ran either way and that word is what the ledger and the viewer read.
+Widening it would have been a contract change for a distinction the caller does not act on.
+
+The marking is monotonic, like the boundary that drives it. An entry never becomes
+un-evicted, because the history it copied is not restored either.
+
+The known dedup gap is untouched: a re-read of the same file at a different offset is a
+different argument set and still misses. Closing it needs range tracking, which is its own
+piece of work.
+
 ## ADR-0079 — 2026-09-14 — Eviction is sized in bytes; the count becomes a floor — Accepted
 
 **Context.** `keep_tool_results` was a count of tool results. One measured run held 36

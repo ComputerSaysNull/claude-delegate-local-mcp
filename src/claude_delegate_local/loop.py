@@ -1384,6 +1384,36 @@ EVICTED_STUB = "[dropped from the history to keep it bounded. Call the tool agai
 # is stuck -- saying plainly that nothing new happened is what breaks that.
 REPEAT_PREFIX = "[repeat of an identical earlier call; nothing was run again]\n"
 
+# Served instead of the cached bytes once eviction has dropped that result from the
+# history. Handing the content back in full is what made the two mechanisms cancel out:
+# eviction stubbed 34KB to stay inside the window and the next identical call put all 34KB
+# straight back, so the trim bought nothing and cost the turn that asked (ADR-0080).
+#
+# Not simply dropping the cache entry instead. That re-runs the tool, and one of the reads
+# this happened to took 657 seconds -- paying it again to recover bytes we deliberately
+# discarded is worse than either mechanism alone. Saying what happened lets the model ask
+# for a narrower part, which is the only outcome that actually fits.
+EVICTED_REPEAT = (
+    "[identical to an earlier call whose result was dropped from the history to stay "
+    "inside the context window. Nothing was run again and the content is not being "
+    "restored -- ask for the part of it you need.]"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _CachedResult:
+    """One dedup-cache entry, and whether the history still holds what it copies.
+
+    `tool_use_id` is carried so eviction can find the entry belonging to a result it just
+    stubbed. The cache is keyed by call rather than by id, so without it the two structures
+    have nothing in common to match on -- which is precisely why they could not see each
+    other.
+    """
+
+    content: str
+    tool_use_id: str
+    evicted: bool = False
+
 
 async def _no_progress(turn: int, of: int) -> None:
     """The default when nobody is listening. Tests inject a recorder, `server.py` the real one."""
@@ -1788,6 +1818,26 @@ class RereadAfterEviction:
     path: str
     evicted_at_turn: int
     reread_at_turn: int
+
+
+def _mark_evicted_in_cache(
+    cached: dict[tuple[str, str], _CachedResult], dropped_ids: tuple[str, ...]
+) -> None:
+    """Tell the dedup cache that the history no longer holds what it copied.
+
+    Marked rather than deleted, because deleting means the next identical call re-runs the
+    tool -- and the read that prompted this took 657 seconds. A marked entry still answers
+    instantly and still runs nothing; it just stops undoing the eviction it was ignoring.
+
+    Monotonic, like the boundary that drives it: an entry never becomes un-evicted, because
+    the history it copied is not restored either.
+    """
+    if not dropped_ids:
+        return
+    gone = set(dropped_ids)
+    for key, entry in cached.items():
+        if not entry.evicted and entry.tool_use_id in gone:
+            cached[key] = replace(entry, evicted=True)
 
 
 def newly_evicted_ids(
@@ -2279,7 +2329,7 @@ def _run_one_call(
     cfg: Config,
     call: ToolUseBlock,
     allowed: frozenset[str],
-    cached: dict[tuple[str, str], str],
+    cached: dict[tuple[str, str], _CachedResult],
     policy: BashPolicy,
 ) -> tuple[ToolResultBlock, str]:
     """Execute one tool call, or serve it from what an identical earlier one returned.
@@ -2294,11 +2344,12 @@ def _run_one_call(
     hole. Closing it needs range tracking, which is its own piece of work.
     """
     key = (call.name, _dedup_key(call))
-    if key in cached:
-        return (
-            ToolResultBlock(tool_use_id=call.id, content=REPEAT_PREFIX + cached[key]),
-            "repeat",
-        )
+    entry = cached.get(key)
+    if entry is not None:
+        # Still "repeat" in both cases: nothing ran either way, and the outcome vocabulary
+        # is what the ledger and the viewer read. What differs is only what comes back.
+        body = EVICTED_REPEAT if entry.evicted else REPEAT_PREFIX + entry.content
+        return ToolResultBlock(tool_use_id=call.id, content=body), "repeat"
 
     result = execute_tool(cfg, call, allowed, policy)
     tool = REGISTRY.get(call.name)
@@ -2310,7 +2361,7 @@ def _run_one_call(
         # Errors are not cached. Several are transient by nature -- a file that does not
         # exist yet is the obvious one -- and caching a refusal would make it permanent for
         # the rest of the delegation.
-        cached[key] = result.content
+        cached[key] = _CachedResult(result.content, call.id)
     return result, "error" if result.is_error else "ran"
 
 
@@ -2318,7 +2369,7 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     cfg: Config,
     calls: tuple[ToolUseBlock, ...],
     allowed: frozenset[str],
-    cached: dict[tuple[str, str], str],
+    cached: dict[tuple[str, str], _CachedResult],
     watch: _Watch,
     *,
     policy: BashPolicy,
@@ -2456,7 +2507,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
 
     history: list[Message] = [Message("user", (TextBlock(delegation.render()),))]
 
-    cached: dict[tuple[str, str], str] = {}
+    cached: dict[tuple[str, str], _CachedResult] = {}
     watch = _Watch(diagnostics=diagnostics)
     guard = _OverflowGuard(cfg, entry)
     dispatch: Dispatch | None = None
@@ -2527,6 +2578,11 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             )
             history = list(trimmed)
             watch.evicted(before, trimmed, dropped)
+            # The half that was missing. Eviction rewrote the history and the dedup cache
+            # never heard, so a repeat handed the whole result straight back into the
+            # window the trim had just made room in (ADR-0080). Same diff the ledger reads,
+            # so the two cannot disagree about what was dropped.
+            _mark_evicted_in_cache(cached, newly_evicted_ids(before, trimmed))
 
             def build(
                 level: str, budget: int, *, _msgs: tuple[Message, ...] = tuple(history),
