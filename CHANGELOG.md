@@ -34,7 +34,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #TBD — 2026-09-14 — docs: the 7.6 tok/s premise re-measured, and the PLAN header repaired
+## #TBD — 2026-09-14 — docs: fill in the numbers this session's merges assigned
+
+### Fixed
+- **Nine entries still said `#TBD`.** *Symptom:* the same debt #193 had to repair, and for
+  the same reason: a number is unknown until the pull request exists, so every entry is
+  written with a placeholder and filled afterwards. *Fix:* filled, matched on each entry's
+  own subject rather than on position, so a reordering could not mis-number one, and
+  asserted to leave no unfilled heading behind.
+- **#203 had no entry at all.** Its commit touched only PLAN.md, which the gate permits, so
+  nothing caught the omission — the numbering sequence running 202, 204 is what surfaced it.
+  Written now from the merged commit.
+
+## #203 — 2026-09-14 — docs: close streaming and give what it was carrying items of their own
+
+### Changed
+- **The streaming item is closed and the two things it was still carrying are items.** Every
+  part of the scope enumerated on 2026-09-05 has landed. What kept it open was the retry
+  split and showing the stream, neither of which is streaming work; left inside a closed
+  entry they would have been carried by a `✅` nobody re-reads.
+- **The retry split is filed in progress**, because ADR-0078 already made the adapter's own
+  turn bound report `while_generating=first is not None` rather than an unconditional
+  `True`. The `httpx` read-timeout path still lumps the two populations together, and that
+  is what remains, deferred behind its own evidence.
+- **Showing the stream is filed open**, carrying the design answer the streaming entry had
+  already reached: a non-terminal viewer first, because `follow` never repaints and a browser
+  over the same `.jsonl` gets repaint, scrollback and selection for nothing.
+- The streaming item was ticked by marker and date only, its body left as the record of what
+  remained when it was written.
+
+## #204 — 2026-09-14 — docs: the 7.6 tok/s premise re-measured, and the PLAN header repaired
 
 ### Changed
 - **"Work that does not fit one turn" rests on an arithmetic artefact.** *Symptom:* the entry
@@ -57,7 +86,7 @@ Older entries, in the previous flat format, are in
   line of the history below it was ordinary Markdown ending in a stray close marker. An
   opener restores one block — pre-existing, and unrelated to any feature in this stack.
 
-## #TBD — 2026-09-14 — fix: a warm rate memory stopped the KV pool being read at all
+## #202 — 2026-09-14 — fix: a warm rate memory stopped the KV pool being read at all
 
 ### Fixed
 - **The pool is asked for until it answers, not until the rate is known.** *Symptom:* after
@@ -84,7 +113,7 @@ Older entries, in the previous flat format, are in
   That is the failure mode this change is about, so the fix must not reproduce its shape.
 - ADR-0081.
 
-## #TBD — 2026-09-14 — docs: file what the live cluster said after the reconnect
+## #201 — 2026-09-14 — docs: file what the live cluster said after the reconnect
 
 ### Added
 - **The `admission_wait_timeout` spike is answered: nothing reaches it.** A five-wide
@@ -103,7 +132,7 @@ Older entries, in the previous flat format, are in
   2,400,000 against a reported pool of 1,467,988 — **1.63x**, the exact drift #192 existed to
   stop. Each half still passes its own tests; it is the pairing that broke.
 
-## #TBD — 2026-09-14 — fix: dedup handed back in full what eviction had just dropped
+## #200 — 2026-09-14 — fix: dedup handed back in full what eviction had just dropped
 
 ### Fixed
 - **The dedup cache is told what eviction dropped.** *Symptom:* measured against the
@@ -128,7 +157,7 @@ Older entries, in the previous flat format, are in
   set and still misses.
 - ADR-0080.
 
-## #TBD — 2026-09-14 — fix: eviction priced a one-line refusal like a 50KB file
+## #199 — 2026-09-14 — fix: eviction priced a one-line refusal like a 50KB file
 
 ### Changed
 - **The eviction boundary is driven by `retained_tool_result_tokens`.** *Symptom:* measured
@@ -155,7 +184,7 @@ Older entries, in the previous flat format, are in
   whenever `models.toml` omits the key.
 - ADR-0079. The pressure gate is untouched.
 
-## #TBD — 2026-09-14 — docs: re-file three roadmap entries that measurement contradicted
+## #198 — 2026-09-14 — docs: re-file three roadmap entries that measurement contradicted
 
 ### Changed
 - **"The deadline counts down while the server works" is a reporting defect, not a kill.**
@@ -188,7 +217,7 @@ Older entries, in the previous flat format, are in
   writing down is in CLAUDE.md. Lifted verbatim into **Unscheduled**, where its unmeasured
   accuracy half can be weighed on its own merits.
 
-## #TBD — 2026-09-14 — fix: the newest entry was charged a line less than an identical older one
+## #197 — 2026-09-14 — fix: the newest entry was charged a line less than an identical older one
 
 ### Fixed
 - **Every append-only entry is now measured on its content.** *Symptom:* an over-budget
@@ -208,7 +237,7 @@ Older entries, in the previous flat format, are in
   over-budget *last* entry must still block — without the second, not measuring at all
   would have satisfied the first.
 
-## #TBD — 2026-09-14 — fix: the gate checked who owned a document, never what was in it
+## #196 — 2026-09-14 — fix: the gate checked who owned a document, never what was in it
 
 ### Added
 - **`conflict-marker`, a content check.** *Symptom:* literal git conflict markers reached
@@ -227,7 +256,7 @@ Older entries, in the previous flat format, are in
   is how these reached `main`. A fixture with one flat pair would have passed against the
   bug. The refusal says to check the whole file for the same reason.
 
-## #TBD — 2026-09-14 — feat: a turn that dies mid-stream returns what it decoded
+## #195 — 2026-09-14 — feat: a turn that dies mid-stream returns what it decoded
 
 ### Added
 - **A failing turn carries what it had already decoded.** *Symptom:* nine dispatches
