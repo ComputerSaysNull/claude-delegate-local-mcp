@@ -1,4 +1,5 @@
-<!-- BUDGET: 733 -->
+<!-- BUDGET: 736 -->
+<!-- Raised from 733 on 2026-09-14: a failing turn returns what it decoded, and the success-path paragraph could not carry that contract unamended. -->
 <!-- Raised from 700 (to 706) on 2026-09-13: reasoning is returned instead of discarded, which adds a result field and narrows what empty_response means. -->
 <!-- Raised from 700 on 2026-09-13: the tool set is built per deployment now, because one description carries the workspace layout. -->
 <!-- Raised from 700 on 2026-09-13: the pressure gate applies wherever pressure can be read, and which half still waits for the flag. -->
@@ -96,10 +97,12 @@ canonical shape stays block-structured and is never flattened to strings; SSE ac
 lives per adapter behind one contract; model selection is a registry lookup and never a
 reintroduced prefix function. (ADR-0008; the last of the three is ADR-0009)
 
-The second of those is no longer hypothetical. The chat call streams (ADR-0070) and
-`complete()` is unchanged by it: frames are accumulated inside the adapter into the payload
-the non-streaming parser already reads, and the whole response is returned once the stream
-ends, so the promise never to return a partial still holds and no tool result changes shape.
+The second of those is no longer hypothetical. The chat call streams (ADR-0070) and a
+*succeeding* `complete()` is unchanged by it: frames accumulate inside the adapter into the
+payload the non-streaming parser already reads, and the whole response returns once the
+stream ends, so no tool result changes shape. A **failing** one no longer discards what it
+decoded (ADR-0078) — the tokens ride out on the exception as a whole `CanonicalResponse`,
+cancellation included, and no token still means no partial.
 Two things follow that a reader would otherwise be caught by. `stream_options.include_usage`
 is required, or the final chunk carries no `usage` and every token count reads zero. And
 `turn_timeout` no longer bounds the call for free — httpx applies its read timeout per chunk

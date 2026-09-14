@@ -219,15 +219,32 @@ class OpenAICompatBackend:
     ) -> tuple[dict[str, Any], float | None]:
         """Stream the chat call and hand back one payload plus the decode interval.
 
-        The contract above is unchanged: this returns only once the stream has ended, so
-        `complete()` still never returns a partial. What streaming buys is not incremental
-        delivery to the caller -- it is knowing *when the tokens arrived*, which is the
+        This still returns only once the stream has ended, so a *successful* call is whole
+        exactly as before. What changed (ADR-0078) is the failing one: what the turn had
+        decoded rides out on the exception instead of dying with the accumulator, which is
+        a local here and was reachable from one `return`.
+
+        What streaming buys beyond that is knowing *when the tokens arrived*, which is the
         only way to time decoding without also timing prefill.
         """
         acc = _StreamAccumulator()
         first: float | None = None
         last: float | None = None
         started = self._clock()
+
+        def decoded() -> CanonicalResponse | None:
+            """What the stream had produced, or `None` if it never produced anything.
+
+            Built through `_from_wire` rather than handed up as a string, so a partial and
+            a completed reply are the same shape to every reader above -- including the
+            reasoning-only case, which `answer_of` already knows how to report and a bare
+            string would silently drop.
+            """
+            if first is None:
+                return None
+            span = None if last is None or last <= first else last - first
+            return self._from_wire(acc.payload(), decode_seconds=span)
+
         try:
             async with self._client.stream(
                 "POST", url, json=body, headers=self._headers
@@ -248,7 +265,12 @@ class OpenAICompatBackend:
                         raise BackendUnavailable(
                             f"stream from {path} on model {self._entry.key!r} ran past "
                             f"turn_timeout of {self._cfg.turn_timeout}s.",
-                            while_generating=True,
+                            # Not unconditionally `True`. This bound fires on a stream
+                            # that trickles *and* on one that never produced a token, and
+                            # they are the two shapes `while_generating` exists to keep
+                            # apart -- the second spent queueing and prefill, not decode,
+                            # so reporting it as generating sends the retry the wrong way.
+                            while_generating=first is not None,
                         )
                     frame = _sse_frame(line, path)
                     if frame is _SSE_DONE:
@@ -278,10 +300,20 @@ class OpenAICompatBackend:
             # first token is prefill or queueing, one mid-stream is slow decode -- and it is
             # deliberately not acted on. Splitting it would change what #167 retries, which
             # wants its own evidence rather than arriving as a side effect of this change.
-            raise BackendUnavailable(
+            unavailable = BackendUnavailable(
                 f"{type(e).__name__} posting to {path} on model {self._entry.key!r}.",
                 while_generating=isinstance(e, httpx.ReadTimeout),
-            ) from e
+            )
+            _attach(unavailable, decoded)
+            raise unavailable from e
+        except BaseException as e:
+            # Every other way a stream ends early, and the reason this is `BaseException`
+            # rather than `Exception`: the caller's deadline cancels the task, and
+            # `CancelledError` descends from `BaseException`. It was the one path the
+            # roadmap's slice 4 was actually about, and an `except Exception` here would
+            # have looked right and covered everything except it.
+            _attach(e, decoded)
+            raise
         # `None` rather than 0.0 when one frame carried every token: the interval is
         # unknown, not instantaneous, and a zero would be divided by downstream.
         span = None if first is None or last is None or last <= first else last - first
@@ -462,6 +494,24 @@ def _sse_frame(line: str, path: str) -> Any:
             f"{path} streamed a {type(frame).__name__} frame, not a JSON object."
         )
     return frame
+
+
+def _attach(error: BaseException, build: Callable[[], Any]) -> None:
+    """Hang what the turn decoded on the failure, and never let that hide the failure.
+
+    Three things here are deliberate. It never overwrites a partial already attached, so
+    the innermost frame wins and a re-raise higher up cannot blank it. It swallows
+    whatever `build` raises: rebuilding a reply from however many frames arrived can hit a
+    half-delivered tool call, and a partial is a courtesy where the exception underneath
+    it is the fact. And it tolerates an exception that refuses the attribute rather than
+    assuming every type allows one -- `CancelledError` does, but this runs on the failure
+    path, which is the worst place to learn that something does not.
+    """
+    try:
+        if getattr(error, "partial", None) is None:
+            error.partial = build()  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 
 class _StreamAccumulator:

@@ -1,4 +1,5 @@
-<!-- BUDGET: 1130 -->
+<!-- BUDGET: 1135 -->
+<!-- Raised from 1130 on 2026-09-14: a deadline can now return a result rather than only an error, which is a caller-facing shape this document owns. -->
 <!-- Raised from 1069 on 2026-09-12: a granted lease carries the concurrency it was granted against, which is admission behaviour this document owns. -->
 <!-- Raised from 1100 (to 1103) on 2026-09-13: the record reads emptiness through the same helper as the reply. -->
 <!-- Raised from 1100 on 2026-09-13: the viewer states what it knows rather than what reads well, and the end event carries why a reply stopped. -->
@@ -399,7 +400,11 @@ What stays here is how those failures reach a caller. `server.py` maps each one 
 `ToolError` that names the fix rather than the layer: a path refusal, a backend that is
 unreachable or refusing, and a delegation that outlived `dispatch_timeout`. That last one
 is routed separately from the backend failures on purpose -- they name an endpoint, and it
-names a deadline the operator set, which is a different thing to go and change.
+names a deadline the operator set, which is a different thing to go and change. It is also
+the one failure that can come back as a *result*: where the model had already decoded
+something, the caller gets that much under `partial: true` with `error` beside it, rather
+than only the message saying it was abandoned (ADR-0078). Both keys, so neither a caller
+filtering on the flag nor one filtering on the error reads a timeout as a finished answer.
 
 ### Four path layers, allowlist first
 

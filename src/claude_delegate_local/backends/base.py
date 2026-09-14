@@ -52,7 +52,20 @@ ROLES = ("user", "assistant")
 
 
 class BackendError(Exception):
-    """Base for everything this layer raises."""
+    """Base for everything this layer raises.
+
+    `partial` is what the turn had already decoded when it failed, when it had decoded
+    anything: a whole `CanonicalResponse` rather than a string, so everything above reads
+    it with `answer_of` exactly as it reads a completed one. `None` means no token ever
+    arrived, which is a different fact from an empty answer and the two must not merge --
+    a turn that produced nothing is what a stall already reports.
+
+    It lives on the base rather than on `BackendUnavailable` because the accumulator dies
+    the same way whatever ends the stream, `CancelledError` included; that one is a
+    `BaseException` and carries the attribute by assignment rather than by inheritance.
+    """
+
+    partial: CanonicalResponse | None = None
 
 
 class CanonicalShapeError(BackendError):

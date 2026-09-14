@@ -1,4 +1,5 @@
-<!-- BUDGET: 832 -->
+<!-- BUDGET: 835 -->
+<!-- Raised from 832 on 2026-09-14: slice 4 splits -- the partial landed, the retry split and the viewer half did not, and the entry has to say which. -->
      Raised from 775 (to 795) on 2026-09-13: reasoning is no longer discarded, plus four findings this session measured -- two about eviction, one about server-side tool time, one re-filing the M10 spike.
      Raised from 775 on 2026-09-13: a search names its scope and is shown the map, which ticks one item and re-costs the walk item beneath it.
      Raised from 775 on 2026-09-13: the viewer group ticked, plus the two findings it turned up that its frozen body could not carry.
@@ -289,7 +290,9 @@ nothing was configured, and no tool result changes shape.
   ADR-0070)**: the transport streams, `complete()` is unchanged, and the decode interval no
   longer contains prefill. **Slices 2-3 landed 2026-09-13 (ADR-0072)**: `stall_left` resets
   on token arrival against a live ceiling, and the heartbeat carries what has arrived.
-  **Slice 4 remains** — a partial at `dispatch_timeout`, and narrower than it looked. Two
+  **Slice 4's partial landed 2026-09-14 (ADR-0078)**: a failing turn carries what it decoded
+  and a deadline returns it as `partial: true`. **What remains of slice 4**: the retry split,
+  still deferred for its own evidence, and showing the stream itself. Narrower than it looked. Two
   populations were conflated: a *length stop* returns normally with its tokens already parsed
   into the response, fixed above without streaming; a *cancelled* turn leaves them in the
   adapter's accumulator, which is what this still owns. Since #172 they are no longer "only on
