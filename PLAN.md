@@ -1,4 +1,5 @@
-<!-- BUDGET: 888 -->
+<!-- BUDGET: 905 -->
+<!-- Raised from 888 on 2026-09-14: streaming closed, and the two things it was still carrying became items of their own rather than dying with it. -->
 <!-- Raised from 866 on 2026-09-14: the reconnect block answered the admission spike and found that persisting the rate memory retired the KV-pool reading. -->
 <!-- Raised from 835 on 2026-09-14: three entries argued from a mechanism that was removed or a consequence the code contradicts, and each correction is worth more than the line it costs. -->
 <!-- Raised from 832 on 2026-09-14: slice 4 splits -- the partial landed, the retry split and the viewer half did not, and the entry has to say which. -->
@@ -274,7 +275,7 @@ nothing was configured, and no tool result changes shape.
     while the same arguments as one string work
   - And a lesson about the probe rather than the feature: a marker file written *first* in
     the command reported success while the tail was being mangled. Write the marker last
-- 🔄 **Streaming, reopened 2026-09-05 with a scope.** **Slice 1 landed 2026-09-12 (#172,
+- ✅ 2026-09-14 **Streaming, reopened 2026-09-05 with a scope.** **Slice 1 landed 2026-09-12 (#172,
   ADR-0070)**: the transport streams, `complete()` is unchanged, and the decode interval no
   longer contains prefill. **Slices 2-3 landed 2026-09-13 (ADR-0072)**: `stall_left` resets
   on token arrival against a live ceiling, and the heartbeat carries what has arrived.
@@ -351,6 +352,24 @@ nothing was configured, and no tool result changes shape.
     (session 2): they do.** A turn whose entire visible answer was the word `DONE` reported
     `output_tokens: 697` at `effort: low`. So `max_tokens` does bound a looping model — it
     is simply set far above the deadline today.
+- 🔄 **The retry split streaming made available, and half of it is already in.** A read
+  timeout *before* the first token is prefill or queueing — the model never began writing —
+  and one *after* it is slow decode. They deserve different answers: a slow decoder will
+  likely be slow again, so retrying spends the rest of the budget discovering that, where a
+  queueing timeout may sail through immediately. **Half landed 2026-09-14 (ADR-0078)**: the
+  adapter's own whole-turn bound now reports `while_generating=first is not None` instead of
+  an unconditional `True`, so that path distinguishes them. The `httpx` read-timeout path
+  still lumps them together, and that is the half that remains. Split out of the streaming
+  item, where it was deferred with a comment in `openai_compat.py` saying it "would change
+  what #167 retries, which wants its own evidence rather than arriving as a side effect" —
+  so measure what each population actually costs before changing the retry rule
+- ⬜ **Showing the stream itself, for a person watching a delegation run.** The `.jsonl`
+  already carries everything needed since slices 2-3. Split out of the streaming item, which
+  weighed the shape and left the answer standing: **a non-terminal viewer first**. `follow`
+  never repaints and making it repaint is the expensive half, where a browser over the same
+  `.jsonl` gets repaint, scrollback and selection for nothing. The consumer is not the
+  caller — an MCP tool call is request/response either way — it is the person reading the
+  transcript stream while the work happens
 
 - ⬜ **A delegation returns a handle, and a second call collects it** — the client backs an
   MCP call into the background after 120s. ~~and issues the next tool call only then, so
