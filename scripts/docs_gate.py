@@ -638,6 +638,76 @@ def check_pr_text(event_path: str | None) -> list[Finding]:
     return out
 
 
+CHANGELOG_HEADING = re.compile(r"^## #(?P<num>TBD|\d+)\s*[—-]", re.MULTILINE)
+
+
+def _pr_number(event_path: str | None) -> tuple[int | None, Finding | None]:
+    """The pull request's number from the event payload, or the finding that says why not.
+
+    Split out so its caller keeps one exit per outcome rather than one per obstacle.
+    """
+    if not event_path or not Path(event_path).exists():
+        return None, Finding(
+            SKIP, "changelog-number",
+            "no pull request event payload; the newest heading's number was not checked "
+            "against the number GitHub issued.")
+    try:
+        payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return None, Finding(WARN, "changelog-number",
+                             f"could not read the event payload: {e}")
+    number = (payload.get("pull_request") or {}).get("number")
+    if number is None:
+        return None, Finding(SKIP, "changelog-number",
+                             "the event payload carries no pull request number.")
+    return number, None
+
+
+def check_changelog_number(event_path: str | None) -> list[Finding]:
+    """The guessed heading number, against the one GitHub actually issued.
+
+    A number cannot be known when its entry is written, so it is guessed -- the next one
+    GitHub will issue -- and corrected in the branch if it moved. That leaves exactly one
+    way to fail: guess, forget to check, merge. It has already happened twice, as `#TBD`
+    placeholders that a later pull request had to repay (#193, then #205).
+
+    A rule in a skill cannot catch it, because a skill only runs when it is invoked. This
+    runs on the pull request event, which is the first moment the real number exists and
+    the last one before a merge makes the mistake permanent.
+
+    Only the newest heading is judged: older entries carry other numbers by definition. A
+    pull request that deliberately adds no entry -- rare, and itself worth a second look --
+    takes the `Docs-Gate-Skip` trailer like any other exception.
+    """
+    number, unavailable = _pr_number(event_path)
+    if unavailable is not None:
+        return [unavailable]
+
+    path = ROOT / "CHANGELOG.md"
+    if not path.exists():
+        return [Finding(SKIP, "changelog-number", "there is no CHANGELOG.md to check.")]
+    m = CHANGELOG_HEADING.search(path.read_text(encoding="utf-8"))
+    if not m:
+        return [Finding(SKIP, "changelog-number",
+                        "CHANGELOG.md has no numbered entry to check.")]
+
+    found = m.group("num")
+    if found == str(number):
+        return []
+    # Two mistakes with two remedies, so two messages: a placeholder was never filled, or a
+    # guess moved. Collapsing them would name the wrong fix half the time.
+    detail = (
+        f"CHANGELOG.md's newest heading still says '#TBD' and this pull request is "
+        f"#{number}. Fill it in this branch: a placeholder that merges is a debt the next "
+        f"pull request pays."
+        if found == "TBD" else
+        f"CHANGELOG.md's newest heading is #{found} but this pull request is #{number}. "
+        f"The guess moved -- correct the heading in this branch before merging, or the "
+        f"record and the thing it describes are named differently for good."
+    )
+    return [Finding(BLOCK, "changelog-number", detail)]
+
+
 def denying_glob(rel: str, globs: list[str]) -> str | None:
     """The first denylist pattern matching `rel`, honouring `!` exemptions, or None.
 
@@ -1614,6 +1684,7 @@ CHECKS = {
     "manifest": check_manifest_docs_exist,
     "audit-due": check_audit_pressure,
     "public-text": check_pr_text,
+    "changelog-number": check_changelog_number,
     "agent-capability": check_agent_capabilities,
 }
 
@@ -1789,7 +1860,7 @@ def main() -> int:
             findings += fn(args.mode, args.diff_range, args.message_file)
         elif name == "identity":
             findings += fn(args.mode, args.diff_range)
-        elif name == "public-text":
+        elif name in ("public-text", "changelog-number"):
             findings += fn(args.pr_event)
         elif name == "owning-doc":
             findings += ownership_findings(changed, reused_message, args.mode)
