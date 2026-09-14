@@ -478,7 +478,7 @@ them was re-derived when it did.
 - ✅ 2026-09-13 **Reasoning was generated, paid for, and then discarded** — nine dispatches of 446
   reported empty at a *length stop* holding 265,092 output tokens, because `answer` joined text
   blocks only. Bannered now, with `answer_is_reasoning` (#188)
-- ⬜ **Eviction and dedup undo each other** — a stubbed 34KB result is handed straight back on the
+- ✅ 2026-09-14 **Eviction and dedup undo each other** — a stubbed 34KB result is handed straight back on the
   next identical call, plus the turn spent asking. Neither half can see the other
 - ⬜ **Eviction is sized in tokens and cannot see what a result cost** — it will drop a 657s read
   to save a few thousand

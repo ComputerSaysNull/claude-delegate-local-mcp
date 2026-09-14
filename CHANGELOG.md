@@ -34,6 +34,31 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #TBD — 2026-09-14 — fix: dedup handed back in full what eviction had just dropped
+
+### Fixed
+- **The dedup cache is told what eviction dropped.** *Symptom:* measured against the
+  committed loop, a 34,208-byte result was stubbed to 77 bytes and the next identical call
+  handed back 34,269 — the trim freed 34,131 bytes and the repeat put them all back, into
+  the window the trim had just made room in. *Cause:* the two mechanisms shared no state;
+  eviction rewrites the history, and the cache is keyed by call rather than by
+  `tool_use_id`, so there was nothing to match on. *Fix:* the entry carries its
+  `tool_use_id`, and eviction marks it through `newly_evicted_ids` — the same diff the
+  ledger reads, so the two cannot disagree.
+- **Marked, not deleted.** Deleting means the next identical call re-runs the tool, and one
+  of the reads this happened to took 657 seconds. A marked entry still answers instantly and
+  still runs nothing; it serves a line saying the result was dropped to stay inside the
+  window and to ask for the part needed.
+
+### Notes
+- The outcome vocabulary is unchanged — both branches report `repeat`, because nothing ran
+  either way and that word is what the ledger and the viewer read.
+- Reproduces the 2026-09-13 arithmetic exactly: `REPEAT_PREFIX` is 61 bytes, and
+  34,208 + 61 = 34,269.
+- The known dedup gap is untouched: a re-read at a different offset is a different argument
+  set and still misses.
+- ADR-0080.
+
 ## #TBD — 2026-09-14 — fix: eviction priced a one-line refusal like a 50KB file
 
 ### Changed

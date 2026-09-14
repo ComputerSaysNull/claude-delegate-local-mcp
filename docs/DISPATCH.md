@@ -1,4 +1,5 @@
-<!-- BUDGET: 742 -->
+<!-- BUDGET: 750 -->
+<!-- Raised from 742 on 2026-09-14: dedup and eviction can see each other now, which is a third limit on a repeat and belongs beside the other two. -->
 <!-- Raised from 736 on 2026-09-14: eviction is sized in bytes, and the paragraph has to say what size does NOT decide -- which results go. -->
 <!-- Raised from 733 on 2026-09-14: a failing turn returns what it decoded, and the success-path paragraph could not carry that contract unamended. -->
 <!-- Raised from 700 (to 706) on 2026-09-13: reasoning is returned instead of discarded, which adds a result field and narrows what empty_response means. -->
@@ -581,6 +582,13 @@ different correct answers, and serving the first one twice would hand the model 
 before its own overwrite. Refusals are never cached either, since several are transient by
 nature — a file that does not exist yet is the obvious one — and caching one would make it
 permanent for the rest of the delegation.
+
+A third limit is what eviction dropped. The two mechanisms shared no state, so a repeat
+after an eviction handed the whole result back into the window the trim had just made room
+in — 34,131 bytes freed, 34,269 returned, nothing re-run (ADR-0080). The entry now carries
+its `tool_use_id`, eviction marks it through the same diff the ledger reads, and a marked
+entry serves a line saying the result was dropped and to ask for the part needed. Marked and
+not deleted: deleting re-runs the tool, and one of these reads took 657 seconds.
 
 Known gap, recorded rather than papered over: a re-read of the same file from a different
 `start_line` is a different argument set and is not caught. Closing it needs range tracking,
