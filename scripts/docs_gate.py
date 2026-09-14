@@ -307,6 +307,44 @@ def check_emails_in_files() -> list[Finding]:
     return out
 
 
+def check_conflict_markers() -> list[Finding]:
+    """An unfinished merge, left in a tracked file.
+
+    Two of git's three markers are blocked: the opener and the closer, each seven of one
+    sign followed by a space. The separator is deliberately *not*, because a line of seven
+    or more equals signs is a valid setext Markdown H1 underline. There are none in this
+    tree today, which is exactly what makes it dangerous -- a check on that form would pass
+    review and then fire on the first ordinary heading somebody writes. The two forms kept
+    have no meaning in Markdown at all, and no merge leaves one without the other.
+
+    Markdown is the reason this exists. In a `.py` file an unresolved conflict fails to
+    parse and someone notices in seconds; in Markdown it renders as nonsense and reaches
+    `main`, which it has done twice. Nothing else looks -- the gate checks who owns a
+    document and how long it is, never what is in it.
+
+    This function's own source does not trip it: the literals below are compared with
+    `str.startswith` against a whole line, and every line here that contains one begins
+    with indentation. Worth stating, because a check that flags the file defining it is a
+    shape this project has already shipped once.
+    """
+    markers = ("<" * 7 + " ", ">" * 7 + " ")
+    out = []
+    for p in scannable_files():
+        r = rel(p)
+        for i, line in enumerate(
+            p.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+        ):
+            if line.startswith(markers):
+                out.append(Finding(
+                    BLOCK, "conflict-marker",
+                    f"{r} line {i} is a git conflict marker: {line.strip()[:40]!r}. A "
+                    f"merge was left unfinished. Resolve it and remove every marker line "
+                    f"-- and check the whole file rather than this one line, because a "
+                    f"resolver that fixed the first conflict and committed the rest "
+                    f"verbatim is how these reached main before."))
+    return out
+
+
 # A literal prefixed with "word:" is matched case-sensitively on word boundaries
 # instead of case-insensitively as a substring. It exists for the case the plain form
 # cannot serve: a name that is also an ordinary programming word.
@@ -1424,6 +1462,7 @@ def check_doc_references() -> list[Finding]:
 CHECKS = {
     "identity": check_commit_identity,
     "email-content": check_emails_in_files,
+    "conflict-marker": check_conflict_markers,
     "host-identifier": check_host_identifiers,
     "scan-coverage": check_scan_coverage,
     "secret-path": check_secret_paths,

@@ -488,7 +488,7 @@ them was re-derived when it did.
 - ⬜ **The docs gate measures the last append-only entry a line short** — length runs to the next
   heading, so the newest entry omits its trailing separator and an over-budget one lands, then
   blocks whoever appends next. Found by being that next person
-- ⬜ **Nothing stops a conflict marker reaching `main`.** Two did, in Markdown, where no test or
+- ✅ 2026-09-14 **Nothing stops a conflict marker reaching `main`.** Two did, in Markdown, where no test or
   lint looks and the gate checks ownership and budgets rather than content. One line in the
   gate; the nested shape is the one to write the negative test against
 - ✅ 2026-09-13 **Eviction fired at 4% of the window against a 50% gate** — the pressure check
