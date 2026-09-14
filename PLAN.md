@@ -1,4 +1,5 @@
-<!-- BUDGET: 835 -->
+<!-- BUDGET: 866 -->
+<!-- Raised from 835 on 2026-09-14: three entries argued from a mechanism that was removed or a consequence the code contradicts, and each correction is worth more than the line it costs. -->
 <!-- Raised from 832 on 2026-09-14: slice 4 splits -- the partial landed, the retry split and the viewer half did not, and the entry has to say which. -->
      Raised from 775 (to 795) on 2026-09-13: reasoning is no longer discarded, plus four findings this session measured -- two about eviction, one about server-side tool time, one re-filing the M10 spike.
      Raised from 775 on 2026-09-13: a search names its scope and is shown the map, which ticks one item and re-costs the walk item beneath it.
@@ -223,20 +224,6 @@ their own project without ever reading this repository.
     — provider wired in, client reconnected, `resources/list` returning both `skill://`
     entries while no skill was offered. Resources present and skill absent is the
     discriminator, so the null result is not a mis-wired provider
-- ⬜ **Spike** — find the cause behind withholding `run_bash` on a verifying pass, rather
-  than writing the workaround down. It took an audit from 26 turns to 1 at no cost in
-  accuracy, and 24 of its 29 calls were verification — so if verification bought nothing,
-  stop instructing the agent to verify by shelling out. Measure that first; a
-  `verify_quote` tool is only the fallback
-  - **Attempted 2026-09-07 and inconclusive, because the experiment was designed wrong.** A
-    read-only pass has no shell, which is the condition under test, and one was run over a
-    dense document for the TOO VERBOSE class. It correctly found nothing — so it produced no
-    quotations, and there was nothing whose accuracy could be checked
-  - The cost half did reproduce: **one turn, zero tool calls**, against the 26 turns the
-    with-shell pass took. What is still unmeasured is whether accuracy holds, and measuring
-    it needs a task that *necessarily* quotes — a STALE pass over a document and the code it
-    describes, against a known discrepancy, rather than a class that may legitimately return
-    an empty list
 
 ### M11 — A call you can watch, and a cluster you can see
 
@@ -474,6 +461,20 @@ them was re-derived when it did.
 
 ### Unscheduled — open, real, and in no milestone
 
+- ⬜ **Spike** — find the cause behind withholding `run_bash` on a verifying pass, rather
+  than writing the workaround down. It took an audit from 26 turns to 1 at no cost in
+  accuracy, and 24 of its 29 calls were verification — so if verification bought nothing,
+  stop instructing the agent to verify by shelling out. Measure that first; a
+  `verify_quote` tool is only the fallback
+  - **Attempted 2026-09-07 and inconclusive, because the experiment was designed wrong.** A
+    read-only pass has no shell, which is the condition under test, and one was run over a
+    dense document for the TOO VERBOSE class. It correctly found nothing — so it produced no
+    quotations, and there was nothing whose accuracy could be checked
+  - The cost half did reproduce: **one turn, zero tool calls**, against the 26 turns the
+    with-shell pass took. What is still unmeasured is whether accuracy holds, and measuring
+    it needs a task that *necessarily* quotes — a STALE pass over a document and the code it
+    describes, against a known discrepancy, rather than a class that may legitimately return
+    an empty list
 - ✅ 2026-09-13 **Reasoning was generated, paid for, and then discarded** — nine dispatches of 446
   reported empty at a *length stop* holding 265,092 output tokens, because `answer` joined text
   blocks only. Bannered now, with `answer_is_reasoning` (#188)
@@ -483,8 +484,13 @@ them was re-derived when it did.
   to save a few thousand
 - ⬜ **A delegation's budget pays for server-side tool time** — 1,135.7s of 1,271.7s, 89.3%,
   cluster idle throughout (2026-09-13). Feeds the third-liveness-state item
-- ⬜ **The M10 spike is misfiled and stale** — it does not move M10's exit, and the workaround it
+- ✅ 2026-09-14 **The M10 spike is misfiled and stale** — it does not move M10's exit, and the workaround it
   meant to avoid writing down is now in CLAUDE.md. Its accuracy half is still unmeasured
+  - Re-filed rather than run. M10's exit is about a caller on a host holding only the
+    package writing a valid agent file, and withholding `run_bash` from a verifying pass
+    moves none of it. It stays open as an **Unscheduled** item, where its accuracy half —
+    a task that *necessarily* quotes, against a known discrepancy — can be measured on its
+    own merits instead of being paid for out of a milestone it does not serve
 - ✅ 2026-09-14 **The docs gate measures the last append-only entry a line short** — length runs to the next
   heading, so the newest entry omits its trailing separator and an over-budget one lands, then
   blocks whoever appends next. Found by being that next person
@@ -497,6 +503,17 @@ them was re-derived when it did.
 - ⬜ **A retained *count* is the wrong unit for a history.** One run's 36 results ranged from
   200 bytes to 50,068, so `keep_tool_results` prices a one-line refusal and a 50KB file
   identically. A share of the window is the unit; the count becomes its floor
+  - **Corrected 2026-09-14, twice, before any code was written.** *A share of the window
+    cannot be the unit*: the denominator is `entry.context_window`, which is a silent
+    131,072 default whenever `models.toml` omits the key — `context_window_defaulted` exists
+    precisely to say so, and it is why `evict_upto` consults `share()` only as a gate today.
+    The numerator is part estimate as well. The unit that is always known is the **retained
+    bytes themselves**, with the count as the floor
+  - *And the selection must not change*: eviction is prefix-ordered on purpose (ADR-0056),
+    because a boundary that moves costs the cache everything after it. So this is a
+    size-based **boundary** — advance the oldest-first cut until retained bytes fit a budget
+    — never size-based *selection*. "Evict the large ones and keep the small ones" would
+    trade the whole prefix cache for a few thousand tokens
 - ⬜ **Arming the preventive half is unmeasured.** Tighten, nudge, abort and the plateau check
   still wait for `context_overflow_enabled`. Arming them everywhere failed 31 tests on doubles
   reporting a 7-token prompt — which says those doubles are unrealistic, not that the change
@@ -531,6 +548,14 @@ them was re-derived when it did.
   such turns cost 40% of a 2,100s stall budget; one long enough is killed while working. The
   event loop is *not* blocked — `_run_calls` goes through `asyncio.to_thread` — so this bounds
   the delegation only
+  - **Corrected 2026-09-14: "killed while working" is false, and this is a reporting defect.**
+    `turn_done` sets `last_progress = clock()` unconditionally (`loop.py` line 2420) *after*
+    the tool batch returns, and `stalled()` is only evaluated at the next dispatch — by which
+    time the stall deadline has been refreshed. Tool time therefore cannot kill a delegation
+    by stall. What it does consume is the whole-delegation `dispatch_timeout`, which is a
+    wall clock and arguably should. What is left is real but smaller: the heartbeat reports a
+    falling `ends_in` throughout a tool call and then jumps back, so a watcher is told a
+    delegation is dying while it is working. Re-rank accordingly
 - ✅ 2026-09-13 **The viewer states true things in ways that read false.** Four findings, one
   branch:
   `requests_running` in a `priced` row is the lease's grant-time concurrency echoed, not live
@@ -636,6 +661,12 @@ local, because they are working notes rather than a product fact.
   - Hold only while the gate is idle, so it costs nothing when concurrency is already known
     and 10s when it is not. The arrival distribution measured that day is bimodal, which is
     what makes a fixed window work: six probes inside 8.5s, or one alone
+  - **The coalescing evidence above died with #194; the item did not.** Large calls are no
+    longer coalesced by `max_inflight_large_prefills` because that gate is gone (ADR-0077),
+    so they now arrive uncoalesced exactly as small ones do. That *widens* what a hold would
+    cover rather than removing its reason, and the mechanism — hold ~10s while the gate is
+    idle so the first caller prices against the burst it will actually meet — never depended
+    on the gate. Re-state the evidence when this is picked up; do not re-derive the item
 - ✅ 2026-09-13 **`RateHistory.expect` falls through to the since-boot blend when it has
   nothing at the asked concurrency**, which is the optimistic answer to the busier question. Measured
   2026-09-12: six probes priced from that fall-through at 34.85 tok/s and then decoded at

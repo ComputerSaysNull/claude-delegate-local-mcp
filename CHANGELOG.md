@@ -34,6 +34,39 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #TBD — 2026-09-14 — docs: re-file three roadmap entries that measurement contradicted
+
+### Changed
+- **"The deadline counts down while the server works" is a reporting defect, not a kill.**
+  *Symptom:* the entry said a turn long enough "is killed while working", and was ranked as
+  a correctness bug on that basis. *Cause:* nobody read the reset. `turn_done` sets
+  `last_progress = clock()` unconditionally at `loop.py` line 2420, *after* the tool batch
+  returns, and `stalled()` is only evaluated at the next dispatch — by which time the stall
+  deadline has been refreshed. *Fix:* the entry now says what is true. Tool time consumes
+  the whole-delegation `dispatch_timeout`, which is a wall clock; what remains is that the
+  heartbeat reports a falling `ends_in` throughout a tool call and then jumps back, telling
+  a watcher a delegation is dying while it works.
+- **The idle-hold item keeps its mechanism and loses one sentence of evidence.** *Symptom:*
+  it argues from "six large calls are already coalesced by `max_inflight_large_prefills`",
+  and that gate was removed in #194. *Cause:* the evidence was tied to a setting; the
+  mechanism never was. *Fix:* large calls now arrive uncoalesced exactly as small ones do,
+  which widens what a hold would cover rather than removing its reason. Re-state the
+  evidence when it is picked up; do not re-derive the item.
+- **The retained-count item's design was wrong in two ways, before any code was written.**
+  *Symptom:* it prescribed "a share of the window is the unit". *Cause:* the denominator is
+  `entry.context_window`, a silent 131,072 default whenever `models.toml` omits the key —
+  which is exactly why `evict_upto` uses `share()` only as a gate — and the numerator is
+  part estimate. Separately, eviction is prefix-ordered on purpose (ADR-0056), so selecting
+  the largest results to drop would trade the whole prefix cache for a few thousand tokens.
+  *Fix:* the unit is retained **bytes** with the count as floor, applied as a size-based
+  *boundary* on the oldest-first cut, never as size-based selection.
+
+### Moved
+- **The M10 spike out of M10.** It does not move that milestone's exit — a caller on a host
+  holding only the package writing a valid agent file — and the workaround it meant to avoid
+  writing down is in CLAUDE.md. Lifted verbatim into **Unscheduled**, where its unmeasured
+  accuracy half can be weighed on its own merits.
+
 ## #TBD — 2026-09-14 — fix: the newest entry was charged a line less than an identical older one
 
 ### Fixed
