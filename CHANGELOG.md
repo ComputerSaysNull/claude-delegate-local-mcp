@@ -34,6 +34,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #TBD — 2026-09-14 — fix: the newest entry was charged a line less than an identical older one
+
+### Fixed
+- **Every append-only entry is now measured on its content.** *Symptom:* an over-budget
+  newest entry landed, and then blocked the next person to append, who had changed nothing
+  about it. *Cause:* `re.split` on the heading leaves the blank separator inside the
+  *preceding* section, so every entry but the last was charged a line the last was not —
+  three structurally identical entries measured 4, 4, 3. *Fix:* `rstrip()` before counting,
+  so no entry is charged for its separator.
+- **It bit exactly one document, and the ordering is why.** CHANGELOG.md and DECISIONS.md
+  are newest-first, so their final section is the oldest entry and nobody touches it.
+  JOURNAL.md is oldest-first, so its final section is the entry just appended — which is
+  how this was found, by being that next person.
+- **The fix can only lower a count**, so no document that passed before can start failing.
+
+### Notes
+- Both directions. Two byte-identical entries must get the same verdict, and a genuinely
+  over-budget *last* entry must still block — without the second, not measuring at all
+  would have satisfied the first.
+
 ## #TBD — 2026-09-14 — fix: the gate checked who owned a document, never what was in it
 
 ### Added

@@ -772,7 +772,19 @@ def check_budgets() -> list[Finding]:
             sections = re.split(r"^## ", text, flags=re.MULTILINE)[1:]
             for sec in sections:
                 title = sec.splitlines()[0].strip()[:70] if sec.strip() else "(untitled)"
-                n = len(sec.splitlines())
+                # `rstrip()` rather than a raw count, so every entry is charged for its
+                # content and none for the blank line that separates it from the next.
+                # Splitting on the heading leaves that separator inside the *preceding*
+                # section, so without this the final section -- which has no next heading,
+                # and whose trailing newline `splitlines()` does not count -- measured a
+                # line short of an identical earlier one.
+                #
+                # It matters in exactly one document. CHANGELOG.md and DECISIONS.md are
+                # newest-first, so their final section is the oldest entry and nobody
+                # touches it. JOURNAL.md is oldest-first, so its final section is the entry
+                # just appended: an entry of exactly `cap` content lines landed, and then
+                # blocked the next person to append, who had changed nothing about it.
+                n = len(sec.rstrip().splitlines())
                 if n > cap:
                     out.append(Finding(
                         BLOCK, "budget",

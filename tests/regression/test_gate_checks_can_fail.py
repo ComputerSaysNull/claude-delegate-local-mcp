@@ -128,6 +128,37 @@ def test_per_entry_budget_fires_on_one_long_section(repo: Path):
     assert fired(gate(repo), "budget", "docs/log.md", "'long'")
 
 
+def test_per_entry_budget_charges_identical_entries_identically(repo: Path):
+    """Two entries, byte-identical, must get the same verdict. They did not.
+
+    `re.split` on the heading leaves the blank separator inside the *preceding* section, so
+    every entry but the last was charged a line the last one was not. Here each entry is
+    exactly `cap` content lines: the last passed and the first blocked, though nothing
+    distinguishes them.
+
+    The damage is not the block. It is that the last entry -- the one just appended, in an
+    oldest-first document like JOURNAL.md -- lands at exactly `cap`, and then blocks the
+    next person to append, who has changed nothing about it.
+    """
+    body = "## 2026-01-01\nalpha\nbeta\n"
+    (repo / "docs" / "log3.md").write_text(
+        "<!-- BUDGET-PER-ENTRY: 3 -->\n" + body + "\n" + body, encoding="utf-8")
+    assert not fired(gate(repo), "budget", "docs/log3.md")
+
+
+def test_per_entry_budget_still_blocks_a_genuinely_long_last_entry(repo: Path):
+    """The direction that keeps the fix honest.
+
+    Measuring every entry on its content could have been had by not measuring at all, and
+    that would satisfy the test above. The final section is where the old count was wrong,
+    so the final section is where an over-budget entry has to still be caught.
+    """
+    (repo / "docs" / "log4.md").write_text(
+        "<!-- BUDGET-PER-ENTRY: 3 -->\n## short\nx\n\n## last\n" + "y\n" * 20,
+        encoding="utf-8")
+    assert fired(gate(repo), "budget", "docs/log4.md", "'last'")
+
+
 def test_per_entry_budget_is_silent_on_short_sections(repo: Path):
     (repo / "docs" / "log2.md").write_text(
         "<!-- BUDGET-PER-ENTRY: 30 -->\n## a\nx\n## b\ny\n", encoding="utf-8")
