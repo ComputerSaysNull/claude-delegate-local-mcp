@@ -415,6 +415,49 @@ def test_env_example_refuses_to_pass_with_nothing_to_check_against(repo: Path):
     assert fired(gate(repo), "env-example", "would pass whatever")
 
 
+# ------------------------------------------------------------------- conflict markers
+
+def test_conflict_marker_fires_on_a_nested_pair(repo: Path):
+    """The nested shape, because it is the one that hides.
+
+    A resolver that searches for the first conflict, fixes it and commits the rest
+    verbatim leaves the inner pair behind. That is how markers reached `main` twice, so a
+    fixture with one flat pair would pass against the bug this is written for.
+    """
+    (repo / "docs" / "merged.md").write_text(
+        "<!-- BUDGET: 99 -->\n# Notes\n\n"
+        + "<" * 7 + " HEAD\nours\n"
+        + "<" * 7 + " HEAD\ninner ours\n"
+        + "=" * 7 + "\ninner theirs\n"
+        + ">" * 7 + " branch\n"
+        + "=" * 7 + "\ntheirs\n"
+        + ">" * 7 + " branch\n",
+        encoding="utf-8")
+    assert fired(gate(repo), "conflict-marker", "docs/merged.md")
+
+
+def test_conflict_marker_is_silent_on_a_setext_heading(repo: Path):
+    """The look-alike that must pass, and the reason the separator is not blocked.
+
+    Seven or more equals signs on their own line is a valid Markdown H1 underline. Zero
+    appear in this repository today, which is precisely why this test exists: without it
+    the obvious check -- block all three markers -- passes review and then fires on the
+    first ordinary heading anybody writes.
+    """
+    (repo / "docs" / "setext.md").write_text(
+        "<!-- BUDGET: 99 -->\nA heading written the old way\n"
+        + "=" * 40 + "\n\nBody text.\n\nA second heading\n" + "-" * 40 + "\n",
+        encoding="utf-8")
+    assert not fired(gate(repo), "conflict-marker", "docs/setext.md")
+
+
+def test_conflict_marker_says_nothing_about_a_clean_tree(repo: Path):
+    """A check that flagged every file would pass both tests above."""
+    (repo / "docs" / "ordinary.md").write_text(
+        "<!-- BUDGET: 99 -->\n# Ordinary\n\nNothing unusual here.\n", encoding="utf-8")
+    assert not fired(gate(repo), "conflict-marker")
+
+
 # ----------------------------------------------------------------------- scan coverage
 
 def test_scan_coverage_fires_on_a_file_over_the_byte_cap(repo: Path):

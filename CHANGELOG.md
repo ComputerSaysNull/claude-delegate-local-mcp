@@ -34,6 +34,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #TBD — 2026-09-14 — fix: the gate checked who owned a document, never what was in it
+
+### Added
+- **`conflict-marker`, a content check.** *Symptom:* literal git conflict markers reached
+  `main` twice in Markdown, and #193 was the cleanup. *Cause:* nothing looks. In a `.py`
+  file an unresolved conflict fails to parse and someone notices in seconds; in Markdown it
+  renders as nonsense, no test or lint reads it, and the gate checks ownership and budgets
+  rather than content. *Fix:* one check over `scannable_files()`, blocking on the opener
+  and closer forms.
+- **The separator is deliberately not blocked.** A line of seven or more equals signs is a
+  valid setext Markdown H1 underline. Measured across every tracked `.md`: zero today —
+  which is what makes it dangerous, since the obvious check passes review and then fires on
+  the first ordinary heading anybody writes. The two forms kept have no meaning in Markdown,
+  and no merge leaves one without the other.
+- **Written against the nested pair**, because that is the shape that hides: a resolver that
+  fixes the first conflict and commits the rest verbatim leaves the inner pair behind, which
+  is how these reached `main`. A fixture with one flat pair would have passed against the
+  bug. The refusal says to check the whole file for the same reason.
+
 ## #TBD — 2026-09-14 — feat: a turn that dies mid-stream returns what it decoded
 
 ### Added
