@@ -1043,6 +1043,67 @@ def check_roadmap_ids(text: str | None = None) -> list[Finding]:
     return out
 
 
+ROADMAP_ANY_BULLET = re.compile(r"^(?P<indent> *)(?:- |\d+\. |[a-z]+\. )")
+ROADMAP_CAP = 3
+
+
+def check_roadmap_budget(text: str | None = None) -> list[Finding]:
+    """Three lines a bullet, so the roadmap says what is to be done rather than what was.
+
+    PLAN.md grew by accretion: each correction was appended to the bullet it corrected until
+    half the items ran past ten lines. The history is not wrong, it is just filed in the
+    wrong document -- CHANGELOG, JOURNAL and DECISIONS own it, and the hand-off notebook
+    takes a partial observation that fits none of them.
+
+    Sub-bullets carry their own three, which is what makes this a splitting rule rather than
+    a deletion order: a long item becomes a short parent with short children.
+
+    Two boundaries, both of which were wrong in a draft of this:
+
+    - **A bullet ends at the first blank line.** Running it to the next bullet instead
+      swallows the prose paragraphs sitting between items and charges them to whichever
+      bullet came before.
+    - **A frozen body is exempt.** `✅` and `❌` bodies may not be reworded, and most of the
+      excess sits inside them; a cap applying there would be one rule contradicting another.
+      Only live subtrees are measured.
+    """
+    if text is None:
+        path = ROOT / "PLAN.md"
+        if not path.exists():
+            return [Finding(SKIP, "roadmap-budget", "there is no PLAN.md to check.")]
+        text = path.read_text(encoding="utf-8")
+
+    lines = text.splitlines()
+    starts = [i for i, ln in enumerate(lines) if ROADMAP_ANY_BULLET.match(ln)]
+    out: list[Finding] = []
+    live = False
+
+    for k, i in enumerate(starts):
+        # Only a *marked* top-level item opens a subtree. An unmarked one -- the struck
+        # original kept beside a ticked item -- inherits whichever subtree it sits in.
+        if top := ROADMAP_TOP.match(lines[i]):
+            live = top.group("marker") in ("⬜", "🔄")
+
+        limit = starts[k + 1] if k + 1 < len(starts) else len(lines)
+        end = limit
+        for j in range(i + 1, limit):
+            if not lines[j].strip() or lines[j].startswith("#"):
+                end = j
+                break
+
+        n = end - i
+        if live and n > ROADMAP_CAP:
+            title = lines[i].strip()[:60]
+            out.append(Finding(
+                BLOCK, "roadmap-budget",
+                f"PLAN.md line {i + 1} is {n} lines against a cap of {ROADMAP_CAP}: "
+                f"{title!r}. Split it — a sub-bullet carries its own three — or move the "
+                f"history to whichever of CHANGELOG, JOURNAL, DECISIONS or the hand-off "
+                f"notebook owns it."))
+
+    return out
+
+
 def check_adr_format(text: str | None = None) -> list[Finding]:
     """The ADR headings ARE the index, so their shape is load-bearing.
 
@@ -1676,6 +1737,7 @@ CHECKS = {
     "budget": check_budgets,
     "roadmap-marker": check_roadmap_markers,
     "roadmap-id": check_roadmap_ids,
+    "roadmap-budget": check_roadmap_budget,
     "adr": check_adr_format,
     "owning-doc": check_ownership,
     "orphan-doc": check_orphan_docs,

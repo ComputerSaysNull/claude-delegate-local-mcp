@@ -38,6 +38,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #209 — 2026-09-14 — feat: three lines a bullet, and PLAN.md stops being an archive
+
+### Added
+- **`check_roadmap_budget`.** *Symptom:* PLAN.md grew by accretion — each correction appended
+  to the bullet it corrected — until half its items ran past ten lines and the roadmap read
+  as an archive of its own reasoning. *Cause:* nothing bounded a bullet, so the cheapest place
+  to put a correction was always the item it corrected. *Fix:* three lines a bullet, with
+  sub-bullets carrying their own three, so a long item becomes a short parent with short
+  children rather than a deletion.
+- **Two boundaries decide whether the check is honest, and both were wrong in a draft.** A
+  bullet ends at the **first blank line** — running it to the next bullet instead swallows the
+  prose paragraphs between items and charges them to whichever bullet preceded one, which
+  miscounted six bullets while this was being written. And a **frozen body is exempt**: `✅`
+  and `❌` may not be reworded, so a cap applying there would be one rule contradicting
+  another.
+
+### Changed
+- **PLAN.md is 820 lines, down from 873, and no live bullet exceeds three.** 111 excess lines
+  across 32 bullets, resolved by splitting where the content was structural and by citing
+  where it was history the record already holds. The budget came down with it, to 820: slack
+  a document has not earned is where the next accretion goes.
+- **Measured before designing, which changed the design.** A blanket cap needed 311 lines
+  removed; **192 of them (62%) sat inside frozen `✅` bodies**. That is what scoped the cap to
+  live items, and it was not visible from reading the file.
+- **Every number that left was accounted for.** Eight distinctive figures were removed and
+  seven are still in CHANGELOG.md — they are #204's evidence, now cited rather than restated,
+  which is the cross-plane rule working. The eighth was a priced sequence whose supporting
+  measurement this file already records as dead with #194.
+
 ## #208 — 2026-09-14 — feat: the guessed heading number is checked against the issued one
 
 ### Added

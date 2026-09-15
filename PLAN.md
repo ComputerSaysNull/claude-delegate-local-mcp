@@ -1,5 +1,5 @@
-<!-- BUDGET: 873 -->
-<!-- Lowered from 930 on 2026-09-15: the raise history stopped being a third copy of itself, and slack a document has not earned is where the next accretion goes. -->
+<!-- BUDGET: 820 -->
+<!-- Lowered from 930 on 2026-09-15: the three-line cap took 57 lines and the raise history stopped being a third copy of itself; slack a document has not earned is where the next accretion goes. -->
 <!-- Raised from 925 on 2026-09-14: items are numbered now, and a document whose reference scheme is not stated in it is one nobody else can cite from. -->
 <!-- Raised from 907 on 2026-09-14: 7.6 tok/s turned out to be one attempt of tokens over two attempts of time, plus the header opener this file had been missing. -->
 <!-- Raised from 888 on 2026-09-14: streaming closed, and the two things it was still carrying became items of their own rather than dying with it. -->
@@ -14,7 +14,7 @@
      kept here is the six most recent raises rather than the history. -->
 # Plan
 
-Open work, one line per item, status first so the file scans.
+Open work, status first so the file scans.
 
 `✅` done, dated · `🔄` in progress · `⬜` not started — queued under **Open**, on hold
 under **Deferred** · `❌` cancelled, with date and **reason** — cancelled items stay,
@@ -26,6 +26,10 @@ when that item is archived, so one left here belongs to something still open.
 Items are numbered — `1.` at the top, `- a.` beneath, marker after it — so a plan cites
 `M11.10` rather than a title. Ids are section-scoped and never reused; every sub-bullet takes
 a letter and a marker (`✅` if it holds no task), and a parent is `✅` only once all are.
+
+**Three lines a bullet**, measured to the first blank line, with sub-bullets carrying their
+own three. History goes to whichever of CHANGELOG, DECISIONS, JOURNAL or the hand-off
+notebook owns it. `✅` and `❌` bodies are frozen and therefore exempt.
 
 **Completed items stay until the roadmap closes.** A `✅` keeps its place, with its struck
 original, until every milestone is finished or the owner says to archive; only then does it
@@ -184,13 +188,14 @@ their own project without ever reading this repository.
 nothing was configured, and no tool result changes shape.
 
 1. ⬜ **`transcript_dir`'s fallback needs a state directory that does not exist yet, and the
-  argument the item cites does not reach it.** The only server-owned directory helper,
-  `slots.default_dir()`, is tmpfs in both branches — right for ephemeral slots, wrong for an
-  audit record that must survive a reboot. And ADR-0024 argues what an operator can audit
-  should not depend on the *caller's* flag, where `transcript_dir` is the *operator's*, so it
-  does not support defaulting this on. Defaulting it on also writes task text to disk without
-  anyone choosing to, which the setting's own help text calls "a trade rather than a rule".
-  **Decide the durability and the privacy question before writing the fallback.** Original:
+  argument the item cites does not reach it.** **Decide the durability and the privacy
+  question before writing the fallback.** Original:
+    - a. ⬜ `slots.default_dir()`, the only server-owned directory helper, is tmpfs in both
+    branches — right for ephemeral slots, wrong for an audit record that must survive a
+    reboot.
+    - b. ⬜ ADR-0024 argues an operator's audit should not depend on the *caller's* flag, where
+    `transcript_dir` is the operator's, so it does not support defaulting this on. Doing so
+    also writes task text to disk unchosen — "a trade rather than a rule", per its own help.
 2. ⬜ `transcript_dir` falls back to the server's own state directory when unset, so the
   viewer and the cost record work without setup. ADR-0024 already argues that what an
   operator can audit should not depend on the caller's flag
@@ -203,15 +208,15 @@ nothing was configured, and no tool result changes shape.
 5. ⬜ A sampler polling the metrics reader on an interval into a windowed series, because it
   derives only since-boot figures and a lifetime average cannot say how the cluster is doing
   now. `backend_status` keeps the output it has, so no client behaviour changes
-    - a. ✅ **Raised 2026-09-11 from reporting to correctness, which re-ranks it.** The windowed rate
-    is what the *reply budget* should be priced from: `DecodeRate` seeds from the since-boot
-    mean and only a **completed** turn replaces it, so a delegation sized for an idle cluster
-    that cannot then finish never corrects itself and dies at `stall_timeout` at zero turns.
-    Seven did in one audit session, endpoint healthy throughout
-    - b. ⬜ `vllm:generation_tokens_total` is published and **not** in the allowlist; differenced over
+    - a. ✅ **Raised 2026-09-11 from reporting to correctness, which re-ranks it.** `DecodeRate`
+    seeds from the since-boot mean and only a **completed** turn replaces it, so a delegation
+    sized for an idle cluster never corrects itself and dies at `stall_timeout` at zero turns.
+    - b. ⬜ Seven did in one audit session, endpoint healthy throughout — which is why the windowed
+    rate is what the *reply budget* should be priced from.
+    - c. ⬜ `vllm:generation_tokens_total` is published and **not** in the allowlist; differenced over
     a window, over `num_requests_running`, it is a live per-request rate. The histogram in use
-    records only on *completion*, so it is blind during the stall it must detect. And
-    ADR-0055's "conservative" blend is flattering whenever the present is busier than history
+    records only on *completion*, so it is blind during the stall it must detect.
+    - d. ⬜ ADR-0055's "conservative" blend is flattering whenever the present is busier than history.
 6. ✅ 2026-09-07 **Spike answered** — a `status` subcommand printing one plain-text block, since a TUI
   cannot run inside an agent's shell. Measure whether a detached terminal window can be
   launched from one; if not, print the command to paste
@@ -303,64 +308,49 @@ nothing was configured, and no tool result changes shape.
     (session 2): they do.** A turn whose entire visible answer was the word `DONE` reported
     `output_tokens: 697` at `effort: low`. So `max_tokens` does bound a looping model — it
     is simply set far above the deadline today.
-8. 🔄 **The retry split streaming made available, and half of it is already in.** A read
-  timeout *before* the first token is prefill or queueing — the model never began writing —
-  and one *after* it is slow decode. They deserve different answers: a slow decoder will
-  likely be slow again, so retrying spends the rest of the budget discovering that, where a
-  queueing timeout may sail through immediately. **Half landed 2026-09-14 (ADR-0078)**: the
-  adapter's own whole-turn bound now reports `while_generating=first is not None` instead of
-  an unconditional `True`, so that path distinguishes them. The `httpx` read-timeout path
-  still lumps them together, and that is the half that remains. Split out of the streaming
-  item, where it was deferred with a comment in `openai_compat.py` saying it "would change
-  what #167 retries, which wants its own evidence rather than arriving as a side effect" —
-  so measure what each population actually costs before changing the retry rule
+8. 🔄 **The retry split streaming made available, and half of it is already in.** The
+  `httpx` read-timeout path still lumps prefill/queueing together with slow decode, and that
+  is the half that remains.
+    - a. 🔄 A timeout *before* the first token is prefill or queueing; *after* it is slow decode.
+    A slow decoder will likely be slow again, so retrying spends the budget discovering
+    that, where a queueing timeout may sail through immediately.
+    - b. ✅ **Half landed 2026-09-14 (ADR-0078):** the adapter's whole-turn bound reports
+    `while_generating=first is not None` rather than an unconditional `True`, so that path
+    distinguishes them.
+    - c. 🔄 Split out of streaming, where `openai_compat.py` deferred it as "would change what
+    #167 retries, which wants its own evidence rather than arriving as a side effect" — so
+    measure what each population costs before changing the retry rule.
 9. ⬜ **Showing the stream itself, for a person watching a delegation run.** The `.jsonl`
-  already carries everything needed since slices 2-3. Split out of the streaming item, which
-  weighed the shape and left the answer standing: **a non-terminal viewer first**. `follow`
-  never repaints and making it repaint is the expensive half, where a browser over the same
-  `.jsonl` gets repaint, scrollback and selection for nothing. The consumer is not the
-  caller — an MCP tool call is request/response either way — it is the person reading the
-  transcript stream while the work happens
+  has carried everything needed since slices 2-3, and the shape was already settled: **a
+  non-terminal viewer first**.
+    - a. ⬜ `follow` never repaints and making it repaint is the expensive half, where a browser
+    over the same `.jsonl` gets repaint, scrollback and selection for nothing.
+    - b. ⬜ The consumer is not the caller — an MCP tool call is request/response either way — it
+    is the person reading the transcript stream while the work happens.
 
-10. ⬜ **A delegation returns a handle, and a second call collects it** — the client backs an
-  MCP call into the background after 120s. ~~and issues the next tool call only then, so
-  firing `n` delegations in one message costs `120s x (n-1)` of stagger before the last one
-  starts.~~ **Corrected 2026-09-06 (`#118`), then narrowed the same day.** Four
-  calls issued in one message started within 5.6s of each other, all four outlasting 120s
-  and being backgrounded together, so the 120s is when the client stops *waiting* rather
-  than when it issues the next call. **That holds for `delegate_readonly` only.** Those four
-  arms carried `readOnlyHint`; six `delegate_to_agent` arms issued the same way chained at
-  exactly 120s intervals, the last landing at +688s. So the stagger is real for the two
-  write-capable tools and the justification `#118` removed is restored for them — **re-rank
-  it back up.** A read-only form of the agent tool, filed under Improvements, would remove
-  the ramp for the audit case without this item; this one remains the general answer.
-  **That tool shipped on 2026-09-06 and the ramp it removes is now measured** — two arms
-  2.2s apart where a chained tool predicts 120s (JOURNAL 2026-09-06). This item is still
-  the general answer, for the two tools that must keep the annotation they have. Measured 2026-09-05: four passes issued together started at 20:24:30, 20:26:32,
-  20:28:32 and 20:30:32. They do run concurrently once started — ~~`seqs=4, large=0` in the
-  shared slots file — so the fan-out works; it is only the ramp that is wasted.~~
-    - a. ✅ **CORRECTED 2026-09-05 (session 2): the struck line had it backwards twice.** The
-    fan-out is worth more than the ramp — the aggregate lever is real (JOURNAL 2026-09-05)
-    — but `stall_timeout` is wall-clock **per delegation**, so the batch takes the gain
-    while each run pays the per-sequence penalty, which is what tips one over the deadline.
-    Handles do not change that; they only stop it being caller-visible. And `large=0` was
-    not evidence of health — see the admission item for why that counter cannot see a
-    fan-out at all
-    - b. ⬜ **Server-side rather than a client setting**, deliberately. `MCP_TOOL_TIMEOUT` might
-    shorten the ramp, but it is per-machine setup that does not travel, and it is not known
-    here whether it backgrounds or kills — untested, and the failure mode is severe.
-    - c. ⬜ **Shape that keeps the common case cheap:** block for a short grace window and return
-    the result inline if it finishes, so a single fast delegation stays one call; otherwise
-    return a handle. `collect(handle, wait_seconds)` blocks up to just under the client's
-    threshold, which costs nothing because the work is already running.
-    - d. ⬜ Moves the admission wait behind the handle, so `admission_wait_timeout` stacking on
+10. ⬜ **A delegation returns a handle, and a second call collects it** — the 120s is when
+  the client stops *waiting*, not when it issues the next call, so what is left to remove is
+  the ramp on the two write-capable tools and the caller-visible admission wait.
+    - a. ⬜ **The ramp is real for the write-capable tools only**, which is what re-ranked this
+    below streaming on 2026-09-07: four `readOnlyHint` arms started within 5.6s, six
+    `delegate_to_agent` arms chained at 120s with the last at +688s (`#118`, narrowed).
+    - b. ✅ **Measured 2026-09-05:** four passes issued together started 20:24:30, 20:26:32,
+    20:28:32, 20:30:32, and ran concurrently once started. `seqs=4, large=0` was *not*
+    evidence of health — see the admission item for why that counter cannot see a fan-out.
+    - c. ⬜ **The fan-out is worth more than the ramp, and handles do not change that.**
+    `stall_timeout` is wall-clock per delegation, so the batch takes the gain while each run
+    pays the penalty; a handle only stops it being caller-visible (JOURNAL 2026-09-05).
+    - d. ⬜ **Server-side rather than a client setting**, deliberately. `MCP_TOOL_TIMEOUT` might
+    shorten the ramp, but it is per-machine setup that does not travel, and whether it
+    backgrounds or kills is untested with a severe failure mode.
+    - e. ⬜ **Shape that keeps the common case cheap:** a short grace window returning inline if it
+    finishes, otherwise a handle. `collect(handle, wait_seconds)` blocks just under the
+    client's threshold, which costs nothing because the work is already running.
+    - f. ⬜ Moves the admission wait behind the handle, so `admission_wait_timeout` stacking on
     `dispatch_timeout` stops being caller-visible wall time (ADR-0038).
-    - e. ⬜ Restructures the model-facing tool contract, so it is a behaviour change with an ADR,
-    not a wording fix. **Related to streaming but not blocked on it** — streaming is
-    token-level liveness inside a turn, this is call-level detachment. Say so in the ADR.
-    - f. ✅ **Re-ranked below streaming on 2026-09-07.** `delegate_to_agent_readonly` removed the
-    ramp for read-only work and the client backgrounds a long call by itself, so what is left
-    is the ramp on the two write-capable tools and hiding the admission wait.
+    - g. ⬜ Restructures the model-facing tool contract, so it is a behaviour change with an ADR.
+    **Related to streaming but not blocked on it** — streaming is token-level liveness
+    inside a turn, this is call-level detachment. Say so in the ADR.
 
 ### M12 — Admission that queues instead of starving
 
@@ -434,18 +424,13 @@ them was re-derived when it did.
 
 1. ⬜ **Spike** — find the cause behind withholding `run_bash` on a verifying pass, rather
   than writing the workaround down. It took an audit from 26 turns to 1 at no cost in
-  accuracy, and 24 of its 29 calls were verification — so if verification bought nothing,
-  stop instructing the agent to verify by shelling out. Measure that first; a
-  `verify_quote` tool is only the fallback
-    - a. ✅ **Attempted 2026-09-07 and inconclusive, because the experiment was designed wrong.** A
-    read-only pass has no shell, which is the condition under test, and one was run over a
-    dense document for the TOO VERBOSE class. It correctly found nothing — so it produced no
-    quotations, and there was nothing whose accuracy could be checked
-    - b. ⬜ The cost half did reproduce: **one turn, zero tool calls**, against the 26 turns the
-    with-shell pass took. What is still unmeasured is whether accuracy holds, and measuring
-    it needs a task that *necessarily* quotes — a STALE pass over a document and the code it
-    describes, against a known discrepancy, rather than a class that may legitimately return
-    an empty list
+  accuracy, and 24 of its 29 calls were verification. A `verify_quote` tool is the fallback.
+    - a. ✅ **Attempted 2026-09-07 and inconclusive: the experiment was designed wrong.** A
+    read-only pass has no shell, which is the condition under test, and it ran over a dense
+    document for TOO VERBOSE — correctly finding nothing, so nothing could be checked.
+    - b. ⬜ The cost half did reproduce: **one turn, zero tool calls** against 26. Whether accuracy
+    holds is still unmeasured, and needs a task that *necessarily* quotes — a STALE pass
+    against a known discrepancy, not a class that may legitimately return an empty list.
 2. ✅ 2026-09-13 **Reasoning was generated, paid for, and then discarded** — nine dispatches of 446
   reported empty at a *length stop* holding 265,092 output tokens, because `answer` joined text
   blocks only. Bannered now, with `answer_is_reasoning` (#188)
@@ -485,10 +470,11 @@ them was re-derived when it did.
     size-based **boundary** — advance the oldest-first cut until retained bytes fit a budget
     — never size-based *selection*. "Evict the large ones and keep the small ones" would
     trade the whole prefix cache for a few thousand tokens
-11. ⬜ **Arming the preventive half is unmeasured.** Tighten, nudge, abort and the plateau check
-  still wait for `context_overflow_enabled`. Arming them everywhere failed 31 tests on doubles
-  reporting a 7-token prompt — which says those doubles are unrealistic, not that the change
-  is wrong, and settling which needs a real delegation rather than an argument
+11. ⬜ **Arming the preventive half is unmeasured.** Tighten, nudge, abort and the plateau
+  check still wait for `context_overflow_enabled`. Arming them everywhere failed 31 tests on
+  doubles reporting a 7-token prompt.
+    - a. ⬜ That says those doubles are unrealistic, not that the change is wrong, and settling
+    which needs a real delegation rather than an argument.
 12. ✅ 2026-09-13 **The priced rate climbed past what the cluster can physically decode** — 88.53
   tok/s and a 95,612-token ceiling against a benchmark of 44.1. ADR-0070's move to
   `decode_seconds` inverted the short-turn defect ADR-0071 had fixed in only one of the two
@@ -497,8 +483,8 @@ them was re-derived when it did.
   in `__init__`, so `observed_at_concurrency` can label an EMA no observation at it produced
 14. ⬜ **A quoting turn measures the accept path, not the decoder, and no floor catches it.**
   Measured 2026-09-13 at one concurrency: quoting a prefetched file read 63.75 tok/s against
-  41.83 for generated prose and a 44.1 benchmark, from a turn well clear of ADR-0073's floor.
-  `expect`'s minimum contains it — immune to *fast* samples, vulnerable only to slow ones
+  41.83 for generated prose and a 44.1 benchmark, from a turn clear of ADR-0073's floor.
+    - a. ⬜ `expect`'s minimum contains it — immune to *fast* samples, vulnerable only to slow ones.
 15. ✅ 2026-09-13 **An unscoped `search_files` cost 490-572s, and the contract recommended it** —
   `glob` claimed to be the speed lever and the bad-`path` refusal said "omit it to search
   everywhere", which one delegation did, at 239s. Scope is worth ~100x; `read_file` was never
@@ -512,21 +498,18 @@ them was re-derived when it did.
 18. ⬜ **`search_files` walks in Python.** A thread pool over the per-file policy and read, or
   `ripgrep` for candidates with the policy applied after — the second crosses the boundary
   `_search_files` holds, so its own ADR. ~2x, and the ~100x half is now taken
-19. ⬜ **The deadline counts down while the *server* works on the delegation's behalf.** A third
-  liveness state ADR-0072 does not name: producing, silent, and producing nothing on the wire
-  because a tool is running. Measured 2026-09-13 — 505s of one turn with `chunks_seen` frozen
-  and `ends_in_seconds` falling 60s per minute, then jumping back when the turn completed. Two
-  such turns cost 40% of a 2,100s stall budget; one long enough is killed while working. The
-  event loop is *not* blocked — `_run_calls` goes through `asyncio.to_thread` — so this bounds
-  the delegation only
-    - a. ✅ **Corrected 2026-09-14: "killed while working" is false, and this is a reporting defect.**
-    `turn_done` sets `last_progress = clock()` unconditionally (`loop.py` line 2420) *after*
-    the tool batch returns, and `stalled()` is only evaluated at the next dispatch — by which
-    time the stall deadline has been refreshed. Tool time therefore cannot kill a delegation
-    by stall. What it does consume is the whole-delegation `dispatch_timeout`, which is a
-    wall clock and arguably should. What is left is real but smaller: the heartbeat reports a
-    falling `ends_in` throughout a tool call and then jumps back, so a watcher is told a
-    delegation is dying while it is working. Re-rank accordingly
+19. ⬜ **The deadline counts down while the *server* works on the delegation's behalf.** A
+  third liveness state ADR-0072 does not name: producing, silent, and producing nothing on
+  the wire because a tool is running.
+    - a. ⬜ Measured 2026-09-13 — 505s of one turn with `chunks_seen` frozen and `ends_in_seconds`
+    falling 60s per minute, then jumping back on completion. The event loop is *not* blocked
+    (`_run_calls` goes through `asyncio.to_thread`), so this bounds the delegation only.
+    - b. ✅ **Corrected 2026-09-14: "killed while working" is false; this is a reporting defect.**
+    `turn_done` sets `last_progress` unconditionally after the tool batch returns and
+    `stalled()` is evaluated at the next dispatch, so tool time cannot kill by stall.
+    - c. ⬜ What it does consume is the whole-delegation `dispatch_timeout`, a wall clock that
+    arguably should. What is left is real but smaller — a watcher is told a delegation is
+    dying while it works. **Re-rank accordingly.**
 20. ✅ 2026-09-13 **The viewer states true things in ways that read false.** Four findings, one
   branch:
   `requests_running` in a `priced` row is the lease's grant-time concurrency echoed, not live
@@ -556,23 +539,25 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
     format was rewritten to prevent", and a bare `name:` is that shape. Refusing costs
     nothing — a matching `name` is redundant and a disagreeing one was already refused
 24. ⬜ Content-level detection for a renamed secret — every path-policy layer inspects the
-  path and none the bytes, so `config.json` holding a private key passes all of them and is
-  inlined, and `run_bash` can read one the mount-level scan did not match by name. One
-  finding, not two: fixing the detection fixes both ends. **Not** by pointing `scan_text` at
-  it, which the 2026-09-02 review recommended — that scanner looks for RFC1918 addresses,
-  private-DNS suffixes and non-allowlisted emails, and would false-positive on the source a
-  review delegation exists to read. A narrow, high-precision check for key material instead
+  path and none the bytes, so `config.json` holding a private key passes all of them, and
+  `run_bash` can read one the mount-level scan did not match by name.
+    - a. ⬜ One finding, not two: fixing the detection fixes both ends. A narrow, high-precision
+    check for key material.
+    - b. ⬜ **Not** by pointing `scan_text` at it, as the 2026-09-02 review recommended — that
+    scanner looks for RFC1918 addresses, private-DNS suffixes and non-allowlisted emails,
+    and would false-positive on the source a review delegation exists to read.
 
 25. ⬜ **A captured exit code of zero is not proof of success, and only the server can close
   that.** `last_bash_exit` is the status of the whole shell line the model composed, so a
-  trailing `; echo $?` or a `| tail` replaces the status of the work with the status of the
-  echo. Measured 2026-09-08 over four trials each: the `run_bash` description now says the
-  code is recorded for you, which took a real non-zero from 0/4 to 3/4 — an improvement and
-  not a guarantee, and a wording change can never be one. A non-zero is still trustworthy
-  because nothing invents one; a zero is ambiguous, which is the half ADR-0007 needs.
-  The server-side answer is a signal for *any* command in the line exiting non-zero, beside
-  the last one's — and `/bin/sh` is dash here, so whether that can be had without changing
-  what a compound command means is the thing to measure first
+  trailing `; echo $?` or a `| tail` replaces the work's status with the echo's.
+    - a. ⬜ Measured 2026-09-08 over four trials each: the `run_bash` description now says the code
+    is recorded for you, taking a real non-zero from 0/4 to 3/4 — an improvement, and a
+    wording change can never be a guarantee.
+    - b. ⬜ A non-zero is still trustworthy because nothing invents one; a zero is ambiguous, which
+    is the half ADR-0007 needs.
+    - c. ⬜ The server-side answer is a signal for *any* command in the line exiting non-zero
+    beside the last one's. `/bin/sh` is dash here, so measure first whether that can be had
+    without changing what a compound command means.
 
 26. ✅ 2026-09-09 **The denylist file matches itself, so layer 3 is unusable inside the sandbox.**
   `security/secret_globs.txt` matches its own `*secret*` entry, so the scan covers it with
@@ -603,11 +588,11 @@ Neither queued nor deferred: real work not yet ranked against a milestone.
   item and not a detail of another commit — the same reasoning the `models.toml` entry used
 
 29. ⬜ Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
-  way to look for anything. Its original justification, that expanding before the call keeps
-  `delegate_readonly` toolless and loopless, no longer holds now the fork is settled the
-  other way, so this is a convenience and ranks below the search tool. The work is in the
-  budget rather than the matching — a glob hitting two hundred files has to skip and account
-  for them the way `context.prefetch` already does, not spend `prefetch_budget` silently
+  way to look for anything. A convenience ranking below the search tool, now the fork is
+  settled the other way and the toolless-`delegate_readonly` justification no longer holds.
+    - a. ⬜ The work is in the budget rather than the matching: a glob hitting two hundred files
+    has to skip and account for them the way `context.prefetch` already does, not spend
+    `prefetch_budget` silently.
 
 These came out of nine delegations dying at the stall deadline with zero turns. The
 measurements, what each fix does and does not cover, and what the next session should start
@@ -620,24 +605,19 @@ local, because they are working notes rather than a product fact.
   still cannot know the burst is coming
 31. ⬜ **Hold a delegation briefly when the gate is idle**, so a burst's first member prices
   against the burst. ~~Buys the one case above; costs latency on every solo large call.
-  Default off.~~ **Re-ranked 2026-09-12 and the "large" in the title was backwards**: six
-  large calls are already coalesced by `max_inflight_large_prefills` — admitted in three
-  waves of two, at 0s/28.9s/57.1s — while six *small* ones ran together and priced 1,2,3,4,5,6
-    - a. ⬜ **What it actually buys, which is more than a first member's ceiling.** `expect` keeps a
-    minimum over every sample at that concurrency *or busier* precisely because the label
-    cannot be trusted, and that costs a genuinely solo call 2.5x: dispatch 0027 decoded
-    **alone at 65.6 tok/s** and is priced at 26.57. No guard fixes that — `expect(1)` is
-    min-over-everything by design. A hold makes the label true, and a true label is the
-    precondition for `expect` returning anything less pessimistic. **That is the item**
-    - b. ⬜ Hold only while the gate is idle, so it costs nothing when concurrency is already known
+  Default off.~~ **Re-ranked 2026-09-12; the "large" in the title was backwards.**
+    - a. ⬜ **What it actually buys, more than a first member's ceiling.** `expect` keeps a minimum
+    over every sample at that concurrency *or busier* because the label cannot be trusted,
+    costing a solo call 2.5x: dispatch 0027 decoded **alone at 65.6 tok/s**, priced 26.57.
+    - b. ⬜ No guard fixes that — `expect(1)` is min-over-everything by design. A hold makes the
+    label true, and a true label is the precondition for `expect` returning anything less
+    pessimistic. **That is the item.**
+    - c. ⬜ Hold only while the gate is idle, so it costs nothing when concurrency is already known
     and 10s when it is not. The arrival distribution measured that day is bimodal, which is
-    what makes a fixed window work: six probes inside 8.5s, or one alone
-    - c. ✅ **The coalescing evidence above died with #194; the item did not.** Large calls are no
-    longer coalesced by `max_inflight_large_prefills` because that gate is gone (ADR-0077),
-    so they now arrive uncoalesced exactly as small ones do. That *widens* what a hold would
-    cover rather than removing its reason, and the mechanism — hold ~10s while the gate is
-    idle so the first caller prices against the burst it will actually meet — never depended
-    on the gate. Re-state the evidence when this is picked up; do not re-derive the item
+    what makes a fixed window work: six probes inside 8.5s, or one alone.
+    - d. ✅ **The coalescing evidence this rested on died with #194; the item did not.** That gate
+    is gone (ADR-0077), so large calls now arrive uncoalesced exactly as small ones do,
+    which *widens* what a hold covers. The mechanism never depended on the gate.
 32. ✅ 2026-09-13 **`RateHistory.expect` falls through to the since-boot blend when it has
   nothing at the asked concurrency**, which is the optimistic answer to the busier question. Measured
   2026-09-12: six probes priced from that fall-through at 34.85 tok/s and then decoded at
@@ -701,34 +681,23 @@ local, because they are working notes rather than a product fact.
   that the better the rate memory gets, the less often the pool is seen. Also worth a
   negative test that the *pairing* holds, since each half passes its own tests today
 40. ⬜ **`admission_wait_timeout` bails out after 30 minutes having produced nothing**, and
-  its own help text says it was sized for an era when the queue was unordered. Tickets and
-  the starvation barrier removed that premise and nobody re-derived the number. Fail fast
-  on a queue too deep to serve, or do not fail at all
-    - a. ⬜ **Do not re-derive it yet, measured 2026-09-13** (#184). It is reachable only because the
-    gate makes it so, and the longest wait at the shipped limit was 89.0s against a bound
-    twenty times that. Remove the gate first, or this is tuning around the defect
-    - b. ✅ **Unblocked 2026-09-13: the gate is gone** (ADR-0077). Every wait this fired on was on
-    that rule, so re-measure what reaches the bound now before moving the number — it may
-    have no reachable path left at all, which is a different answer from a smaller bound
-    - c. ✅ **Re-measured 2026-09-14, and it has no reachable path on this workload.** A five-wide
-    fan-out of ~40k-token prefills, `peak_inflight_seqs` 5 and `peak_inflight_tokens`
-    498,392: `admission_wait_count` **0**, `admission_wait_seconds_total` **0**,
-    `queued_waiters` **0**. Nothing queued, so nothing can reach a bound on queueing. The
-    question is no longer what the number should be but whether the bail-out has any
-    remaining purpose — and note it cannot be answered from `admission_timeouts`, which
-    counts completed waits and reads 0 both when nothing waits and when everything is still
-    waiting. `peak_inflight_seqs` is the honest gauge here
-    - d. ⬜ **It has now fired, twice, on 2026-09-12** — the first time on this deployment. Two
-    passes of a six-way fan-out waited the full 1800s on `max_inflight_large_prefills` and
-    were refused having produced nothing. Not latent. `admission_timeouts` reads 0 while
-    waiters are still waiting because it counts *completed* waits, so that counter cannot
-    be used to argue the bail-out is unreachable — it was, that morning, and wrongly
-    - e. ✅ **Then twice more that evening with two passes answering**, which kills the theory
-    that a working budget dissolves this: the wait is a 2-wide gate holding each slot for a
-    whole delegation, not passes producing nothing. 3,600s of waiting against
-    `kv_cache_used_fraction` **0.031** and 0 preemptions — binding on an idle cluster.
-    **Re-ranked up**, but the item below is probably the fix, so measure that before
-    moving 1800
+  its help text says it was sized for an era when the queue was unordered — a premise
+  tickets and the starvation barrier removed, with nobody re-deriving the number.
+    - a. ✅ **Re-measured 2026-09-14: no reachable path on this workload.** A five-wide fan-out of
+    ~40k-token prefills, `peak_inflight_seqs` 5, `peak_inflight_tokens` 498,392, and
+    `admission_wait_count`, `admission_wait_seconds_total` and `queued_waiters` all **0**.
+    - b. ⬜ So the question is no longer what the number should be but whether the bail-out has any
+    purpose left. `peak_inflight_seqs` is the honest gauge: `admission_timeouts` counts
+    *completed* waits and reads 0 both when nothing waits and when everything still is.
+    - c. ✅ **It had fired twice on 2026-09-12**, the first time on this deployment — two passes of
+    a six-way fan-out waited the full 1800s on `max_inflight_large_prefills` and were
+    refused having produced nothing. Not latent, that morning.
+    - d. ✅ **Then twice more that evening with two passes answering**, killing the theory that a
+    working budget dissolves it: a 2-wide gate holding each slot for a whole delegation.
+    3,600s of waiting at `kv_cache_used_fraction` **0.031**, 0 preemptions, idle cluster.
+    - e. ⬜ Every wait it ever fired on was on that gate, and the gate is gone (ADR-0077, #184),
+    which is what makes the 2026-09-14 reading the current word. **Re-rank on that**, not on
+    the 09-12 firings, and measure the item below before moving 1800.
 41. ✅ 2026-09-13 **Release the *large* half of an admission lease at first token, not at the
   end of the run.** `admit()` holds it for the whole delegation, and the prefill it serialises
   is over once decoding starts. Measured 2026-09-12 at `effort: high`: time to first token
@@ -776,47 +745,24 @@ local, because they are working notes rather than a product fact.
 - **Correction to the ticked item above**, filed beside it rather than edited in:
   `large_prefill_tokens` does not survive as that entry assumed. It classified for the rule
   and for nothing else, so it went with it (ADR-0077, #194)
-44. ⬜ **Work that does not fit one turn.** Two turns produced 13,268 and 16,909 output
-  tokens, the first needing 1,750s at 7.6 tok/s. No budget makes that fit an 1,800s
-  attempt; it is a splitting problem, not a pricing one
-    - a. ✅ **Re-measured 2026-09-14, and 7.6 tok/s is an arithmetic artefact, not a rate.** The
-    turn is in the transcripts: `output_tokens` 13,268, `out_tok_s` **7.6**, `ms` 1,750,590,
-    `effort` **low**, and **`attempts` 2**. The first attempt came back empty and the loop
-    retried at a stepped-down effort, so the numerator is the *answering* attempt's tokens
-    while the denominator is *both* attempts' wall time. The two are not measurements of the
-    same thing. It was also concurrent: its sibling dispatch started twelve seconds later in
-    the same burst.
-    - b. ✅ **That sibling is the honest comparison, and it refutes the item from inside.** Same
-    burst, same contention: `output_tokens` **16,909** at **25.5 tok/s**, `attempts` 1,
-    `effort` high, finishing in **663s**. That is the larger of the two turns this entry
-    cites, and it fitted an 1,800s attempt with more than a thousand seconds to spare. **So
-    "no budget makes that fit" is refuted by the entry's own evidence** and this is not a
-    splitting problem.
-    - c. ⬜ Corroborated independently 2026-09-14: one turn generated 11,403 output tokens in 242s
-    of backend time, a measured 47.1 tok/s solo against the owner's 44.1 benchmark. What
-    survives untouched is the `reply_budget_margin` half below -- ~23,700 against the 20,952
-    the margin authorises is arithmetic, not an instrument reading
-    - d. ⬜ ~~**`reply_budget_margin` is the binding constraint, measured 2026-09-12, and was not
-    filed as one.** A STALE pass wants ~23,700 output tokens. An 1,800s turn at the real
-    six-way rate of 19.4 authorises `1800 x 19.4 x 0.6` = **20,952** — so the margin alone
-    puts the task out of reach whatever the rate estimate does. Below it a pass returns
-    empty at length; above it the clock cannot decode what was authorised. Re-derive the
-    margin before splitting anything, or the split will be sized against the wrong number~~
-    - e. ✅ **Re-derived 2026-09-12, and the original stands: the margin is the constraint.** An
-    intermediate reading put the six-way rate at 27.1 and concluded the pass fitted at
-    28,698. That rate came from probes reproducing their own prompt on a cluster with a
-    speculative-decoding module, so it was an artefact; the owner's independent benchmark
-    puts six concurrent just under 20 tok/s, which restores the 19.4 recorded here. At that
-    rate `1800 x 19.4 x 0.6` = **20,952** and ~23,700 is out of reach, exactly as filed
-    - f. ✅ **What the re-derivation did settle.** The denominator is `turn_timeout`, not the
-    `stall_timeout` the help text named, and the "a turn also prefills" justification is
-    wrong by twenty-fold — prefill measured ~2% of a turn. The value is untouched because
-    the rate is what is wrong: 0.6 would have to be about 0.57 for the cold-start ceiling
-    to fit an 1,800s turn at six concurrent, and fitting a constant to a wrong rate is the
-    mistake this roadmap records against `kv_token_budget`
-    - g. ⬜ **This entry's own premise is next** — 7.6 tok/s is the same pre-#172 instrument, and a
-    turn needing 1,750s of an 1,800s attempt is the claim to re-measure before treating it
-    as a splitting problem
+44. ⬜ **Work that does not fit one turn** — the splitting premise was refuted by this
+  entry's own evidence (#204). What remains is the `reply_budget_margin` half, which is
+  arithmetic rather than an instrument reading and still binds.
+    - a. ⬜ **7.6 tok/s was an arithmetic artefact, not a rate:** one attempt's tokens over two
+    attempts' wall time. Its concurrent sibling produced more tokens in 663s. Transcript
+    rows, both turns and the independent corroboration are in #204.
+    - b. ⬜ **`reply_budget_margin` is the binding constraint, measured 2026-09-12.** A STALE pass
+    wants ~23,700 output tokens; an 1,800s turn at the six-way 19.4 tok/s authorises
+    `1800 x 19.4 x 0.6` = **20,952**, so the margin alone puts the task out of reach.
+    - c. ⬜ An intermediate reading of 27.1 tok/s concluded it fitted at 28,698. That came from
+    probes reproducing their own prompt against a speculative-decoding module, so it was an
+    artefact; the owner's benchmark puts six concurrent just under 20, restoring 19.4.
+    - d. ✅ **What the re-derivation settled:** the denominator is `turn_timeout`, not the
+    `stall_timeout` the help text named, and "a turn also prefills" is wrong twenty-fold —
+    prefill measured ~2% of a turn.
+    - e. ⬜ The 0.6 is untouched because the *rate* was wrong. It would need to be about 0.57 for
+    the cold-start ceiling to fit, and fitting a constant to a wrong rate is the mistake
+    this roadmap already records against `kv_token_budget`.
 
 ## Deferred
 
@@ -834,9 +780,10 @@ On hold for weeks or months. Not cancelled, and not queued.
   quota and no fair share
 5. ⬜ Server-format twins for the four Claude Code agents — `code-reviewer`, `docs-audit`,
   `researcher` and `test-writer` load only in Claude Code, so `delegate_to_agent` reaches
-  one of five agents here. Deferred from M10 on 2026-09-10: the entry named
-  `docs-audit-local` as the shape to copy, and `#159` split it into an agent plus a runbook,
-  so that shape no longer exists. Re-derive what a twin is before committing four of them
+  one of five agents here.
+    - a. ⬜ Deferred from M10 on 2026-09-10: the entry named `docs-audit-local` as the shape to
+    copy and `#159` split it into an agent plus a runbook, so that shape no longer exists.
+    Re-derive what a twin is before committing four of them.
 
 ## Cancelled
 
