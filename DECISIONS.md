@@ -19,6 +19,55 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0086 — 2026-09-15 — Aggregates may default on, content may not — Accepted
+
+**Context.** M11's roadmap wants `transcript_dir` to fall back to a server-owned state
+directory when unset, "so the viewer and the cost record work without setup". Two things
+block that and neither had been settled.
+
+There is no durable server-owned directory to fall back *to*. `slots.default_dir()` is the
+only one, and it is tmpfs in both branches — deliberately, because it describes processes
+running right now and "durability across a reboot would be describing a world that no longer
+exists". `sandbox_home` is the sandbox's HOME under `~/.cache`, not server state. Nothing
+uses `XDG_STATE_HOME`. Confirmed by search, not assumed.
+
+And the argument the item cites does not reach the question. ADR-0024 adopted "an
+operator-level dispatch transcript, independent of any caller-facing flag", which is about
+the *caller's* `diagnostics` — already honoured, since the transcript enables itself
+regardless. It says nothing about whether the operator's own setting should default to on.
+
+**Decision, one: the line is aggregates versus content.** Counts, token totals, timings,
+outcomes and exit codes describe what *the server* did, and recording them by default is the
+server describing its own behaviour. Task text, file contents and model replies are the
+caller's material, and writing them to disk is a choice the operator makes rather than one
+the server makes for them. `transcript_dir`'s own help already calls where records land "a
+trade rather than a rule"; this names which side of the trade each kind of record falls on.
+
+**Decision, two: `transcript_dir` does not default on.** It carries task text, so under the
+rule above it stays unset until an operator chooses a home for it. The roadmap item asking
+for the fallback is cancelled rather than deferred, because the reasoning against it is
+settled rather than waiting on anything.
+
+This deployment is the argument in miniature: `DELEGATE_TRANSCRIPT_DIR` points into a synced
+folder, so a default would have silently pushed every task's text off the machine. That is a
+property of one operator's setup and exactly why it is theirs to choose.
+
+**Decision, three: when a durable directory is created, it is `XDG_STATE_HOME`**, falling
+back to `~/.local/state/claude-delegate-local`. State is the category the spec defines for
+data that should persist between restarts but is not precious — logs, history, an audit
+ledger. Not `~/.cache`, where `sandbox_home` lives, because a cache may be deleted at any
+time and an audit record may not.
+
+**Decision, four: it is not created yet.** Its only sanctioned consumer under the rule above
+is the append-only ledger, which is not built. A directory created now would be a mechanism
+with no reader — the shape ADR-0083 reverted after measuring it at 1.5%, and the shape
+ADR-0085 refused to repeat by shipping a hold whose payoff lived in a second change. The
+decision is the deliverable; the `mkdir` belongs to the commit that first writes to it.
+
+**Consequences.** The viewer and the cost record still need setup, which is the cost of this
+and is stated rather than hidden. What changes is that the ledger now has somewhere to go and
+a rule saying it may go there without being asked, while the transcript does not.
+
 ## ADR-0085 — 2026-09-15 — One setting governs the hold and the bucketing, because neither works alone — Accepted
 
 **Context.** `expected_concurrency` is a snapshot taken when the lease is granted:
