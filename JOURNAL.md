@@ -1666,3 +1666,39 @@ And eviction fights dedup: a stubbed result is handed back in full on the next i
 verified by arithmetic — turn 6 read 34,208 bytes, turn 9's `repeat` returned 34,269, and
 `REPEAT_PREFIX` is exactly 61 bytes. Nothing re-ran, so the banner is true; the eviction simply
 bought nothing and cost a turn.
+
+## 2026-09-15 — `path` became required, and the model answered it with the repository root
+
+ADR-0076's exit condition was "Unproven until a delegation's *first* search names a
+subdirectory". Checked for the first time, against this session's own transcripts — 13
+dispatches, 98 turns — and it failed.
+
+**8 of 9 first searches named a workspace root or `_unscoped_`, and 1 named a subdirectory.**
+Across every call `path` took a bare root 11 times and the sentinel 4, against 19 naming
+`src` and 9 naming something deeper. So the argument is supplied and the map is being read —
+the model does reach a subdirectory *later in the same delegation*, once a result has shown
+it one — but the first search, which is the expensive one, is the one that does not.
+
+**The map is not the missing piece.** `_with_layout` appends it to the declared description
+at declaration time: one level deep, directories and files both, capped at 40 entries per
+root with a `+N more` count, ~2,125 characters over three roots, nothing truncated. It
+arrives whole, on the first call, before a token has been spent. Three remedies have now
+been wordings and the fourth is a refusal (ADR-0082).
+
+**Tool time, re-measured after the scoping work.** Taking `ms` minus `backend_ms` per turn:
+**1,777.1s of 4,137.6s, 43%**, against the 89.3% recorded on 2026-09-13 before `path` was
+required. The shape matters more than the share. Per dispatch, the single worst turn is
+96–99% of all tool time; it is turn 1 every time; and its batch is `search_files` and
+nothing else — 2 or 3 of them in 5 of the 8 dispatches that searched at all.
+
+So the remaining cost is concentrated in one call at the start of a delegation, which is
+exactly the call the scoping work aimed at and exactly the one still unscoped.
+
+**Method, so the next reading is comparable.** Per-turn `ms` and `backend_ms` come from the
+`turn` events in each dispatch's `.jsonl`; the `path` arguments come from `per_turn.tool_calls`
+in the `.json` summary. The two files are not matched to each other, which avoids the
+numbering trap — a dispatch's stream and its summary carry different numbers.
+
+**What it cost to find:** nothing but reading transcripts already on disk. Recorded because
+the cheap part was the measurement and the expensive part was three sessions of proposing
+wordings without it.

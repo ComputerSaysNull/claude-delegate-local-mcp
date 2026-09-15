@@ -939,9 +939,11 @@ def haystack(tmp_path: Path) -> Path:
 
 
 def _search(root: Path, **args) -> str:
-    # `path` is required, so the default here is the root these fixtures build. A test that
-    # is *about* scope passes its own, and the unscoped case names the sentinel explicitly.
-    args.setdefault("path", str(root))
+    # `path` is required and a bare workspace root is refused (ADR-0082), so the default is
+    # the sentinel: these fixtures configure exactly one root, which makes "walk everything"
+    # and "walk this root" the same set of files, and none of these tests is about scope. A
+    # test that *is* passes its own path.
+    args.setdefault("path", tools.UNSCOPED)
     result = tools.execute_tool(
         cfg(root), call("search_files", **args), tools.ALL_TOOL_NAMES)
     assert not result.is_error, result.content
@@ -1130,7 +1132,7 @@ def test_the_scan_cap_is_reported_rather_than_passing_as_exhaustive(haystack):
         (haystack / "pkg" / f"m{i}.py").write_text("filler\n", encoding="utf-8")
     result = tools.execute_tool(
         cfg(haystack, search_max_files_scanned=2),
-        call("search_files", pattern="zzz_absent", path=str(haystack)),
+        call("search_files", pattern="zzz_absent", path=tools.UNSCOPED),
         tools.ALL_TOOL_NAMES)
     assert not result.is_error
     assert "not exhaustive" in result.content

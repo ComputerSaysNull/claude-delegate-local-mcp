@@ -19,6 +19,61 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0082 — 2026-09-15 — A workspace root is not a scope, and the fourth remedy is a refusal — Accepted
+
+**Context.** ADR-0074 fixed what the contract *claimed* about `path` in three of ADR-0066's
+four homes. ADR-0076 then made `path` required, added `_unscoped_` as a greppable escape, and
+put this deployment's workspace map in the declared description — one level deep, directories
+and files, so the model could not say it had never been told a directory name.
+
+All of that works. `path` is supplied on every call, and the map is delivered in full: ~2,125
+characters, three roots, nothing truncated. What none of it bought is scope.
+
+Measured 2026-09-15 across one session's 13 dispatches, read from the transcripts: **8 of 9**
+first searches named a workspace root or the sentinel, and exactly **1** named a subdirectory.
+Over every call, 15 of 44 still walked an entire root. `JOURNAL.md` 2026-09-13 had already
+priced that in a controlled run — same patterns, same delegation — at 391.8s for a root against
+4.4s for four named subdirectories, which is within 1.7x of the sentinel the root is supposed
+to be an alternative to.
+
+ADR-0076's own exit condition says this plainly and was left unchecked: *"Unproven until a
+delegation's first search names a subdirectory."* It is now checked, and it failed.
+
+The declared text does not literally offer the root — it says "a name ending in `/`", and the
+roots print without one. That is what makes this the fourth failed *wording* rather than a typo
+to correct. Three homes have now made a claim about `path`, and each time the model satisfied
+the claim in the cheapest way that still parses. A fifth claim would be the same bet again.
+
+**Decision.** A `path` that resolves to a workspace root is refused. The refusal names that
+root's own children — not the workspace map, because the call has just proved the model knows
+the root's name and not what is under it — and names `_unscoped_` beside them.
+
+Compared after resolving, never as the string that arrived. A trailing slash, a `.` segment and
+a symlinked spelling all name the same root, and a string compare would admit three of the four
+shapes it exists to refuse.
+
+`_unscoped_` is untouched, and that is what keeps this a redirection rather than a capability
+loss: the deliberate walk-everything search still has a spelling, and it is the one a transcript
+can be grepped for. The trade this does make is real and worth naming — searching one whole root
+must now be spelled as its children, or as the sentinel where there is a single root.
+
+No multiple is quoted in any shipped string. ADR-0074 declined to put the measured figure in the
+contract and that still holds: the ratio is this hardware's, where the shape is everyone's.
+
+**Consequences.** A contract change in two of ADR-0066's four homes — the `inputSchema`
+description and the refusal — plus the scope help both share. A caller that scoped to a root
+now gets a refusal carrying the list it needed, which costs one turn and saves the walk.
+
+This is the first remedy here that cannot be satisfied by a cheaper reading, because it is not a
+claim. ADR-0074 rejected refusing a `glob` with no `path` on the grounds that it would break a
+legitimate search; that reasoning is not disturbed, because the shape it protected — finding one
+filename anywhere — is exactly what `_unscoped_` still serves.
+
+**Not decided here.** Making the walk itself faster, which is its own item and its own ADR.
+And whether the orchestration resource, ADR-0066's fourth home and the only one never used for
+this, should carry the same fact — it is pulled by the model rather than pushed, so it cannot be
+the enforcement and would be a fifth claim if it were tried alone.
+
 ## ADR-0081 — 2026-09-14 — The pool is asked for until it answers, not until the rate is known — Accepted
 
 **Context.** `seed_decode_rate` returned as soon as the rate memory had an answer for this
