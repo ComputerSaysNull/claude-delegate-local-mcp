@@ -19,6 +19,65 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0085 — 2026-09-15 — One setting governs the hold and the bucketing, because neither works alone — Accepted
+
+**Context.** `expected_concurrency` is a snapshot taken when the lease is granted:
+`seqs_at_grant + waiting_at_grant + 1`. A burst's first member finds the gate empty, labels
+itself 1, and then decodes at six-way contention once its siblings arrive. That label is the
+key `RateHistory` is both written under and read by, so an untrue one poisons both ends.
+
+`expect` has been paying for that with pooling: the worst rate seen at the requested
+concurrency **or busier**, precisely because the label cannot be trusted. Measured 2026-09-15
+over 94 `priced` events, the protection costs **4.0x** — 10.95 tok/s returned at concurrency
+1, 2 and 3 alike against a 44.1 solo benchmark, a rate *rising* with contention, which
+describes the pooling rather than the cluster.
+
+Bucketing alone was implemented earlier the same day and reverted. The existing regression
+test says why in as many words — *"`expect(1)` searching every sample and keeping the worst
+is the design, not the defect … that is what already protects the first call admitted in a
+fan-out"*. Trusting an untrue label prices that call at 44 to decode at 19, which authorises
+a reply the clock cannot pay for: the turn then dies having returned nothing, where the
+pessimistic version merely truncates.
+
+**Decision.** The hold and the bucketing ship together, under one setting.
+
+`admission_idle_hold` (10s) waits after the slot is taken, but **only when the gate was
+idle**, then re-reads the counters and records those. A later member already sees the first,
+so its concurrency is known and the wait would be pure latency. 10s is sized from the arrival
+distribution measured 2026-09-12, which is bimodal on this deployment: six probes inside 8.5s,
+or one alone.
+
+The wait is deliberately **outside** the condition. Holding the lock would block the very
+siblings it is waiting to count, so the hold would guarantee the answer it was trying to
+measure. The slot is already taken, which is what makes that safe — nothing can overtake, and
+a sibling can still be admitted beside us.
+
+`expect` takes `trusted`, defaulting to **false**, and only `admission_idle_hold > 0` sets it.
+Untrusted it pools exactly as before. So 0 disables both halves, and neither can be turned on
+without the other.
+
+**Rejected: shipping the hold alone.** It would cost 10s per idle delegation and buy a true
+label that nothing reads — the same shape as the read pool ADR-0083 reverted, which worked
+exactly as designed against a target worth 1.5%. A mechanism whose payoff lives in a second
+change is not a smaller change; it is the same change, half-landed.
+
+**Rejected: a low quantile inside the bucket.** The minimum is kept because the error is
+asymmetric — over-estimating kills a turn, under-estimating truncates one. A quantile trades
+that for a gain nobody has measured.
+
+**Consequences.** A solo delegation pays 10s it did not before. That is the trade the item
+names, and it is the price of the label being true rather than assumed; it is also why the
+setting exists rather than the behaviour being unconditional.
+
+The residual risk is a sibling arriving after the window: the label then says solo, the
+bucket answers optimistically, and the first turn's budget is too large. `DecodeRate.observe`
+corrects from the second turn onward, so the exposure is one turn, and the bimodal arrival
+distribution is what makes a fixed window a reasonable bet rather than a guess.
+
+Five test fixtures now set the hold to 0. They drive an idle gate and would otherwise time
+the wait rather than the rule under test — which is worth noting as the cost of a default
+that fires on exactly the shape a unit test constructs.
+
 ## ADR-0084 — 2026-09-15 — Cacheable is also the predicate for running calls together — Accepted
 
 **Context.** `_run_calls` held one thread for a whole turn's tool batch. Measured 2026-09-15

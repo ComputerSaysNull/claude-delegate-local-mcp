@@ -63,6 +63,8 @@ def cfg(**over) -> Config:
         "workspace_roots": (".",),
         "max_inflight_seqs": 5,
         "kv_token_budget": 100_000,
+        # Idle gate in every fixture here; the hold would time itself, not the queueing.
+        "admission_idle_hold": 0.0,
 
     }
     kw.update(over)
