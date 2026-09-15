@@ -1,4 +1,5 @@
-<!-- BUDGET: 779 -->
+<!-- BUDGET: 786 -->
+<!-- Raised from 779 on 2026-09-15: which tools pool was stated as a predicate and read as a guess, so the six are named. -->
 <!-- Raised from 774 on 2026-09-15: whether the rate memory's key can be believed is a setting now, and the paragraph that describes the seed has to say so. -->
 <!-- Raised from 771 on 2026-09-15: rate_source moves with the number now, and the paragraph that describes the seed being replaced has to say the label is too. -->
 <!-- Raised from 754 on 2026-09-15: a turn's calls can overlap now, and which ones may is the same fact as which ones are cacheable -- one section rather than a sentence bolted to dedup. -->
@@ -612,8 +613,14 @@ which is its own piece of work. Upstream's version has the same hole.
 Cacheable is the predicate for overlapping too, and not by coincidence: the clear above is a
 barrier on the turn's own history, so a call performing one has to see every earlier call and
 be seen by every later one. A run of consecutive cacheable calls goes on a pool; everything
-else runs alone, in place. `read_git` is read-only but not cacheable, so it runs alone as
-well — conservative, and the batches that cost were `search_files`.
+else runs alone, in place.
+
+Which is to say **`read_file` and `search_files` pool; `read_git`, `write_file`, `edit_file`
+and `run_bash` each run alone**. Read-only is *not* the line — `read_git` reads a tree
+`run_bash` may just have committed to — and neither is write-versus-read: a write runs alone
+because everything after it must see it and everything before it must be seen by it, which a
+pool cannot promise. Conservative at both ends, and it costs nothing measured, because the
+batches that cost were `search_files`.
 
 The cache never reaches a worker: read before dispatch, written after, so a duplicate inside
 one batch is dispatched once and its second occurrence is assembled from what the first
