@@ -308,16 +308,16 @@ nothing was configured, and no tool result changes shape.
     (session 2): they do.** A turn whose entire visible answer was the word `DONE` reported
     `output_tokens: 697` at `effort: low`. So `max_tokens` does bound a looping model — it
     is simply set far above the deadline today.
-8. 🔄 **The retry split streaming made available, and half of it is already in.** The
+8. ✅ 2026-09-15 **The retry split streaming made available, and half of it is already in.** The
   `httpx` read-timeout path still lumps prefill/queueing together with slow decode, and that
   is the half that remains.
-    - a. 🔄 A timeout *before* the first token is prefill or queueing; *after* it is slow decode.
+    - a. ✅ A timeout *before* the first token is prefill or queueing; *after* it is slow decode.
     A slow decoder will likely be slow again, so retrying spends the budget discovering
     that, where a queueing timeout may sail through immediately.
     - b. ✅ **Half landed 2026-09-14 (ADR-0078):** the adapter's whole-turn bound reports
     `while_generating=first is not None` rather than an unconditional `True`, so that path
     distinguishes them.
-    - c. 🔄 Split out of streaming, where `openai_compat.py` deferred it as "would change what
+    - c. ✅ Split out of streaming, where `openai_compat.py` deferred it as "would change what
     #167 retries, which wants its own evidence rather than arriving as a side effect" — so
     measure what each population costs before changing the retry rule.
 9. ⬜ **Showing the stream itself, for a person watching a delegation run.** The `.jsonl`

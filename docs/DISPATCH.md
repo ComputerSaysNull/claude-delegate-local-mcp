@@ -212,10 +212,10 @@ Connect is therefore bound by its own, much shorter setting.
 
 The four error kinds exist so retry can be selective, and `loop.py` is where that selection
 happens — never in the adapter, which stays a translator. Unreachable is worth another
-attempt *if the clock can afford one*: "unreachable" covers both a connect failure, which
-spent nothing, and a read timeout, which spent the whole of `turn_timeout` without
-answering. Only the second is time-tested, because only it has already consumed what a
-retry would need — and an absent deadline is not zero time, it is no bound at all.
+attempt *if the clock can afford one*, and whether tokens were arriving decides it: a
+connect failure and a read timeout before the first token both spent queueing, not decode,
+and may sail through; a timeout mid-stream spent decode, and a slow decoder is likely slow
+again. Only that last is time-tested — an absent deadline is not zero time but no bound.
 A refusal is retried only for an exact set of statuses, 429 and 500/502/503/504.
 Everything else — 400, 401, 403, 404 — describes the request, and sending it again cannot
 change the answer. The set is a module constant, not a setting: which codes mean *temporary*

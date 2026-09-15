@@ -38,6 +38,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #211 — 2026-09-15 — fix: a queueing timeout is not a slow decoder
+
+### Fixed
+- **A read timeout that never decoded a token reported itself as slow decode.** *Symptom:* a
+  retry that should have sailed through was refused, because `_retry_is_plausible` time-tests
+  `while_generating` and the field arrived `True` for a timeout spent entirely on queueing and
+  prefill. *Cause:* `_post_stream` set it from `isinstance(e, httpx.ReadTimeout)` alone; `first`
+  was a local in the same function holding exactly the fact needed, and was not consulted.
+  *Fix:* the flag now also requires that a token arrived. The retry rule is untouched — only
+  the fact it decides on.
+- **The same literal was already fixed thirty lines away.** ADR-0078 corrected the adapter's
+  whole-turn bound to `first is not None` and called it "a literal where a predicate belonged",
+  deferring this path as wanting its own evidence rather than arriving as a side effect of that
+  change. This is that path, in its own commit with its own test, and it corrects a
+  classification rather than changing a policy.
+- **Both directions are asserted.** A fix hard-coding `False` would satisfy the
+  before-first-token case while breaking the field's purpose, so the mid-stream case is the
+  control that catches it. That control is driven through a *lazy* body: a buffered
+  `httpx.Response` hands the adapter the whole stream before anything can fail, so it would
+  pass with the distinction deleted.
+
 ## #210 — 2026-09-15 — fix: the gate lost git's output rather than reading it
 
 ### Fixed
