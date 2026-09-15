@@ -77,7 +77,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                               "retry_base_delay", "retry_max_delay")),
     ("Admission control", ("max_inflight_seqs", "kv_token_budget",
                            "large_prefill_tokens", "max_inflight_large_prefills",
-                           "admission_starvation_grace",
+                           "admission_starvation_grace", "admission_idle_hold",
                            "admission_wait_timeout", "cross_process_slots",
                            "slots_dir")),
     ("Operator transcript", ("transcript_dir",)),

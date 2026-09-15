@@ -1,4 +1,5 @@
-<!-- BUDGET: 1139 -->
+<!-- BUDGET: 1150 -->
+<!-- Raised from 1139 on 2026-09-15: a request that finds the gate idle now waits before recording its concurrency, which is admission behaviour this document owns. -->
 <!-- Raised from 1135 on 2026-09-14: a null kv_cache_size_tokens_seen is how the second ceiling being inert is spotted. -->
 <!-- Raised from 1130 on 2026-09-14: a deadline can now return a result rather than only an error, which is a caller-facing shape this document owns. -->
 <!-- Raised from 1069 on 2026-09-12: a granted lease carries the concurrency it was granted against, which is admission behaviour this document owns. -->
@@ -716,6 +717,16 @@ look under the same lock, so they cost nothing, and they are the only honest ans
 concurrency the delegation is about to *meet*. The cluster's gauge cannot say: a lease is
 taken before the request is issued, so a sibling admitted a moment ago is invisible to it
 while it prefills. [DISPATCH.md](DISPATCH.md) owns what the budget does with them.
+
+**A request that finds the gate empty waits before answering that question**, for
+`admission_idle_hold`, and then re-reads. Its own snapshot says "solo" and would go on
+saying so however many siblings are a millisecond behind it — and a burst's first member is
+exactly the call that then decodes at six-way. Only the first pays: anything later already
+sees it, so concurrency is known and the wait would be pure latency. The wait is outside the
+condition, which is the whole trick — holding the lock would block the siblings it is waiting
+to count, so the hold would guarantee the answer it was trying to measure. The slot is
+already taken, so nothing overtakes and a sibling can still be admitted beside it. 0 disables
+the hold and, with it, the pricing that depends on the label being true (ADR-0085).
 
 A ticket is given up on every exit from the wait — admitted, timed out, cancelled, raised
 — from a `finally` rather than from the timeout path, because one abandoned at the front

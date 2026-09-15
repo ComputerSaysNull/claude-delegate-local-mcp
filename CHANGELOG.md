@@ -38,6 +38,58 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #215 — 2026-09-15 — feat: the rate memory says what it measured, and measures what it says
+
+### Fixed
+- **`rate_source` outlived what produced it.** *Symptom:* a transcript reporting
+  `observed_at_concurrency` beside a number no observation at that concurrency produced.
+  *Cause:* the field is assigned once in `DecodeRate.__init__`, while `observe` moves the
+  rate by an exponential average on every measurable turn — so from the second turn onward
+  the label named the seed and the number was this delegation's own. *Fix:* a taken sample
+  relabels the estimate `own_turns`; a refused one relabels nothing, so the number and the
+  label move together or not at all.
+- **Not cosmetic.** `rate_source` is what a reader uses to decide whether to trust the
+  number, and `ARCHITECTURE.md` reads a second fact off it — that `requests_running` is a
+  real cluster figure only on a `cluster_since_boot` row. A stale label makes both wrong,
+  and it was in the hand-off notebook as a transcript-reading trap.
+
+### Added
+- **`admission_idle_hold`, and the bucketing it pays for.** *Symptom:* `expect` returned
+  **10.95 tok/s at concurrency 1, 2 and 3 alike**, 16.09 at 4, 20.98 at 5 — a rate *rising*
+  with contention, measured over 94 `priced` events, and **4.0x** pessimistic against a 44.1
+  solo benchmark. *Cause:* `expected_concurrency` is a snapshot at grant, so a burst's first
+  member finds the gate empty and labels itself solo microseconds before five siblings
+  arrive; `expect` pools every sample at that concurrency *or busier* precisely because that
+  label cannot be trusted. *Fix:* hold 10s after taking the slot **when the gate was idle**,
+  re-read the counters, and record those — then let `expect` prefer the bucket (ADR-0085).
+- **The wait sits outside the condition**, deliberately. Holding the lock would block the
+  very siblings it is waiting to count, so the hold would guarantee the answer it was trying
+  to measure. The slot is already taken, which is what makes that safe.
+
+### Changed
+- **One setting governs both halves, and 0 disables both.** `expect` takes `trusted`,
+  defaulting to false, and only `admission_idle_hold > 0` sets it. Untrusted it pools exactly
+  as before, which is asserted rather than assumed.
+- **Shipping the hold alone was rejected.** It would cost 10s per idle delegation and buy a
+  true label nothing reads — the same shape as the read pool reverted in ADR-0083, which
+  worked exactly as designed against a target worth 1.5%. A mechanism whose payoff lives in a
+  second change is not a smaller change; it is the same change, half-landed.
+- **Bucketing alone was implemented first and reverted.** The existing regression test names
+  the hazard — *"the design, not the defect … that is what already protects the first call
+  admitted in a fan-out"*. Trusting an untrue label prices that call at 44 to decode at 19,
+  authorising a reply the clock cannot pay for, so the turn dies having returned nothing
+  where the pessimistic version merely truncates.
+- **Roadmap item 31 re-evidenced.** It argued from a 65.6 tok/s figure `JOURNAL.md` withdrew
+  on 2026-09-12; it now carries the measurement above, and the record of the fix that was
+  tried and refused.
+- **Nine test fixtures now set the hold to 0.** They drive an idle gate, which is exactly the
+  shape the default fires on. Four surfaced on Windows and five more only under WSL, where
+  the cross-process slots tests run at all.
+
+### Fixed
+- **`admission_idle_hold` matched no section in the config generator**, so it rendered under
+  "Other". Caught by the regression test that exists for exactly that.
+
 ## #214 — 2026-09-15 — feat: a turn's independent tool calls run together
 
 ### Changed

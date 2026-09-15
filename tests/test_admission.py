@@ -30,6 +30,7 @@ def cfg(**over) -> Config:
     kw = {
         "workspace_roots": (".",),
         "max_inflight_seqs": 5,
+        "admission_idle_hold": 0.0,
         "kv_token_budget": 100_000,
     }
     kw.update(over)

@@ -479,7 +479,7 @@ them was re-derived when it did.
   tok/s and a 95,612-token ceiling against a benchmark of 44.1. ADR-0070's move to
   `decode_seconds` inverted the short-turn defect ADR-0071 had fixed in only one of the two
   estimators; one shared floor now, and the cost is tested rather than hidden (ADR-0073, #181)
-13. ⬜ **`rate_source` names where the *seed* came from, not the number beside it.** It is set once
+13. ✅ 2026-09-15 **`rate_source` names where the *seed* came from, not the number beside it.** It is set once
   in `__init__`, so `observed_at_concurrency` can label an EMA no observation at it produced
 14. ⬜ **A quoting turn measures the accept path, not the decoder, and no floor catches it.**
   Measured 2026-09-13 at one concurrency: quoting a prefetched file read 63.75 tok/s against
@@ -603,16 +603,16 @@ local, because they are working notes rather than a product fact.
   Admission serialises a fan-out, so every sibling prices against a cluster that has not
   filled yet. Priced from admission's own counters since #169; a burst's *first* member
   still cannot know the burst is coming
-31. ⬜ **Hold a delegation briefly when the gate is idle**, so a burst's first member prices
+31. ✅ 2026-09-15 **Hold a delegation briefly when the gate is idle**, so a burst's first member prices
   against the burst. ~~Buys the one case above; costs latency on every solo large call.
   Default off.~~ **Re-ranked 2026-09-12; the "large" in the title was backwards.**
-    - a. ⬜ **What it actually buys, more than a first member's ceiling.** `expect` keeps a minimum
-    over every sample at that concurrency *or busier* because the label cannot be trusted,
-    costing a solo call 2.5x: dispatch 0027 decoded **alone at 65.6 tok/s**, priced 26.57.
-    - b. ⬜ No guard fixes that — `expect(1)` is min-over-everything by design. A hold makes the
-    label true, and a true label is the precondition for `expect` returning anything less
-    pessimistic. **That is the item.**
-    - c. ⬜ Hold only while the gate is idle, so it costs nothing when concurrency is already known
+    - a. ✅ **Re-evidenced 2026-09-15; the 65.6 figure it cited was withdrawn 2026-09-12.** Over 94
+    `priced` events `expect` returned **10.95** at concurrency 1, 2 and 3 alike, 16.09 at 4,
+    20.98 at 5 -- a rate rising with contention, and **4.0x** pessimistic against 44.1 solo.
+    - b. ✅ **Bucketing without the hold was tried 2026-09-15 and reverted.** A burst's first member
+    is labelled 1 and decodes at six-way, so trusting the label prices it at 44 to decode at
+    19 -- the fatal direction. The hold comes first; a regression test already says so.
+    - c. ✅ Hold only while the gate is idle, so it costs nothing when concurrency is already known
     and 10s when it is not. The arrival distribution measured that day is bimodal, which is
     what makes a fixed window work: six probes inside 8.5s, or one alone.
     - d. ✅ **The coalescing evidence this rested on died with #194; the item did not.** That gate

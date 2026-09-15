@@ -232,6 +232,7 @@ class Admission:
         # configured value standing rather than tighten this gate to nothing.
         self._pool_tokens: int | None = None
         self._grace = cfg.admission_starvation_grace
+        self._idle_hold = max(0.0, float(cfg.admission_idle_hold))
         self._cond = asyncio.Condition()
 
         self._inflight_seqs = 0
@@ -517,9 +518,32 @@ class Admission:
         elapsed = time.monotonic() - started if waited else 0.0
         if waited:
             self._record_wait(elapsed)
+
+        seqs_at_grant = seen.get("seqs", 0)
+        waiting_at_grant = seen.get("waiting", 0)
+        if self._idle_hold > 0 and seqs_at_grant == 0 and waiting_at_grant == 0:
+            # This request found the gate empty, so its own snapshot says "solo" and will
+            # go on saying so however many siblings are a millisecond behind it. That
+            # label is what the rate memory is keyed by, so it is worth a short wait to
+            # find out whether it is true -- and only worth it here: any later member
+            # already sees this one, so concurrency is known and the wait would be pure
+            # latency (ADR-0085).
+            #
+            # Deliberately *outside* the condition. Holding it here would block the very
+            # siblings this is waiting to count, so the hold would guarantee the answer it
+            # was trying to measure. The slot is already taken, which is what makes that
+            # safe: nothing can overtake, and a sibling can still be admitted beside us.
+            await asyncio.sleep(self._idle_hold)
+            async with self._cond:
+                # Re-read after the wait rather than reporting what was read before it.
+                # Minus one for this request, whose slot is now included where it was not
+                # in the pre-grant numbers the formula above was written against.
+                seqs_at_grant = max(self._inflight_seqs - 1, 0)
+                waiting_at_grant = len(self._waiting)
+
         return AdmissionLease(
             tokens=tokens, entry_key=entry_key, waited=elapsed,
-            seqs_at_grant=seen.get("seqs", 0), waiting_at_grant=seen.get("waiting", 0),
+            seqs_at_grant=seqs_at_grant, waiting_at_grant=waiting_at_grant,
         )
 
     def _record_wait(self, seconds: float) -> None:

@@ -497,6 +497,18 @@ class Config:
         "falls to it. Zero disables the barrier and restores indefinite overtaking.",
         unit="seconds",
     )
+    admission_idle_hold: float = _f(
+        10.0,
+        "Seconds a delegation waits after taking its slot, but only when it found the "
+        "gate idle, so that a burst arriving behind it is counted before its concurrency "
+        "is recorded. A burst's first member otherwise sees nothing in flight and labels "
+        "itself solo microseconds before five siblings arrive, and that label is what the "
+        "rate memory is keyed by. Costs nothing when concurrency is already known, because "
+        "a non-idle gate skips it. 0 disables the hold AND the bucketing it pays for: "
+        "without it the label cannot be trusted and the rate memory falls back to the "
+        "worst sample at that concurrency or busier.",
+        unit="seconds",
+    )
     admission_wait_timeout: int = _f(
         1800,
         "Bound on time spent waiting for a slot, before dispatch_timeout starts its own "

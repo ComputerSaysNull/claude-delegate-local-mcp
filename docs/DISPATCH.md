@@ -1,4 +1,6 @@
-<!-- BUDGET: 771 -->
+<!-- BUDGET: 779 -->
+<!-- Raised from 774 on 2026-09-15: whether the rate memory's key can be believed is a setting now, and the paragraph that describes the seed has to say so. -->
+<!-- Raised from 771 on 2026-09-15: rate_source moves with the number now, and the paragraph that describes the seed being replaced has to say the label is too. -->
 <!-- Raised from 754 on 2026-09-15: a turn's calls can overlap now, and which ones may is the same fact as which ones are cacheable -- one section rather than a sentence bolted to dedup. -->
 <!-- Raised from 750 on 2026-09-14: the pool scrape is now conditional, and the paragraph has to say what asks for it. -->
 <!-- Raised from 742 on 2026-09-14: dedup and eviction can see each other now, which is a third limit on a repeat and belongs beside the other two. -->
@@ -342,7 +344,13 @@ with the same budget against a fraction of the clock. The rate is **measured, ne
 configured**: it belongs to the deployment and moved twice in one week. `DecodeRate` seeds from the cluster's since-boot figure so the first turn is
 bounded — a one-shot and a tool-forbidden final turn both live there — and every later turn
 replaces the seed with what this delegation achieved, which is the rate its own deadline is
-paid in. That observation is timed over the attempt that **answered**, not over the turn:
+paid in. `rate_source` moves with it — a taken sample relabels the estimate as the
+delegation's own, a refused one relabels nothing, so the label never outlives the number it
+names. The seed itself comes from the rate memory, keyed by concurrency, and whether that key
+can be *believed* is what `admission_idle_hold` buys: held, the memory answers from the
+bucket asked about; unheld, from the worst sample at that concurrency or busier, which is
+pessimistic on purpose and measured at 4.0x for a solo call (ADR-0085). That observation is
+timed over the attempt that **answered**, not over the turn:
 the token count comes from one attempt (ADR-0014), so dividing it by every recovery stage
 and transport retry measures two different events — across 46 recorded turns it halved the
 apparent rate, and the halved figure then seeded the next delegation's first turn. The

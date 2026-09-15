@@ -59,6 +59,9 @@ def cfg(**over) -> Config:
         "workspace_roots": (".",),
         "max_inflight_seqs": 5,
         "kv_token_budget": 100_000,
+        # The gate is idle in these fixtures, so the idle hold would fire on every
+        # acquire and time the wait rather than the rule under test.
+        "admission_idle_hold": 0.0,
     }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]

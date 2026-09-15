@@ -370,6 +370,11 @@ class DecodeRate:
     def known(self) -> bool:
         return self._rate is not None
 
+    # What `source` reads once a turn of this delegation's own has moved the number. The
+    # seed's label describes where the *first* value came from and stops being true the
+    # moment `observe` takes a sample, which is the second turn of almost every delegation.
+    OWN_TURNS = "own_turns"
+
     def observe(self, output_tokens: int, seconds: float) -> None:
         if output_tokens < self.MIN_TOKENS or seconds < self.MIN_SECONDS:
             return
@@ -378,6 +383,13 @@ class DecodeRate:
             sample if self._rate is None
             else (1 - self.WEIGHT) * self._rate + self.WEIGHT * sample
         )
+        # Relabelled here rather than at the call site, and only on a sample that was
+        # actually taken: the number and the label have to move together or the record
+        # claims a measurement the floors above just refused. `rate_source` is what a reader
+        # uses to decide whether to trust the rate, and ARCHITECTURE.md reads a second fact
+        # off it -- that `requests_running` is a real cluster figure only on a
+        # `cluster_since_boot` row -- so a label outliving its number makes both wrong.
+        self.source = self.OWN_TURNS
 
     def ceiling(self, cfg: Config, seconds_available: float) -> int | None:
         """The largest reply the clock can pay for, or None when nothing is known yet.
@@ -564,15 +576,36 @@ class RateHistory:
         if self._path is not None:
             self._write()
 
-    def expect(self, concurrency: int) -> float | None:
-        """The worst rate seen at this concurrency or worse, or None if never seen.
+    def expect(self, concurrency: int, *, trusted: bool = False) -> float | None:
+        """The worst rate seen at this concurrency, or at any busier one. None if neither.
 
         Busier observations answer quieter questions and not the reverse: contention only
         slows a stream, so a six-way measurement bounds a four-way one from below, while a
         solo measurement says nothing about six. Discarding the busier ones would throw
         away exactly the observations worth keeping.
+
+        `trusted` says whether the label can be believed, and defaults to no. Untrusted, a
+        question is answered from every sample at that concurrency *or busier* -- which is
+        pessimistic on purpose and is what protects a burst's first member, the call that
+        finds the gate empty, labels itself solo, and then decodes at six-way. Measured
+        2026-09-15 that protection costs 4.0x: 10.95 tok/s returned at concurrency 1, 2 and
+        3 alike against a 44.1 solo benchmark.
+
+        Trusted, the bucket is preferred and the widening becomes the fallback it was always
+        sound as. Only `admission_idle_hold` can make it true, by waiting long enough for a
+        burst to arrive before the label is recorded -- which is why that setting disables
+        both halves at once and why this one cannot be turned on by itself (ADR-0085).
+
+        The minimum *within* the bucket is kept either way, and that is not timidity. The
+        error is asymmetric: over-estimating authorises a reply that cannot be decoded
+        inside `turn_timeout` and the turn dies with nothing, where under-estimating
+        truncates and something comes back.
         """
         want = max(int(concurrency), 1)
+        if trusted:
+            at = [rate for seen_at, rate in self._seen if seen_at == want]
+            if at:
+                return min(at)
         rates = [rate for seen_at, rate in self._seen if seen_at >= want]
         return min(rates) if rates else None
 
@@ -582,6 +615,7 @@ async def seed_decode_rate(
     history: RateHistory | None = None,
     expected_concurrency: int = 1,
     on_pool: Callable[[int | None], None] | None = None,
+    label_trusted: bool = False,
 ) -> DecodeRate:
     """The estimator, seeded from the cluster if it will say and empty if it will not.
 
@@ -596,7 +630,10 @@ async def seed_decode_rate(
     # concurrency regime the engine has served and the first turn is about to meet a
     # specific one. Consulted first, and only falls through when nothing has been seen
     # this busy -- the cold start, where the old behaviour is merely optimistic.
-    remembered = history.expect(expected_concurrency) if history is not None else None
+    remembered = (
+        history.expect(expected_concurrency, trusted=label_trusted)
+        if history is not None else None
+    )
 
     # `on_pool` is why this is not simply `if remembered is not None: return`. The scrape
     # below is the only place on the dispatch path that sees `kv_cache_size_tokens`, and
@@ -1288,7 +1325,8 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         # is the shape with the least slack: it completes no turns, so its deadline runs
         # from entry and it must fit a whole answer inside one of them (ADR-0055).
         rate = await seed_decode_rate(
-            backend, rate_history, expected_concurrency, on_pool=on_pool
+            backend, rate_history, expected_concurrency, on_pool=on_pool,
+            label_trusted=cfg.admission_idle_hold > 0,
         )
         ceiling = rate.ceiling(cfg, budget_seconds(
             cfg, stall_left=stall_left(), dispatch_left=deadline - clock()
@@ -2674,7 +2712,8 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     # than lazily on the first turn keeps the network call outside the stall clock the
     # turn is about to be measured against.
     decode_rate = await seed_decode_rate(
-        backend, rate_history, expected_concurrency, on_pool=on_pool
+        backend, rate_history, expected_concurrency, on_pool=on_pool,
+        label_trusted=cfg.admission_idle_hold > 0,
     )
 
     # The heartbeat, beside the loop rather than inside it. `run_one_shot` has had one

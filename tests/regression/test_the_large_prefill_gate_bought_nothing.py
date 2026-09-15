@@ -58,7 +58,10 @@ def gate(**over) -> Admission:
     Deliberately not setting the large-prefill knobs: the point is what a default
     deployment does, and a fixture that named them would be testing its own arithmetic.
     """
-    kw = {"workspace_roots": (".",), "max_inflight_seqs": ARMS, "kv_token_budget": 10**9}
+    # The idle hold is off here deliberately: this file measures what the gate does with
+    # six arms, and a wait applied to the first of them would time the hold instead.
+    kw = {"workspace_roots": (".",), "max_inflight_seqs": ARMS,
+          "kv_token_budget": 10**9, "admission_idle_hold": 0.0}
     kw.update(over)
     return Admission(Config(**kw))  # type: ignore[arg-type]
 
