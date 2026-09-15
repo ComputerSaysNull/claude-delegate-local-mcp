@@ -149,6 +149,8 @@ Rules a machine cannot check, so they land here:
 
 ## Conventions
 
+- Plan a session with the `session-plan` skill; execute it with `session-execute`, which is
+  invoked when a plan is **approved**, not when it is written.
 - One feature per commit: code, tests, docs and CHANGELOG together. This is what gives the
   owning-document check something to compare against.
 - Conventional Commits. Branches `feat/`, `fix/`, `docs/`.

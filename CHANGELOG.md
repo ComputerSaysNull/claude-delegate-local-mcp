@@ -18,9 +18,13 @@ with nothing in it is left out rather than left empty.
 
 **A merged section is never edited afterwards.** It records what one pull request did, and
 that stops being true the moment a later one revises it. A correction is a new section that
-says what changed and why, exactly as an ADR supersedes rather than overwrites. The only
-text written after the fact is the number in the heading, which cannot be known until the
-pull request exists.
+says what changed and why, exactly as an ADR supersedes rather than overwrites.
+
+**The heading's number is guessed, then checked.** It cannot be known when the entry is
+written, so take the next number GitHub will issue — pull requests and issues draw from one
+counter — write it, and correct it in the same branch before merging if the real one
+differs. Nothing is then written after the fact, and the file is self-consistent at every
+commit instead of carrying a placeholder between sessions.
 
 Entries carry the **why**, not just the what: the symptom that prompted the change, the
 cause, and the fix. A terse one-liner is not enough -- in six months the reason is the only
@@ -34,7 +38,103 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #TBD — 2026-09-14 — docs: fill in the numbers this session's merges assigned
+## #206 — 2026-09-14 — feat: planning and executing become two skills
+
+### Added
+- **`session-execute`, for everything after approval.** *Symptom:* the rules for closing out
+  a commit, triaging a bug found mid-flight and publishing a pull request had nowhere to
+  live, so they collected at the bottom of a planning skill. *Cause:* `session-plan` had
+  grown two jobs and only one reader — a close-out rule kept there is read while planning and
+  forgotten while committing. *Fix:* the second job is its own skill, invoked when a plan is
+  approved.
+
+### Changed
+- **A session is sized in units of work instead of by eye.** *Symptom:* "fill the session you
+  have" could not be acted on, and one plan read as a full session to its author and half of
+  one to its reader. *Fix:* Small 0, Medium 1, Large 2 against a 12-unit budget, which stands
+  in for context headroom because what ends a session is the 1M window rather than the clock.
+  It counts units and never items, and it is overridable in both directions — #174, where the
+  only number in this skill set the item count, is why that distinction is stated twice.
+- **A spike is settled before the ranking finishes when its answer would move the ranking.**
+  *Symptom:* spikes were ranked first and measured last, so the ranking that ordered them
+  rested on the claim they existed to test. *Fix:* one decidable question — would another
+  item's viability or order change? — measured now if yes, at step 4 if no.
+- **The heading number is guessed and then checked** rather than deferred. *Symptom:* the
+  same debt twice, repaired by #193 and again by #205. *Cause:* this document said the number
+  "cannot be known until the pull request exists", which is true and read as licence to leave
+  a placeholder. *Fix:* write the next number GitHub will issue, correct it in the same branch
+  before merging if it moved. Nothing is written after the fact and the file is
+  self-consistent at every commit.
+- **A plan item now names which `PLAN.md` item it is and what it changes**, for the reader who
+  has to approve it. The per-item CHANGELOG draft is gone: it was the same content written
+  twice and it made the step longer rather than clearer.
+- **Lower-ranked work may ride along with higher-ranked work** that shares a file, a module or
+  a document, because the reading and the verification are already paid for. What it does not
+  buy is a shared landing, which one-feature-per-branch still governs.
+- **Step 4 resizes as well as kills.** A measurement can show an item is bigger than estimated
+  and still worth doing; dropping it and re-ranking it are different outcomes, and only one of
+  them was written down. A resize re-estimates, re-ranks and re-checks the budget, which may
+  push something else out.
+- **The milestone exit condition no longer decides relevance.** It was a poor judge of whether
+  an item matters, and blocking impact ÷ effort already does that job.
+- **12 units is the operator's number.** Only an explicit instruction moves it. An earlier
+  draft said a heavily delegated session holds more, which reads as licence to re-price the
+  budget from what the work happens to look like.
+- **The per-item branch and commit split is back**, having been dropped from the proposal
+  without anyone deciding to drop it.
+- **Targeted runs are for iterating and the full suite closes a commit.** Both were in the
+  text with only the second stated positively, which read as forbidding the first.
+- **The CHANGELOG step points at `CHANGELOG.md`'s own header** rather than restating the
+  shape of an entry, which is how the two would come to disagree. The heading number is
+  flagged provisional where it is written, not only where it is checked.
+- **Where a Small lands is stated:** in this commit if it is inside what the commit already
+  changes, and separate otherwise — with the tie broken towards separate, because a Small
+  buried in an unrelated commit is invisible to review and to the owning-document check.
+- **Both skills stop when their input is missing** — `PLAN.md` for one, the approved plan for
+  the other — instead of planning from memory or reconstructing a mandate nobody approved.
+
+### Fixed
+- **The `docs_gate` false-PASS was narrated rather than guarded.** Running `--mode pre-commit`
+  with nothing staged prints `0 file(s) changed` and then PASS, having run no ownership check
+  at all. The step now requires `git diff --cached --name-only` to print a path first: a trap
+  that can only be remembered is a trap.
+- **Whether parallel worktrees beat sequential suites is measured, and the answer is neither.**
+  A worktree run collects its tests from the worktree but imports `claude_delegate_local` from
+  the **main** checkout, because the editable install points there — so it exercises code the
+  branch does not have. It is wrong rather than slow, and the remedy is a venv per worktree
+  costing more than one run's parallelism returns. The skill said "measure before relying on
+  it", which is an unmeasured claim wearing a caveat.
+- **There was no escalation path.** "Keep working to the end of the planned work" said nothing
+  about being stuck. Blocked on one item: say so in the conversation and move to the next, the
+  conversation being read between other things. Blocked on everything left: ask, because
+  `AskUserQuestion` notifies rather than waiting to be found.
+- **A substituted item could reach the plan unargued.** *Symptom:* step 4 listed the plan's
+  assumptions, verified them, and pulled a replacement up when a measurement killed an item —
+  but that replacement had never been on the assumption list, because nobody knew it would be
+  needed. *Fix:* step 4 re-runs over whatever entered or changed until a pass kills nothing,
+  and stops pulling rather than digging when replacements keep dying. Feedback on a presented
+  plan re-enters the same way.
+- **"Flip the marker and nothing else" read as forbidding the CHANGELOG entry** that the same
+  skill required. Scoped to `PLAN.md`, and it now sits beside the CHANGELOG step instead of
+  three sections away from it.
+- **The `files[]` explanation was a second copy of the tool's own schema**, which ADR-0066
+  removed from prose precisely so that one copy would exist. Deleted rather than reworded: a
+  reworded copy is still the copy that goes stale.
+- **"One document and one plane" never said what a plane is.** Named now — the repository root
+  or `docs/` — with CLAUDE.md linked for which holds what, rather than restated.
+- **A non-code item had no check it could pass.** Every item needed "a test that fails without
+  the fix", which docs-only and config-only work cannot produce. *Fix:* the rule is that a
+  check exists and can fail, not that it is a pytest — a gate run, a budget header or a
+  generator diff counts, and where nothing mechanical can fail that is now said out loud.
+- **The last `#TBD` heading is filled.** It was #205's own entry, left unfilled under the old
+  rule; shipping a skill that forbids the placeholder beside a file still carrying one would
+  be the incoherence. Matched on the entry's subject against the merged commit, which is how
+  #205 filled the other nine.
+- **"Full suite before every commit" was ambiguous under squash-merge**, where intermediate
+  commits never land. Scoped to the branch tip — what actually reaches `main` — with the
+  existing warning that a targeted run is never a substitute left standing.
+
+## #205 — 2026-09-14 — docs: fill in the numbers this session's merges assigned
 
 ### Fixed
 - **Nine entries still said `#TBD`.** *Symptom:* the same debt #193 had to repair, and for
