@@ -38,6 +38,41 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #217 — 2026-09-15 — docs: aggregates may default on, content may not
+
+### Changed
+- **M11.1 asked for a decision, and this is it.** *Symptom:* the roadmap wanted
+  `transcript_dir` to fall back to a server-owned state directory "so the viewer and the cost
+  record work without setup", and two things blocked it that nobody had settled. *Cause:*
+  there is no durable server-owned directory to fall back *to* — `slots.default_dir()` is
+  tmpfs in both branches by design, `sandbox_home` is the sandbox's HOME under `~/.cache`,
+  and nothing uses `XDG_STATE_HOME` — and the argument the item cited does not reach the
+  question. *Fix:* ADR-0086 draws the line at aggregates versus content.
+- **Counts, token totals, timings and outcomes describe what the server did**, so recording
+  them by default is the server describing its own behaviour. Task text, file contents and
+  model replies are the caller's material, and writing those to disk is the operator's
+  choice. `transcript_dir`'s own help already calls where records land "a trade rather than
+  a rule"; this says which side each kind of record falls on.
+- **ADR-0024 was being read past what it says.** It adopted "an operator-level dispatch
+  transcript, independent of any caller-facing flag" — about the *caller's* `diagnostics`,
+  which is already honoured. It says nothing about the operator's own setting defaulting on.
+- **When a durable directory is created it will be `XDG_STATE_HOME`**, falling back to
+  `~/.local/state/…`. Not `~/.cache`, where `sandbox_home` lives: a cache may be deleted at
+  any time and an audit record may not.
+- **It is not created yet, deliberately.** Its only sanctioned consumer under the new rule is
+  the append-only ledger, which is not built. A directory created now is a mechanism with no
+  reader — the shape ADR-0083 reverted at 1.5% and ADR-0085 refused to repeat. The `mkdir`
+  belongs to the commit that first writes to it.
+
+### Removed
+- **M11.2 is cancelled rather than deferred.** `transcript_dir` carries task text, so it stays
+  unset until an operator chooses a home for it, and the reasoning is settled rather than
+  waiting on anything. This deployment is the argument in miniature: its transcript directory
+  points into a synced folder, so a default would have silently pushed every task's text off
+  the machine — a property of one operator's setup, and exactly why it is theirs to choose.
+- The cost is real and stated rather than hidden: the viewer and the cost record still need
+  setup.
+
 ## #216 — 2026-09-15 — docs: say which tools pool, and make the roadmap say what it means
 
 ### Changed

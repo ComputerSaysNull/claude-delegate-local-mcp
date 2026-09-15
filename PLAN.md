@@ -1,11 +1,11 @@
-<!-- BUDGET: 838 -->
+<!-- BUDGET: 840 -->
+<!-- Raised from 838 on 2026-09-15: a cancelled item states its reason on the marker line, and the body it cancels is kept beside it. -->
 <!-- Raised from 834 on 2026-09-15: a dead parameter found while measuring and nearly lost with the scratch files it was found in. -->
 <!-- Raised from 831 on 2026-09-15: two of M11.5's sub-items argued from a premise RateHistory retired and one had the sign backwards; the corrections cost more than the lines. -->
 <!-- Raised from 827 on 2026-09-15: a refusal costs a round trip, which is cheap in seconds and dear in turns, and that trade needs revisiting rather than remembering. -->
 <!-- Raised from 823 on 2026-09-15: a scan cap spent inside a gitignored directory answers from nothing, and that is a correctness item rather than a speed one. -->
 <!-- Raised from 820 on 2026-09-15: ADR-0076 exit condition checked at last and failed, so the item it was unproven against is filed. -->
 <!-- Lowered from 930 on 2026-09-15: the three-line cap took 57 lines and the raise history stopped being a third copy of itself; slack a document has not earned is where the next accretion goes. -->
-<!-- Raised from 907 on 2026-09-14: 7.6 tok/s turned out to be one attempt of tokens over two attempts of time, plus the header opener this file had been missing. -->
 <!-- Earlier raises are in this file's git history, and each one's reason is in the
      CHANGELOG.md section for the pull request that made it. This opener is load-bearing:
      line 1 self-closes, so without a `<!--` here every line below would render as body
@@ -187,16 +187,18 @@ their own project without ever reading this repository.
 **Exit:** the viewer shows a running delegation and live cluster figures on a host where
 nothing was configured, and no tool result changes shape.
 
-1. ⬜ **`transcript_dir`'s fallback needs a state directory that does not exist yet, and the
+1. ✅ 2026-09-15 **`transcript_dir`'s fallback needs a state directory that does not exist yet, and the
   argument the item cites does not reach it.** **Decide the durability and the privacy
   question before writing the fallback.** Original:
-    - a. ⬜ `slots.default_dir()`, the only server-owned directory helper, is tmpfs in both
+    - a. ✅ `slots.default_dir()`, the only server-owned directory helper, is tmpfs in both
     branches — right for ephemeral slots, wrong for an audit record that must survive a
     reboot.
-    - b. ⬜ ADR-0024 argues an operator's audit should not depend on the *caller's* flag, where
+    - b. ✅ ADR-0024 argues an operator's audit should not depend on the *caller's* flag, where
     `transcript_dir` is the operator's, so it does not support defaulting this on. Doing so
     also writes task text to disk unchosen — "a trade rather than a rule", per its own help.
-2. ⬜ `transcript_dir` falls back to the server's own state directory when unset, so the
+2. ❌ 2026-09-15 **Refused: it carries task text, which is the caller's material rather than the
+  server's own behaviour, so it stays the operator's choice (ADR-0086).** Original:
+  `transcript_dir` falls back to the server's own state directory when unset, so the
   viewer and the cost record work without setup. ADR-0024 already argues that what an
   operator can audit should not depend on the caller's flag
 3. ⬜ Split the running totals from the transcripts so retention and accuracy stop competing:
