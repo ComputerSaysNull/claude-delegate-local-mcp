@@ -296,13 +296,14 @@ class OpenAICompatBackend:
             # `TimeoutException` and spent nothing, which is the distinction the caller
             # retries on.
             #
-            # Streaming makes a further distinction available -- a read timeout before the
-            # first token is prefill or queueing, one mid-stream is slow decode -- and it is
-            # deliberately not acted on. Splitting it would change what #167 retries, which
-            # wants its own evidence rather than arriving as a side effect of this change.
+            # And streaming says which allowance it spent. A read timeout before the first
+            # token spent queueing and prefill; one mid-stream spent decode. They are the
+            # two shapes `while_generating` exists to keep apart, and `first` is the same
+            # predicate the turn bound above already reports them with (ADR-0078) -- the
+            # retry rule itself is untouched, only the fact it decides on.
             unavailable = BackendUnavailable(
                 f"{type(e).__name__} posting to {path} on model {self._entry.key!r}.",
-                while_generating=isinstance(e, httpx.ReadTimeout),
+                while_generating=isinstance(e, httpx.ReadTimeout) and first is not None,
             )
             _attach(unavailable, decoded)
             raise unavailable from e
