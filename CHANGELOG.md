@@ -38,6 +38,56 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #213 — 2026-09-15 — docs: what a search actually costs, measured rather than estimated
+
+### Changed
+- **ADR-0074's "roughly 2x" named two targets and had measured neither.** *Symptom:* the
+  roadmap carried "a thread pool over `resolve_permitted` and `_search_hits`, or `ripgrep`"
+  on an estimate, while `search_files` measured as **100%** of server-side tool time.
+  *Cause:* nobody had split a call into phases. *Fix:* three measurements, each correcting
+  the one before it (ADR-0083).
+- **The read pool was built first and reverted on its own numbers.** Bounded read-ahead,
+  order-preserving so `max_results` truncated at the same file. Against a synthetic hold it
+  did exactly what it claimed — peak concurrent reads 1 to 8, 40 reads 0.84s to 0.13s.
+  Against the real filesystem: 1.877s serial against 1.921s at eight workers, slightly
+  *slower*. The reads are ~2% of a call, so Amdahl caps the idea at ~1.5%, and the
+  look-ahead window costs a regression — it reads files a truncating search never opens.
+- **The first phase split was measured on an unrepresentative sample.** 112 warm files with
+  gitignore off, against the 391–657s calls it was meant to explain. Re-run on the
+  repository root at cap 2000: walk 49.5s / 24.7%, path policy **150.7s / 75.1%**, read and
+  match 0.3s / 0.2%. The direction held and strengthened; the magnitudes did not.
+- **And the explanation was wrong until it was profiled.** The policy's ~75ms per candidate
+  was reported as `realpath` plus denylist matching. Matching is **1.1%**. `cProfile` over
+  2000 candidates, 140.9s: `posix.lstat` **80.66s across 26,942 calls** — `realpath`
+  re-walks every shared prefix once per candidate, 13.5 each — `posix.stat` 37.08s across
+  4,000 (`isfile` then `exists`), `git check-ignore` 20.51s across 403, which is one per
+  *directory* rather than the one per repository its comment claims.
+- **`ripgrep` is refused rather than deferred a third time.** It replaces the walk, 40%, and
+  leaves the policy, 65–75%, untouched: every match still crosses the same four layers.
+  Paying the boundary `_search_files` exists to hold, for the smaller half of a call whose
+  larger half is unchanged, is the wrong trade at any speed. Declining it on numbers is what
+  stops it returning on the same estimate.
+- **The roadmap item now carries the profile**, so the next attempt starts from a number.
+  All three hot phases release the GIL, which is the other half of the finding.
+
+### Fixed
+- **A root-scoped search returns 2 matching lines where 351 exist, and calls itself "not
+  exhaustive".** *Symptom:* 200 seconds, `permitted=20` out of `candidates=2000`. *Cause:*
+  `_search_candidates` prunes symlinks and the secret denylist and has **no gitignore
+  awareness at all** — that check happens afterwards, in `resolve_permitted` — so the
+  2000-file cap is exhausted inside `.venv/`, which holds 4,056 `.py` files against 144 in
+  `src`, `tests` and `scripts`. The walk never reaches the source. *Fix:* filed as a ranked
+  item rather than repaired here — pruning belongs in the walk, it moves the boundary
+  between the walk and the policy, and it needs its own ADR. The invariant it must carry:
+  pruning may only remove candidates the policy would have rejected, never admit one it
+  would not.
+- **The "not exhaustive" note is what makes it dangerous.** It is true, and it reads as
+  though the cap stopped a real search early rather than that the search never began.
+- **The measurement nearly measured itself.** The editable install puts a finder on
+  `sys.meta_path`, consulted before `sys.path`, so a "before" run driven by `PYTHONPATH`
+  silently loads the working tree and the fix appears to pass against itself. An assertion
+  on `tools.__file__` caught it on the first attempt.
+
 ## #212 — 2026-09-15 — fix: a workspace root is not a scope
 
 ### Fixed
