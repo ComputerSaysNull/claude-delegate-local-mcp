@@ -1,11 +1,11 @@
-<!-- BUDGET: 827 -->
+<!-- BUDGET: 838 -->
+<!-- Raised from 834 on 2026-09-15: a dead parameter found while measuring and nearly lost with the scratch files it was found in. -->
+<!-- Raised from 831 on 2026-09-15: two of M11.5's sub-items argued from a premise RateHistory retired and one had the sign backwards; the corrections cost more than the lines. -->
+<!-- Raised from 827 on 2026-09-15: a refusal costs a round trip, which is cheap in seconds and dear in turns, and that trade needs revisiting rather than remembering. -->
 <!-- Raised from 823 on 2026-09-15: a scan cap spent inside a gitignored directory answers from nothing, and that is a correctness item rather than a speed one. -->
 <!-- Raised from 820 on 2026-09-15: ADR-0076 exit condition checked at last and failed, so the item it was unproven against is filed. -->
 <!-- Lowered from 930 on 2026-09-15: the three-line cap took 57 lines and the raise history stopped being a third copy of itself; slack a document has not earned is where the next accretion goes. -->
-<!-- Raised from 925 on 2026-09-14: items are numbered now, and a document whose reference scheme is not stated in it is one nobody else can cite from. -->
 <!-- Raised from 907 on 2026-09-14: 7.6 tok/s turned out to be one attempt of tokens over two attempts of time, plus the header opener this file had been missing. -->
-<!-- Raised from 888 on 2026-09-14: streaming closed, and the two things it was still carrying became items of their own rather than dying with it. -->
-<!-- Raised from 866 on 2026-09-14: the reconnect block answered the admission spike and found that persisting the rate memory retired the KV-pool reading. -->
 <!-- Earlier raises are in this file's git history, and each one's reason is in the
      CHANGELOG.md section for the pull request that made it. This opener is load-bearing:
      line 1 self-closes, so without a `<!--` here every line below would render as body
@@ -205,18 +205,21 @@ nothing was configured, and no tool result changes shape.
 4. ⬜ The ledger counts *cluster* tokens, which is a fact. Calling the number a saving assumes
   what Claude would otherwise have read, which is not measured — report the facts and state
   the assumption beside any saving
-5. ⬜ A sampler polling the metrics reader on an interval into a windowed series, because it
-  derives only since-boot figures and a lifetime average cannot say how the cluster is doing
-  now. `backend_status` keeps the output it has, so no client behaviour changes
+5. ⬜ **`RateHistory` answered most of this; the post-reboot cold start is what is left.**
+  `seed_decode_rate` consults the memory first and reaches the since-boot mean only when
+  nothing has been seen that busy — measured 2026-09-15, 0 of 94 `priced` events did
     - a. ✅ **Raised 2026-09-11 from reporting to correctness, which re-ranks it.** `DecodeRate`
     seeds from the since-boot mean and only a **completed** turn replaces it, so a delegation
     sized for an idle cluster never corrects itself and dies at `stall_timeout` at zero turns.
-    - b. ⬜ Seven did in one audit session, endpoint healthy throughout — which is why the windowed
-    rate is what the *reply budget* should be priced from.
+    - b. ✅ **Obsolete as filed.** The seven deaths it cites were priced from the since-boot
+    mean, which a persisted per-concurrency memory replaced (ADR-0075). The reply budget is
+    already priced from observations rather than from a lifetime blend.
     - c. ⬜ `vllm:generation_tokens_total` is published and **not** in the allowlist; differenced over
     a window, over `num_requests_running`, it is a live per-request rate. The histogram in use
     records only on *completion*, so it is blind during the stall it must detect.
-    - d. ⬜ ADR-0055's "conservative" blend is flattering whenever the present is busier than history.
+    - d. ⬜ **Backwards as filed, and unmeasured.** `expect` takes a minimum, which is pessimistic.
+    The blend is "conservative" only if history is at least as contended as the moment being
+    priced, and nothing has measured that. A spike rather than an item.
 6. ✅ 2026-09-07 **Spike answered** — a `status` subcommand printing one plain-text block, since a TUI
   cannot run inside an agent's shell. Measure whether a detached terminal window can be
   launched from one; if not, print the command to paste
@@ -770,6 +773,14 @@ local, because they are working notes rather than a product fact.
 46. ⬜ **A gitignored directory eats the scan cap, so the search answers from nothing.**
   `_search_candidates` prunes symlinks and secrets, never gitignore, so a root walk spends
   all 2000 on `.venv` and returns 2 lines where 351 exist. Prune in the walk, never admit
+
+47. ⬜ **A refused root costs a turn, and a turn is ~20% of a short delegation.**
+  ADR-0082 trades wall-clock for a round trip, which is cheap against 391.8s and dear against
+  a five-turn budget. Revisit once 18 and 46 land and an unscoped walk is no longer ruinous
+
+48. ⬜ **`prefill_tokens` is threaded through `acquire` and `admit` and read by nothing.**
+  It existed only to enforce `max_inflight_large_prefills`, removed with that gate (ADR-0077).
+  Every caller still computes and passes an estimate the predicate never sees
 
 ## Deferred
 

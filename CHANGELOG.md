@@ -38,6 +38,42 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #216 — 2026-09-15 — docs: say which tools pool, and make the roadmap say what it means
+
+### Changed
+- **Which tool calls overlap was stated as a predicate and read as a guess.** ADR-0084 says
+  "a run of consecutive cacheable calls", which is correct and leaves a reader deriving the
+  list — and a reader asked directly got it the other way round for the writes.
+  `docs/DISPATCH.md` now names the six: **`read_file` and `search_files` pool; `read_git`,
+  `write_file`, `edit_file` and `run_bash` each run alone.** Read-only is not the line —
+  `read_git` reads a tree `run_bash` may just have committed to — and neither is
+  write-versus-read: a write runs alone because everything after it must see it and
+  everything before it must be seen by it, which a pool cannot promise.
+- **M11.5 re-scoped to what `RateHistory` left of it.** Its premise — that `DecodeRate` seeds
+  from the cluster's since-boot mean, so a delegation sized for an idle cluster never
+  corrects itself — was retired by ADR-0075 and nobody went back to say so. Measured
+  2026-09-15: **0 of 94** `priced` events reached the since-boot path at all. What survives
+  is the post-reboot cold start, plus the observation that the blend's "conservative" claim
+  holds only if history is at least as contended as the moment being priced, which nothing
+  has measured. Sub-item d had the sign backwards — `expect` takes a minimum, which is
+  pessimistic, not flattering.
+- **A sub-item holding no task takes a tick.** `PLAN.md`'s own header says so, and entries
+  added this session stated a fact while marking it undone. An open box is a claim that
+  someone can pick the entry up, and three of them claiming that falsely is how a roadmap
+  stops being scannable — which is the one thing the file says it is for.
+
+### Added
+- **A roadmap item for what ADR-0082's refusal costs in turns.** The trade was weighed in
+  wall-clock, where a round trip is cheap against 391.8s. Against a five-turn delegation one
+  turn is ~20%, which is not cheap. Worth revisiting once 18 and 46 land and an unscoped walk
+  is no longer ruinous — recorded rather than remembered, because the wall-clock framing is
+  what made it look settled.
+- **`prefill_tokens` is threaded through `acquire` and `admit` and read by nothing.** It
+  existed to enforce `max_inflight_large_prefills`, removed with that gate in ADR-0077, and
+  every caller still computes and passes an estimate the predicate never sees. Found while
+  measuring admission, named in a session plan as "recorded rather than smuggled in", and
+  then not recorded — it lived only in the conversation until now.
+
 ## #215 — 2026-09-15 — feat: the rate memory says what it measured, and measures what it says
 
 ### Fixed
