@@ -38,6 +38,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #208 — 2026-09-14 — feat: the guessed heading number is checked against the issued one
+
+### Added
+- **`check_changelog_number`, which reads the pull request event.** *Symptom:* a heading
+  number that is guessed can be guessed wrong, or left as `#TBD` and forgotten — which has
+  happened twice, both times repaid by a later pull request (#193, then #205). *Cause:* the
+  only thing standing between the guess and `main` was remembering to check it, and #206
+  moved that instruction into a skill, which runs only when invoked. *Fix:* the check runs
+  where the real number first exists and before the merge that would make the mistake
+  permanent. It rides on `--pr-event`, the same invocation that already scans the title and
+  body, so publishing a pull request gains no new step.
+- Only the newest heading is judged — older entries carry other numbers by definition — and a
+  pull request that deliberately adds no entry takes the `Docs-Gate-Skip` trailer, which is
+  visible in every run rather than quiet.
+
+### Fixed
+- **`#TBD` had no check at all.** `TBD` appeared nowhere in `scripts/` or `tests/`; the
+  assertion #205 wrote was a one-off inside the pass that filled them, and left nothing
+  behind. The placeholder now blocks with its own message rather than sharing the
+  wrong-number one, because the two mistakes have different remedies.
+
 ## #207 — 2026-09-14 — feat: roadmap items get ids, and a parent waits for its children
 
 ### Added
