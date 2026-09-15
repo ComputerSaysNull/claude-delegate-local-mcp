@@ -38,6 +38,67 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #207 — 2026-09-14 — feat: roadmap items get ids, and a parent waits for its children
+
+### Added
+- **`check_roadmap_ids`, so an item can be named instead of quoted.** *Symptom:* a session
+  plan referring to roadmap work had to paste the item's title, and a reworded title broke
+  the reference silently. *Fix:* items are numbered — `1.` at the top level, `a.` beneath,
+  with the status marker after the number — scoped to their `###` section, so `M11.10` names
+  one thing for as long as it exists. The id replaces the dash, which makes the missing-id
+  case exactly "an item still written with a dash" and needs no separate absence test.
+- **A parent may not be ticked over an unfinished child.** Every sub-bullet takes a letter and
+  a marker — one holding no task is `✅` from the start — so the rule cannot be opted out of
+  by dropping a marker. `check_roadmap_markers` catches the same drift one line at a time;
+  this catches it one level up. A top-level dash still carries no id: it is a struck original,
+  or a correction filed beside a frozen body it may not be edited into.
+
+### Changed
+- **83 items renumbered in place, and the line count is unchanged** — the id replaces the
+  dash rather than joining it, so no `✅` body gained or lost a line. Structural identifiers
+  are not a rewording: they add no claim and change no record, which is why they were allowed
+  onto frozen bodies where trimming those bodies was not.
+- **63 children lettered**, 23 of them marked done because they record something rather than
+  ask for it, and **the third level is gone** — its three bullets were notes attached to
+  notes, and giving them a tier of their own would have complicated every id in the file to
+  spell three lines.
+- **A child keeps a real list bullet, `- a.`, with the letter as its first word.** A bare
+  `a.` is not list syntax — an ordered list needs digits — so a child written that way
+  renders as a continuation of its parent and sits flush with the parent's text rather than
+  nested under it. Caught in the preview; no check looks at how the file renders.
+
+- **The header is 13 lines, down from 71, and the budget is 873, down from 930.** It held 27
+  raise reasons going back to 551. Its own closing lines record that it was trimmed once
+  before, on 2026-09-06, for exactly this reason — each raise's reason is in the CHANGELOG
+  section for the pull request that made it, so the header was a second copy — and it regrew
+  to 64 lines in the nine days since. That regrowth is now recorded in it, because a trim
+  plainly does not hold on its own.
+- Slack a document has not earned is where the next accretion goes, so the budget was lowered
+  to fit rather than left at a number two structural passes had made generous.
+
+### Fixed
+- **A three-space child nested under `1.` and rendered beside `19.`** — and nothing checked
+  it, which is why the same class of bug landed twice. *Cause:* `1. ` puts its content at
+  column 3 and `19. ` at column 4, so three spaces clears one and not the other. *Fix:*
+  children take four spaces, which clears both and keeps clearing them when an item goes
+  from 9 to 10 — matching the parent's own column would not. The gate now blocks any other
+  indent, so how the file *renders* is checkable rather than noticed.
+- **A struck item that was never an item took its neighbour's letters.** *Symptom:* the
+  `workdir` entry in M9 was a top-level dash with no marker, and its two children were
+  lettered `c.` and `d.` — continuing the sequence of the numbered item above it. *Cause:*
+  the letter counter reset on a numbered item and nothing else, so an unmarked top-level
+  bullet was invisible to it and its children were charged to the previous item. *Fix:* it
+  is M9.7, `❌` with the date and the reason — provisioning under `sandbox_home` answered
+  it — and its children are `a.` to `c.`. Being an item is what resets the counter, so the
+  marker and the lettering were the same bug.
+- **`check_roadmap_markers` would have gone blind on the same commit that renumbered the
+  file.** *Symptom:* none — that is the point. Its pattern was anchored on `^- (⬜|🔄) `, and
+  numbering the items means it would have matched nothing and reported a clean roadmap
+  forever. *Cause:* a check and the format it reads, changed in one commit, with only the
+  format's change visible. *Fix:* the pattern reads the numbered form, and the two tests that
+  cover it were confirmed to fail against the new format before being updated — a fixture
+  that had kept passing would have been the evidence that the check had stopped looking.
+
 ## #206 — 2026-09-14 — feat: planning and executing become two skills
 
 ### Added

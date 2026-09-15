@@ -98,7 +98,7 @@ def fired(lines: list[str], check: str, *needles: str) -> bool:
 
 def test_an_answered_spike_marked_open_is_blocked(repo: Path):
     """The bug, in the shape PLAN.md line 233 actually had."""
-    roadmap(repo, f"- {OPEN} **Spike answered** -- a status subcommand, since a TUI cannot",
+    roadmap(repo, f"1. {OPEN} **Spike answered** -- a status subcommand, since a TUI cannot",
                   "  run inside an agent's shell")
     assert fired(gate(repo), "roadmap-marker", "PLAN.md line 5", "Spike answered")
 
@@ -108,7 +108,7 @@ def test_the_same_phrase_on_a_ticked_item_is_silent(repo: Path):
 
     This is the shape of PLAN.md line 177, which was correct all along.
     """
-    roadmap(repo, f"- {DONE} 2026-09-10 **Spike answered** -- does the client consume",
+    roadmap(repo, f"1. {DONE} 2026-09-10 **Spike answered** -- does the client consume",
                   "  skills served over MCP")
     assert not fired(gate(repo), "roadmap-marker")
 
@@ -118,7 +118,7 @@ def test_an_open_item_whose_body_answers_a_sub_question_is_silent(repo: Path):
 
     The streaming entry does exactly this, which is why only the marker line is read.
     """
-    roadmap(repo, f"- {OPEN} **Streaming, reopened with a scope.** Filed and cancelled the",
+    roadmap(repo, f"1. {OPEN} **Streaming, reopened with a scope.** Filed and cancelled the",
                   "  same day, and the cancellation missed a second consumer",
                   "  - **Answered 2026-09-05:** thinking tokens do count against it")
     assert not fired(gate(repo), "roadmap-marker")
@@ -126,7 +126,7 @@ def test_an_open_item_whose_body_answers_a_sub_question_is_silent(repo: Path):
 
 def test_an_unanswered_spike_is_silent(repo: Path):
     """`**Spike**` is not `**Spike answered**`. PLAN.md line 192 is still open."""
-    roadmap(repo, f"- {OPEN} **Spike** -- find the cause behind withholding the shell on a",
+    roadmap(repo, f"1. {OPEN} **Spike** -- find the cause behind withholding the shell on a",
                   "  verifying pass, rather than writing the workaround down")
     assert not fired(gate(repo), "roadmap-marker")
 
@@ -136,7 +136,7 @@ def test_the_dated_answered_form_is_blocked(repo: Path):
 
     Written because an alternative nothing exercises is an alternative nobody knows works.
     """
-    roadmap(repo, f"- {OPEN} **Answered 2026-09-07** -- a detached launch outlives the call",
+    roadmap(repo, f"1. {OPEN} **Answered 2026-09-07** -- a detached launch outlives the call",
                   "  that started it")
     assert fired(gate(repo), "roadmap-marker", "PLAN.md line 5", "Answered 2026-09-07")
 

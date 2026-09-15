@@ -839,7 +839,9 @@ def check_roadmap_markers() -> list[Finding]:
         return [Finding(SKIP, "roadmap-marker", "there is no PLAN.md to check.")]
     out = []
     for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if not re.match(r"^- (⬜|🔄) ", line):
+        # Items are numbered (`1.` / `a.`) with the marker after the number, so a pattern
+        # anchored on the old dash would match nothing and report a clean roadmap forever.
+        if not re.match(r"^ *(?:\d+|[a-z]+)\. (⬜|🔄) ", line):
             continue
         for pat in ROADMAP_CLOSED:
             hit = pat.search(line)
@@ -850,6 +852,124 @@ def check_roadmap_markers() -> list[Finding]:
                     f"item takes the done marker and the date the work completed, and its "
                     f"body is frozen -- flip the marker and change nothing else."))
                 break
+    return out
+
+
+ROADMAP_MARKERS = "⬜🔄✅❌"
+# The id *is* the list marker: `1.` at the top level, `a.` beneath it, with the status
+# marker after it. So an item still wearing a `-` is an item with no id, which is the whole
+# of the missing-id case and needs no separate absence test.
+# A child keeps a real list bullet and carries its letter as the bullet's first word:
+# `   - a. ⬜ ...`. A bare `a.` is not list syntax -- an ordered list needs digits -- so a
+# child written that way renders as a continuation of its parent rather than nested under it.
+#
+# An id is owed by every indented bullet, and by a top-level one that carries a marker. A
+# top-level dash with no marker is a note kept beside an item -- a struck original, or a
+# correction filed next to a frozen body it may not be edited into -- and owes nothing.
+ROADMAP_UNNUMBERED = re.compile(
+    rf"^(?:(?P<indent> +)- (?![a-z]+\. )|- (?P<marker>[{ROADMAP_MARKERS}]) )")
+ROADMAP_TOP = re.compile(rf"^(?P<id>\d+)\. (?P<marker>[{ROADMAP_MARKERS}]) ")
+ROADMAP_CHILD = re.compile(
+    rf"^(?P<indent> +)- (?P<id>[a-z]+)\. (?P<marker>[{ROADMAP_MARKERS}]) ")
+
+
+def check_roadmap_ids(text: str | None = None) -> list[Finding]:
+    """An item nobody can name is an item a plan has to quote.
+
+    A session plan referring to roadmap work used to paste the item's title and hope it
+    still matched; a reworded title silently broke the reference. Items carry an id --
+    `1.` at the top level, `1a.` beneath -- scoped to the `###` section above them, so
+    `M11.1b` names one thing for as long as it exists.
+
+    Only *marked* bullets are items. An unmarked child is a note recorded beside the work
+    (a correction, a trap, the evidence for a re-rank) and is deliberately exempt:
+    requiring an id there would push prose into carrying a task's shape.
+
+    The parent rule is the reason children take markers at all. A parent ticked while
+    something under it is outstanding is the drift `check_roadmap_markers` catches one
+    line at a time, one level up.
+
+    `text` is injectable so a test can drive this function directly rather than
+    reimplementing the rule -- a second copy of a rule is how the rule and its check
+    stop agreeing.
+    """
+    if text is None:
+        path = ROOT / "PLAN.md"
+        if not path.exists():
+            return [Finding(SKIP, "roadmap-id", "there is no PLAN.md to check.")]
+        text = path.read_text(encoding="utf-8")
+
+    out: list[Finding] = []
+    seen: dict[str, int] = {}          # full id -> line it was first used on, per section
+    parent: tuple[str, str, int] | None = None   # id, marker, line
+    children: list[tuple[str, str, int]] = []    # full id, marker, line
+
+    def close_parent() -> None:
+        """A done parent may not stand over an unfinished marked child."""
+        if parent is None:
+            return
+        _, pmarker, pline = parent
+        if pmarker != "✅":
+            return
+        for cid, cmarker, cline in children:
+            if cmarker not in ("✅", "❌"):
+                out.append(Finding(
+                    BLOCK, "roadmap-id",
+                    f"PLAN.md line {pline} is done while its child {cid!r} on line {cline} "
+                    f"is still {cmarker}. A parent takes the done marker once every marked "
+                    f"child has one, so that a half-finished item cannot read as closed."))
+
+    def claim(ident: str, n: int) -> None:
+        if ident in seen:
+            out.append(Finding(
+                BLOCK, "roadmap-id",
+                f"PLAN.md line {n} repeats the id {ident!r}, already used on line "
+                f"{seen[ident]} of this section. An id names one item."))
+        seen[ident] = n
+
+    for n, line in enumerate(text.splitlines(), 1):
+        if line.startswith("#"):
+            close_parent()
+            parent, children = None, []
+            seen = {}                   # ids are scoped to their section
+            continue
+
+        if m := ROADMAP_UNNUMBERED.match(line):
+            title = line[m.end():].strip()
+            out.append(Finding(
+                BLOCK, "roadmap-id",
+                f"PLAN.md line {n} is a roadmap item with no id: {title[:50]!r}. Number it "
+                f"{'`1.`' if not m.group('indent') else '`a.`'} in place of the dash, with "
+                f"the marker after it, so a plan can cite it instead of quoting it."))
+            if not m.group("indent"):
+                close_parent()
+                parent, children = None, []
+            continue
+
+        if m := ROADMAP_TOP.match(line):
+            close_parent()
+            ident = m.group("id")
+            claim(ident, n)
+            parent, children = (ident, m.group("marker"), n), []
+            continue
+
+        if m := ROADMAP_CHILD.match(line):
+            # Four spaces, not three. `1. ` puts its content at column 3 and `19. ` at
+            # column 4, so a three-space child nests under single-digit items and falls
+            # outside double-digit ones, rendering as a separate list beside its parent.
+            # Four clears both, and keeps clearing them when an item goes from 9 to 10.
+            if len(m.group("indent")) != 4:
+                out.append(Finding(
+                    BLOCK, "roadmap-id",
+                    f"PLAN.md line {n} indents a child {len(m.group('indent'))} spaces; it "
+                    f"takes 4. Three nests under `1.` but not under `19.`, whose content "
+                    f"starts a column further in, so the child renders beside its parent."))
+            # A child's id is read with its parent's, because `a.` alone names nothing.
+            ident = f"{parent[0] if parent else '?'}{m.group('id')}"
+            claim(ident, n)
+            children.append((ident, m.group("marker"), n))
+
+    close_parent()
     return out
 
 
@@ -1485,6 +1605,7 @@ CHECKS = {
     "generated-coverage": check_generated_docs_are_all_checked,
     "budget": check_budgets,
     "roadmap-marker": check_roadmap_markers,
+    "roadmap-id": check_roadmap_ids,
     "adr": check_adr_format,
     "owning-doc": check_ownership,
     "orphan-doc": check_orphan_docs,
