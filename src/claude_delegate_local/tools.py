@@ -361,9 +361,29 @@ def _scope_help(cfg: Config) -> str:
     return (
         _workspace_layout(cfg)
         + f"\nA name ending in `/` is a directory. Give `path` one of them, or something "
-          f"deeper. Pass the exact string {UNSCOPED!r} only when you genuinely need every "
+          f"deeper -- the root on the left of the arrow is not itself a scope and is "
+          f"refused. Pass the exact string {UNSCOPED!r} only when you genuinely need every "
           "root walked: it is the slowest call this server offers, by roughly two orders of "
           "magnitude."
+    )
+
+
+def _root_scope_refusal(cfg: Config, root: str) -> str:
+    """What to say when a search scopes itself to a whole workspace root.
+
+    That root's own children, not the workspace map: the call has just proved the model
+    knows the root's name and does not know what is under it, so listing the roots again is
+    the one thing already shown not to be the missing fact.
+
+    No multiple is quoted. ADR-0074 declined to put the measured figure in shipped text and
+    that still holds -- the ratio is this hardware's, where the shape is everyone's.
+    """
+    inside = _render_entries(_top_level(root, load_secret_globs(cfg)))
+    return (
+        f"{root} is a whole workspace root, not a scope: walking one costs nearly what "
+        f"walking every root costs, and `path` exists to avoid that. Name one of these "
+        f"instead, or something deeper: {inside}. Pass the exact string {UNSCOPED!r} if "
+        f"you genuinely do need every root walked."
     )
 
 
@@ -551,9 +571,15 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
         # `resolve_search_root`, not `_one_path`: the latter refuses a directory at layer 1
         # because a directory is not a thing to read, and a search scope is exactly that.
         # A file is accepted too, so pointing this at one narrows to it.
-        scopes = (resolve_search_root(
+        scope = resolve_search_root(
             cfg, given, surface="`path` argument", before_dispatch=False,
-        ),)
+        )
+        # Compared after resolving, never as the string that arrived: a trailing slash, a
+        # `.` segment or a symlinked spelling all name the same root, and a string compare
+        # would let each of them through the check the other three are refused by.
+        if scope in resolved_roots(cfg):
+            raise ToolRefused(_root_scope_refusal(cfg, scope))
+        scopes = (scope,)
 
     candidates: list[str] = []
     capped = False
@@ -1194,7 +1220,9 @@ SEARCH_FILES = RegisteredTool(
                 "path": {
                     "type": "string",
                     "description": "Absolute path to a directory or file to search, and "
-                                   "the only argument that narrows the walk. Required. "
+                                   "the only argument that narrows the walk. Required, and "
+                                   "a workspace root itself is refused -- name something "
+                                   "inside one. "
                                    f"Pass the exact string {UNSCOPED!r} to walk every "
                                    "workspace root -- the slowest call this server offers, "
                                    "by roughly two orders of magnitude.",

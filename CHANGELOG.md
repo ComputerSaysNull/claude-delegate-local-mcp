@@ -38,6 +38,39 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #212 — 2026-09-15 — fix: a workspace root is not a scope
+
+### Fixed
+- **`path` was required, supplied on every call, and satisfied with the whole repository
+  root.** *Symptom:* measured across one session's 13 dispatches, **8 of 9** first searches
+  named a workspace root or `_unscoped_` and exactly **1** named a subdirectory; 15 of 44
+  calls overall still walked an entire root. *Cause:* three homes had each made a *claim*
+  about `path`, and each time the model satisfied the claim in the cheapest way that still
+  parses. The declared text does not literally offer the root — it says "a name ending in
+  `/`" and the roots print without one — which is what makes this a fourth failed wording
+  rather than a typo. *Fix:* a `path` resolving to a workspace root is refused, and the
+  refusal carries that root's own children plus the sentinel (ADR-0082).
+- **ADR-0076's own exit condition, checked at last.** It said *"Unproven until a delegation's
+  first search names a subdirectory"* and nobody had gone back to check it. It failed. The
+  map itself was never the problem: it is delivered in full, ~2,125 characters across three
+  roots with nothing truncated.
+- **Compared after resolving, never as the string that arrived.** A trailing slash, a `.`
+  segment and a symlinked spelling all name the same root, so a string compare would admit
+  three of the four shapes the check exists to refuse. There is a test for the trailing
+  slash, because it is the one an implementation is most likely to let through.
+- **`_unscoped_` is untouched**, which is what keeps this a redirection rather than a lost
+  capability — the deliberate walk-everything search still has a spelling, and still the one
+  a transcript can be grepped for. The trade that *is* made: one whole root must now be
+  spelled as its children, or as the sentinel where there is a single root.
+- **No multiple is quoted in any shipped string.** ADR-0074 declined to put the measured
+  figure in the contract and that still holds — the ratio is this hardware's, the shape is
+  everyone's.
+- **Eight existing tests took the escape, which is the trade being exercised rather than a
+  surprise.** `test_tools.py` defaulted its search helper to the fixture root because `path`
+  became required; those tests are about matching, globs, caps and the denylist, not scope.
+  They now pass the sentinel, and since the fixtures configure exactly one root that walks
+  precisely the same files. Only the full suite showed this — a targeted run cannot.
+
 ## #211 — 2026-09-15 — fix: a queueing timeout is not a slow decoder
 
 ### Fixed

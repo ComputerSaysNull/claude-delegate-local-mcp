@@ -1,11 +1,11 @@
-<!-- BUDGET: 820 -->
+<!-- BUDGET: 823 -->
+<!-- Raised from 820 on 2026-09-15: ADR-0076 exit condition checked at last and failed, so the item it was unproven against is filed. -->
 <!-- Lowered from 930 on 2026-09-15: the three-line cap took 57 lines and the raise history stopped being a third copy of itself; slack a document has not earned is where the next accretion goes. -->
 <!-- Raised from 925 on 2026-09-14: items are numbered now, and a document whose reference scheme is not stated in it is one nobody else can cite from. -->
 <!-- Raised from 907 on 2026-09-14: 7.6 tok/s turned out to be one attempt of tokens over two attempts of time, plus the header opener this file had been missing. -->
 <!-- Raised from 888 on 2026-09-14: streaming closed, and the two things it was still carrying became items of their own rather than dying with it. -->
 <!-- Raised from 866 on 2026-09-14: the reconnect block answered the admission spike and found that persisting the rate memory retired the KV-pool reading. -->
 <!-- Raised from 835 on 2026-09-14: three entries argued from a mechanism that was removed or a consequence the code contradicts, and each correction is worth more than the line it costs. -->
-<!-- Raised from 832 on 2026-09-14: slice 4 splits -- the partial landed, the retry split and the viewer half did not, and the entry has to say which. -->
 <!-- Earlier raises are in this file's git history, and each one's reason is in the
      CHANGELOG.md section for the pull request that made it. This opener is load-bearing:
      line 1 self-closes, so without a `<!--` here every line below would render as body
@@ -763,6 +763,9 @@ local, because they are working notes rather than a product fact.
     - e. ⬜ The 0.6 is untouched because the *rate* was wrong. It would need to be about 0.57 for
     the cold-start ceiling to fit, and fitting a constant to a wrong rate is the mistake
     this roadmap already records against `kv_token_budget`.
+45. ✅ 2026-09-15 **A `path` naming a whole workspace root is refused.** Required and
+  supplied since ADR-0076, then satisfied with the root: 8 of 9 first searches named a root
+  or the sentinel and 1 named a subdirectory. The refusal carries its children (ADR-0082)
 
 ## Deferred
 
