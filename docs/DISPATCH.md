@@ -1,4 +1,5 @@
-<!-- BUDGET: 754 -->
+<!-- BUDGET: 771 -->
+<!-- Raised from 754 on 2026-09-15: a turn's calls can overlap now, and which ones may is the same fact as which ones are cacheable -- one section rather than a sentence bolted to dedup. -->
 <!-- Raised from 750 on 2026-09-14: the pool scrape is now conditional, and the paragraph has to say what asks for it. -->
 <!-- Raised from 742 on 2026-09-14: dedup and eviction can see each other now, which is a third limit on a repeat and belongs beside the other two. -->
 <!-- Raised from 736 on 2026-09-14: eviction is sized in bytes, and the paragraph has to say what size does NOT decide -- which results go. -->
@@ -597,6 +598,22 @@ not deleted: deleting re-runs the tool, and one of these reads took 657 seconds.
 Known gap, recorded rather than papered over: a re-read of the same file from a different
 `start_line` is a different argument set and is not caught. Closing it needs range tracking,
 which is its own piece of work. Upstream's version has the same hole.
+
+## A turn's independent calls run together
+
+Cacheable is the predicate for overlapping too, and not by coincidence: the clear above is a
+barrier on the turn's own history, so a call performing one has to see every earlier call and
+be seen by every later one. A run of consecutive cacheable calls goes on a pool; everything
+else runs alone, in place. `read_git` is read-only but not cacheable, so it runs alone as
+well — conservative, and the batches that cost were `search_files`.
+
+The cache never reaches a worker: read before dispatch, written after, so a duplicate inside
+one batch is dispatched once and its second occurrence is assembled from what the first
+stored. A lock would keep the dict intact and still let both miss and both run, the guarantee
+being a compound read-then-write. The ledger is written on that thread for the same reason —
+the abort report reads it in the order the model asked. Measured before it was built, unlike
+the read pool it follows: 1.16x on two calls and 1.51x on three, short of the ceiling because
+the path policy mixes syscalls that release the GIL with matching that does not.
 
 ## The countdown is in the tail, and the progress notification is not decoration
 

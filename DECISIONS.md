@@ -19,6 +19,61 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0084 — 2026-09-15 — Cacheable is also the predicate for running calls together — Accepted
+
+**Context.** `_run_calls` held one thread for a whole turn's tool batch. Measured 2026-09-15
+across one session's transcripts, **26 of 55** tool-using turns issued more than one call,
+and every expensive turn's batch was 2-3 independent `search_files` — reads only, no writes,
+no `run_bash`.
+
+Measured before building this time. ADR-0083 records a read pool that was built on an
+estimate and reverted at ~1.5%, so the premise here was tested first by driving the real
+`_search_files` sequentially against a thread pool: **1.16x** on two calls and **1.51x** on
+three, against ceilings of 2 and 3. Short of the ceiling because the path policy mixes
+syscalls that release the GIL with matching that does not — and worth having, which the read
+pool was not.
+
+**Decision.** A run of consecutive **cacheable** calls runs on a pool. Everything else runs
+alone, in the position the model put it.
+
+Cacheable is the right predicate and not by coincidence. `_run_one_call` clears the whole
+dedup cache after any non-cacheable call, because a write invalidates every read taken before
+it. That clear is a barrier on the turn's own history: the call performing it has to see
+every earlier call's effect and be seen by every later one. So the property that says "this
+call may be served from a cache" is the same property that says "this call changes nothing a
+sibling could observe".
+
+`read_git` is read-only and not cacheable — it reads a tree `run_bash` may just have
+committed to — so it runs alone as well. Conservative, and it costs nothing that was
+measured: the batches that cost are `search_files`, which is cacheable.
+
+**The cache never reaches a worker.** It is read before dispatch and written after, rather
+than locked. A lock would keep the dict structurally intact and still let two identical calls
+both miss and both run, because the dedup guarantee is a compound read-then-write and only
+one of the two halves is a dict operation. Leaving both halves on one thread also means a
+duplicate inside a single batch is dispatched once and its second occurrence assembled from
+what the first stored — which is exactly what a serial run does, rather than an approximation
+of it.
+
+The ledger is written on that thread for the same reason. A worker appending to it would
+reorder what an overflow abort reads, and that report exists to reconcile what the model
+believed it wrote against what is on disk.
+
+`map` rather than `as_completed`: the result blocks are consumed positionally downstream and
+the model matches them by `tool_use_id`, so completion order is not an ordering at all.
+
+**Rejected: grouping by which files a call touches.** It is decidable for `read_file`,
+`write_file` and `edit_file`, which each name one path, and undecidable for the two tools
+that matter — `search_files` reads a set it discovers as it walks, and `run_bash` can touch
+anything including the git index. A rule that works for the cheap cases and fails open for
+the expensive ones is worse than one predicate that holds everywhere.
+
+**Consequences.** The concurrency cap is a module constant rather than a setting: what
+decides it is the size of the batch the *model* produced, which no operator chooses. It
+exists so a pathological batch cannot open a thread per call.
+
+A turn of one call is untouched and still takes the original path, cache clear and all.
+
 ## ADR-0083 — 2026-09-15 — `ripgrep` is refused, and the search cost is the path policy — Accepted
 
 **Context.** ADR-0074 deferred making the walk faster, naming two options — "a thread pool
