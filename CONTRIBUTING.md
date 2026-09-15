@@ -330,9 +330,14 @@ Running the agent locally uses the Claude Code subscription instead.
 ## Session skills
 
 `.claude/skills/` holds the skills invoked with `/<name>` while working on this repository —
-same distinction as the agents above, and `session-plan`'s procedure stays in [its own
-file](.claude/skills/session-plan/SKILL.md) rather than being summarised here. **A skill only
-runs when it is invoked**, so a rule that must hold anyway belongs in [CLAUDE.md](CLAUDE.md).
+same distinction as the agents above, and each skill's procedure stays in its own file
+rather than being summarised here. **A skill only runs when it is invoked**, so a rule that
+must hold anyway belongs in [CLAUDE.md](CLAUDE.md).
+
+**Planning and executing are separate skills, because they have different readers.**
+[session-plan](.claude/skills/session-plan/SKILL.md) stops at approval and
+[session-execute](.claude/skills/session-execute/SKILL.md) starts there. A close-out rule
+left in the planning skill is read while planning and forgotten while committing.
 
 There are now **two** skill directories and they are not interchangeable. This one is for
 working on this repository and is never installed anywhere. `src/claude_delegate_local/skills/`
