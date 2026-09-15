@@ -1702,3 +1702,139 @@ numbering trap — a dispatch's stream and its summary carry different numbers.
 **What it cost to find:** nothing but reading transcripts already on disk. Recorded because
 the cheap part was the measurement and the expensive part was three sessions of proposing
 wordings without it.
+
+## 2026-09-15 — The 2x in `search_files` was in the policy, not the reads, and the pool proved it
+
+ADR-0074 deferred "a thread pool over `resolve_permitted` and `_search_hits`, or `ripgrep`
+for candidates with the policy applied to its matches", both "worth roughly 2x". The
+estimate was never measured. It is now, and it names the wrong half.
+
+**Phases of one call, 112 files under `tests/`, median of 5 runs on `/mnt/c`:**
+
+| phase | time | share |
+|---|---|---|
+| walk (`_search_candidates`) | 0.779s | 40.0% |
+| policy (`resolve_permitted`) | **1.132s** | **58.1%** |
+| read + match (`_search_hits`) | 0.037s | 1.9% |
+
+The reads are **2%** of the call. No pool over them can be worth 2x, and Amdahl caps the
+whole idea at about 1.5%.
+
+**The pool was built before it was measured, which is the part worth recording.** A bounded
+read-ahead over `_search_hits`, order-preserving so `max_results` truncates at the same
+file, with a `search_read_workers` setting. It works exactly as designed — against a
+synthetic 0.02s-per-read hold, peak concurrent reads went 1 to 8 and 40 reads went 0.84s to
+0.13s. Against the real filesystem it bought nothing measurable: 112 files, serial 1.877s
+against 1.921s at eight workers and 1.944s at sixteen, i.e. slightly *slower*. On 19 files
+it was 0.648s against 0.596s, about 8%, which is inside the run-to-run spread.
+
+So the mechanism was sound and the target was wrong. Reverted rather than landed, because a
+knob and a thread pool bought ~1.5% and cost a real regression: the look-ahead window reads
+files a truncating search would never have opened.
+
+**Why the policy dominates.** `resolve_permitted` runs four layers per candidate. It is
+already batched — one `check-ignore` per repository rather than one per file — and it is
+still 58%. That is where the next attempt goes, and it is a security boundary rather than an
+I/O one, so it is its own ADR and its own item.
+
+**And why `ripgrep` is refused rather than deferred again.** It would replace the walk, 40%,
+and leave the policy, 58%, exactly where it is — the path policy would still run over every
+match. Crossing the boundary `_search_files` exists to hold, to address the smaller half of
+a call whose larger half is untouched, is the wrong trade at any speed. Decided rather than
+carried forward a third time (ADR-0083).
+
+**Method.** Both checkouts driven by path with the editable install's `sys.meta_path` finder
+removed first — it wins over `PYTHONPATH`, so without that the "before" run silently measures
+the working tree and the fix appears to pass against itself. An assertion on `tools.__file__`
+caught exactly that on the first attempt.
+
+## 2026-09-15 — The search phase split at real scale, and a scan cap spent on `.venv`
+
+The phase split filed earlier today was measured on 112 warm files with gitignore off, and
+the numbers it was meant to explain are 391-657s. Two orders of magnitude apart is not a
+sample, so it was re-run at the scale a delegation actually meets: the repository root, scan
+cap 2000, one run each way.
+
+| | walk | policy | read+match | total | permitted | lines |
+|---|---|---|---|---|---|---|
+| gitignore **on** | 49.5s (24.7%) | **150.7s (75.1%)** | 0.3s (0.2%) | 200.5s | 20 | **2** |
+| gitignore **off** | 74.0s (34.0%) | **142.1s (65.3%)** | 1.5s (0.7%) | 217.6s | 1997 | 351 |
+
+**The direction filed this morning holds and is stronger.** The policy is 65-75% of a call
+rather than 58%, and the reads are 0.2-0.7% rather than 2%. Rejecting the read pool and
+refusing `ripgrep` were right, and the small sample understated both.
+
+**What the small sample got wrong was the explanation, not the target.** The obvious reading
+of the first table is that the policy is slow because it is checking gitignore. It is not:
+the policy costs ~145s *either way*, and gitignore off is marginally cheaper than on. At 2000
+candidates that is roughly **75ms per candidate**, and what is in it is `realpath` plus the
+denylist `fnmatch` on `/mnt/c` -- the batching that keeps `check-ignore` to one call per
+repository is already doing its job. Anyone reaching for the gitignore path first would spend
+the day on the wrong half.
+
+**The second finding is a correctness one and matters more than the speed.** With gitignore
+on, the walk enumerates `.venv/` -- 4,056 `.py` files against 144 in `src`, `tests` and
+`scripts` -- because `_search_candidates` prunes only symlinks and the secret denylist and
+has no gitignore awareness at all. The 2000-file cap is therefore exhausted inside a
+directory every candidate of which the policy will reject, and the call returns **2 matching
+lines where the same search unfiltered returns 351**. It then reports "not exhaustive", which
+is true and reads as though the cap merely stopped it early rather than that it never reached
+`src` at all.
+
+So a delegation asking "where is X" over a repository root spends 200 seconds and is told,
+accurately and uselessly, that nothing much matched. That is the shape behind the 391-657s
+transcript figures, and it is why scoping was worth ~100x: a scoped search skips the
+directory the cap was being spent in.
+
+Pruning what the policy will certainly reject belongs in the walk, and it is a change to the
+boundary between the two rather than a tuning knob, so it is filed as its own item rather
+than done here. The policy must stay authoritative: pruning may only ever *remove* candidates
+the policy would have rejected, never admit one it would not.
+
+**Method note.** `_search_candidates`, `resolve_permitted` and `_search_hits` are driven
+directly rather than through `_search_files`, which is what allows a root to be timed at all
+now that a bare root is refused (ADR-0082).
+
+## 2026-09-15 — The policy's 75ms a file is `lstat`, and `realpath` walks the same prefix 2000 times
+
+The phase split said the path policy is 65-75% of a search, at roughly 75ms per candidate.
+That figure was reported as `realpath` plus denylist matching, which was a guess dressed as a
+finding: 75ms is about a thousand times too slow for an `fnmatch`, and a number that
+implausible is worth profiling rather than repeating.
+
+`cProfile` over `resolve_permitted`, 2000 candidates, **140.9s**:
+
+| | time | calls | per candidate |
+|---|---|---|---|
+| `posix.lstat` | **80.66s** | 26,942 | 13.5 |
+| `posix.stat` | 37.08s | 4,000 | 2.0 |
+| `git check-ignore` | 20.51s | 403 | — |
+| `secret_match` (fnmatch) | 1.55s | 2,000 | 1.0 |
+
+**Matching is 1.1% of it.** The policy is syscalls on `/mnt/c`, and three separate things are
+each worth more than everything else combined:
+
+**`realpath` re-walks every shared prefix, once per candidate.** 26,942 `lstat` for 2000
+files, because `_joinrealpath` walks each path component and every candidate under
+`.venv/Lib/site-packages/...` shares thirteen of them. The prefixes are identical and are
+resolved from scratch 2000 times. Caching resolved directory prefixes is the single largest
+win available anywhere in the search path: 57% of the policy, 40%+ of the whole call.
+
+**`_check_exists` stats twice.** `isfile` then `exists`, 4,000 `stat` for 2000 files, where
+the `lstat` `realpath` just did already carries the answer for most of them.
+
+**`check-ignore` runs 403 times, not once.** The comment beside it says "one `check-ignore`
+per repository rather than one per file", and 403 is neither -- it tracks the 402 `_repo_top`
+calls, so it is one per *directory*. Still a 5x better than per-file, and still 15% of the
+policy.
+
+**All three release the GIL**, which is the other half of the finding. It explains why
+overlapping a turn's calls measured 1.51x on three (ADR-0084), and it means the thread pool
+ADR-0074 named would in fact work -- on the policy, which is where the time is, rather than
+on the reads, where ADR-0083 measured 1.5% and reverted it. That is now three corrections
+deep on the same estimate, and each one moved because something was measured rather than
+argued.
+
+Nothing is changed here. The prefix cache in particular has to preserve the layer it sits in
+-- a cached resolution must be indistinguishable from a fresh one, or the policy stops being
+the thing that decides, which is the one property `paths.py` exists to hold (ADR-0010).

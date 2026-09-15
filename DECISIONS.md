@@ -19,6 +19,52 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0083 — 2026-09-15 — `ripgrep` is refused, and the search cost is the path policy — Accepted
+
+**Context.** ADR-0074 deferred making the walk faster, naming two options — "a thread pool
+over `resolve_permitted` and `_search_hits`, or `ripgrep` for candidates with the policy
+applied to its matches" — and put both at "roughly 2x against scoping's 100x". Neither was
+measured, and the item has been carried on that estimate since.
+
+Scoping is now taken twice over (ADR-0076, ADR-0082), and measured 2026-09-15 across one
+session's dispatches, `search_files` was **100%** of server-side tool time. So what is left
+is the only thing that costs, and it was worth measuring before building.
+
+Phases of one call, 112 files, median of five runs: walk **0.779s / 40.0%**, path policy
+**1.132s / 58.1%**, read and match **0.037s / 1.9%**.
+
+**Decision, one: the read pool is rejected on measurement.** It was built first — bounded
+read-ahead, order-preserving so `max_results` truncates at the same file, with a worker
+setting. Against a synthetic hold it did exactly what it claimed, peak concurrent reads 1 to
+8 and 0.84s to 0.13s. Against the real filesystem it bought nothing: 1.877s serial against
+1.921s at eight workers, slightly *slower*. Amdahl caps it at ~1.5% because the reads are 2%
+of the call, and the look-ahead window costs a real regression — it reads files a truncating
+search would never have opened. Reverted rather than landed.
+
+**Decision, two: `ripgrep` is refused, not deferred again.** It replaces the walk, which is
+40%, and leaves the policy, which is 58%, exactly where it is: every match it returns still
+goes through the same four layers. Crossing the boundary `_search_files` exists to hold — the
+policy applied to a subprocess's matches rather than to candidates this server enumerated —
+to address the smaller half of a call whose larger half is untouched, is the wrong trade at
+any speed. It was declined twice by deferral; this declines it on numbers, which is what
+stops it being reconsidered on the same estimate a fourth time.
+
+If the policy is ever brought down far enough that the walk dominates, this is worth
+reopening — and then the walk, not the reads, is what it would be competing with.
+
+**Decision, three: the target is `resolve_permitted`.** 58% of a call, already batched to one
+`check-ignore` per repository rather than one per file, and still the cost. That is a
+security boundary rather than an I/O one — four layers whose independence is load-bearing
+(ADR-0010, ADR-0035) — so it gets its own ADR and its own item rather than riding on this.
+
+**Consequences.** No code changes. `PLAN.md`'s item is re-scoped from "walks in Python" to
+the phase that actually costs, carrying the numbers so the next attempt starts from a
+measurement instead of an estimate.
+
+The wider lesson is filed in `JOURNAL.md` rather than here: an estimate that names two
+targets at the same value is an estimate that measured neither, and building the cheaper one
+first is how ~1.5% gets mistaken for 2x.
+
 ## ADR-0082 — 2026-09-15 — A workspace root is not a scope, and the fourth remedy is a refusal — Accepted
 
 **Context.** ADR-0074 fixed what the contract *claimed* about `path` in three of ADR-0066's
