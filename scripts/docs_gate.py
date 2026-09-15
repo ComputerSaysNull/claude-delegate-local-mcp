@@ -107,9 +107,23 @@ class Finding:
 
 
 def run(*args: str) -> str:
-    return subprocess.run(
-        args, cwd=ROOT, capture_output=True, text=True, check=False
-    ).stdout.strip()
+    """Run a command in the repository and return its stdout.
+
+    The encoding is explicit because `text=True` alone decodes with the *ambient* codec,
+    which is cp1252 on Windows. Git output routinely carries characters it has no byte for
+    -- `❌` is `E2 9D 8C`, and `0x9D` is undefined there -- and the decode happens on
+    subprocess's own reader thread, so the `UnicodeDecodeError` kills that thread without
+    reaching the caller: `returncode` is 0, `stdout` is **None**, and the next `.strip()`
+    raises an `AttributeError` nowhere near the cause.
+
+    `errors="replace"` rather than strict, because a gate that loses one character is worth
+    more than one that loses a whole commit message. And `or ""` because a failed command
+    has no stdout at all, which is a real case rather than an error.
+    """
+    return (subprocess.run(
+        args, cwd=ROOT, capture_output=True, text=True, check=False,
+        encoding="utf-8", errors="replace",
+    ).stdout or "").strip()
 
 
 # Written by the prepare-commit-msg hook when git says the message was reused from HEAD.

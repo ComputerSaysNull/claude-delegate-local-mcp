@@ -38,6 +38,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #210 — 2026-09-15 — fix: the gate lost git's output rather than reading it
+
+### Fixed
+- **`run()` returned `None` whenever git's output held a character cp1252 cannot decode.**
+  *Symptom:* `docs_gate.py --mode ci` died with `AttributeError: 'NoneType' object has no
+  attribute 'strip'`, pointing at `.stdout.strip()` and nowhere near the cause. *Cause:*
+  `subprocess.run(..., text=True)` with no `encoding` decodes with the ambient codec, cp1252
+  on Windows. `❌` is `E2 9D 8C` and byte `0x9D` is undefined there — and because subprocess
+  decodes on its own reader thread, the `UnicodeDecodeError` killed that thread without
+  reaching the caller: `returncode` **0**, `stdout` **None**. *Fix:* decode as UTF-8 with
+  `errors="replace"`, and treat a failed command's absent stdout as `""` rather than a crash.
+- **Found while verifying a pull request, which is the part worth recording.** #207's commit
+  message had cancelled a roadmap item and so carried `❌`; the local pre-publish gate run
+  crashed and the wrapper around it printed nothing, so a check that appeared to run did no
+  checking at all. #206's message had no such character and passed moments earlier, which is
+  what made the difference visible.
+- **CI is why it survived.** The workflow runs on Linux, where the ambient codec is UTF-8 and
+  this decode always succeeds, so the gate guarding every pull request could not fail this way
+  in the only place it runs automatically. The regression test is Windows-red and
+  Linux-green by nature, and says so in its own docstring rather than reading as coverage it
+  does not have. A fourth case pins the premise — that cp1252 really cannot decode the
+  character — so the day Windows defaults to UTF-8 the file reports that instead of quietly
+  becoming decorative.
+
 ## #209 — 2026-09-14 — feat: three lines a bullet, and PLAN.md stops being an archive
 
 ### Added
