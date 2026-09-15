@@ -38,6 +38,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #218 — 2026-09-15 — fix: the idle hold was being paid by the test suite
+
+### Fixed
+- **Three tests each waited 10s for a hold they were not about.** *Symptom:* CI's test jobs
+  went from ~1m30s to 4m+ the moment #215 landed, and the local WSL suite from 177s to 209s.
+  *Cause:* `admission_idle_hold` fires when a request finds the gate idle, which is exactly
+  the shape a unit test constructs — so every fixture that takes the first slot pays it,
+  passing while it does. #215 disabled it in the nine fixtures that *failed*; the ones that
+  merely got slower were not looked for. *Fix:* the queue-order tests disable it too, since
+  they are about who goes next rather than about the wait.
+- **Measured both ways.** The three tests took 10.46s, 10.31s and 10.01s; the file now runs
+  in 1.99s against 32.69s. That accounts for the local 32s exactly.
+- **It does not account for CI, and the run after this fix says so.** Test jobs were 1m30s
+  and 1m41s before the hold, 4m27s and 4m46s with it, and **3m18s and 2m53s** after this
+  change. So the three tests were part of it and not most of it: CI is still roughly twice
+  its old time with every fixture that builds an `Admission` directly now accounted for.
+  Something else on that runner pays the hold — a test reaching admission through the server
+  rather than constructing the gate, or two xdist workers against ten-second sleeps — and
+  naming which is a guess. Left open rather than closed: the local figure is explained, the
+  remote one is not, and a fix that claimed both would be claiming the half it cannot show.
+
 ## #217 — 2026-09-15 — docs: aggregates may default on, content may not
 
 ### Changed
