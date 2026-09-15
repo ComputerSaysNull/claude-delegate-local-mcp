@@ -38,6 +38,38 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #214 — 2026-09-15 — feat: a turn's independent tool calls run together
+
+### Changed
+- **`_run_calls` held one thread for a whole turn's batch.** *Symptom:* measured across one
+  session's transcripts, **26 of 55** tool-using turns issued more than one call, and every
+  expensive turn's batch was 2–3 independent `search_files` — reads only, no writes, no
+  `run_bash`. *Cause:* the loop ran them in sequence to keep result order, which the pool
+  preserves anyway. *Fix:* a run of consecutive **cacheable** calls goes on a pool;
+  everything else runs alone, in the position the model put it (ADR-0084).
+- **Measured before it was built, unlike the read pool it follows.** Driving the real
+  `_search_files` sequentially against a thread pool: **1.16x** on two calls, **1.51x** on
+  three, against ceilings of 2 and 3. Short of the ceiling because the path policy mixes
+  syscalls that release the GIL with matching that does not. The 1.16x is inside run-to-run
+  variance; the 1.51x is clearly separated, and it is the batch size that actually appeared.
+- **Cacheable is the right predicate, and not by coincidence.** `_run_one_call` clears the
+  dedup cache after any non-cacheable call, because a write invalidates every read before
+  it. That clear is a barrier on the turn's own history, so the property saying "may be
+  served from cache" is the same one saying "changes nothing a sibling could observe".
+  `read_git` is read-only but not cacheable — it reads a tree `run_bash` may have committed
+  to — so it runs alone too.
+- **The cache never reaches a worker**, read before dispatch and written after rather than
+  locked. A lock keeps the dict intact and still lets two identical calls both miss and both
+  run, the guarantee being a compound read-then-write. Keeping both halves on one thread
+  also makes a duplicate inside a batch dispatch once and assemble its second occurrence
+  from what the first stored — what a serial run does, not an approximation. The ledger is
+  written there too: a worker appending would reorder what an overflow abort reads.
+- **Grouping by which files a call touches was rejected.** Decidable for `read_file`,
+  `write_file` and `edit_file`; undecidable for the two that matter, since `search_files`
+  discovers its set as it walks and `run_bash` can touch anything including the git index.
+  A rule that works for the cheap cases and fails open for the expensive ones is worse than
+  one predicate holding everywhere.
+
 ## #213 — 2026-09-15 — docs: what a search actually costs, measured rather than estimated
 
 ### Changed

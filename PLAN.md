@@ -489,7 +489,7 @@ them was re-derived when it did.
   `glob` claimed to be the speed lever and the bad-`path` refusal said "omit it to search
   everywhere", which one delegation did, at 239s. Scope is worth ~100x; `read_file` was never
   the problem. Schema, result note and refusal all fixed (ADR-0074, #182)
-16. ⬜ **A turn's independent tool calls run serially.** `_run_calls` holds one thread to preserve
+16. ✅ 2026-09-15 **A turn's independent tool calls run serially.** `_run_calls` holds one thread to preserve
   result order, but returned order need not be executed order and reads do not affect each
   other. `run_bash` stays ordered; the work is locking `cached` and `watch`
 17. ✅ 2026-09-13 **Scoping was asked for and never shown** — `path` is required with an

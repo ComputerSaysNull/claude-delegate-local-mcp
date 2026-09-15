@@ -27,7 +27,8 @@ import os
 import random
 import time
 from collections import Counter, deque
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
 from email.utils import parsedate_to_datetime
@@ -2393,6 +2394,100 @@ def _run_one_call(
     return result, "error" if result.is_error else "ran"
 
 
+# How many of a turn's calls may be in flight together. A constant rather than a setting,
+# because the number that decides it is the size of the batch the *model* produced, which an
+# operator does not choose -- measured batches here are two and three. The cap exists so a
+# pathological batch cannot open a thread per call, not as something to tune.
+MAX_CONCURRENT_TOOL_CALLS = 8
+
+
+def _pooled_groups(calls: tuple[ToolUseBlock, ...]) -> Iterator[tuple[ToolUseBlock, ...]]:
+    """One turn's calls, split into groups that may run together, in the order given.
+
+    A group is a run of consecutive *cacheable* calls. Cacheable is exactly the property
+    that makes overlapping safe, and not by coincidence: `_run_one_call` clears the whole
+    dedup cache after any non-cacheable call, because a write invalidates every read taken
+    before it. That clear is a barrier on the turn's own history -- the call performing it
+    has to see every earlier call's effect and be seen by every later one -- so a
+    non-cacheable call is a group of one and stays exactly where the model put it.
+
+    `run_bash` and the write tools are never cacheable. `read_git` is read-only and not
+    cacheable either, since it reads a tree `run_bash` may just have committed to, so it
+    runs alone as well. Conservative, and it costs nothing that was measured: the batches
+    that cost are `search_files`, which is cacheable. A tool absent from the registry also
+    lands alone, which keeps the unknown-tool path exactly where it was.
+    """
+    group: list[ToolUseBlock] = []
+    for call in calls:
+        tool = REGISTRY.get(call.name)
+        if tool is not None and tool.cacheable:
+            group.append(call)
+            continue
+        if group:
+            yield tuple(group)
+            group = []
+        yield (call,)
+    if group:
+        yield tuple(group)
+
+
+def _run_group(
+    cfg: Config,
+    group: tuple[ToolUseBlock, ...],
+    allowed: frozenset[str],
+    cached: dict[tuple[str, str], _CachedResult],
+    policy: BashPolicy,
+) -> list[tuple[ContentBlock, str]]:
+    """One group's calls, overlapped, with `cached` read and written only on this thread.
+
+    Not a lock. A lock would keep the dict structurally intact and still let two identical
+    calls both miss and both run: the dedup guarantee is a compound read-then-write, and the
+    only way to keep it is to leave both halves off the workers entirely. So the cache is
+    consulted before dispatch, the misses are executed, and the results are stored on the
+    way out -- which also means a duplicate inside one batch is dispatched once and its
+    second occurrence assembled from what the first stored, exactly as a serial run does.
+
+    Every call here is cacheable by construction, so none of them clears the cache and the
+    ordering `_run_one_call` protects cannot be observed to change.
+    """
+    keys = [(c.name, _dedup_key(c)) for c in group]
+    first_for: dict[tuple[str, str], ToolUseBlock] = {}
+    for call, key in zip(group, keys, strict=True):
+        if key not in cached:
+            first_for.setdefault(key, call)
+
+    fetched: dict[tuple[str, str], ContentBlock] = {}
+    pending = list(first_for.items())
+    if len(pending) == 1:
+        # One miss needs no pool, and saying so keeps the common two-call batch where one
+        # call is a repeat from paying for a thread it would not use.
+        key, call = pending[0]
+        fetched[key] = execute_tool(cfg, call, allowed, policy)
+    elif pending:
+        def run(item: tuple[tuple[str, str], ToolUseBlock]) -> ContentBlock:
+            return execute_tool(cfg, item[1], allowed, policy)
+
+        workers = min(len(pending), MAX_CONCURRENT_TOOL_CALLS)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            # `map`, not `as_completed`: the blocks are consumed positionally downstream and
+            # the model matches them by id, so completion order is not an ordering at all.
+            fetched = dict(zip((k for k, _ in pending), pool.map(run, pending), strict=True))
+
+    out: list[tuple[ContentBlock, str]] = []
+    for call, key in zip(group, keys, strict=True):
+        entry = cached.get(key)
+        if entry is not None:
+            body = EVICTED_REPEAT if entry.evicted else REPEAT_PREFIX + entry.content
+            out.append((ToolResultBlock(tool_use_id=call.id, content=body), "repeat"))
+            continue
+        result = fetched[key]
+        if isinstance(result, ToolResultBlock) and not result.is_error:
+            cached[key] = _CachedResult(result.content, call.id)
+        is_error = isinstance(result, ToolResultBlock) and result.is_error
+        out.append((result, "error" if is_error else "ran"))
+    return out
+
+
 def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox policy
     cfg: Config,
     calls: tuple[ToolUseBlock, ...],
@@ -2417,12 +2512,21 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     """
     results: list[ContentBlock] = []
     records: list[ToolCallRecord] = []
-    for call in calls:
-        block, outcome = _run_one_call(cfg, call, allowed, cached, policy)
-        result = block if isinstance(block, ToolResultBlock) else None
-        watch.called(call, outcome, result)
-        records.append(tool_call_record(call, outcome, result))
-        results.append(block)
+    for group in _pooled_groups(calls):
+        # A group of one keeps the original path, cache clear and all. Only a genuine batch
+        # of independent reads takes the other branch, which is the case that was measured.
+        outcomes = (
+            [_run_one_call(cfg, group[0], allowed, cached, policy)]
+            if len(group) == 1
+            else _run_group(cfg, group, allowed, cached, policy)
+        )
+        # The ledger is written here, on one thread, in the order the model asked -- a
+        # worker appending to `watch` would race it and reorder what the abort report reads.
+        for call, (block, outcome) in zip(group, outcomes, strict=True):
+            result = block if isinstance(block, ToolResultBlock) else None
+            watch.called(call, outcome, result)
+            records.append(tool_call_record(call, outcome, result))
+            results.append(block)
     return results, tuple(records)
 
 
