@@ -38,6 +38,10 @@ def gate(**over) -> Admission:
         "workspace_roots": (".",),
         "max_inflight_seqs": 6,
         "kv_token_budget": 100_000,
+        # Off, because these tests are about queue order rather than the hold, and every
+        # one of them takes the first slot on an idle gate -- which is exactly the shape
+        # the hold fires on. Measured at 10s each across three tests before this line.
+        "admission_idle_hold": 0.0,
     }
     kw.update(over)
     return Admission(Config(**kw))  # type: ignore[arg-type]
