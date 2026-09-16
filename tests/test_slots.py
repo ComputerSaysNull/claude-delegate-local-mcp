@@ -75,7 +75,7 @@ def slots_at(path: Path) -> SharedSlots:
 
 async def take(g: Admission, tokens: int, *, key: str = "flash", limit: int = 5):
     return await g.acquire(
-        tokens, prefill_tokens=tokens, entry_key=key, entry_limit=limit
+        tokens,  entry_key=key, entry_limit=limit
     )
 
 
@@ -108,7 +108,7 @@ HOLDER = textwrap.dedent(
         )
         gate = Admission(cfg, slots)
         await gate.acquire(
-            tokens, prefill_tokens=tokens, entry_key="flash", entry_limit=5
+            tokens,  entry_key="flash", entry_limit=5
         )
         print("held", flush=True)
         sys.stdin.readline()          # hold the slot until the parent says let go

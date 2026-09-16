@@ -49,7 +49,7 @@ def gate(**over) -> Admission:
 
 async def take(g: Admission, tokens: int, prefill: int, key: str = "flash"):
     return await g.acquire(
-        tokens, prefill_tokens=prefill, entry_key=key, entry_limit=5
+        tokens,  entry_key=key, entry_limit=5
     )
 
 

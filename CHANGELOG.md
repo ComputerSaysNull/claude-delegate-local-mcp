@@ -38,6 +38,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #221 — 2026-09-16 — refactor: drop the prefill estimate nothing reads
+
+### Changed
+- **`prefill_tokens` was threaded through `acquire` and `admit` and read by nothing.**
+  *Symptom:* every caller computed a prefill estimate and passed it into admission, where no
+  predicate looked at it — including the tests, which had carried it at a dozen call sites
+  since the gate went. *Cause:* it existed only to enforce `max_inflight_large_prefills`,
+  removed on 2026-09-13 with the cap itself (ADR-0077); the argument outlived its one reader.
+  *Fix:* removed from both signatures, from the one production call site and from the tests.
+  `prefill_estimate` stays in `server.py`, where it is still summed into `tokens_estimate` —
+  that number is read.
+
+  An argument that is passed but never read is worse than an absent one, because the next
+  person to touch admission has to prove it does nothing before they can ignore it. Both
+  `# noqa: PLR0913` suppressions went with it: five arguments no longer need excusing.
+
 ## #220 — 2026-09-16 — fix: the path policy asked the filesystem the same things twice
 
 ### Fixed

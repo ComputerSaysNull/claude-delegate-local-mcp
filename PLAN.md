@@ -777,7 +777,7 @@ local, because they are working notes rather than a product fact.
   ADR-0082 trades wall-clock for a round trip, which is cheap against 391.8s and dear against
   a five-turn budget. Revisit once 18 and 46 land and an unscoped walk is no longer ruinous
 
-48. ⬜ **`prefill_tokens` is threaded through `acquire` and `admit` and read by nothing.**
+48. ✅ 2026-09-16 **`prefill_tokens` is threaded through `acquire` and `admit` and read by nothing.**
   It existed only to enforce `max_inflight_large_prefills`, removed with that gate (ADR-0077).
   Every caller still computes and passes an estimate the predicate never sees
 

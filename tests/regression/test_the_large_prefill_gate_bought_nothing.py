@@ -78,7 +78,7 @@ async def test_six_large_prefills_admit_without_anyone_waiting():
     leases = [
         await asyncio.wait_for(
             g.acquire(
-                PREFILL_TOKENS, prefill_tokens=PREFILL_TOKENS,
+                PREFILL_TOKENS, 
                 entry_key="flash", entry_limit=ARMS,
             ),
             timeout=1,
@@ -104,12 +104,12 @@ async def test_a_capacity_rule_still_queues():
     """
     g = gate(max_inflight_seqs=1)
     held = await g.acquire(
-        PREFILL_TOKENS, prefill_tokens=PREFILL_TOKENS, entry_key="flash", entry_limit=ARMS
+        PREFILL_TOKENS,  entry_key="flash", entry_limit=ARMS
     )
 
     parked = asyncio.create_task(
         g.acquire(
-            PREFILL_TOKENS, prefill_tokens=PREFILL_TOKENS,
+            PREFILL_TOKENS, 
             entry_key="flash", entry_limit=ARMS,
         )
     )
@@ -132,5 +132,5 @@ async def test_a_prefill_larger_than_the_budget_is_still_refused_at_once():
 
     with pytest.raises(AdmissionImpossible):
         await g.acquire(
-            10_000, prefill_tokens=10_000, entry_key="flash", entry_limit=ARMS
+            10_000, entry_key="flash", entry_limit=ARMS
         )
