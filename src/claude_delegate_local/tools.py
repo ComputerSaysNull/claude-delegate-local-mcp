@@ -36,6 +36,7 @@ from .paths import (
     PathPolicyError,
     PathRefused,
     ResolvedPath,
+    gitignored,
     load_secret_globs,
     open_resolved,
     resolve_all,
@@ -396,6 +397,15 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
     caller's glob are cheap string tests, and pruning a denylisted directory keeps the walk
     out of `.git` entirely rather than discovering it a loose object at a time.
 
+    Gitignored directories are pruned here too, and the reason is the scan cap rather than
+    speed alone: charged against files the project already said it does not care about, the
+    cap is reached inside them and the walk stops before it reaches the source. A directory
+    is asked about once, per level and in one batch, and `tops` carries the work-tree lookup
+    across levels so descending never re-pays it.
+
+    Pruning directories does not make `resolve_permitted`'s own `gitignored` call redundant:
+    an ignored *file* in a directory that is not ignored is only caught there.
+
     Returns the candidates and whether the scan cap was reached.
     """
     globs = load_secret_globs(cfg)
@@ -403,6 +413,7 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
     found: list[str] = []
     scanned = 0
     capped = False
+    tops: dict[str, str | None] = {}
 
     for dirpath, dirnames, filenames in os.walk(scope):
         # Prune in place, and skip symlinks rather than following them. `os.walk` does not
@@ -414,6 +425,13 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
             if os.path.islink(full) or secret_match(full, globs) is not None:
                 continue
             kept.append(name)
+
+        if cfg.respect_gitignore and kept:
+            # One `check-ignore` for this level, never one per directory: the walk is about
+            # to descend into every name still standing, so they are all asked at once.
+            ignored = gitignored([posixpath.join(dirpath, n) for n in kept], tops=tops)
+            kept = [n for n in kept if posixpath.join(dirpath, n) not in ignored]
+
         dirnames[:] = kept
 
         for name in sorted(filenames):

@@ -435,7 +435,9 @@ def repo_status(directories: Sequence[str]) -> dict[str, tuple[str, ...]]:
     return out
 
 
-def gitignored(reals: Sequence[str]) -> set[str]:
+def gitignored(
+    reals: Sequence[str], *, tops: dict[str, str | None] | None = None
+) -> set[str]:
     """Which of `reals` git ignores. One `check-ignore` per repository, not per file.
 
     A subprocess per path is the obvious implementation and spawns a process for every
@@ -447,11 +449,20 @@ def gitignored(reals: Sequence[str]) -> set[str]:
     is ignored and 128 outside a repository, and by design does *not* report a tracked
     file even when a pattern matches it -- which is the wanted behaviour, since a
     committed file is not ignored in any sense the caller cares about.
+
+    **`check-ignore` is not the only subprocess here, and the other one is per directory.**
+    Finding the work tree costs a `rev-parse` for each distinct parent, so 2,000 candidates
+    over 389 directories is 389 subprocesses before a single `check-ignore` runs -- 20.5s of
+    a 140.9s policy pass, profiled 2026-09-15 and mis-attributed to `check-ignore` itself.
+    `tops` is how a caller that asks repeatedly pays that once: hand the same dict to every
+    call and a second question about a directory already seen costs nothing. Omitted, the
+    behaviour is what it always was.
     """
     if not reals:
         return set()
 
-    tops: dict[str, str | None] = {}
+    if tops is None:
+        tops = {}
     by_repo: dict[str, list[str]] = defaultdict(list)
     for real in reals:
         directory = posixpath.dirname(real)

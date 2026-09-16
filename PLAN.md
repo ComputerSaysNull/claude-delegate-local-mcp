@@ -769,7 +769,7 @@ local, because they are working notes rather than a product fact.
   supplied since ADR-0076, then satisfied with the root: 8 of 9 first searches named a root
   or the sentinel and 1 named a subdirectory. The refusal carries its children (ADR-0082)
 
-46. ⬜ **A gitignored directory eats the scan cap, so the search answers from nothing.**
+46. ✅ 2026-09-16 **A gitignored directory eats the scan cap, so the search answers from nothing.**
   `_search_candidates` prunes symlinks and secrets, never gitignore, so a root walk spends
   all 2000 on `.venv` and returns 2 lines where 351 exist. Prune in the walk, never admit
 
