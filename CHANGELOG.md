@@ -38,6 +38,41 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #220 — 2026-09-16 — fix: the path policy asked the filesystem the same things twice
+
+### Fixed
+- **A shared directory prefix was walked once per candidate.** *Symptom:* the path policy
+  was 65-75% of a `search_files` call and almost all of it `lstat` — 80.7s in 26,942 of
+  them for 2,000 candidates, 13.5 per candidate, profiled 2026-09-15. *Cause:* `_resolve_one`
+  called `os.path.realpath` on every candidate, and candidates from one walk share deep
+  prefixes, so the kernel re-walked the same directories once each time. *Fix:* the
+  directory above a candidate is remembered for the life of one `_resolve_many` call.
+- **Existence was asked twice and the first answer thrown away.** *Symptom:* 37.1s in 4,000
+  `stat` calls for 2,000 candidates, in the same profile. *Cause:* `_check_exists` called
+  `os.path.exists` and then `os.path.isfile`, which are the same syscall asked for two
+  different bits of one result. *Fix:* one `os.stat`, with `S_ISREG` on its mode.
+
+  Measured over `resolve_permitted` on this repository, same machine, `/mnt/c`:
+
+  | | 195 candidates | 2,000 candidates |
+  |---|---|---|
+  | before | 2.528s | 60.012s |
+  | one `stat` only | 2.048s | 48.719s |
+  | prefix cache only | 1.819s | 34.318s |
+  | both | **1.385s** | **23.811s** |
+
+  195 is what a walk produces here now that #219 prunes ignored directories; 2,000 is what a
+  wide `files[]` prefetch still hands the policy.
+
+### Changed
+- **The cache holds the prefix and never the final component**, which is its safety argument
+  rather than an implementation note. `realpath` resolves a symlink in the last segment too,
+  so caching a whole resolved path would hand layer 1 the inside-the-root spelling of a link
+  pointing out of it — the one check it exists to fail. The last segment is resolved on every
+  candidate; `readlink` answers whether it is a link in one syscall, and only a path that
+  really is one pays a full walk. The cache dies with the call, as `resolved_roots` and
+  `load_secret_globs` already refresh per call. (ADR-0049)
+
 ## #219 — 2026-09-16 — fix: a gitignored directory ate the scan cap
 
 ### Fixed

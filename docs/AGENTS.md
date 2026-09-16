@@ -1,4 +1,5 @@
-<!-- BUDGET: 478
+<!-- BUDGET: 481
+     Raised from 478 on 2026-09-16: layer 1 now remembers a prefix, and what it must never remember is a security fact.
      Raised from 473 on 2026-09-16: the section counted two git calls where there are three, and the third is the one that costs.
      Raised from 469 on 2026-09-13: a remedy now names the configured roots, because the one
      it used to suggest instead -- dropping the argument -- was the slowest call available.
@@ -342,7 +343,9 @@ the entries somebody added on purpose.
 Layer 1 resolves symlinks at the moment it checks. It cannot close one planted
 afterwards: between a path being approved and the file being opened there is a window,
 and the adversary is the delegated model, which holds a read-write bind on its workdir
-under `run_bash` and can retry until a swap lands.
+under `run_bash` and can retry until a swap lands. Within one batch the *directory* above a
+candidate is remembered so a shared prefix is walked once; the final component never is,
+because resolving that is what catches a link pointing out of the root.
 
 So the policy hands back an open descriptor and never a path. The open refuses a link at
 the final component outright, then proves the descriptor still refers to the approved
