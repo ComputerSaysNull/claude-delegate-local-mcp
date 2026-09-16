@@ -203,6 +203,42 @@ def test_zero_concurrency_is_refused(tmp_path):
         build(tmp_path, body)
 
 
+def test_an_unset_concurrency_does_not_bind_below_the_global_cap(tmp_path):
+    """An entry that says nothing must not cap itself below what the server admits.
+
+    `max_inflight_seqs` was raised to 6 for exactly this reason: at 5 the global cap bound
+    below a single endpoint's own limit, which made a registry `concurrency` of 6
+    unreachable. The per-entry default stayed at 5 and reintroduced the same bind one level
+    down, for every deployment that never set it -- which is every deployment that took the
+    example file as written.
+
+    Asserted against the loaded config rather than a literal, because the two numbers
+    are one decision and a second literal here is how they would drift apart again.
+    """
+    body = '[models.a]\nbase_url="http://h:1"\nserved_model_id="s"\ndefault=true\n'
+    reg, cfg = build(tmp_path, body)
+    entry = reg.resolve(None)
+
+    assert entry.concurrency >= cfg.max_inflight_seqs, (
+        f"an entry that set no concurrency got {entry.concurrency}, below the global cap of "
+        f"{cfg.max_inflight_seqs}, so the endpoint caps itself lower than the "
+        "server would and the global limit never binds")
+
+
+def test_the_concurrency_default_is_one_value_not_three(tmp_path):
+    """It was written out three times: the dataclass, the zero-check and the parser.
+
+    The same reasoning as `context_window` above, and a worse case of it -- three copies
+    rather than two. This fails if any one of them is edited alone.
+    """
+    body = '[models.a]\nbase_url="http://h:1"\nserved_model_id="s"\ndefault=true\n'
+    reg, _ = build(tmp_path, body)
+    declared = registry.ModelEntry(
+        key="k", base_url="http://head:8888", served_model_id="s").concurrency
+
+    assert reg.resolve(None).concurrency == declared == registry.DEFAULT_CONCURRENCY
+
+
 # ---- the context_window default, and knowing when it was used ------------------------
 
 MINIMAL = """

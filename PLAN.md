@@ -528,7 +528,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
   selected row carrying an emoji over-padded and wrapped, because `len()` counts characters
   and a cell is not one; and a cut-off reply read as a finished one, `ok` being true of both.
   Its "queued 120s" is impossible and was corrected in the CHANGELOG, not in its body
-22. ⬜ **The registry's `concurrency` default is 5** while this deployment's `models.toml` sets 6. Carried out of the session hand-off notes, which are not a document anyone else reads
+22. ✅ 2026-09-16 **The registry's `concurrency` default is 5** while this deployment's `models.toml` sets 6. Carried out of the session hand-off notes, which are not a document anyone else reads
 23. ✅ 2026-09-13 **An empty `name:` is accepted where the document says it is refused.**
   `agents.py` line
   330 reads `if declared and declared != name`, so a bare `name:` with no value is falsy and

@@ -31,7 +31,7 @@ api_key_env     = ""
 context_window  = 1048576
 default_effort  = "low"
 max_tokens_cap  = 131072
-concurrency     = 5
+concurrency     = 6
 default         = true
 ```
 
@@ -49,7 +49,7 @@ The table key (`deepseek-v4-flash`) is the handle callers use. It does not have 
 | `context_window` | no | Used for budgeting headroom. Not enforced against the server, but checked against it when overflow handling is armed — see below |
 | `default_effort` | no | `off`, `low`, `high`, `max`. Falls back to the global default |
 | `max_tokens_cap` | no | Clamps any larger request. `0` means no cap |
-| `concurrency` | no | *This endpoint's* limit, checked alongside the global in-flight cap |
+| `concurrency` | no | *This endpoint's* limit, checked alongside the global in-flight cap. Defaults to 6, which is the global cap: an entry that says nothing must not bound itself below what the server will admit |
 | `default` | no | Exactly one entry may set it, unless a single model is registered or the global default names one |
 
 An unknown field is **refused**, not ignored. A typo in a registry key would otherwise cost

@@ -38,6 +38,31 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #223 — 2026-09-16 — fix: an endpoint that says nothing no longer caps itself below the server
+
+### Fixed
+- **The registry's `concurrency` default bound below the global cap.** *Symptom:* a registry
+  entry that set no `concurrency` got 5, while `max_inflight_seqs` is 6 — so the endpoint
+  capped itself lower than the server would admit and the global limit never bound. *Cause:*
+  `max_inflight_seqs` was raised to 6 precisely because "at 5 it did [bind], which made a
+  registry `concurrency` of 6 unreachable", and the per-entry default was left at 5, which
+  reintroduces the same bind one level down for every deployment that never set it. *Fix:*
+  the per-entry default is 6, expressed as `DEFAULT_CONCURRENCY` so it is one number.
+
+- **`models.toml.example` shipped `concurrency = 5`.** Worth its own line because it is the
+  half that reaches people: an example is copied, so the shipped file was handing every new
+  deployment the value that causes the bind, *explicitly*, where the default at least could
+  have been corrected in one place. The example and `docs/MODELS.md` both now show 6.
+
+### Changed
+- **The default was written out three times** — the dataclass field, the zero-check's
+  fallback and the parser's — where `context_window` had already been collapsed to one
+  constant for exactly this reason. Two copies of a default drift and the one that drifts is
+  whichever the reader did not check; three copies drift faster. A test pins all three
+  together, mirroring the one that already guards `DEFAULT_CONTEXT_WINDOW`.
+- `docs/MODELS.md` now states the default in the field table and says why it is that number,
+  rather than leaving a reader to find it in the dataclass.
+
 ## #222 — 2026-09-16 — fix: a root-scoped search is answered rather than refused
 
 ### Changed
