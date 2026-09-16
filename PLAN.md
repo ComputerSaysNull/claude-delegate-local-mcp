@@ -216,7 +216,7 @@ nothing was configured, and no tool result changes shape.
     - b. ✅ **Obsolete as filed.** The seven deaths it cites were priced from the since-boot
     mean, which a persisted per-concurrency memory replaced (ADR-0075). The reply budget is
     already priced from observations rather than from a lifetime blend.
-    - c. ⬜ `vllm:generation_tokens_total` is published and **not** in the allowlist; differenced over
+    - c. ✅ 2026-09-16 `vllm:generation_tokens_total` is published and **not** in the allowlist; differenced over
     a window, over `num_requests_running`, it is a live per-request rate. The histogram in use
     records only on *completion*, so it is blind during the stall it must detect.
     - d. ✅ 2026-09-16 **Backwards as filed, and unmeasured.** `expect` takes a minimum, which is pessimistic.

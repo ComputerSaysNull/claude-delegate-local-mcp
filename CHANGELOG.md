@@ -38,6 +38,39 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #225 — 2026-09-16 — feat: a decode rate that describes now, not since boot
+
+### Added
+- **`vllm:generation_tokens_total`, differenced across two scrapes.** *Symptom:* the only
+  decode rate the server could read was `decode_tokens_per_second_since_boot`, derived from a
+  histogram that observes once per request **on completion** — so a turn that has gone quiet
+  moves neither its sum nor its count, and the figure reads exactly as it did before the
+  stall began. It is blind for the whole of the event it would be used to detect. *Fix:* the
+  counter is added to the metrics allowlist and `_DecodeWindow` differences it against the
+  previous scrape, giving a rate that falls to zero while a stall is happening. Confirmed
+  published by this deployment before the code was written, at 7,941,185.
+
+  Three keys, and the aggregate ships beside the per-request figure rather than being
+  replaced by it: `requests_running` is sampled at the end of the window rather than averaged
+  across it, so the division is an approximation and the undivided number stays available.
+  `decode_window_seconds` ships too, because scrapes are driven by whoever calls
+  `backend_status` and a window may be hours long — the span is what stops a stale figure
+  reading as a live one, which is the job the `_since_boot` suffix does by naming.
+
+### Changed
+- **Three things the window refuses to report**, each because the wrong answer is worse than
+  none: a rate from a single scrape, which would be a guess wearing a measurement's name; a
+  rate from a counter that went backwards, which means the engine restarted and where a
+  negative value would be multiplied by a deadline; and a per-request figure when nothing is
+  running to divide by. Each has its own test.
+- **`docs/DISPATCH.md` said a windowed rate "is a different feature".** It is this one.
+- The since-boot mean is untouched and still seeds a cold start (ADR-0055). A control test
+  asserts it is still reported beside the window, because adding a live rate at the cost of
+  the cold start would trade a working case for a better one.
+- The wiring has its own test, and it was negative-tested: disabling the call in
+  `probe_cluster` fails that test and nothing else. `_DecodeWindow` could otherwise be
+  correct in every detail and never be called, with every unit test still passing.
+
 ## #224 — 2026-09-16 — docs: `expect`'s minimum is conservative about the past, not the next turn
 
 ### Changed

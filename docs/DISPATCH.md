@@ -1,4 +1,5 @@
-<!-- BUDGET: 786 -->
+<!-- BUDGET: 795
+     Raised from 786 on 2026-09-16: the doc said a windowed rate was a different feature; it is this one, and what it refuses to report is the load-bearing part. -->
 <!-- Raised from 779 on 2026-09-15: which tools pool was stated as a predicate and read as a guess, so the six are named. -->
 <!-- Raised from 774 on 2026-09-15: whether the rate memory's key can be believed is a setting now, and the paragraph that describes the seed has to say so. -->
 <!-- Raised from 771 on 2026-09-15: rate_source moves with the number now, and the paragraph that describes the seed being replaced has to say the label is too. -->
@@ -163,7 +164,7 @@ distinct 45k-token calls moved `prefix_cache_queries_total` by 269,417, against
 6 × 44,903. Reading them as request counts understates the denominator by four orders and
 makes the derived hit rate meaningless rather than merely wrong. The rate is cumulative
 since the engine booted and its name says so; a rate over a window needs two scrapes and a
-clock, which is a different feature.
+clock, which `_DecodeWindow` keeps per backend — see below.
 
 **Histograms are skipped, with one exception whose shape the rule explains.** Their `_sum`
 and `_count` are cumulative, so a mean derived from them is the mean since boot while
@@ -176,6 +177,14 @@ cost four of six passes — the blend read 34.96 tok/s where six concurrent deli
 20, authorising 1.75x what the clock can pay. It is a floor only when the cluster is quiet,
 which is exactly when nothing needed one. Since ADR-0075 the remembered rate outlives the
 process, so this is the seed of last resort — and the suffix stops it reading as current.
+
+**`generation_tokens_total`, differenced, is the live half.** The histogram observes once per
+request *on completion*, so a turn gone quiet moves nothing and the since-boot mean reads as
+it did before the stall — blind for the whole event it would be used to detect. A differenced
+counter falls to zero instead. `decode_window_seconds` ships beside it because a window is
+however long since someone last asked, which is the job the `_since_boot` suffix does by
+naming. No rate from a single scrape, none from a counter that went backwards — a restart,
+not a negative rate — and no per-request figure with nothing running to divide by.
 
 ## What the endpoint returns, recorded
 

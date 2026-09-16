@@ -77,6 +77,12 @@ _COUNTERS = {
     "vllm:prefix_cache_queries_total": "prefix_cache_query_tokens",
     "vllm:num_preemptions_total": "preemptions",
     "vllm:external_prefix_cache_hits_total": "external_prefix_cache_hit_tokens",
+    # Differenced across two scrapes by `_DecodeWindow`, which is the only way to get a
+    # rate that describes *now*. The histogram above observes on completion, so it is
+    # blind for the whole of the stall it is supposed to help detect: a turn producing
+    # nothing moves neither its sum nor its count, and the since-boot mean it feeds sits
+    # unchanged while the thing goes quiet.
+    "vllm:generation_tokens_total": "generation_tokens",
 }
 # The one histogram read, and only its `_sum`/`_count` pair. Each observation is one
 # request's mean seconds per output token, so `count / sum` is tokens per second since the
@@ -145,6 +151,11 @@ class OpenAICompatBackend:
         self._api_key = _resolve_api_key(entry)
         self._owns_client = client is None
         self._clock = clock
+        # Per backend, never shared and never global: the window differences this
+        # endpoint's own counter, and two endpoints' counters have nothing to say about
+        # each other. Driven by `clock` rather than by `time.monotonic` directly, so a
+        # test can advance it the way every other deadline here is tested.
+        self._decode_window = _DecodeWindow()
         # turn_timeout bounds the turn, but since ADR-0070 the chat call streams, and
         # httpx applies `read` per chunk rather than to the whole body -- so a stream that
         # keeps trickling would never trip it. `_accumulate` therefore enforces the bound
@@ -391,7 +402,20 @@ class OpenAICompatBackend:
         # that is not Prometheus text yields nothing parseable, and reporting `{}` for it
         # would read as "the cluster says it is doing nothing" rather than "the cluster
         # did not say".
-        return read_metrics(r.text) or None
+        scraped = read_metrics(r.text)
+        if not scraped:
+            return None
+        generated = scraped.get("generation_tokens")
+        if isinstance(generated, int):
+            running = scraped.get("requests_running")
+            scraped.update(
+                self._decode_window.observe(
+                    tokens=generated,
+                    running=running if isinstance(running, (int, float)) else None,
+                    now=self._clock(),
+                )
+            )
+        return scraped
 
     async def _get(self, url: str, path: str) -> dict[str, Any]:
         try:
@@ -843,6 +867,67 @@ def read_metrics(text: str) -> dict[str, float | int | str | None]:
 
     _derive_since_boot(out)
     return out
+
+
+class _DecodeWindow:
+    """Two scrapes and a clock, which is what a rate describing *now* actually needs.
+
+    `read_metrics` stays pure and is right to: one scrape of a cumulative counter cannot
+    be a rate, and the note above `decode_tokens_per_second_since_boot` says so. This is
+    the state that makes the difference possible, held per backend and never shared.
+
+    What it buys is the gap the histogram leaves. `request_time_per_output_token_seconds`
+    observes once per request, on completion, so a turn that has gone quiet moves nothing
+    and the since-boot mean reads exactly as it did before the stall began. A counter
+    differenced over a window falls to zero while it happens, which is the whole point.
+
+    Three things it refuses to report, each because the wrong answer is worse than none:
+
+    - **The first observation.** Nothing to difference against, and a rate over an assumed
+      window is a guess wearing a measurement's name.
+    - **A counter that went backwards.** The engine restarted, so the delta is meaningless.
+      A negative rate here would be multiplied by a deadline and authorise a negative reply
+      budget.
+    - **Two scrapes in one clock tick.** `monotonic` has finite resolution and a zero
+      denominator is not a special case worth a special value.
+
+    `decode_window_seconds` ships beside the rate because the number cannot say how old it
+    is. Scrapes are driven by whoever calls `backend_status`, so the window is however long
+    since someone last asked -- possibly hours. That does the job `_since_boot` does by
+    naming: it stops a stale figure being read as a live one.
+    """
+
+    __slots__ = ("_last",)
+
+    def __init__(self) -> None:
+        self._last: tuple[float, int] | None = None
+
+    def observe(
+        self, *, tokens: int, running: float | None, now: float
+    ) -> dict[str, float]:
+        """Record this scrape and return what the window since the last one supports."""
+        previous = self._last
+        self._last = (now, tokens)
+        if previous is None:
+            return {}
+
+        then, before = previous
+        elapsed = now - then
+        if elapsed <= 0 or tokens < before:
+            return {}
+
+        generated = tokens - before
+        rate = generated / elapsed
+        out = {
+            "decode_tokens_per_second_window": round(rate, 2),
+            "decode_window_seconds": round(elapsed, 1),
+        }
+        # Only with a divisor. `running` is sampled at the end of the window rather than
+        # averaged across it, so this is an approximation and is the reason the aggregate
+        # is reported beside it rather than replaced by it.
+        if running:
+            out["decode_tokens_per_second_per_request_window"] = round(rate / running, 2)
+        return out
 
 
 def _derive_since_boot(out: dict[str, float | int | str | None]) -> None:
