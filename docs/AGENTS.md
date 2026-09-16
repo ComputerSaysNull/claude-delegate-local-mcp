@@ -1,4 +1,5 @@
-<!-- BUDGET: 473
+<!-- BUDGET: 478
+     Raised from 473 on 2026-09-16: the section counted two git calls where there are three, and the third is the one that costs.
      Raised from 469 on 2026-09-13: a remedy now names the configured roots, because the one
      it used to suggest instead -- dropping the argument -- was the slowest call available.
      Raised from 463 on 2026-09-10: the format said the body becomes the system prompt and
@@ -465,9 +466,13 @@ the ancestor ships a dedicated test because of it. (ADR-0007)
 
 ## The server runs git, and that is not the sandbox
 
-`paths.py` shells out to git twice, both inside the server process: layer 4 runs
-`check-ignore` to decide what a delegated model may see, and `repo_status` runs
-`status --porcelain` for the ground truth in a context-overflow abort report. Neither is a
-route into `run_bash`, which is bwrap-confined and refuses rather than run unconfined where
-bubblewrap is absent (ADR-0010, ADR-0034) — these are the server's own calls, with arguments
-it chose. `repo_status` sees only work trees the delegation wrote to, never every root.
+`paths.py` shells out to git in three places, all inside the server process: layer 4 runs
+`check-ignore` to decide what a delegated model may see, `_repo_top` runs `rev-parse` to
+find the work tree a path belongs to, and `repo_status` runs `status --porcelain` for the
+ground truth in a context-overflow abort report. None is a route into `run_bash`, which is
+bwrap-confined and refuses rather than run unconfined where bubblewrap is absent (ADR-0010,
+ADR-0034). `repo_status` sees only work trees the delegation wrote to, never every root.
+
+`rev-parse` is the one that costs: it is charged per distinct *directory*, so a wide batch
+spends a subprocess on each before a single `check-ignore` runs. The search walk calls layer
+4 while enumerating, to prune an ignored directory before the scan cap is charged for it.

@@ -38,6 +38,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #219 — 2026-09-16 — fix: a gitignored directory ate the scan cap
+
+### Fixed
+- **A root-scoped search answered from nothing.** *Symptom:* searching this repository's
+  root returned 2 matching lines where 351 exist, and said the scan cap had been reached so
+  the answer was not exhaustive — advice to narrow the search, when narrowing was never the
+  problem. *Cause:* `_search_candidates` prunes symlinks and denylisted directories in the
+  walk and never asks git, so it descended into everything the project ignores and charged
+  `search_max_files_scanned` against it. Measured 2026-09-16: 4,059 of 4,206 `.py` files
+  (96.5%) and 1,543 of 1,564 directories (98.7%) here are gitignored, so the cap was spent
+  almost entirely on files no search should see. *Fix:* the walk asks layer 4 once per level,
+  in one batch, and prunes an ignored directory before the cap can be charged for it. The
+  same walk over this repository: 2,000 candidates and capped in 28.67s, against 194
+  candidates and complete in 1.38s.
+
+### Changed
+- **`gitignored` takes a `tops` cache, because `rev-parse` is charged per directory.** Its
+  docstring promised one `check-ignore` per repository and delivered it, but `_repo_top`
+  runs a second git subprocess for every distinct parent directory — 389 of them for 2,000
+  candidates, which is the 20.5s the 2026-09-15 profile recorded against `check-ignore`
+  itself. A walk asking level by level would have re-paid that at every level; the cache
+  makes a directory already seen free. Omitted, behaviour is unchanged.
+- **`docs/AGENTS.md` said the server shells out to git twice.** It does so in three places,
+  and the third is the expensive one.
+- The `Unscheduled` caption moved under the heading it explains, where it had been sitting
+  after the last item and reading as a note on that item.
+
 ## #218 — 2026-09-15 — fix: the idle hold was being paid by the test suite
 
 ### Fixed
