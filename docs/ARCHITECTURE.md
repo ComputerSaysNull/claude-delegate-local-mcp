@@ -740,12 +740,11 @@ line, a longer wait bought a longer *unfair* wait and turned bounded failure int
 starvation, so the two had to land together — the number itself lives in
 [CONFIGURATION.md](CONFIGURATION.md).
 
-Two numbers size a request, and conflating them is a trap. Its KV footprint is the prompt
-plus the reply it is permitted to generate, and that is what the token budget counts. Its
-prefill is the prompt alone, and that is what decides whether it is a large cold prefill —
-decode is not prefill, and a reply allowance above the threshold would otherwise make
-every request "large" and quietly bound the whole server at one setting while every other
-rule reads as though it were the one binding.
+One number sizes a request: its KV footprint, the prompt plus the reply it is permitted to
+generate, which is what the token budget counts. There were two until 2026-09-16 — a prefill
+estimate, the prompt alone — and conflating them was a trap while both existed. Its only
+reader was the large-cold-prefill cap above, so removing that left every caller computing an
+estimate the predicate never saw; the argument was removed rather than left to read as live.
 
 The estimate is fixed when a slot is granted and never grows, so for a long agentic
 delegation the token rule is a floor-time approximation rather than a running total.

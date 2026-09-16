@@ -52,7 +52,7 @@ async def take(
     """Acquire. `prefill` defaults to the whole estimate, which is the pessimistic case."""
     return await g.acquire(
         tokens,
-        prefill_tokens=tokens if prefill is None else prefill,
+        
         entry_key=key,
         entry_limit=limit,
     )
@@ -177,7 +177,7 @@ async def test_admit_releases_when_the_body_raises() -> None:
     g = gate(max_inflight_seqs=1)
 
     with pytest.raises(RuntimeError):
-        async with g.admit(100, prefill_tokens=100, entry_key="flash", entry_limit=5):
+        async with g.admit(100, entry_key="flash", entry_limit=5):
             raise RuntimeError("the delegation failed")
 
     assert g.status()["inflight_seqs"] == 0
@@ -205,7 +205,7 @@ async def test_a_passed_deadline_times_out_and_admits_nothing() -> None:
     held = await take(g, 100)
 
     with pytest.raises(AdmissionTimedOut):
-        await g.acquire(100, prefill_tokens=100, entry_key="flash", entry_limit=5, deadline=0.0)
+        await g.acquire(100, entry_key="flash", entry_limit=5, deadline=0.0)
 
     # A waiter that gave up must not have partially admitted itself.
     assert g.status()["inflight_seqs"] == 1
@@ -220,7 +220,7 @@ async def test_a_timeout_names_the_rule_that_bound() -> None:
     held = await take(g, 100)
 
     with pytest.raises(AdmissionTimedOut) as caught:
-        await g.acquire(100, prefill_tokens=100, entry_key="flash", entry_limit=5, deadline=0.0)
+        await g.acquire(100, entry_key="flash", entry_limit=5, deadline=0.0)
 
     assert caught.value.rule == "max_inflight_seqs"
     assert caught.value.limit == 1
@@ -237,7 +237,7 @@ async def test_a_request_that_fits_is_admitted_even_past_its_deadline() -> None:
     """
     g = gate()
     lease = await asyncio.wait_for(
-        g.acquire(100, prefill_tokens=100, entry_key="flash", entry_limit=5, deadline=0.0),
+        g.acquire(100, entry_key="flash", entry_limit=5, deadline=0.0),
         timeout=1,
     )
     await g.release(lease)
@@ -249,7 +249,7 @@ async def test_a_request_larger_than_the_whole_budget_is_refused_at_once() -> No
     """Queueing it would spend the entire wait reaching a failure knowable immediately."""
     g = gate(kv_token_budget=1000)
     with pytest.raises(AdmissionImpossible):
-        await g.acquire(5000, prefill_tokens=5000, entry_key="flash", entry_limit=5, deadline=0.0)
+        await g.acquire(5000, entry_key="flash", entry_limit=5, deadline=0.0)
     # Reported as impossible, not as congestion -- which is the one thing it is not.
     assert g.status()["admission_timeouts"] == 0
 
@@ -306,7 +306,7 @@ async def test_a_long_wait_keeps_ticking(monkeypatch: pytest.MonkeyPatch) -> Non
     g = gate(max_inflight_seqs=1)
     held = await take(g, 100)
     waiter = asyncio.create_task(
-        g.acquire(100, prefill_tokens=100, entry_key="flash", entry_limit=5, on_wait=on_wait)
+        g.acquire(100, entry_key="flash", entry_limit=5, on_wait=on_wait)
     )
     await asyncio.sleep(0.1)
 

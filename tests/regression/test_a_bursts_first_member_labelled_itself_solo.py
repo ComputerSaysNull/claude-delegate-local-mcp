@@ -117,7 +117,7 @@ def held_gate(monkeypatch, **over):
 
 
 async def take(g, tokens=1000, *, key="flash", limit=5):
-    return await g.acquire(tokens, prefill_tokens=tokens, entry_key=key, entry_limit=limit)
+    return await g.acquire(tokens,  entry_key=key, entry_limit=limit)
 
 
 async def test_an_idle_gate_holds_before_recording_its_concurrency(monkeypatch):
@@ -165,7 +165,7 @@ async def test_the_snapshot_is_taken_after_the_hold_not_before(monkeypatch):
     async def fake_sleep(_seconds: float) -> None:
         # A sibling lands while the first member is holding.
         seen.append(1)
-        await g.acquire(1000, prefill_tokens=1000, entry_key="flash", entry_limit=5)
+        await g.acquire(1000, entry_key="flash", entry_limit=5)
 
     monkeypatch.setattr(adm.asyncio, "sleep", fake_sleep)
 

@@ -81,7 +81,7 @@ def gate_at(path: Path, **over) -> Admission:
 async def take(g: Admission, tokens: int, *, deadline: float | None = None, key="flash"):
     return await g.acquire(
         tokens,
-        prefill_tokens=tokens,
+        
         entry_key=key,
         entry_limit=5,
         deadline=deadline,

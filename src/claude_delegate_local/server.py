@@ -805,7 +805,6 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     try:
         async with admission.admit(
             tokens_estimate,
-            prefill_tokens=prefill_estimate,
             entry_key=entry.key,
             entry_limit=entry.concurrency,
             deadline=time.monotonic() + cfg.admission_wait_timeout,

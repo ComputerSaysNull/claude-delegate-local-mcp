@@ -448,11 +448,10 @@ class Admission:
         )
 
     # ---- acquire and release -----------------------------------------------------
-    async def acquire(  # noqa: PLR0913 -- four rules need four sizes and a deadline
+    async def acquire(
         self,
         tokens: int,
         *,
-        prefill_tokens: int,
         entry_key: str,
         entry_limit: int,
         deadline: float | None = None,
@@ -583,11 +582,10 @@ class Admission:
             self._cond.notify_all()
 
     @asynccontextmanager
-    async def admit(  # noqa: PLR0913 -- passes `acquire`'s arguments through
+    async def admit(
         self,
         tokens: int,
         *,
-        prefill_tokens: int,
         entry_key: str,
         entry_limit: int,
         deadline: float | None = None,
@@ -596,7 +594,6 @@ class Admission:
         """Hold a slot for the body. Releases on every exit path, exceptions included."""
         lease = await self.acquire(
             tokens,
-            prefill_tokens=prefill_tokens,
             entry_key=entry_key,
             entry_limit=entry_limit,
             deadline=deadline,
