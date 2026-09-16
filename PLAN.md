@@ -1,4 +1,5 @@
-<!-- BUDGET: 840 -->
+<!-- BUDGET: 848 -->
+<!-- Raised from 840 (+1 for this line) on 2026-09-16: four items re-filed against measurements that landed today -- one sub-item was disproved outright, and each needs its reason where the item is read. -->
 <!-- Raised from 838 on 2026-09-15: a cancelled item states its reason on the marker line, and the body it cancels is kept beside it. -->
 <!-- Raised from 834 on 2026-09-15: a dead parameter found while measuring and nearly lost with the scratch files it was found in. -->
 <!-- Raised from 831 on 2026-09-15: two of M11.5's sub-items argued from a premise RateHistory retired and one had the sign backwards; the corrections cost more than the lines. -->
@@ -443,9 +444,11 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 3. ✅ 2026-09-14 **Eviction and dedup undo each other** — a stubbed 34KB result is handed straight back on the
   next identical call, plus the turn spent asking. Neither half can see the other
 4. ⬜ **Eviction is sized in tokens and cannot see what a result cost** — it will drop a 657s read
-  to save a few thousand
+  to save a few thousand. **Its example died 2026-09-16:** the 657s read was the unscoped
+  search, now ~4.6s (#219, #220). Tokens landed in #199 — the *cost* half is what remains
 5. ⬜ **A delegation's budget pays for server-side tool time** — 1,135.7s of 1,271.7s, 89.3%,
-  cluster idle throughout (2026-09-13). Feeds the third-liveness-state item
+  cluster idle throughout (2026-09-13). Feeds the third-liveness-state item. **Stale**: that
+  tool time was overwhelmingly search — re-measure after an MCP reconnect before ranking
 6. ✅ 2026-09-14 **The M10 spike is misfiled and stale** — it does not move M10's exit, and the workaround it
   meant to avoid writing down is now in CLAUDE.md. Its accuracy half is still unmeasured
     - a. ✅ Re-filed rather than run. M10's exit is about a caller on a host holding only the
@@ -490,7 +493,12 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 14. ⬜ **A quoting turn measures the accept path, not the decoder, and no floor catches it.**
   Measured 2026-09-13 at one concurrency: quoting a prefetched file read 63.75 tok/s against
   41.83 for generated prose and a 44.1 benchmark, from a turn clear of ADR-0073's floor.
-    - a. ⬜ `expect`'s minimum contains it — immune to *fast* samples, vulnerable only to slow ones.
+    - a. ❌ 2026-09-16 **Disproved: a minimum is immune to a fast sample only while its bucket
+    holds a slower one, and a bucket of one *is* that sample (JOURNAL).** Original: `expect`'s
+    minimum contains it — immune to *fast* samples, vulnerable only to slow ones.
+    - b. ⬜ **Both constant-free ceilings failed 2026-09-16:** the engine's windowed aggregate is
+    too loose (63.75 hides under an 80 tok/s total) and its per-request mean refuses a
+    faster-than-average stream. Observe the window against real turns before choosing a figure
 15. ✅ 2026-09-13 **An unscoped `search_files` cost 490-572s, and the contract recommended it** —
   `glob` claimed to be the speed lever and the bad-`path` refusal said "omit it to search
   everywhere", which one delegation did, at 239s. Scope is worth ~100x; `read_file` was never
@@ -765,6 +773,9 @@ local, because they are working notes rather than a product fact.
     - e. ⬜ The 0.6 is untouched because the *rate* was wrong. It would need to be about 0.57 for
     the cold-start ceiling to fit, and fitting a constant to a wrong rate is the mistake
     this roadmap already records against `kv_token_budget`.
+    - f. ⬜ **Hardened 2026-09-16:** the seed priced above what the turn achieved in 31 of 113
+    informative turns, worst 2.98x, so the margin absorbs more error than it was credited with.
+    Blocked on the rate; moving `turn_timeout` to fit is the same mistake on another constant
 45. ✅ 2026-09-15 **A `path` naming a whole workspace root is refused.** Required and
   supplied since ADR-0076, then satisfied with the root: 8 of 9 first searches named a root
   or the sentinel and 1 named a subdirectory. The refusal carries its children (ADR-0082)

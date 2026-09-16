@@ -38,6 +38,41 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #226 — 2026-09-16 — docs: re-file two items against what was measured
+
+### Changed
+- **`Unscheduled.14.a` is cancelled, not deferred.** It claimed `expect`'s minimum contained
+  the quoting-turn problem, being immune to fast samples. A minimum is immune to a fast
+  sample only while its bucket holds a slower one, and a bucket of one *is* that sample —
+  measured over every stored transcript on 2026-09-16 (#224). Marked `❌` with its reason,
+  and `Unscheduled.14` itself stands rather than closing.
+- **`Unscheduled.14.b` records what an attempted fix found**, because the finding is worth
+  more than the attempt. The ceiling needs a threshold and both constant-free candidates
+  fail: the engine's windowed aggregate is too loose — 63.75 tok/s hides under an 80 tok/s
+  total, so the case the item exists for is admitted — and its per-request mean refuses any
+  legitimately faster-than-average stream. The input now exists (#225); what is missing is
+  the window observed against real turns, and fitting a figure before that is the mistake
+  this roadmap already records against `kv_token_budget`.
+- **`Unscheduled.44.f` records that the margin's case got stronger, not weaker.** The seed
+  priced above what the turn achieved in 31 of 113 informative turns, worst 2.98x, so
+  `reply_budget_margin` absorbs more rate error than it was credited with. The item is
+  blocked on the rate rather than on its arithmetic; the only remaining lever is
+  `turn_timeout` at 1800 against a 2100 stall deadline, and moving it to make a STALE pass
+  fit would be the same mistake on a different constant. `44.e` is left as written.
+- **`Unscheduled.4` and `.5` carried numbers that #219 and #220 invalidated.** Neither was
+  worked on here and both mechanisms are untouched — what died is their evidence. `.4` argues
+  from "it will drop a 657s read", and that 657.6s was turn 1's unscoped search, now about
+  4.6s; it needs a new worst case before it can be ranked against anything. It also now names
+  #199, which is why it reads as though it were already done: that landed the *sizing* half,
+  moving the boundary from a count of results to `retained_tool_result_tokens`, so "sized in
+  tokens" is the state after it rather than the complaint. What remains is that tokens cannot
+  express what a result **cost** — a cheap-to-refetch 50KB file and an expensive search result
+  are indistinguishable to it. `.5` argues from 1,135.7s
+  of 1,271.7s (89.3%) of server-side tool time, which was overwhelmingly search, so the share
+  is now unknown rather than merely smaller. Re-measuring it needs an MCP reconnect first: the
+  server is an editable install, so a process started before those commits is still running
+  the code they replaced, and a figure read from it would describe the old search.
+
 ## #225 — 2026-09-16 — feat: a decode rate that describes now, not since boot
 
 ### Added
