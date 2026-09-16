@@ -35,6 +35,7 @@ import errno
 import fnmatch
 import os
 import posixpath
+import stat as stat_module
 import subprocess
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
@@ -489,9 +490,60 @@ def gitignored(
 # ---- the entry point -------------------------------------------------------------
 
 
+def _realpath(posix: str, prefixes: dict[str, str]) -> str:
+    """`os.path.realpath`, with the directory above `posix` remembered across a batch.
+
+    A batch is candidates from one walk, so they share deep prefixes and the kernel re-walks
+    the same directories once per candidate: 13.5 `lstat` each over 2,000 of them, 57% of the
+    policy (JOURNAL 2026-09-15). Remembering the parent collapses that to one walk per
+    distinct directory -- measured 30.40s to 4.47s over 2,000 candidates, 0.858s to 0.019s
+    over the 147 a pruned walk now produces.
+
+    **The final component is resolved every time and is never cached.** That is the whole
+    safety argument, not a detail: `realpath` resolves a symlink in the last segment too, so
+    a cache covering the whole path would hand layer 1 the inside-the-root spelling of a link
+    pointing out of it -- the single check it exists to fail. `readlink` answers "is this
+    last segment a link" in one syscall, and only a path that really is one pays a full walk.
+
+    The cache lives for one `_resolve_many` call and is never shared between calls, so a
+    prefix is re-read the next time anyone asks. `resolved_roots` and `load_secret_globs`
+    already refresh per call for the same reason.
+    """
+    directory, name = posixpath.split(posix)
+    if not name or name in (".", "..") or not directory:
+        # Not a plain parent/child split, so there is no prefix to reuse. Rare enough that
+        # handling it properly is cheaper than reasoning about what a cache would mean.
+        return os.path.realpath(posix)
+
+    real_dir = prefixes.get(directory)
+    if real_dir is None:
+        real_dir = os.path.realpath(directory)
+        prefixes[directory] = real_dir
+
+    candidate = posixpath.join(real_dir, name)
+    try:
+        os.readlink(candidate)
+    except OSError:
+        return candidate  # not a symlink, or not there at all: already fully resolved
+    return os.path.realpath(candidate)
+
+
+@dataclass(frozen=True)
+class _Batch:
+    """What every candidate in one `_resolve_many` call shares.
+
+    Bundled rather than passed one by one because they have a single lifetime, and that is
+    the point: `roots` and `globs` are deliberately re-read on every call, and `prefixes`
+    must not outlive them. One object makes that hard to get wrong by accident.
+    """
+
+    roots: Sequence[str]
+    globs: Sequence[str]
+    prefixes: dict[str, str]
+
+
 def _resolve_one(
-    cfg: Config, raw: str, roots: Sequence[str], globs: Sequence[str],
-    must_exist: bool = True,
+    cfg: Config, raw: str, batch: _Batch, must_exist: bool = True
 ) -> ResolvedPath | Refusal:
     """One path through layers 0 to 3. Layer 4 is batched and applied by the caller."""
     try:
@@ -515,19 +567,19 @@ def _resolve_one(
             ),
         )
 
-    real = os.path.realpath(posix)
+    real = _realpath(posix, batch.prefixes)
 
     # Straight-line and in order, because the order is the decision (ADR-0006) and a list
     # of checks to iterate would hide it. Existence sits *after* layer 1 deliberately:
     # checking it first would answer "does this file exist" for paths outside every root,
     # which is a small oracle the caller has no business being handed.
-    refusal = _check_roots(raw, real, roots)
+    refusal = _check_roots(raw, real, batch.roots)
     if refusal is None:
         refusal = _check_exists(raw, real, must_exist)
     if refusal is None:
         refusal = _check_ext(cfg, raw, real)
     if refusal is None:
-        refusal = _check_secret(raw, real, globs)
+        refusal = _check_secret(raw, real, batch.globs)
     return refusal or ResolvedPath(given=raw, posix=real)
 
 
@@ -538,8 +590,17 @@ def _check_exists(given: str, real: str, must_exist: bool = True) -> Refusal | N
     branch: the containing directory must still be there, and an existing directory is still
     refused. Nothing else is loosened -- roots, extension and the secret denylist all still
     run, because writing to a secret path is worse than reading one, not better.
+
+    One `stat`, not two. `exists` then `isfile` asks the filesystem the same question twice
+    and throws the first answer away -- 37.1s over 4,000 calls for 2,000 candidates, profiled
+    2026-09-15. A single `stat` carries both facts, and the mode says which.
     """
-    if not os.path.exists(real):
+    try:
+        st: os.stat_result | None = os.stat(real)
+    except OSError:
+        st = None  # missing, a broken link, or unreadable: `exists` was false for all three
+
+    if st is None:
         if must_exist:
             return Refusal(
                 given=given,
@@ -562,7 +623,7 @@ def _check_exists(given: str, real: str, must_exist: bool = True) -> Refusal | N
                 ),
             )
         return None
-    if not os.path.isfile(real):
+    if not stat_module.S_ISREG(st.st_mode):
         return Refusal(
             given=given,
             layer=LAYER_ROOTS,
@@ -775,9 +836,11 @@ def _resolve_many(
     refusals: list[Refusal] = []
     survivors: list[ResolvedPath] = []
     seen: set[str] = set()
+    # One batch, one cache. See `_realpath` for why it holds prefixes and not whole paths.
+    batch = _Batch(roots=roots, globs=globs, prefixes={})
 
     for raw in given:
-        outcome = _resolve_one(cfg, raw, roots, globs, must_exist)
+        outcome = _resolve_one(cfg, raw, batch, must_exist)
         if isinstance(outcome, Refusal):
             refusals.append(outcome)
         elif outcome.posix not in seen:

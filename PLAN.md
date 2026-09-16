@@ -501,7 +501,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 17. ✅ 2026-09-13 **Scoping was asked for and never shown** — `path` is required with an
   `_unscoped_` escape, and the description carries the workspace layout, folders and files
   (ADR-0076, #189). Unproven until a delegation's *first* search names a subdirectory
-18. ⬜ **The path policy is 65-75% of a search and it is all `lstat`.** Profiled: 80.7s in
+18. ✅ 2026-09-16 **The path policy is 65-75% of a search and it is all `lstat`.** Profiled: 80.7s in
   26,942 `lstat` (13.5 a candidate -- `realpath` re-walks shared prefixes), 37.1s in 4,000
   `stat` (`isfile` then `exists`), 20.5s in 403 `check-ignore`, matching 1.1%
 19. ⬜ **The deadline counts down while the *server* works on the delegation's behalf.** A
