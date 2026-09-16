@@ -1838,3 +1838,41 @@ argued.
 Nothing is changed here. The prefix cache in particular has to preserve the layer it sits in
 -- a cached resolution must be indistinguishable from a fresh one, or the policy stops being
 the thing that decides, which is the one property `paths.py` exists to hold (ADR-0010).
+
+## 2026-09-16 — `expect`'s minimum is conservative against its samples and not against the next turn
+
+M11.5.d filed a doubt about `expect` and filed it backwards: that the blend is conservative
+only if history is at least as contended as the moment being priced. That condition is not an
+assumption, it is the query — `expect` selects samples at the asked-for concurrency *or
+busier*, because contention only slows a stream. So against the samples it holds, the minimum
+is conservative by construction and there was never anything to measure there.
+
+The question worth asking is the operational one: does the seeded rate ever exceed what the
+turn then achieved? Measured over every stored transcript, recovering each turn's own rate by
+inverting the EMA at `WEIGHT = 0.4` — `(new - 0.6 x old) / 0.4` — across consecutive `priced`
+rows, discarding any turn with `attempts > 1` because `out_tok_s` spans every attempt there.
+
+287 pairs, of which **156 are flat**: consecutive `priced` rows carrying an identical
+`decode_rate`, so the recovery returns its own input and the row says nothing. That is the
+first finding, and it halves every denominator — a percentage taken over all 287 is measuring
+a stationary EMA, not a rate. On the 131 informative pairs:
+
+    rate_source                informative   over-estimated   worst
+    observed_at_concurrency            113       31 (27%)     2.98x
+    cluster_since_boot                  16        6 (38%)     3.91x
+    own_turns                            2        0           1.00x
+
+So the seed priced above what the turn delivered in about a quarter of informative turns, by
+up to 3x, on the very source `expect` feeds. A minimum over past samples is not a bound on the
+next one: it is conservative about what has been seen and says nothing about what has not.
+"Pessimistic" and "safe" are different claims and only the first is true.
+
+Two things this does not establish. `rate_source` names where the *seed* came from and is set
+once in `__init__`, so it can outlive every sample beside it — attributing an over-estimate to
+`expect` through that label is suggestive rather than airtight. And `decode_rate` is an EMA, so
+a recovered per-turn rate is an inference from two blended numbers rather than a reading.
+
+What it does settle is `Unscheduled.14.a`, which claimed `expect`'s minimum "contains" the
+quoting-turn problem — immune to fast samples, vulnerable only to slow ones. A minimum is
+immune to a fast sample only when the bucket holds a slower one. A bucket of one *is* that
+sample, so a quoting turn at 63.75 tok/s enters history and is returned whole. 14 stands.

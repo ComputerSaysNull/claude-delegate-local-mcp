@@ -219,7 +219,7 @@ nothing was configured, and no tool result changes shape.
     - c. ⬜ `vllm:generation_tokens_total` is published and **not** in the allowlist; differenced over
     a window, over `num_requests_running`, it is a live per-request rate. The histogram in use
     records only on *completion*, so it is blind during the stall it must detect.
-    - d. ⬜ **Backwards as filed, and unmeasured.** `expect` takes a minimum, which is pessimistic.
+    - d. ✅ 2026-09-16 **Backwards as filed, and unmeasured.** `expect` takes a minimum, which is pessimistic.
     The blend is "conservative" only if history is at least as contended as the moment being
     priced, and nothing has measured that. A spike rather than an item.
 6. ✅ 2026-09-07 **Spike answered** — a `status` subcommand printing one plain-text block, since a TUI

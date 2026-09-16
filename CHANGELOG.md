@@ -38,6 +38,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #224 — 2026-09-16 — docs: `expect`'s minimum is conservative about the past, not the next turn
+
+### Changed
+- **M11.5.d asked whether `expect`'s minimum is truly conservative, and was filed backwards.**
+  Its condition — that history be at least as contended as the moment being priced — is not an
+  assumption the code makes, it is the query the code runs: `expect` selects samples at the
+  asked-for concurrency *or busier*. Against the samples it holds, the minimum is conservative
+  by construction, so there was nothing there to measure.
+
+  The operational question does have an answer, and it is not a reassuring one. Over every
+  stored transcript, recovering each turn's own rate by inverting the EMA at `WEIGHT = 0.4`
+  across consecutive `priced` rows and discarding multi-attempt turns: 287 pairs, of which
+  **156 are flat** — identical `decode_rate` either side, so the recovery returns its input
+  and the row says nothing. On the 131 informative pairs the seed priced *above* what the turn
+  achieved in 31 of 113 `observed_at_concurrency` turns (27%, worst 2.98x) and 6 of 16
+  `cluster_since_boot` ones (38%, worst 3.91x).
+
+  A minimum over past samples bounds the past. "Pessimistic" and "safe" are different claims
+  and only the first holds. Recorded in `JOURNAL.md`, with the two things it does not
+  establish stated beside it — `rate_source` is set once in `__init__` and can outlive every
+  sample beside it, and a recovered per-turn rate is an inference from two blended numbers.
+
+- **This settles `Unscheduled.14.a` against itself.** It claimed the minimum "contains" the
+  quoting-turn problem, being immune to fast samples. A minimum is immune to a fast sample
+  only while the bucket holds a slower one; a bucket of one *is* that sample, so a quoting
+  turn at 63.75 tok/s is returned whole. `Unscheduled.14` stands rather than closing.
+
 ## #223 — 2026-09-16 — fix: an endpoint that says nothing no longer caps itself below the server
 
 ### Fixed
