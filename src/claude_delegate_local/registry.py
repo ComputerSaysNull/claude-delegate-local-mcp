@@ -45,6 +45,12 @@ _REQUIRED = ("base_url", "served_model_id")
 # that drifts is whichever the reader did not check.
 DEFAULT_CONTEXT_WINDOW = 131072
 
+# Same rule, and this one was written out three times: the dataclass default, the
+# zero-check's fallback and the parser's. It tracks `Config.max_inflight_seqs` rather than
+# being an independent number -- an entry that says nothing must not cap itself below what
+# the server will admit, which is the bind raising the global cap to 6 already removed once.
+DEFAULT_CONCURRENCY = 6
+
 
 @dataclass(frozen=True, slots=True)
 class ModelEntry:
@@ -58,7 +64,7 @@ class ModelEntry:
     context_window: int = DEFAULT_CONTEXT_WINDOW
     default_effort: str = ""          # "" means fall back to Config.thinking_default
     max_tokens_cap: int = 0           # 0 means no per-model cap
-    concurrency: int = 5              # this endpoint's own limit, checked alongside the global one
+    concurrency: int = DEFAULT_CONCURRENCY  # this endpoint's own limit, checked with the global one
     # True when models.toml said nothing and the default above was assumed. Recorded
     # because the two cases need different advice: a window the operator set and got
     # wrong is corrected, while one they never set was never a claim at all. Without
@@ -144,7 +150,7 @@ def _validate(key: str, raw: dict, path: Path) -> ModelEntry:
     for num in ("context_window", "max_tokens_cap", "concurrency"):
         if num in raw and (not isinstance(raw[num], int) or raw[num] < 0):
             raise RegistryError(f"{where} {num} must be a non-negative integer.")
-    if raw.get("concurrency", 5) == 0:
+    if raw.get("concurrency", DEFAULT_CONCURRENCY) == 0:
         raise RegistryError(f"{where} concurrency must be at least 1.")
 
     return ModelEntry(
@@ -157,7 +163,7 @@ def _validate(key: str, raw: dict, path: Path) -> ModelEntry:
         context_window_defaulted="context_window" not in raw,
         default_effort=effort,
         max_tokens_cap=int(raw.get("max_tokens_cap", 0)),
-        concurrency=int(raw.get("concurrency", 5)),
+        concurrency=int(raw.get("concurrency", DEFAULT_CONCURRENCY)),
         is_default=bool(raw.get("default", False)),
     )
 

@@ -23,7 +23,7 @@ default_effort  = "low"
 max_tokens_cap  = 131072
 # This endpoint's own concurrent-sequence limit, checked alongside the global
 # DELEGATE_MAX_INFLIGHT_SEQS.
-concurrency     = 5
+concurrency     = 6
 default         = true
 
 # A second model is a second container on a second port. Uncomment and adjust:
