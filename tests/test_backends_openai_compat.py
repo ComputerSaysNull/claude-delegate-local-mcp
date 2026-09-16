@@ -1126,3 +1126,138 @@ async def test_a_stream_that_outlives_turn_timeout_is_unavailable():
             paced(clock, schedule), config=cfg(turn_timeout=60), clock=clock
         ).complete(request())
     assert caught.value.while_generating is True
+
+
+# ---- the windowed decode rate, which a counter alone cannot give ---------------------
+
+
+def test_the_generation_counter_is_read():
+    """The raw counter, which is what the window is differenced from.
+
+    Confirmed published by this deployment on 2026-09-16 at 7,941,185, so the allowlist
+    entry is not speculative.
+    """
+    got = oc.read_metrics(METRICS + "\nvllm:generation_tokens_total 900.0")
+
+    assert got["generation_tokens"] == 900
+
+
+def test_a_counter_absent_from_the_text_yields_no_key():
+    """The control on the one above. An allowlist entry must not invent a zero: absent
+    and nothing-generated-yet are different facts, and a zero reads as the second."""
+    got = oc.read_metrics(METRICS)
+
+    assert "generation_tokens" not in got
+
+
+def test_one_scrape_cannot_be_a_rate():
+    """A counter is cumulative, so a single reading says how much since boot and nothing
+    about now. The first observation must yield nothing rather than a rate over an
+    assumed window -- which is exactly the mistake the since-boot naming exists to stop.
+    """
+    window = oc._DecodeWindow()
+
+    assert window.observe(tokens=1000, running=2.0, now=100.0) == {}
+
+
+def test_two_scrapes_give_the_rate_over_the_window_they_span():
+    window = oc._DecodeWindow()
+    window.observe(tokens=1000, running=2.0, now=100.0)
+
+    got = window.observe(tokens=1400, running=2.0, now=110.0)
+
+    # 400 tokens in 10s across the cluster; 2 requests were running, so 20 each.
+    assert got["decode_tokens_per_second_window"] == 40.0
+    assert got["decode_tokens_per_second_per_request_window"] == 20.0
+    assert got["decode_window_seconds"] == 10.0
+
+
+def test_the_window_length_is_reported_so_the_figure_can_be_judged():
+    """A rate over an eight-hour gap between scrapes is a mean, not a live reading, and
+    the number alone cannot say which it is. Reporting the span is what stops a stale
+    window being read as current -- the same job `_since_boot` does by naming."""
+    window = oc._DecodeWindow()
+    window.observe(tokens=1000, running=1.0, now=0.0)
+
+    got = window.observe(tokens=2000, running=1.0, now=28800.0)
+
+    assert got["decode_window_seconds"] == 28800.0
+
+
+def test_a_counter_going_backwards_yields_nothing():
+    """The engine restarted under us, so the counter reset. A negative rate is worse than
+    no rate: it would be multiplied by a deadline and authorise a negative budget."""
+    window = oc._DecodeWindow()
+    window.observe(tokens=5000, running=1.0, now=100.0)
+
+    got = window.observe(tokens=12, running=1.0, now=110.0)
+
+    assert got == {}
+
+
+def test_a_repeated_scrape_at_the_same_instant_yields_nothing():
+    """Zero elapsed is a division by zero, and two scrapes inside one clock tick are a
+    real thing rather than a hypothetical -- the monotonic clock has finite resolution."""
+    window = oc._DecodeWindow()
+    window.observe(tokens=1000, running=1.0, now=100.0)
+
+    assert window.observe(tokens=1400, running=1.0, now=100.0) == {}
+
+
+def test_an_idle_cluster_reports_the_aggregate_but_no_per_request_rate():
+    """`requests_running` is the divisor, so at zero there is no per-request figure to
+    give. The aggregate still stands: tokens really were generated over that window."""
+    window = oc._DecodeWindow()
+    window.observe(tokens=1000, running=0.0, now=100.0)
+
+    got = window.observe(tokens=1400, running=0.0, now=110.0)
+
+    assert got["decode_tokens_per_second_window"] == 40.0
+    assert "decode_tokens_per_second_per_request_window" not in got
+
+
+async def test_the_backend_actually_differences_across_two_scrapes():
+    """The wiring, which the unit tests above deliberately cannot reach.
+
+    `_DecodeWindow` could be correct in every detail and never be called, and the tests
+    that drive it directly would all still pass. This is the one that fails if the
+    backend stops asking it -- which is the only way the feature reaches anybody.
+
+    The clock is the adapter's own `clock` seam rather than the wall, so the window is
+    exactly 10s by construction instead of by luck.
+    """
+    ticks = iter([1000.0, 1010.0])
+    counter = iter(["5000.0", "5400.0"])
+
+    def handler(request):
+        if request.url.path == "/metrics":
+            return httpx.Response(
+                200, text=METRICS + f"\nvllm:generation_tokens_total {next(counter)}"
+            )
+        return as_stream(reply())
+
+    b = backend(handler, clock=lambda: next(ticks))
+
+    first = await b.probe_cluster()
+    second = await b.probe_cluster()
+
+    assert "decode_tokens_per_second_window" not in first, (
+        "a rate appeared from a single scrape, so it was not differenced against anything")
+    # 400 tokens over 10s, and METRICS has one request running.
+    assert second["decode_tokens_per_second_window"] == 40.0
+    assert second["decode_tokens_per_second_per_request_window"] == 40.0
+    assert second["decode_window_seconds"] == 10.0
+
+
+async def test_the_since_boot_mean_is_still_reported_beside_the_window():
+    """Control. The window is an addition, not a replacement -- `seed_decode_rate` still
+    reads the since-boot figure on a cold start, and breaking that to add a live one
+    would trade a working cold start for a better warm one."""
+    def handler(request):
+        if request.url.path == "/metrics":
+            return httpx.Response(200, text=METRICS + "\nvllm:generation_tokens_total 1.0")
+        return as_stream(reply())
+
+    got = await backend(handler).probe_cluster()
+
+    assert got["decode_tokens_per_second_since_boot"] == 36.2
