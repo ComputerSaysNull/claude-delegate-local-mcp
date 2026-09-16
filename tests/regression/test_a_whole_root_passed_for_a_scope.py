@@ -55,36 +55,47 @@ def tree(tmp_path: Path) -> Path:
 
 
 @posix_only
-def test_a_bare_workspace_root_is_refused(tree):
-    """The bug. Today this walks the whole root and returns results."""
-    with pytest.raises(ToolRefused) as caught:
-        tools._search_files(cfg(tree), {"pattern": "needle", "path": str(tree)})
+def test_a_bare_workspace_root_is_answered(tree):
+    """Reversed on 2026-09-16, because the cost that justified refusing it is gone.
 
-    assert "needle" not in str(caught.value), "a refusal, not a result"
-
-
-@posix_only
-def test_the_refusal_names_that_roots_own_children(tree):
-    """The remedy travels with the refusal, or it is the fourth wording that failed.
-
-    It must name the children of the root that was *just* refused, not the roots again: the
-    call already proved the model knows the root name and not what is under it.
+    The refusal bought a round trip in exchange for not walking a root. It was decided
+    against 391.8s. Walking a root now costs 1.25-1.93s across all three configured here,
+    none of them reaching the scan cap, because the walk prunes ignored directories and the
+    policy no longer re-walks a shared prefix. A turn is worth more than that.
     """
-    with pytest.raises(ToolRefused) as caught:
-        tools._search_files(cfg(tree), {"pattern": "needle", "path": str(tree)})
+    out = tools._search_files(cfg(tree), {"pattern": "needle", "path": str(tree)})
 
-    message = str(caught.value)
-    assert "pkg/" in message, "a real subdirectory name, marked as a directory"
-    assert "docs/" in message
-    assert "top.md" in message, "and the files, or a file-only directory reads as empty"
-    assert UNSCOPED in message, "and the escape, or the capability becomes unreachable"
+    assert "top.md" in out, "the root was answered, not refused"
+    assert "deep.md" in out, "and answered wholly -- a root scope walks the whole root"
 
 
 @posix_only
-def test_a_trailing_slash_does_not_smuggle_the_root_through(tree):
-    """The obvious way past the check, and the one a string compare would miss."""
-    with pytest.raises(ToolRefused):
-        tools._search_files(cfg(tree), {"pattern": "needle", "path": str(tree) + "/"})
+def test_the_answer_still_names_that_roots_own_children(tree):
+    """The teaching survives the refusal being dropped, which is the point of the reversal.
+
+    Scoping is still cheaper, so the note that names the children is still worth delivering
+    -- it just travels with the results instead of instead of them. A round trip was a dear
+    way to say something that fits in a sentence.
+    """
+    out = tools._search_files(cfg(tree), {"pattern": "needle", "path": str(tree)})
+
+    assert "pkg/" in out, "a real subdirectory name, marked as a directory"
+    assert "docs/" in out
+    assert UNSCOPED in out, "and the escape, or the capability becomes unreachable"
+
+
+@posix_only
+def test_a_trailing_slash_is_answered_the_same_way(tree):
+    """The spelling that a string compare would have missed still resolves to the root.
+
+    Comparing after resolving is kept from ADR-0082 and is not what was reversed: a root
+    spelled with a trailing slash must still be *recognised* as one, or it gets the note
+    only by accident.
+    """
+    out = tools._search_files(cfg(tree), {"pattern": "needle", "path": str(tree) + "/"})
+
+    assert "top.md" in out
+    assert UNSCOPED in out, "recognised as a root, so it carried the note"
 
 
 @posix_only

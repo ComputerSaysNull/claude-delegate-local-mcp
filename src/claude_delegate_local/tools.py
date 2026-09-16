@@ -362,29 +362,32 @@ def _scope_help(cfg: Config) -> str:
     return (
         _workspace_layout(cfg)
         + f"\nA name ending in `/` is a directory. Give `path` one of them, or something "
-          f"deeper -- the root on the left of the arrow is not itself a scope and is "
-          f"refused. Pass the exact string {UNSCOPED!r} only when you genuinely need every "
-          "root walked: it is the slowest call this server offers, by roughly two orders of "
-          "magnitude."
+          f"deeper -- naming the root on the left of the arrow walks all of it, which is "
+          f"slower than you usually want. Pass the exact string {UNSCOPED!r} when you "
+          "genuinely need every root walked."
     )
 
 
-def _root_scope_refusal(cfg: Config, root: str) -> str:
+def _root_scope_note(cfg: Config, root: str) -> str:
     """What to say when a search scopes itself to a whole workspace root.
 
-    That root's own children, not the workspace map: the call has just proved the model
-    knows the root's name and does not know what is under it, so listing the roots again is
-    the one thing already shown not to be the missing fact.
+    A note rather than a refusal since 2026-09-16. The refusal traded a round trip for not
+    walking a root, and that trade was priced against 391.8s; a root now walks in under two
+    seconds, so it was buying a turn's worth of latency to save almost nothing.
+
+    What the refusal got right is kept: the children of the root *just* named, rather than
+    the workspace map, because the call has proved the model knows the root's name and not
+    what is under it. Listing the roots again is the one thing already shown not to be the
+    missing fact.
 
     No multiple is quoted. ADR-0074 declined to put the measured figure in shipped text and
     that still holds -- the ratio is this hardware's, where the shape is everyone's.
     """
     inside = _render_entries(_top_level(root, load_secret_globs(cfg)))
     return (
-        f"{root} is a whole workspace root, not a scope: walking one costs nearly what "
-        f"walking every root costs, and `path` exists to avoid that. Name one of these "
-        f"instead, or something deeper: {inside}. Pass the exact string {UNSCOPED!r} if "
-        f"you genuinely do need every root walked."
+        f"Walked all of {root}, which is a whole workspace root. Scoping to one of these "
+        f"is faster, and so is anything deeper: {inside}. Pass the exact string "
+        f"{UNSCOPED!r} when you do need every root walked."
     )
 
 
@@ -530,15 +533,23 @@ def _unscoped_note(cfg: Config) -> str:
     )
 
 
-def _search_report(cfg: Config, hits: _Hits, *, capped: bool, unscoped: bool) -> str:
+def _search_report(
+    cfg: Config, hits: _Hits, *, capped: bool, unscoped: bool, root_scope: str | None = None
+) -> str:
     """The result, with every reason it might be incomplete stated in it.
 
     A truncated search that reads like an exhaustive one is the failure worth avoiding:
     the model will conclude a symbol does not exist, and say so confidently.
+
+    `root_scope` is the other half: a call that walked a whole root got an answer it can
+    use, and the note saying a narrower one would have been faster rides along with it
+    rather than replacing it.
     """
     tail: list[str] = [f"{len(hits.lines)} matching line(s) in {hits.files} file(s)."]
     if unscoped:
         tail.append(_unscoped_note(cfg))
+    if root_scope is not None:
+        tail.append(_root_scope_note(cfg, root_scope))
     if hits.truncated:
         tail.append(
             "Stopped early, so there are more matches than these -- raise max_results, or "
@@ -580,6 +591,7 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
             "`path` is required: name the directory to search. " + _scope_help(cfg)
         )
 
+    root_scope: str | None = None
     if given == UNSCOPED:
         # The escape, taken deliberately and spelled so a transcript can be grepped for it.
         # Checked before layer 1, which would refuse the sentinel for not being absolute --
@@ -594,9 +606,10 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
         )
         # Compared after resolving, never as the string that arrived: a trailing slash, a
         # `.` segment or a symlinked spelling all name the same root, and a string compare
-        # would let each of them through the check the other three are refused by.
+        # would let three of the four shapes go unrecognised. Recognising it is what earns
+        # the note; it stopped being a refusal on 2026-09-16.
         if scope in resolved_roots(cfg):
-            raise ToolRefused(_root_scope_refusal(cfg, scope))
+            root_scope = scope
         scopes = (scope,)
 
     candidates: list[str] = []
@@ -627,9 +640,13 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
                  "there; it may still exist in a file that policy declines."
         )
         note = f" {_unscoped_note(cfg)}" if given == UNSCOPED else ""
+        if root_scope is not None:
+            note = f" {_root_scope_note(cfg, root_scope)}"
         return f"No line matched {raw!r} in {where}{scope_note}. {why}{note}"
 
-    return _search_report(cfg, hits, capped=capped, unscoped=given == UNSCOPED)
+    return _search_report(
+        cfg, hits, capped=capped, unscoped=given == UNSCOPED, root_scope=root_scope
+    )
 
 
 def _write_file(cfg: Config, args: dict[str, object]) -> str:

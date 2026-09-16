@@ -38,6 +38,37 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #222 — 2026-09-16 — fix: a root-scoped search is answered rather than refused
+
+### Changed
+- **Refusing a root scope cost a turn to save under two seconds.** *Symptom:* a `path` that
+  resolved to a workspace root was refused, so the delegation spent a round trip being told
+  to name a subdirectory — and a turn is roughly 20% of a short delegation's budget.
+  *Cause:* ADR-0082 made that trade against a measured 391.8s for a root-scoped search, which
+  was the right call at the time. #219 and #220 removed the cost it was trading against.
+  *Fix:* the root is walked and answered, and the note the refusal used to carry — that
+  root's own children, with `_unscoped_` beside them — rides along with the results instead
+  of replacing them. The guidance survives at the price of a sentence rather than a turn.
+
+  Measured after both, across every root configured here, none reaching the scan cap:
+
+  | root | candidates | walk |
+  |---|---|---|
+  | this repository | 195 | 1.64s |
+  | second root | 125 | 1.93s |
+  | third root | 76 | 1.25s |
+
+  End to end through the tool, a whole-repository search is 4.59s against 0.94s for a
+  subdirectory — about 4.9x, where the refusal was justified against roughly 89x.
+
+  Scope bought nothing else: `_search_hits` is bounded by `max_results` and `max_read_chars`
+  whatever the scope, so a root search never returned more text than a narrow one.
+
+- **Recognising the root is unchanged**, and is the half of ADR-0082 that was never about
+  cost: compared after resolving, never as the string that arrived, because a trailing slash,
+  a `.` segment and a symlinked spelling all name the same root. That is what makes the note
+  reliable rather than accidental. `_unscoped_` is untouched. (ADR-0087)
+
 ## #221 — 2026-09-16 — refactor: drop the prefill estimate nothing reads
 
 ### Changed

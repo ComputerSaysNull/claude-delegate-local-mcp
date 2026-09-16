@@ -773,7 +773,7 @@ local, because they are working notes rather than a product fact.
   `_search_candidates` prunes symlinks and secrets, never gitignore, so a root walk spends
   all 2000 on `.venv` and returns 2 lines where 351 exist. Prune in the walk, never admit
 
-47. ⬜ **A refused root costs a turn, and a turn is ~20% of a short delegation.**
+47. ✅ 2026-09-16 **A refused root costs a turn, and a turn is ~20% of a short delegation.**
   ADR-0082 trades wall-clock for a round trip, which is cheap against 391.8s and dear against
   a five-turn budget. Revisit once 18 and 46 land and an unscoped walk is no longer ruinous
 

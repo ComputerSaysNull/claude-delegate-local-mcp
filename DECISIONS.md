@@ -19,6 +19,50 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0087 — 2026-09-16 — A root scope is answered with a note, because walking one is no longer dear — Accepted
+
+**Context.** ADR-0082 refused a `path` that resolved to a workspace root. Its case was
+entirely cost: `JOURNAL.md` 2026-09-13 priced a root-scoped search at **391.8s** against
+**4.4s** for four named subdirectories, so the refusal bought a round trip in exchange for
+not paying ~390s. At that ratio the trade is obvious.
+
+Two changes on 2026-09-16 removed the cost it was trading against. The search walk now prunes
+gitignored directories before the scan cap is charged (#219), and layer 1 stops re-walking a
+shared directory prefix and asking twice whether a file exists (#220). Measured after both,
+across all three roots configured on this deployment:
+
+    ClaudeLocalMCP       195 candidates   1.64s
+    ClaudeUsageTracker   125 candidates   1.93s
+    pcf-editable-grid     76 candidates   1.25s
+
+None reaches the scan cap. End to end through the tool, a whole-repository search is 4.59s
+against 0.94s for a subdirectory — about 4.9x, where the refusal was justified against ~89x.
+
+A round trip is not free: it is a full turn, and `PLAN.md` puts a turn at roughly 20% of a
+short delegation's budget. So the refusal now spends a turn to save under two seconds.
+
+The other thing scope might have bought is result volume, and it does not: `_search_hits` is
+bounded by `max_results` (default 100) and by `max_read_chars` whatever the scope. A root
+search returns no more text than a narrow one.
+
+**Decision.** A root scope is answered. The note that the refusal used to carry — that root's
+own children, and `_unscoped_` beside them — travels with the results instead of replacing
+them, so the guidance survives at the price of a sentence rather than a turn.
+
+Recognising the root is kept exactly as ADR-0082 built it: compared after resolving, never as
+the string that arrived, because a trailing slash, a `.` segment and a symlinked spelling all
+name the same root and a string compare would miss three of the four. That half was never
+about cost, and it is what makes the note reliable rather than accidental.
+
+What this does not restore is the premise ADR-0082 was arguing against. Four wordings failed
+to make the model scope, and this makes a fifth — a note. The difference is that it is no
+longer load-bearing: if the model ignores it, the cost is ~3.6s rather than ~390s. Should
+walking a root become dear again, the refusal is the remedy to reach for, and the measurement
+above is the condition to re-check rather than the conclusion to keep.
+
+`_unscoped_` is untouched, still greppable, and still the spelling for walking everything
+deliberately.
+
 ## ADR-0086 — 2026-09-15 — Aggregates may default on, content may not — Accepted
 
 **Context.** M11's roadmap wants `transcript_dir` to fall back to a server-owned state
@@ -228,7 +272,7 @@ The wider lesson is filed in `JOURNAL.md` rather than here: an estimate that nam
 targets at the same value is an estimate that measured neither, and building the cheaper one
 first is how ~1.5% gets mistaken for 2x.
 
-## ADR-0082 — 2026-09-15 — A workspace root is not a scope, and the fourth remedy is a refusal — Accepted
+## ADR-0082 — 2026-09-15 — A workspace root is not a scope, and the fourth remedy is a refusal — Partially superseded by ADR-0087
 
 **Context.** ADR-0074 fixed what the contract *claimed* about `path` in three of ADR-0066's
 four homes. ADR-0076 then made `path` required, added `_unscoped_` as a greppable escape, and
