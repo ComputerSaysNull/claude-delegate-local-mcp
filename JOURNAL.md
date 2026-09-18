@@ -1876,3 +1876,60 @@ What it does settle is `Unscheduled.14.a`, which claimed `expect`'s minimum "con
 quoting-turn problem — immune to fast samples, vulnerable only to slow ones. A minimum is
 immune to a fast sample only when the bucket holds a slower one. A bucket of one *is* that
 sample, so a quoting turn at 63.75 tok/s enters history and is returned whole. 14 stands.
+
+## 2026-09-17 — A fourteen-wide audit measured the delegation, not the documentation
+
+Four of six STALE passes returned no report, eight more were refused before they ran, and
+every number below came out of that wreck. The documentation findings were the cheap part.
+
+**The pricing chain, exact.** `budget_seconds` is `min(stall_left, dispatch_left,
+turn_timeout)` = 1800 at the start, and `DecodeRate.ceiling` multiplies by rate and margin:
+
+    1800 x 34.82 x 0.6 = 37,605.6  ->  budget_ceiling 37,605
+
+That is the ceiling to the token, on every one of the six. It fills `turn_timeout`
+*completely* at the assumed rate, so any overestimate of the rate authorises a reply the
+attempt cannot deliver before the timeout kills it. `budget_seconds`' own docstring
+describes that failure, reached from the deadline side; this is the rate side of it (PLAN 44).
+
+**The rate was overestimated by 1.8x, structurally rather than by accident.** The four
+figures, all measured on this cluster:
+
+| figure | value | what it is |
+| --- | --- | --- |
+| solo benchmark | 44.1 tok/s | `RateHistory` docstring |
+| six concurrent | 19.4 tok/s | same |
+| since-boot seed | 34.82 tok/s | `decode_tokens_per_second_since_boot` |
+| observed per stream | 19.3 tok/s | `..._per_request_window`, six running |
+
+The seed is a per-request lifetime mean — one observation per request, from
+`vllm:request_time_per_output_token_seconds` — so a blend over regimes averaging below six
+*must* overprice a six-way stream, and the comment justifying its use claims the opposite
+(PLAN 51). Timing of the scrape is irrelevant: `seen_running` is carried for the record and
+used in no calculation, so "priced idle, spent busy" is the wrong reading of this.
+
+**`RateHistory` was empty, which is why the seed was reached at all.** `expect` is consulted
+first and widens to every sample at that concurrency *or busier*, so one six-way sample would
+have priced all six correctly. The file held nothing at 18:22. After the run it held one
+pair, `[3, 18.869…]` — a six-way rate under a label of 3, because `expected_concurrency` is
+`seqs_at_grant + waiting_at_grant + 1` and the six calls of one message arrived 5.5s apart
+over 28.4s, outlasting the 10s `admission_idle_hold` meant to absorb them (PLAN 49, 50).
+
+**What the six passes actually did.** Two produced reports, four hit the cap mid-thought:
+
+| pass | attempts | final effort | output | outcome |
+| --- | --- | --- | --- | --- |
+| 3 | 2 | high | 21,509 | report; 1,800s attempt 1 discarded at `turn_timeout` |
+| 6 | 3 | low | 13,370 | report; `cached_tokens` 0 after step-down |
+| 1, 2, 4 | 3 | low | **37,605** | `answer_is_reasoning`, `reasoning_exhausted` |
+
+`empty_response` is `false` on all three failures. Read alone it files them as clean passes
+with long answers; only `answer_is_reasoning` beside it says the reply is raw thinking.
+Splitting the document into named sections is not the discriminator — pass 4 was split four
+ways and still exhausted, while pass 3 survived against the largest module in the repo. Its
+last heartbeat read 11,879 chunks against 21,509 output tokens, so a frame carried 1.8
+tokens here: the heartbeat understates output by about half, as its own comment warns.
+
+**Eight passes never ran.** Fourteen dispatched into a six-slot gate; `admission_timeouts`
+reached 8, each at the full 1800s, on `max_inflight_seqs` — the gate that outlived ADR-0077
+(PLAN 40.f). The wait is not silent: one refused transcript held 6,936 `waiting` events.

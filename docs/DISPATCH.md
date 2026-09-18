@@ -665,10 +665,10 @@ the same session. So `keepalive_interval` is a correctness setting rather than a
 the server cannot discover that nobody is listening, and sending something is the only guard.
 The same heartbeat writes an `alive` event to the stream, a silent stream and a silent wire
 being one problem from two sides. It carries elapsed, the delegation ceiling it is measured
-against, and — since it was found reporting "60s of 14400s" while minutes from death —
-**how long until the tightest deadline actually fires**. Those are two figures because they
-answer two questions, and the ceiling is the deadline least likely to be the one that ends
-a run. The countdown is the stall and delegation clocks only: `turn_timeout` restarts with
+against, and — since it was found reporting "60s of 14400s", the ceiling of the day, while
+minutes from death — **how long until the tightest deadline fires**. Two figures, because
+they answer two questions, and the ceiling is the deadline least likely to end a run. The
+countdown is the stall and delegation clocks only: `turn_timeout` restarts with
 every attempt, so reported here it would sit unchanged while the time ran out beneath it —
 which is why sizing an attempt and counting down a delegation use different functions. It
 Since ADR-0072 it also carries what the model is *doing*: how many frames carrying output

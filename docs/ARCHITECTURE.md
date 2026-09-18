@@ -116,7 +116,7 @@ large file being dropped while the budget it would have fitted in sat unused (AD
 | `agents.py` | The three-tier agent lookup and the frontmatter — [AGENTS.md](AGENTS.md) |
 | `tools.py` | Model-facing tools, and both `allowed_tools` sites — [TOOLS.md](TOOLS.md) |
 | `sandbox.py` | bubblewrap invocation: the argv, the binds, and the refusal |
-| `admission.py` | The three-rule gate every delegation passes before it reaches a backend |
+| `admission.py` | The capacity gate every delegation passes before it reaches a backend |
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
 | `server.py` | MCP wiring, the six tool declarations, the backend cache |
@@ -653,9 +653,10 @@ The real constraint is that summed live tokens stay under the KV pool; per-reque
 per-sequence limits are ceilings, not reservations.
 
 Oversubscription **queues** rather than failing, so this protects latency, not
-correctness — and it can degrade badly, because large cold prefills serialise. Three rules
-apply: total in-flight requests, summed token estimate against budget, and the endpoint's
-own declared `concurrency`. The last is per endpoint rather than global, and is checked on
+correctness — and it can degrade badly, because large cold prefills serialise. Three
+capacity rules apply: total in-flight requests, summed token estimate against budget, and
+the endpoint's own declared `concurrency`. Queue position is a fourth reason a request can
+be held, and `admission.py` counts it when it calls itself a four-rule gate. The last is per endpoint rather than global, and is checked on
 every path — a limit enforced only where requests happen to run in parallel bounds a caller
 against itself and nothing else.
 
@@ -765,7 +766,7 @@ against one KV pool. Each rule bounded a session, and the cluster saw the config
 ceiling multiplied by the number of windows open.
 
 So the counters live in a file under `flock` that every server on the machine shares, and
-`admission.py` tests the three rules against the sum. `slots.py` owns that file; the policy
+`admission.py` tests the capacity rules against the sum. `slots.py` owns that file; the policy
 did not change, only the scope it counts over. The test and the write are one critical
 section — reading totals, deciding, then writing would let two processes see the same room
 and both take it, precisely when the cluster is busy.

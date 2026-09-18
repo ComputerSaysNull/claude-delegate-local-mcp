@@ -53,8 +53,8 @@ does not restate them.
 - A local OpenAI-compatible endpoint (this was built against vLLM serving DeepSeek V4
   Flash on two DGX-Spark-class machines, but nothing depends on that specific stack).
 - Python 3.11+.
-- **Linux, or WSL2 on Windows** — `bubblewrap` is Linux-only and there is no cheap Windows
-  equivalent, so the server runs there even when Claude Code does not.
+- **Linux, or WSL2 on Windows** — `bubblewrap` is Linux-only, so the server runs there even
+  when Claude Code does not ([why](docs/ARCHITECTURE.md)).
 
 ## Install
 
@@ -71,17 +71,17 @@ claude-delegate-local-mcp provision . # optional, so a delegation can run this p
 ```
 
 `--init` asks what has no safe default, shows the default for everything else it offers,
-moves an existing file aside rather than over, and prints the registration block below
-filled in for this machine. Copying the two `.example` files by hand still works.
+never overwrites what is already there ([what it does with it](docs/ARCHITECTURE.md)), and
+prints the registration block below filled in for this machine. Copying the two `.example`
+files by hand still works.
 
 Run the doctor before the first delegation. The server starts whether or not what it needs
 is there, so a missing root or an unreachable endpoint otherwise surfaces much later, inside
 whichever delegation happens to reach it ([why](docs/ARCHITECTURE.md)).
 
 `provision` is needed only for `run_bash` to run a Python project's tests. It builds a
-virtualenv outside the workspace, where the sandbox can read it and the secret scan will
-not cover it up; the doctor then fails if the project's dependencies move on. Reading,
-writing and reviewing files need none of it.
+virtualenv outside the workspace — [why there, and what keeps it in
+step](docs/ARCHITECTURE.md). Reading, writing and reviewing files need none of it.
 
 On Windows plus WSL2 the two interpreters cannot share `.venv`: a Linux `python -m venv
 .venv` overwrites a Windows one in place, and it reads as a corrupted install rather than a
@@ -96,8 +96,8 @@ one elsewhere — if it names a file that does not exist, that is an error rathe
 silent fall back to defaults. ADR-0027 for why the server reads the file itself instead of
 taking an `env` key from your MCP client's configuration.
 
-`.env` and `models.toml` are gitignored, deliberately: they name a host, and a hostname
-identifies your machine as surely as an address does.
+`.env` and `models.toml` are gitignored, deliberately — [MODELS.md](docs/MODELS.md) says
+why.
 
 ### On Windows, with the server in WSL2
 

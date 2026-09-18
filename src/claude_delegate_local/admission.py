@@ -16,8 +16,11 @@ Every waiter now takes a ticket and the predicate refuses anyone who is not at t
 so the wait is bounded by the work ahead of it rather than by luck. Waiting is still
 polling: fairness decides *who* goes next, not how promptly anyone finds out.
 
-**Three rules, checked as one predicate.** Total in-flight sequences, summed token
-estimate against the budget, and the endpoint's own declared limit. One predicate rather
+**Three capacity rules, checked as one predicate.** Total in-flight sequences, summed
+token estimate against the budget, and the endpoint's own declared limit. Queue position
+is a fourth reason `_binding` can refuse on, which is why the class below calls it a
+four-rule gate: capacity says whether a request *fits*, the queue says whether it is
+*next*, and both must hold. One predicate rather
 than three semaphores acquired in turn: a request that takes a sequence slot and then
 blocks on another rule holds capacity it is not using for the whole wait, starving smaller
 requests that would have fit every rule. Nothing here is ever partially acquired. A waiter
