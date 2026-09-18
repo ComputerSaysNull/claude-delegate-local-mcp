@@ -19,9 +19,7 @@ machine is set to that the repository does not, and it is the only place that kn
 Overlap what is genuinely independent — wall-clock is worth having — but the limits here are
 not about compute:
 
-- **Read-only delegations and read-only agents overlap freely.** The two write-capable
-  delegation tools chain at 120s intervals, so fan those out only when the work is
-  independent enough to be worth the ramp.
+- **Delegations and delegated agents overlap freely**, whether they read or write.
 - **Never the Windows and WSL suites against one checkout.** They share `__pycache__` under
   `/mnt/c` and it surfaces as an ImportError in an unrelated module.
 - **Never a suite while a fan-out is live.** The server shares this machine.
@@ -34,8 +32,8 @@ checkout, because the editable install points there — so it exercises code the
 not have. It is wrong rather than merely slow, and the fix is a provisioned venv per
 worktree, which costs more than one run's parallelism returns.
 
-**What spends the window is what enters this conversation.** Delegate the reading, and quote
-a suite's tail rather than pasting its whole run.
+**What spends the window is what enters this conversation**, and that is as true of writing a
+module as of reading one. Quote a suite's tail rather than pasting its whole run.
 
 ## 2. Closing out a commit
 

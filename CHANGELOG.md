@@ -38,6 +38,42 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #234 — 2026-09-18 — docs: stop the execution skill excluding delegated writing
+
+### Fixed
+- **`session-execute` discouraged delegating writing, in two places, without ever saying
+  so.** "Delegate the reading" read alone excludes writing by omission, and the note on the
+  write-capable tools named a 120s chaining interval as a flat cost — which reads as a reason
+  to keep the work in the conversation rather than as a note about fanning out.
+
+  **The 120s claim is removed because it had already been refuted, in this repository.**
+  `CONTRIBUTING.md` records a controlled run (#118) against exactly this: "four calls issued
+  in one message start seconds apart, and the 120 s is the client's threshold for
+  backgrounding a call it is waiting on, not for issuing the next". The skill went on saying
+  the opposite, so this is a correction of a known-false statement rather than a precaution —
+  and it is the same document's own lesson, *prefer a measurement you took on purpose over
+  one you noticed*, applied to the sentence that lesson was written about.
+
+  One narrow question does survive, and it is not the one the skill was asserting. `PLAN.md`
+  M11.10 records six `delegate_to_agent` arms at 120s intervals with the last at +688s,
+  against four read-only arms starting inside 5.6s — a later observation than #118 and on the
+  write-capable tools, which #118 did not cover. Since 120s is a backgrounding threshold, the
+  stagger cannot be a dispatch ramp, so what remains is *why write-capable calls serialise
+  when read-only ones do not*. The experiment: launch write-capable delegations into the
+  background immediately, rather than letting them background at the cutoff, and see whether
+  the stagger survives. That belongs to M11.10, which owns the ramp.
+
+  Measured 2026-09-18: of 541 recorded calls, 83 reached `delegate` or `delegate_to_agent`,
+  three tasks ever wrote anything, all on one morning, and all because the owner asked.
+  Unprompted it has never happened. The capability has worked since 2026-09-07.
+
+  **The routing policy itself is deliberately not written here.** It belongs to the operator's
+  global instructions, which are outside this repository, and stating it in both places would
+  be the cross-plane duplication the ownership scheme exists to prevent. This commit removes
+  the exclusion and adds no rule: the reason given is that context is spent by writing a
+  module just as much as by reading one, which is a fact about the window rather than a
+  routing instruction.
+
 ## #233 — 2026-09-18 — feat: a server-format test-writer the local model can be routed to
 
 ### Added

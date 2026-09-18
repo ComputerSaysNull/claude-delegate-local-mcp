@@ -328,7 +328,10 @@ Running the agent locally uses the Claude Code subscription instead.
 `.claude/skills/` holds the skills invoked with `/<name>` while working on this repository —
 same distinction as the agents above, and each skill's procedure stays in its own file
 rather than being summarised here. **A skill only runs when it is invoked**, so a rule that
-must hold anyway belongs in [CLAUDE.md](CLAUDE.md).
+must hold anyway belongs in [CLAUDE.md](CLAUDE.md). That cuts both ways: a rule the operator
+wants across every repository belongs in their own global instructions, which no gate here
+reaches, and a skill that merely stops *contradicting* such a rule has done its share.
+Restating it in both is how one fact acquires two homes.
 
 **Planning and executing are separate skills, because they have different readers.**
 [session-plan](.claude/skills/session-plan/SKILL.md) stops at approval and
