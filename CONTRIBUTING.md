@@ -1,4 +1,5 @@
-<!-- BUDGET: 398      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- BUDGET: 404      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- Raised from 398 (+1 for this line) on 2026-09-18: publishing a stack is a procedure with a script now, and which half is the hook's belongs beside the merge rule. -->
 <!-- Raised from 396 (+1 for this line) on 2026-09-18: the body-history rule is enforced now, and which half the gate takes belongs beside the rule itself. -->
 <!-- Raised from 393 (+1 for this line) on 2026-09-18: the two session skills are separate, and which one reads the other is the half that was never stated. -->
 <!-- Raised from 390 (+1 for this line) on 2026-09-18: a body re-read every invocation pays for its own history, so the rule that keeps narrative out of one belongs where both directories are owned. -->
@@ -108,6 +109,11 @@ Write the **why** in the body, not just the what. The symptom that prompted the 
 the cause, and the fix. In six months the why is the only part still worth having.
 
 `main` requires a pull request and green checks. Squash-merge, delete the branch.
+
+**A stack ships with `python scripts/ship_stack.py`**, one pull request at a time, because
+merging one deletes its base and closes a stacked child unreopenably. It derives the order
+from ancestry and refuses anything that is not one chain, and scans each title and body
+before publishing. Pushing and merging are gated by your hook; `--dry-run` skips both.
 
 ## Which document do I update?
 

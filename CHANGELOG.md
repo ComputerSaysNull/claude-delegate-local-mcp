@@ -38,6 +38,46 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #239 — 2026-09-18 — feat: a stack of branches ships with one command
+
+### Added
+- **`scripts/ship_stack.py`, which publishes a local stack one pull request at a time.**
+  Only one may be open here, because merging deletes its base and closes a stacked child
+  unreopenably — so a stack ships in sequence, and doing that by hand is a dozen commands per
+  branch and the same dozen mistakes. Eleven pull requests were shipped this way before the
+  driver was written down; this is that driver, with the three things it got wrong fixed.
+
+  **The stack is derived from ancestry, never configured.** A hardcoded order is what failed
+  twice while shipping: a branch created after the list was written was simply not restacked,
+  drifted behind the rewritten history, and surfaced as a rebase conflict several branches
+  later in a file nobody had edited. `order_stack` refuses anything that is not a single
+  chain rather than guessing, because a sort will happily return an order for two unrelated
+  branches and the caller would then rebase one onto the other and invent history.
+
+  **The text is scanned before `gh pr create`, not after.** This is a gap the ad-hoc run
+  left: the pre-publish scan was run for the first pull request and then not for the other
+  ten. Their bodies were commit messages the commit-msg hook had already put through the same
+  scanner, so the exposure was small, but a pull request's text is a public surface no commit
+  hook sees and CI only reads once it is already published. Skipping the step is precisely
+  the case where "CI is a backstop rather than a gate" bites.
+
+  **Pushing and merging stay in the default path**, gated by the operator's own hook, which
+  asks before each one. A flag to withhold the merge was considered and rejected: the hook is
+  the authorisation, and a second, weaker gate in the script would imply it is not trusted.
+  `--dry-run` derives the stack and scans every text without pushing; `--one` stops after the
+  front branch.
+
+  Two smaller things are recorded where they bit. `subprocess` with `text=True` decodes with
+  the locale encoding, cp1252 here, so an em-dash in a CHANGELOG heading raised
+  `UnicodeDecodeError` from a git call that had succeeded — every call now names UTF-8. And
+  the number parser split a heading on `#`, which returns an empty field for `## #239` and
+  silently compared nothing against a real number; it is a regex now, and a test pins it.
+
+  `session-execute` §4 keeps the reasoning and hands the steps to the script, so the
+  procedure is stated once rather than described in prose beside a tool that does it.
+  `CLAUDE.md` lists it beside the other by-hand commands, which is where someone looks for
+  what to type.
+
 ## #238 — 2026-09-18 — docs: the audit reaches the bodies the gate cannot judge
 
 ### Added
