@@ -268,6 +268,7 @@ looks runnable and shells out to git underneath. Read the pair yourself for that
 | `docs-audit-local` | deepseek-v4-flash | high | Audits this repository's documentation against its code and r… |
 | `docs-audit` | haiku | medium | Audits documentation for staleness, verbosity, misplaced fact… |
 | `researcher` | haiku | low | Read-only exploration of this repository |
+| `test-writer-local` | deepseek-v4-flash | high | Writes and extends pytest tests for this repository, on the l… |
 | `test-writer` | sonnet | medium | Writes and extends pytest tests for this repository |
 
 <!-- GEN:AGENTS:END -->
