@@ -38,6 +38,39 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #237 — 2026-09-18 — feat: the gate blocks history in a file that is re-read every run
+
+### Added
+- **`body-history`, a gate check over skill and agent bodies.** `CONTRIBUTING.md` says a
+  body states the rule and never the incident behind it, because both are re-read on every
+  invocation — so a sighting, a date or a pull request number in one is charged on every run,
+  where the same fact in `CHANGELOG.md` is read once by whoever asks why. That rule had
+  nothing enforcing it, and a single session put narrative into four separate bodies before a
+  reader caught it by hand.
+
+  An audit would find these eventually. It runs a few times a month against an authoring
+  habit that produces several instances an hour, so the correction has to arrive at commit
+  time to change anything. Two shapes are cheap enough to match: a date, and a `#NNN`. An
+  `ADR-NNNN` is deliberately *not* matched — it is a pointer to a decision rather than a
+  narrative about one, and it earns its few characters.
+
+  **Negative control against real data, not a planted string.** Run against the tree as it
+  stood before the hand cleanup, the check reports all seven violations across the three
+  files that had to be corrected by eye. What it does not catch is the undated kind — a
+  miscount narrated in prose — which is why the audit gains a class for it rather than this
+  check growing a heuristic.
+
+  Two exemptions are load-bearing. Frontmatter carries `description`, a one-line summary a
+  client displays and cannot reflow to dodge a checker. Fenced blocks carry examples, and
+  `test-writer`'s asserts against a deliberately fictional `ADR-0099`; flagging it would
+  force the example to be broken to satisfy the check. A closing fence ends the exemption, so
+  it cannot swallow the rest of a file — asserted both ways.
+
+  Tracked documents are deliberately out of scope. `CHANGELOG.md`, `JOURNAL.md` and
+  `DECISIONS.md` exist to hold exactly what this refuses, and a check that read them would be
+  asking the project to delete its own record. The packaged skills directory *is* in scope:
+  it ships into someone else's project, where a reader has no access to this history at all.
+
 ## #236 — 2026-09-18 — docs: the planning skill points at what will consume its plan
 
 ### Changed

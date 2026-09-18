@@ -17,9 +17,9 @@ MINOR and say what a human would need to decide.
 
 `scripts/docs_gate.py` mechanically checks: stale generated documents, budgets, ADR
 heading format and supersede links, ownership, orphans, split-dodges, manifest
-consistency, secrets, commit authorship, and references — markdown link targets, `#`
-anchors against real headings, and a quoted section pointer that resolves to the section
-containing it.
+consistency, secrets, commit authorship, dates and pull request numbers in a skill or
+agent body, and references — markdown link targets, `#` anchors against real headings,
+and a quoted section pointer that resolves to the section containing it.
 
 **Trust this list only as far as it is true.** "Report nothing the gate already catches"
 turns anything false here into a blind spot rather than a duplication, so a check named
