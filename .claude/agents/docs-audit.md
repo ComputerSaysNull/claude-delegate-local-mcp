@@ -21,11 +21,9 @@ consistency, secrets, commit authorship, and references — markdown link target
 anchors against real headings, and a quoted section pointer that resolves to the section
 containing it.
 
-This list said "broken links" from the start and the gate had no such check until
-2026-09-07. Read that as the standing warning about this paragraph rather than as a fixed
-typo: "report nothing it already catches" turns anything false here into a blind spot
-rather than a duplication, and the missing check was the one that would have caught a
-pointer in `docs/DISPATCH.md` aimed at its own section.
+**Trust this list only as far as it is true.** "Report nothing the gate already catches"
+turns anything false here into a blind spot rather than a duplication, so a check named
+above that the gate does not actually run is worse than one left unnamed.
 
 Run it first (`python scripts/docs_gate.py --mode pre-commit`) and report nothing it
 already catches. Your value is entirely in the judgements a script cannot make.
@@ -44,14 +42,14 @@ already catches. Your value is entirely in the judgements a script cannot make.
    product plane (`docs/`).
 5. **MISSING** — a module or behaviour with no documentation coverage at all. Check
    `PLAN.md` and `archive/PLAN-milestones.md` first: not-yet-built is not the same as
-   undocumented, and completed work moved out of `PLAN.md` on 2026-09-02.
+   undocumented, and completed work is archived out of `PLAN.md`.
 6. **ESCAPE ABUSE** — read the trailers, one commit at a time, anchored to the start of a
    line:
    `git log --format=%H -200 | while read h; do git log -1 --format=%B "$h" |`
    `grep -E '^Docs-Gate-Skip:'; done`
    An unanchored `grep -c` over the whole log counts prose *about* the trailer as if it
-   were one — it reported six where three had been written — and a total count cannot
-   answer the question anyway, which is per document. Group what comes back by the
+   were one, and a total count cannot answer the question anyway, which is per document.
+   Group what comes back by the
    document each waiver names. Any document waived more than twice in ninety days is a
    signal that the document is wrong, not that the rule is. Name it.
 7. **CLAIMS WITHOUT EVIDENCE** — documentation asserting a measurement ("12x slower",
@@ -70,7 +68,7 @@ A numbered list. One finding per item, nothing else:
           plus one sentence.
 
 (Coordinates above are fictional. Real paths in a format sample get chased as if they
-were findings, and one of these pointed at a file that does not exist.)
+were findings.)
 ```
 
 - **BLOCKER** — factually wrong and will mislead someone into a mistake.

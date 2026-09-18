@@ -81,18 +81,13 @@ Effort is `high` everywhere but pass 13, and pass 14 is not dispatched at all. A
 search across kinds of violation, and `low` narrows it to retrieval — more instances of one
 violation, fewer kinds. Pass 13 *is* retrieval, so `low` is both correct and cheaper there.
 
-**Asking for `high` does not guarantee getting it, and the column stands anyway.** Measured
-2026-09-12: six STALE passes dispatched at `high`, and four of the five that answered came
-back at `low` after two attempts — the empty-answer recovery ladder stepping the effort down.
-That is the audit's own long-standing suspicion reproduced, and it would look like an
-argument for asking for `low` outright.
-
-It is not, because the cause was elsewhere. The step-down fires when a reply is empty at
-length, and those replies were empty because the budget ceiling was priced from a
-contaminated decode rate — fixed in #172. **So re-measure before changing this column**, and
-change it only if the step-down survives a fan-out run against the fixed pricing. A column
-rewritten on evidence taken under a defect that no longer exists is worse than one left
-alone: it would read as measured, and the measurement would be of something else.
+**Asking for `high` does not guarantee getting it, and the column stands anyway.** A pass can
+come back at `low`: the empty-answer recovery ladder steps the effort down after an empty
+reply, and a reply is empty when the budget ceiling was priced above what the turn could
+decode. That is a pricing symptom, not an argument for asking `low` outright. **Re-measure
+before changing this column**, and change it only if the step-down survives a fan-out against
+current pricing — a column rewritten on evidence taken under a defect since fixed would read
+as measured while measuring something else.
 
 **Split by check class, never by document.** Four of the seven classes cannot see a split by
 document: WRONG DOCUMENT and CROSS-PLANE LEAK need every document that could hold the
@@ -147,9 +142,8 @@ and an unsourced one cannot be rechecked.
 CHANGELOG.md counts, and forgetting it is how this check misfires. A measurement recorded in
 the section for the pull request that made it *is* sourced — that is where every change's
 why lives, by CONTRIBUTING's rule — and a pass told to look in two of the three places
-reports it as unsourced. The 2026-09-06 audit retracted exactly such a finding and diagnosed
-it as a caller error; the instruction was not changed, so 2026-09-11 reported four more, one
-of them the same measurement. Search all three before calling a number unsourced.
+reports it as unsourced. **Search all three before calling a number unsourced.** This is the
+most retracted finding the class produces.
 
 **FILED ALREADY** — a notebook line whose fact now lives in `CHANGELOG.md`, `DECISIONS.md`,
 `JOURNAL.md` or `PLAN.md`. The notebook holds what an upcoming session needs and nothing a

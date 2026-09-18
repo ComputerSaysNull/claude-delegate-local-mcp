@@ -38,6 +38,28 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #235 — 2026-09-18 — docs: skills and agents state the rule, not the incident
+
+### Changed
+- **Narrative history removed from every skill and agent body.** A body is re-read on every
+  invocation, so a sighting, a date or a pull request number in one is paid for on every run
+  and buys nothing a reader can act on — while the same fact in `CHANGELOG.md` is read once,
+  by someone asking why. Five places carried it:
+
+  - the runbook's effort column, which narrated a six-pass measurement and its cause across
+    two paragraphs, now one that states the symptom and the instruction to re-measure;
+  - its CLAIMS section, which recounted two audits retracting the same finding, now the
+    instruction plus the note that it is the class's most retracted finding;
+  - `docs-audit`'s gate list, which explained at length that "broken links" was named before
+    the check existed, now the rule that a falsely named check is a blind spot;
+  - the same file's MISSING and ESCAPE ABUSE entries, carrying a date and a miscount; and
+  - `session-execute`'s worktree note, carrying a measurement date.
+
+  `CONTRIBUTING.md` gains the general rule, since it owns both directories. An ADR number
+  stays — it is a pointer rather than a narrative, and earns its few characters. The
+  `ADR-0099` strings in `test-writer`'s example snippet also stay: they are placeholders in
+  an illustration, not a claim about this repository.
+
 ## #234 — 2026-09-18 — docs: stop the execution skill excluding delegated writing
 
 ### Fixed
