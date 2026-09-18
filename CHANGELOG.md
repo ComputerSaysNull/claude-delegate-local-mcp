@@ -38,6 +38,31 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #238 — 2026-09-18 — docs: the audit reaches the bodies the gate cannot judge
+
+### Added
+- **A fifteenth pass: NARRATIVE, over `.claude/agents/` and `.claude/skills/`.** Those files
+  were audited by nothing. Passes 7 and 8 cover the project and product planes; neither reads
+  a skill or an agent body, which is where narrative is most expensive because it is re-read
+  on every invocation. That was half of item 52's finding and it had been left undone.
+
+  The class is deliberately the complement of the new `body-history` gate check rather than
+  an overlap, because this runbook's own rule is to report nothing the gate already catches.
+  The gate matches a date and a `#NNN`; the pass takes what no grep can — "it reported six
+  where three had been written", "this was tried and reverted", a paragraph of provenance
+  attached to a one-line instruction.
+
+  Two things are named as *not* findings, because the obvious over-correction here is to
+  strip a body of the reasons that make it usable: an `ADR-NNNN` pointer, and a measured
+  number that calibrates a decision. A number doing work stays; a number telling a story
+  goes.
+
+  **TOO VERBOSE was considered for this and rejected.** Its definition says never to cut a
+  measured number or a stated reason, which is the opposite instruction, and passes 9 to 12
+  run it over "every document" — including `CHANGELOG.md`, `JOURNAL.md` and `DECISIONS.md`,
+  whose entire job is the history this class refuses. Giving one class a rule and its inverse
+  makes it guess which was meant.
+
 ## #237 — 2026-09-18 — feat: the gate blocks history in a file that is re-read every run
 
 ### Added
