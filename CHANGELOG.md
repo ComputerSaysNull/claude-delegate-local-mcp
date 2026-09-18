@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #236 — 2026-09-18 — docs: the planning skill points at what will consume its plan
+
+### Changed
+- **`session-plan` now tells the planner to read `session-execute` first.** The two skills
+  were already described as separate because they have different readers, but the planning
+  one never said to look at the executing one — so a plan could be written without knowing
+  what execution needs from it. This session produced the evidence: the plan named a check
+  and an owning document per item, and then execution found that per-commit close-out also
+  wants a `PLAN.md` marker flip, a notebook reconciliation and a budget that can absorb both.
+  None of that was in the plan, so it was discovered a commit at a time.
+
+  One sentence, in the operator's own words, reflowed to the file's width and otherwise
+  unchanged.
+
 ## #235 — 2026-09-18 — docs: skills and agents state the rule, not the incident
 
 ### Changed

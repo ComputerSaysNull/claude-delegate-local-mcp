@@ -6,7 +6,8 @@ description: "Plan this session's work from PLAN.md — rank the open items, siz
 # Session plan
 
 Five steps. Step 4 is not optional and step 5 is where you stop. Execution is a different
-skill — [session-execute](../session-execute/SKILL.md) — and nothing here starts work.
+skill — [session-execute](../session-execute/SKILL.md) — and nothing here starts work. Read
+it to understand what it needs from the plan you are about to write.
 
 ## 1. Read. Do not edit.
 
