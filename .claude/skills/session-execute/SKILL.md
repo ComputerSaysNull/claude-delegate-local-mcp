@@ -26,7 +26,7 @@ not about compute:
 - **Every commit edits the top of `CHANGELOG.md`**, so two items built in parallel conflict
   there even when nothing else they touch does.
 
-**Separate worktrees do not buy parallel suites, measured 2026-09-15.** A worktree run
+**Separate worktrees do not buy parallel suites.** A worktree run
 collects its tests from the worktree but imports `claude_delegate_local` from the *main*
 checkout, because the editable install points there — so it exercises code the branch does
 not have. It is wrong rather than merely slow, and the fix is a provisioned venv per

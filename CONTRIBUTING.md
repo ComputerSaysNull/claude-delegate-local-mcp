@@ -1,4 +1,5 @@
-<!-- BUDGET: 390      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- BUDGET: 393      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- Raised from 390 (+1 for this line) on 2026-09-18: a body re-read every invocation pays for its own history, so the rule that keeps narrative out of one belongs where both directories are owned. -->
 <!-- Raised from 369 on 2026-09-12: a check class names every place its evidence can live, and CLAIMS named two of three. -->
 <!--
      Raised from 365 on 2026-09-10: an agent's runbook is a third kind of file this
@@ -332,6 +333,10 @@ must hold anyway belongs in [CLAUDE.md](CLAUDE.md). That cuts both ways: a rule 
 wants across every repository belongs in their own global instructions, which no gate here
 reaches, and a skill that merely stops *contradicting* such a rule has done its share.
 Restating it in both is how one fact acquires two homes.
+
+**A skill or agent body states the rule, never the incident behind it.** Both are re-read on
+every invocation, so a sighting or a date in one is paid for on every run, where the same
+fact in `CHANGELOG.md` is read once. Keep an ADR pointer; cut the narrative.
 
 **Planning and executing are separate skills, because they have different readers.**
 [session-plan](.claude/skills/session-plan/SKILL.md) stops at approval and
