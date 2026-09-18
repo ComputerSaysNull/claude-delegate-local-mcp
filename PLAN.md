@@ -827,10 +827,10 @@ local, because they are working notes rather than a product fact.
     gaps inside a six-wide burst: max 6.4s over a 28.4s span, then 8.0s over 32.4s. A debounce
     beats a fixed hold, and 10s leaves the solo call exactly where today's fixed 10s puts it.
 
-51. ⬜ **The since-boot seed is structurally optimistic above mean concurrency, and the comment
+51. ✅ 2026-09-18 **The since-boot seed is structurally optimistic above mean concurrency, and the comment
   justifying it claims the opposite.** `openai_compat.py` line 827: "a blend over every
   concurrency regime since boot makes it conservative rather than flattering". It cannot be.
-    - a. ⬜ A lifetime mean over regimes averaging below six must overprice a six-way stream.
+    - a. ✅ A lifetime mean over regimes averaging below six must overprice a six-way stream.
     Measured 2026-09-17: seed 34.82 against a real 19.3 per stream, between the module's own
     44.1-solo and 19.4-at-six benchmarks by construction. Feeds 44's rate half.
 
