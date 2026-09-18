@@ -359,6 +359,83 @@ def check_conflict_markers() -> list[Finding]:
     return out
 
 
+# A body is re-read on every invocation, so what it says is paid for every run. These are
+# the two shapes of history cheap enough to spot mechanically: a date, and a pull request
+# or issue number. An `ADR-NNNN` is deliberately absent -- it is a pointer to a decision
+# rather than a narrative about one, and it earns its few characters.
+BODY_HISTORY = (
+    (re.compile(r"\b20\d\d-\d\d-\d\d\b"), "a date"),
+    (re.compile(r"(?<![\w/])#\d{2,}\b"), "a pull request or issue number"),
+)
+
+# Where bodies live. `.claude/` is this repository's own agents and skills; the packaged
+# directory ships into somebody else's project, where the same cost applies to a reader
+# who has no access to this history at all.
+BODY_DIRS = (".claude", "src/claude_delegate_local/skills")
+
+
+def _body_prose_lines(text: str):
+    """Yield (line number, line) for the prose of a body, and nothing else.
+
+    Two exemptions, both load-bearing. Frontmatter carries `description`, a one-line
+    summary a client displays, which cannot be reflowed to dodge a checker. A fenced block
+    carries examples, and `test-writer`'s asserts against a deliberately fictional
+    `ADR-0099` -- flagging it would force the example to be broken to satisfy the check.
+    """
+    lines = text.splitlines()
+    i, n = 0, len(lines)
+    # Frontmatter only when the file opens with it; a stray `---` further down is a rule.
+    if lines and lines[0].strip() == "---":
+        i = 1
+        while i < n and lines[i].strip() != "---":
+            i += 1
+        i += 1
+    fenced = False
+    while i < n:
+        line = lines[i]
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced:
+            yield i + 1, line
+        i += 1
+
+
+def check_body_history() -> list[Finding]:
+    """History in a file that is re-read on every invocation.
+
+    CONTRIBUTING.md states the rule; this makes it enforceable. An audit would find these
+    too, but it runs a few times a month against a habit that produces several instances an
+    hour, so the correction has to arrive at commit time to change anything.
+
+    Tracked documents are deliberately out of scope. CHANGELOG.md, JOURNAL.md and
+    DECISIONS.md exist to hold exactly what this refuses, and a check that read them would
+    be asking the project to delete its own record.
+    """
+    out = []
+    for d in BODY_DIRS:
+        base = ROOT / d
+        if not base.is_dir():
+            continue
+        for p in sorted(base.rglob("*.md")):
+            r = rel(p)
+            text = p.read_text(encoding="utf-8", errors="replace")
+            for i, line in _body_prose_lines(text):
+                for pattern, what in BODY_HISTORY:
+                    m = pattern.search(line)
+                    if not m:
+                        continue
+                    out.append(Finding(
+                        BLOCK, "body-history",
+                        f"{r} line {i} carries {what}, {m.group(0)!r}. A body is re-read on "
+                        f"every invocation, so its history is paid for on every run and "
+                        f"buys nothing a reader can act on. State the rule here and put the "
+                        f"incident in CHANGELOG.md, which is read once by whoever asks why. "
+                        f"Frontmatter and fenced blocks are exempt; an ADR number is not "
+                        f"matched, being a pointer rather than a narrative."))
+                    break
+    return out
+
+
 # A literal prefixed with "word:" is matched case-sensitively on word boundaries
 # instead of case-insensitively as a substring. It exists for the case the plain form
 # cannot serve: a name that is also an ordinary programming word.
@@ -1740,6 +1817,7 @@ CHECKS = {
     "identity": check_commit_identity,
     "email-content": check_emails_in_files,
     "conflict-marker": check_conflict_markers,
+    "body-history": check_body_history,
     "host-identifier": check_host_identifiers,
     "scan-coverage": check_scan_coverage,
     "secret-path": check_secret_paths,

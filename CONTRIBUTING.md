@@ -1,4 +1,5 @@
-<!-- BUDGET: 396      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- BUDGET: 398      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- Raised from 396 (+1 for this line) on 2026-09-18: the body-history rule is enforced now, and which half the gate takes belongs beside the rule itself. -->
 <!-- Raised from 393 (+1 for this line) on 2026-09-18: the two session skills are separate, and which one reads the other is the half that was never stated. -->
 <!-- Raised from 390 (+1 for this line) on 2026-09-18: a body re-read every invocation pays for its own history, so the rule that keeps narrative out of one belongs where both directories are owned. -->
 <!-- Raised from 369 on 2026-09-12: a check class names every place its evidence can live, and CLAIMS named two of three. -->
@@ -337,7 +338,8 @@ Restating it in both is how one fact acquires two homes.
 
 **A skill or agent body states the rule, never the incident behind it.** Both are re-read on
 every invocation, so a sighting or a date in one is paid for on every run, where the same
-fact in `CHANGELOG.md` is read once. Keep an ADR pointer; cut the narrative.
+fact in `CHANGELOG.md` is read once. Keep an ADR pointer; cut the narrative. The gate blocks
+a date or a pull request number in one; the undated kind is the audit's.
 
 **Planning and executing are separate skills, because they have different readers.**
 [session-plan](.claude/skills/session-plan/SKILL.md) stops at approval and
