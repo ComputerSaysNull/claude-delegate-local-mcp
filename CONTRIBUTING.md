@@ -1,4 +1,5 @@
-<!-- BUDGET: 393      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- BUDGET: 396      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- Raised from 393 (+1 for this line) on 2026-09-18: the two session skills are separate, and which one reads the other is the half that was never stated. -->
 <!-- Raised from 390 (+1 for this line) on 2026-09-18: a body re-read every invocation pays for its own history, so the rule that keeps narrative out of one belongs where both directories are owned. -->
 <!-- Raised from 369 on 2026-09-12: a check class names every place its evidence can live, and CLAIMS named two of three. -->
 <!--
@@ -341,7 +342,9 @@ fact in `CHANGELOG.md` is read once. Keep an ADR pointer; cut the narrative.
 **Planning and executing are separate skills, because they have different readers.**
 [session-plan](.claude/skills/session-plan/SKILL.md) stops at approval and
 [session-execute](.claude/skills/session-execute/SKILL.md) starts there. A close-out rule
-left in the planning skill is read while planning and forgotten while committing.
+left in the planning skill is read while planning and forgotten while committing. The
+separation runs one way only: the planner reads the executor, or the plan omits what
+execution will need from it.
 
 There are now **two** skill directories and they are not interchangeable. This one is for
 working on this repository and is never installed anywhere. `src/claude_delegate_local/skills/`
