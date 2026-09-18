@@ -1,4 +1,5 @@
-<!-- BUDGET: 919 -->
+<!-- BUDGET: 922 -->
+<!-- Raised from 919 (+1 for this line) on 2026-09-18: 52.a argued from an ownership gap that the commit filing it had already closed, and the correction has to sit where the item is read. -->
 <!-- Raised from 912 (+1 for this line) on 2026-09-18: two sub-items of 49 were measured wrong and are struck beside their corrections, and the artefact they described is filed where it actually belongs. -->
 <!-- Raised from 896 (+1 for this line) on 2026-09-18: delegated writing measured at three tasks ever, all asked for, so the agent twins left Deferred and the policy half was filed beside them. -->
 <!-- Raised from 893 (+1 for this line, and 895 was an arithmetic slip) on 2026-09-17: the runbook names the one failure shape that did not happen, and a caller reading empty_response alone files every failure today as a clean pass. -->
@@ -834,16 +835,18 @@ local, because they are working notes rather than a product fact.
     Measured 2026-09-17: seed 34.82 against a real 19.3 per stream, between the module's own
     44.1-solo and 19.4-at-six benchmarks by construction. Feeds 44's rate half.
 
-52. ⬜ **No audit pass covers the project plane or `.claude/` for staleness**, so the audit's own
+52. ✅ 2026-09-18 **No audit pass covers the project plane or `.claude/` for staleness**, so the audit's own
   runbook drifted unchecked. Passes 1-6 read `docs/` against `src/`; the root documents get
   only TOO VERBOSE, WRONG DOCUMENT, CROSS-PLANE LEAK and CLAIMS.
-    - a. ⬜ Found by hand in minutes: `docs-audit-dispatch/SKILL.md` names two removed settings as
-    live (ADR-0077), calls the admission wait silent against 6,936 `waiting` events, and advises
-    a fan-out that guarantees `admission_timed_out`. CLAUDE.md's ownership roots omit `.claude/`.
-    - b. ⬜ **The agent file caps `max_turns` at 5, and the searching classes need more.** MISSING
+    - a. ✅ Found by hand in minutes: `docs-audit-dispatch/SKILL.md` names two removed
+    settings as live (ADR-0077), calls the admission wait silent against 6,936 `waiting`
+    events, and advises a fan-out that guarantees `admission_timed_out`. ~~CLAUDE.md's
+    ownership roots omit `.claude/`.~~ **Stale on filing: `b1175eb` (#227) added it in the
+    same commit.** The SKILL.md half stood and is what this item fixed.
+    - b. ✅ **The agent file caps `max_turns` at 5, and the searching classes need more.** MISSING
     and CLAIMS both hit it at 8 and 9 tool calls, so both "clean" verdicts are partial — the same
     weak evidence the 2026-09-11 record flagged. Raise it per class, or prefetch what they seek.
-    - c. ⬜ **The runbook says an oversized pass "does not come back truncated; it comes back
+    - c. ✅ **The runbook says an oversized pass "does not come back truncated; it comes back
     empty"** (line 169). Measured 2026-09-17: four exhausted their reasoning and one truncated
     mid-sentence, every one with `empty_response: false`. Name the fields that do say so.
 

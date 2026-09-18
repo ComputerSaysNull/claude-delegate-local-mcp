@@ -38,6 +38,78 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #232 — 2026-09-18 — docs: the audit runbook advised the fan-out that broke the audit
+
+### Fixed
+- **The runbook sized its fan-out against an admission gate removed five days earlier.** It
+  described `max_inflight_large_prefills` and `large_prefill_tokens` as live, both deleted by
+  ADR-0077 on 2026-09-13, and told the reader to overlap passes freely because small ones
+  "do not contend at all". Nothing had contended on that rule since it was removed. The
+  advice cost the 2026-09-18 audit directly: fourteen passes were dispatched into six slots,
+  `admission_timeouts` reached 8, and each was refused at the full wait having produced
+  nothing. The section now names `max_inflight_seqs` and says to size the fan-out to it.
+- **It called the admission wait silent.** `admission.py` invokes `on_wait` on every tick,
+  and one refused transcript from that same run held 6,936 `waiting` events. The claim
+  mattered because it told the reader a queued pass is indistinguishable from a dead one, so
+  the diagnostic it recommended was the wrong one.
+- **It promised the one failure shape that did not happen.** "An oversized pass does not come
+  back truncated; it comes back empty, reporting success" — measured 2026-09-17, four passes
+  exhausted their reasoning and one truncated mid-sentence, every one with `empty_response`
+  reading `false`. A caller checking that field alone files each as a clean pass with a long
+  answer, so the entry now names `answer_is_reasoning` and `reasoning_exhausted`.
+- **MISSING and CLAIMS were running out of turns and reporting clean.** Both hit the agent
+  file's `max_turns` of 5, at 8 and 9 tool calls. An absence established by a pass that ran
+  out of turns is not an absence, which is the weak evidence the 2026-09-11 record already
+  flagged. Those two search rather than compare, so the runbook now says to raise the cap on
+  the call — the agent file's value is a default a caller may raise.
+
+### Changed
+- **The 2026-09-18 dispatch measurement is recorded with both counts, and with its confound.**
+  Narrow-and-cheap beat broad-and-expensive: thirteen of sixteen against four of twelve
+  counting clean complete answers, fifteen of sixteen against six of twelve counting anything
+  usable. Quoting one standard on one side and the other on the other overstates it. The two
+  arms varied scope *and* effort together, so neither is credited alone and the effort column
+  is left unchanged — isolating which half carries the gain needs an arm nobody has run. The
+  runbook now says explicitly not to read that comparison as a reason to ask for `low`, which
+  would have contradicted its own effort section: that section already records the step-down
+  to `low` as a symptom of pricing since fixed, and says to re-measure before touching it.
+- **The fan-out fills the gate rather than staying under it.** `max_inflight_seqs` passes at a
+  time, six here: a burst that fits is now priced for the contention it will actually meet,
+  so a full gate is the intended shape and dispatching fewer only idles capacity. What broke
+  the audit was fourteen into six, not six into six. Narrow scoping also means *more* calls
+  than the table lists — the last audit took twenty-one answers from thirty-six calls, the
+  difference being eight refused at admission and seven dead at their reply ceiling.
+
+### Changed
+- **The sizing rule names a shape instead of a size.** It said to split a pass over "a module
+  above ~1,000 lines" or "a large document", which is a judgement call re-made on every audit
+  and, checked against the record, an unsupportable one: across one full audit the largest
+  pass by combined document and module length returned a report while the smallest exhausted
+  its reasoning. Document length, module length, combined length and section-versus-whole all
+  fail to separate the passes that answered from the ones that did not — which is 44.g's
+  finding again, that input size is not the driver.
+
+  The rule is now three things a reader can check on the call before sending it: one check
+  class, one document or named sections of one, and modules listed individually rather than
+  by glob. "Enumerable" keeps its existing concrete definition in the Sizing section rather
+  than being restated vaguely here, and the runbook now says outright not to size a pass by
+  line count.
+
+### Added
+- **A fourteenth pass: FILED ALREADY, over the hand-off notebook.** The notebook is the one
+  document nothing checks. It is untracked, so no gate sees it; it is read at the start of
+  every session, so its length is paid for every time; and its whole contract is to hold only
+  what no tracked document already has — which nothing verifies. The class reports a line
+  whose fact has since been filed, a claim no longer true, and a war story where a rule would
+  do.
+
+  **It cannot be delegated**, and that is recorded rather than worked around: the notebook
+  lives in the plans directory, outside every workspace root, so `files[]` refuses it and the
+  agent cannot be handed the file. The pass is run by whoever drives the audit.
+- **`PLAN.md` 52.a is struck and corrected rather than ticked as filed.** Half of it argued
+  from "CLAUDE.md's ownership roots omit `.claude/`", which `b1175eb` fixed in the same
+  commit that filed the item, so it would have read as evidence for work already done.
+
 ## #231 — 2026-09-18 — fix: defend the reply margin with the measurement it was waiting for
 
 ### Changed
