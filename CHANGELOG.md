@@ -38,6 +38,70 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #227 — 2026-09-18 — docs: the 2026-09-18 audit, and the seven drifts it confirmed
+
+### Fixed
+- **`CONTRIBUTING.md` documented an admission rule removed five days earlier.** It said "at
+  most **two** of them may be delegated passes that prefetch, and that one admission does
+  enforce", which was `max_inflight_large_prefills` — removed by ADR-0077 on 2026-09-13, with
+  no such field left in `config.py`. **Symptom:** the audit that found it began by dispatching
+  fourteen passes on the strength of the *other* document's advice, and eight were refused at
+  `admission_wait_timeout` on `max_inflight_seqs`. The prose now names the rule that binds,
+  and says the prefetch-size cap is gone. **Cause:** the project plane has no STALE class, so
+  nothing compares these documents against the code. Filed as `Unscheduled.52`.
+- **`admission.py` contradicted itself about how many rules its gate has.** The module
+  docstring said "Three rules, checked as one predicate"; the class docstring said "The
+  four-rule gate"; `_binding` says "all four" and returns four, the fourth being
+  `QUEUED_RULE`. One word carried two meanings — capacity-only in one place, capacity plus
+  queue position in the others. The module docstring now says "three capacity rules" and
+  names the queue as the fourth reason `_binding` can refuse on, and `docs/ARCHITECTURE.md`
+  follows the same distinction in the three places it counted.
+- **`CLAUDE.md`'s ownership rule named three roots where the gate enforces four.** It said
+  every file under `src/`, `scripts/` and `.github/` has an owning document;
+  `scripts/docs_gate.py` also covers `.claude/`, which `docs_ownership.toml` assigns to
+  `CONTRIBUTING.md`. A reader editing an agent or a skill had no reason to expect the gate.
+- **`docs/DISPATCH.md` quoted a number that reads as a current default.** The heartbeat
+  symptom "60s of 14400s" contains `dispatch_timeout`'s default, in a passage explaining why
+  `ends_in_seconds` exists. Marked as the ceiling of the day rather than relocated: the
+  observation is evidence for a design decision and belongs where that decision is explained.
+
+### Changed
+- **`README.md` explains three things the product plane owns, and now links instead.** Why
+  `.env` and `models.toml` are gitignored (MODELS.md), what `--init` does with a file already
+  there, and where `provision` builds its virtualenv and what keeps it in step
+  (ARCHITECTURE.md). The bubblewrap bullet keeps its requirement — a reader needs it before
+  installing — and loses only the derivation clause ARCHITECTURE.md carries.
+- **`CONTRIBUTING.md`'s "Build-time agents" was 106 lines of chronological sightings**, seven
+  of them, each restating the rule it illustrates. Trimmed to two sightings in place, keeping
+  every rule, every measured number and every reference. Not moved to `docs/audits/`, which
+  holds frozen point-in-time evidence where live examples would be buried.
+- **`docs/AGENTS.md` narrated a tool count rather than an argument.** "Why agents are files"
+  walked five → seven → five → six while its first sentence already says six. The arithmetic
+  is gone; ADR-0042, ADR-0051 and ADR-0059 and the reasons they carry all stand.
+
+### Added
+- **`docs/audits/2026-09-18-audit.md`**, which resets the gate's audit-due pressure at 64
+  commits. All thirteen check classes were attempted and all thirteen returned something.
+  Verification changed six of the findings — three retracted, two downgraded, one remedy
+  replaced — including one this session had already confirmed by hand and a later pass
+  overturned by reading the paragraph that defined the term.
+- **`Unscheduled.49` to `.52`**, the structural faults the audit surfaced but cannot itself
+  fix: `RateHistory` evicting by recency when `expect` takes a minimum, `expected_concurrency`
+  under-counting a staggered burst, the since-boot seed being structurally optimistic above
+  mean concurrency, and no class auditing the project plane or `.claude/`. `40.f` records the
+  admission bail-out firing eight times on the gate that outlived ADR-0077, refuting `40.e`;
+  `44.g` records one pass answering at a 58,959-token ceiling while another exhausted at
+  20,378 holding less input, which is `44.b`'s claim demonstrated rather than argued.
+- **`Unscheduled.53` and `.54`** — delegated writing, measured. 83 of 541 recorded calls
+  reached a write-capable tool and three tasks in the whole history wrote anything, all on one
+  morning and all because they were asked for. `.53` is the agent twins, moved out of Deferred
+  on that evidence; `.54` is the half twins cannot fix, which is that no instruction asks for
+  writing to be delegated while two discourage it.
+- **`JOURNAL.md` 2026-09-18** carries the pricing arithmetic behind all of it: the ceiling is
+  `min(stall_left, dispatch_left, turn_timeout)` × rate × margin, which is `1800 × 34.82 × 0.6`
+  = 37,605 to the token, so a rate overestimated 1.8x authorises a reply the attempt cannot
+  deliver before `turn_timeout` kills it.
+
 ## #226 — 2026-09-16 — docs: re-file two items against what was measured
 
 ### Changed

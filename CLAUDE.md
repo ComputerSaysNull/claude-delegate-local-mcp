@@ -25,8 +25,8 @@ This lists what will bite you.
 
 ## Documentation ownership
 
-Every file under `src/`, `scripts/` and `.github/` has exactly one owning document, or is
-explicitly declared unowned. **Changing the code means updating its owning document in the
+Every file under `src/`, `scripts/`, `.github/` and `.claude/` has exactly one owning
+document, or is explicitly declared unowned. **Changing the code means updating its owning document in the
 same commit.** The gate blocks otherwise.
 
 Do not memorise the mapping and do not copy it here — `scripts/docs_ownership.toml` is the

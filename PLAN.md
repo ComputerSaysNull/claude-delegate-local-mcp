@@ -1,11 +1,10 @@
-<!-- BUDGET: 848 -->
-<!-- Raised from 840 (+1 for this line) on 2026-09-16: four items re-filed against measurements that landed today -- one sub-item was disproved outright, and each needs its reason where the item is read. -->
-<!-- Raised from 838 on 2026-09-15: a cancelled item states its reason on the marker line, and the body it cancels is kept beside it. -->
-<!-- Raised from 834 on 2026-09-15: a dead parameter found while measuring and nearly lost with the scratch files it was found in. -->
-<!-- Raised from 831 on 2026-09-15: two of M11.5's sub-items argued from a premise RateHistory retired and one had the sign backwards; the corrections cost more than the lines. -->
-<!-- Raised from 827 on 2026-09-15: a refusal costs a round trip, which is cheap in seconds and dear in turns, and that trade needs revisiting rather than remembering. -->
-<!-- Raised from 823 on 2026-09-15: a scan cap spent inside a gitignored directory answers from nothing, and that is a correctness item rather than a speed one. -->
-<!-- Raised from 820 on 2026-09-15: ADR-0076 exit condition checked at last and failed, so the item it was unproven against is filed. -->
+<!-- BUDGET: 912 -->
+<!-- Raised from 896 (+1 for this line) on 2026-09-18: delegated writing measured at three tasks ever, all asked for, so the agent twins left Deferred and the policy half was filed beside them. -->
+<!-- Raised from 893 (+1 for this line, and 895 was an arithmetic slip) on 2026-09-17: the runbook names the one failure shape that did not happen, and a caller reading empty_response alone files every failure today as a clean pass. -->
+<!-- Raised from 890 on 2026-09-17: a pass succeeded at 58,959 tokens and another exhausted at 20,378 with less input, which is 44.b's claim demonstrated rather than argued. -->
+<!-- Raised from 881 on 2026-09-17: expect returns a bucket of one whole when the label is trusted, which this deployment always is, and the idle-hold proposal it argues for. -->
+<!-- Raised from 848 on 2026-09-17: four structural items the docs audit surfaced but cannot itself file, plus the bail-out firing on the gate that survived ADR-0077. -->
+<!-- Raised from 840 on 2026-09-16: four items re-filed against measurements that landed today -- one sub-item was disproved outright, and each needs its reason where the item is read. -->
 <!-- Lowered from 930 on 2026-09-15: the three-line cap took 57 lines and the raise history stopped being a third copy of itself; slack a document has not earned is where the next accretion goes. -->
 <!-- Earlier raises are in this file's git history, and each one's reason is in the
      CHANGELOG.md section for the pull request that made it. This opener is load-bearing:
@@ -708,6 +707,9 @@ local, because they are working notes rather than a product fact.
     - e. ⬜ Every wait it ever fired on was on that gate, and the gate is gone (ADR-0077, #184),
     which is what makes the 2026-09-14 reading the current word. **Re-rank on that**, not on
     the 09-12 firings, and measure the item below before moving 1800.
+    - f. ⬜ **Refuted 2026-09-17: it fired eight times on `max_inflight_seqs`**, the gate that
+    survived. A fourteen-wide fan-out into six slots; every waiter refused at 1800s having
+    produced nothing, while the six holding slots ran on. Re-rank on this, not on 09-14.
 41. ✅ 2026-09-13 **Release the *large* half of an admission lease at first token, not at the
   end of the run.** `admit()` holds it for the whole delegation, and the prefill it serialises
   is over once decoding starts. Measured 2026-09-12 at `effort: high`: time to first token
@@ -776,6 +778,9 @@ local, because they are working notes rather than a product fact.
     - f. ⬜ **Hardened 2026-09-16:** the seed priced above what the turn achieved in 31 of 113
     informative turns, worst 2.98x, so the margin absorbs more error than it was credited with.
     Blocked on the rate; moving `turn_timeout` to fit is the same mistake on another constant
+    - g. ⬜ **Demonstrated by accident 2026-09-17:** one audit pass succeeded first attempt at
+    `high` on a 58,959 ceiling, while another exhausted its reasoning at 20,378 holding the
+    *smallest* prefetch of the wave. Input size is not the driver, the ceiling is. Supports b.
 45. ✅ 2026-09-15 **A `path` naming a whole workspace root is refused.** Required and
   supplied since ADR-0076, then satisfied with the root: 8 of 9 first searches named a root
   or the sentinel and 1 named a subdirectory. The refusal carries its children (ADR-0082)
@@ -792,6 +797,72 @@ local, because they are working notes rather than a product fact.
   It existed only to enforce `max_inflight_large_prefills`, removed with that gate (ADR-0077).
   Every caller still computes and passes an estimate the predicate never sees
 
+49. ⬜ **`RateHistory` is one 64-sample deque shared by every concurrency, evicted by recency.**
+  `expect` takes a *minimum*, so the busiest samples carry all the value — and 64 newer quiet
+  ones discard them. Per-concurrency buckets, or eviction by value rather than by age.
+    - a. ⬜ Thirteen five-wide dispatches are 65 samples and evict a six-way reading. Measured
+    2026-09-17 after a six-wide fan-out the file held one pair, `[3, 18.869…]` — a six-way
+    rate under a label of 3, because `expected_concurrency` is a guess (50).
+    - b. ⬜ **`trusted` disables the widening entirely, and this deployment always trusts**:
+    `label_trusted` is `admission_idle_hold > 0`, so `expect` returns the exact bucket's
+    minimum and never widens. Measured: `expect(5)` = 54.59 tok/s beside `expect(6)` = 18.74.
+    - c. ⬜ 54.59 is above the 44.1 solo benchmark, so it is 14's quoting-turn artefact returned
+    whole from a bucket of one, pricing a five-way pass at **58,959** tokens. The defect is the
+    non-monotonicity, not the direction: that pass was the audit's only first-attempt success.
+
+50. ⬜ **`expected_concurrency` under-counts a burst the client staggers**, so a fan-out labels
+  its samples below the contention they met. `admission_idle_hold` is 10s; the six calls of
+  one message opened 5.5s apart across **28.4s**, and were labelled 2 and 3.
+    - a. ⬜ The two errors cancel while both sides use the same guess — `expect(2)` still finds
+    the six-way sample — so this is not urgent alone. It becomes wrong the moment 49 keys the
+    memory on the label, which makes it a prerequisite rather than a nicety.
+    - b. ⬜ **Proposed: release when the gate fills, or 10s pass with no new arrival.** Measured
+    gaps inside a six-wide burst: max 6.4s over a 28.4s span, then 8.0s over 32.4s. A debounce
+    beats a fixed hold, and 10s leaves the solo call exactly where today's fixed 10s puts it.
+
+51. ⬜ **The since-boot seed is structurally optimistic above mean concurrency, and the comment
+  justifying it claims the opposite.** `openai_compat.py` line 827: "a blend over every
+  concurrency regime since boot makes it conservative rather than flattering". It cannot be.
+    - a. ⬜ A lifetime mean over regimes averaging below six must overprice a six-way stream.
+    Measured 2026-09-17: seed 34.82 against a real 19.3 per stream, between the module's own
+    44.1-solo and 19.4-at-six benchmarks by construction. Feeds 44's rate half.
+
+52. ⬜ **No audit pass covers the project plane or `.claude/` for staleness**, so the audit's own
+  runbook drifted unchecked. Passes 1-6 read `docs/` against `src/`; the root documents get
+  only TOO VERBOSE, WRONG DOCUMENT, CROSS-PLANE LEAK and CLAIMS.
+    - a. ⬜ Found by hand in minutes: `docs-audit-dispatch/SKILL.md` names two removed settings as
+    live (ADR-0077), calls the admission wait silent against 6,936 `waiting` events, and advises
+    a fan-out that guarantees `admission_timed_out`. CLAUDE.md's ownership roots omit `.claude/`.
+    - b. ⬜ **The agent file caps `max_turns` at 5, and the searching classes need more.** MISSING
+    and CLAIMS both hit it at 8 and 9 tool calls, so both "clean" verdicts are partial — the same
+    weak evidence the 2026-09-11 record flagged. Raise it per class, or prefetch what they seek.
+    - c. ⬜ **The runbook says an oversized pass "does not come back truncated; it comes back
+    empty"** (line 169). Measured 2026-09-17: four exhausted their reasoning and one truncated
+    mid-sentence, every one with `empty_response: false`. Name the fields that do say so.
+
+53. ⬜ Server-format twins for the four Claude Code agents — `code-reviewer`, `docs-audit`,
+  `researcher` and `test-writer` load only in Claude Code, so `delegate_to_agent` reaches
+  one of five agents here. Moved out of Deferred on 2026-09-18 on the evidence in b.
+    - a. ⬜ Deferred from M10 on 2026-09-10: the entry named `docs-audit-local` as the shape to
+    copy and `#159` split it into an agent plus a runbook, so that shape no longer exists.
+    Re-derive what a twin is before committing four of them.
+    - b. ⬜ **Measured 2026-09-18: the write tools are used, almost never to write.** 83 of 541
+    recorded calls reached `delegate`/`delegate_to_agent`; three tasks ever wrote anything, all
+    on one morning and all because the owner asked. Unprompted it has never happened once.
+    - c. ⬜ `test-writer` is the twin to do first: writing tests is the kind of work the routing
+    rule sends to a project agent, and the one kind with no agent to send it to. The others are
+    read-only and already have working read-only routes.
+
+54. ⬜ **Nothing tells a session to delegate writing, and two things discourage it.** CLAUDE.md
+  forbids reading in the main conversation and says nothing about writing there; session-execute
+  names the write tools only as a cost — "chain at 120s" — then says "Delegate the reading".
+    - a. ⬜ The friction is real as well as rhetorical: a read-only tool is declared read-only so a
+    gating client runs it unasked, where a write-capable one needs a keypress and serialises at
+    120s. The remedy is a policy change in CLAUDE.md, not a change to the server.
+    - b. ⬜ Not fixed by 53, which gives writing work an agent to route to but does not change what
+    the instructions say. The 2026-09-07 calls show the capability already works: a regression
+    module and two owning documents, three calls, nothing recorded as a failure.
+
 ## Deferred
 
 On hold for weeks or months. Not cancelled, and not queued.
@@ -806,13 +877,6 @@ On hold for weeks or months. Not cancelled, and not queued.
   its own `max_inflight_seqs` and `max_inflight_large_prefills` against one endpoint
 4. ⬜ Per-user identity on the endpoint. `api_key_env` is empty, so there is no auth, no
   quota and no fair share
-5. ⬜ Server-format twins for the four Claude Code agents — `code-reviewer`, `docs-audit`,
-  `researcher` and `test-writer` load only in Claude Code, so `delegate_to_agent` reaches
-  one of five agents here.
-    - a. ⬜ Deferred from M10 on 2026-09-10: the entry named `docs-audit-local` as the shape to
-    copy and `#159` split it into an agent plus a runbook, so that shape no longer exists.
-    Re-derive what a twin is before committing four of them.
-
 ## Cancelled
 
 1. ❌ 2026-09-05 A batch returns nothing until its slowest item settles — **wrong when

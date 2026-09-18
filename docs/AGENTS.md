@@ -61,18 +61,17 @@ There are six MCP tools: `delegate`, `delegate_readonly`, `delegate_to_agent`,
 refactoring, migration — is a markdown file, not a new tool. A test asserts the exact set,
 so another cannot arrive unargued.
 
-It was five until `delegate_readonly`, which is one argument ADR-0005 asked for and not an
-exception to it. That rule is about task *kinds*, and this is not: it is `delegate` with the
-tool set fixed, existing because a client decides whether to prompt before a call runs and
-can only read the tool's annotation then. A read-only call cannot be expressed where
-permission rules never inspect arguments; only a read-only tool can. No agent file can carry
-that constraint, because the tool an agent is reached through can write. (ADR-0042) It
-reached seven with two batch tools and fell back to five: they were cancelled once the
-prefix sharing that justified them was measured and needed no tool of its own. (ADR-0051)
-
-Six is the same argument a third time: `delegate_to_agent_readonly` is `delegate_to_agent`
-with the set fixed, and what it keeps that `delegate_readonly` cannot is the agent file
+`delegate_readonly` is one argument ADR-0005 asked for and not an exception to it. That rule
+is about task *kinds*, and this is not: it is `delegate` with the tool set fixed, existing
+because a client decides whether to prompt before a call runs and can only read the tool's
+annotation then. A read-only call cannot be expressed where permission rules never inspect
+arguments; only a read-only tool can. No agent file can carry that constraint, because the
+tool an agent is reached through can write. (ADR-0042) `delegate_to_agent_readonly` is the
+same argument again, and what it keeps that `delegate_readonly` cannot is the agent file
 itself. (ADR-0059)
+
+Two batch tools were argued for and cancelled, once the prefix sharing that justified them
+was measured and found to need no tool of its own. (ADR-0051)
 
 That keeps the tool list Claude sees from growing without bound, and makes adding a task
 type a file rather than a code change and a release. The format is the one Claude Code

@@ -206,49 +206,36 @@ Say which one you want when asking for an audit. The duplication ends when the l
 is dependable enough to be the only one; the copy is then deleted, not left to rot.
 
 **A body can work around a server limitation, and nothing links them.** `docs-audit-local`
-cited by quotation because `read_file` had no line numbers; adding them made that stale. It
-happened again on 2026-09-05: the same body told the model it could not read git history at
-all and had the caller hand the waiver list in, which `read_git` had made untrue — that
-tool runs in the server process, so the tmpfs over `.git` never applied to it. Three
-sightings now, and the third was found by a reader asking "didn't we add that?", not by any
-check. **When you add a tool, grep the agent bodies for what it makes possible.**
+cited by quotation because `read_file` had no line numbers, and elsewhere claimed it could
+not read git history at all, which `read_git` had made untrue. **When you add a tool, grep
+the agent bodies for what it makes possible.**
 
-**A fifth sighting, 2026-09-06, and it says that rule is half a rule.** `docs-audit-local`
-never listed `search_files` in `allowed_tools`, two days after that tool landed — so the
-agent could not have used it whatever its body said. Grepping bodies would not have caught
-it: an agent is never told about a tool it does not have, so the omission leaves no trace in
-the prose to find. **Read the frontmatter too, and treat a tool the agent lacks as the more
-likely fault**, because a stale body is visible and a missing entry is not.
+**That is half a rule, and the 2026-09-06 sighting says why.** `docs-audit-local` never
+listed `search_files` in `allowed_tools`, two days after that tool landed — so the agent
+could not have used it whatever its body said. Grepping bodies cannot catch that: an agent is
+never told about a tool it does not have, so the omission leaves no trace in the prose.
+**Read the frontmatter too, and treat a tool the agent lacks as the more likely fault**,
+because a stale body is visible and a missing entry is not. **Adding the entry is half the
+fix**: a body that never had a tool has no guidance for it, and the first pass after the
+grant spent two calls discovering that `search_files` refuses a relative `path`. Grant the
+tool and say how it is used in the same edit.
 
-**Adding the entry is half the fix.** A body that never had a tool has no guidance for it,
-and the first pass after the grant spent two calls of one turn discovering that
-`search_files` refuses a relative `path`. Grant the tool and say how it is used in the same
-edit, or the frontmatter is right and the agent still cannot use it.
+**A measurement in an agent body needs its date and its conditions**, or the next reader
+cannot tell which half has expired. One recorded that a prefetched audit finished "in one
+turn with zero tool calls" — true when measured, and the wrong thing to aim at once the reply
+budget was capped against the deadline (ADR-0055): an oversized pass comes back **empty**,
+reporting `ok: true` with `finish_reason: "length"`, not truncated, which is what this
+paragraph itself said until it was corrected. Two passes at 27,603 and 41,364 output tokens
+returned nothing and said `ok`. That sentence had also fused two independent claims —
+prefetch everything, and answer in one turn — so correcting the second read as abandoning
+the first.
 
-**A fourth sighting, 2026-09-06, and this one was a measurement rather than a capability.**
-The same body recorded that a prefetched audit finished "in one turn with zero tool calls",
-which was true when measured and became the wrong thing to aim at once the reply budget was
-capped against the deadline (ADR-0055): an oversized pass comes back **empty**, reporting
-`ok: true` with `finish_reason: "length"`. The sentence had also fused two independent
-claims — prefetch everything, and answer in one turn — so correcting the second read as
-abandoning the first. **A measurement in an
-agent body needs its date and its conditions**, or the next reader cannot tell which half
-has expired.
-
-**This paragraph said "truncated rather than killed" until 2026-09-06 and that was wrong in
-the direction that matters**: truncation leaves a short answer a reader can see is short,
-and what actually happens is an *empty* answer reporting success. The agent body carries the
-evidence — two passes at 27,603 and 41,364 output tokens returned nothing and said `ok`. A
-sixth sighting of the same pattern, in the document that records the pattern.
-
-**A seventh sighting, 2026-09-07, and this one pointed outward.** Both audit bodies listed
-"broken links" among what `scripts/docs_gate.py` mechanically checks; `CHECKS` had never held
-one. Every earlier sighting was a body wrong about *itself*, so reading the frontmatter — the
-fix for the fifth — could not have found this. It also inverts the cost: the next line is
-"report nothing it already catches", making a false entry a **blind spot** rather than a
-duplication, and it steered the one reader who would have checked references away from a
-`docs/DISPATCH.md` pointer aimed at its own section. **A body crediting another tool is
-asserting something about that tool's source** — check it there.
+**A seventh sighting, 2026-09-07, pointed outward.** Both audit bodies listed "broken links"
+among what `scripts/docs_gate.py` mechanically checks; `CHECKS` had never held one. Every
+earlier sighting was a body wrong about *itself*, so reading the frontmatter — the fix above
+— could not have found this. It also inverts the cost: the next line is "report nothing it
+already catches", making a false entry a **blind spot** rather than a duplication. **A body
+crediting another tool is asserting something about that tool's source** — check it there.
 
 That rule was tested within a day. The *replacement* text carried a fresh measurement of its
 own — that fanning out costs about 120 s of stagger per extra call — and a controlled run the
@@ -289,8 +276,10 @@ Model and effort follow task cost: the cheapest tier that can do the job. The fr
 key is `effort`, not `reasoning_effort` — a misspelling is ignored in silence and bills the
 default tier, so the table renders a missing key rather than guessing one. Run at most six
 agents concurrently — a convention, enforced nowhere: `ci.yml`'s `max-parallel` is another
-six. At most **two** of them may be delegated passes that prefetch, and that one admission
-does enforce, by killing the rest after `admission_wait_timeout`.
+six. Delegated passes are bounded separately and for real, by `max_inflight_seqs`; a pass
+over that bound waits, and one waiting past `admission_wait_timeout` is refused having
+produced nothing. The cap on *prefetching* passes specifically was removed with the
+large-prefill gate (ADR-0077), so prefetch size no longer decides what may overlap.
 
 ### When to run docs-audit
 
