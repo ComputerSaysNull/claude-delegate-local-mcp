@@ -306,7 +306,7 @@ documentation edit to land unrelated work, which turns a signal into a rubber st
 passes read `docs/` against `src/`; the root documents and the skills and agent files get
 only the classes that need no source to compare against. So the runbook that drives the
 audit is not audited, which is how it came to size a fan-out against an admission gate that
-had been removed. Until a pass covers them, those files are checked by hand.
+had been removed. `.claude/` has a narrative pass now, but staleness there is still by hand.
 
 Write findings to `docs/audits/YYYY-MM-DD-audit.md` and commit them — that file is what
 resets the counter, so recording the audit and clearing the warning are the same act. More

@@ -5,8 +5,9 @@ description: "Runs the complete documentation audit for this repository by dispa
 
 # Documentation audit runbook
 
-Fourteen passes complete one audit. Running the same fourteen every time is what makes two
-audits comparable, so run them all and record the ones you skipped. The last is not delegable.
+Fifteen passes complete one audit. Running the same fifteen every time is what makes two
+audits comparable, so run them all and record the ones you skipped. Pass 14 is the one you
+run yourself.
 
 ```
 Audit progress:
@@ -24,6 +25,7 @@ Audit progress:
 - [ ] 12 CLAIMS           every document
 - [ ] 13 ESCAPE ABUSE     history only
 - [ ] 14 FILED ALREADY    the hand-off notebook (run by the caller, not delegated)
+- [ ] 15 NARRATIVE        .claude/ bodies — skills and agents
 ```
 
 ## Before you start
@@ -54,6 +56,7 @@ the repository root or the agent is not found. Generated documents (`docs/CONFIG
 | 12 | CLAIMS | every document, plus `DECISIONS.md` and `JOURNAL.md` | high |
 | 13 | ESCAPE ABUSE | nothing | low |
 | 14 | FILED ALREADY | the hand-off notebook — **not delegable**, see below | — |
+| 15 | NARRATIVE | every `.claude/agents/*.md` and `.claude/skills/*/SKILL.md` | high |
 
 **Pass 14 is run by whoever is driving the audit, not by a delegation.** The notebook lives
 in the plans directory, outside every workspace root, so `files[]` refuses it and the agent
@@ -77,7 +80,7 @@ not an absence — it reports clean. Pass a higher `max_turns` on the call; the 
 value is a default a caller may raise, clamped silently at `max_turns_hard_cap`. Prefetching
 what they seek is weaker, because neither class knows in advance which document holds it.
 
-Effort is `high` everywhere but pass 13, and pass 14 is not dispatched at all. An audit is a
+Effort is `high` everywhere but pass 13; pass 14 is not dispatched at all. An audit is a
 search across kinds of violation, and `low` narrows it to retrieval — more instances of one
 violation, fewer kinds. Pass 13 *is* retrieval, so `low` is both correct and cheaper there.
 
@@ -89,7 +92,7 @@ before changing this column**, and change it only if the step-down survives a fa
 current pricing — a column rewritten on evidence taken under a defect since fixed would read
 as measured while measuring something else.
 
-**Split by check class, never by document.** Four of the seven classes cannot see a split by
+**Split by check class, never by document.** Four of the nine classes cannot see a split by
 document: WRONG DOCUMENT and CROSS-PLANE LEAK need every document that could hold the
 restatement, MISSING needs every document or absence cannot be established, and CLAIMS needs
 `DECISIONS.md` and `JOURNAL.md` alongside. A pass that cannot see the other copy reports
@@ -144,6 +147,15 @@ the section for the pull request that made it *is* sourced — that is where eve
 why lives, by CONTRIBUTING's rule — and a pass told to look in two of the three places
 reports it as unsourced. **Search all three before calling a number unsourced.** This is the
 most retracted finding the class produces.
+
+**NARRATIVE** — a skill or agent body telling the story of an incident where a rule would
+serve. These files are re-read on every invocation, so a sighting costs on every run and
+buys nothing a reader can act on. Quote the passage and propose the rule that replaces it.
+Report only what the gate cannot: it already blocks a date and a pull request number, so the
+findings here are the undated kind — "it reported six where three had been written", "this
+was tried and reverted", a paragraph of provenance for a one-line instruction. An `ADR-NNNN`
+pointer is not a finding. Neither is a *measured number* that calibrates a decision, such as
+a threshold or a benchmark; a number doing work stays, a number telling a story goes.
 
 **FILED ALREADY** — a notebook line whose fact now lives in `CHANGELOG.md`, `DECISIONS.md`,
 `JOURNAL.md` or `PLAN.md`. The notebook holds what an upcoming session needs and nothing a
