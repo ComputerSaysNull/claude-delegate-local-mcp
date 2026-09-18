@@ -298,6 +298,12 @@ Both are evidence rather than a calendar: a quiet month needs no audit, and a bu
 needs one whatever the date. Both warn rather than block, because blocking would force a
 documentation edit to land unrelated work, which turns a signal into a rubber stamp.
 
+**The audit does not check the project plane or `.claude/` for staleness.** Its staleness
+passes read `docs/` against `src/`; the root documents and the skills and agent files get
+only the classes that need no source to compare against. So the runbook that drives the
+audit is not audited, which is how it came to size a fan-out against an admission gate that
+had been removed. Until a pass covers them, those files are checked by hand.
+
 Write findings to `docs/audits/YYYY-MM-DD-audit.md` and commit them — that file is what
 resets the counter, so recording the audit and clearing the warning are the same act. More
 than one audit on a date takes a `-2` suffix; a later audit supplements its predecessors
