@@ -38,6 +38,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #240 — 2026-09-18 — docs: four decisions that were recorded in the wrong place
+
+### Added
+- **ADR-0088 to ADR-0091, for choices this session made and filed only as CHANGELOG prose.**
+  `CONTRIBUTING.md` says non-obvious choices get an ADR. Four qualified and none got one: the
+  idle hold becoming a debounce, the rate memory becoming per-concurrency buckets,
+  `reply_budget_margin` staying at 0.6, and history in a re-read file being enforced by the
+  gate rather than by an audit class. Each had an alternative weighed and rejected — a fixed
+  30s hold, eviction by value, lowering the margin, extending TOO VERBOSE — which is the
+  shape an ADR exists to hold.
+
+  The reasoning was not lost; it was in the wrong index. A CHANGELOG section records what one
+  pull request did and is found by its number. `DECISIONS.md` is found by heading, which is
+  what lets a decision be *superseded* later, and that is the part that was missing.
+
+### Fixed
+- **ADR-0085's body described a hold that no longer exists.** It says `admission_idle_hold`
+  "(10s) waits after the slot is taken … then re-reads the counters" — a flat wait, replaced
+  by a debounce in #228. Bodies are never edited, so the heading now reads *Partially
+  superseded by ADR-0088*: the bucketing half, and the reasoning that hold and bucketing ship
+  under one setting, both still hold. Left alone, the next reader would have believed a
+  mechanism that had been gone for a day.
+
 ## #239 — 2026-09-18 — feat: a stack of branches ships with one command
 
 ### Added

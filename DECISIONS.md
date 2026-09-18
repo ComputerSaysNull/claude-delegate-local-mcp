@@ -19,6 +19,134 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0091 — 2026-09-18 — History in a re-read file is a gate check, not an audit class — Accepted
+
+**Context.** `CONTRIBUTING.md` says a skill or agent body states the rule and never the
+incident behind it: both are re-read on every invocation, so a sighting or a date is charged
+on every run, where the same fact in `CHANGELOG.md` is read once by whoever asks why.
+
+Nothing enforced it. One session put narrative into four separate bodies before a reader
+caught it by eye, which is the rate the fix has to keep up with.
+
+**Decision.** A gate check, `body-history`, over `.claude/**` and the packaged skills
+directory. Two shapes are cheap to match: a date, and a `#NNN`. Frontmatter and fenced blocks
+are exempt, because `description` is displayed by a client and an example asserts against a
+deliberately fictional ADR reference. Tracked documents are out of scope: `CHANGELOG.md`,
+`JOURNAL.md` and `DECISIONS.md` exist to hold what this refuses.
+
+A fifteenth audit pass, NARRATIVE, takes the complement — the undated kind no grep reaches.
+
+**Rejected: extending TOO VERBOSE.** Its definition says never to cut a measured number or a
+stated reason, which is the opposite instruction, so the class would hold a rule and its
+inverse and have to guess which was meant per paragraph. Passes 9 to 12 also run over "every
+document", which would point it at the three files whose whole job is history.
+
+**Rejected: leaving it to the audit.** An audit runs a few times a month against a habit that
+produces several instances an hour. The correction has to arrive at commit time or it only
+ever cleans up after itself.
+
+**Consequences.** The rule is enforced where it is broken rather than found later. The
+negative control is real data: run against the tree before the hand cleanup, the check
+reports all seven violations across the three files that had to be corrected by eye.
+
+## ADR-0090 — 2026-09-18 — The reply margin stays at 0.6, because the rate was the wrong thing — Accepted
+
+**Context.** `reply_budget_margin` sat at 0.6 through three sessions of "blocked on the
+rate". `PLAN.md` 44.e put a figure on what it would have to become — about 0.57 — for the
+cold-start ceiling to fit. That came from one case, a six-way fan-out priced from the
+since-boot seed, and was read as a property of the margin.
+
+Derived from the transcript record: 230 single-attempt turns carrying both a `priced` row and
+its `turn` row. A ceiling is achievable exactly when `priced_rate x margin <= actual_rate`,
+so the distribution of `actual/priced` is what the margin must cover. Multi-attempt turns are
+excluded, their `ms` spanning every attempt; the interval is `backend_ms`, the difference
+from `ms` being server-side tool time nothing decoded in.
+
+Across the whole corpus 0.6 leaves the ceiling unachievable in 49 of 230 turns, and lowering
+it barely helps: 0.5 still fails 12.2% against 0.6's 21.3%. Read alone that says no constant
+can do the job.
+
+Segmented it says the opposite. The failure rate tracks the rate's **source**:
+
+    cluster_since_boot        46 turns   37.0%
+    observed_at_concurrency  152 turns   16.4%
+    own_turns                 20 turns    5.0%
+
+By date, 32.4% before 2026-09-14 against 12.0% after, which is ADR-0075 warming the memory
+across a reconnect. By position, 29.4% on first turns against 12.6% on later ones.
+
+**Decision.** 0.6 stays. Once the rate is a real measurement the fifth percentile needs only
+0.749, so the margin has room; the tail belongs to the cold start, which `RateHistory` exists
+to shorten.
+
+**Rejected: fitting the constant to the observed failures.** Lowering it would bill every
+well-priced turn for a tail that is not theirs, and fitting a constant to a wrong rate is the
+mistake this roadmap already records against `kv_token_budget`.
+
+**Consequences.** Two caveats stand rather than being buried: the corpus predates ADR-0088
+and ADR-0089, so it supports the direction and cannot show their effect, and `own_turns` is
+the smallest cell while carrying the most weight.
+
+## ADR-0089 — 2026-09-18 — The rate memory is bucketed per concurrency, capped per bucket — Accepted
+
+**Context.** `RateHistory` kept one `deque(maxlen=64)` of `(concurrency, rate)` pairs,
+evicted by recency. `expect` takes a minimum, so the busiest samples carry all of the value:
+a six-way reading is the only thing standing between a six-way delegation and a budget priced
+for an idle cluster. Recency cannot know that.
+
+Thirteen five-wide dispatches are sixty-five samples, so the sixty-fifth walks that reading
+out. Measured against the live memory as it stood, 50 samples across concurrencies 1 to 6,
+with thirteen five-wide dispatches then applied: under the shared deque every concurrency
+answered **30.000 tok/s**, the flood's own value, and `expect(6)` returned **None** — falling
+through to the since-boot seed ADR-0075 exists to avoid. With buckets each regime kept its
+own: 60.590, 16.392, 18.869, 26.211, 30.000, 17.505.
+
+It degraded silently, which is why it survived: a missing bucket falls through to the
+widening and returns a plausible number from the wrong regime rather than an error.
+
+**Decision.** A bucket per concurrency, each capped on its own. The on-disk format is
+unchanged, so a memory written before this is read back whole; the file's trimming moves per
+bucket to match, or a reconnect reintroduces at load time the eviction buckets exist to stop.
+
+**Rejected: eviction by value.** "Value" here means the minimum, so evicting by it keeps the
+slowest sample for ever and the memory stops tracking hardware that changed.
+
+**Rejected: dropping the cap.** Unbounded is a slow leak in a process that runs for days, and
+would let one ancient sample pin a bucket for the life of the server. The cap moves rather
+than goes.
+
+**Consequences.** `expect` is still non-monotonic under a trusted label — a sparse bucket
+returns its one sample whole. That is `PLAN.md` 14's, not this one's: bucketing preserves
+such a sample rather than causing it, and measured 2026-09-18 the margin absorbs it, a
+ceiling failing only above 1.667x against a worst bucket of 1.374x.
+
+## ADR-0088 — 2026-09-18 — The idle hold is a debounce, because a burst spans more than one window — Accepted
+
+**Context.** ADR-0085 shipped `admission_idle_hold` as a flat ten-second wait, sized from an
+arrival distribution measured 2026-09-12 and described there as bimodal: six probes inside
+8.5s, or one alone.
+
+A client staggers a fan-out more than that. Measured 2026-09-17 over two six-wide bursts from
+a single message, gaps between consecutive arrivals were `[5.2, 5.9, 6.4, 5.5, 5.4]` spanning
+28.4s and `[4.8, 5.5, 8.0, 7.0, 7.2]` spanning 32.4s. One window closes with two or three of
+six counted, and `rate-history.json` held `[3, 18.869...]` — a six-way rate filed under a
+label of 3. `expected_concurrency` is the key the memory is both written under and read by,
+so the error is not cosmetic.
+
+**Decision.** The wait repeats while siblings keep arriving and ends at the first window none
+does, or at once when the gate fills. A full gate has already reported the burst's size, and
+that rule is the ceiling, so no second setting is needed.
+
+**Rejected: raising the flat hold to 30s.** The hold fires only on an idle gate, which is the
+single interactive delegation, so a longer fixed wait bills that call for a burst that never
+comes. At one quiet window the solo call sits exactly where the flat hold already put it.
+
+**Consequences.** A burst's first member can now wait several windows before dispatching,
+against one. That is the same objection that sank the fixed 30s and it survives here — it is
+simply a good trade, because the burst then runs for minutes at a rate the budget has
+anticipated for all of its members. ADR-0085's hold is superseded; its bucketing half, and
+the reasoning that the two ship under one setting, still hold.
+
 ## ADR-0087 — 2026-09-16 — A root scope is answered with a note, because walking one is no longer dear — Accepted
 
 **Context.** ADR-0082 refused a `path` that resolved to a workspace root. Its case was
@@ -112,7 +240,7 @@ decision is the deliverable; the `mkdir` belongs to the commit that first writes
 and is stated rather than hidden. What changes is that the ledger now has somewhere to go and
 a rule saying it may go there without being asked, while the transcript does not.
 
-## ADR-0085 — 2026-09-15 — One setting governs the hold and the bucketing, because neither works alone — Accepted
+## ADR-0085 — 2026-09-15 — One setting governs the hold and the bucketing, because neither works alone — Partially superseded by ADR-0088
 
 **Context.** `expected_concurrency` is a snapshot taken when the lease is granted:
 `seqs_at_grant + waiting_at_grant + 1`. A burst's first member finds the gate empty, labels
