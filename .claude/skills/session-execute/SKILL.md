@@ -92,21 +92,30 @@ branch and closes any stacked child unreopenably.
 
 ## 4. The pull request
 
+`python scripts/ship_stack.py` publishes the stack: it derives the order, rebases the front
+branch onto `main`, restacks the rest, scans, opens, waits for checks, merges, and repeats.
+`--dry-run` derives and scans without pushing; `--one` stops after the first. The steps are
+its own — what follows is why they are those steps, which is what you need when it refuses.
+
 **The number in the CHANGELOG heading is a guess you then check.** Take the highest number
 GitHub has issued — pull requests and issues draw from one counter, so read both — add one,
-and write that heading when you write the entry. After `gh pr create`, compare it with the
-number you were given; if it moved, correct the heading and push again **before merging**.
-`docs_gate.py --pr-event` refuses a mismatch, so a forgotten correction cannot reach `main`.
+and write that heading when you write the entry. If the issued number differs, correct the
+heading and push again **before merging**; `docs_gate.py --pr-event` refuses a mismatch, so
+a forgotten correction cannot reach `main`.
 
-**Scan the title and body before publishing**, with `python scripts/docs_gate.py --pr-event`
-over a hand-built payload, run **from the branch that carries the entry** — the number check
-reads that branch's newest heading, and from anywhere else it compares against the wrong
-one. A pull request's text is a public surface no commit hook can gate and CI only sees once
-it is already published, so for a leak CI is a backstop rather than a gate. Write the
-mechanism, never the specimen.
+**Nothing is published unscanned.** A pull request's text is a public surface no commit hook
+sees, and CI only reads it once it is already published — for a leak that makes CI a
+backstop rather than a gate, so the scan happens before `gh pr create` rather than after it.
+It runs from the branch carrying the entry, because the number check reads that branch's
+newest heading and from anywhere else compares against the wrong one. Write the mechanism,
+never the specimen.
 
 The title's *shape* is checked too: Conventional Commits, on the pull request title and on
 every commit subject, because a squash takes its subject from whichever of the two applies.
+
+**One at a time, and squash-merged**, which is what makes the sequencing necessary: merging
+deletes the base branch and closes a stacked child unreopenably, and the squash leaves the
+next branch based on a commit that is no longer in `main`'s history.
 
 ## 5. Working without interruption
 
