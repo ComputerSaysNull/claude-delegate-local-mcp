@@ -1,4 +1,5 @@
-<!-- BUDGET: 795
+<!-- BUDGET: 800
+     Raised from 795 (+1 for this line) on 2026-09-18: the rate memory is bucketed per concurrency, and what one shared cap did to it is the reason the shape changed.
      Raised from 786 on 2026-09-16: the doc said a windowed rate was a different feature; it is this one, and what it refuses to report is the load-bearing part. -->
 <!-- Raised from 779 on 2026-09-15: which tools pool was stated as a predicate and read as a guess, so the six are named. -->
 <!-- Raised from 774 on 2026-09-15: whether the rate memory's key can be believed is a setting now, and the paragraph that describes the seed has to say so. -->
@@ -389,6 +390,10 @@ survive the bad case, and a busier measurement bounds a quieter one from below w
 reverse is never true. The concurrency comes from the lease, not the cluster
 ([ARCHITECTURE.md](ARCHITECTURE.md)), and is remembered rather than modelled — a curve
 fitted to rate-against-concurrency would be a constant baked to one deployment's hardware.
+Samples sit in a bucket per concurrency, each capped on its own. One shared cap evicted by
+recency spends itself on whichever regime ran most recently, so thirteen five-wide dispatches
+walk the six-way reading out and leave every question answered from the flood — a memory that
+gets worse the more it is used.
 An empty memory falls through to the since-boot figure. That is **not** the benign cold start
 it reads as: `expect` searches every sample at the asked concurrency *or busier*, so a low
 expectation searches widely and keeps the worst, while a high one searches an empty set and
