@@ -499,12 +499,17 @@ class Config:
     )
     admission_idle_hold: float = _f(
         10.0,
-        "Seconds a delegation waits after taking its slot, but only when it found the "
-        "gate idle, so that a burst arriving behind it is counted before its concurrency "
-        "is recorded. A burst's first member otherwise sees nothing in flight and labels "
-        "itself solo microseconds before five siblings arrive, and that label is what the "
-        "rate memory is keyed by. Costs nothing when concurrency is already known, because "
-        "a non-idle gate skips it. 0 disables the hold AND the bucketing it pays for: "
+        "Length of the quiet window a delegation waits out after taking its slot, but only "
+        "when it found the gate idle, so that a burst arriving behind it is counted before "
+        "its concurrency is recorded. A burst's first member otherwise sees nothing in "
+        "flight and labels itself solo microseconds before five siblings arrive, and that "
+        "label is what the rate memory is keyed by. The wait is a debounce rather than a "
+        "fixed hold, because a client staggers a fan-out across more than one window: it "
+        "repeats while siblings keep arriving, and ends at the first window none does. A "
+        "full gate ends it immediately, having already reported the burst's size, which is "
+        "what bounds the wait without a second setting. Costs nothing when concurrency is "
+        "already known, because a non-idle gate skips it, and a call with no burst behind "
+        "it pays exactly one window. 0 disables the hold AND the bucketing it pays for: "
         "without it the label cannot be trusted and the rate memory falls back to the "
         "worst sample at that concurrency or busier.",
         unit="seconds",

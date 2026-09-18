@@ -38,6 +38,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #228 — 2026-09-18 — fix: count a burst that arrives over more than one window
+
+### Changed
+- **`admission_idle_hold` is a debounce rather than a fixed wait.** The rate memory was
+  filing six-way samples under a label of 3 — `rate-history.json` held `[3, 18.869...]`
+  after a six-wide fan-out — so the members of a burst were priced for a contention they
+  never met, and `expected_concurrency` is the key that memory is both written under and
+  read by. The cause was that the hold was one flat ten-second sleep, sized as though a
+  burst lands at once. It does not: measured 2026-09-17, six calls from a single client
+  message arrived 5.5s apart across 28.4s, and a second burst spanned 32.4s with a worst
+  gap of 8.0s. One window therefore closes with two or three of six counted, and the label
+  is wrong in the direction that flatters the budget.
+
+  The wait now repeats while siblings keep arriving and ends at the first window none does,
+  or at once when the gate fills — a full gate has already reported the burst's size, and
+  that rule is what bounds the wait without a second setting. Raising the flat hold to 30s
+  was considered and rejected: the hold fires only on an idle gate, which is the single
+  interactive delegation, so a longer fixed wait bills that call for a burst that never
+  comes. At one quiet window the solo call sits exactly where the flat hold already put it,
+  so this costs nothing where nothing is to be learned.
+
+  The cost is real and priced rather than hidden: a burst's first member can now wait
+  several windows before dispatching, against one today. That is worth paying because the
+  burst then runs for minutes at a rate the budget has correctly anticipated for all six of
+  its members, where the old label put the whole fan-out's pricing out by the ratio between
+  solo and six-way decode.
+
 ## #227 — 2026-09-18 — docs: the 2026-09-18 audit, and the seven drifts it confirmed
 
 ### Fixed

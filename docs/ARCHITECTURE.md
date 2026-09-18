@@ -719,15 +719,15 @@ concurrency the delegation is about to *meet*. The cluster's gauge cannot say: a
 taken before the request is issued, so a sibling admitted a moment ago is invisible to it
 while it prefills. [DISPATCH.md](DISPATCH.md) owns what the budget does with them.
 
-**A request that finds the gate empty waits before answering that question**, for
+**A request that finds the gate empty waits before answering that question**, in windows of
 `admission_idle_hold`, and then re-reads. Its own snapshot says "solo" and would go on
 saying so however many siblings are a millisecond behind it — and a burst's first member is
-exactly the call that then decodes at six-way. Only the first pays: anything later already
-sees it, so concurrency is known and the wait would be pure latency. The wait is outside the
-condition, which is the whole trick — holding the lock would block the siblings it is waiting
-to count, so the hold would guarantee the answer it was trying to measure. The slot is
-already taken, so nothing overtakes and a sibling can still be admitted beside it. 0 disables
-the hold and, with it, the pricing that depends on the label being true (ADR-0085).
+exactly the call that then decodes at six-way. The wait is a debounce rather than a fixed
+hold, because a client staggers a fan-out across more than one window: it repeats while
+siblings keep arriving, ends at the first window none does, and ends at once when the gate
+fills, which is what bounds it without a second setting. Only the first pays. The wait is
+outside the condition, which is the whole trick — holding the lock would block the very
+siblings it is counting. 0 disables the hold and the pricing it feeds (ADR-0085).
 
 A ticket is given up on every exit from the wait — admitted, timed out, cancelled, raised
 — from a `finally` rather than from the timeout path, because one abandoned at the front

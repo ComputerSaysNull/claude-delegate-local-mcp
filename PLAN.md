@@ -810,13 +810,13 @@ local, because they are working notes rather than a product fact.
     whole from a bucket of one, pricing a five-way pass at **58,959** tokens. The defect is the
     non-monotonicity, not the direction: that pass was the audit's only first-attempt success.
 
-50. ⬜ **`expected_concurrency` under-counts a burst the client staggers**, so a fan-out labels
-  its samples below the contention they met. `admission_idle_hold` is 10s; the six calls of
-  one message opened 5.5s apart across **28.4s**, and were labelled 2 and 3.
-    - a. ⬜ The two errors cancel while both sides use the same guess — `expect(2)` still finds
+50. ✅ 2026-09-18 **`expected_concurrency` under-counts a burst the client staggers**, so a
+  fan-out labels its samples below the contention they met. `admission_idle_hold` is 10s;
+  the six calls of one message opened 5.5s apart across **28.4s**, and were labelled 2 and 3.
+    - a. ✅ The two errors cancel while both sides use the same guess — `expect(2)` still finds
     the six-way sample — so this is not urgent alone. It becomes wrong the moment 49 keys the
     memory on the label, which makes it a prerequisite rather than a nicety.
-    - b. ⬜ **Proposed: release when the gate fills, or 10s pass with no new arrival.** Measured
+    - b. ✅ **Proposed: release when the gate fills, or 10s pass with no new arrival.** Measured
     gaps inside a six-wide burst: max 6.4s over a 28.4s span, then 8.0s over 32.4s. A debounce
     beats a fixed hold, and 10s leaves the solo call exactly where today's fixed 10s puts it.
 

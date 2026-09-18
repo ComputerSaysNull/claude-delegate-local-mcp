@@ -163,9 +163,12 @@ async def test_the_snapshot_is_taken_after_the_hold_not_before(monkeypatch):
     seen: list[int] = []
 
     async def fake_sleep(_seconds: float) -> None:
-        # A sibling lands while the first member is holding.
-        seen.append(1)
-        await g.acquire(1000, entry_key="flash", entry_limit=5)
+        # One sibling lands while the first member is holding, and only one: the hold is a
+        # debounce, so a sibling on every window would extend it until the gate filled and
+        # this would be measuring the fill rule instead of the snapshot's ordering.
+        if not seen:
+            seen.append(1)
+            await g.acquire(1000, entry_key="flash", entry_limit=5)
 
     monkeypatch.setattr(adm.asyncio, "sleep", fake_sleep)
 
