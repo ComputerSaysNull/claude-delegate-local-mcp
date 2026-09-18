@@ -38,6 +38,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #233 — 2026-09-18 — feat: a server-format test-writer the local model can be routed to
+
+### Added
+- **`test-writer-local`, the server-format twin of `test-writer`.** `delegate_to_agent`
+  reached one of five agent files in `.claude/agents/`; the other four are Claude Code's own
+  format and are reported under `other_format`, rejected on exactly one key — `tools`. So the
+  routing rule that sends work to a project agent had nowhere to send writing work, which is
+  the one kind with no read-only alternative already in place.
+
+  `test-writer` goes first for that reason. `code-reviewer`, `docs-audit` and `researcher`
+  are read-only and already have working read-only routes, so a twin for them changes which
+  agent answers rather than whether one can.
+
+  The twin is not a copy. `tools` becomes `allowed_tools` over the server's own six names,
+  and `network: false` and `max_turns` are stated because the server honours them. The body
+  states rules rather than the incidents behind them: an agent body is re-read on every turn,
+  so a war story is paid for on every invocation, and the running section describes the
+  sandbox the local model is actually in rather than a Windows virtualenv it cannot see.
+
+  Validated both ways, because the two readers disagree in what they accept: `list_agents`
+  reports it under `agents` rather than `skipped` or `other_format`, and the frontmatter
+  parses under strict YAML. `agents.py` is the more permissive of the two, so a clean
+  `list_agents` alone would not have proved the file valid.
+
 ## #232 — 2026-09-18 — docs: the audit runbook advised the fan-out that broke the audit
 
 ### Fixed

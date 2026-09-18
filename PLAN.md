@@ -850,16 +850,16 @@ local, because they are working notes rather than a product fact.
     empty"** (line 169). Measured 2026-09-17: four exhausted their reasoning and one truncated
     mid-sentence, every one with `empty_response: false`. Name the fields that do say so.
 
-53. ⬜ Server-format twins for the four Claude Code agents — `code-reviewer`, `docs-audit`,
+53. ✅ 2026-09-18 Server-format twins for the four Claude Code agents — `code-reviewer`, `docs-audit`,
   `researcher` and `test-writer` load only in Claude Code, so `delegate_to_agent` reaches
   one of five agents here. Moved out of Deferred on 2026-09-18 on the evidence in b.
-    - a. ⬜ Deferred from M10 on 2026-09-10: the entry named `docs-audit-local` as the shape to
+    - a. ✅ Deferred from M10 on 2026-09-10: the entry named `docs-audit-local` as the shape to
     copy and `#159` split it into an agent plus a runbook, so that shape no longer exists.
     Re-derive what a twin is before committing four of them.
-    - b. ⬜ **Measured 2026-09-18: the write tools are used, almost never to write.** 83 of 541
+    - b. ✅ **Measured 2026-09-18: the write tools are used, almost never to write.** 83 of 541
     recorded calls reached `delegate`/`delegate_to_agent`; three tasks ever wrote anything, all
     on one morning and all because the owner asked. Unprompted it has never happened once.
-    - c. ⬜ `test-writer` is the twin to do first: writing tests is the kind of work the routing
+    - c. ✅ `test-writer` is the twin to do first: writing tests is the kind of work the routing
     rule sends to a project agent, and the one kind with no agent to send it to. The others are
     read-only and already have working read-only routes.
 
