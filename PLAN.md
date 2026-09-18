@@ -1,4 +1,5 @@
-<!-- BUDGET: 912 -->
+<!-- BUDGET: 919 -->
+<!-- Raised from 912 (+1 for this line) on 2026-09-18: two sub-items of 49 were measured wrong and are struck beside their corrections, and the artefact they described is filed where it actually belongs. -->
 <!-- Raised from 896 (+1 for this line) on 2026-09-18: delegated writing measured at three tasks ever, all asked for, so the agent twins left Deferred and the policy half was filed beside them. -->
 <!-- Raised from 893 (+1 for this line, and 895 was an arithmetic slip) on 2026-09-17: the runbook names the one failure shape that did not happen, and a caller reading empty_response alone files every failure today as a clean pass. -->
 <!-- Raised from 890 on 2026-09-17: a pass succeeded at 58,959 tokens and another exhausted at 20,378 with less input, which is 44.b's claim demonstrated rather than argued. -->
@@ -498,6 +499,9 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     - b. ⬜ **Both constant-free ceilings failed 2026-09-16:** the engine's windowed aggregate is
     too loose (63.75 hides under an 80 tok/s total) and its per-request mean refuses a
     faster-than-average stream. Observe the window against real turns before choosing a figure
+    - c. ⬜ **`expect(1)` = 60.590 on 2026-09-18 against a 44.1 solo benchmark**, alone in its
+    bucket. `reply_budget_margin` absorbs it: a ceiling fails only above 1.667x, so it would
+    take 73.5 tok/s. Latent, not live — and a quoting turn may genuinely decode this fast.
 15. ✅ 2026-09-13 **An unscoped `search_files` cost 490-572s, and the contract recommended it** —
   `glob` claimed to be the speed lever and the bad-`path` refusal said "omit it to search
   everywhere", which one delegation did, at 239s. Scope is worth ~100x; `read_file` was never
@@ -797,18 +801,21 @@ local, because they are working notes rather than a product fact.
   It existed only to enforce `max_inflight_large_prefills`, removed with that gate (ADR-0077).
   Every caller still computes and passes an estimate the predicate never sees
 
-49. ⬜ **`RateHistory` is one 64-sample deque shared by every concurrency, evicted by recency.**
+49. ✅ 2026-09-18 **`RateHistory` is one 64-sample deque shared by every concurrency, evicted by recency.**
   `expect` takes a *minimum*, so the busiest samples carry all the value — and 64 newer quiet
   ones discard them. Per-concurrency buckets, or eviction by value rather than by age.
-    - a. ⬜ Thirteen five-wide dispatches are 65 samples and evict a six-way reading. Measured
+    - a. ✅ Thirteen five-wide dispatches are 65 samples and evict a six-way reading. Measured
     2026-09-17 after a six-wide fan-out the file held one pair, `[3, 18.869…]` — a six-way
     rate under a label of 3, because `expected_concurrency` is a guess (50).
-    - b. ⬜ **`trusted` disables the widening entirely, and this deployment always trusts**:
-    `label_trusted` is `admission_idle_hold > 0`, so `expect` returns the exact bucket's
-    minimum and never widens. Measured: `expect(5)` = 54.59 tok/s beside `expect(6)` = 18.74.
-    - c. ⬜ 54.59 is above the 44.1 solo benchmark, so it is 14's quoting-turn artefact returned
-    whole from a bucket of one, pricing a five-way pass at **58,959** tokens. The defect is the
-    non-monotonicity, not the direction: that pass was the audit's only first-attempt success.
+    - b. ✅ ~~**`trusted` disables the widening entirely**: `label_trusted` is
+    `admission_idle_hold > 0`, so `expect` never widens. `expect(5)` = 54.59 beside 18.74.~~
+    **Corrected 2026-09-18: trusted *prefers* the bucket and still widens when it is empty,
+    deliberately (ADR-0085).** The harm is a *populated* bucket of one, which is 14's, not this.
+    - c. ✅ ~~54.59 is above the 44.1 solo benchmark, so it is 14's quoting-turn artefact
+    returned whole from a bucket of one, pricing a five-way pass at **58,959** tokens.~~
+    **Re-measured 2026-09-18: that bucket gained a sample, so `expect(5)` is 17.050 and the
+    artefact moved rather than healed** — it is now `expect(1)` = **60.590** against the same
+    44.1, alone in its bucket, on every solo call. Filed to 14; the eviction half is this one.
 
 50. ✅ 2026-09-18 **`expected_concurrency` under-counts a burst the client staggers**, so a
   fan-out labels its samples below the contention they met. `admission_idle_hold` is 10s;

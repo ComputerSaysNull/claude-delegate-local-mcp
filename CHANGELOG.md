@@ -38,6 +38,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #229 — 2026-09-18 — fix: give each concurrency its own rate bucket
+
+### Changed
+- **`RateHistory` holds a bucket per concurrency instead of one shared deque.** The memory
+  kept a single `deque(maxlen=64)` of `(concurrency, rate)` pairs evicted by recency. Since
+  `expect` takes a *minimum*, the busiest samples carry all of the value — a six-way reading
+  is the only thing standing between a six-way delegation and a budget priced for an idle
+  cluster. Recency does not know that, so thirteen five-wide dispatches are sixty-five
+  samples and the sixty-fifth walks the six-way reading out. The memory got *worse* the more
+  it was used, which is the opposite of what a memory is for.
+
+  Measured against the live memory as it stood, 50 samples spanning concurrencies 1 to 6,
+  with thirteen five-wide dispatches then applied. Under the shared deque every concurrency
+  answered **30.000 tok/s** — the flood's own value — and `expect(6)` returned **`None`**,
+  falling through to the since-boot seed that ADR-0075 exists to avoid. With buckets each
+  regime kept its own: 60.590, 16.392, 18.869, 26.211, 30.000 and 17.505.
+
+  It degraded silently, which is why it survived: a missing bucket falls through to the
+  widening and returns a plausible number from the wrong regime rather than an error.
+
+  Eviction by value was the filed alternative and is not taken. "Value" here means the
+  minimum, so evicting by it keeps the slowest sample for ever and the memory stops tracking
+  hardware that changed. The cap moves to each bucket rather than going, for the reason it
+  existed: unbounded is a slow leak in a process that runs for days.
+
+  The on-disk format is unchanged, so a memory written before this is read back whole and no
+  schema bump is needed. The file's own trimming moves per bucket to match, or a reconnect
+  would reintroduce the eviction at load time that the buckets exist to stop.
+
 ## #228 — 2026-09-18 — fix: count a burst that arrives over more than one window
 
 ### Changed

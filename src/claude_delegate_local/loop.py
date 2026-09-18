@@ -481,11 +481,30 @@ class RateHistory:
         raising, because the worst this can cost is the pricing it was already missing.
         """
         self._keep = max(1, keep)
-        self._seen: deque[tuple[int, float]] = deque(maxlen=self._keep)
+        # One bucket per concurrency, each capped on its own. A single shared deque
+        # evicted by recency spent its whole capacity on whichever regime was busiest
+        # *lately*, so thirteen five-wide dispatches walked out the six-way reading that
+        # was the only thing pricing a six-way call honestly -- the memory got worse the
+        # more it was used. The cap moves here rather than going: unbounded would be a
+        # slow leak in a process that runs for days, and would let one ancient sample pin
+        # a bucket for the life of the server.
+        self._seen: dict[int, deque[float]] = {}
         self._path = path
         self._stamp = stamp
         if path is not None:
-            self._seen.extend(self._read())
+            for seen_at, rate in self._read():
+                self._remember(seen_at, rate)
+
+    def _remember(self, concurrency: int, rate: float) -> None:
+        """Put one sample in its own bucket, creating it on first sight."""
+        bucket = self._seen.get(concurrency)
+        if bucket is None:
+            bucket = self._seen[concurrency] = deque(maxlen=self._keep)
+        bucket.append(rate)
+
+    def _pairs(self) -> list[tuple[int, float]]:
+        """Every sample held, flattened back to the shape the file stores."""
+        return [(seen_at, rate) for seen_at, b in self._seen.items() for rate in b]
 
     def _read(self) -> list[tuple[int, float]]:
         """Whatever the file holds that is still trustworthy, and nothing else.
@@ -517,7 +536,10 @@ class RateHistory:
             if isinstance(rate, bool) or not isinstance(rate, (int, float)) or rate <= 0:
                 continue
             kept.append((seen_at, float(rate)))
-        return kept[-self._keep:]
+        # Not truncated here. The caller files each pair into its own bucket, which is
+        # where the cap now lives -- trimming the tail globally would reinstate exactly
+        # the cross-concurrency eviction the buckets exist to stop, at load time.
+        return kept
 
     def _write(self) -> None:
         """Persist, merging with whatever another server process has written since.
@@ -532,12 +554,22 @@ class RateHistory:
         """
         assert self._path is not None
         merged = dict.fromkeys(self._read())
-        merged.update(dict.fromkeys(self._seen))
+        merged.update(dict.fromkeys(self._pairs()))
+        # Bounded per bucket, for the same reason the in-memory cap is: a global tail
+        # would let the busiest regime's samples be written out by whichever one has been
+        # noisiest, and the file is what makes the memory warm after a reconnect.
+        held: dict[int, list[float]] = {}
+        for seen_at, rate in merged:
+            held.setdefault(seen_at, []).append(rate)
         payload = json.dumps(
             {
                 "version": self.SCHEMA_VERSION,
                 "stamp": self._stamp,
-                "seen": [[seen_at, rate] for seen_at, rate in list(merged)[-self._keep:]],
+                "seen": [
+                    [seen_at, rate]
+                    for seen_at, rates in held.items()
+                    for rate in rates[-self._keep:]
+                ],
             },
             separators=(",", ":"),
         )
@@ -570,7 +602,7 @@ class RateHistory:
         # would be a check that can never fire and would be trusted anyway.
         if output_tokens < self.MIN_TOKENS or seconds < self.MIN_SECONDS:
             return
-        self._seen.append((max(int(concurrency), 1), output_tokens / seconds))
+        self._remember(max(int(concurrency), 1), output_tokens / seconds)
         # After the floor, never before it: persistence must not be a second way in for a
         # sample the admission test just refused.
         if self._path is not None:
@@ -603,10 +635,13 @@ class RateHistory:
         """
         want = max(int(concurrency), 1)
         if trusted:
-            at = [rate for seen_at, rate in self._seen if seen_at == want]
+            at = self._seen.get(want)
             if at:
                 return min(at)
-        rates = [rate for seen_at, rate in self._seen if seen_at >= want]
+        rates = [
+            rate for seen_at, bucket in self._seen.items() if seen_at >= want
+            for rate in bucket
+        ]
         return min(rates) if rates else None
 
 

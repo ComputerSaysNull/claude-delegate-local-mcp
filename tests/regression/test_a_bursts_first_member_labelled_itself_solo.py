@@ -34,7 +34,7 @@ from claude_delegate_local.loop import RateHistory
 def history(*samples: tuple[int, float]) -> RateHistory:
     h = RateHistory()
     for concurrency, rate in samples:
-        h._seen.append((concurrency, rate))
+        h._remember(concurrency, rate)
     return h
 
 
