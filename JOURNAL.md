@@ -1933,3 +1933,52 @@ tokens here: the heartbeat understates output by about half, as its own comment 
 **Eight passes never ran.** Fourteen dispatched into a six-slot gate; `admission_timeouts`
 reached 8, each at the full 1800s, on `max_inflight_seqs` — the gate that outlived ADR-0077
 (PLAN 40.f). The wait is not silent: one refused transcript held 6,936 `waiting` events.
+
+## 2026-09-18 — The reply margin was never the broken part; the rate was
+
+`reply_budget_margin` has sat at 0.6 through three sessions of "blocked on the rate", and
+44.e put a number on what it would have to become: about 0.57 for the cold-start ceiling to
+fit. That figure came from one case -- a six-way fan-out priced from the since-boot seed --
+and was read as a property of the margin.
+
+It is not. Derived from the transcript record: 230 single-attempt turns carrying both a
+`priced` row and its `turn` row, comparing what each turn actually decoded against the rate
+it was priced at. A turn's ceiling is achievable exactly when
+
+    priced_rate x margin <= actual_rate,   i.e.   margin <= actual_rate / priced_rate
+
+so the distribution of that ratio is what the margin has to cover. Multi-attempt turns are
+excluded -- their `ms` spans every attempt, so the rate is an artefact -- and the interval
+is `backend_ms` rather than `ms`, because the difference is server-side tool time the model
+did not spend decoding.
+
+Over the whole corpus the ratio runs 0.162 to 5.579, median 0.963, and 0.6 leaves the
+ceiling unachievable in 49 of 230 turns. Lowering it barely helps: 0.5 still fails 12.2%
+against 0.6's 21.3%. Read alone that says a constant cannot do this job.
+
+Segmenting says the opposite, and it is the whole finding. The failure rate tracks the
+*source* of the rate and not the margin:
+
+| `rate_source`             |   n | ceiling unachievable |
+|---------------------------|-----|----------------------|
+| `cluster_since_boot`      |  46 | 37.0%                |
+| `observed_at_concurrency` | 152 | 16.4%                |
+| `own_turns`               |  20 | 5.0%                 |
+
+By date the same trend: 32.4% before 2026-09-14, 12.0% after, which is ADR-0075 making the
+memory survive a reconnect. And by position, 29.4% on first turns against 12.6% on later
+ones -- the first turn being the only one priced from anything but its own measurement.
+
+Once the rate is a real measurement the fifth percentile needs only 0.749, so 0.6 has room
+to spare. The tail belongs to the cold start, which is what `RateHistory` exists to shorten,
+and lowering the margin would bill every well-priced turn for it.
+
+So 0.6 stands, and the instruction it carried -- do not fit a constant to a wrong rate -- was
+right. Two caveats, stated rather than buried. The corpus predates today's bucketing and
+debounce, so it cannot show their effect; the direction is what it supports, since both
+improve the rate the first turn is priced from. And `own_turns` is 20 turns, which is the
+smallest cell and the one carrying the most weight.
+
+The method is worth keeping: pair `priced` with `turn` by turn number within one `.jsonl`,
+filter `attempts == 1`, divide `output_tokens` by `backend_ms`. No EMA inversion was needed
+-- that recovers the rate the *estimator* held, where this needed what the turn achieved.

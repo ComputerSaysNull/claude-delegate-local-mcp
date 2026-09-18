@@ -38,6 +38,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #231 — 2026-09-18 — fix: defend the reply margin with the measurement it was waiting for
+
+### Changed
+- **`reply_budget_margin` stays at 0.6, and now says why with a number.** It had sat
+  "blocked on the rate" across three sessions, and 44.e put a figure on what it would have
+  to become — about 0.57 — for the cold-start ceiling to fit. That came from a single case,
+  a six-way fan-out priced from the since-boot seed, and was read as a property of the
+  margin. It is not.
+
+  Derived from the transcript record: 230 single-attempt turns carrying both a `priced` row
+  and its `turn` row, comparing what each turn actually decoded against the rate it was
+  priced at. A ceiling is achievable exactly when `priced_rate × margin ≤ actual_rate`, so
+  the distribution of `actual/priced` is what the margin must cover. Multi-attempt turns are
+  excluded — their `ms` spans every attempt, so the rate is an artefact — and the interval is
+  `backend_ms`, because the difference from `ms` is server-side tool time nothing decoded in.
+
+  Across the whole corpus 0.6 leaves the ceiling unachievable in 49 of 230 turns, and
+  lowering it barely helps: 0.5 still fails 12.2% against 0.6's 21.3%. Read alone that says
+  no constant can do the job. Segmented, it says the opposite — the failure rate tracks the
+  rate's *source*: 37.0% from `cluster_since_boot`, 16.4% from `observed_at_concurrency`,
+  5.0% from `own_turns`, where the fifth percentile needs only 0.749. By date, 32.4% before
+  2026-09-14 against 12.0% after, which is ADR-0075 warming the memory across a reconnect.
+
+  So the instruction the value carried — do not fit a constant to a wrong rate — was right,
+  and the rate was the thing to fix. Lowering the margin would bill every well-priced turn
+  for a tail that belongs to the cold start. Two caveats are recorded rather than buried: the
+  corpus predates the bucketing and debounce landing today, so it shows the direction and not
+  their effect, and `own_turns` is the smallest cell at 20 turns while carrying the most
+  weight. The method and the numbers are in JOURNAL 2026-09-18.
+
 ## #230 — 2026-09-18 — docs: the seed's error runs the other way
 
 ### Fixed

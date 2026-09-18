@@ -761,28 +761,28 @@ local, because they are working notes rather than a product fact.
 - **Correction to the ticked item above**, filed beside it rather than edited in:
   `large_prefill_tokens` does not survive as that entry assumed. It classified for the rule
   and for nothing else, so it went with it (ADR-0077, #194)
-44. ⬜ **Work that does not fit one turn** — the splitting premise was refuted by this
+44. ✅ 2026-09-18 **Work that does not fit one turn** — the splitting premise was refuted by this
   entry's own evidence (#204). What remains is the `reply_budget_margin` half, which is
   arithmetic rather than an instrument reading and still binds.
-    - a. ⬜ **7.6 tok/s was an arithmetic artefact, not a rate:** one attempt's tokens over two
+    - a. ✅ **7.6 tok/s was an arithmetic artefact, not a rate:** one attempt's tokens over two
     attempts' wall time. Its concurrent sibling produced more tokens in 663s. Transcript
     rows, both turns and the independent corroboration are in #204.
-    - b. ⬜ **`reply_budget_margin` is the binding constraint, measured 2026-09-12.** A STALE pass
+    - b. ✅ **`reply_budget_margin` is the binding constraint, measured 2026-09-12.** A STALE pass
     wants ~23,700 output tokens; an 1,800s turn at the six-way 19.4 tok/s authorises
     `1800 x 19.4 x 0.6` = **20,952**, so the margin alone puts the task out of reach.
-    - c. ⬜ An intermediate reading of 27.1 tok/s concluded it fitted at 28,698. That came from
+    - c. ✅ An intermediate reading of 27.1 tok/s concluded it fitted at 28,698. That came from
     probes reproducing their own prompt against a speculative-decoding module, so it was an
     artefact; the owner's benchmark puts six concurrent just under 20, restoring 19.4.
     - d. ✅ **What the re-derivation settled:** the denominator is `turn_timeout`, not the
     `stall_timeout` the help text named, and "a turn also prefills" is wrong twenty-fold —
     prefill measured ~2% of a turn.
-    - e. ⬜ The 0.6 is untouched because the *rate* was wrong. It would need to be about 0.57 for
+    - e. ✅ The 0.6 is untouched because the *rate* was wrong. It would need to be about 0.57 for
     the cold-start ceiling to fit, and fitting a constant to a wrong rate is the mistake
     this roadmap already records against `kv_token_budget`.
-    - f. ⬜ **Hardened 2026-09-16:** the seed priced above what the turn achieved in 31 of 113
+    - f. ✅ **Hardened 2026-09-16:** the seed priced above what the turn achieved in 31 of 113
     informative turns, worst 2.98x, so the margin absorbs more error than it was credited with.
     Blocked on the rate; moving `turn_timeout` to fit is the same mistake on another constant
-    - g. ⬜ **Demonstrated by accident 2026-09-17:** one audit pass succeeded first attempt at
+    - g. ✅ **Demonstrated by accident 2026-09-17:** one audit pass succeeded first attempt at
     `high` on a 58,959 ceiling, while another exhausted its reasoning at 20,378 holding the
     *smallest* prefetch of the wave. Input size is not the driver, the ceiling is. Supports b.
 45. ✅ 2026-09-15 **A `path` naming a whole workspace root is refused.** Required and
