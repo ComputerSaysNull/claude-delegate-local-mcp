@@ -535,18 +535,44 @@ class Admission:
             # siblings this is waiting to count, so the hold would guarantee the answer it
             # was trying to measure. The slot is already taken, which is what makes that
             # safe: nothing can overtake, and a sibling can still be admitted beside us.
-            await asyncio.sleep(self._idle_hold)
-            async with self._cond:
-                # Re-read after the wait rather than reporting what was read before it.
-                # Minus one for this request, whose slot is now included where it was not
-                # in the pre-grant numbers the formula above was written against.
-                seqs_at_grant = max(self._inflight_seqs - 1, 0)
-                waiting_at_grant = len(self._waiting)
+            seqs_at_grant, waiting_at_grant = await self._count_the_burst()
 
         return AdmissionLease(
             tokens=tokens, entry_key=entry_key, waited=elapsed,
             seqs_at_grant=seqs_at_grant, waiting_at_grant=waiting_at_grant,
         )
+
+    async def _count_the_burst(self) -> tuple[int, int]:
+        """Wait out the burst behind an idle gate, and report what arrived.
+
+        A debounce, not a flat wait. A client staggers a fan-out -- measured 2026-09-17, six
+        calls from one message arrived 5.5s apart over 28.4s -- so a single window closes
+        with two or three of six counted and files the sample under a contention it never
+        met. Each window therefore ends the hold only if nothing arrived during it.
+
+        A full gate ends it at once: the burst has already reported its size, and waiting for
+        a quiet window it has earned is pure latency. That rule is also the ceiling, so no
+        separate cap is needed -- the only way to run longer is arrivals that keep coming
+        while earlier ones complete, where the cost is one call's dispatch latency rather
+        than a stuck gate.
+
+        Raising the flat hold instead would not do: it fires only on an idle gate, which is
+        the single interactive delegation, so a longer fixed wait bills that call for a burst
+        that never comes. One quiet window leaves it exactly where the flat hold already put
+        it.
+        """
+        while True:
+            async with self._cond:
+                before = self._inflight_seqs + len(self._waiting)
+            await asyncio.sleep(self._idle_hold)
+            async with self._cond:
+                # Read after the wait rather than reporting what was read before it. Minus
+                # one for this request, whose slot is now included where it was not in the
+                # pre-grant numbers the caller's formula was written against.
+                arrived = self._inflight_seqs + len(self._waiting)
+                seqs, waiting = max(self._inflight_seqs - 1, 0), len(self._waiting)
+            if arrived >= self._max_seqs or arrived == before:
+                return seqs, waiting
 
     def _record_wait(self, seconds: float) -> None:
         self._wait_seconds_total += seconds
