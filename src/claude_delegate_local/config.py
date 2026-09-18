@@ -271,12 +271,14 @@ class Config:
         "in the rate, not the cost of prefilling, which measured about 2% of a turn here: "
         "a cold start falls through to a since-boot mean blended over every concurrency "
         "the engine has served, and that reads about 1.75x optimistic against a six-way "
-        "rate. This value does not cover that. Measured 2026-09-12: the cold-start "
-        "ceiling it authorises needs 1,888s of an 1,800s turn at six concurrent, and two "
-        "of four passes died there having completed no turn -- it would have to be about "
-        "0.57 to fit. Not moved here, because the rate is the thing that is wrong and a "
-        "constant chosen against a wrong rate is the mistake PLAN.md records against "
-        "kv_token_budget.",
+        "rate. This value does not cover that, and is not meant to. Re-derived 2026-09-18 "
+        "over 230 single-attempt turns: the share whose ceiling outruns what they decode "
+        "tracks the rate's SOURCE rather than this value -- 37.0% from the since-boot "
+        "seed, 16.4% once the rate memory answers, 5.0% once the turn has measured itself, "
+        "where the fifth percentile needs only 0.749. So 0.6 stays and the rate was the "
+        "thing to fix. Lowering it would bill every well-priced turn for a tail belonging "
+        "to the cold start, and fitting a constant to a wrong rate is the mistake PLAN.md "
+        "records against kv_token_budget (JOURNAL 2026-09-18).",
     )
     reply_budget_floor: int = _f(
         4096,
