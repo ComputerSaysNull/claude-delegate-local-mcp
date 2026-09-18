@@ -863,12 +863,12 @@ local, because they are working notes rather than a product fact.
     rule sends to a project agent, and the one kind with no agent to send it to. The others are
     read-only and already have working read-only routes.
 
-54. ⬜ **Nothing tells a session to delegate writing, and two things discourage it.** CLAUDE.md
+54. ✅ 2026-09-18 **Nothing tells a session to delegate writing, and two things discourage it.** CLAUDE.md
   forbids reading in the main conversation and says nothing about writing there; session-execute
   names the write tools only as a cost — "chain at 120s" — then says "Delegate the reading".
-    - a. ⬜ The friction is real: a read-only tool is declared read-only so a gating client
-    runs it unasked, where a write-capable one needs a keypress. **Repo half landed 2026-09-18
-    (#234); what remains is the operator's global CLAUDE.md, outside this repo and any gate.**
+    - a. ✅ The friction is real: a read-only tool is declared read-only so a gating
+    client runs it unasked, where a write-capable one needs a keypress. Repo half landed
+    2026-09-18 (#234); the operator applied the global half the same day.
     - b. ✅ Not fixed by 53, which gives writing work an agent to route to but does not change what
     the instructions say. The 2026-09-07 calls show the capability already works: a regression
     module and two owning documents, three calls, nothing recorded as a failure.
