@@ -824,8 +824,10 @@ def read_metrics(text: str) -> dict[str, float | int | str | None]:
 
     `decode_tokens_per_second_since_boot` is read because a since-boot mean is the right
     answer to the question it is asked -- what to seed a decode-rate estimate with before
-    this delegation has decoded anything (ADR-0055) -- and because being a blend over every
-    concurrency regime since boot makes it conservative rather than flattering. It carries
+    this delegation has decoded anything (ADR-0055). It is *not* conservative, which this
+    said until 2026-09-18: it is a lifetime per-request mean, so over regimes averaging
+    below the one being priced it must overprice, and it is flattering exactly when load
+    makes that expensive. What that cost, with the numbers, is DISPATCH.md's. It carries
     `_since_boot` for the same reason `prefix_cache_hit_rate_since_boot` does: the name is
     what stops it being read as current. Nothing else here may follow it without that
     question being asked again.

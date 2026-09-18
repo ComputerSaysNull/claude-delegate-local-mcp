@@ -38,6 +38,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #230 — 2026-09-18 — docs: the seed's error runs the other way
+
+### Fixed
+- **The comment justifying the since-boot seed claimed it was conservative.** `read_metrics`
+  in `openai_compat.py` said reading `decode_tokens_per_second_since_boot` was safe "because
+  being a blend over every concurrency regime since boot makes it conservative rather than
+  flattering". It cannot be. The figure is a lifetime *per-request* mean, so over regimes
+  averaging below the concurrency being priced it must overprice — and it is flattering in
+  exactly the case where that is expensive, a loaded cluster. Measured 2026-09-17: the seed
+  read 34.82 tok/s against a real 19.3 per stream at six concurrent, which sits between the
+  module's own 44.1-solo and 19.4-at-six benchmarks by construction rather than by accident.
+
+  `docs/DISPATCH.md` had already been corrected and says what the error cost, so this was
+  the last copy still asserting the opposite — and a comment that justifies a choice is
+  where the next person checks whether the choice is still right. The correction links to
+  the owning document rather than repeating its numbers, so there is still one copy.
+
 ## #229 — 2026-09-18 — fix: give each concurrency its own rate bucket
 
 ### Changed
