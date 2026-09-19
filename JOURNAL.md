@@ -2025,6 +2025,35 @@ filename, and compare each arm's start against the previous arm's *start* and it
 separately. The first shows the ladder, the second shows the overlap, and either alone reads
 as the opposite conclusion.
 
+## 2026-09-19 — Server-side tool time went from most of a delegation to almost none
+
+Unscheduled.5 recorded that a delegation's budget pays for server-side tool time: 1,135.7s of
+1,271.7s on 2026-09-13, 89.3%, cluster idle throughout. It carried its own instruction to
+re-measure before ranking, because that tool time was overwhelmingly search.
+
+Re-measured over every transcript from 09-18 and 09-19 -- 27 dispatches carrying turn data,
+55 turns -- by differencing `ms` against `backend_ms` per turn:
+
+- median per-dispatch share **0.5%**
+- maximum **72.7%**, and **1 of 27** dispatches above 20%
+- aggregate across all 55 turns **1.2%**
+
+So the premise is gone as a rule and survives only as a tail. #219 and #220 are the
+explanation: the 657s unscoped search that dominated the 09-13 figure is now about 4.6s.
+
+Two items go with it. **5 is cancelled** -- the thing it existed to fix is a 0.5% median, and
+an item sized against 89.3% would be sized against a number nothing produces any more. **19 is
+re-ranked rather than cancelled**, because its own example was that same search: 505s of one
+turn with `chunks_seen` frozen. What remains is a watcher told a delegation is dying while a
+tool runs, which is real and rare.
+
+Method note, and the reason this is worth a page rather than just a marker. `ms` minus
+`backend_ms` is server-side tool time; reading `ms` alone blames the model for time the tools
+spent. And the aggregate and the median disagree sharply here, 1.2% against 0.5%, because a
+handful of very long turns dominate a sum. Quote both, or quote the median and say which it
+is -- a single number chosen after the fact is the one that argues for whatever was already
+believed.
+
 ## 2026-09-19 — A delegation runs out of process, and the fan-out costs 88ms
 
 The stagger above is the client's, so the way round it is to not be the client. `server.py`'s

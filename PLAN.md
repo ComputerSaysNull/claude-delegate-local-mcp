@@ -448,9 +448,9 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 4. ⬜ **Eviction is sized in tokens and cannot see what a result cost** — it will drop a 657s read
   to save a few thousand. **Its example died 2026-09-16:** the 657s read was the unscoped
   search, now ~4.6s (#219, #220). Tokens landed in #199 — the *cost* half is what remains
-5. ⬜ **A delegation's budget pays for server-side tool time** — 1,135.7s of 1,271.7s, 89.3%,
-  cluster idle throughout (2026-09-13). Feeds the third-liveness-state item. **Stale**: that
-  tool time was overwhelmingly search — re-measure after an MCP reconnect before ranking
+5. ❌ 2026-09-19 **Premise collapsed — a 0.5% median, not 89.3%**, re-measured over 27 dispatches
+  and 55 turns; max 72.7% and one above 20%, so the tail is real and the rule is not, and the
+  search that made the figure is #219 (JOURNAL 2026-09-19). ~~budget pays for tool time~~
 6. ✅ 2026-09-14 **The M10 spike is misfiled and stale** — it does not move M10's exit, and the workaround it
   meant to avoid writing down is now in CLAUDE.md. Its accuracy half is still unmeasured
     - a. ✅ Re-filed rather than run. M10's exit is about a caller on a host holding only the
@@ -526,9 +526,9 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     - b. ✅ **Corrected 2026-09-14: "killed while working" is false; this is a reporting defect.**
     `turn_done` sets `last_progress` unconditionally after the tool batch returns and
     `stalled()` is evaluated at the next dispatch, so tool time cannot kill by stall.
-    - c. ⬜ What it does consume is the whole-delegation `dispatch_timeout`, a wall clock that
-    arguably should. What is left is real but smaller — a watcher is told a delegation is
-    dying while it works. **Re-rank accordingly.**
+    - c. ⬜ What it consumes is the whole-delegation `dispatch_timeout`, which arguably it should.
+    **Re-ranked down 2026-09-19**: 19.a's 505s was the unscoped search, now ~4.6s, and the median
+    dispatch spends 0.5% of its wall time in tools, so the watcher is told rarely and briefly
 20. ✅ 2026-09-13 **The viewer states true things in ways that read false.** Four findings, one
   branch:
   `requests_running` in a `priced` row is the lease's grant-time concurrency echoed, not live
