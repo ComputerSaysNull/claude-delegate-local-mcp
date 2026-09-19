@@ -1,4 +1,5 @@
-<!-- BUDGET: 496
+<!-- BUDGET: 509
+     Raised from 496 (+1 for this line) on 2026-09-19: files[] takes a pattern now, and that expansion runs before the four layers rather than beside them is what keeps it from being a second search tool.
      Raised from 481 (+1 for this line) on 2026-09-19: layer 3 now asks about bytes as well as names, and ADR-0049 paragraph said in terms that a substituted file is never judged -- a correction costs more than an addition.
      Raised from 478 on 2026-09-16: layer 1 now remembers a prefix, and what it must never remember is a security fact.
      Raised from 473 on 2026-09-16: the section counted two git calls where there are three, and the third is the one that costs.
@@ -238,6 +239,17 @@ A directory is a third case: `resolve_search_root` checks layer 1 alone against
 `workspace_roots`, where `resolve_workdir` checks a directory against `workdir_roots`. The
 roots differ because the surfaces do — one governs what may be read, the other a
 read-write bind into a sandbox.
+
+A glob in `files[]` is a fourth, and it sits *before* all of them: `expand_globs` turns one
+pattern into the files it matches and then hands those to the same `resolve_files` a
+literal list goes through. So a match is judged exactly as if the caller had typed it, and
+expansion never widens the policy — only what a caller has to type. Two things bound it.
+The part before the first wildcard must resolve inside a workspace root, checked before the
+walk rather than on its results, or `/**` would read the machine before anything refused it;
+and a pattern matching more than `max_glob_matches` is refused rather than truncated,
+because a truncated expansion sends a subset and calls it the answer. A pattern matching
+*nothing* is refused too — silence there is indistinguishable from a typo that cost nothing,
+and the caller is the only one who can tell them apart. (ADR-0097)
 
 ### `allowed_tools` is enforced twice
 

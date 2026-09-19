@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import errno
 import fnmatch
+import glob as glob_module  # `glob` is a local name for a denylist pattern throughout
 import os
 import posixpath
 import re
@@ -812,6 +813,135 @@ def resolve_files(
     """
     survivors, refusals = _resolve_many(cfg, given, must_exist)
     return survivors, tuple(refusals)
+
+
+# A pattern is anything carrying one of these. Deliberately the same three `fnmatch` and
+# `glob` agree on, so "does this look like a pattern" and "what does it match" cannot
+# disagree -- a path containing a literal bracket is the case where they would, and it is
+# rarer than the shorthand is useful.
+_MAGIC = re.compile(r"[*?\[]")
+
+
+def has_magic(pattern: str) -> bool:
+    """Whether this string is a glob rather than a path."""
+    return _MAGIC.search(pattern) is not None
+
+
+def _glob_anchor(pattern: str) -> str:
+    """The longest leading run of components with no magic in them.
+
+    What the expansion is allowed to start from, and the whole reason expansion is bounded:
+    `glob` walks from the first magic component down, so checking the anchor against the
+    workspace roots *before* walking is what stops `/**/*.py` reading the machine. Checking
+    afterwards would be checking the results of a walk that had already happened.
+    """
+    parts = pattern.split("/")
+    keep: list[str] = []
+    for part in parts[:-1]:
+        if has_magic(part):
+            break
+        keep.append(part)
+    return "/".join(keep) or "/"
+
+
+def expand_globs(
+    cfg: Config, given: Sequence[str]
+) -> tuple[tuple[str, ...], tuple[Refusal, ...]]:
+    """Turn any pattern in `given` into the paths it matches. Literals pass through.
+
+    A shorthand for naming many files, never a way to *look* for anything -- `search_files`
+    is the tool that looks, and it takes a required `path` for reasons this would undo if
+    it grew a recursive default. Expansion happens here, before resolution, so every match
+    then goes through the same four layers a hand-written path does: this function widens
+    what a caller may *name*, and widens nothing about what the policy allows.
+
+    Matches are files only. A directory is a legitimate glob match and never a legitimate
+    prefetch, and letting one through would spend a refusal per directory to say so.
+
+    Sorted, because `glob` returns directory order -- which is arbitrary, differs between
+    machines, and would make the prompt's file block unstable for no reason. The prefetch
+    sorts again for its own budget; this sort is about which files a cap keeps.
+    """
+    roots = resolved_roots(cfg)
+    kept: list[str] = []
+    refusals: list[Refusal] = []
+    for raw in given:
+        if not has_magic(raw):
+            kept.append(raw)
+            continue
+        outcome = _expand_one(cfg, raw, roots)
+        if isinstance(outcome, Refusal):
+            refusals.append(outcome)
+        else:
+            kept.extend(outcome)
+    return tuple(kept), tuple(refusals)
+
+
+def _expand_one(cfg: Config, raw: str, roots: Sequence[str]) -> list[str] | Refusal:
+    """One pattern to its matches, or the refusal explaining why there are none."""
+    try:
+        pattern = to_posix(raw)
+    except UntranslatablePath as e:
+        return Refusal(
+            given=raw, layer=LAYER_FORM, reason=str(e),
+            remedy="Give the pattern as an absolute path with forward slashes.",
+        )
+    if not posixpath.isabs(pattern):
+        return Refusal(
+            given=raw,
+            layer=LAYER_ROOTS,
+            reason="it is a relative pattern, and there is no directory to relate it to.",
+            remedy=(
+                "A glob is absolute like every other entry in files[]: the server has no "
+                "notion of your working directory. Prefix it with a workspace root."
+            ),
+        )
+    anchor = os.path.realpath(_glob_anchor(pattern))
+    if not path_within_roots(anchor, roots):
+        return Refusal(
+            given=raw,
+            layer=LAYER_ROOTS,
+            reason=f"it would expand from {anchor}, which is outside every workspace root.",
+            remedy=(
+                f"Configured roots: {', '.join(roots) or '(none)'}. The part of a pattern "
+                "before its first wildcard has to sit inside one, or the expansion would "
+                "walk the machine rather than the workspace."
+            ),
+        )
+
+    cap = cfg.max_glob_matches
+    # `iglob`, and stopped at the cap: `glob` builds the whole list before returning, so a
+    # `**` over a large root pays for every match whether or not the cap keeps it. This is
+    # the bound on the *walk*, where the cap below is the bound on the answer.
+    found: list[str] = []
+    for hit in glob_module.iglob(pattern, recursive=True):
+        if os.path.isfile(hit):
+            found.append(hit)
+        if len(found) > cap:
+            break
+    if not found:
+        return Refusal(
+            given=raw,
+            layer=LAYER_ROOTS,
+            reason="it matched no files.",
+            remedy=(
+                "A pattern that matches nothing is almost always a typo, and silently "
+                "contributing no files is worse than saying so. Check the directory, and "
+                "remember ** needs to be its own component."
+            ),
+        )
+    if len(found) > cap:
+        return Refusal(
+            given=raw,
+            layer=LAYER_ROOTS,
+            reason=f"it matches more than {cap} files.",
+            remedy=(
+                "Narrow it. Prefetching hundreds of files spends the whole token budget "
+                "on the first few and reports the rest as skipped, which is a slower way "
+                "of sending nothing useful. DELEGATE_MAX_GLOB_MATCHES raises the cap."
+            ),
+        )
+    return sorted(found)
 
 
 def resolve_all(

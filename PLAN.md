@@ -606,10 +606,10 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
   nested run. Changing it changes what a delegated model may read, which is why it is an
   item and not a detail of another commit — the same reasoning the `models.toml` entry used
 
-29. ⬜ Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
+29. ✅ 2026-09-19 Globs in `files[]`, expanded server-side — a shorthand for naming many files, not a
   way to look for anything. A convenience ranking below the search tool, now the fork is
   settled the other way and the toolless-`delegate_readonly` justification no longer holds.
-    - a. ⬜ The work is in the budget rather than the matching: a glob hitting two hundred files
+    - a. ✅ The work is in the budget rather than the matching: a glob hitting two hundred files
     has to skip and account for them the way `context.prefetch` already does, not spend
     `prefetch_budget` silently.
 

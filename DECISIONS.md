@@ -19,6 +19,55 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0097 — 2026-09-19 — A glob in files[] expands server-side, before the policy, and refuses rather than truncates — Accepted
+
+**Context.** `files[]` took literal absolute paths, so naming twenty files meant writing
+twenty of them, and the shorthand a caller reaches for first — `/repo/src/*.py` — was
+resolved as a filename and came back as a missing file. The convenience was ranked below
+the search tool and stayed unbuilt while the toolless-`delegate_readonly` case justified
+doing without; that fork settled the other way.
+
+**Decision.** `expand_globs` turns a pattern into the files it matches, in `paths.py`,
+*before* `resolve_files`. Every match then goes through the same four layers a
+hand-written path does. Expansion widens what a caller must type and nothing about what
+the policy permits — the test for that is a denylist-matching file inside an otherwise
+ordinary expansion, refused exactly as if it had been typed.
+
+**Shorthand, not search.** `search_files` is the tool that looks, and it takes a required
+`path` because an unscoped walk cost 490-572s. A recursive glob with no anchor would
+reintroduce that through a different door, so the part before the first wildcard is checked
+against the workspace roots *before* the walk, not on its results — and `iglob` stops at
+the cap, so the bound is on the walk and not only on the answer.
+
+**The disposition question, which was the real design call.** A match the policy declines
+can be reported (`resolve_files` plus `skip_from_refusal`) or silently dropped
+(`resolve_permitted`). Reported, for three reasons. `resolve_permitted`'s own contract
+forbids the other: "never use this for a path a caller supplied", because there it is a
+silent drop. The sibling case in the very same list already reports —
+`SKIP_OVER_TOTAL_BUDGET` — so a silent policy drop would make one list half-honest, and a
+caller reading `files_skipped` would have no way to know which half. And the whole point of
+that key is that the model "cannot tell you what it never saw"; that is no less true of a
+file it never named individually.
+
+**Refused, never truncated**, in three cases, and each is a case where silence reads as
+success:
+
+- **Matching nothing.** Almost always a typo, and a pattern contributing no files quietly
+  is indistinguishable from one that was not needed.
+- **Matching more than `max_glob_matches`.** Truncation would send a subset and present it
+  as the answer. The cap is 64 and small on purpose: a pattern matching hundreds spends the
+  whole prefetch budget on the first few and reports the rest as skipped.
+- **Anchored outside every root.** Refused before walking, or the walk is the damage.
+
+**One `prefetch` call over the whole expansion.** The token budget is per call, so one call
+per batch would hand each batch a full budget and enforce no total — the accounting in
+`context.prefetch` is reused exactly as it stands, and an expansion that overflows comes
+back as `SKIP_OVER_TOTAL_BUDGET` per file rather than as a shorter list.
+
+**Directories are dropped rather than refused**, which is the one silent drop here. A
+directory is a legitimate glob match and never a legitimate prefetch, so refusing each one
+would spend a refusal per directory saying something the caller already knows.
+
 ## ADR-0096 — 2026-09-19 — Key material is detected by its bytes, in both layers, from one table — Accepted
 
 **Context.** Layers 1, 2 and 4 of the path policy are functions of the path, and layer 3
