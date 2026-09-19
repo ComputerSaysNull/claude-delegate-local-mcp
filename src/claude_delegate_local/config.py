@@ -567,6 +567,17 @@ class Config:
         "cold start is not. Blank restores the old tmpfs behaviour (ADR-0094).",
     )
 
+    secret_content_scan_bytes: int = _f(
+        4096,
+        "Bytes of a file read at the head and checked for private-key armour, whatever "
+        "the file is named. Closes the gap every other layer leaves: they all inspect the "
+        "path, so a key renamed config.json passes all of them. Narrow by design -- PEM "
+        "headers and the PuTTY one, never a general secret scanner, which would fire on "
+        "the sources a review delegation exists to read. 0 disables both the read check "
+        "and the sandbox's content shadowing. Raising it costs one read per file the "
+        "sandbox walk reaches (ADR-0096).",
+    )
+
     opaque_globs_file: str = _f(
         "./security/opaque_globs.txt",
         "Directories covered and not walked, because they hold machine-generated bulk. "

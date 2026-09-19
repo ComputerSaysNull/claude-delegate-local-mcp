@@ -1,4 +1,5 @@
-<!-- BUDGET: 1208 -->
+<!-- BUDGET: 1218 -->
+<!-- Raised from 1208 (+1 for this line) on 2026-09-19: the mount-level scan reads bytes now, and that it shares one table with the path layer while staying independent of it is exactly the fact ADR-0010 says must not blur. -->
 <!-- Raised from 1198 (+1 for this line) on 2026-09-19: a new result key closes half of the captured-exit-code asymmetry, and the half it refuses is measured rather than argued. -->
 <!-- Raised from 1189 (+1 for this line) on 2026-09-19: the admission wait no longer bails out by default, and what bounds it instead is this document's to state. -->
 <!-- Raised from 1178 (+1 for this line) on 2026-09-19: taking an open wait's answer is new admission behaviour, and its one limit is what stops a reader assuming it covers a fan-out. -->
@@ -529,6 +530,15 @@ what matches. (ADR-0062)
 `secret_globs.txt` matches its own `*secret*` entry, and a `/dev/null` cover reads as
 `Permission denied` rather than empty, so layer 3 raised instead of degrading — closed,
 but unusable nested. Both are matched by realpath and skipped; a neighbour is not. (ADR-0065)
+
+**The scan also reads bytes, not only names.** A file the denylist missed by name gets its
+first `secret_content_scan_bytes` checked for private-key armour, and a hit is covered like
+any other match with `content:` naming what fired. Only where the name did *not* already
+match — a covered file is covered, and re-reading it to reach the same verdict is a read
+per file for nothing. This is the same detector `paths.py` runs, sharing one pattern table
+so a rule added to either reaches both; the layers stay independent, because this one
+covers what a shell could open without asking and that one refuses what the model asked
+for. Set the bytes to 0 and both halves are off. (ADR-0096)
 
 ### The caps come from in front of bwrap, not from it
 

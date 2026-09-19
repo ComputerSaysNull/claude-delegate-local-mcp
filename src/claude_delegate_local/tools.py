@@ -190,7 +190,7 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
     # measures the file actually being held rather than whatever the path named a moment
     # earlier. One setting, one meaning, all three consumers.
     try:
-        opened = open_resolved(entry, "rb")
+        opened = open_resolved(entry, "rb", scan_bytes=cfg.secret_content_scan_bytes)
     except OSError as e:
         raise ToolRefused(f"could not read it: {e.strerror or e}") from e
 
@@ -479,7 +479,9 @@ def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
         if len(lines) >= max_results:
             return _Hits(tuple(lines), files, True)
         try:
-            with open_resolved(item, "rb").handle as fh:
+            with open_resolved(
+                item, "rb", scan_bytes=cfg.secret_content_scan_bytes
+            ).handle as fh:
                 blob = fh.read(cfg.max_file_read_bytes)
         except (OSError, PathRefused):
             # Vanished, unreadable, or no longer the file the policy approved, between
@@ -707,7 +709,7 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
         )
 
     try:
-        opened = open_resolved(entry, "r+b")
+        opened = open_resolved(entry, "r+b", scan_bytes=cfg.secret_content_scan_bytes)
     except OSError as e:
         raise ToolRefused(f"could not read it: {e.strerror or e}") from e
 

@@ -19,6 +19,57 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0096 — 2026-09-19 — Key material is detected by its bytes, in both layers, from one table — Accepted
+
+**Context.** Layers 1, 2 and 4 of the path policy are functions of the path, and layer 3
+matched the *name* against a denylist. So a private key renamed `config.json` — an
+allowlisted extension, no denylist hit, not gitignored — passed every one of them, and
+`run_bash` could read one the mount-level scan had also missed by name. The leak path is
+real on this machine: `DELEGATE_TRANSCRIPT_DIR` points into a cloud-synced folder, so key
+material reaching an answer is synced off the box.
+
+**Decision.** A content check in **both** layers, sharing one pattern table.
+`key_material_marker` takes bytes and returns the marker that fired. `paths.py` calls it
+inside `open_resolved`, through the already-proven descriptor; `sandbox.py` calls it in the
+shadow walk, for files the name patterns did not already match. `secret_content_scan_bytes`
+sizes the read and 0 disables both halves.
+
+**One table, two layers, and that is not a contradiction.** ADR-0010 keeps `paths.py` and
+`sandbox.py` independent — neither is a backstop for the other, and they govern different
+tools. What must *not* differ is the rule itself: a pattern added to one while the other
+kept the old list would leave the same bytes readable through the other tool with nothing
+reporting the disagreement. That is the mistake `secret_match` already exists to avoid, and
+this follows it exactly.
+
+**Why not `scan_text`**, which the 2026-09-02 review recommended. It hunts RFC1918
+addresses, private-DNS suffixes and non-allowlisted emails. Pointed at file contents it
+would fire on the very sources a review delegation exists to read. Precision is the design
+goal, not coverage: a check that cries wolf on source gets switched off, and a switched-off
+check is worse than none because it is still believed. The table is therefore two patterns
+— bounded PEM private-key armour, and the PuTTY key header — and the false-positive control
+is a test, including one that runs the detector over this repository's own sources.
+
+**At the open, not at the resolve.** `_check_secret` sees a path and the globs and no bytes,
+so a content check cannot live there. Reading through the descriptor `_prove_descriptor` has
+already proven means what is scanned is what the caller would have received, and `os.pread`
+leaves the offset alone so no caller learns this ran. It is refused as layer 3 rather than a
+new layer: it is the denylist's question asked a second way, and a sixth layer would make
+every "four-layer policy" sentence in the tree stale for a renaming.
+
+**This narrows ADR-0049 and the narrowing is the point.** That decision says a different
+*regular* file at an approved path is deliberately not a breach, because every layer is a
+function of the path. That reasoning held while it was true. One layer now judges the
+substituted bytes, so the exemption no longer covers key material.
+
+**Off by default in the function, on for the model.** `open_resolved` has callers that are
+the server reading its own material — the config loader, the agent loader — and a detector
+firing there would refuse the server to itself. The tool layer passes the setting; nothing
+else does.
+
+**What this does not claim.** That key material cannot reach a delegation. A key past the
+scanned window, one that is not PEM or PuTTY, or one a command constructs at runtime is not
+caught. It closes the renamed-file case, which is the one that needed no effort at all.
+
 ## ADR-0095 — 2026-09-19 — A masked shell failure is counted, by an ERR trap and not by pipefail — Accepted
 
 **Context.** `run_bash` ended in `["--", "/bin/sh", "-c", req.command]` and recorded
