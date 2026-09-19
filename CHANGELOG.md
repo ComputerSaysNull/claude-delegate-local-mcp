@@ -38,6 +38,39 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #247 — 2026-09-19 — fix: the admission wait no longer refuses work that would have run
+
+### Fixed
+
+- `admission_wait_timeout` refused eight waiters of a fourteen-wide fan-out on 2026-09-17,
+  each at the full 1800s and each having produced nothing, while the six holding slots ran
+  on and finished — three at 37,605 output tokens. The gate was genuinely full for that
+  window, which was checked rather than assumed against the slot leak fixed in #244.
+- Waiting is not expensive, which is what makes the bail-out a pure loss. The wait runs
+  *before* `dispatch_timeout` starts its own clock — the two stack rather than divide one
+  budget — so a waiter that reaches the head still has its whole allowance. Refusing it
+  produces nothing where waiting produces the answer late.
+- **0 now means the wait has no bound, and is the default.** `admission_deadline(cfg)`
+  returns `None` there, which `acquire` already treats as no deadline. A positive value
+  still caps the wait, as a judgement about latency rather than about safety. ADR-0093
+  records that, and why a progress-reset clock, a queue-position deferral and a larger
+  constant were each rejected — the first two would have saved none of those eight.
+- 0 used to be a `ConfigError`: the value was required positive, so no configuration could
+  express "as long as the work ahead takes" and every setup carried a bail-out. Negatives are
+  still refused, since 0 is off and a negative is a mistake rather than a stronger off — a
+  gap the regression test caught after the positivity check was relaxed.
+
+### Changed
+
+- What bounds the wait is now stated rather than implied, in `docs/ARCHITECTURE.md` and in
+  the orchestration resource the model reads: first-come-first-served, the starvation grace
+  ageing a passed-over waiter into the barrier, and `dispatch_timeout` bounding how long each
+  slot ahead can be held. Worst case is queue position times the longest a delegation may
+  run, which is finite, and a waiting delegation keeps reporting progress.
+- `admission_timeouts` will read 0 in ordinary operation, so `peak_inflight_seqs` and the wait
+  totals become the load-bearing pressure gauges rather than supplementary ones. Both are
+  already in `backend_status`.
+
 ## #246 — 2026-09-19 — docs: server-side tool time is a tail, not a rule
 
 ### Changed
