@@ -1,4 +1,5 @@
-<!-- BUDGET: 1150 -->
+<!-- BUDGET: 1171 -->
+<!-- Raised from 1150 (+1 for this line) on 2026-09-19: `run` is a fifth entry point, and the client-side limit it answers is why it exists rather than a preference. -->
 <!-- Raised from 1139 on 2026-09-15: a request that finds the gate idle now waits before recording its concurrency, which is admission behaviour this document owns. -->
 <!-- Raised from 1135 on 2026-09-14: a null kv_cache_size_tokens_seen is how the second ceiling being inert is spotted. -->
 <!-- Raised from 1130 on 2026-09-14: a deadline can now return a result rather than only an error, which is a caller-facing shape this document owns. -->
@@ -125,6 +126,7 @@ large file being dropped while the budget it would have fitted in sat unused (AD
 | `init.py` | `--init`: the two files that have no safe default, from answers |
 | `install_skills.py` | `--install-skills`: the shipped skills, copied where the tools look |
 | `provision.py` | `provision <project>`: the interpreter `run_bash` cannot otherwise reach |
+| `run_task.py` | `run`: one delegation from a shell, printed as JSON |
 
 The table covers every module; the three marked above live in [DISPATCH.md](DISPATCH.md),
 which owns them, and `agents.py` in [AGENTS.md](AGENTS.md). The ancestor put all of this in one large file; we add two concerns it
@@ -283,6 +285,25 @@ a test that cannot pass, and a false failure looks exactly as trustworthy as a t
 Measured before it was written down: a `--deselect` naming a node id outside the collected
 subset, or one that does not exist at all, is tolerated at exit 0 — so the list costs
 nothing on a targeted run.
+
+### `run` is the same delegation without the protocol
+
+`run --task "..."` dispatches one delegation, prints the result as JSON, and exits 0 if it
+answered, 1 if it did not, and 2 on bad usage. Everything between goes through
+`run_delegation`, so admission, the budget, the transcript and every refusal behave exactly
+as they do for a tool call. This module owns argument handling and an exit code, nothing else.
+
+It answers a limit on the *client* rather than on this server. A conversation speaking MCP
+keeps one write-capable call in flight and releases the next at whichever of completion or
+120s comes first, so a six-wide fan-out spends 600s staggering before any work overlaps;
+started from a shell the same six span 88ms. The second gain is context rather than time —
+a tool result lands in the caller's window whole, where this one is redirected to a file and
+read back in part.
+
+stdout carries that JSON, which is why `main.run` dispatches here *before* building a
+server, exactly as it does for `--doctor`: a server started underneath would interleave MCP
+frames with the document. Matched on `sys.argv[1]` rather than by membership, or a task
+whose text contained the word would divert itself.
 
 ### One backend per registry entry, for the life of the server
 

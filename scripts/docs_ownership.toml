@@ -107,6 +107,11 @@ owns = [
   # that live in `sandbox.py`, which this document already owns. Splitting it out would put
   # the tree and the mount that makes it readable in two different documents.
   "src/claude_delegate_local/provision.py",
+  # The `run` subcommand belongs with `server.py` rather than with the tools it mirrors:
+  # it owns argument handling and an exit code, and hands everything else to
+  # `run_delegation`. Its subject is which surface a delegation arrives through, which is
+  # this document's, where TOOLS.md describes what the model is offered.
+  "src/claude_delegate_local/run_task.py",
   "src/claude_delegate_local/admission.py",
   "src/claude_delegate_local/slots.py",
   "src/claude_delegate_local/transcript.py",

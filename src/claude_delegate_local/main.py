@@ -64,6 +64,15 @@ def run() -> None:
 
         raise SystemExit(provision.main(argv=sys.argv[2:]))
 
+    # `run` returns here for the same reason the four above do, and one sharper: it prints
+    # the delegation's result as JSON on stdout, so a server started underneath it would
+    # interleave MCP frames with that document. Matched on position like `provision`,
+    # because membership would divert any delegation whose *task text* contained the word.
+    if sys.argv[1:2] == ["run"]:
+        from . import run_task  # noqa: PLC0415
+
+        raise SystemExit(run_task.main(argv=sys.argv[2:]))
+
     try:
         cfg = config.load()
         reg = registry.load(cfg)  # RegistryError subclasses ConfigError
