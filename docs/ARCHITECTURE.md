@@ -1,4 +1,5 @@
-<!-- BUDGET: 1218 -->
+<!-- BUDGET: 1229 -->
+<!-- Raised from 1218 (+1 for this line) on 2026-09-19: files[] takes a pattern now, and that it expands BEFORE the policy rather than around it is the fact that keeps it a shorthand rather than a second search tool. -->
 <!-- Raised from 1208 (+1 for this line) on 2026-09-19: the mount-level scan reads bytes now, and that it shares one table with the path layer while staying independent of it is exactly the fact ADR-0010 says must not blur. -->
 <!-- Raised from 1198 (+1 for this line) on 2026-09-19: a new result key closes half of the captured-exit-code asymmetry, and the half it refuses is measured rather than argued. -->
 <!-- Raised from 1189 (+1 for this line) on 2026-09-19: the admission wait no longer bails out by default, and what bounds it instead is this document's to state. -->
@@ -324,6 +325,16 @@ for the same endpoint. The cache is injectable, for the reason the adapter takes
 to the turn loop, and returns what the loop finished with. Paths are checked before the
 backend is looked up. A refused one is skipped and the call proceeds with the rest, named
 in `files_skipped`; refusing every path costs nothing and needs no cluster (ADR-0061).
+
+**A pattern in `files[]` is expanded first, then resolved**, so every match meets the same
+four layers a hand-written path does — expansion widens what a caller may *name* and
+nothing about what the policy allows. Shorthand rather than search: `search_files` is the
+tool that looks, and it requires a `path` for reasons a recursive default here would undo.
+The part before the first wildcard is checked against the workspace roots *before* the
+walk, which is what bounds it; matching nothing, or more than `max_glob_matches`, is a
+refusal rather than a quiet shortfall. The whole expansion goes into **one** `prefetch`
+call, because the token budget is per call and expanding batch by batch would hand each
+batch a full budget and enforce no total. (ADR-0097)
 
 Which path runs is decided by the resolved toolset and nothing else. `allowed_tools`
 narrows what the model may call, and resolving it to an empty set takes the one-shot path,

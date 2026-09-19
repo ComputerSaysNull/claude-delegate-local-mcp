@@ -567,6 +567,16 @@ class Config:
         "cold start is not. Blank restores the old tmpfs behaviour (ADR-0094).",
     )
 
+    max_glob_matches: int = _f(
+        64,
+        "How many files one pattern in files[] may expand to before it is refused "
+        "instead. A shorthand for naming many files, never a search -- search_files is "
+        "the tool that looks. The cap is small on purpose: a pattern matching hundreds "
+        "spends the whole prefetch budget on the first few and reports the rest as "
+        "skipped, which is a slower way of sending nothing useful. It also bounds the "
+        "walk, not only the answer (ADR-0097).",
+    )
+
     secret_content_scan_bytes: int = _f(
         4096,
         "Bytes of a file read at the head and checked for private-key armour, whatever "

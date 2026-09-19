@@ -58,7 +58,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                      "secret_globs_file", "secret_content_scan_bytes",
                      "respect_gitignore")),
     ("Context prefetch", ("max_file_tokens", "max_total_prefetch_tokens",
-                          "max_file_read_bytes")),
+                          "max_file_read_bytes", "max_glob_matches")),
     ("Model-facing tool limits", ("max_read_chars", "max_write_bytes",
                                   "search_max_files_scanned",
                                   "run_bash_timeout")),

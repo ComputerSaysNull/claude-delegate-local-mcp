@@ -58,6 +58,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_MAX_FILE_TOKENS` | 140000 est. tokens | Per-file prefetch cap, in ESTIMATED TOKENS rather than bytes. Bytes were the wrong unit: the same byte limit is worth 2x more tokens for JSON than for Python. A file over the cap is skipped whole, never truncated -- source cut mid-function is worse than absent, because the model will confidently repair code it never saw. Equal to max_total_prefetch_tokens by default, so no file is dropped for being large while the budget it would have fitted in sits unused (ADR-0046): the largest documents are the ones most likely to have drifted, and a cap that removes them is a cap that removes what an audit came for. Lower it to refuse one huge file while still allowing a large total; that is the only job it has left, because fairness between concurrent requests belongs to admission control, which counts it across every process on the machine. |
 | `DELEGATE_MAX_TOTAL_PREFETCH_TOKENS` | 140000 est. tokens | Total files[] budget per call, in estimated tokens. Measured prefill runs 1900-2600 tok/s, so this is about 55s before the model says a word -- paid once per distinct prefix, since the cluster caches prefixes and the prompt is ordered to keep them stable. Well inside a 1M window, and small enough that one request cannot monopolise a shared KV pool. |
 | `DELEGATE_MAX_FILE_READ_BYTES` | 4194304 bytes | Hard byte ceiling checked by stat() BEFORE reading, so a multi-gigabyte file is never loaded into memory just to discover it is too big. Not a context budget -- that is max_file_tokens. |
+| `DELEGATE_MAX_GLOB_MATCHES` | 64 | How many files one pattern in files[] may expand to before it is refused instead. A shorthand for naming many files, never a search -- search_files is the tool that looks. The cap is small on purpose: a pattern matching hundreds spends the whole prefetch budget on the first few and reports the rest as skipped, which is a slower way of sending nothing useful. It also bounds the walk, not only the answer (ADR-0097). |
 
 ### Model-facing tool limits
 
@@ -166,6 +167,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting, unlike ADR-0034's sandbox_enabled, because naming another transport should be an error rather than silence -- load() reads only variables matching a field, so deleting this one would make a stale value do nothing without saying so. |
 
-*68 settings.*
+*69 settings.*
 
 <!-- GEN:CONFIG:END -->

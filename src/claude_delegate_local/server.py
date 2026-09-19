@@ -54,7 +54,13 @@ from .loop import (
     run_agentic_loop,
     run_one_shot,
 )
-from .paths import PathPolicyError, PathRefused, resolve_files, resolve_workdir
+from .paths import (
+    PathPolicyError,
+    PathRefused,
+    expand_globs,
+    resolve_files,
+    resolve_workdir,
+)
 from .registry import ModelEntry, Registry, RegistryError
 from .slots import build_slots, cross_process_status, rate_history_path
 from . import transcript
@@ -649,10 +655,18 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
 
     # Before the backend is even looked up: a refused path must cost nothing, and
     # must not depend on whether the cluster happens to be reachable today.
+    # Expanded first, then resolved, so a match goes through the same four layers a
+    # hand-written path does. One `resolve_files` and therefore one `prefetch` over the
+    # whole expansion: the token budget is per call, so expanding batch by batch would
+    # hand each batch a full budget and never enforce the total. (ADR-0097)
     try:
-        resolved, refusals = resolve_files(cfg, files or [])
+        named, glob_refusals = expand_globs(cfg, files or [])
+        resolved, refusals = resolve_files(cfg, named)
     except PathPolicyError as e:
         raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
+    # A pattern's own refusal comes first: it explains why files the caller expected are
+    # missing entirely, where a per-file refusal explains one that is.
+    refusals = glob_refusals + refusals
 
     # Every path refused is still fatal, and it is the only `files[]` case that is. There
     # is nothing left to send, so dispatching would spend a delegation on a prompt with
@@ -1249,7 +1263,11 @@ Files = Annotated[
         "omitting them is the dearest, because the delegation's turns then re-read what one "
         "prefetch would have supplied once. A head start, not a limit -- it can still go "
         "looking. Windows paths are translated. A refused path costs the call that file and "
-        "not the call, and comes back in `files_skipped`."
+        "not the call, and comes back in `files_skipped`. An entry may be a glob -- "
+        "`/repo/src/**/*.py` -- which is shorthand for naming the matches, not a search: "
+        "it expands before the path policy runs, the part before the first wildcard must "
+        "sit inside a workspace root, and a pattern matching nothing or matching more than "
+        "the cap is refused rather than quietly contributing less than you expected."
     )),
 ]
 

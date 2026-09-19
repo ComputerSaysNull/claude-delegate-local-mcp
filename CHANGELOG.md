@@ -38,6 +38,40 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #253 — 2026-09-19 — feat: files[] takes a glob, expanded server-side
+
+### Added
+
+- **A pattern in `files[]`** — `/repo/src/**/*.py` — expands to the files it matches,
+  before the path policy runs. `DELEGATE_MAX_GLOB_MATCHES` (default 64) caps one pattern.
+
+### Changed
+
+- **Naming twenty files took twenty absolute paths, and the shorthand everyone tries first
+  came back as a missing file.** A glob reached `resolve_files` as a filename and failed
+  the existence check. Expansion now happens in `paths.py` ahead of resolution, so every
+  match meets the same four layers a hand-written path does — the feature widens what a
+  caller must type and nothing about what the policy allows, and a denylist-matching file
+  inside an ordinary expansion is refused exactly as if it had been typed.
+- **Shorthand rather than search, and bounded so it stays that way.** `search_files` is
+  the tool that looks, and it requires a `path` because an unscoped walk cost 490-572s.
+  The part of a pattern before its first wildcard is checked against the workspace roots
+  *before* the walk rather than on its results, and expansion stops at the cap — so the
+  bound is on the walk, not only on the answer.
+- **A pattern that matches nothing, matches too many, or is anchored outside every root is
+  refused rather than quietly contributing less.** Each is a case where silence reads as
+  success: a no-match is almost always a typo, and truncating an over-large match would
+  send a subset and present it as the answer.
+- **A match the policy declines is reported, not dropped** — the design call this carried.
+  `resolve_permitted` would drop it silently and its own contract forbids that for a
+  caller-supplied path; the sibling case in the same list (`SKIP_OVER_TOTAL_BUDGET`)
+  already reports, so a silent drop would make one list half-honest. Directories are the
+  one exception, dropped because a directory is a legitimate match and never a legitimate
+  prefetch. (ADR-0097)
+- The whole expansion goes into one `prefetch` call. The token budget is per call, so one
+  call per batch would hand each batch a full budget and enforce no total; an overflowing
+  expansion comes back per file as `SKIP_OVER_TOTAL_BUDGET`.
+
 ## #252 — 2026-09-19 — feat: a renamed private key is detected by its bytes
 
 ### Added
