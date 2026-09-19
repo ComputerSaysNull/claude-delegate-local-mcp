@@ -535,7 +535,19 @@ class Admission:
             # siblings this is waiting to count, so the hold would guarantee the answer it
             # was trying to measure. The slot is already taken, which is what makes that
             # safe: nothing can overtake, and a sibling can still be admitted beside us.
-            seqs_at_grant, waiting_at_grant = await self._count_the_burst()
+            #
+            # Guarded, because "already taken" is also what makes it dangerous. `admit`
+            # releases a lease in the `finally` of its own `try`, and it cannot reach that
+            # `try` until this function returns -- so anything raised in here, a
+            # cancellation in practice, leaves a slot with no owner. `slots.py` reclaims a
+            # record only once its process stops, which for the long-lived server is never.
+            try:
+                seqs_at_grant, waiting_at_grant = await self._count_the_burst()
+            except BaseException:
+                await self.release(
+                    AdmissionLease(tokens=tokens, entry_key=entry_key, waited=elapsed)
+                )
+                raise
 
         return AdmissionLease(
             tokens=tokens, entry_key=entry_key, waited=elapsed,

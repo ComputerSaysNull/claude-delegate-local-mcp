@@ -38,6 +38,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #244 — 2026-09-19 — fix: a cancelled delegation stops taking a slot with it
+
+### Fixed
+
+- A delegation cancelled during the admission idle hold took a slot that nothing released,
+  for the life of the server process. `acquire` takes the slot in `_try_take` and then waits
+  in `_count_the_burst` for up to `admission_idle_hold` seconds before returning the lease;
+  `admit` releases a lease from the `finally` of its own `try`, which it cannot reach until
+  `acquire` returns. `acquire`'s own `finally` drops the ticket, already `None` on the path
+  that took the slot. So the window between taking a slot and handing it over had no owner.
+- Nothing else reclaimed it. `slots.py` keys a record by `(pid, start_time)` and drops it
+  once that process stops, which bounds the leak to the life of the process — and the process
+  is a long-lived MCP server. Found on a live one holding `seqs: 1` with nothing running, two
+  hours after its last reconnect, which is what sent this looking.
+- The cost compounds: every cancellation in that window takes another slot, and at
+  `max_inflight_seqs` of them the gate refuses every delegation for the rest of the server's
+  life, each waiting out `admission_wait_timeout` first and producing nothing.
+- It is **not** what killed the eight waiters of 2026-09-17, which was checked rather than
+  assumed. All six slots were genuinely producing then — three passes output 37,605 tokens
+  each — so the gate was full on its own merits and Unscheduled 40 keeps its facts. Recorded
+  in 40.h so the connection is not drawn again from the shape of the symptom alone.
+- The hold now gives the slot back on any exit from the wait. The regression test is named
+  after the bug and asserts both paths, because a fix that released on the wrong one would
+  pass the first assertion alone: cancelled *inside* the hold, and cancelled while *holding*
+  the lease, which was never broken. Red before green — against the unfixed gate the first
+  assertion read `assert 1 == 0`.
+
 ## #243 — 2026-09-19 — feat: a delegation runs from the command line
 
 ### Added

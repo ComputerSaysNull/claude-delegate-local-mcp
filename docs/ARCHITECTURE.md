@@ -1,4 +1,5 @@
-<!-- BUDGET: 1171 -->
+<!-- BUDGET: 1178 -->
+<!-- Raised from 1171 (+1 for this line) on 2026-09-19: the idle hold takes a slot before it waits, and what gives that slot back is behaviour this document owns. -->
 <!-- Raised from 1150 (+1 for this line) on 2026-09-19: `run` is a fifth entry point, and the client-side limit it answers is why it exists rather than a preference. -->
 <!-- Raised from 1139 on 2026-09-15: a request that finds the gate idle now waits before recording its concurrency, which is admission behaviour this document owns. -->
 <!-- Raised from 1135 on 2026-09-14: a null kv_cache_size_tokens_seen is how the second ceiling being inert is spotted. -->
@@ -749,6 +750,12 @@ siblings keep arriving, ends at the first window none does, and ends at once whe
 fills, which is what bounds it without a second setting. Only the first pays. The wait is
 outside the condition, which is the whole trick — holding the lock would block the very
 siblings it is counting. 0 disables the hold and the pricing it feeds (ADR-0085).
+
+The slot is taken *before* that wait, so the wait gives it back on any exit from it. Nothing
+else can: a lease is released by `admit`, which has not been handed one until the wait
+returns, and a record is reclaimed only once its process stops — which for a server that
+outlives the delegation is never. A cancellation in that window used to cost a slot for the
+life of the process, and `max_inflight_seqs` of them closed the gate for good.
 
 A ticket is given up on every exit from the wait — admitted, timed out, cancelled, raised
 — from a `finally` rather than from the timeout path, because one abandoned at the front
