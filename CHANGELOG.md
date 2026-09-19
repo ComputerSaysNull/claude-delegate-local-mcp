@@ -38,6 +38,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #242 — 2026-09-19 — docs: the obvious fix for the admission bail-out is refuted
+
+### Changed
+
+- `PLAN.md` Unscheduled 40 gains the reading that kills its most likely fix before anyone
+  builds it. The plan for this session proposed deferring the deadline while the only thing
+  refusing a waiter is other waiters ahead of it. `_binding` tests the three capacity rules
+  before `QUEUED_RULE`, so the eight refusals of 2026-09-17 named `max_inflight_seqs`
+  because the gate was genuinely full for the whole window, not because those waiters were
+  queued — and the proposed fix would have saved none of them.
+- What that leaves 40.b is a sharper question than the one it was carrying: not what the
+  number should be, but what bounds the wait at all. The gate is first-come-first-served and
+  `admission_starvation_grace` ages a passed-over waiter into the barrier, so a waiter is
+  served once slots free, and `dispatch_timeout` bounds when they free. Whether that makes
+  the bail-out redundant is a behaviour change with an ADR, and it is not made here.
+
 ## #241 — 2026-09-19 — docs: the write-capable stagger is a client limit, not a ramp
 
 ### Added
