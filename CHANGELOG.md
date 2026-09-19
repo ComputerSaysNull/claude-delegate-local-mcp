@@ -38,6 +38,41 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #245 — 2026-09-19 — fix: a burst is priced on its size, not on arrival order
+
+### Fixed
+
+- Every member of a burst but the first was priced at the position it arrived in. ADR-0085
+  made the first member wait before recording its concurrency, then stopped, reasoning that
+  "any later member already sees this one, so concurrency is known and the wait would be pure
+  latency". That last step is false: a later member sees the siblings *ahead* of it and none
+  of those still arriving behind, so `seqs_at_grant + waiting_at_grant + 1` is its own
+  position rather than the burst's size — and the rate memory is keyed by that number.
+- A request admitted while a wait is open now takes that wait's answer. One wait serves the
+  burst rather than one each: a second would re-count the same arrivals and bill every member
+  for its own window, and a joiner cannot wait inside the wait it is joining. It costs no
+  latency that was not already being paid — the same window, shared — and a request joining a
+  busy gate with nothing open still does not wait. The second assertion in the regression test
+  pins that, since a hold that quietly became a toll on every admission would be the worse bug.
+- The burst count reads shared totals where there is a slots file, instead of this process's
+  own counters, so what a waiting member records is right even when the burst spans processes.
+- Red before green: three simultaneous arrivals priced `[3, 2, 3]` against the `[3, 3, 3]`
+  they all ran at.
+
+### Changed
+
+- Two regression harnesses admitted their siblings by awaiting `acquire` **inline inside the
+  holder's fake sleep**, which is a shape the gate cannot produce: a sibling ran to completion
+  inside the very window meant to be counting it. Invisible while only one member could ever
+  wait, and decisive the moment another can join — the first design attempt read 5 windows
+  against an expected 3, and the second deadlocked outright, both correctly. They now start
+  siblings concurrently and return once each holds its slot. Behaviour-preserving against the
+  unchanged gate, which is how the change was checked before the gate was touched.
+- **Within one process**, and `PLAN.md` 57.b says so rather than leaving it implied. The
+  "a wait is open" flag is per process, so three arms from three processes still price 2, 3
+  and 4 — measured, not assumed. Carrying that flag in the slots file is the remaining half,
+  and it matters more now that `run` makes cross-process fan-out ordinary.
+
 ## #244 — 2026-09-19 — fix: a cancelled delegation stops taking a slot with it
 
 ### Fixed

@@ -239,6 +239,12 @@ class Admission:
         self._cond = asyncio.Condition()
 
         self._inflight_seqs = 0
+        # The burst wait currently open, as a future carrying its answer, or None. A member
+        # admitted while one is open takes that answer instead of pricing itself on the
+        # position it happened to arrive in -- the half ADR-0085 left undone. A future
+        # rather than a counter, so a burst waits one window between them and a joiner
+        # never waits inside the wait it is joining.
+        self._holding: asyncio.Future[tuple[int, int]] | None = None
         self._inflight_tokens = 0
         self._per_entry: dict[str, int] = {}
 
@@ -521,38 +527,94 @@ class Admission:
         if waited:
             self._record_wait(elapsed)
 
-        seqs_at_grant = seen.get("seqs", 0)
-        waiting_at_grant = seen.get("waiting", 0)
-        if self._idle_hold > 0 and seqs_at_grant == 0 and waiting_at_grant == 0:
-            # This request found the gate empty, so its own snapshot says "solo" and will
-            # go on saying so however many siblings are a millisecond behind it. That
-            # label is what the rate memory is keyed by, so it is worth a short wait to
-            # find out whether it is true -- and only worth it here: any later member
-            # already sees this one, so concurrency is known and the wait would be pure
-            # latency (ADR-0085).
-            #
-            # Deliberately *outside* the condition. Holding it here would block the very
-            # siblings this is waiting to count, so the hold would guarantee the answer it
-            # was trying to measure. The slot is already taken, which is what makes that
-            # safe: nothing can overtake, and a sibling can still be admitted beside us.
-            #
-            # Guarded, because "already taken" is also what makes it dangerous. `admit`
-            # releases a lease in the `finally` of its own `try`, and it cannot reach that
-            # `try` until this function returns -- so anything raised in here, a
-            # cancellation in practice, leaves a slot with no owner. `slots.py` reclaims a
-            # record only once its process stops, which for the long-lived server is never.
-            try:
-                seqs_at_grant, waiting_at_grant = await self._count_the_burst()
-            except BaseException:
-                await self.release(
-                    AdmissionLease(tokens=tokens, entry_key=entry_key, waited=elapsed)
-                )
-                raise
+        seqs_at_grant, waiting_at_grant = await self._settle_burst(
+            seen.get("seqs", 0),
+            seen.get("waiting", 0),
+            tokens=tokens,
+            entry_key=entry_key,
+            elapsed=elapsed,
+        )
 
         return AdmissionLease(
             tokens=tokens, entry_key=entry_key, waited=elapsed,
             seqs_at_grant=seqs_at_grant, waiting_at_grant=waiting_at_grant,
         )
+
+    async def _settle_burst(
+        self, seqs: int, waiting: int, *, tokens: int, entry_key: str, elapsed: float
+    ) -> tuple[int, int]:
+        """What this request should say it met, once the burst around it has settled.
+
+        A request that finds the gate empty waits, because its own snapshot says "solo" and
+        would go on saying so however many siblings are a millisecond behind it -- and that
+        label is what the rate memory is keyed by (ADR-0085).
+
+        A request that finds a wait already open takes its answer, which is the half
+        ADR-0085 left undone. Its reasoning was that a later member already sees this one,
+        so concurrency is known; it is not. That member sees the siblings *ahead* of it and
+        none of those still arriving behind, so `seqs + waiting + 1` is its own position in
+        the burst rather than the burst's size, and a simultaneous three priced 1, 2 and 3.
+
+        One wait serves the whole burst rather than one each. A second would re-count the
+        same arrivals and bill every member for its own window, where what is wanted is one
+        window and one answer -- and a joiner must not wait *inside* the wait it is joining,
+        which is what makes this a shared result rather than a second debounce.
+
+        The wait is deliberately *outside* the condition. Holding it would block the very
+        siblings this is counting, so it would guarantee the answer it was trying to
+        measure. The slot is already taken, which is what makes that safe: nothing can
+        overtake, and a sibling can still be admitted beside us.
+
+        "Already taken" is also what makes it dangerous, hence the guards. `admit` releases
+        a lease from the `finally` of its own `try` and cannot reach it until `acquire`
+        returns, so anything raised in here -- a cancellation, in practice -- would leave a
+        slot with no owner, and `slots.py` reclaims a record only once its process stops.
+        """
+        if self._idle_hold <= 0:
+            return seqs, waiting
+
+        lease = AdmissionLease(tokens=tokens, entry_key=entry_key, waited=elapsed)
+        open_wait = self._holding
+        if open_wait is not None:
+            try:
+                return await asyncio.shield(open_wait)
+            except asyncio.CancelledError:
+                await self.release(lease)
+                raise
+            except Exception:
+                # Whoever opened it failed. Its siblings are not implicated, and their own
+                # snapshot is what they would have been given anyway.
+                return seqs, waiting
+
+        if not (seqs == 0 and waiting == 0):
+            return seqs, waiting
+
+        self._holding = asyncio.get_running_loop().create_future()
+        try:
+            counted = await self._count_the_burst()
+        except BaseException as exc:
+            self._settle_waiters(exc=exc)
+            await self.release(lease)
+            raise
+        self._settle_waiters(counted=counted)
+        return counted
+
+    def _settle_waiters(
+        self,
+        *,
+        counted: tuple[int, int] | None = None,
+        exc: BaseException | None = None,
+    ) -> None:
+        """Hand the open wait's outcome to whoever joined it, and close it."""
+        pending, self._holding = self._holding, None
+        if pending is None or pending.done():
+            return
+        if exc is not None:
+            pending.set_exception(exc)
+            # Retrieved here so a wait nobody joined does not log a stray exception.
+            pending.exception()
+        else:
+            pending.set_result(counted)
 
     async def _count_the_burst(self) -> tuple[int, int]:
         """Wait out the burst behind an idle gate, and report what arrived.
@@ -574,17 +636,31 @@ class Admission:
         it.
         """
         while True:
-            async with self._cond:
-                before = self._inflight_seqs + len(self._waiting)
+            before, _, _ = await self._burst_view()
             await asyncio.sleep(self._idle_hold)
-            async with self._cond:
-                # Read after the wait rather than reporting what was read before it. Minus
-                # one for this request, whose slot is now included where it was not in the
-                # pre-grant numbers the caller's formula was written against.
-                arrived = self._inflight_seqs + len(self._waiting)
-                seqs, waiting = max(self._inflight_seqs - 1, 0), len(self._waiting)
+            # Read after the wait rather than reporting what was read before it.
+            arrived, seqs, waiting = await self._burst_view()
             if arrived >= self._max_seqs or arrived == before:
                 return seqs, waiting
+
+    async def _burst_view(self) -> tuple[int, int, int]:
+        """Everything in or waiting for the gate, then the two numbers a lease carries.
+
+        Shared totals wherever there is a file, so a burst spread across processes counts
+        as one burst. That is now an ordinary shape rather than an exotic one, since `run`
+        fans out as separate processes. The local counters answer for this process alone,
+        which is the whole gate only when there is no file to read.
+
+        The second number is minus one for this request, whose slot is already taken and so
+        is counted here where it was not in the pre-grant numbers the caller's formula was
+        written against.
+        """
+        if self._slots is not None:
+            totals, _, waiting = await self._slots.snapshot()
+            return totals.seqs + waiting, max(totals.seqs - 1, 0), waiting
+        async with self._cond:
+            seqs, waiting = self._inflight_seqs, len(self._waiting)
+        return seqs + waiting, max(seqs - 1, 0), waiting
 
     def _record_wait(self, seconds: float) -> None:
         self._wait_seconds_total += seconds

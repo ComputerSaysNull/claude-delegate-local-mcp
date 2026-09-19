@@ -1,4 +1,5 @@
-<!-- BUDGET: 1178 -->
+<!-- BUDGET: 1189 -->
+<!-- Raised from 1178 (+1 for this line) on 2026-09-19: taking an open wait's answer is new admission behaviour, and its one limit is what stops a reader assuming it covers a fan-out. -->
 <!-- Raised from 1171 (+1 for this line) on 2026-09-19: the idle hold takes a slot before it waits, and what gives that slot back is behaviour this document owns. -->
 <!-- Raised from 1150 (+1 for this line) on 2026-09-19: `run` is a fifth entry point, and the client-side limit it answers is why it exists rather than a preference. -->
 <!-- Raised from 1139 on 2026-09-15: a request that finds the gate idle now waits before recording its concurrency, which is admission behaviour this document owns. -->
@@ -747,9 +748,19 @@ saying so however many siblings are a millisecond behind it — and a burst's fi
 exactly the call that then decodes at six-way. The wait is a debounce rather than a fixed
 hold, because a client staggers a fan-out across more than one window: it repeats while
 siblings keep arriving, ends at the first window none does, and ends at once when the gate
-fills, which is what bounds it without a second setting. Only the first pays. The wait is
-outside the condition, which is the whole trick — holding the lock would block the very
-siblings it is counting. 0 disables the hold and the pricing it feeds (ADR-0085).
+fills, which is what bounds it without a second setting. The wait is outside the condition,
+which is the whole trick — holding the lock would block the very siblings it is counting.
+0 disables the hold and the pricing it feeds (ADR-0085).
+
+**A request admitted while that wait is open takes its answer**, rather than recording what
+it happened to see. Without that only the first member is counted honestly: a later one sees
+the siblings ahead of it and none still arriving behind, so it prices on its own position and
+a simultaneous three read 1, 2 and 3. One wait serves the burst rather than one each — a
+second would re-count the same arrivals, and a joiner cannot wait inside the wait it is
+joining. It costs no latency that was not already paid, since it is that same window shared,
+and a request joining a busy gate with nothing open still does not wait. Within one process:
+the file does not yet carry that a wait is open, so members in other processes still price on
+their own position even though the counting itself now reads shared totals.
 
 The slot is taken *before* that wait, so the wait gives it back on any exit from it. Nothing
 else can: a lease is released by `admit`, which has not been handed one until the wait
