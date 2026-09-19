@@ -38,6 +38,28 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #246 — 2026-09-19 — docs: server-side tool time is a tail, not a rule
+
+### Changed
+
+- `PLAN.md` Unscheduled 5 is cancelled and 19 is re-ranked down, against the measurement 5
+  itself asked for. It recorded that a delegation's budget pays for server-side tool time —
+  1,135.7s of 1,271.7s on 2026-09-13, 89.3%, cluster idle throughout — and said to re-measure
+  before ranking, because that time was overwhelmingly search.
+- Re-measured across every transcript from 09-18 and 09-19, 27 dispatches carrying turn data
+  and 55 turns, by differencing `ms` against `backend_ms`: the median per-dispatch share is
+  **0.5%**, the maximum **72.7%**, and **1 of 27** dispatches is above 20%. So the premise
+  survives as a tail and is gone as a rule. #219 and #220 are why — the 657s unscoped search
+  that produced the original figure now runs in about 4.6s.
+- 5 is cancelled rather than deferred: an item sized against 89.3% would be sized against a
+  number nothing produces any more. 19 is only re-ranked, because its own example was that
+  same search — 505s of one turn with `chunks_seen` frozen — leaving a watcher that is told a
+  delegation is dying while a tool runs, which is real and rare.
+- The `JOURNAL.md` entry keeps the method rather than only the conclusion, including that the
+  aggregate and the median disagree sharply here (1.2% against 0.5%) because a few very long
+  turns dominate a sum. A single number picked after the fact argues for whatever was already
+  believed.
+
 ## #245 — 2026-09-19 — fix: a burst is priced on its size, not on arrival order
 
 ### Fixed
