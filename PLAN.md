@@ -1,4 +1,5 @@
-<!-- BUDGET: 926 -->
+<!-- BUDGET: 936 -->
+<!-- Raised from 926 (+1 for this line) on 2026-09-19: the command-line entry point shipped unplanned, and it made two latent bugs reachable; a roadmap that omits either is the drift this file exists against. -->
 <!-- Raised from 922 (+1 for this line) on 2026-09-19: the obvious fix for 40 was read out of the code and refuted, and that correction belongs beside the item. -->
 <!-- Raised from 919 (+1 for this line) on 2026-09-18: 52.a argued from an ownership gap that the commit filing it had already closed, and the correction has to sit where the item is read. -->
 <!-- Raised from 912 (+1 for this line) on 2026-09-18: two sub-items of 49 were measured wrong and are struck beside their corrections, and the artefact they described is filed where it actually belongs. -->
@@ -873,6 +874,15 @@ local, because they are working notes rather than a product fact.
     - b. ✅ Not fixed by 53, which gives writing work an agent to route to but does not change what
     the instructions say. The 2026-09-07 calls show the capability already works: a regression
     module and two owning documents, three calls, nothing recorded as a failure.
+57. ⬜ **The idle hold fixes one member of a burst, not the burst.** It fires only where
+  `seqs` and `waiting` are both zero, so a simultaneous six priced 2,3,4,5,6,6 — no 1 and two
+  6s is the hold moving exactly one arm, measured 2026-09-19 over the out-of-process fan-out
+    - a. ⬜ 50 closed this for a burst the *client* staggered. Removing that stagger makes the
+    burst simultaneous and the under-count returns in a shape the hold does not reach, so the
+    question is whether a member should price on the gate it joins or the one it ends up in
+56. ✅ 2026-09-19 **A delegation runs from the command line**, `run --task`, because the 120s
+  stagger is the client's own queue and no server-side change reaches it — six arms span 88ms
+  against 600s, and a result lands in a file rather than the caller's window (ADR-0092)
 55. ⬜ **Concurrent server processes all number their transcripts `0001`**, `_COUNTER` being
   process-local, so a same-millisecond same-slug pair is one filename: the `.json` truncates
   and the `.jsonl` appends, interleaving two streams (JOURNAL 2026-09-19)

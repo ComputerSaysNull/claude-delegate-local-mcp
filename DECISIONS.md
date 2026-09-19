@@ -19,6 +19,60 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0092 — 2026-09-19 — A delegation gets a command-line entry point, because the stagger is the client's — Accepted
+
+**Context.** A fan-out of delegations from one conversation staggers. It was recorded as a
+"dispatch ramp" on the two write-capable tools and had already re-ranked work on that basis.
+Measured 2026-09-19 it is neither a ramp nor anything this server does: a conversation
+speaking MCP holds one write-capable call in flight and releases the next at
+`min(completion, 120s)`. Six five-minute arms start exactly 120.0s apart, six eleven-second
+arms start 0.0s after the previous *ended*, and four read-only arms overlap throughout.
+
+Admission never sees the next arm until the client sends it, so no server-side change can
+reach this. The same six arms issued from independent contexts span 17.0s, which locates the
+queue in the conversation rather than in the tool, the gate or the model.
+
+**Decision.** `claude-delegate-local-mcp run --task "..."` dispatches one delegation and
+prints the result as JSON, exiting 0 if it answered, 1 if it did not and 2 on bad usage. A
+shell starts as many as it likes at once: measured, six span 88ms.
+
+It goes through `run_delegation`, the seam the MCP tools already funnel through, so
+admission, the budget, the transcript and every refusal are the same code. The module owns
+argument handling and an exit code and nothing else, which is what keeps the two surfaces
+from drifting.
+
+`main.run` dispatches to it before `config.load` and before building a server, the way
+`--doctor` does, because stdout carries the JSON and a server underneath would interleave
+MCP frames with it. Matched on `sys.argv[1]` rather than by membership, or a task whose text
+contained the word would divert itself.
+
+**Rejected: `MCP_TOOL_TIMEOUT`.** It is a client-wide process variable, so it would shorten
+backgrounding for every tool rather than this one, and it is per-machine setup that does not
+travel. Whether it backgrounds or kills is also untested, with a severe failure mode.
+
+**Rejected: subagents.** They work — five arms from five contexts span 17.0s — but each one
+costs its own context window, about 37,000 tokens for a single arm, which spends the thing
+delegation exists to save.
+
+**Rejected: waiting for the handle protocol.** `collect(handle)` would free the client's slot
+too, but it is a model-facing contract change with its own ADR, and it is not needed for the
+case that hurts. What it is still for is narrower than before: the caller that is itself a
+delegation, rather than a person with a shell.
+
+**Consequences.** A wide pass is bounded by the cluster instead of by the client. The gain is
+smaller than the start times suggest and should be quoted honestly: six concurrent arms took
+572-885s each against about 335s alone, so 887s against roughly 2,010s run one after another
+— 2.3x, not 6x, because concurrency costs decode rate.
+
+There is now a second surface a delegation arrives through, and a refusal or a new argument
+has to reach both. Reusing `run_delegation` is what makes that a wiring question rather than
+a policy one.
+
+It also makes a latent bug reachable: `transcript.py`'s `_COUNTER` is process-local, so
+concurrent processes all number their transcripts `0001` and a same-millisecond, same-slug
+pair collides. Filed as `PLAN.md` Unscheduled 55 rather than fixed here, because it is the
+transcript's bug and not this entry point's.
+
 ## ADR-0091 — 2026-09-18 — History in a re-read file is a gate check, not an audit class — Accepted
 
 **Context.** `CONTRIBUTING.md` says a skill or agent body states the rule and never the

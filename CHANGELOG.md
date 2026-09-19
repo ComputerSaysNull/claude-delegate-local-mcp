@@ -38,6 +38,37 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #243 — 2026-09-19 — feat: a delegation runs from the command line
+
+### Added
+
+- `claude-delegate-local-mcp run --task "..."` dispatches one delegation and prints the
+  result as JSON, exiting 0 if it answered, 1 if it did not and 2 on bad usage. It takes
+  `--files`, `--effort`, `--model`, `--agent`, `--project`, `--workdir`, `--allowed-tool`,
+  `--max-tokens` and `--max-turns`.
+- The reason is a client-side limit no server change can reach. A conversation speaking MCP
+  holds one write-capable call in flight and releases the next at `min(completion, 120s)`,
+  so a six-wide fan-out spends 600s staggering before any work overlaps. Started from a
+  shell the same six span **88ms**. The second gain is context: an MCP tool result lands in
+  the caller's window whole, where this is redirected to a file and read back in part.
+- It goes through `run_delegation`, the seam the MCP tools already funnel through, so
+  admission, the budget, the transcript and every refusal are the same code. The module owns
+  argument handling and an exit code and nothing else, which is what stops the two surfaces
+  drifting. ADR-0092 records that, and why `MCP_TOOL_TIMEOUT`, subagents and waiting for the
+  handle protocol were each rejected.
+- `main.run` dispatches to it before `config.load` and before building a server, the way
+  `--doctor` does, because stdout carries the JSON and a server underneath would interleave
+  MCP frames with it. `tests/test_run_task.py` pins that gate, and its red is a real
+  assertion rather than an import error: driven against the committed `main.py`, `run` fell
+  through every branch and reached `server.build`.
+
+### Changed
+
+- The honest figure for the gain, because the start times overstate it: six concurrent arms
+  took 572–885s each against about 335s alone, so the whole fan-out was 887s where six run
+  one after another would be roughly 2,010s. That is 2.3x, not 6x — concurrency costs decode
+  rate, which the benchmarks already price at 44.1 tok/s solo against just under 20 at six.
+
 ## #242 — 2026-09-19 — docs: the obvious fix for the admission bail-out is refuted
 
 ### Changed
