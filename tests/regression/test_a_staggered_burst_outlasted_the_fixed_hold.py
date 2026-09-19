@@ -30,9 +30,15 @@ Named after the bug, per the project's convention.
 
 from __future__ import annotations
 
+import asyncio
+
 from claude_delegate_local import admission as adm
 from claude_delegate_local.admission import Admission
 from claude_delegate_local.config import Config
+
+# Captured before any test patches the attribute, so a harness can yield to the loop
+# without the yield being recorded as one of the hold's own windows.
+_real_sleep = asyncio.sleep
 
 
 def held_gate(monkeypatch, **over):
@@ -52,6 +58,24 @@ async def take(g, tokens=1000, *, key="flash", limit=5):
     return await g.acquire(tokens, entry_key=key, entry_limit=limit)
 
 
+async def arrive(g, count: int, started: list) -> None:
+    """Admit `count` siblings *concurrently*, and return once each holds its slot.
+
+    Concurrently, and not by awaiting each `acquire` inline, because inline is a shape
+    the gate cannot produce: a sibling would run to completion inside the window that is
+    supposed to be counting it. That difference is invisible while only one member ever
+    waits, and decides the answer as soon as more than one does -- a member that waits for
+    the burst cannot do so inside the wait it is joining.
+
+    Returns only once the slots are taken, so the window that follows reads a settled
+    number rather than racing the tasks it just started.
+    """
+    want = g.status()["inflight_seqs"] + count
+    started.extend(asyncio.create_task(take(g)) for _ in range(count))
+    while g.status()["inflight_seqs"] < want:
+        await _real_sleep(0)
+
+
 async def test_the_hold_extends_while_a_burst_is_still_arriving(monkeypatch):
     """The fix, and the shape the fixed hold cannot produce.
 
@@ -61,12 +85,13 @@ async def test_the_hold_extends_while_a_burst_is_still_arriving(monkeypatch):
     """
     g, slept = held_gate(monkeypatch, admission_idle_hold=10.0)
     arrivals = [1, 1]
+    started: list = []
 
     async def fake_sleep(seconds: float) -> None:
         slept.append(seconds)
         if arrivals:
             arrivals.pop()
-            await g.acquire(1000, entry_key="flash", entry_limit=5)
+            await arrive(g, 1, started)
 
     monkeypatch.setattr(adm.asyncio, "sleep", fake_sleep)
 
@@ -78,6 +103,7 @@ async def test_the_hold_extends_while_a_burst_is_still_arriving(monkeypatch):
         f"establish the quiet -- waited {len(slept)}"
     )
     assert lease.seqs_at_grant >= 2, "every sibling that arrived must be counted"
+    await asyncio.gather(*started)
 
 
 async def test_the_hold_releases_as_soon_as_the_gate_fills(monkeypatch):
@@ -92,12 +118,12 @@ async def test_the_hold_releases_as_soon_as_the_gate_fills(monkeypatch):
     """
     g, slept = held_gate(monkeypatch, admission_idle_hold=10.0)
     waves = [2, 2]
+    started: list = []
 
     async def fake_sleep(seconds: float) -> None:
         slept.append(seconds)
         if waves:
-            for _ in range(waves.pop(0)):
-                await g.acquire(1000, entry_key="flash", entry_limit=5)
+            await arrive(g, waves.pop(0), started)
 
     monkeypatch.setattr(adm.asyncio, "sleep", fake_sleep)
 
@@ -108,6 +134,7 @@ async def test_the_hold_releases_as_soon_as_the_gate_fills(monkeypatch):
         f"a full gate must release without a quiet window -- waited {len(slept)}"
     )
     assert lease.seqs_at_grant == 4, "a full gate must record every sibling"
+    await asyncio.gather(*started)
 
 
 async def test_a_quiet_idle_gate_still_pays_exactly_one_window(monkeypatch):

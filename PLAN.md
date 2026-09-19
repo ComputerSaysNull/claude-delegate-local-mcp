@@ -1,4 +1,5 @@
-<!-- BUDGET: 943 -->
+<!-- BUDGET: 947 -->
+<!-- Raised from 943 (+1 for this line) on 2026-09-19: the burst under-count is fixed within a process, and which half is left belongs beside the item rather than only in a commit. -->
 <!-- Raised from 936 (+1 for this line) on 2026-09-19: a slot leak that closes the gate for a server's whole life, and what it means for 40, both belong where the items are read. -->
 <!-- Raised from 926 (+1 for this line) on 2026-09-19: the command-line entry point shipped unplanned, and it made two latent bugs reachable; a roadmap that omits either is the drift this file exists against. -->
 <!-- Raised from 922 (+1 for this line) on 2026-09-19: the obvious fix for 40 was read out of the code and refuted, and that correction belongs beside the item. -->
@@ -884,9 +885,12 @@ local, because they are working notes rather than a product fact.
 57. ⬜ **The idle hold fixes one member of a burst, not the burst.** It fires only where
   `seqs` and `waiting` are both zero, so a simultaneous six priced 2,3,4,5,6,6 — no 1 and two
   6s is the hold moving exactly one arm, measured 2026-09-19 over the out-of-process fan-out
-    - a. ⬜ 50 closed this for a burst the *client* staggered. Removing that stagger makes the
-    burst simultaneous and the under-count returns in a shape the hold does not reach, so the
-    question is whether a member should price on the gate it joins or the one it ends up in
+    - a. ✅ 2026-09-19 50 closed this for a burst the *client* staggered. Removing that stagger
+    makes the burst simultaneous and the under-count returns in a shape the hold does not
+    reach, so the question is whether a member prices on the gate it joins or the one it meets
+    - b. ⬜ **The cross-process half is what remains.** A member takes an open wait's answer
+    within one process; the slots file does not carry that a wait is open, so three arms from
+    three processes still price 2,3,4 — measured, and the counting itself now reads shared
 56. ✅ 2026-09-19 **A delegation runs from the command line**, `run --task`, because the 120s
   stagger is the client's own queue and no server-side change reaches it — six arms span 88ms
   against 600s, and a result lands in a file rather than the caller's window (ADR-0092)

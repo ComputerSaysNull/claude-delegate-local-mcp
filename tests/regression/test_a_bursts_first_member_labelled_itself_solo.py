@@ -120,6 +120,25 @@ async def take(g, tokens=1000, *, key="flash", limit=5):
     return await g.acquire(tokens,  entry_key=key, entry_limit=limit)
 
 
+# Captured before any test patches the attribute, so a harness can yield to the loop
+# without the yield being recorded as one of the hold's own windows.
+_real_sleep = adm.asyncio.sleep
+
+
+async def arrive(g, count: int, started: list) -> None:
+    """Admit `count` siblings concurrently, returning once each holds its slot.
+
+    Concurrently, and not by awaiting `acquire` inline: inline is a shape the gate cannot
+    produce, because a sibling would run to completion inside the very window meant to be
+    counting it. Harmless while only one member ever waits, and decisive once a member can
+    join a wait already open -- it cannot join it from inside it.
+    """
+    want = g.status()["inflight_seqs"] + count
+    started.extend(adm.asyncio.create_task(take(g)) for _ in range(count))
+    while g.status()["inflight_seqs"] < want:
+        await _real_sleep(0)
+
+
 async def test_an_idle_gate_holds_before_recording_its_concurrency(monkeypatch):
     """The fix. The first member waits, so a burst behind it is counted."""
     g, slept = held_gate(monkeypatch, admission_idle_hold=10.0)
@@ -161,6 +180,7 @@ async def test_the_snapshot_is_taken_after_the_hold_not_before(monkeypatch):
     """
     g, _ = held_gate(monkeypatch, admission_idle_hold=10.0)
     seen: list[int] = []
+    started: list = []
 
     async def fake_sleep(_seconds: float) -> None:
         # One sibling lands while the first member is holding, and only one: the hold is a
@@ -168,7 +188,7 @@ async def test_the_snapshot_is_taken_after_the_hold_not_before(monkeypatch):
         # this would be measuring the fill rule instead of the snapshot's ordering.
         if not seen:
             seen.append(1)
-            await g.acquire(1000, entry_key="flash", entry_limit=5)
+            await arrive(g, 1, started)
 
     monkeypatch.setattr(adm.asyncio, "sleep", fake_sleep)
 
@@ -176,3 +196,4 @@ async def test_the_snapshot_is_taken_after_the_hold_not_before(monkeypatch):
 
     assert seen == [1], "the sibling never arrived, so this proves nothing"
     assert lease.seqs_at_grant >= 1, "the snapshot predates the hold"
+    await adm.asyncio.gather(*started)
