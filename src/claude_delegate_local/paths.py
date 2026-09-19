@@ -35,6 +35,7 @@ import errno
 import fnmatch
 import os
 import posixpath
+import re
 import stat as stat_module
 import subprocess
 from collections import defaultdict
@@ -357,6 +358,46 @@ def secret_match(real: str, globs: Sequence[str]) -> str | None:
     for glob in globs:
         if not glob.startswith("!") and hit(glob):
             return glob
+    return None
+
+
+# Key material, by its armour rather than by its file name. Deliberately tiny and
+# deliberately anchored on strings that do not occur in prose by accident: a renamed key is
+# still PEM inside, and PEM announces itself. This is **not** `scan_text` pointed at file
+# contents -- that scanner hunts RFC1918 addresses, private-DNS suffixes and
+# non-allowlisted emails, and would fire on the very sources a review delegation exists to
+# read. Precision is the whole design goal; a check that cries wolf on source gets disabled,
+# and a disabled check is worse than none because it is still believed. (ADR-0096)
+#
+# Both layers call this one table. `paths.py` refuses a file the model asked for and
+# `sandbox.py` covers one a command could have opened, and they are independent layers
+# rather than redundant ones -- but the *rule* they apply must be one rule, or a pattern
+# added to one would leave the same bytes readable through the other with nothing reporting
+# the disagreement. That is the mistake `secret_match` already exists to avoid.
+_KEY_MARKERS: tuple[re.Pattern[bytes], ...] = (
+    # PEM private keys of every flavour: RSA, EC, DSA, OPENSSH, PGP BLOCK, and the
+    # unlabelled PKCS#8 form. The label is bounded so this cannot run away down a line.
+    re.compile(rb"-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY( BLOCK)?-----"),
+    # PuTTY's own format, which is not PEM and is the common Windows-side key file.
+    re.compile(rb"PuTTY-User-Key-File-\d"),
+)
+
+
+def key_material_marker(head: bytes) -> str | None:
+    """The name of the first key-material marker in `head`, or None.
+
+    Bytes rather than text, and never decoded: a key file may be any encoding or none, and
+    a decode that raised would turn a detector into a crash. The caller supplies however
+    much of the file it is willing to read, which is what bounds the cost.
+
+    Returns the marker so both callers can name it -- one in a refusal the model reads, one
+    in a diagnostic about what was covered up -- exactly as `secret_match` returns its
+    pattern.
+    """
+    for pattern in _KEY_MARKERS:
+        found = pattern.search(head)
+        if found is not None:
+            return found.group(0).decode("ascii", "replace")
     return None
 
 
@@ -984,8 +1025,14 @@ def _prove_descriptor(entry: ResolvedPath, fd: int) -> None:
         )
 
 
-def open_resolved(entry: ResolvedPath, mode: str) -> OpenedFile:
+def open_resolved(entry: ResolvedPath, mode: str, *, scan_bytes: int = 0) -> OpenedFile:
     """Open a path this module approved, and prove the descriptor is that path.
+
+    `scan_bytes` turns on the content check: that many bytes of a read-mode file are
+    scanned for key material, and a hit refuses. It defaults to *off* because this
+    function has callers that are not the model -- the config reader, the agent loader --
+    and a detector that fired on those would be refusing the server's own material to the
+    server. The tool layer passes the configured value; the rest pass nothing. (ADR-0096)
 
     The only sanctioned way to open anything `resolve_all` or `resolve_permitted` returned.
     `mode` is `"rb"`, `"r+b"` or `"wb"`; `"r+b"` exists so a read-modify-write holds one
@@ -1045,11 +1092,60 @@ def open_resolved(entry: ResolvedPath, mode: str) -> OpenedFile:
 
     try:
         _prove_descriptor(entry, fd)
-        if mode == "wb" and not created:
-            # The truncation the caller expected from "wb", moved to after the proof.
-            os.ftruncate(fd, 0)
+        if mode == "wb":
+            if not created:
+                # The truncation the caller expected from "wb", moved to after the proof.
+                os.ftruncate(fd, 0)
+        elif scan_bytes > 0:
+            _refuse_key_material(entry, fd, scan_bytes)
     except BaseException:
         os.close(fd)
         raise
 
     return OpenedFile(entry=entry, handle=os.fdopen(fd, mode), created=created)
+
+
+def _refuse_key_material(entry: ResolvedPath, fd: int, scan_bytes: int) -> None:
+    """Refuse a file whose *bytes* are key material, whatever it is called.
+
+    Reads through the proven descriptor rather than reopening `entry.posix`, because a
+    second `open` on the path is the check-then-use gap `open_resolved` exists to close
+    (ADR-0049). `os.pread` leaves the file offset alone, so the handle the caller receives
+    is still at byte zero and no caller has to know this ran.
+
+    Runs *after* `_prove_descriptor` on purpose: scanning first would be scanning whatever
+    the path happened to name at that moment, which is the substitution the proof rules
+    out. And only on a read: a "wb" handle has already been truncated by here, so there
+    would be nothing to scan, and writing a key into the workspace is not this layer's
+    question.
+
+    An unreadable descriptor is not a refusal. This is a detector sitting behind four
+    layers that have already approved the path, so a read error here means the file went
+    away or the kernel said no -- both of which the caller is about to discover properly.
+    Refusing on it would turn a transient into a policy verdict.
+    """
+    try:
+        head = os.pread(fd, scan_bytes, 0)
+    except OSError:
+        return
+    marker = key_material_marker(head)
+    if marker is None:
+        return
+    raise PathRefused(
+        [Refusal(
+            given=entry.given,
+            layer=LAYER_SECRET,
+            reason=(
+                f"its contents are key material -- it begins {marker!r} -- whatever it is "
+                "named. The denylist matches names, and this file's name did not match."
+            ),
+            remedy=(
+                "Delegated models never receive credential material, and renaming a key "
+                "does not make it readable. Nothing was read. If this is a fixture rather "
+                "than a real key, it still cannot be sent: quote the shape you need "
+                "instead of the file."
+            ),
+        )],
+        1,
+        surface="opened file",
+    )

@@ -37,7 +37,12 @@ from functools import lru_cache
 from pathlib import Path
 
 from .config import Config
-from .paths import load_secret_globs, resolve_configured_path, secret_match
+from .paths import (
+    key_material_marker,
+    load_secret_globs,
+    resolve_configured_path,
+    secret_match,
+)
 from .wsl import to_posix
 
 log = logging.getLogger(__name__)
@@ -556,6 +561,7 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
     found: list[ShadowTarget] = []
     seen: set[str] = set()
     budget = cfg.secret_shadow_max_entries
+    scan_bytes = cfg.secret_content_scan_bytes
 
     for root in roots:
         base_depth = root.rstrip("/").count("/")
@@ -595,22 +601,63 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
                 full = posixpath.join(dirpath, name)
                 if os.path.islink(full):
                     continue
-                glob = secret_match(full, globs)
-                if glob is not None and os.path.realpath(full) in exempt:
-                    # The lists cannot be covered from the command their own patterns
-                    # govern. `security/secret_globs.txt` matches its own `*secret*`
-                    # entry, so covering it left a /dev/null character device owned by
-                    # `nobody` -- which reads as Permission denied rather than as empty,
-                    # and took every nested run that touches layer 3 down with it.
-                    # Realpath both sides: the setting is resolved against the cwd while
-                    # this path is joined from a bound root, and one bind can reach the
-                    # same file twice. (ADR-0065)
-                    continue
+                glob = _file_match(full, globs, exempt, scan_bytes)
                 if glob is not None and full not in seen:
                     seen.add(full)
                     found.append(ShadowTarget(path=full, kind="file", matched=glob))
 
     return tuple(found)
+
+
+def _file_match(
+    full: str, globs: Sequence[str], exempt: frozenset[str], scan_bytes: int
+) -> str | None:
+    """What covers this file, by name and then by content, or None for neither."""
+    glob = secret_match(full, globs)
+    if glob is not None and os.path.realpath(full) in exempt:
+        # The lists cannot be covered from the command their own patterns govern.
+        # `security/secret_globs.txt` matches its own `*secret*` entry, so covering it
+        # left a /dev/null character device owned by `nobody` -- which reads as Permission
+        # denied rather than as empty, and took every nested run that touches layer 3 down
+        # with it. Realpath both sides: the setting is resolved against the cwd while this
+        # path is joined from a bound root, and one bind can reach the same file twice.
+        # (ADR-0065)
+        return None
+    if glob is not None:
+        return glob
+    if scan_bytes <= 0:
+        return None
+    # The second detector, and the reason this layer is not redundant with `paths.py`:
+    # that one refuses a file the model *asked for*, this one covers a file a shell could
+    # have opened without asking anyone. A key renamed `config.json` is invisible to every
+    # pattern above. Reached only where the name did not already match -- a covered file
+    # is covered, and reading it to reach the same verdict is a read per file for nothing.
+    marker = _key_marker_at(full, scan_bytes)
+    return None if marker is None else f"content:{marker}"
+
+
+def _key_marker_at(path: str, scan_bytes: int) -> str | None:
+    """The key-material marker in this file's first `scan_bytes` bytes, or None.
+
+    Never raises. A file that cannot be opened is one a command probably cannot open
+    either, and a walk that died on an unreadable file would take `run_bash` with it --
+    the failure mode ADR-0065 is already about. Unreadable therefore means "no verdict",
+    and the name-level patterns are unaffected either way.
+
+    Opened with `O_NOFOLLOW`, though the caller has already skipped symlinks: the check
+    and the open are separate moments, and this is the cheaper of the two places to be
+    sure.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_BINARY", 0))
+    except OSError:
+        return None
+    try:
+        return key_material_marker(os.pread(fd, scan_bytes, 0))
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
 
 
 def build_argv(

@@ -48,6 +48,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_WORKDIR_ROOTS` | *(empty)* | Layer 1 applied to the `workdir` argument itself, which is a separate surface from the files read within it. Empty means reuse workspace_roots. |
 | `DELEGATE_EXT_ALLOWLIST` | .py, .pyi, .md, .rst, .txt, .toml, .yaml, .yml, .json, .ts, .tsx, .js, .jsx, .mjs, .css, .html, .sql, .sh, .rs, .go, .java, .kt, .c, .h, .cpp, .hpp, .cs, .rb, .php, .swift, .lua, .ini, .cfg, .env-example, .gitignore, .dockerfile, .makefile | Layer 2: the practical allowlist. A pure allowlist cannot work for file contents -- you cannot enumerate every source file you will ever delegate -- so extension is the axis that can be allowlisted. Anything not listed is refused. |
 | `DELEGATE_SECRET_GLOBS_FILE` | ./security/secret_globs.txt | Layer 3: globs a model must never receive, shared with the git secrets gate so there is one list and not two that drift. |
+| `DELEGATE_SECRET_CONTENT_SCAN_BYTES` | 4096 | Bytes of a file read at the head and checked for private-key armour, whatever the file is named. Closes the gap every other layer leaves: they all inspect the path, so a key renamed config.json passes all of them. Narrow by design -- PEM headers and the PuTTY one, never a general secret scanner, which would fire on the sources a review delegation exists to read. 0 disables both the read check and the sandbox's content shadowing. Raising it costs one read per file the sandbox walk reaches (ADR-0096). |
 | `DELEGATE_RESPECT_GITIGNORE` | True | Layer 4: refuse paths git ignores. Cheap, and catches build output and local environment files that pass the extension allowlist. |
 
 ### Context prefetch
@@ -165,6 +166,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting, unlike ADR-0034's sandbox_enabled, because naming another transport should be an error rather than silence -- load() reads only variables matching a field, so deleting this one would make a stale value do nothing without saying so. |
 
-*67 settings.*
+*68 settings.*
 
 <!-- GEN:CONFIG:END -->

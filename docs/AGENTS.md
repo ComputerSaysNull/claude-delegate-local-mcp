@@ -1,4 +1,5 @@
-<!-- BUDGET: 481
+<!-- BUDGET: 496
+     Raised from 481 (+1 for this line) on 2026-09-19: layer 3 now asks about bytes as well as names, and ADR-0049 paragraph said in terms that a substituted file is never judged -- a correction costs more than an addition.
      Raised from 478 on 2026-09-16: layer 1 now remembers a prefix, and what it must never remember is a security fact.
      Raised from 473 on 2026-09-16: the section counted two git calls where there are three, and the third is the one that costs.
      Raised from 469 on 2026-09-13: a remedy now names the configured roots, because the one
@@ -303,8 +304,18 @@ path is worse than reading one rather than better.
 |---|---|---|
 | 1 | Workspace roots | Anything whose **real** path falls outside a configured root. Resolution happens after symlinks, which closes escape through a link that was already there; one planted afterwards is caught at the open, below |
 | 2 | Extension allowlist | Anything whose extension is not listed |
-| 3 | Secret denylist | `.env*`, `*.pem`, `*.key`, `id_*`, `*credential*`, `*secret*`, `.git/**`, and more |
+| 3 | Secret denylist | `.env*`, `*.pem`, `*.key`, `id_*`, `*credential*`, `*secret*`, `.git/**`, and more — **and, at the open, private-key armour in the first `secret_content_scan_bytes` whatever the file is named** |
 | 4 | Gitignore | Anything git ignores |
+
+Layer 3 is the one layer that asks a question about *bytes* as well as about names. Every
+other check is a function of the path, so a key renamed `config.json` passed all of them —
+and `run_bash` could read one the mount-level scan had missed by name too, which is why the
+same detector runs in `sandbox.py` as well. One pattern table serves both, or a pattern
+added to one would leave the same bytes reachable through the other. It is deliberately
+tiny — PEM headers and the PuTTY one — and is **not** `scan_text` pointed at contents: that
+scanner hunts addresses, private-DNS suffixes and unfamiliar emails, and would fire on the
+sources a review delegation exists to read. A check that cries wolf gets switched off, and
+a switched-off check is worse than none because it is still believed. (ADR-0096)
 
 A pattern may be prefixed `!` to **exempt** rather than deny, and every exemption is
 checked before any deny. It is for the case where a broad pattern is right about a family
@@ -349,9 +360,14 @@ because resolving that is what catches a link pointing out of the root.
 So the policy hands back an open descriptor and never a path. The open refuses a link at
 the final component outright, then proves the descriptor still refers to the approved
 path, which catches a swapped parent directory too. What it deliberately does not treat
-as a breach is a different *regular* file at an approved path — every layer above is a
-function of the path, so those bytes could have arrived through `write_file` anyway.
+as a breach is a different *regular* file at an approved path — layers 1, 2 and 4 are
+functions of the path, so those bytes could have arrived through `write_file` anyway.
 Refused as `layer 5, the opened file`, with nothing read and nothing written. (ADR-0049)
+
+The content check is the one thing that *does* judge the substituted bytes, and it runs
+here rather than at resolve time for exactly that reason: it reads through the proven
+descriptor, so what it scans is what the caller would have received. Refused as layer 3,
+because it is the denylist's question asked a second way. (ADR-0096)
 
 ### Windows paths are accepted, and translated for you
 

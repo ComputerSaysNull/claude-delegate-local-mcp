@@ -38,6 +38,45 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #252 — 2026-09-19 — feat: a renamed private key is detected by its bytes
+
+### Added
+
+- **`DELEGATE_SECRET_CONTENT_SCAN_BYTES`** (default 4096) and a content check in both
+  path-policy layers: the head of a file is scanned for private-key armour whatever the
+  file is named. 0 disables both halves.
+
+### Fixed
+
+- **A private key renamed `config.json` passed every layer.** The symptom is that layers
+  1, 2 and 4 are functions of the path and layer 3 matched the *name*, so an allowlisted
+  extension outside the denylist and not gitignored was approved by all of them — and
+  `run_bash` could read one the mount-level scan had missed by name too. The cause is
+  that no layer anywhere inspected a file's contents; that was verified rather than
+  assumed. The fix is one shared pattern table called from both layers: `paths.py`
+  refuses at the open, reading through the descriptor `_prove_descriptor` has already
+  proven, and `sandbox.py` covers the file in the shadow walk for names the denylist
+  missed. The layers stay independent per ADR-0010 — neither is a backstop for the other
+  — while the *rule* stays single, because a pattern added to one alone would leave the
+  same bytes reachable through the other with nothing reporting it. (ADR-0096)
+- This narrows ADR-0049, deliberately: it held that a different regular file at an
+  approved path is not a breach *because* every layer is a function of the path. One
+  layer now judges the substituted bytes, so that exemption no longer covers key
+  material, and the sentence saying otherwise is corrected rather than left standing.
+
+### Changed
+
+- **`scan_text` was refused for this, as the 2026-09-02 review's recommendation would
+  have had it.** That scanner hunts RFC1918 addresses, private-DNS suffixes and
+  non-allowlisted emails, and pointed at contents it would fire on the sources a review
+  delegation exists to read. Precision is the goal rather than coverage: a check that
+  cries wolf gets switched off, and a switched-off check is worse than none because it is
+  still believed. Two patterns only, and a test runs the detector over this repository's
+  own sources to prove it stays quiet.
+- The check is off unless a caller asks. `open_resolved` is also how the server reads its
+  own config and agent files, and a detector firing there would refuse the server to
+  itself; the tool layer passes the setting and nothing else does.
+
 ## #251 — 2026-09-19 — fix: a shell failure hidden by a later command is counted
 
 ### Added

@@ -55,7 +55,8 @@ END = "<!-- GEN:CONFIG:END -->"
 SECTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Backend selection", ("models_file", "default_model")),
     ("Path policy", ("workspace_roots", "workdir_roots", "ext_allowlist",
-                     "secret_globs_file", "respect_gitignore")),
+                     "secret_globs_file", "secret_content_scan_bytes",
+                     "respect_gitignore")),
     ("Context prefetch", ("max_file_tokens", "max_total_prefetch_tokens",
                           "max_file_read_bytes")),
     ("Model-facing tool limits", ("max_read_chars", "max_write_bytes",

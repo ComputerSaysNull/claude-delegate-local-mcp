@@ -232,7 +232,7 @@ def _prefetch_one(  # noqa: PLR0911 -- one return per reason a file is left out
     the reason rather than being told twice.
     """
     try:
-        opened = open_resolved(item, "rb")
+        opened = open_resolved(item, "rb", scan_bytes=cfg.secret_content_scan_bytes)
     except PathRefused:
         return Skip(
             item.posix,

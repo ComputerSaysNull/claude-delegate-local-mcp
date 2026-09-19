@@ -554,12 +554,12 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     unknown-key refusal eleven lines above calls a silently-ignored setting "the bug this
     format was rewritten to prevent", and a bare `name:` is that shape. Refusing costs
     nothing — a matching `name` is redundant and a disagreeing one was already refused
-24. ⬜ Content-level detection for a renamed secret — every path-policy layer inspects the
+24. ✅ 2026-09-19 Content-level detection for a renamed secret — every path-policy layer inspects the
   path and none the bytes, so `config.json` holding a private key passes all of them, and
   `run_bash` can read one the mount-level scan did not match by name.
-    - a. ⬜ One finding, not two: fixing the detection fixes both ends. A narrow, high-precision
+    - a. ✅ One finding, not two: fixing the detection fixes both ends. A narrow, high-precision
     check for key material.
-    - b. ⬜ **Not** by pointing `scan_text` at it, as the 2026-09-02 review recommended — that
+    - b. ✅ **Not** by pointing `scan_text` at it, as the 2026-09-02 review recommended — that
     scanner looks for RFC1918 addresses, private-DNS suffixes and non-allowlisted emails,
     and would false-positive on the source a review delegation exists to read.
 
