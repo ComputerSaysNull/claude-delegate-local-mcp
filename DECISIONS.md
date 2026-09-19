@@ -19,6 +19,50 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0095 — 2026-09-19 — A masked shell failure is counted, by an ERR trap and not by pipefail — Accepted
+
+**Context.** `run_bash` ended in `["--", "/bin/sh", "-c", req.command]` and recorded
+`proc.returncode` — the status of the whole line the model composed. A trailing `; echo $?`
+replaces the work's status with the echo's, so a delegation whose third command failed
+inside a compound line reported `bash_failures: 0` and `last_bash_exit: 0`. ADR-0007 already
+named the asymmetry; nothing had closed any of it except the `run_bash` description, which
+took a real non-zero from 0/4 to 3/4 and is a wording change rather than a guarantee.
+
+**Measured first, in a bwrap sandbox built exactly as `build_argv` builds one (2026-09-19).**
+`/bin/sh` is dash. `set -o pipefail` is an "Illegal option" *and aborts the whole line*;
+`trap ... ERR` is a "bad trap". bash is present at `/usr/bin/bash`, and its `ERR` trap fires
+on a sequence member exiting non-zero without aborting the line, leaving the exit status
+untouched — `exit 42` still exited 42.
+
+**Decision.** The command runs under bash with a one-line `ERR` trap prepended. The trap
+appends to a per-call file on the read-write home bind, which `run` reads and unlinks;
+`masked_failure` is true only where the trap fired *and* the final status is 0, because a
+non-zero status already reports the failure and counting it again would call the ordinary
+case hidden. `/bin/sh` is still used where bash is absent, so a host without it loses the
+accounting rather than the command.
+
+**Where the count lands, which was the real question.** `bash_failures` accumulates across
+every call in a delegation, so a masked failure is added there — that is the field whose
+`exit_code != 0` term missed it. `last_bash_exit` is overwritten by every call that ran and
+so only ever means *the last*; the trap cannot fix that and does not try, and per ADR-0007 a
+non-zero there stays trustworthy while a zero stays ambiguous. A separate
+`bash_masked_failures` is reported as well, because without it "three calls exited non-zero"
+and "one call hid a failure inside a compound line" collapse into one number and the new
+information is lost again.
+
+**`pipefail` is refused, on measurement rather than on taste.** It would cover the pipeline
+half the `ERR` trap misses — without it a pipeline's status is its last stage's, so
+`false | true` raises no `ERR`. But with it, `grep <absent> | head -1` marks a failure and
+`yes | head -1` marks 141 from SIGPIPE. Both are ordinary commands a delegation runs
+constantly, and a counter that fires on them would be noise wearing the authority of a
+server-captured fact. So the pipeline half of `Unscheduled.25` stays open, and the counter
+**undercounts and never overcounts** — which is the direction that keeps it believable.
+
+**What this does not claim.** That a zero is now proof. It is not: the pipeline shape is
+uncovered, and the marker is an accounting aid on a bind the command can write to, so a
+model determined to lie could remove it. The claim is only that the commonest way a real
+failure disappears is now counted, and said back to the model beside the exit code.
+
 ## ADR-0094 — 2026-09-19 — The decode-rate memory is durable, reversing the tmpfs argument — Accepted
 
 **Context.** `rate-history.json` was written under `slots.default_dir_if_available()` —

@@ -38,6 +38,58 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #251 — 2026-09-19 — fix: a shell failure hidden by a later command is counted
+
+### Added
+
+- **`bash_masked_failures`** on every delegation result, and on the operator transcript:
+  calls where a command exited non-zero and the status does not say so.
+
+### Fixed
+
+- **A delegation whose third command failed inside a compound line reported
+  `bash_failures: 0`.** The symptom is ADR-0007's own subject — `run_bash` ran the model's
+  line under `/bin/sh` and recorded the status of the *line*, so a trailing `; echo $?`
+  replaced the work's status with the echo's and the failure left no trace anywhere. The
+  cause is that `bash_failures` tested only `exit_code != 0`, which is the one thing a
+  masked failure does not trip. The fix runs the line under bash with a one-line `ERR`
+  trap prepended, which fires on a sequence member exiting non-zero without aborting the
+  line; the trap's marker travels out on the read-write home bind and is unlinked after
+  each call. A masked failure is added to `bash_failures` — that field accumulates across
+  the delegation, which is why it is the right home — and reported separately so that
+  "three calls exited non-zero" and "one call hid a failure" do not collapse into one
+  number. `last_bash_exit` is deliberately untouched: every call that ran overwrites it,
+  so it only ever means the last, and a zero there stays ambiguous. (ADR-0095)
+- The model is told, beside the exit code, when a command in its line failed earlier —
+  it is the party that can re-run the step inside the delegation.
+- **A negative control that compares against `main` turns red the moment it merges**, and
+  #250's did exactly that. The symptom is a test on `main` asserting a setting is absent
+  from a baseline that now contains it; the cause is that `main` is a moving ref, so the
+  control silently changed its question from "absent before this work" to "absent now".
+  `conftest.BASELINE_COMMIT` pins the comparison to a fixed commit instead. Also fixed
+  there: the baseline was read as `git show main:…`, which exits 128 on a CI runner's
+  single-commit checkout — a missing baseline is now a loud skip, never a pass.
+- **The end-to-end sandbox tests asserted against a host that cannot run bwrap.**
+  `sandbox.available` answers whether the binary exists, which is a different question
+  from whether it works: a CI runner has it installed and cannot create the user
+  namespace, so every command returned exit 1 and the tests reported the feature broken
+  when the host was. They now probe by running one trivial command and skip loudly.
+  Nothing else in the suite noticed, because `build_argv` is pure precisely so the bind
+  rules can be asserted where no working bwrap exists — these were the first tests to
+  execute one.
+
+### Changed
+
+- **`pipefail` was measured and refused, and the scope that leaves is stated rather than
+  implied.** It would cover the pipeline half the `ERR` trap misses, but measured in a real
+  sandbox it marks `grep <absent> | head -1` a failure and `yes | head -1` a 141 from
+  SIGPIPE — ordinary commands. So the counter undercounts and never overcounts, the
+  pipeline half of the item stays open, and a test pins the uncovered case so nobody
+  re-adds `pipefail` without meeting the reason.
+- `/bin/sh` is still used where bash is absent: a missing shell costs the accounting, never
+  the command. dash can express neither half — it calls `pipefail` an illegal option and
+  aborts the line, and rejects an `ERR` trap outright.
+
 ## #250 — 2026-09-19 — fix: the decode-rate memory survives a reboot
 
 ### Added

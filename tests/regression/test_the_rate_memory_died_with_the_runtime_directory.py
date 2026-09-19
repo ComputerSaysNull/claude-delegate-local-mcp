@@ -99,7 +99,7 @@ def test_negative_control_the_committed_code_had_no_such_setting() -> None:
         pytest.skip(BASELINE_MISSING)
 
     assert "rate_history_dir" not in blob, (
-        "the baseline already has the setting; this control can no longer fail"
+        "the baseline commit already has the setting; this control can no longer fail"
     )
 
     slots_blob = baseline_blob("src/claude_delegate_local/slots.py")

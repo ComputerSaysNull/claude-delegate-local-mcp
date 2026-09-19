@@ -2018,6 +2018,10 @@ class _Watch:
         # model's account of them, and reported beside its prose rather than inside it.
         self.bash_calls = 0
         self.bash_failures = 0
+        # Separate from `bash_failures` rather than folded into it, because collapsing the
+        # two loses the new fact: "three calls exited non-zero" and "one call hid a failure
+        # inside a compound line" are different things for a caller to do something about.
+        self.bash_masked_failures = 0
         self.last_bash_exit: int | None = None
         self._paths: dict[str, str] = {}  # tool_use_id -> the path argument it carried
         self._evicted_at: dict[str, int] = {}  # path -> the turn its result was dropped
@@ -2055,9 +2059,21 @@ class _Watch:
         which is the exact misreport ADR-0007 exists to catch. A refusal never started a
         process, so the last command that ran is still the previous one and its exit code is
         still the true answer.
+
+        `masked_failure` reaches `bash_failures` because that field accumulates across
+        every call in the delegation, so call 1's hidden failure survives to call 10 -- and
+        until now the `exit_code != 0` term missed it entirely, leaving a delegation whose
+        third command failed inside a compound line reporting `bash_failures: 0`.
+        `last_bash_exit` is not touched by it and must not be: it is overwritten by every
+        call that ran, so it only ever means *the last*, and per ADR-0007 a non-zero there
+        stays trustworthy while a zero stays ambiguous. The trap does not change that.
         """
         self.bash_calls += 1
-        self.bash_failures += is_error or bash.timed_out or bash.exit_code != 0
+        masked = bash.ran and bash.masked_failure
+        self.bash_failures += (
+            is_error or bash.timed_out or bash.exit_code != 0 or masked
+        )
+        self.bash_masked_failures += masked
         if bash.ran:
             self.last_bash_exit = bash.exit_code
 
@@ -2402,6 +2418,10 @@ class AgenticDispatch:
     # one was killed on timeout -- which 0 cannot mean, being a real exit code.
     bash_calls: int = 0
     bash_failures: int = 0
+    # Counted inside `bash_failures` as well, and reported separately because the two
+    # answer different questions: how many calls failed, and how many of those the exit
+    # code alone would not have shown.
+    bash_masked_failures: int = 0
     last_bash_exit: int | None = None
     # Zero means never, rather than "on turn zero" -- turns are numbered from one, so the
     # sentinel cannot collide with a real answer. Reported because a delegation that was
@@ -2941,6 +2961,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             hit_turn_limit=turn == turns,
             bash_calls=watch.bash_calls,
             bash_failures=watch.bash_failures,
+            bash_masked_failures=watch.bash_masked_failures,
             last_bash_exit=watch.last_bash_exit,
             overflow_tightened_at=guard.tightened_at,
             overflow_nudged_at=guard.nudged_at,

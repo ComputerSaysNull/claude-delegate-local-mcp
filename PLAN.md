@@ -1,4 +1,5 @@
-<!-- BUDGET: 947 -->
+<!-- BUDGET: 951 -->
+<!-- Raised from 947 (+1 for this line) on 2026-09-19: half of 25 is closed and the other half has a named wrong answer, which is worth more beside the item than in an ADR alone. -->
 <!-- Raised from 943 (+1 for this line) on 2026-09-19: the burst under-count is fixed within a process, and which half is left belongs beside the item rather than only in a commit. -->
 <!-- Raised from 936 (+1 for this line) on 2026-09-19: a slot leak that closes the gate for a server's whole life, and what it means for 40, both belong where the items are read. -->
 <!-- Raised from 926 (+1 for this line) on 2026-09-19: the command-line entry point shipped unplanned, and it made two latent bugs reachable; a roadmap that omits either is the drift this file exists against. -->
@@ -570,9 +571,12 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     wording change can never be a guarantee.
     - b. ⬜ A non-zero is still trustworthy because nothing invents one; a zero is ambiguous, which
     is the half ADR-0007 needs.
-    - c. ⬜ The server-side answer is a signal for *any* command in the line exiting non-zero
+    - c. ✅ 2026-09-19 The server-side answer is a signal for *any* command in the line exiting non-zero
     beside the last one's. `/bin/sh` is dash here, so measure first whether that can be had
     without changing what a compound command means.
+    - d. ⬜ **The `| tail` half is still open**, and `pipefail` is not the way: measured
+    2026-09-19 it marks `grep <absent> | head` and `yes | head -1` as failures. The `ERR`
+    trap covers the sequence shape only, so the count undercounts by design (ADR-0095).
 
 26. ✅ 2026-09-09 **The denylist file matches itself, so layer 3 is unusable inside the sandbox.**
   `security/secret_globs.txt` matches its own `*secret*` entry, so the scan covers it with

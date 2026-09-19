@@ -153,6 +153,7 @@ def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
         # and did not use it is a real answer, and the same one `tool_calls: 0` gives.
         "bash_calls": dispatched.bash_calls,
         "bash_failures": dispatched.bash_failures,
+        "bash_masked_failures": dispatched.bash_masked_failures,
         # None means nothing exited -- no command ran, or the last was killed on timeout.
         # 0 is a real exit code and cannot carry either meaning (ADR-0007).
         "last_bash_exit": dispatched.last_bash_exit,
@@ -1081,12 +1082,21 @@ _DELEGATION_RESULT: dict[str, Any] = {
             "Commands that exited non-zero, counted from real process exits. This may "
             "contradict the model's own account of a command it ran; believe this."
         ),
+        "bash_masked_failures": _num(
+            "Calls where a command exited non-zero and the exit status does not say so, "
+            "because a later command in the same line succeeded -- the `; echo $?` shape. "
+            "Counted inside `bash_failures` too; reported apart because a caller reading "
+            "`last_bash_exit: 0` needs to know the zero is hiding something. Detected by "
+            "an `ERR` trap the server prepends, so a pipeline whose last stage succeeds "
+            "is *not* covered and this can undercount, never overcount."
+        ),
         "last_bash_exit": _num(
             "Exit status of the last command, captured by the server. Null means nothing "
             "exited -- no command ran, or the last was killed on timeout -- which 0 cannot "
             "carry. It is the status of the whole shell line, so a trailing `; echo $?` or "
             "a `| tail` reports the echo's success rather than the work's: a non-zero is "
-            "trustworthy because nothing invents one, a zero is not proof."
+            "trustworthy because nothing invents one, a zero is not proof. Read "
+            "`bash_masked_failures` beside it, which catches the first of those two."
         ),
         "files_read": {"type": ["array", "null"], "items": {"type": "object",
                                                             "additionalProperties": True},
@@ -1732,6 +1742,9 @@ contradict the model's own account of a command it ran, and the server's numbers
 ones to believe. `last_bash_exit` is the status of the whole shell line, so a trailing
 `; echo $?` or a `| tail` replaces the status of the work with the status of the echo -- a
 non-zero is trustworthy because nothing invents one, a zero is not proof of success.
+`bash_masked_failures` closes the first of those two: the server prepends an `ERR` trap, so
+a command that failed before the last one is counted even when the status reads 0. A
+pipeline whose last stage succeeds is not covered, so it can undercount but never overcount.
 
 `hit_turn_limit` means the delegation was still calling tools when its turns ran out; the
 answer is whatever it could write once tools were withdrawn, so treat it as partial and
