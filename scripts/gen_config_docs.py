@@ -63,7 +63,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                                   "run_bash_timeout")),
     ("Generation budgets", ("max_tokens", "thinking_default",
                             "thinking_max_tokens_floor", "reply_budget_margin",
-                            "reply_budget_floor", "resend_reasoning",
+                            "reply_budget_floor", "rate_history_dir", "resend_reasoning",
                             "tool_call_temperature", "one_shot_temperature")),
     ("Agentic loop", ("max_turns_default", "max_turns_hard_cap",
                       "keep_tool_results", "retained_tool_result_tokens")),

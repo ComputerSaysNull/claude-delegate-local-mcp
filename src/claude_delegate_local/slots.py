@@ -184,6 +184,30 @@ def default_dir_if_available() -> Path | None:
     return default_dir()
 
 
+def rate_history_path(cfg: Config) -> Path | None:
+    """Where the decode-rate memory lives, which is deliberately not where the slots do.
+
+    Durable by default, which reverses what the runtime directory bought: losing this
+    file is a cold start rather than a clean slate, and the since-boot mean it falls back
+    to is the worst tail measured (ADR-0094). Nothing here needs a lock -- the file is
+    published by `os.replace` -- so the durable branch has no `fcntl` probe and works on
+    any platform.
+
+    Blank is still the old behaviour rather than an error, and it goes through
+    `default_dir_if_available` for the reason that helper exists: `default_dir` reads
+    `os.getuid`, so calling it unguarded off POSIX is the crash the guard was written
+    against. None flows on to `RateHistory`, which then keeps its memory per-process.
+
+    The filename is joined here rather than at each call site, because it was written out
+    at both of them and a third would have drifted.
+    """
+    configured = cfg.rate_history_dir.strip()
+    if configured:
+        return Path(os.path.expanduser(configured)) / "rate-history.json"
+    runtime = default_dir_if_available()
+    return None if runtime is None else runtime / "rate-history.json"
+
+
 def _proc_start_time(pid: int) -> int | None:
     """Field 22 of `/proc/<pid>/stat`, or None where that cannot be read.
 

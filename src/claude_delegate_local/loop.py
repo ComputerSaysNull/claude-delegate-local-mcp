@@ -471,11 +471,13 @@ class RateHistory:
     ) -> None:
         """`path` makes the memory outlive this process; without one it is unchanged.
 
-        The file belongs on tmpfs and `slots.default_dir()` is where the server already
-        keeps one. That was recorded as the wrong home for this and measured otherwise on
-        2026-09-13: tmpfs survives a reconnect, which is the entire failure, and it is
-        *discarded* on a reboot, which is correct -- a rate describes hardware that may
-        have changed by then. `stamp` covers the swap that can happen in between.
+        The file is durable, and `slots.rate_history_path` decides where. tmpfs was the
+        home until 2026-09-19 on the argument that discarding on a reboot is correct,
+        because a rate describes hardware that may have changed. ADR-0094 reverses that:
+        a stale rate is replaced by the first completed turn and `expect` takes a
+        minimum, so being wrong about the hardware costs a turn, where the cold start it
+        left behind costs every dispatch until the memory refills. `stamp` still covers
+        a model swap.
 
         Never a hard dependency. Every failure below leaves an empty memory rather than
         raising, because the worst this can cost is the pricing it was already missing.

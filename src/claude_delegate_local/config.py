@@ -558,6 +558,15 @@ class Config:
         "across the Windows drive boundary is not dependable (ADR-0020).",
     )
 
+    rate_history_dir: str = _f(
+        "~/.cache/claude-delegate-local",
+        "Directory holding the persisted decode-rate memory. Durable on purpose, unlike "
+        "slots_dir: losing it is a cold start rather than a clean slate, and the "
+        "since-boot mean it falls back to left 37.0% of turns unable to meet their "
+        "budget against 16.4% for an observed rate. A stale rate is self-correcting, a "
+        "cold start is not. Blank restores the old tmpfs behaviour (ADR-0094).",
+    )
+
     opaque_globs_file: str = _f(
         "./security/opaque_globs.txt",
         "Directories covered and not walked, because they hold machine-generated bulk. "

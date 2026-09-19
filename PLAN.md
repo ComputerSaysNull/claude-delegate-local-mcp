@@ -210,7 +210,7 @@ nothing was configured, and no tool result changes shape.
 4. ⬜ The ledger counts *cluster* tokens, which is a fact. Calling the number a saving assumes
   what Claude would otherwise have read, which is not measured — report the facts and state
   the assumption beside any saving
-5. ⬜ **`RateHistory` answered most of this; the post-reboot cold start is what is left.**
+5. ✅ 2026-09-19 **`RateHistory` answered most of this; the post-reboot cold start is what is left.**
   `seed_decode_rate` consults the memory first and reaches the since-boot mean only when
   nothing has been seen that busy — measured 2026-09-15, 0 of 94 `priced` events did
     - a. ✅ **Raised 2026-09-11 from reporting to correctness, which re-ranks it.** `DecodeRate`

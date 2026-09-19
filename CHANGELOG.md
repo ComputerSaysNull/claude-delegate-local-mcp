@@ -38,6 +38,32 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #250 — 2026-09-19 — fix: the decode-rate memory survives a reboot
+
+### Added
+
+- `DELEGATE_RATE_HISTORY_DIR`, defaulting to `~/.cache/claude-delegate-local`, names where
+  `rate-history.json` lives. Blank restores the previous behaviour.
+
+### Changed
+
+- **The rate memory is durable, which reverses a decision rather than fixing an oversight.**
+  It was written under the tmpfs runtime directory on the argument that discarding it on a
+  reboot is *correct*, since a rate describes hardware that may have changed — recorded in
+  `RateHistory.__init__`'s own docstring and in `slots_dir`'s help. The symptom is what
+  re-opened it: after a reboot the first dispatches price from the cluster's since-boot
+  mean, which JOURNAL 2026-09-18 measured as the worst tail available — **37.0% of
+  `cluster_since_boot` turns unable to meet their budget against 16.4% for
+  `observed_at_concurrency`**. The cause is that an empty memory is not a neutral absence:
+  `expect` widens to every busier sample, so it returns the optimistic blend exactly where
+  a full memory would have returned the pessimistic minimum, and a delegation priced that
+  way can die at `stall_timeout` having completed no turn. The fix weighs the two errors
+  against each other — a stale rate is replaced by the first completed turn, a cold start
+  corrects nothing until the memory refills — and keeps `stamp`, so a model swap still
+  discards it. (ADR-0094)
+- `slots.rate_history_path` resolves the setting and joins the filename, which `server.py`
+  and `run_task.py` had each written out; a third call site would have drifted.
+
 ## #249 — 2026-09-19 — test: a negative control stops paying a five-second hold to assert nothing waited
 
 ### Changed

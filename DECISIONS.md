@@ -19,6 +19,45 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0094 — 2026-09-19 — The decode-rate memory is durable, reversing the tmpfs argument — Accepted
+
+**Context.** `rate-history.json` was written under `slots.default_dir_if_available()` —
+`$XDG_RUNTIME_DIR/claude-delegate-local`, falling back to `/dev/shm/...`, tmpfs in both
+branches. No setting named it, so `slots_dir` moved the admission counters and nothing moved
+this. A reboot therefore emptied it, and the first dispatches after one priced from the
+cluster's since-boot mean.
+
+That placement was deliberate, and both the constructor's docstring and `slots_dir`'s help
+argued for it: discarding on a reboot is *correct*, because a rate describes hardware that
+may have changed. ADR-0075's `stamp` was named as covering a model swap in between.
+
+**What changed is the cost of the other side.** JOURNAL 2026-09-18 measured the since-boot
+seed as the worst tail there is: **37.0% of `cluster_since_boot` turns could not meet their
+budget, against 16.4% for `observed_at_concurrency`**. The cold start is not a neutral
+absence of information — `expect` widens to every busier sample, so an empty memory returns
+the optimistic blend precisely where a full one would have returned the pessimistic minimum,
+and a delegation priced that way can die at `stall_timeout` having completed no turn.
+
+**Decision.** `rate_history_dir`, defaulting to `~/.cache/claude-delegate-local`, names the
+directory, and `slots.rate_history_path` resolves it. The memory survives a reboot.
+
+**Why the hardware argument does not survive contact with the asymmetry.** A stale rate is
+self-correcting: the first completed turn calls `observe`, and `expect` takes a minimum, so
+one real sample bounds the answer again. A cold start corrects nothing until the memory has
+refilled, which is the whole window the measurement above is about. Being wrong about the
+hardware costs a turn; being empty costs every dispatch until it is not. The two are not
+symmetric, and the old reasoning weighed only the first.
+
+**Blank is the old behaviour rather than an error.** It routes back through
+`default_dir_if_available`, which keeps its `fcntl` probe — `default_dir` reads `os.getuid`,
+so calling it unguarded off POSIX is a crash rather than a fallback, and that guard is why
+the helper exists. An operator who wants per-boot pricing sets the variable empty.
+
+**What this does not claim.** That a rate outlives the hardware honestly. It claims only
+that the memory is the better of two wrong answers, and that `stamp` still discards it on a
+model swap. A deployment that changes GPUs without changing the served model id will price
+one turn from the old hardware, which is the cost this accepts by name.
+
 ## ADR-0093 — 2026-09-19 — The admission wait is unbounded by default — Accepted
 
 **Context.** `admission_wait_timeout` refused eight waiters of a fourteen-wide fan-out on

@@ -56,7 +56,7 @@ from .loop import (
 )
 from .paths import PathPolicyError, PathRefused, resolve_files, resolve_workdir
 from .registry import ModelEntry, Registry, RegistryError
-from .slots import build_slots, cross_process_status, default_dir_if_available
+from .slots import build_slots, cross_process_status, rate_history_path
 from . import transcript
 from .tools import READ_ONLY_TOOL_NAMES, BashPolicy, resolve_allowed
 
@@ -1388,11 +1388,11 @@ def build(
     # rate they actually met, seconds after the same server had measured the right one.
     # Stamped with the served model, so a swap discards the memory rather than pricing the
     # new model at the old one's speed (ADR-0075).
-    # `default_dir_if_available`, never `default_dir`: off POSIX there is no tmpfs runtime
-    # directory to write to, and the memory falls back to the per-process behaviour it had.
-    rate_dir = default_dir_if_available()
+    # `rate_history_path`, never the runtime directory: this memory is durable, because
+    # losing it is a cold start rather than a clean slate and the since-boot mean it falls
+    # back to is the worst tail measured (ADR-0094).
     rates = RateHistory(
-        path=None if rate_dir is None else rate_dir / "rate-history.json",
+        path=rate_history_path(cfg),
         stamp=registry.resolve(None).served_model_id,
     )
 
