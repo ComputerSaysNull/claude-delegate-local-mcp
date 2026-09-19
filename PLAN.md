@@ -1,4 +1,5 @@
-<!-- BUDGET: 922 -->
+<!-- BUDGET: 926 -->
+<!-- Raised from 922 (+1 for this line) on 2026-09-19: the obvious fix for 40 was read out of the code and refuted, and that correction belongs beside the item. -->
 <!-- Raised from 919 (+1 for this line) on 2026-09-18: 52.a argued from an ownership gap that the commit filing it had already closed, and the correction has to sit where the item is read. -->
 <!-- Raised from 912 (+1 for this line) on 2026-09-18: two sub-items of 49 were measured wrong and are struck beside their corrections, and the artefact they described is filed where it actually belongs. -->
 <!-- Raised from 896 (+1 for this line) on 2026-09-18: delegated writing measured at three tasks ever, all asked for, so the agent twins left Deferred and the policy half was filed beside them. -->
@@ -712,6 +713,9 @@ local, because they are working notes rather than a product fact.
     - f. ⬜ **Refuted 2026-09-17: it fired eight times on `max_inflight_seqs`**, the gate that
     survived. A fourteen-wide fan-out into six slots; every waiter refused at 1800s having
     produced nothing, while the six holding slots ran on. Re-rank on this, not on 09-14.
+    - g. ⬜ **Deferring the deadline on queue position would have saved none of them**, read
+    2026-09-19: `_binding` tests the three capacity rules before `QUEUED_RULE`, so those eight
+    named a full gate rather than a queue. What 40.b needs deciding is the wait's own bound
 41. ✅ 2026-09-13 **Release the *large* half of an admission lease at first token, not at the
   end of the run.** `admit()` holds it for the whole delegation, and the prefill it serialises
   is over once decoding starts. Measured 2026-09-12 at `effort: high`: time to first token
