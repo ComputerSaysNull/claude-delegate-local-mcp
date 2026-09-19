@@ -38,6 +38,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #249 — 2026-09-19 — test: a negative control stops paying a five-second hold to assert nothing waited
+
+### Changed
+
+- `test_a_later_arrival_does_not_wait_when_nothing_is_open` took 5.01s of a suite whose CI
+  time is already an open question. It went through `acquire` twice, and the *first* of
+  those legitimately pays the whole `admission_idle_hold` against an idle gate — so the
+  test spent that long before reaching the call it exists to assert about. Worse, the two
+  are coupled: a hold small enough to be cheap is a hold too small for "did not wait" to
+  mean anything.
+- It now drives `_settle_burst` directly with the numbers a later arrival sees — work on
+  the gate, nothing waiting — and asserts they come back unchanged inside 0.5s. 5.01s to
+  under 0.005s.
+- The timeout was checked against the case it must reject rather than assumed to
+  discriminate: driving the *idle* shape, which is supposed to hold, times out at 0.50s. A
+  control that cannot fail is worse than no control, and this one was introduced in the same
+  session as the code it guards.
+
 ## #248 — 2026-09-19 — refactor: the stack publisher becomes a planner that publishes nothing
 
 ### Changed

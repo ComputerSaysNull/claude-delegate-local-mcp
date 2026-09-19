@@ -64,15 +64,21 @@ async def test_every_member_of_a_burst_prices_on_the_whole_burst() -> None:
 
 @pytest.mark.asyncio
 async def test_a_later_arrival_does_not_wait_when_nothing_is_open() -> None:
-    """Negative control: joining must not become a toll on every busy-gate admission."""
+    """Negative control: joining must not become a toll on every busy-gate admission.
+
+    Driven at `_settle_burst` rather than through a second `acquire`. Going through the
+    front door means a first `acquire` against an idle gate, which legitimately pays the
+    whole hold — so the test would spend that long asserting something about the call
+    *after* it, and a hold big enough to make "did not wait" unambiguous is exactly a hold
+    big enough to be felt by every run of the suite.
+
+    The numbers passed are what a later arrival sees: a gate with work on it, and nothing
+    waiting. Returned unchanged means it did not wait.
+    """
     g = Admission(cfg(admission_idle_hold=5.0))
 
-    first = await g.acquire(100, entry_key="flash", entry_limit=5)
-    # The first member's own wait is over by the time its acquire returned, so the gate is
-    # busy with nothing open. A second arrival must be admitted straight away.
-    second = await asyncio.wait_for(
-        g.acquire(100, entry_key="flash", entry_limit=5), timeout=1.0
+    settled = await asyncio.wait_for(
+        g._settle_burst(2, 0, tokens=100, entry_key="flash", elapsed=0.0), timeout=0.5
     )
 
-    await g.release(first)
-    await g.release(second)
+    assert settled == (2, 0)
