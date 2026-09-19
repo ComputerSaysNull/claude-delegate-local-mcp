@@ -841,9 +841,21 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
         )
 
     body = _capped(cfg, result)
+    # Said to the model as well as counted for the caller. It is the model that can act on
+    # it within the delegation -- re-running the step that actually failed -- and a server
+    # that counted this silently would be withholding the one fact that makes the exit
+    # code it just printed misleading. Not an error: the line did what it was asked.
+    masked = (
+        "\n\nA command in this line exited non-zero before the last one. The exit status "
+        "above is the last command's, so it does not report that."
+        if result.masked_failure
+        else ""
+    )
     return BashResult(
-        f"exit {result.exit_code}\n\n{body}",
-        BashOutcome(exit_code=result.exit_code, ran=True),
+        f"exit {result.exit_code}{masked}\n\n{body}",
+        BashOutcome(
+            exit_code=result.exit_code, ran=True, masked_failure=result.masked_failure
+        ),
         is_error=result.exit_code != 0,
     )
 
@@ -1212,7 +1224,9 @@ RUN_BASH = RegisteredTool(
             "The exit code is recorded for you and reported to whoever asked, so you do not "
             "need to echo it: the server records the status of the whole command line, and a "
             "trailing `; echo $?` or `| tail` replaces the status of the work with the "
-            "status of the echo. Put the command whose result matters last."
+            "status of the echo. Put the command whose result matters last. A failure "
+            "earlier in the line is still detected and said back to you beside the exit "
+            "code, so a zero there is not a reason to assume every step worked."
         ),
         input_schema={
             "type": "object",

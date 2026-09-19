@@ -170,6 +170,10 @@ class BashOutcome:
     exit_code: int | None
     timed_out: bool = False
     ran: bool = False
+    # A command in the line exited non-zero while `exit_code` reads 0, because a later
+    # command in the same line succeeded -- the `; echo $?` shape ADR-0007 names as the
+    # reason a zero is not proof. False when the status already reports the failure.
+    masked_failure: bool = False
 
 
 @dataclass(frozen=True, slots=True)

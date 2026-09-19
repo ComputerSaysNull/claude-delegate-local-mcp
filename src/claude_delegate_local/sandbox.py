@@ -29,8 +29,12 @@ import os
 import posixpath
 import shutil
 import subprocess
+import uuid
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 
 from .config import Config
 from .paths import load_secret_globs, resolve_configured_path, secret_match
@@ -52,6 +56,25 @@ BUILTIN_ENV_ALLOWLIST: tuple[str, ...] = ("LANG", "LC_ALL", "TERM")
 # A provisioned venv is reached by its absolute path, never by widening this -- putting one
 # project's tools on every command's PATH is how a command silently gets the wrong python.
 SANDBOX_PATH = "/usr/bin:/usr/sbin"
+
+# The shell that can report a failure the final exit code hides, and the plain one that
+# cannot. `/bin/sh` is dash here, and dash has neither `set -o pipefail` -- it calls that an
+# illegal option and aborts the whole line -- nor an `ERR` trap, which it rejects as a bad
+# trap. Measured 2026-09-19 inside a sandbox built exactly as `build_argv` builds one.
+# bash is used when it is present and `/bin/sh` when it is not, because a missing shell must
+# cost the accounting rather than the command. (ADR-0095)
+MASKED_STATUS_SHELL = "/usr/bin/bash"
+PLAIN_SHELL = "/bin/sh"
+
+# Where the `ERR` trap appends, named to the command through the environment rather than
+# interpolated into the trap body: the body then needs no quoting at all, which is what
+# keeps a path with a quote in it from rewriting the trap. Read and unlinked host-side after
+# the process exits -- it is on the read-write home bind, which is how it gets out.
+STATUS_FILE_ENV = "DELEGATE_BASH_STATUS_FILE"
+
+# One line per `ERR` firing, and the line is the status. Single-quoted, so `$?` is expanded
+# when the trap fires rather than when it is defined.
+_ERR_TRAP = "trap 'printf \"%s\\n\" \"$?\" >> \"$" + STATUS_FILE_ENV + "\"' ERR\n"
 
 # The one subdirectory of the sandbox HOME that a command may read but not write, and the
 # only tree under a bound root that the secret scan deliberately does not cover (ADR-0062).
@@ -248,6 +271,12 @@ class SandboxResult:
     stderr: str
     exit_code: int | None
     timed_out: bool
+    # A command in the line exited non-zero and `exit_code` does not say so, because a
+    # later command in the same line succeeded. False when the status already reports the
+    # failure -- the point is the *discrepancy*, not that something failed. Always False
+    # where the status shell was unavailable, which is indistinguishable from a clean run
+    # and is why the shell is chosen once and reported rather than guessed at. (ADR-0095)
+    masked_failure: bool = False
 
 
 def probe_toolchain_binds(cfg: Config) -> tuple[str, ...]:
@@ -585,9 +614,22 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
 
 
 def build_argv(
-    cfg: Config, req: SandboxRequest, shadows: Sequence[ShadowTarget] = ()
+    cfg: Config,
+    req: SandboxRequest,
+    shadows: Sequence[ShadowTarget] = (),
+    *,
+    status_file: str | None = None,
 ) -> list[str]:
     """Config plus a request in, the exact bwrap argv out. Pure.
+
+    `status_file` picks the shell as well as naming the trap's target: a path runs the
+    command under bash with an `ERR` trap prepended, and `None` runs it under `/bin/sh`
+    exactly as before. It is a parameter rather than something derived here because
+    deriving it means probing the filesystem for bash, and this function is pure so that
+    the bind rules below stay assertable on a machine with no bwrap at all. `run` probes.
+
+    The prelude occupies a line, so a shell error reports one line lower than the model
+    wrote. That is the whole cost, and it is why the trap is a single line.
 
     **Bind order carries meaning.** bwrap applies binds in argv order and a later bind
     shadows an earlier one at or below the same path, so the sequence below is a set of
@@ -694,7 +736,11 @@ def build_argv(
     for name in sorted(req.env):
         argv += ["--setenv", name, req.env[name]]
 
-    argv += ["--", "/bin/sh", "-c", req.command]
+    if status_file is None:
+        argv += ["--", PLAIN_SHELL, "-c", req.command]
+    else:
+        argv += ["--setenv", STATUS_FILE_ENV, status_file]
+        argv += ["--", MASKED_STATUS_SHELL, "-c", _ERR_TRAP + req.command]
     return argv
 
 
@@ -737,30 +783,75 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
         )
 
     ensure_home(req.home)
-    argv = build_argv(cfg, req, discover_secret_shadows(cfg, req))
+    # Per call and unguessable, so two concurrent commands cannot read each other's trap
+    # output and a command cannot find last call's file lying about. Unlinked below in a
+    # `finally`, because the home is persistent and a leaked marker is litter that the
+    # *next* call would then have to distinguish from its own.
+    marker = Path(req.home) / f".delegate-bash-status-{uuid.uuid4().hex}"
+    status_file = str(marker) if status_shell_available() else None
+    argv = build_argv(cfg, req, discover_secret_shadows(cfg, req), status_file=status_file)
     try:
-        proc = subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            timeout=cfg.run_bash_timeout,
-            start_new_session=True,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as e:
-        log.warning("sandboxed command exceeded %ss and was killed", cfg.run_bash_timeout)
+        try:
+            proc = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=cfg.run_bash_timeout,
+                start_new_session=True,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as e:
+            log.warning(
+                "sandboxed command exceeded %ss and was killed", cfg.run_bash_timeout
+            )
+            return SandboxResult(
+                stdout=_as_text(e.stdout),
+                stderr=_as_text(e.stderr),
+                exit_code=None,
+                timed_out=True,
+            )
         return SandboxResult(
-            stdout=_as_text(e.stdout),
-            stderr=_as_text(e.stderr),
-            exit_code=None,
-            timed_out=True,
+            stdout=proc.stdout,
+            stderr=proc.stderr,
+            exit_code=proc.returncode,
+            # Only where the status disagrees with the trap. A non-zero exit already
+            # reports the failure, and the trap fired for that same command, so counting
+            # it here would double-count the ordinary case and call it hidden.
+            masked_failure=proc.returncode == 0 and _trap_fired(marker),
+            timed_out=False,
         )
-    return SandboxResult(
-        stdout=proc.stdout,
-        stderr=proc.stderr,
-        exit_code=proc.returncode,
-        timed_out=False,
-    )
+    finally:
+        with suppress(OSError):
+            marker.unlink(missing_ok=True)
+
+
+@lru_cache(maxsize=1)
+def status_shell_available() -> bool:
+    """Whether the shell that can report a masked failure is actually installed.
+
+    Probed on the host rather than in the sandbox, which is sound because `/usr` is bound
+    into it read-only from here -- the sandbox sees this same file or no file.
+
+    Cached: `run_bash` is called repeatedly and this answer cannot change inside one
+    server's life without `/usr` changing underneath it.
+    """
+    return Path(MASKED_STATUS_SHELL).exists()
+
+
+def _trap_fired(marker: Path) -> bool:
+    """Did the `ERR` trap append anything?
+
+    Never raises. The marker is an accounting aid: a command that somehow removed it, or a
+    home that filled up, must cost the count rather than the command's result. A missing
+    file is the ordinary case -- it is only created when the trap first fires.
+
+    Contents are not parsed. Each line is a status, and a caller wanting *which* statuses
+    would be asking a question the delegation-level count cannot answer anyway.
+    """
+    try:
+        return marker.stat().st_size > 0
+    except OSError:
+        return False
 
 
 def _as_text(raw: str | bytes | None) -> str:

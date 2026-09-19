@@ -1,4 +1,5 @@
-<!-- BUDGET: 800
+<!-- BUDGET: 807
+     Raised from 800 (+1 for this line) on 2026-09-19: a new counter joins the ADR-0007 ledger, and which of the three it is added to is the part that is easy to get backwards.
      Raised from 795 (+1 for this line) on 2026-09-18: the rate memory is bucketed per concurrency, and what one shared cap did to it is the reason the shape changed.
      Raised from 786 on 2026-09-16: the doc said a windowed rate was a different feature; it is this one, and what it refuses to report is the load-bearing part. -->
 <!-- Raised from 779 on 2026-09-15: which tools pool was stated as a predicate and read as a guess, so the six are named. -->
@@ -713,7 +714,13 @@ about, and are now counted the same way. The exit code reaches the ledger as a f
 result block, never parsed back out of the text the model also reads: a trailer regex over
 prose stops firing the day the wording changes, and nothing reports that it stopped.
 
-Two distinctions in those three numbers are worth stating, because both are easy to get
+`bash_masked_failures` counts calls where a command failed before the last one and the
+status does not say so, and is added to `bash_failures` too: that field accumulates across
+the delegation, and until ADR-0095 its `exit_code != 0` term missed the case entirely — a
+delegation whose third command failed inside a compound line reported `bash_failures: 0`.
+Never applied to `last_bash_exit`, which every call that ran overwrites.
+
+Two distinctions in those numbers are worth stating, because both are easy to get
 backwards. **Attempts, not completions** — a call refused before a process started still
 happened, and `tool_calls` beside it counts the same way; a model refused ten times has not
 run zero commands. **`last_bash_exit` moves only when something ran**, which is why the

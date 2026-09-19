@@ -411,6 +411,7 @@ def _ledger(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
         "hit_turn_limit": dispatched.hit_turn_limit,
         "bash_calls": dispatched.bash_calls,
         "bash_failures": dispatched.bash_failures,
+        "bash_masked_failures": dispatched.bash_masked_failures,
         "last_bash_exit": dispatched.last_bash_exit,
         "overflow_tightened_at": dispatched.overflow_tightened_at,
         "overflow_nudged_at": dispatched.overflow_nudged_at,

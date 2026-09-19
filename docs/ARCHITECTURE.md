@@ -1,4 +1,5 @@
-<!-- BUDGET: 1198 -->
+<!-- BUDGET: 1208 -->
+<!-- Raised from 1198 (+1 for this line) on 2026-09-19: a new result key closes half of the captured-exit-code asymmetry, and the half it refuses is measured rather than argued. -->
 <!-- Raised from 1189 (+1 for this line) on 2026-09-19: the admission wait no longer bails out by default, and what bounds it instead is this document's to state. -->
 <!-- Raised from 1178 (+1 for this line) on 2026-09-19: taking an open wait's answer is new admission behaviour, and its one limit is what stops a reader assuming it covers a fan-out. -->
 <!-- Raised from 1171 (+1 for this line) on 2026-09-19: the idle hold takes a slot before it waits, and what gives that slot back is behaviour this document owns. -->
@@ -608,8 +609,9 @@ just read. (ADR-0041)
 ### Ground truth over self-report
 
 Models misreport command outcomes, and also which tools they used. The server therefore
-computes `bash_calls`, `bash_failures`, `last_bash_exit` and a count of every tool call by
-name from what it watched, and reports them as fields distinct from the model's prose. What
+computes `bash_calls`, `bash_failures`, `bash_masked_failures`, `last_bash_exit` and a count
+of every tool call by name from what it watched, and reports them as fields distinct from
+the model's prose. What
 each counts, and why `last_bash_exit` can be `None` when `0` would be a lie, is in
 [DISPATCH.md](DISPATCH.md), which owns the loop that counts them.
 
@@ -626,6 +628,14 @@ sentence, none of four. So a captured **non-zero is trustworthy** — nothing in
 while a captured **zero is not proof of success**, because a masked failure looks identical
 to a clean run. Read `bash_failures` beside it, and do not phrase a task as "report the exit
 code": asking for the number is what produces the echo that destroys it.
+
+**Half of that is now closed by the server rather than by wording.** The line runs under
+bash with an `ERR` trap prepended — it fires on a sequence member exiting non-zero without
+aborting the line — so a failure before the last command reaches `bash_masked_failures` even
+where the status reads 0. Dash, which `/bin/sh` is here, can express neither half, so the
+shell is chosen and a host without bash loses the accounting rather than the command.
+`pipefail` would cover pipelines and is refused: measured, it marks `grep <absent> | head`
+and `yes | head -1` as failures. So the count **undercounts, never over**. (ADR-0095)
 
 ### Prompt order is load-bearing
 
