@@ -38,6 +38,41 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #248 — 2026-09-19 — refactor: the stack publisher becomes a planner that publishes nothing
+
+### Changed
+
+- `scripts/ship_stack.py` is now `scripts/plan_stack.py`, and it plans rather than ships. It
+  derives the stack, refuses anything that is not one chain, checks the front branch's
+  CHANGELOG number against the one GitHub will issue, and **prints** the commands — including
+  the `--onto` moves computed against tips read before anything has shifted. The operator
+  runs them one at a time.
+- The reason is that the old script's pushes were invisible to the publish hook. `PreToolUse`
+  sees a command run as a tool call and cannot see a subprocess of a script it has already
+  approved, so the one path that published in bulk was the one path that never asked. A
+  hand-typed `git push` prompted; seven branches and seven merges did not. Noticed because
+  shipping this session's stack required no approval at all.
+- `--dry-run` is gone with it, and was never what its name said: it fetched, checked out
+  `main`, hard-reset to `origin/main`, rebased the front branch and restacked the children,
+  skipping only the push and merge. It silently moved the working tree mid-session here,
+  which read as a vanished file rather than as a rebase. The planner touches neither git nor
+  GitHub.
+
+### Added
+
+- The read-only promise is enforced rather than stated. `git` accepts only `branch`,
+  `merge-base`, `rev-parse`, `log` and `show`; `gh` accepts only `pr list` and `issue list`.
+  Anything else raises, with one test per verb the predecessor used to run itself — `fetch`,
+  `checkout`, `reset`, `rebase`, `push` — because a promise about what a script does *not* do
+  is worth exactly what enforces it.
+- That guard immediately caught a real bug in its own author's code: the first draft allowed
+  only `pr list`, so the number check's `issue list` was refused the first time the planner
+  ran against a real branch. Pull requests and issues draw from one counter and both must be
+  read, and the control is now parametrised over each.
+- Only the front branch is planned, and the plan expires when it merges: the squash rewrites
+  `main`, so every tip above is stale and the `--onto` arguments name commits that have
+  moved. Both the script and `session-execute` say to re-run rather than work down a list.
+
 ## #247 — 2026-09-19 — fix: the admission wait no longer refuses work that would have run
 
 ### Fixed
