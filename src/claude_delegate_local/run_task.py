@@ -74,17 +74,16 @@ def _build_pieces() -> tuple[Any, Any, Any, _Gates]:
     from .admission import Admission  # noqa: PLC0415
     from .loop import RateHistory  # noqa: PLC0415
     from .server import BackendCache, WindowCheck  # noqa: PLC0415
-    from .slots import build_slots, default_dir_if_available  # noqa: PLC0415
+    from .slots import build_slots, rate_history_path  # noqa: PLC0415
 
     cfg = config.load()
     reg = registry.load(cfg)
     slots, _ = build_slots(cfg)
-    rate_dir = default_dir_if_available()
     gates = _Gates(
         windows=WindowCheck(cfg),
         admission=Admission(cfg, slots),
         rates=RateHistory(
-            path=None if rate_dir is None else rate_dir / "rate-history.json",
+            path=rate_history_path(cfg),
             stamp=reg.resolve(None).served_model_id,
         ),
     )
