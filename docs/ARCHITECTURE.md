@@ -1,4 +1,5 @@
-<!-- BUDGET: 1189 -->
+<!-- BUDGET: 1198 -->
+<!-- Raised from 1189 (+1 for this line) on 2026-09-19: the admission wait no longer bails out by default, and what bounds it instead is this document's to state. -->
 <!-- Raised from 1178 (+1 for this line) on 2026-09-19: taking an open wait's answer is new admission behaviour, and its one limit is what stops a reader assuming it covers a fan-out. -->
 <!-- Raised from 1171 (+1 for this line) on 2026-09-19: the idle hold takes a slot before it waits, and what gives that slot back is behaviour this document owns. -->
 <!-- Raised from 1150 (+1 for this line) on 2026-09-19: `run` is a fifth entry point, and the client-side limit it answers is why it exists rather than a preference. -->
@@ -775,10 +776,18 @@ go with its record, which the liveness check already reclaims. That leaves one c
 live process that somehow failed to drop one, and it expires on a timer and says so in
 the log: a backstop that fired silently would hide the defect it is compensating for.
 
-Ordering is also what made the wait timeout safe to raise. Until there was a place in
-line, a longer wait bought a longer *unfair* wait and turned bounded failure into possible
-starvation, so the two had to land together — the number itself lives in
-[CONFIGURATION.md](CONFIGURATION.md).
+Ordering is also what made the wait timeout safe to raise, and then to switch off. Until
+there was a place in line, a longer wait bought a longer *unfair* wait and turned bounded
+failure into possible starvation, so ordering and a raise had to land together.
+
+**The wait is now unbounded by default**, because a bail-out here can only turn slow into
+failed. It runs before `dispatch_timeout` starts its own clock — the two stack rather than
+divide one budget — so a waiter that reaches the head still has its whole allowance, and
+refusing it produces nothing where waiting produces the answer late. What bounds the wait
+instead is the queue: first-come-first-served, the starvation grace ageing a passed-over
+waiter into the barrier, and `dispatch_timeout` bounding how long each slot ahead can be
+held. A positive value still caps it, which is a judgement about latency rather than about
+safety (ADR-0093). The number itself lives in [CONFIGURATION.md](CONFIGURATION.md).
 
 One number sizes a request: its KV footprint, the prompt plus the reply it is permitted to
 generate, which is what the token budget counts. There were two until 2026-09-16 — a prefill

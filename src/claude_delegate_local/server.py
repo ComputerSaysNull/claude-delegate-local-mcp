@@ -495,6 +495,22 @@ async def probe_entry(
     return row
 
 
+def admission_deadline(cfg: Config) -> float | None:
+    """When to stop waiting for a slot, or None to wait for as long as the work takes.
+
+    Public because it is the whole of ADR-0093's behaviour and is worth testing directly:
+    the decision is which of the two a configuration asks for, and everything downstream
+    is `acquire` already treating `None` as "no deadline".
+
+    Waiting costs latency and nothing else. It runs before `dispatch_timeout` starts its
+    own clock, so a waiter that reaches the head still has its whole allowance, and a
+    bail-out here can only turn a slow delegation into a failed one.
+    """
+    if cfg.admission_wait_timeout <= 0:
+        return None
+    return time.monotonic() + cfg.admission_wait_timeout
+
+
 def _refuse(e: Exception) -> ToolError:
     """Translate a backend failure into something the caller can act on.
 
@@ -807,7 +823,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             tokens_estimate,
             entry_key=entry.key,
             entry_limit=entry.concurrency,
-            deadline=time.monotonic() + cfg.admission_wait_timeout,
+            deadline=admission_deadline(cfg),
             on_wait=ticked,
         ) as lease:
             # The concurrency this delegation is about to *meet*, not the one the cluster
@@ -1690,9 +1706,10 @@ looking, so name the obvious material and let the delegation find the rest.
 Admission bounds concurrent sequences and the summed token estimate, not the size of any
 one prefetch. A cap on concurrent large prefills was removed on 2026-09-13: measured, it
 added 286.3s of aggregate waiting for a batch 12.1s slower end to end, because the engine
-already serialises cold prefills itself (ADR-0077). Admission still does not queue
-politely -- a waiter that never fits is refused after `admission_wait_timeout` -- but the
-rule that used to refuse a wide fan-out on prompt size is gone.
+already serialises cold prefills itself (ADR-0077). Admission queues first-come-first-served
+and, by default, waits for as long as the work ahead takes: a wide fan-out is slower than a
+narrow one rather than partly refused. The rule that used to refuse one on prompt size is
+gone, and so is the bail-out that used to refuse its tail.
 
 Calls can overlap freely. Several tasks over the
 same files are several calls, and they share the cached prefix however they are sent,

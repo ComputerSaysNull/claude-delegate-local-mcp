@@ -517,20 +517,22 @@ class Config:
         unit="seconds",
     )
     admission_wait_timeout: int = _f(
-        1800,
-        "Bound on time spent waiting for a slot, before dispatch_timeout starts its own "
-        "clock. Separate rather than shared, because dispatch_timeout's deadline is set "
-        "inside the loop it bounds, which does not run until admission has already been "
-        "granted -- it cannot bound a wait that ends before it begins. The two therefore "
-        "stack rather than divide one budget, so the caller-visible worst case is both "
-        "added. Raised from 600 once admission started queueing rather than merely "
-        "waiting: until then a waiter had no place in line, so a longer timeout bought a "
-        "longer unfair wait and risked starvation instead of bounded failure. A wait is "
-        "now the work ahead of you, which a busy cluster can legitimately make minutes "
-        "long -- where 600s refused requests that would have run. Still far under "
-        "dispatch_timeout, and safe against the client's stdio idle timeout only because "
-        "a waiting delegation keeps reporting progress. backend_status reports the "
-        "longest wait seen, how many hit this limit, and how deep the queue is.",
+        0,
+        "Bound on time spent waiting for a slot, or 0 to wait for as long as the work "
+        "ahead takes. 0 is the default because a bail-out here can only turn slow into "
+        "failed: the wait runs before dispatch_timeout starts its own clock, so the two "
+        "stack rather than divide one budget, and a waiter that reaches the head still "
+        "gets its whole allowance. Refusing it produces nothing, where waiting produces "
+        "the answer late. This setting was already carrying that lesson at a smaller "
+        "scale -- it was raised from 600 because 600s refused requests that would have "
+        "run -- and 1800 did the same to eight of a fourteen-wide fan-out on 2026-09-17, "
+        "every one of them at the full timeout with nothing to show. What bounds the "
+        "wait instead is the queue: admission is first-come-first-served, "
+        "admission_starvation_grace ages a passed-over waiter into the barrier, and "
+        "dispatch_timeout bounds how long each slot ahead can be held. Set a positive "
+        "value to cap it anyway, which is an operator's call about latency rather than "
+        "about safety. backend_status reports the longest wait seen, how many hit this "
+        "limit, and how deep the queue is (ADR-0093).",
         unit="seconds",
     )
 
@@ -790,7 +792,10 @@ class Config:
             "run_bash_timeout",
             "status_probe_timeout",
             "keepalive_interval",
-            "admission_wait_timeout",
+            # admission_wait_timeout is deliberately absent: 0 is how an operator says the
+            # wait has no bound, which is its default. Requiring it positive made every
+            # configuration carry a bail-out, and there was no value meaning "as long as
+            # the work ahead takes" (ADR-0093).
             "max_inflight_seqs",
             "kv_token_budget",
         ):
@@ -834,7 +839,7 @@ class Config:
                 "least 1. It counts attempts, not retries, so 1 means send once and do "
                 "not retry; 0 would mean never send at all."
             )
-        for name in ("retry_base_delay", "retry_max_delay"):
+        for name in ("retry_base_delay", "retry_max_delay", "admission_wait_timeout"):
             if getattr(self, name) < 0:
                 raise ConfigError(f"DELEGATE_{name.upper()} must not be negative.")
         if self.retry_base_delay > self.retry_max_delay:

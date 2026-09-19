@@ -219,11 +219,22 @@ def test_env_names_are_unique():
     assert len(names) == len(set(names))
 
 
-def test_admission_wait_timeout_must_be_positive():
+def test_admission_wait_timeout_may_be_zero():
+    """0 is how an operator asks for a wait with no bound, and is the default (ADR-0093).
+
+    It was required positive until 2026-09-19, which meant no configuration could express
+    "as long as the work ahead takes" and every setup carried a bail-out.
+    """
+    cfg = config.load({**ROOTS, "DELEGATE_ADMISSION_WAIT_TIMEOUT": "0"})
+    assert cfg.admission_wait_timeout == 0
+
+
+def test_admission_wait_timeout_must_not_be_negative():
+    """0 is off; a negative is a mistake rather than a stronger off."""
     with pytest.raises(
-        config.ConfigError, match="DELEGATE_ADMISSION_WAIT_TIMEOUT must be positive"
+        config.ConfigError, match="DELEGATE_ADMISSION_WAIT_TIMEOUT must not be negative"
     ):
-        config.load({**ROOTS, "DELEGATE_ADMISSION_WAIT_TIMEOUT": "0"})
+        config.load({**ROOTS, "DELEGATE_ADMISSION_WAIT_TIMEOUT": "-1"})
 
 
 @pytest.mark.parametrize(

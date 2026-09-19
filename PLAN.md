@@ -695,13 +695,13 @@ local, because they are working notes rather than a product fact.
   fix is to report the pool before the early return, or to scrape regardless; the trap is
   that the better the rate memory gets, the less often the pool is seen. Also worth a
   negative test that the *pairing* holds, since each half passes its own tests today
-40. ⬜ **`admission_wait_timeout` bails out after 30 minutes having produced nothing**, and
+40. ✅ 2026-09-19 **`admission_wait_timeout` bails out after 30 minutes having produced nothing**, and
   its help text says it was sized for an era when the queue was unordered — a premise
   tickets and the starvation barrier removed, with nobody re-deriving the number.
     - a. ✅ **Re-measured 2026-09-14: no reachable path on this workload.** A five-wide fan-out of
     ~40k-token prefills, `peak_inflight_seqs` 5, `peak_inflight_tokens` 498,392, and
     `admission_wait_count`, `admission_wait_seconds_total` and `queued_waiters` all **0**.
-    - b. ⬜ So the question is no longer what the number should be but whether the bail-out has any
+    - b. ✅ 2026-09-19 So the question is no longer what the number should be but whether the bail-out has any
     purpose left. `peak_inflight_seqs` is the honest gauge: `admission_timeouts` counts
     *completed* waits and reads 0 both when nothing waits and when everything still is.
     - c. ✅ **It had fired twice on 2026-09-12**, the first time on this deployment — two passes of
@@ -710,16 +710,16 @@ local, because they are working notes rather than a product fact.
     - d. ✅ **Then twice more that evening with two passes answering**, killing the theory that a
     working budget dissolves it: a 2-wide gate holding each slot for a whole delegation.
     3,600s of waiting at `kv_cache_used_fraction` **0.031**, 0 preemptions, idle cluster.
-    - e. ⬜ Every wait it ever fired on was on that gate, and the gate is gone (ADR-0077, #184),
+    - e. ✅ 2026-09-19 Every wait it ever fired on was on that gate, and the gate is gone (ADR-0077, #184),
     which is what makes the 2026-09-14 reading the current word. **Re-rank on that**, not on
     the 09-12 firings, and measure the item below before moving 1800.
-    - f. ⬜ **Refuted 2026-09-17: it fired eight times on `max_inflight_seqs`**, the gate that
+    - f. ✅ 2026-09-19 **Refuted 2026-09-17: it fired eight times on `max_inflight_seqs`**, the gate that
     survived. A fourteen-wide fan-out into six slots; every waiter refused at 1800s having
     produced nothing, while the six holding slots ran on. Re-rank on this, not on 09-14.
-    - g. ⬜ **Deferring the deadline on queue position would have saved none of them**, read
+    - g. ✅ 2026-09-19 **Deferring the deadline on queue position would have saved none of them**, read
     2026-09-19: `_binding` tests the three capacity rules before `QUEUED_RULE`, so those eight
     named a full gate rather than a queue. What 40.b needs deciding is the wait's own bound
-    - h. ⬜ **58 is not the cause here, checked rather than assumed.** A leaked slot does shrink
+    - h. ✅ 2026-09-19 **58 is not the cause here, checked rather than assumed.** A leaked slot does shrink
     the gate permanently, but all six were producing tokens on 2026-09-17 — 37,605 output on
     three of them — so the gate was genuinely full and 40 stands on its own facts
 41. ✅ 2026-09-13 **Release the *large* half of an admission lease at first token, not at the

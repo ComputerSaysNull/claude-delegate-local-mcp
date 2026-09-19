@@ -19,6 +19,59 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0093 — 2026-09-19 — The admission wait is unbounded by default — Accepted
+
+**Context.** `admission_wait_timeout` refused eight waiters of a fourteen-wide fan-out on
+2026-09-17, each at the full 1800s and each having produced nothing, while the six holding
+slots ran on and finished — three at 37,605 output tokens. The gate was genuinely full for
+the window, not shrunk by the leak ADR-0092's session found: that was checked rather than
+assumed.
+
+The setting was already carrying this lesson at a smaller scale. Its own help text records
+being raised from 600 because "600s refused requests that would have run". 1800 did the same
+thing to a bigger fan-out, which is what a constant does when the thing it bounds scales.
+
+The decisive fact is that waiting is not expensive. The wait runs *before* `dispatch_timeout`
+starts its own clock — they stack rather than divide one budget — so a waiter that reaches
+the head still has its whole allowance. A bail-out can only convert slow into failed.
+
+**Decision.** 0 means the wait has no bound, and is the default. `admission_deadline(cfg)`
+returns `None` there, which `acquire` already treats as no deadline. A positive value still
+caps the wait, as an operator's judgement about latency rather than about safety.
+
+0 was previously a `ConfigError`: the value was required positive, so *no* configuration
+could express "as long as the work ahead takes" and every setup carried a bail-out. Negative
+values are still refused — 0 is off, and a negative is a mistake rather than a stronger off.
+
+**What bounds the wait instead**, and why this is not unbounded in the frightening sense.
+Admission is first-come-first-served; `admission_starvation_grace` ages a passed-over waiter
+into the barrier, so every waiter reaches the head; and `dispatch_timeout` bounds how long
+each slot ahead of it can be held. The worst case is therefore queue position times the
+longest a delegation may run, which is finite. A waiting delegation also keeps reporting
+progress, so it is visible rather than silent.
+
+**Rejected: resetting the deadline whenever the waiter makes progress.** It sounds better and
+would have saved nobody. On 2026-09-17 the six slots were held continuously for the whole
+1800s, so no position improved and no slot freed — a progress-reset clock would have expired
+at exactly the same moment. Worth recording because it is the obvious fix.
+
+**Rejected: deferring the deadline while only other waiters are ahead.** This session's plan
+proposed it. `_binding` tests the three capacity rules before `QUEUED_RULE`, deliberately, so
+a timeout names something an operator can act on — those eight named `max_inflight_seqs`, and
+a fix keyed on queue position would have fired for none of them.
+
+**Rejected: a larger constant.** The setting has now been sized twice against a fan-out and
+been wrong twice. A number that must be re-derived every time the cluster or the fan-out
+changes is the thing being removed, not the thing being tuned.
+
+**Consequences.** A wide fan-out is slower rather than partly refused, which is the trade the
+whole gate exists to make. `admission_timeouts` will read 0 in ordinary operation; the honest
+pressure gauges are `peak_inflight_seqs` and the wait totals, which `backend_status` already
+reports and which this makes load-bearing rather than supplementary.
+
+An operator who wants a cap sets one, and an unbounded wait is now the thing that has to be
+opted out of rather than the thing that cannot be asked for.
+
 ## ADR-0092 — 2026-09-19 — A delegation gets a command-line entry point, because the stagger is the client's — Accepted
 
 **Context.** A fan-out of delegations from one conversation staggers. It was recorded as a
