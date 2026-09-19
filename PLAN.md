@@ -1,4 +1,5 @@
-<!-- BUDGET: 936 -->
+<!-- BUDGET: 943 -->
+<!-- Raised from 936 (+1 for this line) on 2026-09-19: a slot leak that closes the gate for a server's whole life, and what it means for 40, both belong where the items are read. -->
 <!-- Raised from 926 (+1 for this line) on 2026-09-19: the command-line entry point shipped unplanned, and it made two latent bugs reachable; a roadmap that omits either is the drift this file exists against. -->
 <!-- Raised from 922 (+1 for this line) on 2026-09-19: the obvious fix for 40 was read out of the code and refuted, and that correction belongs beside the item. -->
 <!-- Raised from 919 (+1 for this line) on 2026-09-18: 52.a argued from an ownership gap that the commit filing it had already closed, and the correction has to sit where the item is read. -->
@@ -717,6 +718,9 @@ local, because they are working notes rather than a product fact.
     - g. ⬜ **Deferring the deadline on queue position would have saved none of them**, read
     2026-09-19: `_binding` tests the three capacity rules before `QUEUED_RULE`, so those eight
     named a full gate rather than a queue. What 40.b needs deciding is the wait's own bound
+    - h. ⬜ **58 is not the cause here, checked rather than assumed.** A leaked slot does shrink
+    the gate permanently, but all six were producing tokens on 2026-09-17 — 37,605 output on
+    three of them — so the gate was genuinely full and 40 stands on its own facts
 41. ✅ 2026-09-13 **Release the *large* half of an admission lease at first token, not at the
   end of the run.** `admit()` holds it for the whole delegation, and the prefill it serialises
   is over once decoding starts. Measured 2026-09-12 at `effort: high`: time to first token
@@ -874,6 +878,9 @@ local, because they are working notes rather than a product fact.
     - b. ✅ Not fixed by 53, which gives writing work an agent to route to but does not change what
     the instructions say. The 2026-09-07 calls show the capability already works: a regression
     module and two owning documents, three calls, nothing recorded as a failure.
+58. ✅ 2026-09-19 **A cancellation during the idle hold took a slot nothing released.** The
+  slot is taken before the wait and `admit` releases only a lease it has been handed, so a
+  server lost one per cancellation until `max_inflight_seqs` of them closed the gate for good
 57. ⬜ **The idle hold fixes one member of a burst, not the burst.** It fires only where
   `seqs` and `waiting` are both zero, so a simultaneous six priced 2,3,4,5,6,6 — no 1 and two
   6s is the hold moving exactly one arm, measured 2026-09-19 over the out-of-process fan-out
