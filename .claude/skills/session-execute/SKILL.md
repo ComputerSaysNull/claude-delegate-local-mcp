@@ -92,16 +92,30 @@ branch and closes any stacked child unreopenably.
 
 ## 4. The pull request
 
-`python scripts/ship_stack.py` publishes the stack: it derives the order, rebases the front
-branch onto `main`, restacks the rest, scans, opens, waits for checks, merges, and repeats.
-`--dry-run` derives and scans without pushing; `--one` stops after the first. The steps are
-its own — what follows is why they are those steps, which is what you need when it refuses.
+`python scripts/plan_stack.py` derives the stack and prints the commands that publish its
+front branch. It reads and publishes nothing, so it is safe to run at any time, on any
+branch. **You then run those commands yourself, one at a time**, and each push, `pr create`
+and `pr merge` asks before it happens.
+
+That division is the point, not a formality. A hook can only gate a command run as a tool
+call; it cannot see a subprocess of a script it has already approved. A publisher that
+pushes on your behalf is therefore a publisher no hook can stop, however carefully it
+scans first.
+
+**Only the front branch is planned, and the plan expires when it merges.** The squash
+rewrites `main`, so every tip above it is stale from that moment and the `--onto` arguments
+name commits that have moved. Re-run the planner after each merge rather than working down
+a printed list.
+
+What follows is why the commands are those commands, which is what you need when the
+planner refuses.
 
 **The number in the CHANGELOG heading is a guess you then check.** Take the highest number
 GitHub has issued — pull requests and issues draw from one counter, so read both — add one,
-and write that heading when you write the entry. If the issued number differs, correct the
-heading and push again **before merging**; `docs_gate.py --pr-event` refuses a mismatch, so
-a forgotten correction cannot reach `main`.
+and write that heading when you write the entry. The planner checks it for you and refuses
+before anything is pushed. If the issued number differs anyway, correct the heading and push
+again **before merging**; `docs_gate.py --pr-event` refuses a mismatch, so a forgotten
+correction cannot reach `main`.
 
 **Nothing is published unscanned.** A pull request's text is a public surface no commit hook
 sees, and CI only reads it once it is already published — for a leak that makes CI a

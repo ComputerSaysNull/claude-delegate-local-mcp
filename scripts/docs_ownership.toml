@@ -44,7 +44,7 @@ audience = ["contributor"]
 plane = "project"
 owns = [
   "scripts/install_hooks.py",
-  "scripts/ship_stack.py",
+  "scripts/plan_stack.py",
   ".github/**",
   ".claude/agents/**",
   ".claude/skills/**",

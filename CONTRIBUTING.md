@@ -110,10 +110,10 @@ the cause, and the fix. In six months the why is the only part still worth havin
 
 `main` requires a pull request and green checks. Squash-merge, delete the branch.
 
-**A stack ships with `python scripts/ship_stack.py`**, one pull request at a time, because
-merging one deletes its base and closes a stacked child unreopenably. It derives the order
-from ancestry and refuses anything that is not one chain, and scans each title and body
-before publishing. Pushing and merging are gated by your hook; `--dry-run` skips both.
+**A stack ships one pull request at a time**, because merging one deletes its base and
+closes a stacked child unreopenably. `python scripts/plan_stack.py` derives the order,
+refuses what is not one chain, checks the front branch's number, and prints the commands —
+**which you run yourself**, since a hook cannot see a subprocess of a script it approved.
 
 ## Which document do I update?
 
