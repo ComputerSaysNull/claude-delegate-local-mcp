@@ -5,9 +5,6 @@
 <!-- Raised from 893 (+1 for this line, and 895 was an arithmetic slip) on 2026-09-17: the runbook names the one failure shape that did not happen, and a caller reading empty_response alone files every failure today as a clean pass. -->
 <!-- Raised from 890 on 2026-09-17: a pass succeeded at 58,959 tokens and another exhausted at 20,378 with less input, which is 44.b's claim demonstrated rather than argued. -->
 <!-- Raised from 881 on 2026-09-17: expect returns a bucket of one whole when the label is trusted, which this deployment always is, and the idle-hold proposal it argues for. -->
-<!-- Raised from 848 on 2026-09-17: four structural items the docs audit surfaced but cannot itself file, plus the bail-out firing on the gate that survived ADR-0077. -->
-<!-- Raised from 840 on 2026-09-16: four items re-filed against measurements that landed today -- one sub-item was disproved outright, and each needs its reason where the item is read. -->
-<!-- Lowered from 930 on 2026-09-15: the three-line cap took 57 lines and the raise history stopped being a third copy of itself; slack a document has not earned is where the next accretion goes. -->
 <!-- Earlier raises are in this file's git history, and each one's reason is in the
      CHANGELOG.md section for the pull request that made it. This opener is load-bearing:
      line 1 self-closes, so without a `<!--` here every line below would render as body
@@ -338,7 +335,7 @@ nothing was configured, and no tool result changes shape.
 10. ⬜ **A delegation returns a handle, and a second call collects it** — the 120s is when
   the client stops *waiting*, not when it issues the next call, so what is left to remove is
   the ramp on the two write-capable tools and the caller-visible admission wait.
-    - a. ⬜ **The ramp is real for the write-capable tools only**, which is what re-ranked this
+    - a. ✅ 2026-09-19 **The ramp is real for the write-capable tools only**, which is what re-ranked this
     below streaming on 2026-09-07: four `readOnlyHint` arms started within 5.6s, six
     `delegate_to_agent` arms chained at 120s with the last at +688s (`#118`, narrowed).
     - b. ✅ **Measured 2026-09-05:** four passes issued together started 20:24:30, 20:26:32,
@@ -872,6 +869,9 @@ local, because they are working notes rather than a product fact.
     - b. ✅ Not fixed by 53, which gives writing work an agent to route to but does not change what
     the instructions say. The 2026-09-07 calls show the capability already works: a regression
     module and two owning documents, three calls, nothing recorded as a failure.
+55. ⬜ **Concurrent server processes all number their transcripts `0001`**, `_COUNTER` being
+  process-local, so a same-millisecond same-slug pair is one filename: the `.json` truncates
+  and the `.jsonl` appends, interleaving two streams (JOURNAL 2026-09-19)
 
 ## Deferred
 
