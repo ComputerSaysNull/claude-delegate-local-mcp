@@ -38,6 +38,59 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #241 — 2026-09-19 — docs: the write-capable stagger is a client limit, not a ramp
+
+### Added
+
+- A `JOURNAL.md` entry measuring why write-capable delegations start in a ladder while
+  read-only ones overlap. The symptom was recorded in `PLAN.md` as a "dispatch ramp": six
+  `delegate_to_agent` arms issued together had started at 120s intervals with the last at
+  +688s, against four read-only arms inside 5.6s. The framing was wrong and had already
+  re-ranked the handle item once on that basis.
+- The cause is a client-side queue held per conversation, not a ramp and not server-side
+  serialisation. One conversation keeps a single write-capable call in flight and issues
+  the next when the previous either finishes or is backgrounded at 120s, whichever comes
+  first. Six five-minute arms started exactly 120.0s apart with no jitter and then ran
+  concurrently, overlapping by 216s; the same tool with eleven-second arms started each one
+  0.0s after the previous had *ended*; four read-only arms overlapped throughout. One rule,
+  `min(completion, 120s)`, accounts for all three.
+- The fourth measurement identifies where the limit lives. The same six five-minute arms
+  issued from independent background contexts start within a **17.0s** span, two of them
+  0.22s apart, all running at once — against 600s for the same six arms from one
+  conversation. Same server, same gate, same model, so the queue is the client's and it is
+  per conversation. Admission never saw the next arm until the client sent it, which is why
+  the server's own `start` event is the thing that ladders.
+- Recorded beside it: on short calls almost the whole of each arm's elapsed time is
+  `admission_idle_hold` firing at its 10.0s default, because a serialised arm always finds
+  the gate idle. The hold and the queue feed each other.
+- A second `JOURNAL.md` entry recording that the limit can be stepped around entirely today.
+  `run_delegation` in `server.py` takes plain arguments, returns a plain dict and opens its
+  own transcript, so about fifty lines of script drive it under `asyncio.run` with no MCP
+  server in the path. Six such delegations launched from one background shell started
+  **within 88ms of each other**, with the server's own `start` events spanning 92ms, against
+  600s for the same six arms through the MCP tool. The results land in a file rather than in
+  the caller's context.
+- Two findings that fell out of that run. An orphaned delegation keeps running: four arms
+  whose callers were killed reached 305–320s before ending `ok: false` with
+  `Cancelled via cancel scope ... ServerSession._receive_loop`, so the cancel arrives through
+  the MCP session's teardown rather than the caller's death, and a viewer reporting a failure
+  is evidence about the client and not about the cluster. And every one of the six processes
+  numbered its transcript `0001` — now `PLAN.md` Unscheduled 55.
+
+### Changed
+
+- `PLAN.md`'s budget header is back to the six most recent raises it says it keeps; it had
+  regrown to nine, which is the accretion its own closing note predicts. The three oldest
+  reasons go where that note sends a reader — git history, and the CHANGELOG section for the
+  pull request that made each one. This paid for Unscheduled 55 without a raise, the file
+  having been sitting exactly on 922.
+- `PLAN.md` M11.10.a is done, and M11.10's framing narrows rather than closes. For
+  orchestration the fan-out problem is solved without any protocol change, so what a handle
+  is still for is the model-facing case, where the caller is a delegation rather than a
+  person with a shell. `MCP_TOOL_TIMEOUT` remains the wrong lever either way: it is a
+  client-wide process variable, so it would shorten backgrounding for every tool rather than
+  this one, which is the portability objection M11.10.d already records.
+
 ## #240 — 2026-09-18 — docs: four decisions that were recorded in the wrong place
 
 ### Added

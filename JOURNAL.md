@@ -1982,3 +1982,82 @@ smallest cell and the one carrying the most weight.
 The method is worth keeping: pair `priced` with `turn` by turn number within one `.jsonl`,
 filter `attempts == 1`, divide `output_tokens` by `backend_ms`. No EMA inversion was needed
 -- that recovers the rate the *estimator* held, where this needed what the turn achieved.
+
+## 2026-09-19 — The write-capable stagger is one conversation's queue, not the server's
+
+Four measurements, and the last one is what identifies the mechanism.
+
+**Six arms from one conversation, five minutes each**, so every one would cross the client's
+120s backgrounding threshold. Server-side `start` events at 12h31m05s, 12h33m05s, 12h35m05s,
+12h37m05s, 12h39m05s, 12h41m05s -- exactly 120.0s apart, six times, no jitter. Arm 1 ran
+335.8s against arm 2 starting at 12h33m05s, so they overlapped by 216s: the arms do run
+concurrently once released.
+
+**Same tool, eleven-second arms.** Every `start` landed 0.0s after the previous arm's `end`,
+over elapsed times of 11.992, 11.388, 11.067, 10.475 and 10.698s. Below the threshold the
+release is completion.
+
+**Four `delegate_readonly` arms in one message** started 3.1s, 2.8s and 3.3s apart and
+overlapped throughout. The limit does not apply to the read-only tools.
+
+**The same six five-minute arms, issued from six independent background contexts.** Five
+reached the server and their starts span **17.0s** end to end, two of them 0.22s apart, all
+five running at once. The 120s ladder disappears entirely.
+
+So the rule is that a single conversation holds **one write-capable call in flight at a
+time**, releasing the next when the previous finishes or is backgrounded at 120s, whichever
+comes first -- `min(completion, 120s)`. It is a client-side queue per conversation, not a
+dispatch ramp and not server-side serialisation. Two things prove the server is innocent:
+admission never saw the next arm until the client sent it, which is why the *server's* own
+`start` event is the thing that ladders; and independent contexts defeat it completely while
+talking to the same server, the same gate and the same model.
+
+That retires the "ramp" framing this item carried. Six arms at 120s intervals with the last
+at +688s were six arms that each ran past 120s.
+
+Worth recording beside it: each eleven-second arm spent about ten of those seconds before its
+`priced` event, which is `admission_idle_hold` at its 10.0s default firing because a
+serialised arm always finds the gate idle. On short calls the hold and the queue feed each
+other.
+
+Method note: read the `start` event's `at` from each `.jsonl` rather than trusting the
+filename, and compare each arm's start against the previous arm's *start* and its *end*
+separately. The first shows the ladder, the second shows the overlap, and either alone reads
+as the opposite conclusion.
+
+## 2026-09-19 — A delegation runs out of process, and the fan-out costs 88ms
+
+The stagger above is the client's, so the way round it is to not be the client. `server.py`'s
+`run_delegation` is the seam every tool funnels through and it takes plain arguments and
+returns a plain dict: it needs `Config`, `Registry`, `BackendCache`, `WindowCheck`,
+`Admission` and a `RateHistory`, all of which `build()` constructs in one visible block, and
+it opens its own transcript. Fifty lines of script drive it under `asyncio.run`.
+
+Six of those launched from one background shell started **within 88ms of each other**, and the
+server's own `start` events span **92ms** -- against **600s** for the same six arms through the
+MCP tool from one conversation. No subagents, no extra context: the results land in a file and
+only what is wanted is read back, six summary lines against ~52,000 output tokens.
+
+The stagger is what collapses, though, not the work. Those six took 572-885s each against
+about 335s for one alone, so the whole fan-out was 887s where six run one after another would
+be roughly 2,010s -- a 2.3x saving on wall clock rather than the 6x the start times suggest.
+Concurrency costs decode rate, which the owner's benchmarks already price at 44.1 solo against
+just under 20 at six.
+
+That reframes the handle item rather than settling it. For *orchestration* the problem is
+solved and needs no protocol change, so what a handle is still for is the model-facing case,
+where the caller is a delegation rather than a person with a shell.
+
+Two things found on the way, both filed.
+
+An orphaned delegation keeps running. Four arms whose callers were killed ran to 305-320s and
+only then ended `ok: false`, carrying `Cancelled via cancel scope ... ServerSession._receive_loop`.
+So the cancel does arrive, through the MCP session's teardown rather than the caller's death,
+and until it lands the cluster is still working for nobody. A viewer showing a failure is
+evidence about the client and none at all about the cluster.
+
+And every one of the six processes numbered its transcript `0001`, because `transcript.py`'s
+`_COUNTER` is module-level. Only the millisecond stamp told them apart. Same millisecond plus
+same agent slug is one filename, where the `.json` truncates and the `.jsonl` appends -- so the
+worse outcome is two streams interleaved into a file that reads as corrupt rather than as a
+collision. It was unreachable while one conversation could not run two dispatches at once.
