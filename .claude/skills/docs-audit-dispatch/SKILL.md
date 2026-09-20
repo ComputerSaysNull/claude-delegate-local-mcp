@@ -52,7 +52,7 @@ the repository root or the agent is not found. Generated documents (`docs/CONFIG
 | 8 | TOO VERBOSE | every hand-written `docs/*.md` | high |
 | 9 | WRONG DOCUMENT | every document, plus `config.py` | high |
 | 10 | CROSS-PLANE LEAK | every document | high |
-| 11 | MISSING | every document, plus `PLAN.md` and `archive/PLAN-milestones.md` | high |
+| 11 | MISSING | every document, plus `PLAN.md`, `archive/PLAN-milestones.md` and `scripts/docs_ownership.toml` | high |
 | 12 | CLAIMS | every document, plus `DECISIONS.md` and `JOURNAL.md` | high |
 | 13 | ESCAPE ABUSE | nothing | low |
 | 14 | FILED ALREADY | the hand-off notebook — **not delegable**, see below | — |
@@ -74,11 +74,15 @@ Passes 3 and 4 split one document by section, and pass 8 wants the same treatmen
 returned a report and the smallest exhausted its reasoning, so no threshold on document,
 module or combined length separates the two. The shape of the question is the lever.
 
-**Passes 11 and 12 search rather than compare, so raise `max_turns` for them.** Both run out
-at the agent file's default, and an absence established by a pass that ran out of turns is
-not an absence — it reports clean. Pass a higher `max_turns` on the call; the agent file's
-value is a default a caller may raise, clamped silently at `max_turns_hard_cap`. Prefetching
-what they seek is weaker, because neither class knows in advance which document holds it.
+**Every pass gets `max_turns: 25`, and the searching ones need more than that.** The agent
+file's 5 is sized for one verification round and forces an answer before a search has
+finished — and an absence established by a pass that ran out of turns is not an absence, it
+reports clean. MISSING and CLAIMS both reported clean at 5 in earlier audits and found
+something at 25; CLAIMS *still* returned `hit_turn_limit: true` at 25, so give those two 40
+or split them. A caller's number is clamped silently at `max_turns_hard_cap`, so asking high
+costs nothing. Turns are cheap: measured over a 25-turn pass, tools were 3.4% of the wall
+clock and 94% of input tokens were cache hits, so what a turn costs is what the model writes
+in it. Prefetching what they seek is weaker, because neither knows which document holds it.
 
 Effort is `high` everywhere but pass 13; pass 14 is not dispatched at all. An audit is a
 search across kinds of violation, and `low` narrows it to retrieval — more instances of one
@@ -108,11 +112,20 @@ block. The repository root is <ABSOLUTE PATH>.
 
 <CLASS> means: <the definition from the table below, verbatim>
 
+A claim you cannot check against a file you were given is not a finding and is not a
+question. List it once under "could not verify" and move on. Do not weigh it twice.
+
 Gate output for this run, which you cannot obtain yourself:
 <paste it>
 
 Use the output format your file specifies.
 ```
+
+**The "could not verify" line is load-bearing.** A pass meeting a claim about code outside
+its `files[]` has no rule for it otherwise, so it re-litigates the same sentence until the
+budget ends the turn. The symptom is an exhausted ceiling whose output is mostly duplicate
+lines, and it reproduces at *every* ceiling — so a budget that ran out is evidence about the
+task's wording, never about the budget. Check duplicate-line share before raising anything.
 
 ## Check-class definitions
 
@@ -135,8 +148,18 @@ finding. A constant defined in another module is not a configuration default.
 root) and the product plane (`docs/`). A link is not a leak. A shared term of art is not a
 leak. Only a restatement of the same substance counts.
 
+**A rule stated with its owner named is not a leak either**, and forgetting that is how this
+class misfires. `CLAUDE.md` states a trap and then says whose the explanation is — "what
+that buys ... is `docs/ARCHITECTURE.md`'s" — and `README.md` states what a reader needs at
+that point and links to the owner with a bracketed `why`. Both are the prescribed pattern. **Quote the whole
+sentence including the clause that follows it**, or every invariant in the project plane
+reads as a duplicate: eleven of twelve candidates were not upheld for exactly this reason.
+
 **MISSING** — a module or behaviour with no documentation coverage at all. Check `PLAN.md`
-and `archive/PLAN-milestones.md` first: not-yet-built is not undocumented.
+and `archive/PLAN-milestones.md` first: not-yet-built is not undocumented. And check
+`scripts/docs_ownership.toml`: a file **declared unowned** was decided to need no document,
+so it is an answered question rather than a gap. Without that file the pass reasons from the
+absence of prose and reports the declaration as an oversight.
 
 **CLAIMS** — documentation asserting a measurement that no ADR, JOURNAL **or CHANGELOG**
 entry substantiates. Quote the substantiating sentence where there is one. Numbers decay,
@@ -177,8 +200,8 @@ than queued indefinitely. Read both values from
 [docs/CONFIGURATION.md](../../../docs/CONFIGURATION.md) and do not assume them — they are
 configuration, and this file is not their home.
 
-**Never dispatch more passes than the gate admits.** Fourteen into six slots refused eight at
-the full wait, having produced nothing, while the six holding slots ran on.
+**Never dispatch more passes than the gate admits.** The overflow waits out the full
+admission timeout and is then refused having produced nothing, while the admitted ones run.
 
 The wait is **not silent**: a queued delegation reports progress on every tick. A fan-out
 that looks stalled is a fan-out that is queueing, and the way to tell is that stream plus a
@@ -232,5 +255,11 @@ does.
 Re-verify every finding against source yourself before writing it down. A pass reports what
 it believes; the record states what is true. An audit whose verification never overturns
 anything is not verifying.
+
+**A pass that came back `hit_turn_limit: true` gave a partial answer, and the record says
+so.** Its last turn forbids tools, so it wrote whatever it had rather than what it had
+finished — a clean verdict from one is weaker than a clean verdict from a pass that stopped
+because it judged itself done. Read the field on every returned pass, not just the ones that
+look thin.
 
 Committing the record resets the gate's audit-due pressure.

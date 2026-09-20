@@ -20,7 +20,7 @@ See [PLAN.md](PLAN.md) for what is open, and
 
 ## How it works
 
-Two shapes of delegation, and the second is the interesting one:
+Two shapes of delegation:
 
 - **One-shot** — the server reads the files you name and answers from them in a single
   prompt, so their contents never reach your context. Good for review, summary and
@@ -36,8 +36,8 @@ absent, and why the server watches process exit codes rather than the model's ac
 them.
 
 How each of those works is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-[docs/DISPATCH.md](docs/DISPATCH.md); this file names them and links, and deliberately
-does not restate them.
+[docs/DISPATCH.md](docs/DISPATCH.md); this file sketches them and links, and leaves the
+mechanism there.
 
 ## What it is not
 

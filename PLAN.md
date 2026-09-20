@@ -1,4 +1,9 @@
-<!-- BUDGET: 951 -->
+<!-- BUDGET: 997 -->
+<!-- Raised from 990 (+1 for this line) on 2026-09-20: read_file cannot bound a range and the sampler is off the evaluated pair, both of which cost every delegation; and a forced answer has been called clean in three audit records running. -->
+<!-- Raised from 982 (+1 for this line) on 2026-09-20: the exhausted passes are a termination failure rather than a budget one, and a roadmap that files it as "needs a bigger ceiling" sends the next session after the wrong lever. -->
+<!-- Raised from 967 (+1 for this line) on 2026-09-20: the rate memory's sampling and its statistic are one question with a measured answer, and the effort enum is narrower than the server's in exactly the place the audit needs. -->
+<!-- Raised from 957 (+1 for this line) on 2026-09-19: the rate memory was stranded by a move and put back by hand, so the half that is still unfixed has to be an item rather than a JOURNAL line; and an orphan releases its slot rather than holding it, which is the worse half and was written backwards. -->
+<!-- Raised from 951 (+1 for this line) on 2026-09-19: a cancel the cluster never hears misprices every dispatch behind it, and the lag nobody has timed belongs beside the item. -->
 <!-- Raised from 947 (+1 for this line) on 2026-09-19: half of 25 is closed and the other half has a named wrong answer, which is worth more beside the item than in an ADR alone. -->
 <!-- Raised from 943 (+1 for this line) on 2026-09-19: the burst under-count is fixed within a process, and which half is left belongs beside the item rather than only in a commit. -->
 <!-- Raised from 936 (+1 for this line) on 2026-09-19: a slot leak that closes the gate for a server's whole life, and what it means for 40, both belong where the items are read. -->
@@ -883,9 +888,12 @@ local, because they are working notes rather than a product fact.
     - b. ✅ Not fixed by 53, which gives writing work an agent to route to but does not change what
     the instructions say. The 2026-09-07 calls show the capability already works: a regression
     module and two owning documents, three calls, nothing recorded as a failure.
-58. ✅ 2026-09-19 **A cancellation during the idle hold took a slot nothing released.** The
-  slot is taken before the wait and `admit` releases only a lease it has been handed, so a
-  server lost one per cancellation until `max_inflight_seqs` of them closed the gate for good
+55. ⬜ **Concurrent server processes all number their transcripts `0001`**, `_COUNTER` being
+  process-local, so a same-millisecond same-slug pair is one filename: the `.json` truncates
+  and the `.jsonl` appends, interleaving two streams (JOURNAL 2026-09-19)
+56. ✅ 2026-09-19 **A delegation runs from the command line**, `run --task`, because the 120s
+  stagger is the client's own queue and no server-side change reaches it — six arms span 88ms
+  against 600s, and a result lands in a file rather than the caller's window (ADR-0092)
 57. ⬜ **The idle hold fixes one member of a burst, not the burst.** It fires only where
   `seqs` and `waiting` are both zero, so a simultaneous six priced 2,3,4,5,6,6 — no 1 and two
   6s is the hold moving exactly one arm, measured 2026-09-19 over the out-of-process fan-out
@@ -895,12 +903,50 @@ local, because they are working notes rather than a product fact.
     - b. ⬜ **The cross-process half is what remains.** A member takes an open wait's answer
     within one process; the slots file does not carry that a wait is open, so three arms from
     three processes still price 2,3,4 — measured, and the counting itself now reads shared
-56. ✅ 2026-09-19 **A delegation runs from the command line**, `run --task`, because the 120s
-  stagger is the client's own queue and no server-side change reaches it — six arms span 88ms
-  against 600s, and a result lands in a file rather than the caller's window (ADR-0092)
-55. ⬜ **Concurrent server processes all number their transcripts `0001`**, `_COUNTER` being
-  process-local, so a same-millisecond same-slug pair is one filename: the `.json` truncates
-  and the `.jsonl` appends, interleaving two streams (JOURNAL 2026-09-19)
+58. ✅ 2026-09-19 **A cancellation during the idle hold took a slot nothing released.** The
+  slot is taken before the wait and `admit` releases only a lease it has been handed, so a
+  server lost one per cancellation until `max_inflight_seqs` of them closed the gate for good
+59. ⬜ **A cancelled delegation keeps the cluster working, and admission stops seeing it.**
+  The gate read `inflight_seqs: 0` against a cluster still running six, so a full burst is
+  admitted on top of work nobody waits for. Wanted: a cancel that reaches the request (JOURNAL)
+    - a. ⬜ **Spike first, the lag is unmeasured:** wall clock of the kill against the transcript's `end`
+60. ⬜ **An empty rate memory prices from a blend that may not exist either.** `expect`
+  returning None falls through to the since-boot figure at face value — 41.7% over (ADR-0094),
+  1.745x on 2026-09-19 — and a newly served model has no such figure at all (JOURNAL)
+    - a. ⬜ **Spike: what does the since-boot rate read on an engine minutes old**, and does
+    the stamp's own discard land a delegation in exactly this state? Neither is measured
+61. ⬜ **Price from periodic cluster samples, and from the bucket mean not its minimum.**
+  A per-turn sample is filed under `expected_concurrency`, frozen at lease grant, and carries
+  whatever contention that turn met; the minimum then makes one bad minute the price for 64
+  samples. Measured 2026-09-20: bucket means match the operator benchmark to 1-3% at every
+  well-populated concurrency, the minima sit 24-71% below it (JOURNAL)
+    - a. ⬜ Scrape on a ticker while `inflight_seqs > 0`: `_DecodeWindow` already differences
+    `generation_tokens_total`, so rate and concurrency come from one reading
+    - b. ⬜ **Not what 14.b refuted** — that rejected the window as a *ceiling*; this makes it a
+    *sample* the bucket and the margin still act on. The mean is safe only once samples are regular
+62. ⬜ **Reasoning effort is binary here, and the recovery ladder is built on it not being.**
+  `none` yields no reasoning at all; `low`, `medium` and `high` are indistinguishable and not
+  ordered, so stepping `high` to `low` changes nothing and only `off` differs (JOURNAL)
+63. ⬜ **A pass that loops inside one turn is invisible to every control there is.** `max_turns`
+  cannot act on a turn that never ends, and `finish_reason: length` with `reasoning_exhausted`
+  false is what a healthy long answer looks like. Temperature 0.2 was the cause (JOURNAL)
+    - a. ⬜ A duplicate-line share over the reply separates a loop from work in one number, and
+    nothing computes one — 66-94% on every looping pass against under 1% on every reporting one
+    - b. ⬜ **The sampling parameters are not reported anywhere**, so the setting a turn was
+    drawn at cannot be recovered from a transcript. It belongs in `priced`, beside the budget
+64. ⬜ **`read_file` says where to start but not where to stop.** A pass wanting one section
+  takes ~650 lines to get 60, and a tool result is resent every turn, so the waste multiplies
+  by the turns left. `end_line`, inclusive — not `line_count`, whose off-by-one is silent
+    - a. ⬜ **Number the prefetch block too.** Whole-file delivery already exists and costs no
+    turn; what it lacks is the addressability that made `read_file` delivery terminate
+65. ⬜ **Only `temperature` is ever sent, and it is 0.2 on every loop turn.** No `top_p`, no
+  penalty, against an evaluated 1.0 / 0.95 for this model — and the penalties are accepted by
+  the endpoint but never used. 0.2 is what made five audit passes loop (JOURNAL)
+    - a. ⬜ 0.7 is a working point rather than a validated one, and `top_p` exists nowhere in
+    `src/`, so the evaluated pair cannot be reached without adding it
+66. ⬜ **A pass that hits `max_turns` answered under duress, and nothing treats it as partial.**
+  `hit_turn_limit` already marks it; every audit record since 2026-09-18 has noted the weakness
+  and none has acted on it. A forced answer is evidence of a different kind, and should say so
 
 ## Deferred
 
