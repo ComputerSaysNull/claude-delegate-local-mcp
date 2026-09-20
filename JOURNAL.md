@@ -2090,3 +2090,124 @@ And every one of the six processes numbered its transcript `0001`, because `tran
 same agent slug is one filename, where the `.json` truncates and the `.jsonl` appends -- so the
 worse outcome is two streams interleaved into a file that reads as corrupt rather than as a
 collision. It was unreachable while one conversation could not run two dispatches at once.
+
+## 2026-09-19 — A relocated rate memory priced six passes 1.75x optimistic
+
+Six documentation-audit passes, dispatched as one burst, each priced `budget_ceiling: 37141`
+from `decode_rate: 34.38`, `rate_source: cluster_since_boot`, `expected_concurrency: 6`. The
+cluster decoded 19.71 tok/s per request while they ran. That is 1.745x, past the 1.667x
+`reply_budget_margin` absorbs, and it is ADR-0094's own 41.7% failure arriving by a route
+that ADR did not consider.
+
+The burst count was right, so `admission_idle_hold` was working: the label said six. Only the
+rate was wrong. `rate_history_path` resolved to `~/.cache/claude-delegate-local/rate-history.json`,
+which did not exist, while the populated file — 86 samples, minimum 17.5047 at concurrency 6 —
+sat at `$XDG_RUNTIME_DIR/claude-delegate-local/`, the pre-ADR-0094 home. The move that made the
+memory durable carried none of it, so the change written to end cold starts caused one.
+
+**A reconnect did not help**, which is what separated this from the cold start the hand-off
+notebook predicts after exactly that change, and what stopped the diagnosis settling on the
+wrong answer. The probe that found it constructed `RateHistory` from the real config and
+printed the path it had chosen, rather than reasoning about which path it should have chosen.
+
+A one-shot adoption was written and measured: the next burst priced `observed_at_concurrency`
+at 17.5047 with a ceiling of 18,905, a 1.96x correction, and the sample it used was exactly
+the bucket minimum. It was then reverted rather than committed. The only deployment that can
+ever run that branch has already been migrated by it, and the tmpfs copy it reads goes at the
+next restart — so committing it would ship a permanently dead path. What it does *not* cover
+is PLAN 60: an empty memory still falls through to a since-boot blend, and a freshly served
+model has no such blend either.
+
+**Cancelling those passes measured a second thing.** `TaskStop` dropped the client's view and
+`admission.inflight_seqs` fell to 0 while `cluster.requests_running` stayed at 6 — so the gate
+was ready to admit a full burst on top of six requests nobody was waiting for, and to price it
+for six. The orphans ended only when a reconnect tore down the MCP session. The slot is
+released early; the work is not. PLAN 59 had this backwards until it was measured.
+
+## 2026-09-20 — The bucket mean reproduces the benchmark; the minimum does not
+
+Two independent methods agree. The operator's 2026-09-12 benchmark took prose at a
+2000-token cap, one prompt per stream, and recorded a per-stream rate. `RateHistory` has
+since accumulated per-turn samples from real delegations. Their **means** agree; the
+**minima** `expect` actually prices from do not.
+
+| conc | benchmark /str | bucket mean | Δ | bucket min | Δ | n |
+|---|---|---|---|---|---|---|
+| 1 | 44.1 | 52.29 | +18.6% | 42.97 | -2.6% | 5 |
+| 2 | 29.3 | 31.54 | +7.6% | 8.46 | **-71%** | 34 |
+| 3 | 26.5 | 26.65 | +0.6% | 12.80 | -52% | 30 |
+| 4 | 23.3 | 23.05 | -1.1% | 12.16 | -48% | 7 |
+| 5 | 20.1 | 35.82 | +78% | 17.05 | -15% | 2 |
+| 6 | 19.4 | 19.97 | +2.9% | 14.72 | -24% | 14 |
+
+Every well-populated bucket — 2, 3, 4, 6 at n of 34, 30, 7 and 14 — lands within 1-8% of a
+figure taken by a different method on a different workload. The two that do not are the two
+undersampled ones, and bucket 1 carries the accept-path inflation besides.
+
+**The minimum gets worse as a bucket fills**, which is the part that matters: bucket 2 has
+the most samples and the worst floor, because it has had the most chances to catch a bad
+minute. More data should sharpen an estimate rather than depress it.
+
+Where 14.72 came from is worth recording, because it was nearly dismissed as an artefact.
+Six passes on 2026-09-19 each ran `attempts: 2`, and a rate divided over both attempts would
+read about 18905/2004 = 9.43 tok/s. No sample sits near 9.43; the six are 14.72, 19.41,
+20.21, 20.36, 21.69 and 22.96, consistent with one attempt's decode interval. `_post_stream`
+holds `first`, `last` and the accumulator as locals, so each attempt is timed alone. **The
+14.72 is a real measurement of a contended minute, not a retry artefact** — and it then
+priced the whole of the next day's fan-out at 14.7191.
+
+**Doubling the ceiling did not buy answers.** `turn_timeout` 1800 to 3600 took the ceiling
+from 18,905 to 31,793. The same pass across the two runs: 1,611s elapsed for 8,921 output
+tokens, then 1,958s for 9,032 — 68% more room bought 347 more seconds and 111 more tokens,
+with the answer still coming from attempt 2 at `low`. Nothing bounds reasoning except
+`max_tokens`, which it shares with the answer, so a larger ceiling enlarges the wasted
+attempt. `SERVER_EFFORT_VALUES` names `medium` between the `high` that never answers here
+and the `low` that always does, and our enum cannot send it (PLAN 61, 62).
+
+
+## 2026-09-20 — The audit passes were looping because the loop samples at 0.2
+
+`tool_call_temperature` is 0.2 for every turn of the agentic loop, and `temperature` is the
+only sampling parameter the adapter sends. That is what made five audit passes consume every
+budget they were given while producing nothing but the same sentences repeatedly.
+
+Temperature raised to 0.7, one knob, nothing else changed. The three passes that had **never**
+terminated -- ARCHITECTURE transcript/server, ARCHITECTURE context/admission/slots, AGENTS --
+all reported, at `high` effort, with `tool_errors: 0` on every one.
+
+| lever | values tried | result |
+|---|---|---|
+| reply ceiling | 18,905 / 31,793 / 47,690 / 55,243 / 131,072 | consumed exactly, every time |
+| reasoning effort | high, low, off | all loop |
+| delivery | prefetch, then `read_file` | rescued 2 of 5, insufficient alone |
+| **temperature** | 0.2 -> 0.7 | **3 of 3 rescued** |
+
+**Why 0.2 does it.** Temperature raises each probability to `1/T` and renormalises, so a
+50/30/20 split becomes 92/7/0.9 at 0.2 against 57/28/15 at 0.7. Repeating a sentence already
+in context is a high-probability continuation, and at 0.2 the model must win that coin-flip
+hundreds of times consecutively to escape. Nothing opposes it: no frequency, presence or
+repetition penalty is sent. One run produced `Already checked.` 385 times while saying it.
+
+**The repetition is not about reasoning.** At effort `off` the same pass filled 131,072
+tokens with *answer* -- 481,913 characters, `reasoning_exhausted` false, 93% duplicate
+lines -- so disabling reasoning moved the loop into the reply instead of ending it.
+
+**Why nothing caught it.** The agent file bounds iteration with `max_turns: 5`, and the final
+turn sets `tool_choice="none"` so the answer is written whatever state the pass is in. But the
+loop lived *inside turn 1*, and a turn counter cannot act on a turn that never ends. The
+rescued run came back `hit_turn_limit: true` -- the control firing for the first time. A
+control that cannot be reached is not a weak control, it is an absent one.
+
+**Measured beside it, each with a control that fired:**
+- `thinking_token_budget` is refused here -- "not yet supported by the V2 model runner" --
+  so reasoning cannot be bounded separately from the answer without a vLLM reboot flag.
+- `reasoning_effort` is effectively binary. At temperature 0, `none` gives 0 reasoning
+  characters while `low`, `medium` and `high` give 652, 682 and 579: an ordering violation,
+  not a gradation. The API validates seven values; the encoder knows three.
+- The penalties **are** accepted and are potent -- against a 654-character baseline,
+  `presence_penalty=0.5` gave 936, `frequency_penalty=0.5` gave 2,652 and
+  `repetition_penalty=1.1` gave 6,564. None has ever been sent.
+
+**Not yet done.** This deployment's model was evaluated at temperature 1.0 with `top_p 0.95`.
+`top_p` appears nowhere in `src/`, so the evaluated configuration is unreachable without a
+code change, and 0.7 is a working point rather than a validated one.

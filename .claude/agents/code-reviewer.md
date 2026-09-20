@@ -19,8 +19,8 @@ enforcement site that was not updated.
 Work through these explicitly. Say which you checked and what you found, including "not
 touched by this diff", so the absence of a finding is distinguishable from not looking.
 
-**Self-defeating checks.** Can every new or modified check actually fail? Three here could
-not. The shape: a validation whose needle is contained in its own haystack; a comparison
+**Self-defeating checks.** Can every new or modified check actually fail? The shapes seen
+here: a validation whose needle is contained in its own haystack; a comparison
 against a cached compile rather than live source; a pattern list matching itself. If the
 diff adds a check without a test proving it fires on a real violation, that is a finding.
 

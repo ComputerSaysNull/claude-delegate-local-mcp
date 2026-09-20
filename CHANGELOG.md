@@ -38,6 +38,43 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #254 — 2026-09-20 — docs: the 2026-09-20 audit, and the runbook changes it argued for
+
+### Added
+
+- **`docs/audits/2026-09-20-audit.md`.** All fifteen passes returned. Six findings upheld,
+  one retracted and eleven of one class not upheld — the retraction rate being the most
+  useful thing the audit produced.
+
+### Fixed
+
+- **`docs/TROUBLESHOOTING.md` told readers to set a field that does not exist.** *Symptom:*
+  "so set `effort: low`" under the empty-answer entry. *Cause:* the registry field is
+  `default_effort`, and `_validate` refuses unknown fields — so a reader following that
+  sentence writes `effort` into `models.toml` and the server refuses to start. The link
+  beside it already pointed at `#choosing-default_effort`, so only the prose was wrong.
+- **`README.md` claimed not to restate what it restates.** "this file names them and links,
+  and deliberately does not restate them" sat three lines below a description that is
+  near-verbatim with `docs/ARCHITECTURE.md`. The description is what a README is for; the
+  promise was the false part, so the promise changed.
+- **An unsourced measurement in `CONTRIBUTING.md`** — ruff findings "3 to 45 across
+  releases" — appears in no ADR, JOURNAL or CHANGELOG entry, and in no code comment either.
+  The decision it justified stands on the argument beside it, which needs no number.
+- **Three `.claude/` bodies told an incident where a rule would serve**, and two had gone
+  stale doing it: both said *three* self-defeating checks where `CLAUDE.md` now says six.
+  A rule does not rot; a tally does.
+
+### Changed
+
+- **The audit runbook, on four counts the audit itself established.** `max_turns: 25` for
+  every pass and more for the searching ones, because MISSING and CLAIMS reported clean at
+  5 and found something at 25. `scripts/docs_ownership.toml` goes to MISSING, or a
+  declared-unowned file reads as a gap. `hit_turn_limit: true` is recorded as a partial
+  answer. And CROSS-PLANE now says a rule stated with its owner named is not a leak, which
+  is why eleven of its twelve candidates were not upheld.
+- **`CONTRIBUTING.md` gains the rule that cost this audit a day**: an agent that will not
+  stop is not always a prose problem — check what its turns were sampled at.
+
 ## #253 — 2026-09-19 — feat: files[] takes a glob, expanded server-side
 
 ### Added

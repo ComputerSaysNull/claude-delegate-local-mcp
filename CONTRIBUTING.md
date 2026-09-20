@@ -1,4 +1,5 @@
-<!-- BUDGET: 404      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- BUDGET: 411      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- Raised from 404 (+1 for this line) on 2026-09-20: a pass that never terminates was read as a wording fault four times before anyone looked at the sampling, and the agents section is where that is looked up. -->
 <!-- Raised from 398 (+1 for this line) on 2026-09-18: publishing a stack is a procedure with a script now, and which half is the hook's belongs beside the merge rule. -->
 <!-- Raised from 396 (+1 for this line) on 2026-09-18: the body-history rule is enforced now, and which half the gate takes belongs beside the rule itself. -->
 <!-- Raised from 393 (+1 for this line) on 2026-09-18: the two session skills are separate, and which one reads the other is the half that was never stated. -->
@@ -165,8 +166,8 @@ Security-sensitive work — `sandbox.py`, `paths.py`, `wsl.py` — gets a short 
 
 `.github/workflows/ci.yml` runs four jobs on every pull request — **gate**, **lint**,
 **tests** (3.11 and 3.12), and **gitleaks**. `pyproject.toml` pins the ruff version *and*
-the rule set: unpinned, findings went 3 to 45 across releases with no code change, and a
-lint job on a moving rule set fails builds nobody broke. Workflow comments explain the rest.
+the rule set, because a lint job on a moving rule set fails builds nobody broke. Workflow
+comments explain the rest.
 The generated-document step now checks `docs/CONFIGURATION.md` alone (ADR-0044).
 
 Two things that live outside it and are easy to miss:
@@ -228,6 +229,12 @@ because a stale body is visible and a missing entry is not. **Adding the entry i
 fix**: a body that never had a tool has no guidance for it, and the first pass after the
 grant spent two calls discovering that `search_files` refuses a relative `path`. Grant the
 tool and say how it is used in the same edit.
+
+**An agent that will not stop is not always a prose problem.** Before rewriting a body to
+make a pass terminate, check what its turns were sampled at: a low temperature makes
+repeating the sentence already in context the likeliest continuation, and nothing is sent to
+oppose it. The tell is a reply mostly of duplicate lines, at *every* budget — and a turn
+counter cannot stop it, because the loop never ends the turn ([DISPATCH.md](docs/DISPATCH.md)).
 
 **A measurement in an agent body needs its date and its conditions**, or the next reader
 cannot tell which half has expired. One recorded that a prefetched audit finished "in one

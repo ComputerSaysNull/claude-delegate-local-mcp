@@ -14,11 +14,10 @@ test, because it converts an unknown into a false assurance.
 
 **Assert that a check can fail, not merely that it passes.**
 
-Three checks in this repository were found unable to fail — reporting success while
-verifying nothing. One searched a file for the very reference it was validating, so it
-always found its own needle. One compared a document against a stale bytecode cache, so it
-validated code that no longer existed. One flagged the pattern list that defined it. All
-three had been "passing" since they were written.
+A check that cannot fail reports success while verifying nothing, and is trusted for it.
+The shapes seen here: a needle contained in its own haystack, a comparison against a cached
+compile rather than live source, and a pattern list that matches itself. Write the negative
+test — assert the check fires on a real violation — not merely that it passes.
 
 So for anything that guards, gates or refuses, write the negative case first:
 
