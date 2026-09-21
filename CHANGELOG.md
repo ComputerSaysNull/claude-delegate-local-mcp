@@ -38,6 +38,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #258 — 2026-09-21 — test: a tool outlasting the stall budget does not kill the turn
+
+### Added
+
+- **A test pinning that tool execution cannot exhaust the stall deadline.** *Why:* the
+  next change lowers `stall_timeout` substantially, and that is only safe if a delegation
+  busy inside a long tool call is not killed for looking silent. The code reads as though
+  it would be — nothing resets `last_progress` between a turn's last token and its tool
+  results, so the countdown really does fall through the tool window. Measured through the
+  real loop with a tool spending 300s against a 30s budget, it answers normally: the stall
+  clock is read only from inside `complete_with_retry`, which is not running while the
+  tools are, and `turn_done` resets it after `_run_calls` returns rather than before.
+  *Control:* the negative half did not fire on the first run, because without a
+  `tick_sleep` seam the watchdog waits on the wall while the doubles move the fake clock
+  instantly — so every case survived and the passing half meant nothing. With the seam
+  wired, a silent backend burning the same 300s dies on `DELEGATE_STALL_TIMEOUT`.
+
+  This cancels the killing half of `U.19`, which is what it was ranked for. The reporting
+  half stands: a watcher is briefly shown a countdown that is not true.
+
 ## #257 — 2026-09-21 — feat: a reply reports how much of itself it repeats
 
 ### Added

@@ -2211,3 +2211,37 @@ control that cannot be reached is not a weak control, it is an absent one.
 **Not yet done.** This deployment's model was evaluated at temperature 1.0 with `top_p 0.95`.
 `top_p` appears nowhere in `src/`, so the evaluated configuration is unreachable without a
 code change, and 0.7 is a working point rather than a validated one.
+
+---
+
+## 2026-09-21 — Tool time cannot kill a delegation, so lowering the stall budget was never blocked
+
+**Subject:** whether U.19 -- the stall countdown falling while a tool runs -- has to be
+fixed before `stall_timeout` can be lowered to the ten minutes the operator asked for.
+
+**The claim, and why it looked true.** Nothing resets `last_progress` between the last
+token of a turn and the tool results coming back: `token_arrived` fires only while the
+backend streams, and `turn_done` has not run yet. So `stall_left()` does fall straight
+through the tool window, and a reader of the code -- and a delegated pass asked to trace
+it -- both conclude that a long `run_bash` can exhaust the stall budget. It cannot.
+
+**Measured.** A registered tool that spends 300s of fake clock, against
+`stall_timeout=30`, through the real `run_agentic_loop`: the delegation answers normally.
+Two things make it safe, and both have to hold. `stall_left` is read only from inside
+`complete_with_retry`, which is not running while the tools are -- the only other reader
+is the keepalive's `ends_in`, which reports and never kills. And `turn_done` is awaited
+*after* `_run_calls` returns, at loop.py line 2935 rather than before it, so the next
+turn starts with a whole budget however long the tools took.
+
+**The control, which failed first and is the reason the result is worth anything.** The
+negative half -- a silent backend burning the same 300s -- did *not* raise, so the first
+run was a pass that proved nothing. Cause was the trap the hand-off already records: with
+no `tick_sleep`, `_until_deadline` waits on the wall while the doubles move the fake clock
+instantly, so the watchdog never polls and every case survives. Wiring `tick_sleep` to
+advance the fake clock made the control fire on `DELEGATE_STALL_TIMEOUT`, and only then
+did the passing half mean anything.
+
+**What survives of U.19.** The reporting half, and only that: `ends_in_seconds` falls
+during a tool window and jumps back on completion, so a watcher is briefly told a number
+that is not true. 19.c already re-ranked this down -- the median dispatch spends 0.5% of
+its wall time in tools -- and the killing half it was ranked for does not exist.
