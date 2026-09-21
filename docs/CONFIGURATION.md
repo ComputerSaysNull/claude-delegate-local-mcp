@@ -31,7 +31,7 @@ loading fails rather than quietly falling back to defaults. ADR-0027.
 
 All settings are environment variables. Prefix `DELEGATE_`. List-valued settings are shown comma-separated for readability, but are **parsed on `os.pathsep`** — `;` on Windows, `:` elsewhere. The rendering is deliberately platform-independent so this file is byte-identical wherever it is generated.
 
-A description marked **Inert** means no code outside `config.py` reads that setting yet: it is validated at startup and otherwise does nothing, because the subsystem it controls is not built. See [PLAN.md](../PLAN.md) for what is where. The marker is computed by the generator from the source, not maintained by hand, so it disappears in the commit that starts using the setting.
+A description marked **Inert** means no code outside `config.py` reads that setting yet: it is validated at startup and otherwise does nothing, because the subsystem it controls is not built. See [PLAN.md](../PLAN.md) for what is where. The marker is computed by the generator from the source, not maintained by hand, so it disappears in the commit that starts using the setting. **Retired** is the opposite and never appears with it: the setting is gone, and setting it stops the server rather than doing nothing.
 
 ### Backend selection
 
@@ -80,8 +80,10 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_REPLY_BUDGET_FLOOR` | 4096 tokens | Lower bound on that derived cap, so a slow or misread decode rate cannot shrink the budget to nothing. Sized from measurement: a reply whose entire visible answer was one word still cost 697 output tokens, because reasoning is charged here too (ADR-0014). |
 | `DELEGATE_RATE_HISTORY_DIR` | ~/.cache/claude-delegate-local | Directory holding the persisted decode-rate memory. Durable on purpose, unlike slots_dir: losing it is a cold start rather than a clean slate, and the since-boot mean it falls back to left 37.0% of turns unable to meet their budget against 16.4% for an observed rate. A stale rate is self-correcting, a cold start is not. Blank restores the old tmpfs behaviour (ADR-0094). |
 | `DELEGATE_RESEND_REASONING` | False | Send the model's prior reasoning back as history. Off: it costs input tokens and prefill on every turn, the conclusions already survive in the visible answer, and a growing prefix defeats prefix caching. |
-| `DELEGATE_TOOL_CALL_TEMPERATURE` | 0.2 | Temperature for every turn of the agentic loop. Low because tool-call syntax tokens are sampled at the request temperature, so malformed calls grow likelier as it rises. The one-shot path uses one_shot_temperature instead. |
-| `DELEGATE_ONE_SHOT_TEMPERATURE` | 1.0 | Temperature for the one-shot delegate() path. Separate from tool_call_temperature because that value is low to protect tool-call syntax, and the one-shot path emits no tool calls -- there is no syntax to protect and nothing to gain from suppressing the model's own default sampling. |
+| `DELEGATE_TEMPERATURE` | 1.0 | Temperature for every request, agentic or one-shot. This value and top_p are the pair DeepSeek evaluated this model at, adopted together because neither half was evaluated alone (ADR-0098). |
+| `DELEGATE_TOP_P` | 0.95 | Nucleus sampling cut-off, sent on every request. Bounded to 0.0-1.0: the endpoint refuses anything above it, and refusing at load tells the operator at startup rather than mid-delegation. |
+| `DELEGATE_TOOL_CALL_TEMPERATURE` | -1.0 | **Retired.** Setting it is refused (ADR-0098). It held the agentic loop at 0.2 to protect tool-call syntax, which measurement contradicted -- no malformed call in 96, from 0.2 to 1.5. Kept as a field rather than deleted for the reason transport is: load() reads only names matching a field, so deleting this one would let a live .env line do nothing without saying so. Use DELEGATE_TEMPERATURE. |
+| `DELEGATE_ONE_SHOT_TEMPERATURE` | -1.0 | **Retired.** Setting it is refused (ADR-0098). It existed only because tool_call_temperature was low, and that reason is gone. Use DELEGATE_TEMPERATURE. |
 
 ### Agentic loop
 
@@ -167,6 +169,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting, unlike ADR-0034's sandbox_enabled, because naming another transport should be an error rather than silence -- load() reads only variables matching a field, so deleting this one would make a stale value do nothing without saying so. |
 
-*69 settings.*
+*71 settings.*
 
 <!-- GEN:CONFIG:END -->

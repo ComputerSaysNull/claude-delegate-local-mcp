@@ -19,6 +19,54 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0098 — 2026-09-21 — One temperature and one top_p, at the pair this model was evaluated at — Accepted
+
+**Context.** No ADR ever chose `tool_call_temperature = 0.2`. The value and its
+justification lived in a `config.py` field description: tool-call syntax tokens are
+sampled at the request temperature, so malformed calls were said to grow likelier as it
+rises. `one_shot_temperature` existed only as that claim's corollary — the one-shot path
+emits no tool calls, so it was allowed 1.0. Temperature was also the *only* sampling
+parameter ever put on the wire; `top_p` appeared nowhere in `src/`.
+
+0.2 turned out to be what made five documentation-audit passes loop inside a single turn,
+consuming every ceiling they were given — 18,905 through 131,072 — while emitting the same
+lines repeatedly. `max_turns` cannot act on a turn that never ends, and `finish_reason:
+length` with `reasoning_exhausted` false is what a healthy long answer looks like, so
+nothing caught it. Raising to 0.7 rescued 3 of 3 passes that had never terminated
+(JOURNAL 2026-09-20).
+
+**The premise was measured, and it does not hold.** Against the loop's own request shape —
+two tool schemas, `tool_choice: auto`, a task that forces a call — tool-call integrity is
+flat across the whole usable range: 16/16 well-formed at each of 0.2, 0.7, 1.0, 1.0 with
+`top_p` 0.95, and 1.5. Ninety-six calls, not one malformed: no bad JSON, no wrong name, no
+schema violation. At 2.0, the config's own maximum, 8 of 16 produced no tool call at all —
+a collapse in willingness rather than in syntax, which is not what low temperature was
+protecting against. The negative control fired: a classifier demanding a key the model
+never emits scored 0/6.
+
+**Decision.** One `temperature` (1.0) and one `top_p` (0.95), sent on every request by
+both paths. This is the pair DeepSeek evaluated this model at, adopted together because
+neither half was evaluated alone. `top_p` is threaded config → `CanonicalRequest` →
+`wire_body`, and carries no default in `CanonicalRequest` for the reason `temperature`
+carries none: a default there would be a second copy of a config fact.
+
+**Refused, not deleted.** `tool_call_temperature` and `one_shot_temperature` keep their
+fields and are refused at load, for the reason `transport` is kept: `load()` reads only
+names matching a field, so deleting them would let a live `.env` line do nothing without
+saying so. Both are set on real machines today. The retirement is named once, in
+`RETIRED_FIELDS`, which the validator and the reference generator both read — and a
+retired setting renders as **Retired**, never **Inert**, because inert promises that
+setting it does nothing while this stops the server.
+
+**What is deliberately not adopted.** That same evaluation specifies
+`reasoning_effort: "max"`, and our default is `low`. Measured the same day: at a
+4,000-token budget every effort above `none` consumes the entire budget and emits
+nothing, while `none` answers in ~1,500. Real ceilings are 19k–32k, so ordinary
+delegations are unaffected, but adopting `max` on the strength of the same sentence that
+gave us 1.0 / 0.95 would be adopting a configuration nobody here has measured. Taking half
+an evaluation is a choice, and recording it is the point: an unrecorded choice is how 0.2
+survived unexamined for a month.
+
 ## ADR-0097 — 2026-09-19 — A glob in files[] expands server-side, before the policy, and refuses rather than truncates — Accepted
 
 **Context.** `files[]` took literal absolute paths, so naming twenty files meant writing

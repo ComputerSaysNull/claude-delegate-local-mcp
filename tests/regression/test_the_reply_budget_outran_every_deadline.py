@@ -185,7 +185,7 @@ def test_the_enlarged_retry_cannot_escape_the_ceiling() -> None:
             config, entry(), backend,
             lambda level, budget: loop.build_one_shot_request(
                 delegation=loop.Delegation("x"), effort=level, max_tokens=budget,
-                temperature=1.0,
+                temperature=1.0, top_p=1.0,
             ),
             effort="high", deadline=None, budget_ceiling=ceiling,
         )

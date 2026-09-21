@@ -774,7 +774,8 @@ def resolve_max_tokens(
 
 
 def build_one_shot_request(
-    *, delegation: Delegation, effort: str, max_tokens: int, temperature: float
+    *, delegation: Delegation, effort: str, max_tokens: int, temperature: float,
+    top_p: float,
 ) -> CanonicalRequest:
     """One user message, no tools, and a system prompt that does not vary.
 
@@ -789,6 +790,7 @@ def build_one_shot_request(
         max_tokens=max_tokens,
         effort=effort,
         temperature=temperature,
+        top_p=top_p,
     )
 
 
@@ -1354,7 +1356,8 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
             delegation=delegation,
             effort=level,
             max_tokens=budget,
-            temperature=cfg.one_shot_temperature,
+            temperature=cfg.temperature,
+            top_p=cfg.top_p,
         )
 
     async def dispatch() -> Dispatch:
@@ -2821,7 +2824,8 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
                     messages=_msgs,
                     max_tokens=budget,
                     effort=level,
-                    temperature=cfg.tool_call_temperature,
+                    temperature=cfg.temperature,
+                    top_p=cfg.top_p,
                     # Always offered, and forbidden rather than withdrawn on the final turn
                     # (ADR-0057). The intent is unchanged -- a model that ends on a tool call
                     # nobody will run has spent the whole delegation and returned nothing

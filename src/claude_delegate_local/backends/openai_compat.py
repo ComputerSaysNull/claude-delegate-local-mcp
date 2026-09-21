@@ -182,6 +182,7 @@ class OpenAICompatBackend:
             "messages": _wire_messages(request, resend_reasoning=self._cfg.resend_reasoning),
             "max_tokens": self._entry.cap_tokens(request.max_tokens),
             "temperature": request.temperature,
+            "top_p": request.top_p,
             "stream": True,
             # Without this the final chunk carries no `usage` and every token count in the
             # ledger, the budget and the cost record silently becomes zero. It is not an

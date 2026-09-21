@@ -49,7 +49,7 @@ def entry(**over) -> ModelEntry:
 
 def one_shot(task: str, **over):
     """A request with the boring arguments filled in, so a test line says what it means."""
-    kw = {"effort": "low", "max_tokens": 100, "temperature": 1.0}
+    kw = {"effort": "low", "max_tokens": 100, "temperature": 1.0, "top_p": 1.0}
     kw.update(over)
     return loop.build_one_shot_request(delegation=loop.Delegation(task), **kw)
 
@@ -272,10 +272,15 @@ def test_a_real_task_is_not_refused():
     assert one_shot("x").messages
 
 
-def test_the_one_shot_temperature_is_the_one_that_is_sent():
-    """Not tool_call_temperature: that value is low to protect tool-call syntax, and
-    this path emits no tool calls, so there is no syntax to protect."""
-    config = cfg(one_shot_temperature=0.7, tool_call_temperature=0.2)
+def test_the_configured_sampling_pair_is_what_is_sent():
+    """One pair for both paths, after ADR-0098 collapsed the split.
+
+    The two values are asserted together because they were adopted together: DeepSeek
+    evaluated this model at 1.0 / 0.95 and neither half was evaluated alone, so a change
+    that carried one through and dropped the other would be a configuration nobody has
+    measured.
+    """
+    config = cfg(temperature=0.7, top_p=0.5)
     backend = SpyBackend()
 
     async def go():
@@ -286,6 +291,7 @@ def test_the_one_shot_temperature_is_the_one_that_is_sent():
 
     asyncio.run(go())
     assert backend.requests[0].temperature == 0.7
+    assert backend.requests[0].top_p == 0.5
 
 
 def test_the_resolved_effort_reaches_the_request():

@@ -58,6 +58,7 @@ def _request(**over) -> CanonicalRequest:
         "max_tokens": 16,
         "effort": "off",
         "temperature": 0.0,
+        "top_p": 1.0,
         "tools": TOOLS,
     }
     kw.update(over)

@@ -1,4 +1,5 @@
-<!-- BUDGET: 807
+<!-- BUDGET: 815
+     Raised from 807 (+1 for this line) on 2026-09-21: sampling becomes a described subsystem rather than one unstated constant, and a wire parameter nothing sent now exists.
      Raised from 800 (+1 for this line) on 2026-09-19: a new counter joins the ADR-0007 ledger, and which of the three it is added to is the part that is easy to get backwards.
      Raised from 795 (+1 for this line) on 2026-09-18: the rate memory is bucketed per concurrency, and what one shared cap did to it is the reason the shape changed.
      Raised from 786 on 2026-09-16: the doc said a windowed rate was a different feature; it is this one, and what it refuses to report is the load-bearing part. -->
@@ -424,6 +425,13 @@ refused only after its prefill had been paid for. (ADR-0013)
 There is a real failure mode here, reproduced rather than assumed: at high effort with a
 small reply budget, reasoning consumes the whole allowance and the response comes back with
 null content and a length stop. What the server does about it is below. (ADR-0014)
+
+## Sampling is one pair, sent on every request
+
+`temperature` and `top_p` go on the wire together, on both paths, at the pair this model
+was evaluated at. One setting each, not one per path: the split that held the loop at 0.2
+existed only to protect tool-call syntax, and 96 calls from 0.2 to 1.5 produced no
+malformed one. Setting either retired name is refused, not ignored. (ADR-0098)
 
 ## An empty answer is recovered from before it is reported
 

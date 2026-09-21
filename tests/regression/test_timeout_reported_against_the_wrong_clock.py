@@ -52,7 +52,7 @@ def cfg(**over) -> Config:
 def request():
     return loop.build_one_shot_request(
         delegation=loop.Delegation("a task"), effort="low", max_tokens=100,
-        temperature=1.0,
+        temperature=1.0, top_p=1.0,
     )
 
 

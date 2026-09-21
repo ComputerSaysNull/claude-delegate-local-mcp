@@ -54,6 +54,7 @@ def _request() -> base.CanonicalRequest:
         max_tokens=16,
         effort="low",
         temperature=0.0,
+        top_p=1.0,
     )
 
 

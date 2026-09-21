@@ -26,6 +26,7 @@ def request(**over: object) -> base.CanonicalRequest:
         "max_tokens": 1024,
         "effort": "low",
         "temperature": 0.0,
+        "top_p": 1.0,
     }
     kw.update(over)
     return base.CanonicalRequest(**kw)  # type: ignore[arg-type]
@@ -93,7 +94,7 @@ def test_request_carries_no_generation_defaults():
     exactly the kind that survives review.
     """
     fields = {f.name: f for f in dataclasses.fields(base.CanonicalRequest)}
-    for name in ("max_tokens", "effort", "temperature"):
+    for name in ("max_tokens", "effort", "temperature", "top_p"):
         assert fields[name].default is dataclasses.MISSING, (
             f"{name} has a default in CanonicalRequest; defaults belong in config.py"
         )
@@ -125,6 +126,14 @@ def test_request_rejects_a_non_positive_max_tokens(bad):
 def test_request_rejects_a_temperature_outside_the_range(bad):
     with pytest.raises(base.CanonicalShapeError, match="outside the accepted range"):
         request(temperature=bad)
+
+
+@pytest.mark.parametrize("bad", [-0.1, 1.1])
+def test_request_rejects_a_top_p_outside_the_unit_interval(bad):
+    """Narrower than temperature, and deliberately so: the endpoint answers 400 to
+    `top_p=5.0` while accepting temperature up to 2.0 -- both measured 2026-09-21."""
+    with pytest.raises(base.CanonicalShapeError, match="outside the accepted range"):
+        request(top_p=bad)
 
 
 def test_request_defaults_to_no_tools():

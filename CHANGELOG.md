@@ -38,6 +38,47 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #255 — 2026-09-21 — feat: one temperature and one top_p, at the evaluated pair
+
+### Added
+
+- **`DELEGATE_TOP_P`, and with it the ability to reach the configuration this model was
+  evaluated at.** `top_p` existed nowhere in `src/`, so temperature was the only sampling
+  parameter ever put on the wire and the evaluated 1.0 / 0.95 pair was unreachable. It is
+  now threaded config → `CanonicalRequest` → `wire_body`, bounded to 0.0–1.0 at both the
+  config and canonical boundaries because the endpoint answers 400 outside that range.
+- **A `Retired` marker in the generated config reference.** Distinct from `Inert`, and
+  never both: inert promises that setting a knob does nothing, while a retired one stops
+  the server. `RETIRED_FIELDS` names them once and the validator and the generator both
+  read it.
+
+### Changed
+
+- **The agentic and one-shot paths now share one temperature, defaulting to 1.0.**
+  *Symptom:* five documentation-audit passes consumed every reply ceiling they were given
+  — 18,905 through 131,072 — emitting the same lines over and over, and no control caught
+  it: `max_turns` cannot act on a turn that never ends, and `finish_reason: length` with
+  `reasoning_exhausted` false is what a healthy long answer looks like. *Cause:*
+  `tool_call_temperature` was 0.2, which no ADR had ever chosen; at that temperature
+  repeating a sentence already in context is a near-certain continuation, and no
+  repetition penalty was being sent either. *Fix:* one `temperature` at 1.0 with `top_p`
+  0.95, the pair DeepSeek evaluated this model at, adopted together because neither half
+  was evaluated alone. The split it replaces existed only to hold the loop low against
+  malformed tool calls, and that premise failed when measured: 96 calls from 0.2 to 1.5,
+  not one malformed. (ADR-0098)
+
+### Fixed
+
+- **A retired setting is now refused instead of being ignored in silence.** *Symptom:*
+  `load()` walks `fields(Config)` and looks each one up, so a stale `DELEGATE_*` line is
+  never read and never complained about — an operator would keep a
+  `DELEGATE_TOOL_CALL_TEMPERATURE` line, see it in their `.env`, and run 1.0 believing
+  they had set 0.7. *Cause:* deleting a field is what makes its variable silent. *Fix:*
+  both retired names keep their fields and raise at load naming the replacement, exactly
+  as `transport` does and for the same stated reason. The refusal is specific: an
+  unrecognised name is still ignored, which a negative control asserts, because a blanket
+  refusal would break every deployment carrying an unrelated stale line.
+
 ## #254 — 2026-09-20 — docs: the 2026-09-20 audit, and the runbook changes it argued for
 
 ### Added
