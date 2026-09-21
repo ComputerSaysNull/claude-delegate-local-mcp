@@ -38,6 +38,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #271 — 2026-09-22 — docs: the reply budget binds, so it stays
+
+### Changed
+
+- **PLAN 68 is settled and the answer is no**: the reply budget is not ceremony once
+  `turn_timeout` leaves it, so it stays and PLAN 60 and 61 stay with it. Measured over 690
+  transcripts, 953 turn-and-ceiling pairs: **31 turns, 3.3%, ended with `output_tokens`
+  exactly equal to `budget_ceiling`**, which is the signature of the cap being applied
+  rather than of a coincidence, and 3 more landed between 95% and 100%. 89% used under a
+  quarter of what they were given.
+- **Where it binds is the finding.** Every turn that filled its ceiling is a large one --
+  47,690, 55,243, 58,950 and 80,265 tokens -- so the budget truncates the biggest answers
+  the server produces. That is a direct argument for PLAN 61: the bucket minimum prices
+  24-71% below the operator benchmark, and all of that is taken off replies already at the
+  limit.
+- The spike's second arm was dropped as a correction. It would have tested whether the
+  budget was the only bound on a runaway reply, citing a turn that filled 131,072 tokens at
+  93.0% duplicate lines -- but that predates #255's sampling change. Of the 205 pairs
+  written since, none that filled its ceiling shows a duplicate-line share at or above 0.5,
+  so under current sampling a filled ceiling is a long answer rather than a loop.
+- No cluster time was needed: `budget_ceiling` is on every `priced` event and
+  `output_tokens` on every `turn` event, so the question was answerable from transcripts
+  already written.
+
 ## #270 — 2026-09-21 — feat: the slots file carries that a burst wait is open
 
 ### Fixed
