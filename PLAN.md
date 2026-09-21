@@ -889,7 +889,7 @@ local, because they are working notes rather than a product fact.
     - b. ✅ Not fixed by 53, which gives writing work an agent to route to but does not change what
     the instructions say. The 2026-09-07 calls show the capability already works: a regression
     module and two owning documents, three calls, nothing recorded as a failure.
-55. ⬜ **Concurrent server processes all number their transcripts `0001`**, `_COUNTER` being
+55. ✅ 2026-09-21 **Concurrent server processes all number their transcripts `0001`**, `_COUNTER` being
   process-local, so a same-millisecond same-slug pair is one filename: the `.json` truncates
   and the `.jsonl` appends, interleaving two streams (JOURNAL 2026-09-19)
 56. ✅ 2026-09-19 **A delegation runs from the command line**, `run --task`, because the 120s
