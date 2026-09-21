@@ -376,6 +376,33 @@ REASONING_ONLY_BANNER = (
 )
 
 
+def duplicate_line_share(text: str) -> float:
+    """How much of a reply is lines it has already said. 0.0 to 1.0.
+
+    The one number that separates a loop from work. Nothing else does: a turn looping
+    inside itself and a healthy long answer both end `finish_reason: length` with
+    `reasoning_exhausted` false, and both fill their ceiling exactly -- which reads as
+    "needs a bigger budget" and is not. Five documentation-audit passes were given
+    18,905, then 31,793, then 131,072 tokens on that reading before the shape was
+    noticed. Measured across three of those ceilings: 93.0%, 20.5% and 58.8% duplicate,
+    against under 1% on every pass that reported.
+
+    Lines rather than tokens or n-grams, because the observed failure repeats whole
+    sentences -- one run produced "Already checked." 385 times -- and a line is the unit
+    a reader would point at. Stripped and blank-dropped first, so prose that breathes is
+    not counted as repetition; the empty reply is 0.0 rather than an error, because
+    `empty_response` already reports that and a second opinion is not wanted here.
+
+    Reported, not acted on. It is evidence for whoever reads the record; making it abort
+    a turn is a threshold nobody has chosen yet, and a control chosen from three
+    measurements would be a control nobody can defend.
+    """
+    lines = [stripped for stripped in (line.strip() for line in text.splitlines()) if stripped]
+    if not lines:
+        return 0.0
+    return (len(lines) - len(set(lines))) / len(lines)
+
+
 def answer_of(response: CanonicalResponse) -> tuple[str, bool]:
     """The text a caller is handed, and whether it is reasoning rather than an answer.
 

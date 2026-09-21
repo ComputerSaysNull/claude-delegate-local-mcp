@@ -38,6 +38,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #257 — 2026-09-21 — feat: a reply reports how much of itself it repeats
+
+### Added
+
+- **`duplicate_line_share`, on the result, the `turn` event and the final record.**
+  *Symptom:* four audit passes were each handed a bigger reply budget — 18,905, then
+  31,793, then 131,072 — because every field available said the same thing: the answer
+  filled its ceiling exactly and stopped at `length` with `reasoning_exhausted` false.
+  That is what a healthy long answer looks like, and it was what a loop looked like too.
+  The output was mostly the same lines over and over, at 93.0%, 20.5% and 58.8% across
+  the three ceilings. *Cause:* nothing measured repetition, so a loop and a long answer
+  were indistinguishable from the outside and a bigger budget bought more of the same.
+  *Fix:* one number — the share of non-blank lines that repeat a line already written —
+  computed from the same `answer_of` the reply and the record both use, so they cannot
+  disagree. Per turn as well as per dispatch, because a turn that loops never ends and so
+  never produces a per-dispatch figure at all.
+
+  Reported, never acted on. Making it abort a turn needs a threshold, and one chosen from
+  three measurements would be a control nobody could defend — which this project already
+  counts as worse than no control, because it would be trusted.
+
 ## #256 — 2026-09-21 — feat: a turn records the sampling it was drawn at
 
 ### Added

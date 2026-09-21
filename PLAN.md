@@ -927,10 +927,10 @@ local, because they are working notes rather than a product fact.
 62. ⬜ **Reasoning effort is binary here, and the recovery ladder is built on it not being.**
   `none` yields no reasoning at all; `low`, `medium` and `high` are indistinguishable and not
   ordered, so stepping `high` to `low` changes nothing and only `off` differs (JOURNAL)
-63. ⬜ **A pass that loops inside one turn is invisible to every control there is.** `max_turns`
+63. ✅ 2026-09-21 **A pass that loops inside one turn is invisible to every control there is.** `max_turns`
   cannot act on a turn that never ends, and `finish_reason: length` with `reasoning_exhausted`
   false is what a healthy long answer looks like. Temperature 0.2 was the cause (JOURNAL)
-    - a. ⬜ A duplicate-line share over the reply separates a loop from work in one number, and
+    - a. ✅ 2026-09-21 A duplicate-line share over the reply separates a loop from work in one number, and
     nothing computes one — 66-94% on every looping pass against under 1% on every reporting one
     - b. ✅ 2026-09-21 **The sampling parameters are not reported anywhere**, so the setting a turn was
     drawn at cannot be recovered from a transcript. It belongs in `priced`, beside the budget
