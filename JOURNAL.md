@@ -2245,3 +2245,62 @@ did the passing half mean anything.
 during a tool window and jumps back on completion, so a watcher is briefly told a number
 that is not true. 19.c already re-ranked this down -- the median dispatch spends 0.5% of
 its wall time in tools -- and the killing half it was ranked for does not exist.
+
+---
+
+## 2026-09-21 — The stream is never silent, and three probes said otherwise by reading the wrong key
+
+**Subject:** whether `stall_timeout` can safely drop to ten minutes, which turns on one
+question -- how long this endpoint can go without sending a frame that counts as progress.
+
+**The answer, and it is emphatic.** Running the adapter's own `_StreamAccumulator.feed`
+over a real reasoning-heavy call: 1,523 frames in 107.3s, `feed` true on 1,521 of them,
+**longest gap between counting frames 0.4s**. Frame gaps at 3,000 max_tokens are the same
+across `none`, `low`, `high` and `max`: max 0.3s, first frame at 0.3s. Ten minutes of
+silence is not a slow model; it is an endpoint that has stopped.
+
+**Three probes got this wrong first, all the same way.** They counted `reasoning_content`,
+and this server streams reasoning under **`reasoning`**. So a call that was reasoning
+steadily measured as 0 reasoning characters, 0 content characters and -- in the worst
+version -- `feeding_frames=0` with a `max_FEEDING_gap` of the entire 299s call, which is
+exactly the shape that would have made a 600s stall look dangerous. The adapter was never
+confused: `_REASONING_KEYS = ("reasoning", "reasoning_content")` at openai_compat.py line
+108, measured 2026-08-26 and tries the right one first. The probe was reimplementing a
+parser the repository already had, and got it wrong where the repository had got it right.
+
+**The lesson is narrower than "read the code".** A probe that reimplements a predicate the
+system already owns is testing the probe. `acc.feed` is public enough to import, and the
+run that imported it answered in one pass what three hand-rolled parsers had made
+progressively more alarming. When the question is "what does the server do with this",
+drive the server's own code over the real stream.
+
+**A correction it forces.** ADR-0098 says that at a 4,000-token budget every effort above
+`none` "consumes the entire budget and emits nothing". It emits reasoning, steadily, and
+the ADR's own measurement missed it for the reason above. The decision is unaffected --
+effort above `none` does spend most of a budget reasoning, so adopting the evaluated
+`max` without measuring remains the thing not to do -- but the word "nothing" is wrong,
+and the ADR body is not edited, so the correction lives here.
+
+**Prefill is the one silence that is not decode, and it sizes the stall budget.** The
+0.3s above is the gap *between* frames and says nothing about the wait for the first one.
+Time to first frame, each arm given a unique prefix so the cache could not serve it warm:
+924 tokens in 0.7s, 8,547 in 6.0s, 42,733 in 31.0s, 86,330 in 65.4s, 175,068 in 143.5s,
+349,318 in 329.5s. Linear, at about **1,060 tok/s**.
+
+So the budget is a statement about the largest prompt a first turn can carry, and that is
+what moved it from the ten minutes first proposed to fifteen: 140k of prefetch is ~130s,
+and 900s is not reached until ~950k, most of the context window. Later turns are cheap --
+the sixth turn of a real run reused 81.7k of its 90.3k prompt and prefilled ~8.6k -- so
+turn one is the whole exposure. Measured solo; six-wide concurrency is slower by an
+unmeasured factor.
+
+**Why the clock is not paused during prefill instead.** Nothing says *this* request is
+prefilling. `vllm:request_prefill_time_seconds` and `vllm:time_to_first_token_seconds`
+are histograms written once prefill has finished, and `num_requests_running` and
+`prompt_tokens_total` are cluster-wide -- under concurrency they say somebody is
+prefilling, not that we are, and pausing our deadline on another tenant's work is the
+"evidence about the client, none about the cluster" trap in a new place. Starting the
+clock at the first token needs no metric at all and was declined: it would let a request
+wedged before its first token run to `turn_timeout`, and that wedge is the failure
+ADR-0047 exists for. Covering prefill keeps one deadline meaning one thing, at the price
+of a coupling the setting's own description now states.

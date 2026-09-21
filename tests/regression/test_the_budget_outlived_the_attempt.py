@@ -37,38 +37,37 @@ def cfg(**over) -> Config:
 
 
 def test_one_attempt_bounds_the_budget_when_it_is_the_tightest():
-    """The bug, at the default settings. 1800 binds, not 2100 and not 14400."""
-    assert budget_seconds(cfg(), stall_left=2100.0, dispatch_left=14400.0) == 1800.0
-
-
-def test_a_nearly_spent_stall_deadline_still_wins():
-    """The other direction, or the fix would be a constant wearing a `min`'s clothes.
-
-    Late in a delegation the stall clock is the tighter one, and a budget sized to
-    `turn_timeout` there would authorise a reply that outlives the delegation.
-    """
-    assert budget_seconds(cfg(), stall_left=120.0, dispatch_left=14400.0) == 120.0
+    """The bug, at the default settings. 1800 binds, not 14400."""
+    assert budget_seconds(cfg(), dispatch_left=14400.0) == 1800.0
 
 
 def test_the_whole_delegation_deadline_still_wins_when_it_is_tightest():
-    """All three are real bounds; none may be dropped from the comparison."""
-    assert budget_seconds(cfg(), stall_left=2100.0, dispatch_left=45.0) == 45.0
+    """Both remaining bounds are real; neither may be dropped from the comparison."""
+    assert budget_seconds(cfg(), dispatch_left=45.0) == 45.0
 
 
 def test_an_expired_clock_is_never_negative():
     """A negative would multiply into a negative ceiling and floor to `reply_budget_floor`,
     which reads as a small budget rather than as no time left."""
-    assert budget_seconds(cfg(), stall_left=-30.0, dispatch_left=14400.0) == 0.0
+    assert budget_seconds(cfg(), dispatch_left=-30.0) == 0.0
 
 
 @pytest.mark.parametrize("turn_timeout", [600, 1800, 2100])
 def test_the_bound_follows_the_setting_rather_than_a_literal(turn_timeout: int):
-    """It reads the setting, not the default it happens to have.
-
-    2100 is the upper end config permits -- `turn_timeout <= stall_timeout` is enforced --
-    and there the fix changes nothing, which is the case that keeps it a `min` rather than
-    a substitution.
-    """
-    got = budget_seconds(cfg(turn_timeout=turn_timeout), stall_left=2100.0,
-                         dispatch_left=14400.0)
+    """It reads the setting, not the default it happens to have."""
+    got = budget_seconds(cfg(turn_timeout=turn_timeout), dispatch_left=14400.0)
     assert got == float(turn_timeout)
+
+
+def test_the_stall_budget_does_not_bound_the_reply():
+    """ADR-0099, and the reason this file's `min` lost a term.
+
+    The stall clock is reset by `turn_done` immediately before the budget is computed, so
+    the value it would contribute is always the whole of `stall_timeout`. While config
+    forced that to be at least `turn_timeout` the term could never bind; once the lower
+    bound was dropped so the stall budget could be lowered, the same dead term would have
+    started cutting every reply down to it. A reply being generated is not silence.
+    """
+    tight = cfg(stall_timeout=600)
+    assert tight.stall_timeout < tight.turn_timeout, "the case only exists below turn_timeout"
+    assert budget_seconds(tight, dispatch_left=14400.0) == 1800.0

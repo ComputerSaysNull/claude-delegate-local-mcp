@@ -1,4 +1,5 @@
-<!-- BUDGET: 997 -->
+<!-- BUDGET: 1006 -->
+<!-- Raised from 997 (+1 for this line) on 2026-09-21: the deadline thread was proposed twice on 2026-09-20 and written down nowhere, and the question it ends with -- whether the reply budget need exist -- outranks two items already in this list. -->
 <!-- Raised from 990 (+1 for this line) on 2026-09-20: read_file cannot bound a range and the sampler is off the evaluated pair, both of which cost every delegation; and a forced answer has been called clean in three audit records running. -->
 <!-- Raised from 982 (+1 for this line) on 2026-09-20: the exhausted passes are a termination failure rather than a budget one, and a roadmap that files it as "needs a bigger ceiling" sends the next session after the wrong lever. -->
 <!-- Raised from 967 (+1 for this line) on 2026-09-20: the rate memory's sampling and its statistic are one question with a measured answer, and the effort enum is narrower than the server's in exactly the place the audit needs. -->
@@ -947,6 +948,14 @@ local, because they are working notes rather than a product fact.
 66. ⬜ **A pass that hits `max_turns` answered under duress, and nothing treats it as partial.**
   `hit_turn_limit` already marks it; every audit record since 2026-09-18 has noted the weakness
   and none has acted on it. A forced answer is evidence of a different kind, and should say so
+67. ⬜ **`turn_timeout` is the reply ceiling's denominator and may not be earning it.** Doubling
+  it 1800→3600 took the ceiling 18,905→31,793 and bought 347 seconds and 111 tokens (JOURNAL
+  2026-09-20). Either it leaves the `min()` and stays a plain deadline, or it goes entirely
+68. ⬜ **Spike, and it outranks 60 and 61: is the reply budget needed at all?** It exists to keep
+  a reply inside the deadlines. Stall now counts only silence and cannot kill a producing turn
+  (JOURNAL 2026-09-21), so if 67 removes `turn_timeout` the thing it avoids may not remain
+    - a. ⬜ Settle before building 60 or 61 — a positive answer deletes both, and ADR-0055 with
+    them. Proposed twice on 2026-09-20 and recorded nowhere until now, which is why it is here
 
 ## Deferred
 

@@ -19,6 +19,67 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0099 — 2026-09-21 — The stall budget is unlinked from turn_timeout, and stops bounding the reply — Accepted
+
+**Context.** Config enforced `turn_timeout <= stall_timeout <= dispatch_timeout`. The
+lower half was written for ADR-0047's stall signal, which was turn *completion*: under
+that reading a stall shorter than one backend call would cut short a call that was merely
+slow. ADR-0072 replaced the signal with token arrival two milestones later and nobody
+revisited the bound, so it outlived its reason while still deciding what the operator was
+allowed to configure.
+
+It mattered because 2100s is far too long to wait on a delegation that has genuinely
+stopped. The operator asked twice on 2026-09-20 for something nearer ten minutes, and the
+check refused it.
+
+**What made it safe to lower, measured rather than argued.** Two things, both settled on
+2026-09-21 and both recorded in JOURNAL.
+
+*Tool time cannot kill a delegation.* `stall_left` does fall through a tool window —
+nothing resets `last_progress` between a turn's last token and its tool results — but
+nothing reads it there either: the clock is consulted only from inside
+`complete_with_retry`, which is not running, and `turn_done` resets it after `_run_calls`
+returns rather than before. A tool spending 300s against a 30s budget answers normally.
+
+*The stream is not silent while the model works.* Across `none`, `low`, `high` and `max`,
+the longest gap between frames is **0.3s**, with the first frame at 0.3s. The stall clock
+is reset by frame arrival, so the silence it measures is the endpoint having stopped, not
+the model thinking.
+
+**The exception, and what sizes this number.** *Prefill* emits no frame and is linear in
+prompt size — 924 tokens to first frame in 0.7s, 86k in 65.4s, 349k in 329.5s, about
+1,060 tok/s, each behind a unique prefix so the cache could not serve it warm. So the
+budget must cover the largest first turn: ~130s at the 140k default prefetch budget, and
+**900s is not reached until a prompt near 950k**, most of the context window. Hence
+fifteen minutes rather than the ten first proposed. Later turns are not exposed — the
+sixth turn of a real run reused 81.7k of its 90.3k prompt. Six-wide concurrency is
+slower by an unmeasured factor.
+
+**Two alternatives, declined.** Pausing the clock during prefill cannot be done honestly:
+the prefill and first-token metrics are histograms written once it is *over*, and the
+request counters are cluster-wide, so under concurrency they would pause our deadline on
+another tenant's work. Starting it at the first token needs no metric and was declined: a
+request wedged before its first token would run to `turn_timeout`, the ADR-0047 failure.
+
+**Decision, in two parts.**
+
+The lower bound goes. `stall_timeout` need only be at or below `dispatch_timeout`, because
+a stall above the delegation ceiling can never fire and that remains a real error. The
+default drops from 2100 to 600.
+
+And `stall_left` leaves `budget_seconds`. It was already a dead term: `turn_done` resets
+the clock immediately before the ceiling is computed, so the value passed was always the
+whole of `stall_timeout`, which the old check forced to be at least `turn_timeout` — a
+constant no smaller than another term in the same `min` cannot change its result.
+Dropping the ordering would have brought it to life in the worst way, cutting every reply
+to the stall budget: a 3x reduction, and measured against the wrong thing, because a reply
+being generated is not silence.
+
+**What this deliberately does not do.** `turn_timeout` keeps its place as the ceiling's
+denominator. Whether it earns that is PLAN 67, and whether the reply budget need exist at
+all is PLAN 68 — a question this change makes askable and does not answer. Removing both
+in the same commit as the decoupling would have been three decisions wearing one ADR.
+
 ## ADR-0098 — 2026-09-21 — One temperature and one top_p, at the pair this model was evaluated at — Accepted
 
 **Context.** No ADR ever chose `tool_call_temperature = 0.2`. The value and its

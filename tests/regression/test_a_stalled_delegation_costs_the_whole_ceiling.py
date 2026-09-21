@@ -280,14 +280,19 @@ def test_a_one_shot_is_bounded_by_the_tighter_of_the_two():
     assert clock.now - 1000.0 < 14400
 
 
-def test_a_stall_deadline_outside_the_nesting_is_refused_at_load():
-    """A deadline below `turn_timeout` cuts short a call that was merely slow, and one
-    above the ceiling can never fire. Both are configuration errors rather than surprises
-    at runtime, and the message says which bound was crossed."""
-    with pytest.raises(Exception, match="DELEGATE_STALL_TIMEOUT"):
-        cfg(turn_timeout=600, stall_timeout=500, dispatch_timeout=14400)
+def test_a_stall_deadline_above_the_dispatch_ceiling_is_refused_at_load():
+    """One bound left, and it is the one that can still be wrong.
+
+    A stall above the delegation ceiling can never fire, which is a configuration error
+    rather than a loose setting. The lower bound against `turn_timeout` is gone
+    (ADR-0099): it existed because ADR-0047's stall signal was turn completion, and
+    ADR-0072 replaced that with token arrival, so a slow call that is producing resets
+    the clock instead of stalling against it. Measured 2026-09-21, the longest gap
+    between frames on this deployment is 0.3s at every effort level.
+    """
     with pytest.raises(Exception, match="DELEGATE_STALL_TIMEOUT"):
         cfg(turn_timeout=600, stall_timeout=20000, dispatch_timeout=14400)
-    # Equal is legal at both ends: `turn_timeout == dispatch_timeout` is a configuration
-    # this project permits, and a strict lower bound would leave it no legal value at all.
+    # Below `turn_timeout` is now legal, and is the configuration the default ships.
+    cfg(turn_timeout=1800, stall_timeout=600, dispatch_timeout=14400)
+    # Equal is legal at both ends.
     cfg(turn_timeout=600, stall_timeout=600, dispatch_timeout=600)

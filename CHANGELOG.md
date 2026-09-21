@@ -38,6 +38,37 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #259 — 2026-09-21 — fix: the stall budget is unlinked from turn_timeout and drops to fifteen minutes
+
+### Changed
+
+- **`DELEGATE_STALL_TIMEOUT` may now be lower than `DELEGATE_TURN_TIMEOUT`, and defaults
+  to 900 rather than 2100.** *Symptom:* a delegation that had genuinely stopped was given
+  thirty-five minutes to prove it, and an operator asking for less was refused at load.
+  *Cause:* the ordering check was written for ADR-0047, whose stall signal was turn
+  *completion* — under that reading a stall shorter than one call would cut short a call
+  that was merely slow. ADR-0072 replaced the signal with token arrival two milestones
+  later and nobody revisited the bound, so it outlived its reason while still deciding
+  what could be configured. *Fix:* only the upper bound remains, because a stall above
+  `dispatch_timeout` can never fire. Three measurements made the drop safe rather than
+  hopeful: a tool spending 300s against a 30s budget answers normally; the longest gap
+  between frames is 0.3s at every effort level; and prefill, which emits no frame at all,
+  runs at ~1,060 tok/s — so the budget has to cover the largest first turn, which is what
+  put the number at fifteen minutes rather than the ten first proposed. At the 140k
+  default prefetch budget that is ~130s, and 900s is not reached until a prompt near
+  950k. (ADR-0099)
+
+### Fixed
+
+- **The reply ceiling is no longer bounded by the stall budget.** *Symptom:* latent until
+  the change above, and then severe — every reply would have been cut to the stall budget,
+  a 3x reduction. *Cause:* `budget_seconds` took `stall_left` as a third term, but
+  `turn_done` resets that clock immediately before the ceiling is computed, so the value
+  passed was always the whole of `stall_timeout`, which config then forced to be at least
+  `turn_timeout`. A constant no smaller than another term in the same `min` cannot change
+  its result, so the term was dead and its deadness was load-bearing. *Fix:* dropped. A
+  reply being generated is not silence, and silence is what that clock measures.
+
 ## #258 — 2026-09-21 — test: a tool outlasting the stall budget does not kill the turn
 
 ### Added
