@@ -35,6 +35,7 @@ from .backends.base import (
     BackendRefused,
     BackendUnavailable,
     CanonicalShapeError,
+    TURN_LIMIT_BANNER,
     answer_of,
     duplicate_line_share,
 )
@@ -956,6 +957,20 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
 
     response = dispatched.response
     answer, answer_is_reasoning = answer_of(response)
+    # Computed before the banner, so the share describes what the model wrote rather than
+    # what the server added to it.
+    repeated = duplicate_line_share(answer)
+    # The flag is for whoever branches on it and the banner is for whoever does not --
+    # the same split `answer_of` already makes for reasoning. `hit_turn_limit` has been
+    # in the result since M9 and every audit record since 2026-09-18 still called a
+    # forced answer clean, because the reader of an answer reads the answer.
+    #
+    # Only when there is one. An empty reply is already `empty_response`, and a banner
+    # explaining the absence of something the caller can see is absent would be noise.
+    # `getattr` because the one-shot path returns a `Dispatch`, which has no turns to run
+    # out of -- the same reason `_loop_ledger` is gated rather than unconditional.
+    if getattr(dispatched, "hit_turn_limit", False) and answer:
+        answer = TURN_LIMIT_BANNER + answer
     return {
         **prefetched.accounting(),
         # Which file shaped this, when one did. A delegation that behaved unexpectedly is
@@ -1008,7 +1023,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         # How much of the answer is lines it had already said. A loop and a long answer
         # are indistinguishable by every other field here -- both fill the ceiling at a
         # length stop -- so this is the one that tells them apart.
-        "duplicate_line_share": duplicate_line_share(answer),
+        "duplicate_line_share": repeated,
         # Present only when the operator armed overflow handling and this server
         # declined to use it. Absent means it was off, or on and working -- the two the
         # caller has no decision to make about.

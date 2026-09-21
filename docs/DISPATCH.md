@@ -513,9 +513,9 @@ The last turn is declared with its tools **forbidden, not withdrawn** — see "T
 resent every turn, and trimmed in steps" for why that distinction is a cache one (ADR-0057),
 where the measurement is. Without that short-circuit a
 delegation can end on a tool call nobody will run, having spent its whole budget and returned
-nothing readable. The result reports `hit_turn_limit` so the caller can tell the two endings
-apart: an answer written under a forbidden toolset is a partial one, and worth reading
-differently from an answer the model chose to give. It is exactly "the loop reached its last
+nothing readable. The result reports `hit_turn_limit`, **and the answer carries a banner
+saying so** — the flag is for whoever branches on it and the banner for whoever does
+not, as reasoning already is. It is exactly "the loop reached its last
 turn". It once also required a tool call on that final reply, which a model forbidden to make
 one does not, so it was false in precisely the case it names. A delegation that would have
 finished on its last turn anyway now reports the limit too; that costs a reader one look at

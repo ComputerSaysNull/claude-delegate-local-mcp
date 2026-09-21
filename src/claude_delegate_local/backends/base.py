@@ -375,6 +375,13 @@ REASONING_ONLY_BANNER = (
     "used to be. Treat it as working notes, not a conclusion.]\n\n"
 )
 
+TURN_LIMIT_BANNER = (
+    "[this answer was forced: the delegation ran out of turns while still working, and "
+    "what follows is what it could write once its tools were taken away. It is a report "
+    "of an unfinished investigation, not a finished one -- raise max_turns or narrow the "
+    "task rather than treating it as a conclusion.]\n\n"
+)
+
 
 def duplicate_line_share(text: str) -> float:
     """How much of a reply is lines it has already said. 0.0 to 1.0.

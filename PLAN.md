@@ -945,7 +945,7 @@ local, because they are working notes rather than a product fact.
   the endpoint but never used. 0.2 is what made five audit passes loop (JOURNAL)
     - a. ✅ 2026-09-21 0.7 is a working point rather than a validated one, and `top_p` exists nowhere in
     `src/`, so the evaluated pair cannot be reached without adding it
-66. ⬜ **A pass that hits `max_turns` answered under duress, and nothing treats it as partial.**
+66. ✅ 2026-09-21 **A pass that hits `max_turns` answered under duress, and nothing treats it as partial.**
   `hit_turn_limit` already marks it; every audit record since 2026-09-18 has noted the weakness
   and none has acted on it. A forced answer is evidence of a different kind, and should say so
 67. ⬜ **`turn_timeout` is the reply ceiling's denominator and may not be earning it.** Doubling

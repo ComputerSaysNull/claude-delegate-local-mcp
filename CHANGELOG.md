@@ -38,6 +38,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #263 — 2026-09-21 — feat: an answer forced by the turn limit says so in the answer
+
+### Changed
+
+- **A delegation that ran out of turns now returns its answer under a banner.**
+  *Symptom:* every audit record since 2026-09-18 noted that a forced answer reads as a
+  finished one, and none acted on it — three of them then quoted such an answer as a
+  conclusion. *Cause:* `hit_turn_limit` has been in the result since M9, but a flag is
+  for whoever branches on it, and the reader of an answer is a person reading the answer.
+  The metadata sat beside the text saying the opposite of what the text implied. *Fix:*
+  the same split `answer_of` already makes for reasoning — the flag stays for callers,
+  and a banner tells a reader that what follows is an unfinished investigation reported
+  under duress, with `max_turns` named as the lever.
+
+  Only when there is an answer: an empty reply is already `empty_response`, and
+  explaining the absence of something visibly absent is noise. The one-shot path has no
+  turns to run out of, so the attribute is read defensively, as `_loop_ledger` reads it.
+
 ## #262 — 2026-09-21 — feat: read_file says where to stop
 
 ### Added
