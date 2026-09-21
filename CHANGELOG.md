@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #256 — 2026-09-21 — feat: a turn records the sampling it was drawn at
+
+### Added
+
+- **`priced` carries `temperature` and `top_p`.** *Symptom:* the setting a turn ran at
+  could not be recovered from its own transcript. Reading `config.py` afterwards gives the
+  value it holds *now*, not the one that turn used, so five audit passes that looped at
+  temperature 0.2 left no record saying so and the diagnosis took three sessions of
+  elimination across reply ceilings and effort levels. *Cause:* `priced` recorded what the
+  turn was *allowed* — ceiling, rate, load, effort — but nothing about how it would sample.
+  *Fix:* both values join the event, which is already written before the turn rather than
+  with it, so a turn killed at a deadline still records them. A negative control drives a
+  non-default pair through and reads it back, because a row confidently carrying the wrong
+  number would be worse than one carrying none.
+
 ## #255 — 2026-09-21 — feat: one temperature and one top_p, at the evaluated pair
 
 ### Added

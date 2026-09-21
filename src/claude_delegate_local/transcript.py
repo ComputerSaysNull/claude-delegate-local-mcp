@@ -183,6 +183,7 @@ class Stream:
         budget_ceiling: int | None, decode_rate: float | None,
         requests_running: float | None, rate_source: str | None = None,
         expected_concurrency: int | None = None,
+        temperature: float | None = None, top_p: float | None = None,
     ) -> None:
         """What a turn was allowed, and what that allowance was calculated from.
 
@@ -210,6 +211,12 @@ class Stream:
             # regime the engine has served.
             "rate_source": rate_source,
             "expected_concurrency": expected_concurrency,
+            # The sampling this turn was drawn at, for the reason `effort` is here: a
+            # setting recovered from `config.py` afterwards is the value it holds *now*,
+            # not the one the turn used. Five audit passes looped at temperature 0.2 and
+            # no transcript said so, which is why the diagnosis took three sessions.
+            "temperature": temperature,
+            "top_p": top_p,
         })
 
     def waiting(self, *, waited_seconds: float, of_seconds: int) -> None:
