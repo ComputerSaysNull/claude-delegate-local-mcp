@@ -925,9 +925,9 @@ local, because they are working notes rather than a product fact.
     `generation_tokens_total`, so rate and concurrency come from one reading
     - b. ⬜ **Not what 14.b refuted** — that rejected the window as a *ceiling*; this makes it a
     *sample* the bucket and the margin still act on. The mean is safe only once samples are regular
-62. ⬜ **Reasoning effort is binary here, and the recovery ladder is built on it not being.**
-  `none` yields no reasoning at all; `low`, `medium` and `high` are indistinguishable and not
-  ordered, so stepping `high` to `low` changes nothing and only `off` differs (JOURNAL)
+62. ⬜ **Reasoning effort may be binary here, and the recovery ladder is built on it not being.**
+  Measured only under 1k tokens, where the three looked alike; at a realistic size all of them
+  spend the budget reasoning. Our four map onto the encoder's three plus off, so none is missing
 63. ✅ 2026-09-21 **A pass that loops inside one turn is invisible to every control there is.** `max_turns`
   cannot act on a turn that never ends, and `finish_reason: length` with `reasoning_exhausted`
   false is what a healthy long answer looks like. Temperature 0.2 was the cause (JOURNAL)
