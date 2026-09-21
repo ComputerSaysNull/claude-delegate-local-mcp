@@ -120,6 +120,7 @@ class Stream:
         self, *, tool: str, task: str, agent: str | None,
         model_key: str | None, effort: str | None,
         tools: Iterable[str] = (), prefetched: Prefetch | None = None,
+        max_turns: int | None = None,
     ) -> None:
         """The head of the stream: which call this was, and what it was given.
 
@@ -135,12 +136,16 @@ class Stream:
         self._put({
             "t": "start", "at": datetime.now(UTC).isoformat(), "tool": tool,
             "task": task, "agent": agent, "model_key": model_key, "effort": effort,
+            # Beside `effort` because it is the same kind of fact: a resolved setting
+            # this run will be held to, known before any of it happens. None for a
+            # one-shot, which runs no loop and so has no budget to be held to.
+            "max_turns": max_turns,
             "tools": sorted(tools),
             **_files(prefetched),
         })
 
     def turn(self, diagnostic: Any, text: str, *, ms: int | None = None,
-             backend_ms: int | None = None) -> None:
+             backend_ms: int | None = None, of_turns: int | None = None) -> None:
         """One completed turn, including what the model actually said in it.
 
         The text is here and not in `write`'s record on purpose. ADR-0039 excluded file
@@ -151,6 +156,10 @@ class Stream:
         self._put({
             "t": "turn", "at": datetime.now(UTC).isoformat(),
             "turn": getattr(diagnostic, "turn", None),
+            # Repeated on every turn rather than left to the head of the stream: a reader
+            # scrolling a long transcript is not looking at the header any more, and
+            # "turn 3" without "of 10" is the half that cannot be acted on.
+            "of_turns": of_turns,
             "input_tokens": getattr(diagnostic, "input_tokens", None),
             "output_tokens": getattr(diagnostic, "output_tokens", None),
             "cached_tokens": getattr(diagnostic, "cached_tokens", None),
@@ -189,6 +198,7 @@ class Stream:
         requests_running: float | None, rate_source: str | None = None,
         expected_concurrency: int | None = None,
         temperature: float | None = None, top_p: float | None = None,
+        of_turns: int | None = None,
     ) -> None:
         """What a turn was allowed, and what that allowance was calculated from.
 
@@ -222,6 +232,10 @@ class Stream:
             # no transcript said so, which is why the diagnosis took three sessions.
             "temperature": temperature,
             "top_p": top_p,
+            # The resolved budget this turn is one of. `turn` alone says where a
+            # delegation is and not whether that is near the end, which is the half that
+            # decides whether the answer to a long run is to raise the cap.
+            "of_turns": of_turns,
         })
 
     def waiting(self, *, waited_seconds: float, of_seconds: int) -> None:
@@ -283,7 +297,8 @@ class Stream:
             self, *, ok: bool, turns: int | None, elapsed_seconds: float,
             output_tokens: int | None = None, cached_tokens: int | None = None,
             backend_ms: int | None = None, error: str | None = None,
-            finish_reason: str | None = None) -> None:
+            finish_reason: str | None = None, max_turns: int | None = None,
+            input_tokens: int | None = None) -> None:
         """The totals, which are a different figure from any turn's rate.
 
         `out_tok_s` here is over summed backend time across turns, so it is the rate the
@@ -298,7 +313,15 @@ class Stream:
         """
         self._put({
             "t": "end", "at": datetime.now(UTC).isoformat(), "ok": ok,
-            "turns": turns, "elapsed_seconds": round(elapsed_seconds, 3),
+            "turns": turns,
+            # What `turns` was allowed to reach. Six turns and six of six turns are the
+            # same run and different news, and only the pair says whether the cap ended it.
+            "max_turns": max_turns,
+            "elapsed_seconds": round(elapsed_seconds, 3),
+            # Both halves. Every turn line above reports what it sent, and the summary
+            # under them reported only what came back -- so the one line a reader is
+            # left looking at was the one that could not say what the delegation cost.
+            "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             **({"finish_reason": finish_reason} if finish_reason else {}),
             # Summed over the delegation's turns: what the cluster did not recompute.

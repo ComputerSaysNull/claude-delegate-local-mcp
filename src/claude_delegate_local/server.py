@@ -53,6 +53,7 @@ from .loop import (
     DispatchTimedOut,
     InvalidDelegation,
     RateHistory,
+    resolve_max_turns,
     run_agentic_loop,
     run_one_shot,
 )
@@ -770,8 +771,14 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             streamed_cached_tokens = (streamed_cached_tokens or 0) + cached
         if stream is not None:
             stream.turn(diagnostic, text, ms=int((now - turn_clock) * 1000),
-                        backend_ms=backend_ms)
+                        backend_ms=backend_ms, of_turns=resolved_turns)
         turn_clock = now
+
+    # The same pure function the loop calls, on the same arguments, so the two cannot
+    # disagree about the budget -- and it has to be resolved here as well because the
+    # head of the stream is written before the loop starts. None for an empty toolset:
+    # that takes the one-shot path, which runs no turns and has no budget to report.
+    resolved_turns = resolve_max_turns(cfg, max_turns) if allowed else None
 
     if stream is not None:
         stream.start(
@@ -779,6 +786,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             task=task, agent=agent.name if agent else None,
             model_key=entry.key, effort=effort,
             tools=allowed, prefetched=prefetched,
+            max_turns=resolved_turns,
         )
 
     waiting_since = time.monotonic()
@@ -932,6 +940,12 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                     else None
                 ),
                 elapsed_seconds=time.monotonic() - started,
+                # `getattr` for the reason `turns` above uses it: the one-shot path has
+                # no budget to report, and a failure may have no dispatch at all. 0 is
+                # the dataclass default and means "not a loop", so it is sent as None
+                # rather than rendered as "6 of 0 turns".
+                max_turns=getattr(dispatched, "max_turns", 0) or None,
+                input_tokens=getattr(dispatched, "total_input_tokens", 0) or None,
                 output_tokens=streamed_out_tokens or None,
                 cached_tokens=streamed_cached_tokens,
                 backend_ms=streamed_backend_ms or None,
