@@ -1,4 +1,6 @@
-<!-- BUDGET: 838
+<!-- BUDGET: 845
+     Raised from 838 (+1 for this line) on 2026-09-22: what prices a turn when nothing has been measured at all is a third case, and it was previously the endpoint's blend. -->
+<!-- 
      Raised from 823 (+1 for this line) on 2026-09-22: the decode rate is sampled on a ticker and priced from a bucket mean, which is a subsystem rather than a constant. -->
 <!-- 
      Raised from 821 (+1 for this line) on 2026-09-21: the resolved turn budget reaches the stream, so a count a reader could not measure against anything now has something to measure against.
@@ -364,6 +366,11 @@ names. The seed itself comes from the rate memory, keyed by concurrency, and whe
 can be *believed* is what `admission_idle_hold` buys: held, the memory answers from the
 bucket asked about; unheld, from the worst sample at that concurrency or busier, which is
 pessimistic on purpose and measured at 4.0x for a solo call (ADR-0085).
+
+**With nothing remembered at all, the price is a configured floor** rather than the
+endpoint's since-boot figure, which is a blend over every regime the engine has served and
+errs optimistic -- the direction that kills a turn instead of truncating it (ADR-0101). A
+bucket with samples never reaches that path.
 
 **A bucket answers with its mean, and samples arrive on a ticker rather than per turn.**
 Both halves are one change. The minimum priced 24-71% below the operator benchmark where
