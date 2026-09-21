@@ -252,7 +252,7 @@ TOOL_CHOICES = ("auto", "none")
 class CanonicalRequest:
     """One backend call, fully specified.
 
-    `max_tokens`, `effort` and `temperature` carry no defaults, deliberately. Config
+    `max_tokens`, `effort`, `temperature` and `top_p` carry no defaults, deliberately. Config
     defaults live only in config.py and per-model overrides only in the registry; a
     default here would be a second copy of a fact, and the docs gate exists because
     second copies drift. The caller resolves them -- `ModelEntry.effective_effort(cfg)`
@@ -268,6 +268,7 @@ class CanonicalRequest:
     max_tokens: int
     effort: str
     temperature: float
+    top_p: float
     tools: tuple[ToolSpec, ...] = ()
     # "auto" lets the model call; "none" offers the tools and forbids calling them. Our own
     # vocabulary, translated per adapter exactly as `effort` is (ADR-0013), because the two
@@ -304,6 +305,12 @@ class CanonicalRequest:
         if not 0.0 <= self.temperature <= 2.0:
             raise CanonicalShapeError(
                 f"temperature={self.temperature} is outside the accepted range 0.0-2.0."
+            )
+        # Narrower than temperature, and not by oversight: the endpoint answers 400 to a
+        # top_p above 1.0 while accepting temperature to 2.0. Measured 2026-09-21.
+        if not 0.0 <= self.top_p <= 1.0:
+            raise CanonicalShapeError(
+                f"top_p={self.top_p} is outside the accepted range 0.0-1.0."
             )
 
 

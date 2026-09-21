@@ -30,6 +30,18 @@ from typing import Any
 # docs/ARCHITECTURE.md says why validating here is not redundant. See ADR-0013.
 EFFORT_LEVELS = ("off", "low", "high", "max")
 
+# A retired numeric setting keeps its field so that setting it is an error rather than
+# silence -- the same reasoning `transport` is kept for. No operator would choose this
+# value, so any other value means the variable was set. See ADR-0098.
+RETIRED_SENTINEL = -1.0
+
+# Retired settings, named once. `__post_init__` refuses them and gen_config_docs.py marks
+# them, so the two cannot disagree about which they are. A retired field is *not* inert:
+# inert means "the subsystem is unbuilt, setting this does nothing", and here setting it
+# stops the server. Telling an operator the first when the second is true is the failure
+# `_reached_through_accessors` was written for.
+RETIRED_FIELDS = ("tool_call_temperature", "one_shot_temperature")
+
 # The fifth thing a *caller* may say, and deliberately not a fifth level. The tool argument
 # is required, so there is no longer an absent value for the precedence chain to fall
 # through on; this is how a caller states that it is deferring to the agent file, then the
@@ -294,18 +306,30 @@ class Config:
         "prefill on every turn, the conclusions already survive in the visible answer, and "
         "a growing prefix defeats prefix caching.",
     )
+    temperature: float = _f(
+        1.0,
+        "Temperature for every request, agentic or one-shot. This value and top_p are "
+        "the pair DeepSeek evaluated this model at, adopted together because neither "
+        "half was evaluated alone (ADR-0098).",
+    )
+    top_p: float = _f(
+        0.95,
+        "Nucleus sampling cut-off, sent on every request. Bounded to 0.0-1.0: the "
+        "endpoint refuses anything above it, and refusing at load tells the operator at "
+        "startup rather than mid-delegation.",
+    )
     tool_call_temperature: float = _f(
-        0.2,
-        "Temperature for every turn of the agentic loop. Low because tool-call syntax "
-        "tokens are sampled at the request temperature, so malformed calls grow likelier "
-        "as it rises. The one-shot path uses one_shot_temperature instead.",
+        RETIRED_SENTINEL,
+        "Setting it is refused (ADR-0098). It held the agentic loop at 0.2 to protect "
+        "tool-call syntax, which measurement contradicted -- no malformed call in 96, "
+        "from 0.2 to 1.5. Kept as a field rather than deleted for the reason transport "
+        "is: load() reads only names matching a field, so deleting this one would let a "
+        "live .env line do nothing without saying so. Use DELEGATE_TEMPERATURE.",
     )
     one_shot_temperature: float = _f(
-        1.0,
-        "Temperature for the one-shot delegate() path. Separate from "
-        "tool_call_temperature because that value is low to protect tool-call syntax, and "
-        "the one-shot path emits no tool calls -- there is no syntax to protect and "
-        "nothing to gain from suppressing the model's own default sampling.",
+        RETIRED_SENTINEL,
+        "Setting it is refused (ADR-0098). It existed only because tool_call_temperature "
+        "was low, and that reason is gone. Use DELEGATE_TEMPERATURE.",
     )
 
     # ---- the agentic loop --------------------------------------------------------
@@ -724,6 +748,36 @@ class Config:
     )
 
     # ---------------------------------------------------------------------------
+    def _check_sampling(self) -> None:
+        """The sampling pair, and the two settings it replaced.
+
+        Together rather than scattered through `__post_init__`, for the reason
+        `_check_deadlines_nest` is: the retirement and the ranges are one story, and a
+        reader asking "what may I set temperature to" should find the whole answer in
+        one place. See ADR-0098.
+        """
+        for name in RETIRED_FIELDS:
+            if getattr(self, name) != RETIRED_SENTINEL:
+                raise ConfigError(
+                    f"{env_name(name)} is retired (ADR-0098): the agentic and one-shot "
+                    "paths now share one temperature, because the split existed only to "
+                    "hold the loop low against malformed tool calls and no such call was "
+                    "seen in 96 between 0.2 and 1.5. Set DELEGATE_TEMPERATURE instead, "
+                    "and delete this line."
+                )
+        if not 0.0 <= self.temperature <= 2.0:
+            raise ConfigError(
+                "DELEGATE_TEMPERATURE must be between 0.0 and 2.0; the canonical request "
+                "refuses anything else. Note that 2.0 is accepted here and still a poor "
+                "choice: at 2.0 the model abandoned the tool call in 8 of 16 attempts."
+            )
+        if not 0.0 <= self.top_p <= 1.0:
+            raise ConfigError(
+                "DELEGATE_TOP_P must be between 0.0 and 1.0. The endpoint answers 400 "
+                "outside that range, so this refuses at load rather than mid-delegation."
+            )
+
+    # ---------------------------------------------------------------------------
     def _check_deadlines_nest(self) -> None:
         """The deadlines have to nest: connect <= turn < stall <= dispatch.
 
@@ -832,12 +886,7 @@ class Config:
             if getattr(self, name) <= 0:
                 raise ConfigError(f"DELEGATE_{name.upper()} must be positive.")
         self._check_deadlines_nest()
-        for name in ("tool_call_temperature", "one_shot_temperature"):
-            if not 0.0 <= getattr(self, name) <= 2.0:
-                raise ConfigError(
-                    f"DELEGATE_{name.upper()} must be between 0.0 and 2.0; the canonical "
-                    "request refuses anything else."
-                )
+        self._check_sampling()
         if self.keepalive_interval * 2 > CLIENT_STDIO_IDLE_TIMEOUT:
             # Refused at startup rather than warned about, because the symptom it causes
             # is invisible from here: the caller is told the call failed, the server keeps

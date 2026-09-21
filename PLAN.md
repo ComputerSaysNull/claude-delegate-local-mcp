@@ -939,10 +939,10 @@ local, because they are working notes rather than a product fact.
   by the turns left. `end_line`, inclusive — not `line_count`, whose off-by-one is silent
     - a. ⬜ **Number the prefetch block too.** Whole-file delivery already exists and costs no
     turn; what it lacks is the addressability that made `read_file` delivery terminate
-65. ⬜ **Only `temperature` is ever sent, and it is 0.2 on every loop turn.** No `top_p`, no
+65. ✅ 2026-09-21 **Only `temperature` is ever sent, and it is 0.2 on every loop turn.** No `top_p`, no
   penalty, against an evaluated 1.0 / 0.95 for this model — and the penalties are accepted by
   the endpoint but never used. 0.2 is what made five audit passes loop (JOURNAL)
-    - a. ⬜ 0.7 is a working point rather than a validated one, and `top_p` exists nowhere in
+    - a. ✅ 2026-09-21 0.7 is a working point rather than a validated one, and `top_p` exists nowhere in
     `src/`, so the evaluated pair cannot be reached without adding it
 66. ⬜ **A pass that hits `max_turns` answered under duress, and nothing treats it as partial.**
   `hit_turn_limit` already marks it; every audit record since 2026-09-18 has noted the weakness

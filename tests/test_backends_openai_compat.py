@@ -64,6 +64,7 @@ def request(**over) -> base.CanonicalRequest:
         "max_tokens": 1000,
         "effort": "low",
         "temperature": 0.0,
+        "top_p": 1.0,
     }
     kw.update(over)
     return base.CanonicalRequest(**kw)  # type: ignore[arg-type]
@@ -887,6 +888,7 @@ async def test_one_real_completion_against_the_live_endpoint():
         max_tokens=128,
         effort="off",
         temperature=0.0,
+        top_p=1.0,
     )
     try:
         r = await live.complete(req)
@@ -917,6 +919,18 @@ async def test_the_request_asks_to_stream_and_for_usage():
     body = backend().wire_body(request())
     assert body["stream"] is True
     assert body["stream_options"] == {"include_usage": True}
+
+
+def test_both_sampling_parameters_reach_the_wire():
+    """`temperature` alone was the whole sampling surface until ADR-0098.
+
+    The endpoint ignores an unknown key with a 200, so a parameter that never reached
+    the body would have looked exactly like one that did -- which is why this asserts
+    the body rather than the response.
+    """
+    body = backend().wire_body(request(temperature=1.0, top_p=0.95))
+    assert body["temperature"] == 1.0
+    assert body["top_p"] == 0.95
 
 
 async def test_a_streamed_reply_is_accumulated_into_one_response():

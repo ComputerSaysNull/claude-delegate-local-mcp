@@ -292,3 +292,52 @@ def test_the_port_only_the_http_transport_used_is_gone():
     generated reference as a knob that does something (ADR-0034)."""
     assert not hasattr(config.load(ROOTS), "http_port")
     assert "http_port" not in {f.name for f in dataclasses.fields(config.Config)}
+
+
+# --- sampling: one pair, at the values this model was evaluated at (ADR-0098) ----------
+
+
+def test_the_evaluated_sampling_pair_is_the_default():
+    """1.0 / 0.95 is DeepSeek's own evaluation of this model, not a working point.
+
+    One pair rather than two: the split existed only to hold the loop low against
+    malformed tool calls, and that premise was measured false across 96 calls from 0.2
+    to 1.5 -- not one was malformed.
+    """
+    cfg = config.load(ROOTS)
+    assert cfg.temperature == 1.0
+    assert cfg.top_p == 0.95
+
+
+def test_a_retired_temperature_name_is_refused_rather_than_ignored():
+    """The sharp end of `load` reading only names that match a field.
+
+    Both retired names are live in real `.env` files today. Deleting the fields would
+    make those lines do nothing without a word, and the operator would run 1.0 believing
+    they set 0.7 -- so they are kept and refused, exactly as `transport` is.
+    """
+    for name in ("DELEGATE_TOOL_CALL_TEMPERATURE", "DELEGATE_ONE_SHOT_TEMPERATURE"):
+        with pytest.raises(config.ConfigError, match="retired"):
+            config.load({**ROOTS, name: "0.7"})
+
+
+def test_the_retirement_refusal_is_specific_and_not_a_blanket():
+    """The negative control for the test above.
+
+    A refusal that fired on any unrecognised `DELEGATE_*` would pass that test while
+    breaking every deployment with a stale line in its `.env`. A typo must still be
+    ignored in silence, which is the behaviour ADR-0034 reasoned about.
+    """
+    assert config.load({**ROOTS, "DELEGATE_TOOL_CALL_TEMPERATURF": "0.7"}).temperature == 1.0
+
+
+def test_top_p_is_bounded_to_the_unit_interval():
+    """Mirrors the endpoint, which answers 400 to `top_p=5.0` -- measured 2026-09-21.
+
+    Refused here rather than at the wire, so the operator learns at startup rather than
+    thirty minutes into a delegation.
+    """
+    for bad in ("1.01", "-0.1"):
+        with pytest.raises(config.ConfigError, match="TOP_P"):
+            config.load({**ROOTS, "DELEGATE_TOP_P": bad})
+    assert config.load({**ROOTS, "DELEGATE_TOP_P": "0.5"}).top_p == 0.5

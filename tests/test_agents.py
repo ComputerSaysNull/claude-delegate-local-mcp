@@ -418,7 +418,9 @@ def test_the_agent_body_never_enters_the_system_prompt():
     likely thing to be put in one.
     """
     d = Delegation(task="the task", files_block="THE FILES", agent_body="THE AGENT BODY")
-    request = build_one_shot_request(delegation=d, effort="low", max_tokens=100, temperature=0.0)
+    request = build_one_shot_request(
+        delegation=d, effort="low", max_tokens=100, temperature=0.0, top_p=1.0
+    )
 
     assert request.system == SYSTEM_PROMPT_ONE_SHOT
     assert "THE AGENT BODY" not in request.system

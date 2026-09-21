@@ -65,6 +65,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Generation budgets", ("max_tokens", "thinking_default",
                             "thinking_max_tokens_floor", "reply_budget_margin",
                             "reply_budget_floor", "rate_history_dir", "resend_reasoning",
+                            "temperature", "top_p",
                             "tool_call_temperature", "one_shot_temperature")),
     ("Agentic loop", ("max_turns_default", "max_turns_hard_cap",
                       "keep_tool_results", "retained_tool_result_tokens")),
@@ -151,6 +152,7 @@ def _unread_fields() -> set[str]:
             continue
         used |= _code_identifiers(path.read_text(encoding="utf-8"))
     used |= _reached_through_accessors(src / "config.py", used)
+    used |= set(config.RETIRED_FIELDS)
     return {r["field"] for r in config.describe() if r["field"] not in used}
 
 
@@ -193,7 +195,7 @@ def _cell(text: object) -> str:
     return s.replace("|", "\\|").replace("\n", " ")
 
 
-def _row(r: dict[str, object], *, inert: bool) -> str:
+def _row(r: dict[str, object], *, inert: bool, retired: bool = False) -> str:
     """One renderer for both tables, because two of them disagreed.
 
     The leftover "Other" loop dropped three things the sectioned loop applied: the unit
@@ -211,7 +213,12 @@ def _row(r: dict[str, object], *, inert: bool) -> str:
     if r["required"]:
         default = "**required**"
     desc = _cell(r["description"])
-    if inert:
+    if retired:
+        # Never both. "Inert" promises that setting it does nothing, and a retired
+        # setting stops the server -- the opposite, which is the direction this
+        # generator already learned to care about with `workdir_roots`.
+        desc = f"**Retired.** {desc}"
+    elif inert:
         desc = f"**Inert.** {desc}"
     return f"| `{r['env']}` | {default} | {desc} |"
 
@@ -238,7 +245,9 @@ def render() -> str:
          "setting yet: it is validated at startup and otherwise does nothing, because the "
          "subsystem it controls is not built. See [PLAN.md](../PLAN.md) for what is where. "
          "The marker is computed by the generator from the source, not maintained by hand, "
-         "so it disappears in the commit that starts using the setting."),
+         "so it disappears in the commit that starts using the setting. **Retired** is the "
+         "opposite and never appears with it: the setting is gone, and setting it stops "
+         "the server rather than doing nothing."),
         "",
     ]
     for title, names in SECTIONS:
@@ -249,7 +258,8 @@ def render() -> str:
                 "| --- | --- | --- |"]
         for name in present:
             placed.add(name)
-            out.append(_row(rows[name], inert=name in unread))
+            out.append(_row(rows[name], inert=name in unread,
+                            retired=name in config.RETIRED_FIELDS))
         out.append("")
 
     leftover = [n for n in rows if n not in placed]
@@ -259,7 +269,8 @@ def render() -> str:
                  " Add them to a group. -->"), "",
                 "| Variable | Default | Description |", "| --- | --- | --- |"]
         for name in leftover:
-            out.append(_row(rows[name], inert=name in unread))
+            out.append(_row(rows[name], inert=name in unread,
+                            retired=name in config.RETIRED_FIELDS))
         out.append("")
 
     n_inert = len(unread & set(rows))
