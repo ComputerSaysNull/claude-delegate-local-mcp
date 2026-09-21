@@ -1119,12 +1119,13 @@ async def test_a_refusal_is_read_before_it_is_raised():
     assert caught.value.retry_after == "3"
 
 
-async def test_a_stream_that_outlives_turn_timeout_is_unavailable():
-    """The bound the non-streaming call got for free.
+async def test_a_stream_that_keeps_trickling_is_not_killed_for_being_long():
+    """Length is not the signal, and a call-length bound used to make it one.
 
-    httpx applies its read timeout per chunk once the body streams, so a stream that keeps
-    trickling would never trip it. Without this the deadline would simply have been
-    removed, which is the failure this change is in the middle of fixing.
+    A call-length bound was enforced in the frame loop, so a stream delivering its last frame
+    at 999s died holding everything it had decoded. That is the one outcome guaranteed to
+    return nothing: the endpoint was working. What is left is the per-chunk read timeout
+    below, which catches the case worth catching -- silence.
     """
     clock = Clock()
     schedule = [
@@ -1132,14 +1133,26 @@ async def test_a_stream_that_outlives_turn_timeout_is_unavailable():
         (999.0, "data: " + json.dumps(delta(content="b")) + "\n\n"),
         (999.0, "data: [DONE]\n\n"),
     ]
-    # 60 rather than something smaller because the deadlines have to nest and
-    # `connect_timeout` defaults to 30: a turn_timeout below it is a ConfigError, which
-    # would have failed this test for a reason that has nothing to do with streaming.
-    with pytest.raises(base.BackendUnavailable, match="turn_timeout") as caught:
-        await backend(
-            paced(clock, schedule), config=cfg(turn_timeout=60), clock=clock
-        ).complete(request())
-    assert caught.value.while_generating is True
+    answer = await backend(
+        paced(clock, schedule), config=cfg(), clock=clock
+    ).complete(request())
+    assert answer.text == "ab"
+
+
+def test_the_read_bound_on_the_client_is_the_stall_budget():
+    """Silence is what a wedged call produces, and this is where it is caught.
+
+    Asserted on the client rather than through a socket, for the reason the blackholed
+    route test gives: a transport double cannot demonstrate httpx's own timeouts, and a
+    bound that is never installed fails silently by never firing.
+
+    Built without the `backend` helper on purpose: that helper injects a transport double,
+    and the adapter takes an injected client as-is, so through it this reads httpx's own
+    default and passes whatever the config says.
+    """
+    own = oc.OpenAICompatBackend(cfg(stall_timeout=123, connect_timeout=30), entry())
+    assert own._client.timeout.read == 123
+    assert own._client.timeout.connect == 30
 
 
 # ---- the windowed decode rate, which a counter alone cannot give ---------------------

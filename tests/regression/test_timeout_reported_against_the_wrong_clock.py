@@ -103,7 +103,7 @@ def test_elapsed_is_not_reported_below_the_limit_it_claims_to_exceed():
     with pytest.raises(loop.DispatchTimedOut) as excinfo:
         asyncio.run(
             loop.complete_with_retry(
-                cfg(dispatch_timeout=100, turn_timeout=100),
+                cfg(dispatch_timeout=100),
                 Dropping(clock, seconds=1), request(),
                 sleep=_no_sleep, jitter=lambda lo, hi: hi,
                 deadline=deadline, clock=clock,
@@ -128,7 +128,7 @@ def test_a_deadline_reached_while_waiting_to_retry_counts_the_whole_budget():
     with pytest.raises(loop.DispatchTimedOut) as excinfo:
         asyncio.run(
             loop.complete_with_retry(
-                cfg(dispatch_timeout=100, turn_timeout=100, retry_max_attempts=5,
+                cfg(dispatch_timeout=100, retry_max_attempts=5,
                     retry_base_delay=30.0, retry_max_delay=30.0),
                 Dropping(clock, seconds=10), request(),
                 sleep=_no_sleep, jitter=lambda lo, hi: hi,
@@ -152,7 +152,7 @@ def test_a_delegation_inside_its_budget_is_still_untouched():
 
     async def go():
         return await loop.complete_with_retry(
-            cfg(dispatch_timeout=1000, turn_timeout=1000, retry_max_attempts=1),
+            cfg(dispatch_timeout=1000, retry_max_attempts=1),
             Dropping(clock, seconds=1), request(),
             sleep=_no_sleep, jitter=lambda lo, hi: hi,
             deadline=deadline, clock=clock,
@@ -162,19 +162,20 @@ def test_a_delegation_inside_its_budget_is_still_untouched():
         asyncio.run(go())
 
 
-def test_a_turn_timeout_does_not_blame_the_delegation_deadline():
-    """With no deadline in play, only the adapter's client budget can have expired.
+def test_an_attempt_timeout_does_not_blame_the_delegation_deadline():
+    """With no delegation deadline in play, it cannot be what expired.
 
     The empty-answer stages pass `deadline=None` once they have spent the budget
     themselves, and a `TimeoutError` arriving there used to be reported as
     DELEGATE_DISPATCH_TIMEOUT -- sending an operator to raise a setting that had no part
-    in it.
+    in it. It named DELEGATE_TURN_TIMEOUT instead until that setting was retired; the
+    stall clock is what is left, and it is the one a wedged attempt actually trips.
     """
     clock = Clock()
     with pytest.raises(loop.DispatchTimedOut) as excinfo:
         asyncio.run(
             loop.complete_with_retry(
-                cfg(dispatch_timeout=3600, turn_timeout=42),
+                cfg(dispatch_timeout=3600, stall_timeout=42),
                 Hanging(), request(),
                 sleep=_no_sleep, jitter=lambda lo, hi: hi,
                 deadline=None, clock=clock,
@@ -182,7 +183,7 @@ def test_a_turn_timeout_does_not_blame_the_delegation_deadline():
         )
 
     e = excinfo.value
-    assert e.setting == "DELEGATE_TURN_TIMEOUT"
+    assert e.setting == "DELEGATE_STALL_TIMEOUT"
     assert e.limit == 42
     assert "DELEGATE_DISPATCH_TIMEOUT" not in str(e)
 

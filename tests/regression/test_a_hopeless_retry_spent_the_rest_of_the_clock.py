@@ -2,8 +2,8 @@
 
 `_is_retryable` is true for every `BackendUnavailable`, and the adapter wraps every
 `httpx.HTTPError` into one. So a connect failure at five seconds and a read timeout at
-`turn_timeout` -- 1800s, the request delivered and no reply ever arriving -- were treated
-as the same kind of accident.
+the end of a 1800s allowance -- the request delivered and no reply ever arriving -- were
+treated as the same kind of accident.
 
 They are not. A connect failure says nothing was attempted and a retry is cheap. A read
 timeout says the endpoint took the whole allowance and did not finish, and the retry that

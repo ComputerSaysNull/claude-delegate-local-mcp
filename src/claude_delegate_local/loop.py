@@ -409,24 +409,26 @@ class DecodeRate:
 def budget_seconds(cfg: Config, *, dispatch_left: float) -> float:
     """Seconds the reply about to be asked for can actually be delivered in.
 
-    Two bounds. The delegation deadline says how long the *run* may continue;
-    `turn_timeout` says how long the one backend call carrying this reply may take.
-    Sizing the budget against the delegation alone authorised a reply the attempt could
-    not deliver, which then overran and was retried against a third of the clock.
+    One bound, the delegation deadline. `turn_timeout` was the second and is retired
+    (ADR-0100): it was never paying for its place. Doubling it from 1800 to 3600 moved
+    the ceiling from 18,905 to 31,793 and bought 347 more seconds and 111 more tokens,
+    because nothing bounds reasoning except the token cap the answer shares -- so the
+    extra room enlarged the wasted attempt rather than the reply (JOURNAL 2026-09-20).
 
-    **`stall_left` is deliberately not a third** (ADR-0099). It was, and it bound nothing:
-    the stall clock is reset by `turn_done` immediately before this is called, so the
-    value passed was always the whole of `stall_timeout`, which config then forced to be
-    at least `turn_timeout`. A term that is a constant no smaller than another term in the
-    same `min` cannot change its result. Once that ordering was dropped so the stall
-    budget could be lowered, the dead term stopped being dead and started cutting every
-    reply to the stall budget instead -- which is the opposite of what it measures. A
-    reply being generated is not silence, and stall counts silence.
+    What a call-length ceiling was believed to guard is a wedged call, and the stall clock
+    already guards it, better: a stream that is producing emits frames 0.4s apart or
+    better, so a wedged call is *silent*, and silence is the thing stall was built to
+    measure. A ceiling can only ask how long the call has run, which a slow but healthy
+    call answers the same way a dead one does.
+
+    **`stall_left` is deliberately not a second term either** (ADR-0099). A reply being
+    generated is not silence, so putting it here cuts every reply to the stall budget --
+    the opposite of what it measures.
 
     Never negative. A negative would multiply through `ceiling` into `reply_budget_floor`
     and read as a small budget rather than as no time remaining.
     """
-    return max(min(dispatch_left, float(cfg.turn_timeout)), 0.0)
+    return max(dispatch_left, 0.0)
 
 
 class RateHistory:
@@ -635,8 +637,8 @@ class RateHistory:
 
         The minimum *within* the bucket is kept either way, and that is not timidity. The
         error is asymmetric: over-estimating authorises a reply that cannot be decoded
-        inside `turn_timeout` and the turn dies with nothing, where under-estimating
-        truncates and something comes back.
+        inside the delegation deadline and the turn dies with nothing, where
+        under-estimating truncates and something comes back.
         """
         want = max(int(concurrency), 1)
         if trusted:
@@ -1076,10 +1078,10 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
                 # attempt's seconds otherwise -- and the backoff between them is not
                 # generation either, so it is outside this interval by construction.
                 return answer, attempts, clock() - attempt_started
-            # The per-attempt ceiling. `turn_timeout` already bounds one call inside the
-            # adapter's client, but it is a fixed budget that knows nothing about how much
-            # of the delegation is left, so without this the deadline could still be
-            # overshot by a whole turn.
+            # The per-attempt ceiling, and since `turn_timeout` was retired the only one:
+            # the adapter's client bounds silence between frames, not the length of a call
+            # that keeps producing. Without this an attempt could overshoot whichever of
+            # the two delegation-level deadlines is tighter.
             answer = await _until_deadline(
                 backend.complete(request, on_token=on_token), ceiling,
                 tick=_DEADLINE_TICK, tick_sleep=tick_sleep,
@@ -1092,12 +1094,19 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
             # setting that had nothing to do with it.
             stalled()
             if deadline is None:
-                # Nothing bounded this attempt but the adapter's own client budget, so
-                # the delegation deadline is not what expired. Naming it would send an
-                # operator to raise a setting that had no part in this.
+                # The delegation deadline was not in play, so it is not what expired;
+                # naming it would send an operator to raise a setting that had no part in
+                # this. What is left is the stall clock -- since `turn_timeout` retired,
+                # the only bound this function applies to one attempt -- so that is what
+                # the message names, and the remedy is the stall one for the same reason
+                # `stalled()` uses it: a run that stopped producing is not helped by being
+                # given longer to stop producing in.
                 timed_out = DispatchTimedOut(
-                    spent(), cfg.turn_timeout, "while waiting on one turn",
-                    setting="DELEGATE_TURN_TIMEOUT",
+                    spent(), cfg.stall_timeout, "while waiting on one turn",
+                    setting="DELEGATE_STALL_TIMEOUT",
+                    remedy="The attempt stopped producing rather than merely ran long, "
+                           "so raising this would only lengthen the wait. Check the "
+                           "endpoint with backend_status.",
                 )
             else:
                 timed_out = DispatchTimedOut(
@@ -1403,11 +1412,11 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     # now does the same around its turn loop; this was once the only concurrency here.
     beat = asyncio.create_task(_keepalive(
         cfg, on_alive, clock,
-        # Deliberately not `budget_seconds`, though it is the same shape. That one sizes
-        # one *attempt* and so includes `turn_timeout`, which restarts with every attempt
-        # and is therefore a constant rather than a countdown -- reported here it would sit
-        # unchanged at its ceiling while the delegation ran out of time underneath it. The
-        # two deadlines below are the ones genuinely counting down for this delegation.
+        # Deliberately not `budget_seconds`, though the shapes are close. That one sizes
+        # one reply and counts the delegation deadline only, because a stream that is
+        # producing is not silent and must not be charged the stall clock. A countdown
+        # shown to a reader has the opposite job: name whichever deadline will actually
+        # end the run, and since ADR-0099 that is usually the stall one.
         lambda: max(min(stall_left(), deadline - clock()), 0.0),
         streamed,
     ))
@@ -2693,9 +2702,10 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     no MCP imports, and a test needs to see the calls without a client.
 
     `on_alive` is the same protection *within* a turn, and one per turn was not enough: a
-    turn's own duration is bounded only by `turn_timeout`, so a single slow one outlasts the
-    idle timer on its own. It runs on a timer beside the loop rather than at a point inside
-    it, because there is no point inside a turn that is guaranteed to be reached.
+    turn's own duration is bounded only by the delegation deadline, so a single slow one
+    outlasts the idle timer on its own. It runs on a timer beside the loop rather than at a
+    point inside it, because there is no point inside a turn that is guaranteed to be
+    reached.
 
     Effort reported is the level of the *last* turn, which is the one that produced the
     answer. A step-down on turn three does not persist into turn four: the next turn is a
@@ -2786,20 +2796,21 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
 
     # The heartbeat, beside the loop rather than inside it. `run_one_shot` has had one
     # since ADR-0018; this path reported only at the top of each turn, so a single long
-    # turn was silent for its whole duration -- bounded by `turn_timeout`, which defaults
-    # to exactly the client's stdio idle timeout. At that point the client abandons the
-    # call, nothing reaches the server, and the slot is held to the end (#58).
+    # turn was silent for its whole duration -- and a turn that keeps producing is bounded
+    # by nothing tighter than the delegation deadline, far past the client's stdio idle
+    # timeout. At that point the client abandons the call, nothing reaches the server, and
+    # the slot is held to the end (#58).
     #
     # Created as `None` rather than early-returning the way the one-shot does, because
     # there the guarded part is one `await` and here it is the whole loop: duplicating it
     # to avoid a nullable task would be two copies of the turn lifecycle.
     beat = asyncio.create_task(_keepalive(
         cfg, on_alive, clock,
-        # Deliberately not `budget_seconds`, though it is the same shape. That one sizes
-        # one *attempt* and so includes `turn_timeout`, which restarts with every attempt
-        # and is therefore a constant rather than a countdown -- reported here it would sit
-        # unchanged at its ceiling while the delegation ran out of time underneath it. The
-        # two deadlines below are the ones genuinely counting down for this delegation.
+        # Deliberately not `budget_seconds`, though the shapes are close. That one sizes
+        # one reply and counts the delegation deadline only, because a stream that is
+        # producing is not silent and must not be charged the stall clock. A countdown
+        # shown to a reader has the opposite job: name whichever deadline will actually
+        # end the run, and since ADR-0099 that is usually the stall one.
         lambda: max(min(stall_left(), deadline - clock()), 0.0),
         streamed,
     )) if on_alive else None

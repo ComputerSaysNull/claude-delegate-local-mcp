@@ -72,7 +72,7 @@ async def test_a_read_timeout_before_the_first_token_was_not_generating():
     clock = Clock()
     with pytest.raises(base.BackendUnavailable) as caught:
         await backend(
-            timing_out_at_once(), config=cfg(turn_timeout=60), clock=clock
+            timing_out_at_once(), config=cfg(), clock=clock
         ).complete(request())
 
     assert caught.value.while_generating is False
@@ -89,7 +89,7 @@ async def test_a_read_timeout_after_a_token_is_still_generating():
     with pytest.raises(base.BackendUnavailable) as caught:
         await backend(
             timing_out_after(clock, "decoded this much"),
-            config=cfg(turn_timeout=60),
+            config=cfg(),
             clock=clock,
         ).complete(request())
 

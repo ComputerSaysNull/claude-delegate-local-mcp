@@ -19,6 +19,47 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0100 — 2026-09-21 — turn_timeout is retired; silence and total time are the only deadlines — Accepted
+
+**Context.** `turn_timeout` arrived with ADR-0047 as a per-turn backend-call deadline, when
+the stall signal was turn *completion*. ADR-0072 replaced that signal with token arrival, and
+ADR-0099 took the stall term out of `budget_seconds` and dropped the ordering bound. What was
+left was a constant in the denominator of every reply budget — and it got there in #166, which
+no ADR records. Doubling it 1800 to 3600 moved the ceiling 18,905 to 31,793 and bought 347
+seconds and 111 tokens: the same answer, from the same attempt, at the same effort
+(JOURNAL 2026-09-20). A term that buys nothing is still deciding what every reply may be.
+
+**Decision.** `turn_timeout` is retired, not merely lifted out of the `min()`.
+`budget_seconds` becomes `max(dispatch_left, 0.0)`. The httpx read budget becomes
+`stall_timeout`, which asks the same question one layer down — no chunk for this long. The
+whole-call bound inside the frame loop goes with it, so a stream that keeps producing is
+bounded by the delegation deadline rather than by a per-call constant.
+
+**Why it could not stay as a plain deadline.** That is the configuration #166 was written to
+fix: sizing the budget against the delegation alone authorised a reply the attempt could not
+deliver, which then overran and was retried against a third of the clock. That failure needs
+two things — a budget sized to the run, and a per-call deadline able to cut the reply it
+authorised. Remove the deadline and the mismatch cannot recur. Keep the deadline and remove
+only the term, and it recurs exactly. So the two halves are one decision, and the option PLAN
+67 listed first was already refuted by the code it would have changed.
+
+**What guards a wedged call now.** Silence, which is what `stall_timeout` measures. A
+producing stream emits frames 0.4s apart or better at every effort level, and prefill emits
+none at all but is linear in prompt size at about 1,060 tok/s — so `stall_timeout` is sized
+against the largest first turn and a wedged call is a silent one. `dispatch_timeout` still
+bounds the whole delegation, so nothing is unbounded.
+
+**Consequences.** `DELEGATE_TURN_TIMEOUT` is refused at load rather than ignored, naming no
+replacement, because none is needed — the two remaining deadlines already cover what it
+covered. The deadline chain config enforces is now `connect <= stall <= dispatch`. A
+long-running but productive call that would previously have been cut at 1800s now runs to
+`dispatch_timeout`; that is the intent, not a side effect.
+
+**A correction to ADR-0099, whose body cannot be edited.** Its closing line says the stall
+default "drops from 2100 to 600". It shipped at 900, which is the figure its own reasoning
+derives two paragraphs earlier. `config.py` is the only authority for a default, and it reads
+900.
+
 ## ADR-0099 — 2026-09-21 — The stall budget is unlinked from turn_timeout, and stops bounding the reply — Accepted
 
 **Context.** Config enforced `turn_timeout <= stall_timeout <= dispatch_timeout`. The

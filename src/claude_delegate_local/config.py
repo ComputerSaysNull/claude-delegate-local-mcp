@@ -40,7 +40,29 @@ RETIRED_SENTINEL = -1.0
 # inert means "the subsystem is unbuilt, setting this does nothing", and here setting it
 # stops the server. Telling an operator the first when the second is true is the failure
 # `_reached_through_accessors` was written for.
-RETIRED_FIELDS = ("tool_call_temperature", "one_shot_temperature")
+RETIRED_FIELDS = ("tool_call_temperature", "one_shot_temperature", "turn_timeout")
+
+# What to do instead, per retired field. A dict rather than one shared sentence: the
+# refusal has to name the replacement, and there is no longer one replacement. A field
+# listed above and missing here fails the roster test rather than raising a blank remedy.
+RETIRED_REMEDY = {
+    "tool_call_temperature":
+        "the agentic and one-shot paths now share one temperature, because the split "
+        "existed only to hold the loop low against malformed tool calls and no such call "
+        "was seen in 96 between 0.2 and 1.5. Set DELEGATE_TEMPERATURE instead, and delete "
+        "this line.",
+    "one_shot_temperature":
+        "the agentic and one-shot paths now share one temperature, and the low loop "
+        "sampling that was this setting's only reason is gone. Set DELEGATE_TEMPERATURE "
+        "instead, and delete this line.",
+    "turn_timeout":
+        "a reply is no longer sized against a per-call ceiling, and no call is bounded by "
+        "one (ADR-0100). Doubling this bought 347 seconds and 111 tokens, because the "
+        "extra room enlarged the wasted attempt rather than the answer. A call that has "
+        "WEDGED is "
+        "silent, and DELEGATE_STALL_TIMEOUT is the setting that measures silence; "
+        "DELEGATE_DISPATCH_TIMEOUT still bounds total time. Delete this line.",
+}
 
 # The fifth thing a *caller* may say, and deliberately not a fifth level. The tool argument
 # is required, so there is no longer an absent value for the precedence chain to fall
@@ -275,11 +297,12 @@ class Config:
     )
     reply_budget_margin: float = _f(
         0.6,
-        "Share of whichever deadline binds that a single reply may spend generating: the "
-        "tightest of turn_timeout, the stall deadline's remainder and the delegation's, "
-        "multiplied by the decode rate measured at runtime, so the model is never handed "
-        "more tokens than the clock can pay for -- ADR-0055. On a first turn that is "
-        "turn_timeout, not stall_timeout, which sits above it. Below 1.0 to absorb error "
+        "Share of the delegation's remaining time that a single reply may spend "
+        "generating, multiplied by the decode rate measured at runtime, so the model is "
+        "never handed more tokens than the clock can pay for -- ADR-0055. One deadline "
+        "and not the tightest of several: stall_timeout measures silence and a reply "
+        "being generated is not silent (ADR-0099), and turn_timeout is retired. Below "
+        "1.0 to absorb error "
         "in the rate, not the cost of prefilling, which measured about 2% of a turn here: "
         "a cold start falls through to a since-boot mean blended over every concurrency "
         "the engine has served, and that reads about 1.75x optimistic against a six-way "
@@ -423,19 +446,28 @@ class Config:
     )
 
     # ---- timeouts ----------------------------------------------------------------
-    turn_timeout: int = _f(1800, "Per-turn backend call timeout.", unit="seconds")
+    turn_timeout: float = _f(
+        RETIRED_SENTINEL,
+        "Setting it is refused. It was a per-turn backend call timeout, and it bounded "
+        "nothing worth bounding: length does not tell a slow call from a dead one, and "
+        "killing a slow one guarantees nothing comes back. Use DELEGATE_STALL_TIMEOUT for "
+        "silence and DELEGATE_DISPATCH_TIMEOUT for total time. Kept as a field rather "
+        "than deleted for the reason transport is: load() reads only names matching a "
+        "field, so deleting this one would let a live .env line do nothing without "
+        "saying so.",
+    )
     connect_timeout: int = _f(
         30,
-        "Bound on the TCP-connect phase alone, separate from turn_timeout. A refused "
+        "Bound on the TCP-connect phase alone, separate from the read budget. A refused "
         "connection sends RST and fails in milliseconds without this, but a dropped or "
         "blackholed route sends nothing and would otherwise stall for the whole of "
-        "turn_timeout before httpx gives up.",
+        "stall_timeout before httpx gives up.",
         unit="seconds",
     )
     status_probe_timeout: int = _f(
         10,
         "Deadline for one backend_status() probe of /v1/models. Separate from, and far "
-        "below, turn_timeout: a status check is answered from memory and returns in "
+        "below, stall_timeout: a status check is answered from memory and returns in "
         "milliseconds, so waiting a generation-sized budget on it only means one "
         "blackholed endpoint stalls the report on every other one.",
         unit="seconds",
@@ -448,8 +480,8 @@ class Config:
         "below this. Raised from 3600 once that existed (ADR-0047). The old value was "
         "sized against Claude Code's 30-minute stdio idle timeout, which ADR-0018's "
         "per-turn notification stopped letting bind, and nothing re-derived it when that "
-        "changed -- so an hour was the price of a wedged run, twice over at the default "
-        "turn_timeout. This bounds the wait, not the client's patience.",
+        "changed -- so an hour was the price of a wedged run. This bounds the wait, not "
+        "the client's patience.",
         unit="seconds",
     )
     stall_timeout: int = _f(
@@ -467,7 +499,9 @@ class Config:
         "reached by a prompt near 950k, which is most of the context window. Raise this "
         "alongside max_total_prefetch_tokens. Refused only above dispatch_timeout, where "
         "it could never fire; the old lower bound against turn_timeout belonged to "
-        "ADR-0047's turn-completion signal and went with it (ADR-0072, ADR-0099).",
+        "ADR-0047's turn-completion signal and went with it (ADR-0072, ADR-0099). It is "
+        "also the httpx read budget, so it bounds silence at the socket as well as "
+        "across the turn.",
         unit="seconds",
     )
     keepalive_interval: int = _f(
@@ -489,8 +523,8 @@ class Config:
         20.0,
         "Cap on a single wait between attempts, including one the endpoint asked for via "
         "Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past "
-        "anything turn_timeout was meant to bound, and the wait happens between requests "
-        "where no HTTP timeout applies to it. Kept well under the stdio idle timeout "
+        "anything the deadlines were meant to bound, and the wait happens between "
+        "requests where no HTTP timeout applies to it. Kept well under the stdio idle "
         "even though ADR-0018's notification now holds that off: it fires once at the top "
         "of a turn, and this wait sits inside one, unobserved.",
         unit="seconds",
@@ -752,23 +786,26 @@ class Config:
     )
 
     # ---------------------------------------------------------------------------
-    def _check_sampling(self) -> None:
-        """The sampling pair, and the two settings it replaced.
+    def _check_retired(self) -> None:
+        """Every retired setting, refused with the remedy that replaced it.
 
-        Together rather than scattered through `__post_init__`, for the reason
-        `_check_deadlines_nest` is: the retirement and the ranges are one story, and a
-        reader asking "what may I set temperature to" should find the whole answer in
-        one place. See ADR-0098.
+        One loop over the roster rather than a check beside each subsystem: the settings
+        retired here have nothing to do with each other any more, and a reader asking
+        "why will the server not start" is looking for one place, not three.
         """
         for name in RETIRED_FIELDS:
             if getattr(self, name) != RETIRED_SENTINEL:
                 raise ConfigError(
-                    f"{env_name(name)} is retired (ADR-0098): the agentic and one-shot "
-                    "paths now share one temperature, because the split existed only to "
-                    "hold the loop low against malformed tool calls and no such call was "
-                    "seen in 96 between 0.2 and 1.5. Set DELEGATE_TEMPERATURE instead, "
-                    "and delete this line."
+                    f"{env_name(name)} is retired: {RETIRED_REMEDY[name]}"
                 )
+
+    def _check_sampling(self) -> None:
+        """What temperature and top_p may be set to.
+
+        Together rather than scattered through `__post_init__`, for the reason
+        `_check_deadlines_nest` is: a reader asking "what may I set temperature to"
+        should find the whole answer in one place. See ADR-0098.
+        """
         if not 0.0 <= self.temperature <= 2.0:
             raise ConfigError(
                 "DELEGATE_TEMPERATURE must be between 0.0 and 2.0; the canonical request "
@@ -783,33 +820,28 @@ class Config:
 
     # ---------------------------------------------------------------------------
     def _check_deadlines_nest(self) -> None:
-        """The deadlines have to nest: connect <= turn < stall <= dispatch.
+        """The deadlines have to nest: connect <= stall <= dispatch.
 
         Together rather than scattered through `__post_init__`, because the chain is the
         point. Each check reads as arbitrary alone; in sequence they say that every
         deadline is bounded by the one containing it, and that a reader can see where a
-        new one would have to fit. Adding `stall_timeout` was what made that worth
-        extracting -- it belongs strictly between two existing links.
+        new one would have to fit.
+
+        `turn_timeout` was the middle link and is retired (ADR-0100), so the chain is two
+        links rather than three. Its lower bound on `stall_timeout` had already gone with
+        ADR-0099: ADR-0047's stall signal was turn *completion*, under which a stall
+        shorter than one call would cut short a call that was merely slow, and ADR-0072
+        replaced that signal with token arrival.
         """
-        if self.connect_timeout > self.turn_timeout:
+        if self.connect_timeout > self.stall_timeout:
             raise ConfigError(
                 f"DELEGATE_CONNECT_TIMEOUT ({self.connect_timeout}) exceeds "
-                f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}): the connect phase cannot "
-                "be allowed to outlast the whole call it is part of."
+                f"DELEGATE_STALL_TIMEOUT ({self.stall_timeout}): the connect phase cannot "
+                "be allowed to outlast the silence budget that contains it -- a route "
+                "that never connects is silence, and the tighter bound is the one that "
+                "makes it a fast failure rather than a wait."
             )
 
-        if self.turn_timeout > self.dispatch_timeout:
-            raise ConfigError(
-                f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}) exceeds "
-                f"DELEGATE_DISPATCH_TIMEOUT ({self.dispatch_timeout}): a single turn "
-                "could outlive the delegation containing it."
-            )
-
-        # No lower bound against `turn_timeout` any more (ADR-0099). It existed because
-        # ADR-0047's stall signal was turn *completion*, under which a stall shorter than
-        # one call would cut short a call that was merely slow. ADR-0072 replaced that
-        # signal with token arrival, so a slow call that is producing resets the clock and
-        # never stalls -- and the bound outlived its reason by two ADRs.
         if self.stall_timeout > self.dispatch_timeout:
             raise ConfigError(
                 f"DELEGATE_STALL_TIMEOUT ({self.stall_timeout}) is higher than "
@@ -875,7 +907,6 @@ class Config:
             "max_bash_output_chars",
             "secret_shadow_max_entries",
             "secret_shadow_max_depth",
-            "turn_timeout",
             "connect_timeout",
             "dispatch_timeout",
             "run_bash_timeout",
@@ -890,6 +921,7 @@ class Config:
         ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"DELEGATE_{name.upper()} must be positive.")
+        self._check_retired()
         self._check_deadlines_nest()
         self._check_sampling()
         if self.keepalive_interval * 2 > CLIENT_STDIO_IDLE_TIMEOUT:

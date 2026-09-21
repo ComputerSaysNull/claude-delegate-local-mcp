@@ -156,21 +156,23 @@ class OpenAICompatBackend:
         # each other. Driven by `clock` rather than by `time.monotonic` directly, so a
         # test can advance it the way every other deadline here is tested.
         self._decode_window = _DecodeWindow()
-        # turn_timeout bounds the turn, but since ADR-0070 the chat call streams, and
-        # httpx applies `read` per chunk rather than to the whole body -- so a stream that
-        # keeps trickling would never trip it. `_accumulate` therefore enforces the bound
-        # itself against `clock`, and the httpx `read` timeout now means "no chunk for this
-        # long". Dropping one without adding the other would have removed the deadline.
+        # `stall_timeout` and not a per-call budget. Since ADR-0070 the chat call streams
+        # and httpx applies `read` per chunk rather than to the whole body, so this
+        # timeout already means "no chunk for this long" -- which is the same question
+        # `stall_timeout` answers, measured one layer down. The whole-call bound that used
+        # to sit beside it was `turn_timeout`, retired because length is not the signal: a
+        # stream that is producing emits frames 0.4s apart or better, so a wedged call is
+        # silent and silence is what this catches.
         # dispatch_timeout spans a whole delegation and belongs to the caller above.
         #
         # connect_timeout bounds the connect phase separately, and much shorter. An earlier
         # comment here argued no such bound was needed because "a refused connection already
         # fails immediately" -- true, and irrelevant. A REFUSED connection sends RST and
         # fails in milliseconds; a DROPPED or blackholed route sends nothing at all, so
-        # without a connect bound it stalled for the full turn_timeout. Measured on the
+        # without a connect bound it stalled for the whole read budget. Measured on the
         # unfixed code: refused 0.02s, dropped still pending after 40s.
         self._client = client or httpx.AsyncClient(
-            timeout=httpx.Timeout(cfg.turn_timeout, connect=cfg.connect_timeout)
+            timeout=httpx.Timeout(cfg.stall_timeout, connect=cfg.connect_timeout)
         )
 
     # --- outbound ----------------------------------------------------------------------
@@ -242,7 +244,6 @@ class OpenAICompatBackend:
         acc = _StreamAccumulator()
         first: float | None = None
         last: float | None = None
-        started = self._clock()
 
         def decoded() -> CanonicalResponse | None:
             """What the stream had produced, or `None` if it never produced anything.
@@ -269,21 +270,14 @@ class OpenAICompatBackend:
                     raise BackendRefused(
                         r.status_code, r.text, path, r.headers.get("Retry-After")
                     )
+                # No whole-call bound here any more. `turn_timeout` used to be enforced
+                # in this loop, because httpx's `read` timeout is per chunk once the body
+                # streams and a trickling stream never trips it -- but a trickle is the
+                # endpoint working slowly, and killing it is the one outcome that
+                # guarantees nothing comes back. Silence is the failure worth catching and
+                # the per-chunk timeout above catches it; length is the caller's, through
+                # the stall and delegation clocks it can actually see.
                 async for line in r.aiter_lines():
-                    if self._clock() - started > self._cfg.turn_timeout:
-                        # httpx's `read` timeout is per chunk once the body streams, so a
-                        # stream that trickles for ever would never trip it. This is the
-                        # whole-turn bound the non-streaming call used to get for free.
-                        raise BackendUnavailable(
-                            f"stream from {path} on model {self._entry.key!r} ran past "
-                            f"turn_timeout of {self._cfg.turn_timeout}s.",
-                            # Not unconditionally `True`. This bound fires on a stream
-                            # that trickles *and* on one that never produced a token, and
-                            # they are the two shapes `while_generating` exists to keep
-                            # apart -- the second spent queueing and prefill, not decode,
-                            # so reporting it as generating sends the retry the wrong way.
-                            while_generating=first is not None,
-                        )
                     frame = _sse_frame(line, path)
                     if frame is _SSE_DONE:
                         break

@@ -72,7 +72,7 @@ def test_a_tool_outlasting_the_stall_budget_does_not_kill_the_turn(slow_tool):
 
     result = asyncio.run(
         loop.run_agentic_loop(
-            cfg(stall_timeout=30, turn_timeout=30, dispatch_timeout=3600),
+            cfg(stall_timeout=30, dispatch_timeout=3600),
             entry(),
             backend,
             loop.Delegation("do the thing"),
@@ -106,7 +106,7 @@ def test_a_silent_backend_still_dies_on_the_same_budget(slow_tool):
     with pytest.raises(loop.DispatchTimedOut) as caught:
         asyncio.run(
             loop.run_agentic_loop(
-                cfg(stall_timeout=30, turn_timeout=30, dispatch_timeout=3600),
+                cfg(stall_timeout=30, dispatch_timeout=3600),
                 entry(),
                 backend,
                 loop.Delegation("do the thing"),
@@ -117,6 +117,4 @@ def test_a_silent_backend_still_dies_on_the_same_budget(slow_tool):
             )
         )
 
-    assert caught.value.setting in (
-        "DELEGATE_STALL_TIMEOUT", "DELEGATE_TURN_TIMEOUT",
-    ), caught.value.setting
+    assert caught.value.setting == "DELEGATE_STALL_TIMEOUT", caught.value.setting

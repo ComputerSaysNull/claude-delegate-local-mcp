@@ -2350,9 +2350,10 @@ def _loop_progress(config, handler, *, before_call=None):
 
 def test_a_slow_turn_keeps_the_client_informed():
     """#58's shape. One turn reports at its top and then says nothing for its whole
-    duration, bounded only by `turn_timeout` -- which defaults to exactly the client's
-    stdio idle timeout, so a single long turn can outlast it on its own. Lowering that
-    default would kill legitimate work, so the fix is the heartbeat.
+    duration, and nothing bounds a turn that keeps producing except the delegation
+    ceiling -- far past the client's stdio idle timeout, so a single long turn can
+    outlast it on its own. Lowering a deadline to fit would kill legitimate work, so the
+    fix is the heartbeat.
     """
     config = cfg(keepalive_interval=1)
     seen = _loop_progress(config, slow_chat_handler(2.5))

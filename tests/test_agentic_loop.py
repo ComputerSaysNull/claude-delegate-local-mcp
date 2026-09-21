@@ -598,7 +598,7 @@ def test_one_deadline_covers_the_whole_delegation(registered):
 
     backend = Slow(wants(("echo", {})), wants(("echo", {})), says("done"))
     with pytest.raises(loop.DispatchTimedOut):
-        run(backend, cfg=cfg(dispatch_timeout=60, turn_timeout=60), clock=clock)
+        run(backend, cfg=cfg(dispatch_timeout=60), clock=clock)
 
 
 def test_the_ledger_counts_what_the_server_did(registered):

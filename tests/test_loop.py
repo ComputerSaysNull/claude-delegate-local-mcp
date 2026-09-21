@@ -911,7 +911,8 @@ def test_at_max_effort_the_budget_retry_is_skipped_and_it_steps_down_immediately
 
 # --- the whole-delegation deadline (dispatch_timeout) ------------------------------------
 #
-# `dispatch_timeout` was declared, validated against turn_timeout, documented, and read by
+# `dispatch_timeout` was declared, validated against the deadlines around it, documented,
+# and read by
 # nothing: loop.py's own docstring called it "a gap rather than a decision". The sum of
 # attempts plus the waits between them was bounded only by retry_max_attempts and
 # retry_max_delay, neither of which is a time.
@@ -987,7 +988,7 @@ def test_the_deadline_ends_a_delegation_whose_retries_outlive_it():
     with pytest.raises(loop.DispatchTimedOut) as excinfo:
         asyncio.run(
             loop.complete_with_retry(
-                cfg(dispatch_timeout=100, turn_timeout=100, retry_max_attempts=9),
+                cfg(dispatch_timeout=100, retry_max_attempts=9),
                 backend,
                 one_shot("hello"),
                 sleep=AdvancingSleep(clock),
@@ -1008,7 +1009,7 @@ def test_a_backoff_that_would_sleep_past_the_deadline_ends_it_instead():
     with pytest.raises(loop.DispatchTimedOut) as excinfo:
         asyncio.run(
             loop.complete_with_retry(
-                cfg(dispatch_timeout=2, turn_timeout=2, connect_timeout=1, retry_max_attempts=5,
+                cfg(dispatch_timeout=2, connect_timeout=1, retry_max_attempts=5,
                     retry_base_delay=30.0, retry_max_delay=30.0),
                 backend,
                 one_shot("hello"),
@@ -1029,7 +1030,7 @@ def test_the_refusal_names_the_setting_the_elapsed_time_and_the_stage():
     with pytest.raises(loop.DispatchTimedOut) as excinfo:
         asyncio.run(
             loop.complete_with_retry(
-                cfg(dispatch_timeout=50, turn_timeout=50, retry_max_attempts=4),
+                cfg(dispatch_timeout=50, retry_max_attempts=4),
                 backend,
                 one_shot("hello"),
                 sleep=AdvancingSleep(clock),
@@ -1056,7 +1057,7 @@ def test_one_deadline_spans_every_stage_rather_than_restarting_per_stage():
     with pytest.raises(loop.DispatchTimedOut):
         asyncio.run(
             loop.run_one_shot(
-                cfg(dispatch_timeout=50, turn_timeout=50),
+                cfg(dispatch_timeout=50),
                 entry(),
                 backend,
                 loop.Delegation("hello"),
@@ -1089,7 +1090,7 @@ def test_a_delegation_inside_the_deadline_still_completes_through_run_one_shot()
 
 
 def test_a_single_attempt_is_capped_by_what_is_left_of_the_deadline():
-    """turn_timeout bounds one call but knows nothing of how much delegation is left.
+    """Nothing below this function bounds a call by length, so this ceiling is the only one.
 
     Real time, deliberately: this is the one behaviour a fake clock cannot show, because
     the ceiling is enforced by the event loop. The budget is tiny so the test costs it.
@@ -1111,7 +1112,7 @@ def test_a_single_attempt_is_capped_by_what_is_left_of_the_deadline():
     with pytest.raises(loop.DispatchTimedOut):
         asyncio.run(
             loop.complete_with_retry(
-                cfg(dispatch_timeout=1, turn_timeout=1, connect_timeout=1),
+                cfg(dispatch_timeout=1, connect_timeout=1),
                 Hanging(),
                 one_shot("hello"),
                 sleep=SleepSpy(),

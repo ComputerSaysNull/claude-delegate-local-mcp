@@ -200,7 +200,7 @@ def test_a_stall_that_had_achieved_something_says_so(registered):
     """
     clock = Clock()
     backend = WedgesAfter(clock, 700.0, good=1)
-    config = cfg(turn_timeout=600, stall_timeout=900, dispatch_timeout=14400,
+    config = cfg(stall_timeout=900, dispatch_timeout=14400,
                  retry_max_attempts=9, retry_base_delay=0.01, retry_max_delay=0.01)
 
     with pytest.raises(DispatchTimedOut) as e:
@@ -222,7 +222,7 @@ def test_a_stall_that_had_achieved_nothing_says_that_too(registered):
     """
     clock = Clock()
     backend = WedgesAfter(clock, 700.0, good=0)
-    config = cfg(turn_timeout=600, stall_timeout=900, dispatch_timeout=14400,
+    config = cfg(stall_timeout=900, dispatch_timeout=14400,
                  retry_max_attempts=9, retry_base_delay=0.01, retry_max_delay=0.01)
 
     with pytest.raises(DispatchTimedOut) as e:
@@ -243,7 +243,7 @@ def test_a_stall_never_borrows_the_unreachable_vocabulary(registered):
     """
     clock = Clock()
     backend = WedgesAfter(clock, 700.0, good=1)
-    config = cfg(turn_timeout=600, stall_timeout=900, dispatch_timeout=14400,
+    config = cfg(stall_timeout=900, dispatch_timeout=14400,
                  retry_max_attempts=9, retry_base_delay=0.01, retry_max_delay=0.01)
 
     with pytest.raises(DispatchTimedOut) as e:
