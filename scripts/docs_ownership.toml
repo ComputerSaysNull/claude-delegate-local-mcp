@@ -146,10 +146,15 @@ registry file format (MODELS.md). This is what goes out to a model and what come
 audience = ["user", "contributor"]
 plane = "product"
 generated = true
-owns = ["src/claude_delegate_local/config.py"]
+owns = ["src/claude_delegate_local/config.py", ".env.example"]
 covers_not = """
 Rationale for a default beyond its one-line description. It is a generated table;
-argument belongs in an ADR."""
+argument belongs in an ADR.
+`.env.example` sits here because it is the same facts in operator-facing form, but it is
+hand-written where this file is generated -- so the owning-doc check, which exempts a
+generated document, cannot see it go stale. What guards it is
+test_env_example_names_real_settings.py, which is the mechanical check this block cannot
+be."""
 
 [docs."docs/TOOLS.md"]
 audience = ["user", "contributor"]

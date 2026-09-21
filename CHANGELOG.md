@@ -38,6 +38,32 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #260 — 2026-09-21 — docs: .env.example says what is required, and a check keeps it true
+
+### Added
+
+- **`.env.example` has an owning document, and a test that can actually catch it rotting.**
+  *Symptom:* `docs_gate.py --owner .env.example` reported it as neither owned nor declared
+  unowned — it had fallen through the manifest entirely, so no rule applied to it. *Cause:*
+  it is configuration in operator-facing form, and the manifest had no entry for that
+  shape. *Fix:* assigned to `docs/CONFIGURATION.md`, which owns the same facts. That alone
+  guards nothing, because the owning-doc check exempts generated documents — so the real
+  guard is `test_env_example_names_real_settings.py`: every `DELEGATE_*` the file names
+  must be a live setting, and none may be *offered* as an assignment if it is retired.
+  Both halves were demonstrated failing on a real violation before being trusted.
+
+### Changed
+
+- **`.env.example` brought current.** It named only `DELEGATE_WORKSPACE_ROOTS` as required
+  and four commonly-adjusted settings, none of them the sampling or deadline ones that
+  changed today. It now also carries a migration note, because an operator upgrading with
+  a `DELEGATE_TOOL_CALL_TEMPERATURE` line will find the server refuses to start until it
+  is deleted — and the first draft of the retirement check flagged that very note, which
+  is how the difference between offering a setting and naming one got encoded.
+- **`PLAN.md` U.62 no longer states as measured something a sub-1k-token test cannot
+  support.** It also claimed our enum could not send `medium`; the encoder names only
+  low / high / max, so our four map onto its three plus `off` and nothing is missing.
+
 ## #259 — 2026-09-21 — fix: the stall budget is unlinked from turn_timeout and drops to fifteen minutes
 
 ### Changed
