@@ -555,6 +555,12 @@ class Admission:
         none of those still arriving behind, so `seqs + waiting + 1` is its own position in
         the burst rather than the burst's size, and a simultaneous three priced 1, 2 and 3.
 
+        A wait open in *another* process is joined too, by counting rather than by
+        awaiting: there is no future to share across a process boundary, so the flag in
+        the shared record says a wait is open and the member runs its own window against
+        the same shared totals. Without that, a burst spread over three processes prices
+        every arm at its arrival position, which is the shape `run` fans out in.
+
         One wait serves the whole burst rather than one each. A second would re-count the
         same arrivals and bill every member for its own window, where what is wanted is one
         window and one answer -- and a joiner must not wait *inside* the wait it is joining,
@@ -586,18 +592,81 @@ class Admission:
                 # snapshot is what they would have been given anyway.
                 return seqs, waiting
 
-        if not (seqs == 0 and waiting == 0):
+        if not (seqs == 0 and waiting == 0) and not await self._burst_open_elsewhere():
             return seqs, waiting
 
         self._holding = asyncio.get_running_loop().create_future()
         try:
+            # Published before the first window, so a sibling arriving during it sees the
+            # wait and joins rather than reading its own arrival position.
+            #
+            # Inside the `try`, and that placement is load-bearing: this is an await, and
+            # nothing may be awaited between creating `_holding` and entering the block
+            # that settles it. Outside, a cancellation delivered here would leave the
+            # future unsettled for ever -- every later burst in this process would join a
+            # wait nobody finishes -- and would leak the slot, the release below being
+            # skipped with it.
+            await self._announce_burst(open_wait=True)
             counted = await self._count_the_burst()
         except BaseException as exc:
+            await self._announce_burst(open_wait=False)
             self._settle_waiters(exc=exc)
             await self.release(lease)
             raise
+        await self._announce_burst(open_wait=False)
         self._settle_waiters(counted=counted)
         return counted
+
+    async def _burst_open_elsewhere(self) -> bool:
+        """Whether another process on this machine is already counting a burst.
+
+        The cross-process half of the same defect. Within one process a member joins the
+        open wait as a future; across processes there is no future to await, so the wait
+        is announced in the shared file and a member that finds one counts the burst
+        itself. Both windows run at the same time and read the same totals, so every arm
+        settles on the whole burst rather than on the siblings ahead of it -- and the
+        joiner pays one window it would otherwise have skipped, which is exactly what an
+        in-process joiner already pays for the same answer.
+
+        Asked only once the local snapshot is not idle, and only while the hold is
+        enabled, so an idle gate and a gate with the hold off both cost nothing extra.
+        """
+        if self._slots is None or self._idle_hold <= 0:
+            # The hold is the debounce this flag exists to widen. With it off there is no
+            # window to join, so reading another process's flag could only add work and
+            # tie two gates together that were configured not to wait for each other.
+            # The docstring above promised this guard before the guard existed.
+            return False
+        try:
+            return await self._slots.burst_wait_elsewhere()
+        except SlotsUnavailable:
+            # The same call that took the slot read this file a moment ago, so this is
+            # a file that has just become unreachable. Not joining is the old behaviour,
+            # and it prices low rather than failing a delegation that was admitted.
+            return False
+
+    async def _announce_burst(self, *, open_wait: bool) -> None:
+        """Say in the shared file that this process is, or is no longer, counting.
+
+        Best effort for the reason `release` is: the slot is already taken and the lease
+        is about to be handed back, so an unreachable file must cost a label rather than
+        a delegation. A flag stranded by a failed close goes when the record does, which
+        is why `_is_idle` must not treat a flagged record as worth keeping -- that would
+        make the record permanent and the stranded flag with it.
+        """
+        if self._slots is None:
+            return
+        try:
+            if open_wait:
+                await self._slots.open_burst_wait()
+            else:
+                await self._slots.close_burst_wait()
+        except SlotsUnavailable:
+            log.warning(
+                "could not %s the shared burst wait; this burst may price on arrival "
+                "order in other processes",
+                "announce" if open_wait else "withdraw",
+            )
 
     def _settle_waiters(
         self,

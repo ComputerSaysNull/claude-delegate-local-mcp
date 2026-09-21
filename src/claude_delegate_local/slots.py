@@ -29,6 +29,14 @@ it is a backstop for platforms without `/proc`, never the primary mechanism -- a
 that reclaims on a timer is one that either leaks for the length of the timer or evicts a
 live process that was merely slow.
 
+**A record also says whether its process is counting a burst.** `admission.py` keeps one
+wait open per burst so that every member prices on the whole burst rather than on the
+position it happened to arrive in; the flag here is what lets a member in *another*
+process join that wait instead of counting only the siblings ahead of it. It lives inside
+the record rather than at the top level of the document deliberately: a record is keyed by
+`(pid, start_time)` and reaped the moment its process stops, so a process that dies
+mid-count takes its flag with it and no second staleness rule is needed for it.
+
 **Never block the event loop.** The lock is taken `LOCK_EX | LOCK_NB` and retried around
 `await asyncio.sleep`, because a blocking `flock` inside the loop would stall every other
 delegation in this process -- including ones already running, which are not waiting for
@@ -73,6 +81,18 @@ except ImportError:  # pragma: no cover -- exercised by the Windows leg of CI
 
 _SCHEMA_VERSION = 1
 _FILENAME = "admission-slots.json"
+
+# The key, inside one record, that says that process is counting a burst right now.
+#
+# The version above does *not* move for it, and the reason is the one written against
+# `next_ticket` in `_read`: this is an additive field that both directions already read
+# sanely. A reader that predates it ignores an unknown key in a record, so it goes on
+# pricing the way it did before -- which is the old behaviour, not a wrong one. A reader
+# that knows it, meeting a file with no flag anywhere, finds no wait open and does the
+# same. Neither side has anything to gate on, and nothing reads `version` at all: making
+# it a break would mean an older process on this machine resetting a file whose slots a
+# newer one is still holding, which is the outage the module docstring rules out.
+_BURST_FIELD = "burst_wait"
 
 # Retry cadence for a contended lock. Short because the critical section is short: a
 # holder is reading and rewriting a few hundred bytes of tmpfs, not doing work.
@@ -544,12 +564,66 @@ class SharedSlots:
 
     @staticmethod
     def _is_idle(record: dict[str, Any]) -> bool:
-        """Nothing held and nothing queued, so the record says nothing worth keeping."""
+        """Nothing held and nothing queued, so the record says nothing worth keeping.
+
+        **An open burst wait is deliberately not in this list**, though it is a claim
+        other processes read. It does not need to be: a process counting a burst is
+        holding the slot `_try_take` granted it a moment earlier, so `seqs` already keeps
+        the record. Adding the flag here would be redundant in every normal case and
+        harmful in one -- a close that failed against an unreachable file leaves the flag
+        set, and a record protected by its own stranded flag can never be reaped, so every
+        other process would read an open wait for the life of this one. Redundant when it
+        works, permanent when it does not, is not a trade worth making.
+        """
         return not (
             int(record.get("seqs", 0))
             or int(record.get("tokens", 0))
             or record.get("waiting")
         )
+
+    # ---- the burst flag --------------------------------------------------------------
+    async def open_burst_wait(self) -> None:
+        """Say that this process is counting a burst, so others can join it."""
+        await self._set_burst_wait(True)
+
+    async def close_burst_wait(self) -> None:
+        """Say that it is no longer counting one. Idempotent: the caller's exit paths
+        cannot all know whether the flag was ever written."""
+        await self._set_burst_wait(False)
+
+    async def _set_burst_wait(self, open_wait: bool) -> None:
+        async with self._locked() as fd:
+            records, next_ticket = self._read(fd)
+            if open_wait:
+                mine = self._mine(records)
+                mine[_BURST_FIELD] = True
+                mine["updated_at"] = time.time()
+            else:
+                mine = records.get(self._me)
+                if mine is not None:
+                    mine.pop(_BURST_FIELD, None)
+                    mine["updated_at"] = time.time()
+                    # A record that held nothing but the flag is now saying nothing.
+                    if self._is_idle(mine):
+                        records.pop(self._me, None)
+            # Written even when nothing changed, because `_read` has just dropped every
+            # dead record and that reclamation is worth persisting either way.
+            self._write(fd, records, next_ticket)
+
+    async def burst_wait_elsewhere(self) -> bool:
+        """Whether some *other* process is counting a burst right now.
+
+        This process's own record is excluded because the caller already knows its own
+        answer -- `admission.py` holds the open wait as a future and joins that directly
+        -- and because reading one's own flag back would make a count that somehow failed
+        to clear it join itself for ever.
+        """
+        async with self._locked() as fd:
+            records, _ = self._read(fd)
+            return any(
+                key != self._me and record.get(_BURST_FIELD)
+                for key, record in records.items()
+            )
 
     async def snapshot(self) -> tuple[Totals, int, int]:
         """Global usage, the processes holding it, and the queue depth, from one hold.
