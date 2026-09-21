@@ -2716,12 +2716,6 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     turns = resolve_max_turns(cfg, max_turns)
     specs = declared_tools(cfg, allowed)
     deadline = clock() + cfg.dispatch_timeout
-    # When a turn last *finished*. Deliberately not when one last started, which is what
-    # `report_progress` reports: that fires at the top of a turn, so it would reset the
-    # clock on entry to the very turn that then wedges. The keepalive is no use either --
-    # it proves liveness on a timer regardless of progress, which is precisely the signal
-    # a no-progress deadline must not count as progress (ADR-0047).
-    last_progress = clock()
     chunks = 0
 
     def stall_left() -> float:
@@ -2786,13 +2780,25 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             await on_turn_done(watch.turns[-1], text, backend_seconds)
 
     # One scrape, before the first turn, and never again: every turn after this replaces
-    # the seed with what this delegation itself achieved (ADR-0055). Doing it here rather
-    # than lazily on the first turn keeps the network call outside the stall clock the
-    # turn is about to be measured against.
+    # the seed with what this delegation itself achieved (ADR-0055). Eagerly rather than
+    # lazily inside the first turn, so the scrape is not charged to a turn that did not
+    # ask for it -- which is a claim about accounting only, and holds because the stall
+    # clock below starts after this line rather than before it.
     decode_rate = await seed_decode_rate(
         backend, rate_history, expected_concurrency, on_pool=on_pool,
         label_trusted=cfg.admission_idle_hold > 0,
     )
+
+    # When a turn last *finished*. Deliberately not when one last started, which is what
+    # `report_progress` reports: that fires at the top of a turn, so it would reset the
+    # clock on entry to the very turn that then wedges. The keepalive is no use either --
+    # it proves liveness on a timer regardless of progress, which is precisely the signal
+    # a no-progress deadline must not count as progress (ADR-0047).
+    #
+    # Below the seed, not above it. Started above, the clock was already running while the
+    # scrape was awaited, so a slow endpoint spent turn 1's silence budget on metrics
+    # before turn 1 began -- and the comment above the seed asserted the opposite.
+    last_progress = clock()
 
     # The heartbeat, beside the loop rather than inside it. `run_one_shot` has had one
     # since ADR-0018; this path reported only at the top of each turn, so a single long

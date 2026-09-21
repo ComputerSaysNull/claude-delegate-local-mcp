@@ -38,6 +38,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #266 — 2026-09-21 — fix: the rate seed no longer runs inside the first turn's stall clock
+
+### Fixed
+
+- **The one-off decode-rate scrape was charged to turn 1's silence budget, and a comment
+  said it was not.** `last_progress` was stamped before `seed_decode_rate` was awaited, so
+  the no-progress clock was already running while the metrics call was in flight -- while
+  the comment above the seed claimed that placing it there "keeps the network call outside
+  the stall clock the turn is about to be measured against". The scrape is normally
+  sub-second, so the cost was small; a comment asserting a safety property that does not
+  hold is not, and it mattered more once the stall budget dropped to 900.
+- The assignment moves below the seed and the comment is corrected to describe the
+  ordering that now exists. Red before green: with a seed burning 25s of a 30s budget,
+  turn 1 began with 5.0s where it should have had the whole 30.0s, and the outside-in case
+  raised `DispatchTimedOut` before the turn could answer.
+
 ## #265 — 2026-09-21 — fix: turn_timeout is retired, and the reply budget is the run deadline
 
 ### Changed
