@@ -183,6 +183,15 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
     if start < 1:
         raise ToolRefused(
             f"start_line {start} is not a line number; lines are counted from 1.")
+    # 0 is "no end given" and cannot collide with a real one, since line numbers start at
+    # 1 and a negative is refused below alongside it.
+    end = _int_arg(args, "end_line", 0)
+    if end and end < start:
+        raise ToolRefused(
+            f"end_line {end} is before start_line {start}, so the range is empty. "
+            "Returning nothing would read as a fact about the file rather than about "
+            "the request."
+        )
 
     # Sized from the descriptor rather than from the path, which is still what
     # `max_file_read_bytes` means by checking "BEFORE reading": opening a file loads none
@@ -230,22 +239,31 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
     # bounds a *reply*, and a file of very long lines would otherwise blow past it. What
     # changed is that it now stops on a line boundary: half a line, numbered, would be
     # worse than no numbering at all, because the number would be a lie about what follows.
+    # `end_line` past the end is the end of the file, deliberately unlike `start_line`
+    # past the end, which is refused: reading *to* line 999 of a ten-line file is a
+    # well-formed request with an obvious answer, while starting there asks for nothing.
+    last = min(end, total) if end else total
+
     out: list[str] = []
     width = line_number_width(total)
     used = 0
     index = start
-    for index in range(start, total + 1):
+    for index in range(start, last + 1):
         rendered = numbered_line(index, lines[index - 1], width)
         if out and used + len(rendered) + 1 > cfg.max_read_chars:
             break
         out.append(rendered)
         used += len(rendered) + 1
     else:
-        # Ran to the end without breaking, so `index` is the last line, not the next one.
-        index = total + 1
+        # Ran to the end of the range without breaking, so `index` is its last line
+        # rather than the next one.
+        index = last + 1
 
     body = "\n".join(out)
-    if index > total:
+    # Against `last`, not `total`: a range that ended where the caller asked it to is
+    # complete, and telling them it was "truncated" would send them back for a rest they
+    # deliberately did not want.
+    if index > last:
         return body
     # The true total and the next `start_line`, so a continuation is a second range rather
     # than a second whole read. Appended to the result, never to the system prompt: the
@@ -1164,9 +1182,10 @@ READ_FILE = RegisteredTool(
             "can cite what you read as a file name and a line number. Paths must be "
             "absolute. Long files come back one range at a time: the result states the "
             "total number of lines and the line to continue from, so read the next range "
-            "rather than the file again, and use start_line to go straight to the part you "
-            "want. Refused for a path outside the workspace, an unlisted extension, a file "
-            "git ignores, or anything that is not text."
+            "rather than the file again, and use start_line and end_line to go straight "
+            "to the part you want rather than reading past it. Refused for a path outside "
+            "the workspace, an unlisted extension, a file git ignores, or anything that "
+            "is not text."
         ),
         input_schema={
             "type": "object",
@@ -1176,6 +1195,16 @@ READ_FILE = RegisteredTool(
                     "type": "integer",
                     "description": "First line to read, counting from 1. Omit to start at "
                                    "the beginning.",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "Last line to read, counting from 1, and included in "
+                                   "what comes back. Omit to read to the end of the "
+                                   "file. Give it whenever you know roughly where the "
+                                   "part you want ends: a tool result is resent on every "
+                                   "later turn, so a range you did not need is paid for "
+                                   "again each turn rather than once. Past the end of "
+                                   "the file is not an error; below start_line is.",
                 },
             },
             "required": ["path"],

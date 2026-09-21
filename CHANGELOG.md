@@ -38,6 +38,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #262 — 2026-09-21 — feat: read_file says where to stop
+
+### Added
+
+- **`end_line` on `read_file`, inclusive.** *Symptom:* a pass wanting one section of a
+  file read from its start line to the end of the file to get it — roughly 650 lines to
+  use 60 in the case that prompted this. *Cause:* `start_line` bounded the beginning and
+  nothing bounded the end, so the only way to stop early was the server's character
+  budget, which is not something the caller can aim. *Fix:* `end_line`, and the waste it
+  removes is multiplied rather than one-off: a tool result is resent on every later turn,
+  so a range nobody needed is paid for again each turn.
+
+  `end_line` rather than `line_count`, because a count's off-by-one is silent — the
+  caller gets a plausible window one line short and never learns. Past the end of the
+  file is not an error, deliberately unlike `start_line` past the end: reading *to* line
+  999 of a ten-line file is a well-formed request with an obvious answer, while starting
+  there asks for nothing. Below `start_line` is refused rather than returning empty,
+  because an empty result reads as a fact about the file when it is a fact about the
+  request. A range that ends where the caller asked is not reported as truncated.
+
 ## #261 — 2026-09-21 — feat: the prefetch block is line-numbered, in read_file's format
 
 ### Changed

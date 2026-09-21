@@ -935,7 +935,7 @@ local, because they are working notes rather than a product fact.
     nothing computes one — 66-94% on every looping pass against under 1% on every reporting one
     - b. ✅ 2026-09-21 **The sampling parameters are not reported anywhere**, so the setting a turn was
     drawn at cannot be recovered from a transcript. It belongs in `priced`, beside the budget
-64. ⬜ **`read_file` says where to start but not where to stop.** A pass wanting one section
+64. ✅ 2026-09-21 **`read_file` says where to start but not where to stop.** A pass wanting one section
   takes ~650 lines to get 60, and a tool result is resent every turn, so the waste multiplies
   by the turns left. `end_line`, inclusive — not `line_count`, whose off-by-one is silent
     - a. ✅ 2026-09-21 **Number the prefetch block too.** Whole-file delivery already exists and costs no
