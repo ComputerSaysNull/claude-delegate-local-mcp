@@ -66,6 +66,23 @@ MARKER_LINE = re.compile(r"^[ \t]*-{3,}[ \t]*(?:BEGIN|END)[ \t]+FILE\b.*?-{3,}[ 
 MARKER_ESCAPE = "\\"
 
 
+def line_number_width(total: int) -> int:
+    """Digits to right-align a line number in, for a file of `total` lines."""
+    return len(str(total))
+
+
+def numbered_line(index: int, text: str, width: int) -> str:
+    """One numbered line, in the single format both delivery paths use.
+
+    A primitive rather than a whole renderer, because `read_file` numbers inside a loop
+    that also spends a character budget and cannot hand the job over wholesale. What has
+    to be shared is the *format*: prefetch and `read_file` both deliver file content, and
+    when they numbered it differently -- one of them not at all -- a line cited from one
+    could not be checked against the other, and the cheaper path was the unciteable one.
+    """
+    return f"{index:>{width}}  {text}"
+
+
 def escape_markers(text: str) -> str:
     """Neutralise any line in `text` that would parse as a file boundary.
 
@@ -139,8 +156,21 @@ class Prefetch:
         if self.files:
             parts.append(FILES_HEADER)
             for entry in self.files:
-                escaped = escape_markers(entry.text)
-                body = escaped if escaped.endswith("\n") else escaped + "\n"
+                # Numbered, in `read_file`'s format, so a pass can cite what it was given
+                # and re-read a range of it without asking for the file again. Whole-file
+                # delivery already costs no turn; addressability is what it lacked.
+                #
+                # `escape_markers` still runs first even though a numbered body line can
+                # no longer begin at column 0, so `MARKER_LINE` could not match it anyway.
+                # Numbering is a rendering choice and the escape is a boundary control;
+                # letting the first quietly become the second is how a control ends up
+                # resting on something nobody knew it rested on.
+                lines = escape_markers(entry.text).splitlines()
+                width = line_number_width(len(lines))
+                body = "".join(
+                    numbered_line(n, line, width) + "\n"
+                    for n, line in enumerate(lines, 1)
+                )
                 parts.append(
                     BEGIN.format(path=entry.path) + "\n" + body + END.format(path=entry.path)
                 )

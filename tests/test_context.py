@@ -17,7 +17,8 @@ import random
 
 import pytest
 
-from claude_delegate_local import context
+from claude_delegate_local import context, tools
+from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
 from claude_delegate_local.context import (
     SKIP_BINARY,
@@ -277,6 +278,60 @@ def test_no_files_produces_no_block_and_no_noise():
     result = prefetch(cfg(), ())
     assert result.block() == ""
     assert result.accounting()["prefetch_tokens"] == 0
+
+
+# ---- the block is addressable (PLAN 64.a) -------------------------------------------
+
+
+@posix_only
+def test_a_prefetched_file_arrives_numbered(tmp_path):
+    """Whole-file delivery already costs no turn. What it lacked was somewhere to point.
+
+    A pass that wants one section of a prefetched file had no way to cite it, and no way
+    to re-read a range without calling `read_file` on a file it had already been given.
+    """
+    entry = write(tmp_path, "a.py", "first\nsecond\nthird\n")
+    block = prefetch(cfg(), (entry,)).block()
+
+    assert "1  first" in block
+    assert "2  second" in block
+    assert "3  third" in block
+
+
+@posix_only
+def test_both_delivery_paths_number_a_line_identically(tmp_path):
+    """One format, not two. `read_file` numbered and prefetch did not, so the same line
+    of the same file read differently depending on how it arrived -- and a citation from
+    one could not be checked against the other."""
+    body = "\n".join(f"line {n}" for n in range(1, 13)) + "\n"
+    entry = write(tmp_path, "b.py", body)
+
+    prefetched = prefetch(cfg(), (entry,)).block()
+    # `read_file` re-resolves through layer 1, where prefetch was handed an already
+    # resolved path, so the root has to cover tmp_path for the tool half to run at all.
+    rooted = cfg(workspace_roots=(os.path.realpath(tmp_path),))
+    call = ToolUseBlock(id="1", name="read_file", input={"path": entry.posix})
+    result = tools.execute_tool(rooted, call, ("read_file",))
+    assert not result.is_error, result.content
+
+    for line in result.content.splitlines():
+        if line.strip():
+            assert line in prefetched, f"{line!r} rendered differently by the two paths"
+
+
+@posix_only
+def test_the_numbering_is_width_aligned_to_the_whole_file(tmp_path):
+    """The negative control for the two above, which a naive `enumerate` would satisfy.
+
+    Width comes from the file's line count, so a 12-line file right-aligns single digits
+    under the double ones. Getting this wrong makes the two paths disagree only for files
+    that cross a power of ten, which is exactly the bug that survives review.
+    """
+    entry = write(tmp_path, "c.py", "\n".join(str(n) for n in range(1, 13)) + "\n")
+    block = prefetch(cfg(), (entry,)).block()
+
+    assert " 1  1" in block, "single digits are not padded to the file's width"
+    assert "12  12" in block
 
 
 # ---- one budget, not two (ADR-0046) ------------------------------------------------

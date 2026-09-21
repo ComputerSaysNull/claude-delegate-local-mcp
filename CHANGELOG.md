@@ -38,6 +38,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #261 — 2026-09-21 — feat: the prefetch block is line-numbered, in read_file's format
+
+### Changed
+
+- **Files delivered through `files[]` now arrive line-numbered.** *Symptom:* a pass handed
+  a whole file had no way to cite a line of it, and no way to re-read one section without
+  calling `read_file` on a file it had already been given — so the cheap delivery path was
+  the one you could not point at. *Cause:* `Prefetch.block()` inlined raw text while
+  `_read_file` numbered, two formats for the same job, and the difference was invisible
+  until a citation from one had to be checked against the other. *Fix:* both now render a
+  line through one primitive, `numbered_line`, so they cannot drift. *Cost, measured
+  rather than estimated:* 10% more tokens across this repository's own files — 6.8% on
+  prose, 12.6% on the densest source — paid on the cheap path so the expensive one stops
+  re-reading what it already has.
+
+  `escape_markers` still runs first, although a numbered body line can no longer begin at
+  column 0 and so could not match `MARKER_LINE` anyway. Numbering is a rendering choice
+  and the escape is a boundary control; letting the first quietly become the second is how
+  a control ends up resting on something nobody knew it rested on.
+
 ## #260 — 2026-09-21 — docs: .env.example says what is required, and a check keeps it true
 
 ### Added
