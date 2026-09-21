@@ -1148,6 +1148,38 @@ def test_a_delegation_that_calls_a_tool_runs_more_than_one_turn(tmp_path):
     assert result["last_bash_exit"] is None
 
 
+def test_an_answer_forced_by_the_turn_limit_says_so_in_the_answer():
+    """`hit_turn_limit` is a flag, and a flag is for whoever branches on it.
+
+    Every audit record since 2026-09-18 noted this weakness and none acted on it, which
+    is the tell: the reader of a forced answer is a person, and a person reads the
+    answer rather than the metadata beside it. The same argument `answer_of` already
+    makes for reasoning -- the banner is what a reader sees, the flag is what a caller
+    branches on -- and the banner was the half missing here.
+    """
+    result = called(
+        turn_handler(
+            tool_call_reply("read_file", {"path": "/nope"}),
+            chat_reply(content="as much as I could work out"),
+        ),
+        "delegate", task="go", allowed_tools=["read_file"], max_turns=2,
+    )
+
+    assert result["hit_turn_limit"] is True
+    assert result["answer"].startswith("["), result["answer"][:80]
+    banner, _, rest = result["answer"].partition("]")
+    assert "turns" in banner
+    assert "as much as I could work out" in rest
+
+
+def test_an_ordinary_answer_carries_no_banner():
+    """The negative control. A banner on every answer would satisfy the test above and
+    would be worse than none, because it would stop meaning anything."""
+    result = delegated(chat_handler(content="the answer"), task="a question",
+                       allowed_tools=[])
+    assert result["answer"] == "the answer"
+
+
 def test_an_empty_toolset_takes_the_one_shot_path_and_reports_no_ledger():
     """`tool_calls: 0` next to an answer would read as a model that chose not to use its
     tools. It was never offered any, and the caller acts on that differently."""

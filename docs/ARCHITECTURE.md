@@ -1,4 +1,5 @@
-<!-- BUDGET: 1238 -->
+<!-- BUDGET: 1241 -->
+<!-- Raised from 1238 (+1 for this line) on 2026-09-21: a second answer now returns under a banner, and which two do is the fact a reader needs rather than that one of them does. -->
 <!-- Raised from 1231 (+1 for this line) on 2026-09-21: the prefetch block is addressable now, and what that costs is a measured 10% rather than a guess, so the figure belongs beside the claim. -->
 <!-- Raised from 1229 (+1 for this line) on 2026-09-21: a turn now records how much of itself it repeated, and that it is per turn rather than per dispatch is the whole reason it can see a loop at all. -->
 <!-- Raised from 1218 (+1 for this line) on 2026-09-19: files[] takes a pattern now, and that it expands BEFORE the policy rather than around it is the fact that keeps it a shorthand rather than a second search tool. -->
@@ -379,7 +380,9 @@ A reply can be valid, empty and stopped on length — the budget spent on reason
 left to answer with (ADR-0014). That is now recovered from rather than merely reported;
 see [empty-answer recovery](DISPATCH.md#an-empty-answer-is-recovered-from-before-it-is-reported). The result still carries `empty_response` as a mechanical fact, and now
 `reasoning_exhausted` beside it as the diagnosis — which is a separate claim, and earned
-only once the mitigations have actually been spent.
+only once the mitigations have actually been spent. Reasoning returned in place of an
+answer, and an answer forced out by the turn limit, both come back under a banner: a
+flag serves whoever branches on it, and a banner whoever reads.
 
 ### `backend_status()` answers a question a stack trace cannot
 
