@@ -33,8 +33,8 @@ def _events(directory: Path) -> list[dict]:
     return [json.loads(line) for line in streams[0].read_text(encoding="utf-8").splitlines()]
 
 
-def _run(tmp_path: Path, handler, tool: str, args: dict) -> list[dict]:
-    config = cfg(transcript_dir=str(tmp_path), max_turns_default=4)
+def _run(tmp_path: Path, handler, tool: str, args: dict, **over) -> list[dict]:
+    config = cfg(transcript_dir=str(tmp_path), max_turns_default=4, **over)
     mcp = server.build(config, registry(entry()), DoubleCache(config, handler))
 
     # `effort` is required on every delegation tool, and "inherit" is the value that
@@ -159,3 +159,36 @@ def test_a_one_shot_reports_no_eviction_rather_than_an_absence(tmp_path):
 
     assert len(turns) == 1, [e["t"] for e in events]
     assert turns[0]["tool_results_evicted"] == 0
+
+
+def test_priced_records_the_sampling_the_turn_was_drawn_at(tmp_path: Path):
+    """The setting a turn ran at has to be recoverable from its own transcript.
+
+    It was not, and that cost three sessions. Five audit passes looped because the loop
+    sampled at 0.2, and no transcript said so -- the diagnosis came from reading
+    `config.py`, which records what the setting is *now* rather than what that turn used.
+    `effort` was already here for exactly this reason; the sampling pair was not.
+    """
+    events = _run(tmp_path, two_turns, "delegate", {"task": "explain the retry"})
+    rows = [e for e in events if e.get("t") == "priced"]
+
+    assert rows, f"no priced event in {[e['t'] for e in events]}"
+    for row in rows:
+        assert "temperature" in row, row
+        assert "top_p" in row, row
+
+
+def test_the_recorded_sampling_is_what_was_configured(tmp_path: Path):
+    """The negative control for the test above.
+
+    Asserting the keys exist would pass against a pair hard-coded to anything at all, and
+    a transcript that confidently records the wrong number is worse than one recording
+    none. So this drives a non-default pair through and reads it back.
+    """
+    events = _run(tmp_path, two_turns, "delegate", {"task": "explain the retry"},
+                  temperature=0.3, top_p=0.4)
+    rows = [e for e in events if e.get("t") == "priced"]
+
+    assert rows, f"no priced event in {[e['t'] for e in events]}"
+    assert rows[0]["temperature"] == 0.3
+    assert rows[0]["top_p"] == 0.4

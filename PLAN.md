@@ -932,7 +932,7 @@ local, because they are working notes rather than a product fact.
   false is what a healthy long answer looks like. Temperature 0.2 was the cause (JOURNAL)
     - a. ⬜ A duplicate-line share over the reply separates a loop from work in one number, and
     nothing computes one — 66-94% on every looping pass against under 1% on every reporting one
-    - b. ⬜ **The sampling parameters are not reported anywhere**, so the setting a turn was
+    - b. ✅ 2026-09-21 **The sampling parameters are not reported anywhere**, so the setting a turn was
     drawn at cannot be recovered from a transcript. It belongs in `priced`, beside the budget
 64. ⬜ **`read_file` says where to start but not where to stop.** A pass wanting one section
   takes ~650 lines to get 60, and a tool result is resent every turn, so the waste multiplies

@@ -429,9 +429,9 @@ null content and a length stop. What the server does about it is below. (ADR-001
 ## Sampling is one pair, sent on every request
 
 `temperature` and `top_p` go on the wire together, on both paths, at the pair this model
-was evaluated at. One setting each, not one per path: the split that held the loop at 0.2
-existed only to protect tool-call syntax, and 96 calls from 0.2 to 1.5 produced no
-malformed one. Setting either retired name is refused, not ignored. (ADR-0098)
+was evaluated at, and the turn's `priced` row records which. One setting each, not one per
+path: the split that held the loop at 0.2 existed only to protect tool-call syntax, and 96
+calls from 0.2 to 1.5 produced no malformed one. A retired name is refused. (ADR-0098)
 
 ## An empty answer is recovered from before it is reported
 

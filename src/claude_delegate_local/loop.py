@@ -1380,6 +1380,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
                 "rate_source": rate.source,
                 "expected_concurrency": expected_concurrency,
                 "requests_running": rate.seen_running,
+                "temperature": cfg.temperature, "top_p": cfg.top_p,
             })
         return await dispatch_with_recovery(
             cfg, entry, backend, request_at,
@@ -2857,6 +2858,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
                     "rate_source": decode_rate.source,
                     "expected_concurrency": expected_concurrency,
                     "requests_running": decode_rate.seen_running,
+                    "temperature": cfg.temperature, "top_p": cfg.top_p,
                 })
             dispatch = await dispatch_with_recovery(
                 cfg, entry, backend, build,
