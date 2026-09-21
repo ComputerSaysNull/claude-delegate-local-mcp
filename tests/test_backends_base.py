@@ -128,6 +128,43 @@ def test_request_rejects_a_temperature_outside_the_range(bad):
         request(temperature=bad)
 
 
+def test_a_looping_reply_and_a_working_one_are_separated_by_the_share():
+    """The one number that tells a loop from a long answer.
+
+    Nothing else can: a looping turn and a healthy long answer both end
+    `finish_reason: length` with `reasoning_exhausted` false, which is why five audit
+    passes consumed every ceiling they were given before anyone noticed. Measured
+    2026-09-20 across three ceilings: 93.0%, 20.5% and 58.8% duplicate on the looping
+    passes, against under 1% on every pass that reported.
+    """
+    looping = "\n".join(["Already checked." for _ in range(50)])
+    assert base.duplicate_line_share(looping) > 0.9
+
+
+def test_the_share_does_not_fire_on_ordinary_prose():
+    """The negative control, and the point of the test above.
+
+    A detector that fires on everything is worse than none, because it is trusted. Real
+    prose repeats blank lines and the odd short line, so the measure must survive that
+    without crossing anything a reader would call a loop.
+    """
+    prose = (
+        "The retry sits above the adapter.\n"
+        "\n"
+        "It honours what the endpoint asks for, and backs off otherwise.\n"
+        "\n"
+        "A malformed header falls back rather than failing.\n"
+    )
+    assert base.duplicate_line_share(prose) < 0.1
+
+
+@pytest.mark.parametrize("empty", ["", "   ", "\n\n\n"])
+def test_the_share_of_nothing_is_zero_rather_than_an_error(empty):
+    """An empty reply is already reported by `empty_response`. This must not divide by
+    zero on the way to saying so a second time."""
+    assert base.duplicate_line_share(empty) == 0.0
+
+
 @pytest.mark.parametrize("bad", [-0.1, 1.1])
 def test_request_rejects_a_top_p_outside_the_unit_interval(bad):
     """Narrower than temperature, and deliberately so: the endpoint answers 400 to

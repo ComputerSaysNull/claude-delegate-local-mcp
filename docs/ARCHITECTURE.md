@@ -1,4 +1,5 @@
-<!-- BUDGET: 1229 -->
+<!-- BUDGET: 1231 -->
+<!-- Raised from 1229 (+1 for this line) on 2026-09-21: a turn now records how much of itself it repeated, and that it is per turn rather than per dispatch is the whole reason it can see a loop at all. -->
 <!-- Raised from 1218 (+1 for this line) on 2026-09-19: files[] takes a pattern now, and that it expands BEFORE the policy rather than around it is the fact that keeps it a shorthand rather than a second search tool. -->
 <!-- Raised from 1208 (+1 for this line) on 2026-09-19: the mount-level scan reads bytes now, and that it shares one table with the path layer while staying independent of it is exactly the fact ADR-0010 says must not blur. -->
 <!-- Raised from 1198 (+1 for this line) on 2026-09-19: a new result key closes half of the captured-exit-code asymmetry, and the half it refuses is measured rather than argued. -->
@@ -990,11 +991,12 @@ of ADR-0039 rather than a reversal of it: that decision excluded file *bodies* a
 recoverable from the repository by path, and a reply is neither — it is small and exists
 nowhere else, which is the same argument ADR-0039 used to write the task verbatim.
 
-A `turn` carries **the effort that turn ran at, and how many attempts it took**, and the
-viewer renders both — attempts only above one, which is the whole signal. Empty-answer
-recovery steps the level down and retries, so a run requested at `high` can answer at
-`low`; the requested level is the `start` event's and the picker's column, and showing only
-that described a run no turn had performed.
+A `turn` carries **the effort that turn ran at, how many attempts it took, and how much of
+itself it repeated**, and the viewer renders the first two — attempts only above one, which
+is the whole signal. Empty-answer recovery steps the level down and retries, so a run
+requested at `high` can answer at `low`; the requested level is the `start` event's and the
+picker's column, and showing only that described a run no turn had performed. The repeated
+share is per turn because a turn that loops never ends, so no per-dispatch figure arrives.
 
 Both files are created at `0o600` and the directory at `0o700`, by `os.open` with an
 explicit mode rather than a `chmod` afterwards — that would leave a window in which the

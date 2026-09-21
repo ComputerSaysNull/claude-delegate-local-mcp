@@ -1,4 +1,5 @@
-<!-- BUDGET: 815
+<!-- BUDGET: 821
+     Raised from 815 (+1 for this line) on 2026-09-21: a reply reports its own repetition, which is the only field that tells a loop from a long answer rather than from a small budget.
      Raised from 807 (+1 for this line) on 2026-09-21: sampling becomes a described subsystem rather than one unstated constant, and a wire parameter nothing sent now exists.
      Raised from 800 (+1 for this line) on 2026-09-19: a new counter joins the ADR-0007 ledger, and which of the three it is added to is the part that is easy to get backwards.
      Raised from 795 (+1 for this line) on 2026-09-18: the rate memory is bucketed per concurrency, and what one shared cap did to it is the reason the shape changed.
@@ -432,6 +433,11 @@ null content and a length stop. What the server does about it is below. (ADR-001
 was evaluated at, and the turn's `priced` row records which. One setting each, not one per
 path: the split that held the loop at 0.2 existed only to protect tool-call syntax, and 96
 calls from 0.2 to 1.5 produced no malformed one. A retired name is refused. (ADR-0098)
+
+A reply also reports **how much of itself it repeats**, as a share of its non-blank lines.
+That is the only field separating a loop from a long answer, which are identical
+everywhere else: both end at a length stop having spent the ceiling exactly, so both read
+as "needs a bigger budget". Reported and never acted on — no threshold has been earned.
 
 ## An empty answer is recovered from before it is reported
 

@@ -36,6 +36,7 @@ from .backends.base import (
     BackendUnavailable,
     CanonicalShapeError,
     answer_of,
+    duplicate_line_share,
 )
 from .backends.openai_compat import OpenAICompatBackend
 from .admission import Admission, AdmissionError, AdmissionLease
@@ -108,6 +109,10 @@ def _partial_result(
         "answer": answer,
         "answer_is_reasoning": answer_is_reasoning,
         "empty_response": answer == "",
+        # Reported here too, and a partial is where it matters most: a delegation cut off
+        # at a deadline is a prime loop suspect, and this is the field that says whether
+        # it was looping or simply slow.
+        "duplicate_line_share": duplicate_line_share(answer),
         # The two keys that stop this reading as a success. Both, not one: a caller
         # filtering on `error` and a caller filtering on `partial` are both right.
         "partial": True,
@@ -1000,6 +1005,10 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         # so nothing was left to step down and the budget, not the reasoning, is what
         # ran out. Two different fixes, which is why they are two different fields.
         "reasoning_exhausted": dispatched.reasoning_exhausted,
+        # How much of the answer is lines it had already said. A loop and a long answer
+        # are indistinguishable by every other field here -- both fill the ceiling at a
+        # length stop -- so this is the one that tells them apart.
+        "duplicate_line_share": duplicate_line_share(answer),
         # Present only when the operator armed overflow handling and this server
         # declined to use it. Absent means it was off, or on and working -- the two the
         # caller has no decision to make about.
@@ -1051,6 +1060,14 @@ _DELEGATION_RESULT: dict[str, Any] = {
             "the task needs more reasoning than this model finishes inside its budget, so "
             "split it or send it elsewhere. False: the budget was too small at an effort "
             "already at its lowest. Two different fixes."
+        )},
+        "duplicate_line_share": {"type": "number", "description": (
+            "The fraction of the answer that repeats a line it had already written, 0 to "
+            "1. Read it whenever the reply filled its budget: a loop and a long answer "
+            "look identical everywhere else, both ending at a length stop with the "
+            "ceiling exactly spent. Above roughly 0.5 the reply is repeating itself and a "
+            "bigger budget will buy more of the same -- narrow the task instead. Under "
+            "0.1 is ordinary prose."
         )},
         "model": {"type": "string", "description": (
             "The model the backend reported serving, not the one asked for."

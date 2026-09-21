@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .backends.base import answer_of as _answer_of
+from .backends.base import duplicate_line_share
 from .wsl import UntranslatablePath, to_local
 
 if TYPE_CHECKING:
@@ -175,6 +176,10 @@ class Stream:
             # slower than it is. Both are kept because they answer different questions:
             # is the cluster slow, and is this delegation making progress.
             "out_tok_s": _rate(getattr(diagnostic, "output_tokens", None), backend_ms),
+            # Per turn, because that is where the loop lives: a turn repeating itself
+            # never ends, so `max_turns` cannot reach it and the per-dispatch figure
+            # arrives only if something else stopped it first.
+            "duplicate_line_share": duplicate_line_share(text or ""),
             "text": text,
         })
 
@@ -402,6 +407,9 @@ def _usage(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
         "empty_response": _answer_of(response)[0] == "",
         "answer_is_reasoning": _answer_of(response)[1],
         "reasoning_chars": len(response.thinking),
+        # Derived from the same `answer_of` as the two above, for the same reason: the
+        # record and the reply must not disagree about the text they describe.
+        "duplicate_line_share": duplicate_line_share(_answer_of(response)[0]),
     }
 
 

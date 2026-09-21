@@ -161,6 +161,19 @@ def test_a_one_shot_reports_no_eviction_rather_than_an_absence(tmp_path):
     assert turns[0]["tool_results_evicted"] == 0
 
 
+def test_a_turn_records_how_much_of_itself_it_repeated(tmp_path: Path):
+    """Wired per turn, because a turn that loops never ends and so never becomes a
+    per-dispatch figure. The measure itself is tested in `test_backends_base.py`; this
+    asserts it actually reaches the record."""
+    events = _run(tmp_path, two_turns, "delegate", {"task": "explain the retry"})
+    turns = [e for e in events if e.get("t") == "turn"]
+
+    assert turns, f"no turn event in {[e['t'] for e in events]}"
+    for row in turns:
+        assert "duplicate_line_share" in row, row
+        assert 0.0 <= row["duplicate_line_share"] <= 1.0, row
+
+
 def test_priced_records_the_sampling_the_turn_was_drawn_at(tmp_path: Path):
     """The setting a turn ran at has to be recoverable from its own transcript.
 
