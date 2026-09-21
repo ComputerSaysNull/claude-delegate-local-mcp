@@ -31,7 +31,7 @@ from dataclasses import dataclass, replace
 from . import provision, sandbox
 from .backends.base import BashOutcome, ToolResultBlock, ToolSpec, ToolUseBlock
 from .config import Config
-from .context import decode_text
+from .context import decode_text, line_number_width, numbered_line
 from .paths import (
     PathPolicyError,
     PathRefused,
@@ -231,11 +231,11 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
     # changed is that it now stops on a line boundary: half a line, numbered, would be
     # worse than no numbering at all, because the number would be a lie about what follows.
     out: list[str] = []
-    width = len(str(total))
+    width = line_number_width(total)
     used = 0
     index = start
     for index in range(start, total + 1):
-        rendered = f"{index:>{width}}  {lines[index - 1]}"
+        rendered = numbered_line(index, lines[index - 1], width)
         if out and used + len(rendered) + 1 > cfg.max_read_chars:
             break
         out.append(rendered)

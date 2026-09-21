@@ -1,4 +1,5 @@
-<!-- BUDGET: 1231 -->
+<!-- BUDGET: 1238 -->
+<!-- Raised from 1231 (+1 for this line) on 2026-09-21: the prefetch block is addressable now, and what that costs is a measured 10% rather than a guess, so the figure belongs beside the claim. -->
 <!-- Raised from 1229 (+1 for this line) on 2026-09-21: a turn now records how much of itself it repeated, and that it is per turn rather than per dispatch is the whole reason it can see a loop at all. -->
 <!-- Raised from 1218 (+1 for this line) on 2026-09-19: files[] takes a pattern now, and that it expands BEFORE the policy rather than around it is the fact that keeps it a shorthand rather than a second search tool. -->
 <!-- Raised from 1208 (+1 for this line) on 2026-09-19: the mount-level scan reads bytes now, and that it shares one table with the path layer while staying independent of it is exactly the fact ADR-0010 says must not blur. -->
@@ -102,6 +103,12 @@ anything back.
 `files[]` is not an alternative to the loop. It is a **prefetch** that seeds it. Measured
 during spikes: given no prefetch, the model's first turn was a wasted directory listing.
 Prefetching removes several such turns from the front of every delegation.
+
+Its files arrive **line-numbered, in `read_file`'s format**, so a pass can cite what it
+was given and ask for a range of it rather than the file again. One format rather than
+two: when only the tool numbered, a line cited from one path could not be checked against
+the other. Measured on this repository, the numbers cost 10% of the block's tokens —
+paid on the cheap path to stop the expensive one re-reading what it already has.
 
 A prefetch cap is a **drop** threshold and never a truncation: a file over it is left out
 whole. It is also not a fairness control, and used to be sized as though it were. Fairness
