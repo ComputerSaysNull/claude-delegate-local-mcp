@@ -38,6 +38,44 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #264 — 2026-09-21 — feat: the viewer says where a run is, what it repeated and where its time went
+
+### Added
+
+- **The resolved turn budget reaches the stream, and the viewer shows it three times.**
+  *Symptom:* nothing anywhere said how many turns a delegation had been given — not
+  `start`, not `priced`, not `turn`, not `end`. A reader saw "turn 3" and "6 turns" and
+  could not tell a comfortable run from one that hit its cap, which is the fact that
+  decides whether to raise `max_turns`. *Cause:* the budget is resolved inside the loop
+  and was never recorded. *Fix:* `start` carries it beside the effort, `turn` and
+  `priced` repeat it as "turn 3 of 25" because a reader scrolling a long transcript is
+  past the header, and `end` reports "6 of 25 turns". Resolved in `server.py` through the
+  same pure function the loop calls, on the same arguments, so the two cannot disagree.
+- **`duplicate_line_share` is rendered.** #257 put the number in the transcript and the
+  result and left the live view exactly as blind as before — which is the failure that
+  measure was added for, reproduced one layer up. Shown above 15%, silent below, on the
+  rule `attempts` already follows.
+- **`end` carries `input_tokens`.** Every turn line above it reported what it sent, and
+  the one line a reader is left looking at reported only what came back.
+
+### Fixed
+
+- **A turn's durations are named instead of implied.** *Symptom:* `32m33s 41.1 tok/s of
+  32m33s` — the same duration twice, joined by a word implying they differed, on every
+  turn that ran no tools. *Cause:* the line printed the wall clock and then the backend
+  time under "of", naming neither. *Fix:* three named durations — total, tools where a
+  turn called any, and generating — in that order, after the tokens and the rate. Tool
+  time is gated on the calls rather than on the arithmetic, so a turn whose tools were
+  instant still says it ran them, at `<1s` rather than a floored `0s` that reads as a
+  missing number.
+- **A budget line no longer calls a frozen expectation a cluster reading.**
+  *Symptom:* every turn after the first said "concurrency 1". *Cause:* the label branched
+  on two known sources, and `own_turns` — five of six rows on a real six-turn run, and
+  the commonest of all — fell through to a neutral word that invites reading the number
+  as live load. *Fix:* three cases. `cluster_since_boot` alone says "running"; the other
+  known sources say "priced for"; anything unrecognised or absent keeps the neutral word,
+  because a stream written before `rate_source` existed cannot support either claim.
+
 ## #263 — 2026-09-21 — feat: an answer forced by the turn limit says so in the answer
 
 ### Changed

@@ -893,6 +893,180 @@ def test_a_turn_that_answered_first_time_does_not_mention_attempts(viewer):
     assert "attempt" not in screen
 
 
+def test_a_turn_repeating_itself_says_so_on_screen(viewer):
+    """The number exists to be read by a person watching a run that has gone wrong.
+
+    Putting it in the transcript and the result while leaving the live view unchanged
+    would have left the watcher exactly as blind as before -- which is the failure this
+    measure was added for, reproduced one layer up.
+    """
+    screen = "\n".join(viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 3,
+        "input_tokens": 1000, "output_tokens": 9000, "duplicate_line_share": 0.93,
+    }, 100))
+
+    assert "93% repeated" in screen
+
+
+def test_an_ordinary_turn_does_not_mention_repetition(viewer):
+    """The negative control, and the same rule `attempts` follows: shown because it is
+    worth interrupting a reader for, not as decoration on every line."""
+    screen = "\n".join(viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
+        "input_tokens": 1000, "output_tokens": 900, "duplicate_line_share": 0.004,
+    }, 100))
+
+    assert "repeated" not in screen
+
+
+def test_a_turn_from_before_the_share_was_streamed_claims_nothing(viewer):
+    """Absent is not zero. An older transcript carries no share, and printing `0%`
+    would assert that a run nobody can re-measure did not loop."""
+    screen = "\n".join(viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
+        "input_tokens": 10, "output_tokens": 5,
+    }, 100))
+
+    assert "repeated" not in screen
+
+
+def test_a_rate_from_the_delegations_own_turns_says_what_the_number_means(viewer):
+    """`own_turns` is the commonest source by far -- five of six rows on a real
+    six-turn delegation -- and it fell through to the generic branch.
+
+    The distinction the label carries is real: on anything but a `cluster_since_boot`
+    row, `requests_running` echoes the concurrency frozen at lease grant rather than a
+    reading of the cluster. "concurrency 1" invites it to be read as the latter.
+    """
+    screen = "\n".join(viewer.render({
+        "t": "priced", "at": "2026-01-01T00:00:00+00:00", "turn": 2,
+        "budget_ceiling": 139438, "decode_rate": 43.0, "requests_running": 1.0,
+        "rate_source": "own_turns",
+    }, 100))
+
+    assert "priced for 1" in screen
+    assert "concurrency" not in screen
+
+
+def test_a_rate_read_from_the_cluster_still_says_running(viewer):
+    """The negative control. Only this source carries a real reading, and collapsing
+    the two labels would throw away the distinction rather than fix it."""
+    screen = "\n".join(viewer.render({
+        "t": "priced", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
+        "budget_ceiling": 80265, "decode_rate": 24.8, "requests_running": 4.0,
+        "rate_source": "cluster_since_boot",
+    }, 100))
+
+    assert "4 running" in screen
+    assert "priced for" not in screen
+
+
+def test_a_turn_that_ran_tools_names_all_three_durations(viewer):
+    """Total, tools, generating -- each said rather than inferred from a contrast.
+
+    The older line printed the wall clock and then "of <backend>", which named neither
+    and, on a turn that ran no tools, printed the same duration twice joined by a word
+    implying they differed.
+    """
+    screen = "\n".join(viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
+        "input_tokens": 1000, "output_tokens": 500, "out_tok_s": 20.0,
+        "ms": 300_000, "backend_ms": 120_000,
+        "tool_calls": [{"name": "read_file", "outcome": "ran"}],
+    }, 100))
+
+    assert "5m00s total" in screen
+    assert "3m00s tools" in screen
+    assert "2m00s generating" in screen
+
+
+def test_a_turn_that_ran_no_tools_does_not_claim_zero_tool_time(viewer):
+    """The negative control, and the reason the split is gated on the calls rather than
+    on the arithmetic: "0s tools" on every answering turn is noise asserting a
+    measurement nobody made."""
+    screen = "\n".join(viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 2,
+        "input_tokens": 1000, "output_tokens": 500, "out_tok_s": 20.0,
+        "ms": 120_100, "backend_ms": 120_000,
+    }, 100))
+
+    assert "2m00s total" in screen
+    assert "2m00s generating" in screen
+    assert "tools" not in screen
+
+
+def test_a_turn_whose_tools_were_instant_still_says_it_ran_them(viewer):
+    """Gated on the calls, so a fast tool reads as fast rather than as absent."""
+    screen = "\n".join(viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 3,
+        "input_tokens": 10, "output_tokens": 5, "out_tok_s": 20.0,
+        "ms": 10_000, "backend_ms": 9_990,
+        "tool_calls": [{"name": "read_file", "outcome": "ran"}],
+    }, 100))
+
+    assert "<1s tools" in screen, (
+        "a tool that returned in milliseconds must read as measured, not as a missing "
+        "number: `_duration` floors under a minute and rendered this as `0s`"
+    )
+
+
+def test_the_budget_line_says_which_turn_of_how_many(viewer):
+    """"turn 3" says where a delegation is; "of 25" says whether that is anywhere near
+    the end. Only the second tells a reader whether to raise the cap, and it was the one
+    the stream never carried."""
+    screen = "\n".join(viewer.render({
+        "t": "priced", "at": "2026-01-01T00:00:00+00:00", "turn": 3, "of_turns": 25,
+        "budget_ceiling": 1000, "decode_rate": 20.0,
+    }, 100))
+
+    assert "turn 3 of 25" in screen
+
+
+def test_a_finished_delegation_says_how_much_of_its_budget_it_used(viewer):
+    """"6 turns" and "6 of 6 turns" are the same run and different news."""
+    screen = "\n".join(viewer.render({
+        "t": "end", "at": "2026-01-01T00:00:00+00:00", "ok": True,
+        "turns": 6, "max_turns": 25, "elapsed_seconds": 60.0,
+    }, 100))
+
+    assert "6 of 25 turns" in screen
+
+
+def test_a_stream_without_a_recorded_budget_claims_none(viewer):
+    """The negative control for both, and the rule this viewer already follows twice:
+    absent is not a value. An older transcript carries no budget, and inventing one
+    would assert something about a run nobody can go back and check."""
+    priced = "\n".join(viewer.render({
+        "t": "priced", "at": "2026-01-01T00:00:00+00:00", "turn": 3,
+        "budget_ceiling": 1000, "decode_rate": 20.0,
+    }, 100))
+    ended = "\n".join(viewer.render({
+        "t": "end", "at": "2026-01-01T00:00:00+00:00", "ok": True,
+        "turns": 6, "elapsed_seconds": 60.0,
+    }, 100))
+
+    assert "turn 3" in priced and " of " not in priced
+    assert "6 turns" in ended and " of " not in ended
+
+
+def test_an_unrecognised_rate_source_keeps_the_neutral_wording(viewer):
+    """The third case, and the one a two-way split gets wrong.
+
+    A source this viewer has not been taught about must not silently acquire a meaning.
+    `unknown` is a real value the server writes, and a stream from before `rate_source`
+    existed carries none at all -- neither can support either claim.
+    """
+    screen = "\n".join(viewer.render({
+        "t": "priced", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
+        "budget_ceiling": 1000, "decode_rate": 20.0, "requests_running": 2.0,
+        "rate_source": "unknown",
+    }, 100))
+
+    assert "concurrency 2" in screen
+    assert "priced for" not in screen
+    assert "running" not in screen
+
+
 def test_a_turn_from_before_effort_was_streamed_claims_nothing(viewer):
     """Absent is not `default`. An older transcript carries no per-turn effort, and
     printing one would invent a fact about a run nobody can go back and check."""

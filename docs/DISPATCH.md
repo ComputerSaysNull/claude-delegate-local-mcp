@@ -1,4 +1,5 @@
-<!-- BUDGET: 821
+<!-- BUDGET: 823
+     Raised from 821 (+1 for this line) on 2026-09-21: the resolved turn budget reaches the stream, so a count a reader could not measure against anything now has something to measure against.
      Raised from 815 (+1 for this line) on 2026-09-21: a reply reports its own repetition, which is the only field that tells a loop from a long answer rather than from a small budget.
      Raised from 807 (+1 for this line) on 2026-09-21: sampling becomes a described subsystem rather than one unstated constant, and a wire parameter nothing sent now exists.
      Raised from 800 (+1 for this line) on 2026-09-19: a new counter joins the ADR-0007 ledger, and which of the three it is added to is the part that is easy to get backwards.
@@ -495,7 +496,8 @@ ends on the first reply that carries no tool calls — that reply *is* the answe
 the turn budget runs out. [`max_turns_default`](CONFIGURATION.md) sets the budget and
 [`max_turns_hard_cap`](CONFIGURATION.md) bounds what a caller may ask for; the cap is
 applied silently rather than refused, because the work is legitimate and only the number is
-not.
+not. The resolved figure is written to the stream, so a reader sees "turn 3 of 25" rather
+than a count with nothing to measure it against.
 
 An **agent file** asking for more than the cap is refused instead, at load. The asymmetry is
 deliberate: a call argument is transient, so clamping it costs nobody anything, while a file

@@ -161,6 +161,36 @@ def test_a_one_shot_reports_no_eviction_rather_than_an_absence(tmp_path):
     assert turns[0]["tool_results_evicted"] == 0
 
 
+def test_the_stream_records_the_turn_budget_as_well_as_the_count(tmp_path: Path):
+    """End to end, because the budget is resolved in the loop and rendered by the viewer,
+    and the two only meet in the stream. Asserted on both events that carry it: `priced`
+    so a reader watching knows how much room is left, and `end` so one reading afterwards
+    knows whether the cap is what stopped it."""
+    events = _run(tmp_path, two_turns, "delegate", {"task": "explain the retry"})
+    priced = [e for e in events if e.get("t") == "priced"]
+    ended = [e for e in events if e.get("t") == "end"]
+
+    assert priced, [e["t"] for e in events]
+    assert all(row["of_turns"] == 4 for row in priced), priced
+    assert ended and ended[0]["max_turns"] == 4, ended
+
+
+def test_a_one_shot_reports_no_turn_budget_rather_than_zero(tmp_path: Path):
+    """The negative control. A one-shot runs no loop, so it has no budget -- and `0`
+    would render as "1 of 0 turns", which is worse than saying nothing."""
+    events = _run(
+        tmp_path,
+        lambda r: as_stream(chat_reply(content="a one-shot answer")),
+        # An empty toolset is what takes the one-shot path. `delegate_readonly` still
+        # runs the loop -- it has tools, they are just read-only -- which is the
+        # distinction the start event's `tool` and `tools` pair exists to carry.
+        "delegate", {"task": "summarise", "allowed_tools": []},
+    )
+    ended = [e for e in events if e.get("t") == "end"]
+
+    assert ended and ended[0]["max_turns"] is None, ended
+
+
 def test_a_turn_records_how_much_of_itself_it_repeated(tmp_path: Path):
     """Wired per turn, because a turn that loops never ends and so never becomes a
     per-dispatch figure. The measure itself is tested in `test_backends_base.py`; this

@@ -1,4 +1,5 @@
-<!-- BUDGET: 1241 -->
+<!-- BUDGET: 1250 -->
+<!-- Raised from 1241 (+1 for this line) on 2026-09-21: the stream now carries the turn budget, the three durations and the repetition share, and what the viewer shows is the half of that work a person actually reads. -->
 <!-- Raised from 1238 (+1 for this line) on 2026-09-21: a second answer now returns under a banner, and which two do is the fact a reader needs rather than that one of them does. -->
 <!-- Raised from 1231 (+1 for this line) on 2026-09-21: the prefetch block is addressable now, and what that costs is a measured 10% rather than a guess, so the figure belongs beside the claim. -->
 <!-- Raised from 1229 (+1 for this line) on 2026-09-21: a turn now records how much of itself it repeated, and that it is per turn rather than per dispatch is the whole reason it can see a loop at all. -->
@@ -995,6 +996,14 @@ produces the file a person watches during it — `start`, one `turn` per complet
 `end` — appended and flushed a line at a time. Neither is derived from the other. A record
 that exists only once the work is finished cannot say whether the work is stuck, and a
 stream has to survive a dispatch that never reaches an end. (ADR-0043)
+
+**A stream says where a run is, not only where it has got to.** `start` carries the
+resolved turn budget beside the effort, every `turn` and `priced` row repeats it — a
+reader scrolling a long transcript is past the header — and `end` reports the count
+against it, because six turns and six of six are the same run and different news. A turn
+names its three durations rather than implying one from another: total, tools where it
+called any, and generating. And it says how much of itself it repeated, which is the one
+number that tells a loop from a long answer while it is still running.
 
 The stream carries the model's reply text, which the record does not. That is an extension
 of ADR-0039 rather than a reversal of it: that decision excluded file *bodies* as bulky and

@@ -2421,6 +2421,10 @@ class AgenticDispatch:
     total_output_tokens: int = 0
     total_cached_tokens: int | None = None
     hit_turn_limit: bool = False
+    # The resolved budget `turns` was allowed to reach, after the agent file and the
+    # operator clamp. Carried beside the count rather than derived from it: "six turns"
+    # and "six of six turns" are the same run and different news.
+    max_turns: int = 0
     # ADR-0007. `last_bash_exit` is None for "nothing exited" -- no command ran, or the last
     # one was killed on timeout -- which 0 cannot mean, being a real exit code.
     bash_calls: int = 0
@@ -2862,6 +2866,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
                     "expected_concurrency": expected_concurrency,
                     "requests_running": decode_rate.seen_running,
                     "temperature": cfg.temperature, "top_p": cfg.top_p,
+                    "of_turns": turns,
                 })
             dispatch = await dispatch_with_recovery(
                 cfg, entry, backend, build,
@@ -2968,6 +2973,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             total_output_tokens=watch.total_output_tokens,
             total_cached_tokens=watch.total_cached_tokens,
             hit_turn_limit=turn == turns,
+            max_turns=turns,
             bash_calls=watch.bash_calls,
             bash_failures=watch.bash_failures,
             bash_masked_failures=watch.bash_masked_failures,

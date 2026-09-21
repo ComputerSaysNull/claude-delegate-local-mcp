@@ -68,6 +68,21 @@ POLL_SECONDS = 0.3       # how often a live stream is checked for new lines
 STALL_SECONDS = 120      # silence after which an unfinished stream stops claiming "live"
 QUEUED_EVERY = 60.0      # how often a delegation that is only queued is worth repeating
 
+# Below this, a reply's repeated lines are ordinary prose restating itself and saying so
+# on every turn would be noise. Deliberately well above what healthy passes measure and
+# well below what looping ones do -- observed under 1% against 20-94%, a gap wide enough
+# that the exact threshold does not have to be defended. It governs a *line on a screen*,
+# not a control: nothing is aborted on it, so being a little wrong costs a reader one
+# glance rather than a killed delegation.
+REPETITION_WORTH_SAYING = 0.15
+
+# Rate sources whose `requests_running` is the concurrency this delegation was *priced*
+# for, frozen at lease grant, rather than a reading of the cluster. Named rather than
+# inferred from "not cluster_since_boot", so that a source nobody has taught this viewer
+# about keeps the neutral wording instead of silently acquiring a meaning.
+PRICED_SOURCES = frozenset({"observed_at_concurrency", "own_turns"})
+
+
 # The state column, its two-space gutter included. Ten is what the widest state costs:
 # `_ago` truncates, so seconds stop at `59s` and minutes run to `89m` before the hour unit
 # takes over, and `queued ` is the longest prefix -- `queued 89m`. Python's `<` pads and
@@ -309,6 +324,41 @@ def _call_lines(call: dict, width: int) -> list[str]:
     return out
 
 
+def _turn_timings(event: dict) -> str:
+    """Where a turn's wall clock went: all of it, the tools' share, the cluster's.
+
+    Three named durations rather than one number and a conditional contrast. The older
+    form printed the wall clock and then "of <backend>", which on a turn that ran no
+    tools was the same duration twice joined by a word implying they differed, and on
+    one that did ran the two together without saying which was which. Naming each is
+    longer and says what it means.
+
+    `tools` is shown only where a turn actually called one -- gated on the calls rather
+    than on the arithmetic, so a turn whose tools were instant still says it ran them,
+    and one that ran none says nothing rather than "0s tools".
+    """
+    ms, gen = event.get("ms"), event.get("backend_ms")
+    parts = []
+    if isinstance(ms, (int, float)):
+        parts.append(f"{_duration(ms / 1000)} total")
+    if (event.get("tool_calls")
+            and isinstance(ms, (int, float)) and isinstance(gen, (int, float))):
+        # Server-side tool time is the turn minus the backend call, the same difference
+        # `ms - backend_ms` means everywhere else in this project. Clamped at zero: the
+        # two are measured by different clocks and a few milliseconds of skew should
+        # read as "none" rather than as a negative duration.
+        spent = max(ms - gen, 0) / 1000
+        # `_duration` floors under a minute, so a tool that returned in 140ms rendered
+        # as "0s" -- which reads as a placeholder for a missing number rather than as
+        # the measurement it is. Its rounding is right for the column of totals it was
+        # written for and wrong here, so this says "under a second" instead of changing
+        # it for every other caller.
+        parts.append(f"{_duration(spent) if spent >= 1 else '<1s'} tools")
+    if isinstance(gen, (int, float)):
+        parts.append(f"{_duration(gen / 1000)} generating")
+    return f"  {DIM}{' · '.join(parts)}{R}" if parts else ""
+
+
 def _turn_lines(event: dict, stamp: str, width: int) -> list[str]:
     """One completed turn: what it cost, what it ran at, and what it said.
 
@@ -316,24 +366,29 @@ def _turn_lines(event: dict, stamp: str, width: int) -> list[str]:
     should read like one.
     """
     n = event.get("turn", "?")
+    # What it cost, then how fast, then where the time went -- in that order, because a
+    # reader scanning a transcript asks those three questions in that order and the last
+    # is the one they only ask when a number above it looked wrong.
     cost = (f"{DIM}{_tokens(event.get('input_tokens'))} in · "
             f"{_tokens(event.get('output_tokens'))} out{R}")
-    secs = event.get("ms")
-    cost += f" {DIM}· {_duration(secs / 1000)}{R}" if isinstance(secs, (int, float)) else ""
     # Generation rate over the backend call, which is the figure that says whether the
     # cluster is slow. The turn's own wall clock includes tool execution, so a rate
     # taken from it would blame the cluster for time it did not spend generating.
     if isinstance(rate := event.get("out_tok_s"), (int, float)):
-        gen = event.get("backend_ms")
-        served = f" of {_duration(gen / 1000)}" if isinstance(gen, (int, float)) else ""
-        cost += f"  {GREEN}{rate:g} tok/s{R}{DIM}{served}{R}"
+        cost += f"  {GREEN}{rate:g} tok/s{R}"
+    cost += _turn_timings(event)
     # The effort this turn actually ran at, which is not always the one that was asked
     # for: empty-answer recovery steps the level down and retries, so a delegation
     # requested at `high` can answer at `low` and the header would still say `high`.
     # The requested level stays where it was -- the start event above, and the picker's
     # own column -- so the two are readable side by side rather than one hiding the
     # other.
-    head = f"{stamp}  {BOLD}{CYAN}turn {n}{R}"
+    # "turn 3" says where this is; "of 10" says whether that is near the end. The budget
+    # rides on the turn event as well as the head of the stream, because a reader
+    # scrolling a long transcript is not looking at the header any more.
+    of = event.get("of_turns")
+    whose = f"turn {n} of {of}" if isinstance(of, int) else f"turn {n}"
+    head = f"{stamp}  {BOLD}{CYAN}{whose}{R}"
     if effort := event.get("effort"):
         head += f"  {DIM}effort {effort}{R}"
     # Shown only above one, because that is the whole signal. `attempts` is the reason
@@ -341,6 +396,14 @@ def _turn_lines(event: dict, stamp: str, width: int) -> list[str]:
     # saying "1 attempt" would be noise on every line of every transcript.
     if isinstance(tries := event.get("attempts"), int) and tries > 1:
         head += f"  {YELLOW}{tries} attempts{R}"
+    # Shown only when it is a signal, for the same reason `attempts` is. A turn looping
+    # inside itself is invisible in every other number on this line -- it fills its
+    # ceiling at a length stop exactly as a long answer does -- and the person watching
+    # is the one who can act on it. Absent is not zero: an older transcript carries no
+    # share, and printing 0% would assert that a run nobody can re-measure did not loop.
+    share = event.get("duplicate_line_share")
+    if isinstance(share, (int, float)) and share >= REPETITION_WORTH_SAYING:
+        head += f"  {YELLOW}{share:.0%} repeated{R}"
     lines = ["", f"{head}  {cost}"]
     for call in event.get("tool_calls", []) or []:
         lines.extend(_call_lines(call, width))
@@ -401,6 +464,38 @@ def _waiting_line(event: dict) -> str:
 _ONE_LINERS = {"waiting": _waiting_line, "alive": _alive_line}
 
 
+def _end_head(event: dict) -> str:
+    """The closing line: how much of the budget went, over how long, at what cost.
+
+    Extracted for the reason `_turn_lines` is -- `render` is a dispatcher, and a branch
+    that grew to a dozen statements stops reading as one arm of a choice.
+    """
+    verdict = f"{GREEN}done{R}" if event.get("ok") else f"{RED}failed{R}"
+    secs = event.get("elapsed_seconds")
+    n_turns = event.get("turns")
+    # Against the budget where the stream carries one: "6 turns" and "6 of 6 turns"
+    # describe the same run and are different news, and only the second says whether
+    # the cap is what ended it.
+    budget = event.get("max_turns")
+    used = f"{n_turns if n_turns is not None else '?'}"
+    if isinstance(n_turns, int) and isinstance(budget, int):
+        used = f"{n_turns} of {budget}"
+    tail = f"{DIM}{used} turn"
+    tail += "" if n_turns == 1 else "s"
+    tail += f" · {_duration(secs)}" if isinstance(secs, (int, float)) else ""
+    tail += R
+    if isinstance(rate := event.get("out_tok_s"), (int, float)):
+        tail += f"  {GREEN}{rate:g} tok/s{R}"
+    # Both directions, so the closing line can answer "what did this cost" on its own.
+    # It reported only `out`, which is the half a reader is least likely to be asking
+    # about on a delegation that was handed ninety thousand tokens.
+    for value, label in ((event.get("input_tokens"), "in"),
+                         (event.get("output_tokens"), "out")):
+        if isinstance(value, int):
+            tail += f"{DIM} · {_tokens(value)} {label}{R}"
+    return f"{BOLD}{verdict}{R}  {tail}"
+
+
 def render(event: dict, width: int) -> list[str]:
     """One event, as a block a person reads rather than a line a machine parses."""
     kind = event.get("t")
@@ -411,7 +506,10 @@ def render(event: dict, width: int) -> list[str]:
         effort = event.get("effort") or "default"
         agent = event.get("agent")
         who = f"{event.get('tool', 'delegate')}" + (f" · {agent}" if agent else "")
-        head = f"{stamp}  {BOLD}{BLUE}{who}{R} {DIM}· {model} · effort {effort}{R}"
+        turns = event.get("max_turns")
+        budget = f" · {turns} turns" if isinstance(turns, int) else ""
+        head = (f"{stamp}  {BOLD}{BLUE}{who}{R} "
+                f"{DIM}· {model} · effort {effort}{budget}{R}")
         return ["", f"{DIM}{'─' * width}{R}", head,
                 *_wrap(event.get("task", ""), width, "          "),
                 *_given(event),
@@ -430,14 +528,28 @@ def render(event: dict, width: int) -> list[str]:
         running = event.get("requests_running")
         source = event.get("rate_source")
         n = event.get("turn")
+        # "of 25" is the half that says whether this turn is anywhere near the last, and
+        # so whether the answer to a delegation running long is to raise the cap. Omitted
+        # when absent rather than guessed: an older stream carries no budget.
+        of = event.get("of_turns")
         whose = f"turn {n}" if isinstance(n, int) else "the turn below"
+        if isinstance(n, int) and isinstance(of, int):
+            whose = f"turn {n} of {of}"
         cap_s = f"{cap:,} tok" if isinstance(cap, int) else "uncapped"
         rate_s = f"{rate:.1f} tok/s" if isinstance(rate, (int, float)) else "rate unknown"
         load_s = ""
         if isinstance(running, (int, float)):
+            # Three cases, not two, and the third is the one a two-way split gets wrong.
+            # Only `cluster_since_boot` carries a reading of the machine. Every other
+            # *known* source echoes the concurrency frozen at lease grant, which is a
+            # claim about this delegation's pricing -- and `own_turns`, the commonest of
+            # all at five of six rows on a real six-turn run, used to fall through to the
+            # neutral word and invite the cluster reading. A source that is absent or
+            # unrecognised still gets that neutral word, because a stream written before
+            # the field existed cannot support either claim.
             if source == "cluster_since_boot":
                 load_s = f", {running:.0f} running"
-            elif source == "observed_at_concurrency":
+            elif source in PRICED_SOURCES:
                 load_s = f", priced for {running:.0f}"
             else:
                 load_s = f", concurrency {running:.0f}"
@@ -447,19 +559,7 @@ def render(event: dict, width: int) -> list[str]:
         return [f"{stamp}  {_ONE_LINERS[kind](event)}"]
 
     if kind == "end":
-        ok = event.get("ok")
-        verdict = f"{GREEN}done{R}" if ok else f"{RED}failed{R}"
-        secs = event.get("elapsed_seconds")
-        n_turns = event.get("turns")
-        tail = f"{DIM}{n_turns if n_turns is not None else '?'} turn"
-        tail += "" if n_turns == 1 else "s"
-        tail += f" · {_duration(secs)}" if isinstance(secs, (int, float)) else ""
-        tail += R
-        if isinstance(rate := event.get("out_tok_s"), (int, float)):
-            out = event.get("output_tokens")
-            tail += f"  {GREEN}{rate:g} tok/s{R}"
-            tail += f"{DIM} · {_tokens(out)} out{R}" if isinstance(out, int) else ""
-        lines = ["", f"{stamp}  {BOLD}{verdict}{R}  {tail}"]
+        lines = ["", f"{stamp}  {_end_head(event)}"]
         # A truncated reply is a *successful* dispatch -- `ok` is true and nothing raised --
         # so "done" is the one word that reads most wrongly about it. Said on its own line,
         # with the reason, because the failure worth catching here is a reader treating a
