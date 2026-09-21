@@ -38,6 +38,46 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #272 — 2026-09-22 — feat: the decode rate is sampled on a ticker and priced from the bucket mean
+
+### Fixed
+
+- **`expect` priced from a bucket's minimum, so one bad minute set the price for 64
+  samples.** Measured 2026-09-20: bucket means matched the operator benchmark to 1-3% at
+  every well-populated concurrency while the minima sat 24-71% below it, and the minimum got
+  *worse* as a bucket filled -- the more a regime was measured, the worse its worst sample.
+  A bucket now answers with its mean, and the widening takes the worst bucket *mean* rather
+  than the worst sample in any of them. Pooling every busier sample into one mean was
+  rejected: it mixes regimes and would pull a six-way answer above anything six-way did.
+- **Why it mattered enough to change**: PLAN 68 measured that the reply budget genuinely
+  binds, and binds on the largest answers -- 31 of 953 recorded turns ended with
+  `output_tokens` exactly equal to `budget_ceiling`, every one of them between 47,690 and
+  80,265 tokens. An under-priced rate takes its error straight off those.
+- Red before green: the committed code returns 12.0 where the bucket mean is 19.1, and
+  30.0 where it is 37.05; with 63 good moments and one bad one it returns 5.0 against
+  19.175.
+
+### Added
+
+- **`DELEGATE_RATE_SAMPLE_SECONDS`, default 10: one sample per scrape rather than one per
+  completed turn.** A sample was filed when a turn finished, so six streams put six
+  readings on one moment and a six-wide bucket's 64 slots held about eleven moments where a
+  solo bucket's held sixty-four -- the wider the fan-out, the shorter the memory in wall
+  clock. The ticker scrapes while the gate reports work in flight and files the aggregate
+  over the concurrency read in the same scrape, so every bucket spans the same span and the
+  buckets are comparable to each other. Setting it to 0 restores the per-turn feed, so the
+  memory is never left with no feeder.
+- Ten seconds because: at ~20 tok/s across six streams a 10s window differences roughly
+  1,200 generated tokens, so counter granularity cannot dominate; frames arrive 0.4s apart
+  or better so no producing stream is missed; it matches `admission_idle_hold`'s scale, so a
+  burst has settled into its real width before its first sample; a 60s turn contributes six
+  samples instead of one; and 64 samples then span about 10.7 minutes at every width.
+- **A window that generated nothing is dropped and counted**, not filed. Prefill runs about
+  1,060 tok/s and produces no generated tokens, so a 175k-token prompt spends 143.5s
+  looking like a busy cluster decoding zero. A window spanning an idle stretch is dropped
+  and counted separately, for the same reason arriving by a different route. Both counts
+  are reported beside the admission gauges, so the drop rate is visible rather than silent.
+
 ## #271 — 2026-09-22 — docs: the reply budget binds, so it stays
 
 ### Changed

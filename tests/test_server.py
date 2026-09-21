@@ -1797,7 +1797,12 @@ def test_a_single_delegate_is_bounded_by_the_endpoints_concurrency_too():
         live["now"] -= 1
         return as_stream(chat_reply(content="done"))
 
-    config = cfg()
+    # Sampling off: the double routes every request through one handler, so a metrics
+    # scrape would be counted here as a concurrent delegation. The real endpoint keeps
+    # them apart -- a monitoring GET occupies no decode slot -- and this test is about
+    # what the gate does to delegations. Same reason a gate fixture sets the idle hold
+    # to zero: it is testing a rule, not the ticker.
+    config = cfg(rate_sample_seconds=0.0)
     entries = (entry(concurrency=1),)
     mcp = server.build(
         config, registry(*entries, default=entries[0].key), DoubleCache(config, handler)

@@ -941,6 +941,12 @@ class _DecodeWindow:
         out = {
             "decode_tokens_per_second_window": round(rate, 2),
             "decode_window_seconds": round(elapsed, 1),
+            # The numerator, reported rather than left to be reconstructed. The rate above
+            # is rounded, so a caller that has to tell "this window generated nothing" from
+            # "this window generated a little" would be reading that decision off two
+            # decimal places -- and the caller that asks is the rate sampler, for which a
+            # window lying inside a prefill is exactly the case it must refuse.
+            "decode_tokens_window": generated,
         }
         # Only with a divisor. `running` is sampled at the end of the window rather than
         # averaged across it, so this is an approximation and is the reason the aggregate

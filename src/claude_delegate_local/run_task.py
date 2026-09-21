@@ -92,26 +92,38 @@ def _build_pieces() -> tuple[Any, Any, Any, _Gates]:
 
 async def _dispatch(*, cfg: Any, reg: Any, cache: Any, gates: _Gates, args: Any) -> dict:
     from .agents import load_agent  # noqa: PLC0415
-    from .server import run_delegation  # noqa: PLC0415
+    from .loop import RateSampler  # noqa: PLC0415
+    from .server import run_delegation, sampling  # noqa: PLC0415
 
     agent = None
     if args.agent is not None:
         agent = load_agent(cfg, args.agent, args.project or args.workdir)
+    # The same ticker the server runs, and for the same reason: a completed turn no
+    # longer files a sample of its own, so without this a `run` would read the durable
+    # memory and put nothing back -- which is the cold start the memory exists to end,
+    # arriving for every caller who drives delegations this way rather than over stdio.
+    sampler = RateSampler(
+        gates.rates,
+        probe=lambda: cache.get(reg.resolve(None)).probe_cluster(),
+        busy=lambda: gates.admission.inflight_seqs > 0,
+        every=cfg.rate_sample_seconds,
+    )
     try:
-        return await run_delegation(
-            cfg, reg, cache, gates.windows, gates.admission,
-            rates=gates.rates,
-            task=args.task,
-            files=list(args.files) or None,
-            model=args.model,
-            effort=args.effort,
-            allowed_tools=args.allowed_tools,
-            max_tokens=args.max_tokens,
-            max_turns=args.max_turns,
-            agent=agent,
-            workdir=args.workdir,
-            tool_name="run",
-        )
+        async with sampling(sampler):
+            return await run_delegation(
+                cfg, reg, cache, gates.windows, gates.admission,
+                rates=gates.rates,
+                task=args.task,
+                files=list(args.files) or None,
+                model=args.model,
+                effort=args.effort,
+                allowed_tools=args.allowed_tools,
+                max_tokens=args.max_tokens,
+                max_turns=args.max_turns,
+                agent=agent,
+                workdir=args.workdir,
+                tool_name="run",
+            )
     finally:
         await cache.aclose()
 

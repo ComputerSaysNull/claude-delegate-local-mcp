@@ -629,6 +629,25 @@ class Config:
         "cold start is not. Blank restores the old tmpfs behaviour (ADR-0094).",
     )
 
+    rate_sample_seconds: float = _f(
+        10.0,
+        "How often the decode rate is sampled from the cluster while anything is in "
+        "flight. On a ticker rather than once per completed turn, because a per-turn "
+        "sample files one reading per stream: six streams put six samples on one moment, "
+        "so a six-wide bucket remembers a sixth as long in wall-clock terms as a narrow "
+        "one and the buckets stop being comparable. One sample per scrape makes every "
+        "bucket span the same number of moments whatever the fan-out. Ten seconds because "
+        "four things have to hold at once: at the six-way rate a ten-second window "
+        "differences on the order of a thousand generated tokens, so the counter's "
+        "granularity cannot dominate the quotient; frames arrive far more often than this, "
+        "so no producing stream is missed; it is admission_idle_hold's scale, so a burst "
+        "has settled into its real width before its first sample is filed; and a "
+        "minute-long turn contributes six samples rather than one, which is what gives a "
+        "full bucket roughly ten minutes of memory at every width. 0 disables sampling and "
+        "leaves the memory fed by completed turns alone.",
+        unit="seconds",
+    )
+
     max_glob_matches: int = _f(
         64,
         "How many files one pattern in files[] may expand to before it is refused "

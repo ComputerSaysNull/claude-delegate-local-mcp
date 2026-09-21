@@ -1,4 +1,6 @@
-<!-- BUDGET: 1258
+<!-- BUDGET: 1266
+     Raised from 1258 (+1 for this line) on 2026-09-22: the admission gate now drives the rate sampler's ticker, which is a second reader of a number this document owns. -->
+<!-- 
      Raised from 1250 (+1 for this line) on 2026-09-21: a record now carries a claim other
      processes act on, not just counters, and six trims went in before this line was added. -->
 <!-- Raised from 1241 (+1 for this line) on 2026-09-21: the stream now carries the turn budget, the three durations and the repetition share, and what the viewer shows is the half of that work a person actually reads. -->
@@ -856,6 +858,12 @@ member joining an open wait takes its answer, which is an `asyncio.Future` and s
 exactly one process; across processes there is nothing to await, so the wait is published
 in the record and a member that finds one runs its own window over the same shared totals.
 Both settle on the whole burst rather than on the siblings ahead of them.
+
+The gate is also what tells the rate sampler whether to scrape: it ticks only while
+`inflight_seqs` is above zero, so an idle cluster costs nothing and a busy one is measured
+on the wall clock rather than per turn. The ticker is started and cancelled by the server's
+lifespan, and by the `run` CLI around its one dispatch -- without that the CLI would read
+the durable rate memory and put nothing back.
 
 So the counters live in a file under `flock` that every server on the machine shares, and
 `admission.py` tests the capacity rules against the sum. `slots.py` owns that file; the policy

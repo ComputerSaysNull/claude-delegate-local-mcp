@@ -14,9 +14,10 @@ soon as they are released.
 
 `RateHistory` is the other half. The rate for a given concurrency is not modelled, because
 a model would be a constant baked to one deployment's hardware -- the mistake PLAN.md
-records against `kv_token_budget`. It is remembered: every completed turn reports what it
-achieved and how contended it was, and pricing asks for the worst seen at that
-concurrency or above.
+records against `kv_token_budget`. It is remembered: the cluster's own counter is sampled
+while anything is in flight, each sample filed under the concurrency read in the same
+scrape, and pricing asks a bucket for its mean -- then, widening to busier buckets, for the
+worst of those means.
 
 Named after the bug, per the project's convention.
 """
@@ -24,6 +25,8 @@ Named after the bug, per the project's convention.
 from __future__ import annotations
 
 import asyncio
+
+import pytest
 
 from claude_delegate_local.loop import RateHistory, seed_decode_rate
 
@@ -92,13 +95,20 @@ def test_nothing_observed_yet_is_not_a_rate():
     assert RateHistory().expect(4) is None
 
 
-def test_the_worst_seen_at_that_concurrency_is_what_is_returned():
-    """Pessimism is the point: the budget must survive the bad case, not the mean one."""
+def test_what_that_concurrency_averaged_is_what_is_returned():
+    """Rewritten, not deleted: this asserted the minimum, which was the second defect.
+
+    The three samples are one regime measured three times, so the spread between them is
+    noise and the worst draw is not a measurement of anything. Measured 2026-09-20, the
+    bucket mean matched the operator benchmark to 1-3% where the minimum sat 24-71% below
+    it. The pessimism that is sound survives one level up, between buckets -- see
+    `test_a_busier_observation_counts_for_a_quieter_question` below.
+    """
     h = RateHistory()
     h.observe(3000, 100.0, concurrency=4)
     h.observe(1900, 100.0, concurrency=4)
     h.observe(2500, 100.0, concurrency=4)
-    assert h.expect(4) == 19.0
+    assert h.expect(4) == pytest.approx((30.0 + 19.0 + 25.0) / 3)
 
 
 def test_a_busier_observation_counts_for_a_quieter_question():
@@ -128,7 +138,9 @@ def test_observations_do_not_accumulate_without_bound():
     h = RateHistory(keep=3)
     for n in range(10):
         h.observe((n + 1) * 1000, 1000.0, concurrency=2)
-    assert h.expect(2) == 8.0, "the oldest observations should have fallen off"
+    # The last three are 8, 9 and 10 tok/s. Averaged over all ten it would be 5.5, so the
+    # figure still says which samples survived rather than merely that some did.
+    assert h.expect(2) == pytest.approx(9.0), "the oldest observations should have fallen off"
 
 
 def test_an_implausible_observation_is_refused():

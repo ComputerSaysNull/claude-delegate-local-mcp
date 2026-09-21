@@ -6,8 +6,11 @@ processing, so a turn with a large prompt and a short answer reads slow. 442 tok
 against 54,052 of input took 50.2s, of which roughly 30 was prefill -- a true decode rate
 near 22 tok/s reported as 8.8.
 
-`RateHistory.expect` keeps the **minimum**, so the most contaminated sample wins and then
-prices every later delegation's first turn. Measured live on 2026-09-12: a remembered
+`RateHistory.expect` kept the **minimum** when this was written, so the most contaminated
+sample won outright and then priced every later delegation's first turn. It answers with the
+bucket's mean now, which dilutes a contaminated sample rather than being ruled by it -- and
+does not excuse recording one, because the contamination here is systematic: a prompt-heavy
+workload contaminates every sample in the same direction. Measured live on 2026-09-12: a remembered
 13.4 tok/s, learned from an 855- and a 1,170-token answer, set a ceiling of 14,475 tokens
 on a cluster that had just delivered 17,779 in one turn at 45.2 tok/s. In the audit
 fan-out that followed, four of six passes were given ceilings below the 23,701 tokens the
@@ -82,7 +85,13 @@ class PrefillHeavy:
 def run(backend, clock, history):
     return asyncio.run(
         loop.run_agentic_loop(
-            cfg(),
+            # Sampling off, which is what routes a completed turn's measurement into the
+            # rate memory at all. With the ticker on, the memory is filled one sample per
+            # scrape and a turn files nothing of its own -- so this file would assert
+            # against an empty history and prove nothing about which interval was used.
+            # The interval choice is still live either way: `DecodeRate` divides by it on
+            # every turn regardless of how the durable memory is fed.
+            cfg(rate_sample_seconds=0.0),
             ModelEntry(key="flash", base_url=HOST, served_model_id="served-id-1"),
             backend,
             loop.Delegation("summarise this"),
@@ -112,8 +121,8 @@ def test_an_adapter_that_cannot_time_the_tokens_still_reports_something():
     """`None` means "this adapter does not stream", not "the interval was zero".
 
     The fallback has to stay: a backend added later that cannot separate the two is worse
-    served by no rate at all than by a pessimistic one, and `expect` keeps the minimum, so
-    a pessimistic sample is the safe direction for it to err in.
+    served by no rate at all than by a pessimistic one, and under-estimating truncates a
+    reply where over-estimating kills the turn outright.
     """
     clock = FakeClock()
     history = loop.RateHistory()
