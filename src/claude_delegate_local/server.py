@@ -553,8 +553,9 @@ class _OneShotTurn:
     were none to make.
     """
 
-    __slots__ = ("attempts", "cached_tokens", "effort", "evicted", "input_tokens",
-                 "output_tokens", "tool_calls", "turn")
+    __slots__ = ("answered_decode_seconds", "attempts", "cached_tokens", "decode_seconds",
+                 "effort", "evicted", "input_tokens", "output_tokens", "prefill_seconds",
+                 "tool_calls", "turn")
 
     def __init__(self, dispatched: Any) -> None:
         self.turn = 1
@@ -568,6 +569,13 @@ class _OneShotTurn:
         self.effort = dispatched.effort
         self.attempts = dispatched.attempts
         self.tool_calls = ()
+        # A one-shot has attempts too -- an empty answer is retried here exactly as it is
+        # inside a turn -- so these are the same sums the loop path reports, read off the
+        # same `Dispatch`. `answered_decode_seconds` is the answering attempt's alone,
+        # which is what the rate on the event divides by.
+        self.prefill_seconds = dispatched.prefill_seconds
+        self.decode_seconds = dispatched.decode_seconds
+        self.answered_decode_seconds = dispatched.response.decode_seconds
 
 
 async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's arguments,
@@ -751,6 +759,20 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     # so an endpoint that never reports caching ends as absent rather than as a zero
     # saving, which would read as "measured, and it saved nothing".
     streamed_cached_tokens: int | None = None
+    # Where the backend time went, summed the same way and for the same reason. `None`
+    # until a turn reports one, so a run served by an adapter that cannot time itself
+    # ends absent rather than claiming it spent no time prefilling.
+    streamed_prefill_seconds: float | None = None
+    streamed_decode_seconds: float | None = None
+    # Tool execution, summed over the turns. Its own accumulator and -- below -- its own
+    # clock, because `ms - backend_ms` is tool time only from the second turn onward:
+    # `turn_clock` starts before the admission gate, deliberately, so the first turn's
+    # `ms` also contains the wait for a slot. Deriving tool time from it would charge
+    # the queue to the tools, which is the exact confusion this field exists to end.
+    streamed_tool_ms = 0
+    # Set when the dispatch actually begins, so the first turn is measured from there.
+    # `None` until then: nothing has run, so there is no tool time to attribute.
+    tool_clock: float | None = None
 
     async def streamed_turn(diagnostic: Any, text: str, backend_seconds: float) -> None:
         """Each finished turn, appended while the delegation is still running.
@@ -761,14 +783,30 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         """
         nonlocal turns_streamed, turn_clock, streamed_out_tokens, streamed_backend_ms
         nonlocal streamed_cached_tokens
+        nonlocal streamed_prefill_seconds, streamed_decode_seconds
+        nonlocal streamed_tool_ms, tool_clock
         now = time.monotonic()
         turns_streamed += 1
         backend_ms = int(backend_seconds * 1000)
+        # What this turn spent outside the backend call: running the model's tools.
+        # Measured from the dispatch for the first turn and from the previous turn after
+        # that, so no part of the admission wait is counted as tool execution. Floored at
+        # zero because the two intervals are read from the same clock a moment apart and
+        # a negative would be measurement noise reported as a fact.
+        if tool_clock is not None:
+            streamed_tool_ms += max(int((now - tool_clock) * 1000) - backend_ms, 0)
+        tool_clock = now
         streamed_out_tokens += getattr(diagnostic, "output_tokens", 0) or 0
         streamed_backend_ms += backend_ms
         cached = getattr(diagnostic, "cached_tokens", None)
         if cached is not None:
             streamed_cached_tokens = (streamed_cached_tokens or 0) + cached
+        prefill = getattr(diagnostic, "prefill_seconds", None)
+        if prefill is not None:
+            streamed_prefill_seconds = (streamed_prefill_seconds or 0.0) + prefill
+        decode = getattr(diagnostic, "decode_seconds", None)
+        if decode is not None:
+            streamed_decode_seconds = (streamed_decode_seconds or 0.0) + decode
         if stream is not None:
             stream.turn(diagnostic, text, ms=int((now - turn_clock) * 1000),
                         backend_ms=backend_ms, of_turns=resolved_turns)
@@ -865,6 +903,12 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 lease.seqs_at_grant + lease.waiting_at_grant + 1, cfg.max_inflight_seqs
             )
 
+            # The origin tool time is measured from. Here rather than beside `turn_clock`
+            # because the slot has now been granted: everything before this line is
+            # queueing, and attributing it to the tools would make a contended cluster
+            # look like an expensive toolset.
+            tool_clock = time.monotonic()
+
             dispatched = await dispatch_delegation(
                 loop_cfg, entry, backend, delegation,
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
@@ -927,6 +971,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 streamed_out_tokens = dispatched.response.output_tokens or 0
                 streamed_backend_ms = int((time.monotonic() - turn_clock) * 1000)
                 streamed_cached_tokens = dispatched.response.cached_tokens
+                # `getattr` because a failure may leave an `AgenticDispatch` here, which
+                # keeps its two clocks per turn rather than on itself -- and that path
+                # never reaches this branch, having streamed its turns.
+                streamed_prefill_seconds = getattr(dispatched, "prefill_seconds", None)
+                streamed_decode_seconds = getattr(dispatched, "decode_seconds", None)
             stream.end(
                 ok=failure is None,
                 # A timed-out delegation has no `dispatched` and used to record `None`
@@ -949,6 +998,12 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 output_tokens=streamed_out_tokens or None,
                 cached_tokens=streamed_cached_tokens,
                 backend_ms=streamed_backend_ms or None,
+                prefill_seconds=streamed_prefill_seconds,
+                decode_seconds=streamed_decode_seconds,
+                tool_seconds=streamed_tool_ms / 1000,
+                # Whole, not as four counts. The stream and the record then report the
+                # loop's ledger from one computation, so they cannot drift apart.
+                dispatched=dispatched,
                 error=str(failure) if failure is not None else None,
                 finish_reason=getattr(
                     getattr(dispatched, "response", None), "finish_reason", None

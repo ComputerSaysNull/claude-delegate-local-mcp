@@ -38,6 +38,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #268 — 2026-09-21 — feat: the end event carries what a run summary needs
+
+### Added
+
+- **`prefill_seconds` and `decode_seconds` on every turn event, and summed on the `end`
+  event.** The adapter already stamped when a request went out and when the first frame
+  arrived, but only took `last - first`; the other subtraction was thrown away, so how
+  long a run spent waiting for its first token could not be answered from a transcript at
+  all. A multi-attempt turn reports the sum of both, because a wall-clock total is owed
+  every attempt even though a rate is owed only the answering one.
+- **`tool_seconds` on the `end` event**, on its own clock rather than `ms` minus
+  `backend_ms`. `turn_clock` starts before the admission gate -- deliberately, so a turn's
+  `ms` includes the wait for a slot -- which means turn 1's difference is tool time *plus*
+  the queue. Measured: on an idle gate the two agree (0.718s against 0.715s); behind a 0.6s
+  queue they diverge (1.214s against 0.710s).
+- **The four ledger counts on the `end` event** -- `tool_calls`, `tool_errors`,
+  `bash_calls`, `bash_failures` -- taken from the same `_ledger` the per-dispatch record
+  uses rather than counted a second way. They existed only in the `.json`, which is written
+  after the run the stream is following, so a reader watching live never saw them.
+
+### Fixed
+
+- **`out_tok_s` divided the answering attempt's tokens by a span covering every attempt.**
+  A turn that returned empty and retried at a stepped-down effort therefore reported a rate
+  several times too low. Measured against the committed divisor: a turn whose answering
+  attempt decoded 760 tokens in 20s reports **7.6 tok/s** where the real rate is **38.0**,
+  exactly 5x low. It now divides by the answering attempt's own decode span, falling back
+  to `backend_ms` when the adapter cannot time itself.
+
 ## #267 — 2026-09-21 — fix: a transcript name is unique across processes
 
 ### Fixed

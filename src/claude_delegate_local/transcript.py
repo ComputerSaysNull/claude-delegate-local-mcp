@@ -113,6 +113,16 @@ def _rate(tokens: int | None, ms: int | None) -> float | None:
     return round(tokens / (ms / 1000), 1)
 
 
+def _ms(seconds: float | None) -> int | None:
+    """Seconds as whole milliseconds, keeping `None` as `None` rather than as zero.
+
+    `_rate` treats a zero interval as unmeasurable, so rounding a sub-millisecond span
+    down to 0 declines to report a rate rather than dividing by it. That is the intended
+    reading: an interval too short to measure cannot support a throughput figure.
+    """
+    return None if seconds is None else int(seconds * 1000)
+
+
 class Stream:
     """The same dispatch, written as it happens rather than once it is over.
 
@@ -215,11 +225,23 @@ class Stream:
             ],
             "ms": ms,
             "backend_ms": backend_ms,
-            # Decode rate, over the backend call alone. `ms` is the turn's wall clock and
-            # includes tool execution, so dividing by it would report the cluster as
-            # slower than it is. Both are kept because they answer different questions:
-            # is the cluster slow, and is this delegation making progress.
-            "out_tok_s": _rate(getattr(diagnostic, "output_tokens", None), backend_ms),
+            # Where `backend_ms` went, summed over this turn's attempts. Queueing and
+            # prefill first, then decode; the remainder against `ms` is tool execution,
+            # which is why no field carries that -- it is `ms - backend_ms` and adding it
+            # would be a fourth number that can disagree with the other three.
+            "prefill_seconds": getattr(diagnostic, "prefill_seconds", None),
+            "decode_seconds": getattr(diagnostic, "decode_seconds", None),
+            # Decode rate, over the *answering attempt's* decode span -- not `backend_ms`,
+            # which spans every attempt and every retry wait between them. `output_tokens`
+            # comes from the one attempt that answered (ADR-0014), so dividing it by all
+            # of them reports a turn that returned empty and was sent again at several
+            # times too low a rate: a recorded 7.6 tok/s was exactly that. Falls back to
+            # `backend_ms` for an adapter that cannot time its own decoding, where the
+            # whole call is the only interval there is.
+            "out_tok_s": _rate(
+                getattr(diagnostic, "output_tokens", None),
+                _ms(getattr(diagnostic, "answered_decode_seconds", None)) or backend_ms,
+            ),
             # Per turn, because that is where the loop lives: a turn repeating itself
             # never ends, so `max_turns` cannot reach it and the per-dispatch figure
             # arrives only if something else stopped it first.
@@ -333,7 +355,11 @@ class Stream:
             output_tokens: int | None = None, cached_tokens: int | None = None,
             backend_ms: int | None = None, error: str | None = None,
             finish_reason: str | None = None, max_turns: int | None = None,
-            input_tokens: int | None = None) -> None:
+            input_tokens: int | None = None,
+            prefill_seconds: float | None = None,
+            decode_seconds: float | None = None,
+            tool_seconds: float | None = None,
+            dispatched: Dispatch | AgenticDispatch | None = None) -> None:
         """The totals, which are a different figure from any turn's rate.
 
         `out_tok_s` here is over summed backend time across turns, so it is the rate the
@@ -345,7 +371,17 @@ class Stream:
         than finished. `ok` is true for a truncated dispatch -- nothing failed -- so without
         this the stream says "done" about a reply that stopped mid-sentence, and the one
         state most worth spotting is the one it cannot show.
+
+        `dispatched` is taken whole rather than as four counts, so the numbers here are
+        `_ledger`'s -- the same ones the record carries. Counting tool calls a second way
+        for the benefit of a second reader is how two files come to disagree about one
+        delegation, and the stream is the file anything following a run reads.
         """
+        # The counts, from the ledger the record already builds. `.get` rather than
+        # indexing because a one-shot ran no loop and `_ledger` is empty for it, and the
+        # keys are emitted anyway: "no loop" and "not recorded" read identically as an
+        # absent key, and only one of them is true here.
+        ledger = _ledger(dispatched)
         self._put({
             "t": "end", "at": datetime.now(UTC).isoformat(), "ok": ok,
             "turns": turns,
@@ -363,6 +399,32 @@ class Stream:
             "cached_tokens": cached_tokens,
             "backend_ms": backend_ms,
             "out_tok_s": _rate(output_tokens, backend_ms),
+            # The same split the turn events carry, summed over the run. With
+            # `elapsed_seconds` above these account for the delegation: prefill, decode,
+            # tool execution and the admission wait, and a reader can now say which of
+            # them a slow run actually spent its time in rather than guess.
+            "prefill_seconds": (
+                None if prefill_seconds is None else round(prefill_seconds, 3)
+            ),
+            "decode_seconds": (
+                None if decode_seconds is None else round(decode_seconds, 3)
+            ),
+            # Carried rather than left to be derived, unlike on a turn event. There
+            # `ms - backend_ms` is tool time; here `elapsed_seconds - backend_ms` is tool
+            # time *plus the admission wait*, which happens before any turn runs -- so a
+            # reader subtracting the obvious pair would report a queued delegation as an
+            # expensive toolset. The server sums it from its own clock, started when the
+            # slot was granted.
+            "tool_seconds": (
+                None if tool_seconds is None else round(tool_seconds, 3)
+            ),
+            # What the loop did, for a reader following the stream. These reached only
+            # the per-dispatch record, which is written once the work is over -- so the
+            # file a run summary follows could see every turn and not one tool call.
+            "tool_calls": ledger.get("tool_calls"),
+            "tool_errors": ledger.get("tool_errors"),
+            "bash_calls": ledger.get("bash_calls"),
+            "bash_failures": ledger.get("bash_failures"),
             **({"error": error} if error else {}),
         })
 

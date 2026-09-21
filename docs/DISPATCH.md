@@ -93,10 +93,6 @@ break taken when a turn returns no tool calls. A single call site would have to 
 and the turn that ends without tool calls is the one carrying the final answer, so picking
 the other would silently drop the part a reader most wants. (ADR-0043)
 
-The backend call is timed separately from the turn, so a throughput figure divides by the
-interval that was actually spent generating rather than by one that also contains tool
-execution.
-
 
 ## One wire format, behind a seam
 
@@ -372,7 +368,10 @@ and transport retry measures two different events — across 46 recorded turns i
 apparent rate, and the halved figure then seeded the next delegation's first turn. The
 backoff between attempts is outside the interval by construction, and since ADR-0070 so is
 prefill: the chat call streams, so the adapter reports `decode_seconds` — last token minus
-first — and the estimators divide by that. An adapter that cannot time the tokens reports
+first — and the estimators divide by that. Prefill is now reported beside it rather than
+subtracted and discarded, and a `Dispatch` carries both summed over a turn's attempts: a
+rate divides by one attempt, but a wall-clock total is owed all of them.
+An adapter that cannot time the tokens reports
 `None`, the whole attempt is used instead, and the result is pessimistic, which is the safe
 direction for a budget. Until streaming it always was the whole attempt, and that mattered:
 a remembered 13.4 tok/s, learned from two answers under 1,200 tokens, priced a 14,475-token

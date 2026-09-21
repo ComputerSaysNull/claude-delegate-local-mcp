@@ -356,10 +356,7 @@ refusal at execution, which stays: a model can call a tool it was never offered.
 
 The per-turn progress notification is wired here, the only layer holding an MCP session:
 `loop.py` takes it as an injected callable and stays free of MCP imports (ADR-0018). Every
-delegating tool passes its `ctx` and reports the turn numbers directly. An `on_turn` hook
-once existed to displace those numbers without displacing the notification, because a batch
-running several items at once had no meaningful turn count of its own; it went with the batch
-tools in ADR-0051, having had no other caller. What it protected still holds and is still
+delegating tool passes its `ctx` and reports the turn numbers directly. What that hook protected still holds and is still
 worth stating: withholding the notification is what let a client abandon a call at its idle
 timeout while the server carried on to `dispatch_timeout`, holding the machine-wide budget
 for the remainder. Effort resolves
@@ -817,10 +814,6 @@ go with its record, which the liveness check already reclaims. That leaves one c
 live process that somehow failed to drop one, and it expires on a timer and says so in
 the log: a backstop that fired silently would hide the defect it is compensating for.
 
-Ordering is also what made the wait timeout safe to raise, and then to switch off. Until
-there was a place in line, a longer wait bought a longer *unfair* wait and turned bounded
-failure into possible starvation, so ordering and a raise had to land together.
-
 **The wait is now unbounded by default**, because a bail-out here can only turn slow into
 failed. It runs before `dispatch_timeout` starts its own clock — the two stack rather than
 divide one budget — so a waiter that reaches the head still has its whole allowance, and
@@ -1199,6 +1192,13 @@ the rate it came from, the load that rate was read against, and the sampling it 
 at. Ordering is the whole of it: a `turn` event lands only when a turn completes, so a turn
 killed at a deadline recorded nothing. An absent ceiling is written as null rather than
 omitted, because "no cap applied" is the most incriminating thing the record can say.
+
+The `end` event also carries what a whole run cost, because a reader following the stream
+never sees the per-dispatch record: `tool_calls`, `tool_errors`, `bash_calls` and
+`bash_failures`, taken from the same ledger the record uses rather than counted a second
+way, beside `prefill_seconds`, `decode_seconds` and `tool_seconds`. Tool time gets its own
+clock rather than `ms` minus `backend_ms`, which on turn 1 would charge the admission wait
+to the tools.
 
 The `end` event carries `finish_reason` verbatim, and the viewer names the truncating ones
 with what to do about each. A cut-off reply is a *successful* dispatch — nothing raised, so

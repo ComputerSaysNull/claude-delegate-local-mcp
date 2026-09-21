@@ -354,6 +354,12 @@ class CanonicalResponse:
     # of 13.4 tok/s taken from 855- and 1,170-token answers, on a cluster that delivered
     # 17,779 tokens at 45.2 tok/s in the same regime (ADR-0070).
     decode_seconds: float | None = None
+    # The other half of the same clock: request sent to *first* token. Queueing and
+    # prefill, and nothing the decoder did. Recorded nowhere until now, so a turn's wall
+    # time was one measured span and one unexplained remainder -- and prefill is the part
+    # that grows with the prompt rather than with the answer, which is the half a run
+    # summary is trying to see. `None` on an adapter that cannot stream, never zero.
+    prefill_seconds: float | None = None
 
     @property
     def text(self) -> str:
