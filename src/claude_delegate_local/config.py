@@ -453,17 +453,21 @@ class Config:
         unit="seconds",
     )
     stall_timeout: int = _f(
-        2100,
-        "No-progress deadline: how long a delegation may run without COMPLETING a turn. "
-        "Distinct from dispatch_timeout, which bounds total time and cannot tell a "
-        "delegation that is merely long from one that is wedged -- the case that needs "
-        "killing from the case that must not be. The default sits just above turn_timeout "
-        "on purpose: it permits one full-length attempt and refuses a second with nothing "
-        "to show, which is the exact shape of the failure that prompted it. Refused below "
-        "turn_timeout or above dispatch_timeout -- at or below the former it cuts short a "
-        "call that was merely slow, and above the latter it can never fire. A one-shot "
-        "never completes a turn, so this is measured from its start and becomes its "
-        "effective bound (ADR-0047).",
+        900,
+        "No-progress deadline: how long a delegation may run without a frame arriving "
+        "from the endpoint. Distinct from dispatch_timeout, which bounds total time and "
+        "cannot tell a delegation that is merely long from one that is wedged -- the case "
+        "that needs killing from the case that must not be. Fifteen minutes because the "
+        "silence it measures is the endpoint having stopped, not the model thinking: the "
+        "longest gap between frames measured here is 0.3s at every effort level, and a "
+        "running tool cannot trip it either. One silence is NOT decode, and it is what "
+        "sizes this setting: prefill produces no frame at all and is linear in prompt "
+        "size, measured at about 1,060 tok/s. So the budget must cover the largest first "
+        "turn -- roughly 130s at the 140k default prefetch budget, and 900s is only "
+        "reached by a prompt near 950k, which is most of the context window. Raise this "
+        "alongside max_total_prefetch_tokens. Refused only above dispatch_timeout, where "
+        "it could never fire; the old lower bound against turn_timeout belonged to "
+        "ADR-0047's turn-completion signal and went with it (ADR-0072, ADR-0099).",
         unit="seconds",
     )
     keepalive_interval: int = _f(
@@ -801,16 +805,17 @@ class Config:
                 "could outlive the delegation containing it."
             )
 
-        if not self.turn_timeout <= self.stall_timeout <= self.dispatch_timeout:
+        # No lower bound against `turn_timeout` any more (ADR-0099). It existed because
+        # ADR-0047's stall signal was turn *completion*, under which a stall shorter than
+        # one call would cut short a call that was merely slow. ADR-0072 replaced that
+        # signal with token arrival, so a slow call that is producing resets the clock and
+        # never stalls -- and the bound outlived its reason by two ADRs.
+        if self.stall_timeout > self.dispatch_timeout:
             raise ConfigError(
-                f"DELEGATE_STALL_TIMEOUT ({self.stall_timeout}) must be at least "
-                f"DELEGATE_TURN_TIMEOUT ({self.turn_timeout}) and no higher than "
-                f"DELEGATE_DISPATCH_TIMEOUT ({self.dispatch_timeout}). Below the turn "
-                "timeout it would cut short one legitimately slow backend call and report "
-                "a stall where there is none; above the ceiling it could never fire.\n"
-                "Not a strict lower bound, deliberately: turn_timeout may equal "
-                "dispatch_timeout, which the check below permits, and a strict one would "
-                "leave that configuration with no legal value at all."
+                f"DELEGATE_STALL_TIMEOUT ({self.stall_timeout}) is higher than "
+                f"DELEGATE_DISPATCH_TIMEOUT ({self.dispatch_timeout}), so it could never "
+                "fire: the delegation is abandoned first, and a deadline that cannot be "
+                "reached is not a loose bound but an absent one."
             )
 
     def __post_init__(self) -> None:

@@ -294,6 +294,30 @@ def test_the_port_only_the_http_transport_used_is_gone():
     assert "http_port" not in {f.name for f in dataclasses.fields(config.Config)}
 
 
+# --- the deadlines no longer nest through stall (ADR-0099) -----------------------------
+
+
+def test_a_stall_budget_below_the_turn_timeout_is_permitted():
+    """The link the two settings used to have, and no longer should.
+
+    It was written when stall meant "has not COMPLETED a turn" (ADR-0047): under that
+    reading a stall shorter than one call would cut short a legitimately slow one. Since
+    ADR-0072 the signal is token arrival, so a slow call that is producing never stalls,
+    and the reason the bound existed went with it.
+    """
+    cfg = config.load({**ROOTS, "DELEGATE_STALL_TIMEOUT": "600"})
+    assert cfg.stall_timeout == 600
+    assert cfg.turn_timeout > cfg.stall_timeout, "the point of the test is that it is lower"
+
+
+def test_a_stall_budget_above_the_dispatch_timeout_is_still_refused():
+    """The negative control. Only the lower bound is gone; a stall that can never fire is
+    still a misconfiguration, and dropping both checks would look identical here."""
+    with pytest.raises(config.ConfigError, match="STALL_TIMEOUT"):
+        config.load({**ROOTS, "DELEGATE_STALL_TIMEOUT": "99999",
+                     "DELEGATE_DISPATCH_TIMEOUT": "3600"})
+
+
 # --- sampling: one pair, at the values this model was evaluated at (ADR-0098) ----------
 
 

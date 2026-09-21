@@ -406,24 +406,27 @@ class DecodeRate:
         )
 
 
-def budget_seconds(cfg: Config, *, stall_left: float, dispatch_left: float) -> float:
+def budget_seconds(cfg: Config, *, dispatch_left: float) -> float:
     """Seconds the reply about to be asked for can actually be delivered in.
 
-    Three bounds, not two. The delegation deadlines say how long the *run* may continue;
-    `turn_timeout` says how long the one backend call carrying this reply may take, and it
-    is the tighter of the three at the defaults (1800 against 2100 and 14400). Sizing the
-    budget against the delegation alone authorised a reply the attempt could not deliver,
-    which then overran and was retried with the same budget against a third of the clock.
+    Two bounds. The delegation deadline says how long the *run* may continue;
+    `turn_timeout` says how long the one backend call carrying this reply may take.
+    Sizing the budget against the delegation alone authorised a reply the attempt could
+    not deliver, which then overran and was retried against a third of the clock.
 
-    `turn_timeout` is a constant where the others are countdowns, and it still belongs in
-    the comparison: config enforces `turn_timeout <= stall_timeout`, so it binds at the
-    start of a delegation, while `stall_left` binds late in one. Dropping either would be
-    correct only for half a run.
+    **`stall_left` is deliberately not a third** (ADR-0099). It was, and it bound nothing:
+    the stall clock is reset by `turn_done` immediately before this is called, so the
+    value passed was always the whole of `stall_timeout`, which config then forced to be
+    at least `turn_timeout`. A term that is a constant no smaller than another term in the
+    same `min` cannot change its result. Once that ordering was dropped so the stall
+    budget could be lowered, the dead term stopped being dead and started cutting every
+    reply to the stall budget instead -- which is the opposite of what it measures. A
+    reply being generated is not silence, and stall counts silence.
 
     Never negative. A negative would multiply through `ceiling` into `reply_budget_floor`
     and read as a small budget rather than as no time remaining.
     """
-    return max(min(stall_left, dispatch_left, float(cfg.turn_timeout)), 0.0)
+    return max(min(dispatch_left, float(cfg.turn_timeout)), 0.0)
 
 
 class RateHistory:
@@ -1369,7 +1372,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
             label_trusted=cfg.admission_idle_hold > 0,
         )
         ceiling = rate.ceiling(cfg, budget_seconds(
-            cfg, stall_left=stall_left(), dispatch_left=deadline - clock()
+            cfg, dispatch_left=deadline - clock()
         ))
         # The one-shot completes no turns, so without this it can only ever be explained
         # by what it was *asked*, never by what it was allowed.
@@ -2845,7 +2848,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # the rate below tracks what the cluster is giving us as other tenants come and
             # go. A ceiling fixed at entry would be a guess about the rest of the run.
             ceiling = decode_rate.ceiling(cfg, budget_seconds(
-                cfg, stall_left=stall_left(), dispatch_left=deadline - clock()
+                cfg, dispatch_left=deadline - clock()
             ))
             # Recorded before the call, not after it. A turn killed at a deadline having
             # finished nothing writes no `turn` event, so pricing reported afterwards is

@@ -266,10 +266,10 @@ says, and no test of a single stage would have seen it.
 It bounds total time, and total time cannot tell a delegation that is **merely long** from
 one that is **wedged** — the case that must not be killed from the case that must be. So it
 is a ceiling, and a second deadline does the killing:
-[`stall_timeout`](CONFIGURATION.md) is how long a delegation may run without *completing a
-turn*. Both bound every attempt and the tighter one wins; without that, the ceiling would
-let a single wedged call sit for its whole duration, which is the failure the pair exists
-to split apart. (ADR-0047)
+[`stall_timeout`](CONFIGURATION.md) is how long a delegation may run without *a frame
+arriving*. Both bound every attempt and the tighter one wins; without that, the ceiling
+would let a single wedged call sit for its whole duration, which is the failure the pair
+exists to split apart. It is no longer tied to `turn_timeout`. (ADR-0047, ADR-0099)
 
 The progress signal is turn **completion** or **token arrival**, and which signals count is
 a real design constraint. The per-turn notification fires at the *top* of a turn, so it
