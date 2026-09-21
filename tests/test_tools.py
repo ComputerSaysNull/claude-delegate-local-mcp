@@ -232,6 +232,75 @@ def test_read_file_continues_from_the_line_it_reported(workspace):
 
 
 @posix_only
+def test_read_file_stops_where_it_is_asked_to(workspace):
+    """The other end of the range. Without it a pass wanting one section takes the rest
+    of the file to get it, and a tool result is resent every turn -- so the waste is
+    multiplied by the turns left, not paid once."""
+    (workspace / "n.py").write_text("".join(f"line {i}\n" for i in range(1, 11)),
+                                    encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("read_file", path=str(workspace / "n.py"), start_line=3, end_line=5),
+        tools.ALL_TOOL_NAMES)
+    assert not result.is_error
+    assert result.content == " 3  line 3\n 4  line 4\n 5  line 5"
+
+
+@posix_only
+def test_read_file_end_line_is_inclusive(workspace):
+    """Inclusive, and `end_line` rather than `line_count`, because a count's off-by-one
+    is silent: the caller gets a plausible window one line short and never learns."""
+    (workspace / "n.py").write_text("".join(f"line {i}\n" for i in range(1, 11)),
+                                    encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("read_file", path=str(workspace / "n.py"), start_line=4, end_line=4),
+        tools.ALL_TOOL_NAMES)
+    assert result.content == " 4  line 4", "one line asked for, one line back"
+
+
+@posix_only
+def test_read_file_refuses_an_end_line_before_the_start(workspace):
+    """Refused rather than returning empty. An empty result reads as "the range is
+    blank", which is a fact about the file; this is a fact about the request."""
+    (workspace / "n.py").write_text("".join(f"line {i}\n" for i in range(1, 11)),
+                                    encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("read_file", path=str(workspace / "n.py"), start_line=7, end_line=3),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "end_line" in result.content
+
+
+@posix_only
+def test_read_file_end_line_past_the_end_is_the_end_of_the_file(workspace):
+    """Not an error, unlike a `start_line` past the end. Asking to read to line 999 of a
+    ten-line file is a well-formed request with an obvious answer; asking to *start*
+    there is a request for nothing."""
+    (workspace / "n.py").write_text("".join(f"line {i}\n" for i in range(1, 11)),
+                                    encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("read_file", path=str(workspace / "n.py"), start_line=9, end_line=999),
+        tools.ALL_TOOL_NAMES)
+    assert not result.is_error
+    assert result.content == " 9  line 9\n10  line 10"
+
+
+@posix_only
+def test_read_file_without_an_end_line_still_reads_to_the_end(workspace):
+    """The negative control for the four above: the new argument must be optional, and
+    omitting it must not quietly become a one-line read."""
+    (workspace / "n.py").write_text("".join(f"line {i}\n" for i in range(1, 11)),
+                                    encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace), call("read_file", path=str(workspace / "n.py"), start_line=8),
+        tools.ALL_TOOL_NAMES)
+    assert result.content == " 8  line 8\n 9  line 9\n10  line 10"
+
+
+@posix_only
 def test_read_file_refuses_a_start_line_past_the_end(workspace):
     result = tools.execute_tool(
         cfg(workspace), call("read_file", path=str(workspace / "a.py"), start_line=999),
