@@ -38,6 +38,28 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #274 — 2026-09-22 — docs: cancelling a delegation does not reach the cluster
+
+### Changed
+
+- **PLAN 59.a is measured, and the transcript turned out to be the wrong instrument.**
+  The `end` event lands 2.1s to 2.2s after a cancel, and 10.7s to 19.2s if a shell command
+  is running -- but that is when the *server* stops. Polling the endpoint's own counters
+  shows `num_requests_running` stuck at 1 and `generation_tokens_total` climbing 60 to 90
+  tokens every two seconds, with the request not finishing until **281 seconds** after the
+  kill: about 9,500 tokens produced for a caller that had gone.
+- **So the 305 to 320 seconds recorded on 2026-09-19 was right**, and is the same
+  phenomenon rather than a different cancellation path.
+- **The window is the abandoned reply's remaining length**, with `max_tokens` only as its
+  ceiling -- this one stopped at a stop token, not at the cap. A short answer ends in
+  seconds, which is why a cancel can look instant.
+- This makes PLAN 59 more urgent, not less: admission is blind for the remainder of a
+  generation the cancel never reached.
+- Recorded with it: within one delegation the model does not generate while a tool runs, so
+  a tool-blocked cancel measures a process being torn down rather than a cluster decoding.
+  And the endpoint's series are unlabelled with values in scientific notation, so a reader
+  that stops at the `e` reports `1.3130189e+07` as `1` and calls a busy cluster idle.
+
 ## #273 — 2026-09-22 — feat: an empty rate memory prices from a floor, not the endpoint's blend
 
 ### Fixed

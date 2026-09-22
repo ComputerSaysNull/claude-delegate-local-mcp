@@ -912,7 +912,7 @@ local, because they are working notes rather than a product fact.
 59. ⬜ **A cancelled delegation keeps the cluster working, and admission stops seeing it.**
   The gate read `inflight_seqs: 0` against a cluster still running six, so a full burst is
   admitted on top of work nobody waits for. Wanted: a cancel that reaches the request (JOURNAL)
-    - a. ⬜ **Spike first, the lag is unmeasured:** wall clock of the kill against the transcript's `end`
+    - a. ✅ 2026-09-22 **Spike first, the lag is unmeasured:** wall clock of the kill against the transcript's `end`
 60. ✅ 2026-09-22 **An empty rate memory prices from a blend that may not exist either.** `expect`
   returning None falls through to the since-boot figure at face value — 41.7% over (ADR-0094),
   1.745x on 2026-09-19 — and a newly served model has no such figure at all (JOURNAL)
@@ -965,8 +965,8 @@ local, because they are working notes rather than a product fact.
   `CHANGELOG.md` is 182,236 tokens against the 140,000 cap and comes back in
   `files_skipped`, where a range was all anyone wanted. The file's own numbers, not the range's
 71. ⬜ **`test_tool_time_is_the_tools_and_not_the_queue` is load-sensitive under the full
-  WSL suite.** Three failures on 2026-09-22 under three unrelated changes, each passing
-  alone and on re-run; widening its absolute bound reduced but did not end it
+  WSL suite.** Four failures on 2026-09-22, each passing alone and on re-run; the fourth
+  was a commit changing no code at all, which is what rules out every change as its cause
 
 ## Deferred
 
