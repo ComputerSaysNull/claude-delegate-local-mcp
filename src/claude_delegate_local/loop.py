@@ -1167,6 +1167,15 @@ class Dispatch:
     # second try otherwise reports one attempt tokens over every attempt seconds, and
     # across 46 recorded turns that halved the apparent rate.
     answered_seconds: float = 0.0
+    # Summed over every stage, unlike the two above and unlike the token counts. A turn
+    # that answered empty and was sent again paid a *second* prefill, and a run summary
+    # asking where the wall clock went wants both of them -- so these are the one place
+    # here that adds attempts together on purpose. The answering attempt's own decode
+    # span is still `response.decode_seconds`, which is what a rate must divide by.
+    # `None` when no stage reported an interval, which is an adapter that cannot stream
+    # rather than a turn that spent no time.
+    prefill_seconds: float | None = None
+    decode_seconds: float | None = None
 
 
 def is_empty_at_length(response: CanonicalResponse) -> bool:
@@ -1235,6 +1244,32 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     """
     asked_budget = resolve_max_tokens(cfg, entry, effort, max_tokens, ceiling=budget_ceiling)
     attempts = 0
+    # The wall clock this dispatch spent, split the way the engine spends it, and summed
+    # over the stages because each stage is a fresh prompt and so a fresh prefill. The
+    # token counts deliberately are not summed -- they come from the attempt that answered
+    # -- so these are the one accumulation here, and the comment on `Dispatch` says why.
+    # `None` until some stage reports an interval: absent means the adapter cannot time
+    # itself, which is not the same claim as zero.
+    spans: dict[str, float | None] = {"prefill": None, "decode": None}
+
+    def stage(reply: CanonicalResponse) -> None:
+        """Add one stage's two intervals to the running totals."""
+        for key, value in (
+            ("prefill", reply.prefill_seconds), ("decode", reply.decode_seconds),
+        ):
+            if value is not None:
+                spans[key] = (spans[key] or 0.0) + value
+
+    def done(reply: CanonicalResponse, level: str, exhausted: bool = False) -> Dispatch:
+        """The one place a `Dispatch` is built, so no exit can forget a field.
+
+        Four returns below and each used to spell the constructor out; the fifth field
+        added would have been carried by three of them.
+        """
+        return Dispatch(
+            reply, level, attempts, exhausted, answered_seconds=answered,
+            prefill_seconds=spans["prefill"], decode_seconds=spans["decode"],
+        )
 
     response, spent, answered = await complete_with_retry(
         cfg, backend, build(effort, asked_budget),
@@ -1242,8 +1277,9 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
         tick_sleep=tick_sleep, clock=clock,
     )
     attempts += spent
+    stage(response)
     if not is_empty_at_length(response):
-        return Dispatch(response, effort, attempts, answered_seconds=answered)
+        return done(response, effort)
 
     # Stage 2: the same level, more room. `thinking_max_tokens_floor` documents itself as
     # the size retried after an empty answer, so there is no second setting for it.
@@ -1258,8 +1294,9 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
             tick_sleep=tick_sleep, clock=clock,
         )
         attempts += spent
+        stage(response)
         if not is_empty_at_length(response):
-            return Dispatch(response, effort, attempts, answered_seconds=answered)
+            return done(response, effort)
     # Otherwise the model's own cap already pinned the first budget, and "retry at a larger
     # budget" would send a byte-identical request. Skipped rather than spent: an identical
     # dispatch cannot produce a different outcome at temperature zero, and even where it
@@ -1271,7 +1308,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
         # small for the answer -- NOT reasoning exhaustion. Reporting it as exhaustion
         # would be a diagnosis the caller could act on wrongly, sending them to lower the
         # effort that is already lowest instead of raising the budget or shortening the task.
-        return Dispatch(response, effort, attempts, answered_seconds=answered)
+        return done(response, effort)
 
     response, spent, answered = await complete_with_retry(
         cfg, backend, build(
@@ -1282,8 +1319,8 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
         tick_sleep=tick_sleep, clock=clock,
     )
     attempts += spent
-    return Dispatch(response, stepped, attempts, is_empty_at_length(response),
-                    answered_seconds=answered)
+    stage(response)
+    return done(response, stepped, is_empty_at_length(response))
 
 
 async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
@@ -1923,6 +1960,17 @@ class TurnDiagnostic:
     effort: str
     evicted: int
     tool_calls: tuple[ToolCallRecord, ...]
+    # Where this turn's backend time went, summed over its attempts -- a turn sent three
+    # times paid three prefills, and wall clock is what a run summary adds up. Carried on
+    # the diagnostic rather than handed to the transcript separately, because everything
+    # else the turn event reports is already read off this object and a second channel is
+    # a second thing to keep in step.
+    prefill_seconds: float | None = None
+    decode_seconds: float | None = None
+    # And the answering attempt's decode span alone, which is the only interval
+    # `output_tokens` may be divided by: the counts come from one attempt (ADR-0014), so
+    # a rate over the sum above is arithmetic across two different events.
+    answered_decode_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2136,6 +2184,9 @@ class _Watch:
                 effort=dispatch.effort,
                 evicted=evicted,
                 tool_calls=(),
+                prefill_seconds=dispatch.prefill_seconds,
+                decode_seconds=dispatch.decode_seconds,
+                answered_decode_seconds=dispatch.response.decode_seconds,
             )
         )
 

@@ -218,10 +218,12 @@ class OpenAICompatBackend:
         *,
         on_token: Callable[[], None] | None = None,
     ) -> CanonicalResponse:
-        payload, decode_seconds = await self._post_stream(
+        payload, decode_seconds, prefill_seconds = await self._post_stream(
             self._entry.chat_url, self.wire_body(request), _CHAT_PATH, on_token=on_token
         )
-        return self._from_wire(payload, decode_seconds=decode_seconds)
+        return self._from_wire(
+            payload, decode_seconds=decode_seconds, prefill_seconds=prefill_seconds
+        )
 
     async def _post_stream(
         self,
@@ -230,8 +232,14 @@ class OpenAICompatBackend:
         path: str,
         *,
         on_token: Callable[[], None] | None = None,
-    ) -> tuple[dict[str, Any], float | None]:
-        """Stream the chat call and hand back one payload plus the decode interval.
+    ) -> tuple[dict[str, Any], float | None, float | None]:
+        """Stream the chat call and hand back one payload plus both halves of its clock.
+
+        Two intervals, not one: request sent to first token, and first token to last.
+        The second was already taken here; the first is the same two readings subtracted
+        the other way round, and was being thrown away. Together they account for the
+        backend call, which is what lets a run summary say where the time went instead of
+        reporting one span and a remainder.
 
         This still returns only once the stream has ended, so a *successful* call is whole
         exactly as before. What changed (ADR-0078) is the failing one: what the turn had
@@ -242,6 +250,10 @@ class OpenAICompatBackend:
         only way to time decoding without also timing prefill.
         """
         acc = _StreamAccumulator()
+        # When the request went out. Retiring `turn_timeout` removed the whole-call bound
+        # that used to read this, but prefill is first-token minus request-sent, so the
+        # reading is still needed -- now with nothing enforced against it.
+        started = self._clock()
         first: float | None = None
         last: float | None = None
 
@@ -256,7 +268,12 @@ class OpenAICompatBackend:
             if first is None:
                 return None
             span = None if last is None or last <= first else last - first
-            return self._from_wire(acc.payload(), decode_seconds=span)
+            return self._from_wire(
+                acc.payload(), decode_seconds=span,
+                # Known on a partial exactly as on a whole reply: the first token has
+                # arrived by definition of being here, so prefill is over and measured.
+                prefill_seconds=max(first - started, 0.0),
+            )
 
         try:
             async with self._client.stream(
@@ -324,7 +341,11 @@ class OpenAICompatBackend:
         # `None` rather than 0.0 when one frame carried every token: the interval is
         # unknown, not instantaneous, and a zero would be divided by downstream.
         span = None if first is None or last is None or last <= first else last - first
-        return acc.payload(), span
+        # `None` when no frame ever carried output, for the reason `span` is: the request
+        # went out and nothing came back, so the boundary between prefill and decode was
+        # never observed. Zero would claim it was observed and found instantaneous.
+        prefill = None if first is None else max(first - started, 0.0)
+        return acc.payload(), span, prefill
 
     async def probe(self) -> tuple[str, ...]:
         """Model ids this endpoint reports. /v1/models is the health check (MODELS.md)."""
@@ -424,7 +445,8 @@ class OpenAICompatBackend:
     # --- inbound -----------------------------------------------------------------------
 
     def _from_wire(
-        self, payload: dict[str, Any], decode_seconds: float | None = None
+        self, payload: dict[str, Any], decode_seconds: float | None = None,
+        prefill_seconds: float | None = None,
     ) -> CanonicalResponse:
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
@@ -474,6 +496,7 @@ class OpenAICompatBackend:
             stop_reason=str(stop) if stop is not None else None,
             system_fingerprint=str(fingerprint) if fingerprint is not None else None,
             decode_seconds=decode_seconds,
+            prefill_seconds=prefill_seconds,
         )
 
 
