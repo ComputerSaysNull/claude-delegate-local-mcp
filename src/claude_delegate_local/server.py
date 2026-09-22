@@ -605,6 +605,28 @@ class _OneShotTurn:
         self.answered_decode_seconds = dispatched.response.decode_seconds
 
 
+def tool_ms_for_turn(
+    tool_clock: float, now: float, backend_ms: int, diagnostic: Any
+) -> int:
+    """What one finished turn spent running the model's tools.
+
+    The turn's wall clock since the previous turn -- or since the slot was granted, for
+    the first -- less its own backend call. Floored at zero because the two intervals are
+    read from the same clock a moment apart and a negative would be measurement noise
+    reported as a fact.
+
+    **Gated on the calls rather than on the arithmetic**, exactly as the viewer's per-turn
+    line is. The subtraction is tool time only for a turn that ran tools; for one that ran
+    none it is the dispatch's own bookkeeping -- pricing the budget, assembling the
+    request, writing the transcript -- and naming that "tools" reports the model doing
+    something it did not. A dispatch that called nothing therefore reports no tool time
+    rather than a few seconds of it.
+    """
+    if not getattr(diagnostic, "tool_calls", None):
+        return 0
+    return max(int((now - tool_clock) * 1000) - backend_ms, 0)
+
+
 async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's arguments,
     # one dispatch. The branches are the paths a dispatch can end on, and each one has
     # to close the transcript stream as well as write the record.
@@ -815,13 +837,10 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         now = time.monotonic()
         turns_streamed += 1
         backend_ms = int(backend_seconds * 1000)
-        # What this turn spent outside the backend call: running the model's tools.
         # Measured from the dispatch for the first turn and from the previous turn after
-        # that, so no part of the admission wait is counted as tool execution. Floored at
-        # zero because the two intervals are read from the same clock a moment apart and
-        # a negative would be measurement noise reported as a fact.
+        # that, so no part of the admission wait is counted as tool execution.
         if tool_clock is not None:
-            streamed_tool_ms += max(int((now - tool_clock) * 1000) - backend_ms, 0)
+            streamed_tool_ms += tool_ms_for_turn(tool_clock, now, backend_ms, diagnostic)
         tool_clock = now
         streamed_out_tokens += getattr(diagnostic, "output_tokens", 0) or 0
         streamed_backend_ms += backend_ms
