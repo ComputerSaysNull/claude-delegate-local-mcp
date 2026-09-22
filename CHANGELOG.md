@@ -38,6 +38,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #279 — 2026-09-22 — docs: CLAUDE.md states the repository, not the author's machine
+
+### Changed
+
+- **Machine specifics left the committed CLAUDE.md.** *Symptom:* a contributor on Linux or
+  macOS was told the server runs in a named WSL distribution, given a Windows-only test
+  command, and warned about a `/mnt/c` checkout they do not have. *Cause:* the author's
+  workstation was written into the one file every contributor's agent loads. *Fix:* the
+  traps are restated generically — the POSIX-only server, a Windows-drive checkout being
+  slow, two interpreters' suites colliding on one `__pycache__` — and the specifics move to
+  a gitignored `CLAUDE.local.md`, which `*.local.md` already covers.
+- **Incident history became rules.** The list of six checks that could not fail is now the
+  three shapes they took, with JOURNAL as the record; the sentence counting the
+  malformed titles that landed before the title check went. The file is loaded every
+  session, so a story there is paid for every session.
+- **Two conventions a contributor needs moved in from the author's private notes:** agent
+  and skill files have two readers, so `list_agents` accepting one proves nothing about
+  YAML; and how a blocking `BUDGET:` is answered — trim first, raise last, to the next
+  multiple of ten. "Four homes" for the model-facing contract now reads "several", matching
+  the table in `docs/ARCHITECTURE.md`.
+
 ## #278 — 2026-09-22 — fix: tool time counted what no tool did
 
 ### Fixed

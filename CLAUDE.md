@@ -21,8 +21,9 @@ This lists what will bite you.
     python scripts/gen_agents_docs.py               # after touching .claude/agents/
     python scripts/gen_tools_docs.py                # after touching tools.py
     python scripts/plan_stack.py                    # the stack, and the commands to ship it
-    .venv/Scripts/python.exe -m pytest -q           # Windows; parallel, `-n 0` for serial
-    wsl -d Ubuntu-24.04 -e bash -lc '...'           # anything needing bwrap or ext4
+    python -m pytest -q                             # parallel by default, `-n 0` for serial
+
+`bwrap` needs Linux or WSL. Your own machine's paths go in the gitignored `CLAUDE.local.md`.
 
 ## Documentation ownership
 
@@ -57,7 +58,7 @@ Rules a machine cannot check, so they land here:
 - **Config defaults live only in `config.py`.** Never in a docstring, a README, a comment
   in another module, or a test. The reference table is generated from the dataclass, and
   the gate fails when they disagree.
-- **The model-facing contract has four homes, and a description is the smallest.** An
+- **The model-facing contract has several homes, and a description is the smallest.** An
   argument's meaning belongs in `inputSchema`, a remedy in the refusal that raises it, the
   long form in a resource. Why a description cannot hold a contract, and what each home is
   delivered by, is `docs/ARCHITECTURE.md`'s. The trap here is a fact in the wrong home:
@@ -79,7 +80,7 @@ Rules a machine cannot check, so they land here:
 - **`allowed_tools` is enforced at two sites**, `declared_tools` and `execute_tool` in
   `tools.py`, and neither trusts the other — why that is necessary is `docs/AGENTS.md`'s. The
   trap here is a maintenance one: change either site alone and enforcement goes back to being
-  asymmetric, silently. `WITHHELD_TOOL_NAMES` is empty as of M5 and kept anyway, so remember
+  asymmetric, silently. `WITHHELD_TOOL_NAMES` is empty and kept anyway, so remember
   what it never was: it narrows only what is *declared*, never a substitute for the check.
 - **Trust server-captured exit codes, never the model's account of them.** `bash_failures`
   and `last_bash_exit` come from real process exits and may contradict the model's final
@@ -88,16 +89,13 @@ Rules a machine cannot check, so they land here:
   Python validates a `.pyc` on `(mtime, size)`, so a same-length edit inside one timestamp
   tick is invisible. Set `sys.pycache_prefix` to a fresh temp directory. `-B` does *not*
   help — it stops writing bytecode, not reading a stale cache. (JOURNAL 2026-08-25)
-- **A check that cannot fail is worse than no check**, because it is trusted. Six have been
-  found here already: one searching a file for the reference it was validating, one reading
-  stale bytecode, one flagging the pattern list that defined it, one scanning the previous
-  commit's message because git had not written the new one yet, one asserting a tool
-  description against `list_tools()` — the server's own copy rather than the wire the client
-  truncates — and one whose `tmp_path` was named after the pattern it tested, so the fixture
-  directory matched, the tree was pruned, and the assertion passed against the unfixed bug.
+- **A check that cannot fail is worse than no check**, because it is trusted. The shapes
+  found here (JOURNAL has each one): a check that finds its own needle — the reference it
+  validates, the pattern list that defines it, a fixture named after the pattern it tests; a
+  check that reads stale state — cached bytecode, the previous commit's message; and a check
+  that reads the wrong copy — `list_tools()` rather than the wire the client truncates.
   Negative-test every check — assert it fires on a real violation, not merely that it passes.
-  Two tests written *for* the fourth passed against the bug before they were rewritten, so
-  the rule applies to the tests as much as to the checks.
+  The rule applies to the tests as much as to the checks.
 - **Red before green, in that order.** The test is written first and run against the unfixed
   code, and its failure output is kept: a test that passes before the fix is blind and gets
   rewritten rather than trusted. Ordering is what makes the rule above checkable instead of
@@ -107,13 +105,12 @@ Rules a machine cannot check, so they land here:
 
 ## Environment
 
-- Claude Code runs on Windows; the server runs in **WSL2 Ubuntu 24.04**. Paths cross that
-  boundary in one place, `wsl.py` — what it converts and refuses is `docs/ARCHITECTURE.md`'s.
-- The workspace lives on `/mnt/c`, which is roughly 12x slower for a test run and ~27x for
-  creating a virtualenv. Expected, measured, and accepted. (ADR-0020)
-- **Never run the Windows and WSL suites at once against the same checkout.** Both write
-  `__pycache__` under `/mnt/c`, so xdist workers disagree about what they collected and it
-  surfaces as an ImportError in an unrelated module rather than as a collision.
+- The server is POSIX-only. From a Windows client, paths cross into WSL in one place,
+  `wsl.py` — what it converts and refuses is `docs/ARCHITECTURE.md`'s.
+- A checkout on a Windows drive seen from WSL is an order of magnitude slower. Accepted.
+  (ADR-0020)
+- **Never run two interpreters' suites against one checkout at once.** They share
+  `__pycache__`, and it surfaces as an ImportError in an unrelated module.
 - `bwrap` needs `--symlink usr/lib64 /lib64`; without it nothing dynamically linked runs
   and the error blames the executable rather than the missing loader. (ADR-0021)
 - The head node is configuration. Never a literal in code, docs, tests, a commit message
@@ -145,8 +142,9 @@ Rules a machine cannot check, so they land here:
   title is repaired by editing it. Conventional Commits is checked on the pull request
   title *and* on every commit subject: a squash takes its subject from the title for a
   multi-commit branch and from the commit for a single one, so guarding either alone
-  leaves half of what reaches `main` unchecked. Both were unchecked until two `M1:`-style
-  subjects and five such titles had already landed.
+  leaves half of what reaches `main` unchecked.
+- **Agent and skill files have two readers**, `agents.py` and real YAML, and ours is the more
+  permissive: `list_agents` accepting a file proves nothing. Quote any value containing `: `.
 
 ## Conventions
 
@@ -157,6 +155,8 @@ Rules a machine cannot check, so they land here:
 - Conventional Commits. Branches `feat/`, `fix/`, `docs/`.
 - Regression tests are named after the bug and live in `tests/regression/`.
 - CHANGELOG entries carry the **why** — the symptom, the cause, the fix.
+- A blocking `BUDGET:` means trim your own additions first. Raise it only as a last resort, to
+  the next multiple of ten with a one-line reason; cutting others' prose is audit work.
 - ADR bodies are never edited. A superseded decision changes only its heading.
 - Upstream fixes are read and reimplemented, not cherry-picked. This is a rewrite.
   (ADR-0001)
