@@ -2304,3 +2304,40 @@ clock at the first token needs no metric at all and was declined: it would let a
 wedged before its first token run to `turn_timeout`, and that wedge is the failure
 ADR-0047 exists for. Covering prefill keeps one deadline meaning one thing, at the price
 of a coupling the setting's own description now states.
+
+## 2026-09-22 — The reply budget binds, and it binds on the largest answers
+
+PLAN 68 asked whether the reply budget is needed at all once `turn_timeout` leaves it.
+With that term gone `budget_seconds` is the run deadline alone, so the ceiling reduces to
+"tokens the remaining deadline can pay for" -- which the deadline already enforces by
+ending the call. A positive answer would have deleted PLAN 60 and 61 and retired ADR-0055.
+
+It needed no cluster run. Every `priced` event records `budget_ceiling` and every `turn`
+event records `output_tokens`, so the question is answerable from transcripts already
+written. Pairing them by turn number over 690 streams gives 953 pairs.
+
+**31 of 953 turns, 3.3%, ended with `output_tokens` exactly equal to `budget_ceiling`.**
+Exact equality is the signature of the cap being applied rather than of a coincidence: the
+ceiling becomes `max_tokens`, and a reply that wanted more stops there. Another 3 landed
+between 95% and 100%. The remaining 89% used under a quarter of what they were given.
+
+So the budget is not ceremony. It stays, and 60 and 61 stay with it.
+
+**Where it binds is the part worth knowing.** The turns that filled their ceiling are the
+big ones -- 47,690, 55,243, 58,950 and 80,265 tokens, all audit passes. A budget that only
+ever bound small replies would be harmless; this one truncates the largest answers the
+server produces, which is exactly where an under-estimated decode rate does its damage.
+That is a direct argument for 61: the bucket minimum prices 24-71% below the benchmark, and
+every percent of that is taken off an answer that was already at the limit.
+
+**The loop arm was dropped, and that was a correction rather than a simplification.** The
+plan first proposed a second arm to check the budget was not the only thing bounding a
+runaway reply, citing the turn that filled 131,072 tokens at 93.0% duplicate lines. That
+measurement predates #255: it was taken at `tool_call_temperature` 0.2, and sampling is now
+1.0 with `top_p` 0.95. Of the 205 pairs written after that change, **none** that filled its
+ceiling shows a duplicate-line share at or above 0.5. Under current sampling a filled
+ceiling is a long answer, not a loop -- so the budget's remaining job is the one it was
+built for.
+
+Read the stream's `t` key, never `event`: a reader keyed on the wrong one reports a
+transcript with no priced rows, which looks exactly like a dispatch that never priced.
