@@ -1,4 +1,5 @@
-<!-- BUDGET: 1017
+<!-- BUDGET: 1021
+     Raised from 1017 (+1 for this line) on 2026-09-22: gating tool time on the calls closed the visible half, and the half it did not close needs saying or the next reader reads the gate as the whole fix.
      Raised from 1006 (+1 for this line) on 2026-09-21: a defect found while reviewing the
      cross-process burst flag has no other home, and an unfiled bug is one nobody ranks. -->
 <!-- Raised from 997 (+1 for this line) on 2026-09-21: the deadline thread was proposed twice on 2026-09-20 and written down nowhere, and the question it ends with -- whether the reply budget need exist -- outranks two items already in this list. -->
@@ -967,6 +968,9 @@ local, because they are working notes rather than a product fact.
 71. ⬜ **`test_tool_time_is_the_tools_and_not_the_queue` is load-sensitive under the full
   WSL suite.** Four failures on 2026-09-22, each passing alone and on re-run; the fourth
   was a commit changing no code at all, which is what rules out every change as its cause
+72. ⬜ **A first turn that runs tools still charges the dispatch's setup to them.**
+  `tool_clock` starts at the grant, so turn 1's window holds budget pricing and request
+  assembly as well as the tools. Needs the loop to time each call, where the number is
 
 ## Deferred
 

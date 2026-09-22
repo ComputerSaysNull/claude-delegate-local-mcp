@@ -1,4 +1,5 @@
-<!-- BUDGET: 1266
+<!-- BUDGET: 1269
+     Raised from 1266 (+1 for this line) on 2026-09-22: tool time is gated on the calls at two sites now, and a reader who knows only one of them still cannot tell why a toolless run once reported tools.
      Raised from 1258 (+1 for this line) on 2026-09-22: the admission gate now drives the rate sampler's ticker, which is a second reader of a number this document owns. -->
 <!-- 
      Raised from 1250 (+1 for this line) on 2026-09-21: a record now carries a claim other
@@ -1215,7 +1216,9 @@ never sees the per-dispatch record: `tool_calls`, `tool_errors`, `bash_calls` an
 `bash_failures`, taken from the same ledger the record uses rather than counted a second
 way, beside `prefill_seconds`, `decode_seconds` and `tool_seconds`. Tool time gets its own
 clock rather than `ms` minus `backend_ms`, which on turn 1 would charge the admission wait
-to the tools.
+to the tools — and it accrues only on turns that called one, the rest of that window being
+the dispatch's own bookkeeping. The accrual and the viewer's line both gate on the calls;
+either alone still reports seconds of "tools" on a run that called none.
 
 The `end` event carries `finish_reason` verbatim, and the viewer names the truncating ones
 with what to do about each. A cut-off reply is a *successful* dispatch — nothing raised, so

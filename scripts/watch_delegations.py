@@ -626,7 +626,12 @@ def _end_timings(event: dict) -> list[str]:
     # not: the turn clock starts before the admission gate, so that subtraction carries the
     # queue and the server's bookkeeping as well, and calling the result "tools" overstates
     # it by however long the run waited for a slot. `tool_seconds` is timed from the grant.
-    if isinstance(tools := event.get("tool_seconds"), (int, float)):
+    # Gated on the calls like `_turn_timings` above, so a dispatch that ran none says
+    # nothing rather than "0s tools" -- and so a transcript written before the server
+    # stopped charging its own bookkeeping to the bucket cannot show it here either.
+    if isinstance(tools := event.get("tool_seconds"), (int, float)) and event.get(
+        "tool_calls"
+    ):
         out.append(f"{_span(tools)} tools")
     out += [f"{_span(value)} {label}" for value, label in halves
             if isinstance(value, (int, float))]

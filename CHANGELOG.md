@@ -38,6 +38,34 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #278 — 2026-09-22 — fix: tool time counted what no tool did
+
+### Fixed
+
+- **A dispatch that called no tools reported seconds of tool time.** *Symptom:* a closing
+  summary reading `2s tools` beside `0 tool calls`, sighted in the viewer. *Cause:* two
+  defects, either of which shows it alone. The server's accumulator charged every turn's
+  non-backend wall clock to tools, on the assumption that what a turn spends outside the
+  backend call is tool execution — true of a turn that ran tools, where for one that ran
+  none the bucket collects the dispatch's own bookkeeping: pricing the budget, assembling
+  the request, writing the transcript. The viewer then printed that figure whatever it
+  was, while the per-turn renderer beside it gates on the calls and says why in its own
+  docstring. *Fix:* `tool_ms_for_turn` accrues only on a turn that called a tool, and
+  `_end_timings` gates on the calls like its sibling. Gating the display alone would have
+  hidden the symptom and left the number wrong, so both moved.
+- **The accrual had no seam to test.** It was four lines inside a closure inside
+  `run_delegation`, which exposes no clock, so it could only be asserted end to end
+  against a real dispatch. *Fix:* extracted as `tool_ms_for_turn` carrying today's
+  behaviour first, so the regression test fails on an assertion rather than an
+  `ImportError`. The red is `5m00s total 2s tools 3s prefill 4m50s generating` against an
+  event carrying no calls, which is the sighting reproduced.
+
+### Changed
+
+- **PLAN 72 records what the gate does not fix.** `tool_clock` starts when the slot is
+  granted, so a *first* turn that does run tools still has the dispatch's setup inside its
+  window. Closing that needs the loop to time each call, which is where the number is.
+
 ## #277 — 2026-09-22 — docs: the 2026-09-22 audit, and the viewer pass the runbook does not have
 
 ### Added
