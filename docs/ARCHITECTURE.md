@@ -727,11 +727,9 @@ be held, and `admission.py` counts it when it calls itself a four-rule gate. The
 every path — a limit enforced only where requests happen to run in parallel bounds a caller
 against itself and nothing else.
 
-There were four until 2026-09-13. A cap on concurrent large cold prefills was removed:
-measured twice, it added 286.3s of aggregate waiting for a batch 12.1s slower end to end,
-and fired `admission_wait_timeout` four times on a cluster at 3% KV use with zero
-preemptions. The engine serialises cold prefills itself, so the floor it sets is reached
-without the cap and cannot be beaten with it (ADR-0077).
+There were four until ADR-0077 removed a cap on concurrent large cold prefills: the engine
+serialises them itself, so the floor it sets is reached without the cap and cannot be
+beaten with it.
 
 The three are **one predicate, not three gates in series**. A request that took a sequence
 slot and then blocked on the token budget would hold capacity it is not using for the
@@ -855,6 +853,12 @@ process. The transport is stdio, so the MCP client starts a server per registrat
 editor windows open on two projects are two servers, each with counters starting at zero,
 against one KV pool. Each rule bounded a session, and the cluster saw the configured
 ceiling multiplied by the number of windows open.
+
+The transcript carries the same shape. Its per-dispatch counter is module-level, so two
+processes both start at `0001`, and a same-millisecond same-agent pair built one filename
+that the record's `O_TRUNC` then erased rather than interleaved. The name now carries a
+short hash of the `pid:start_time` identity `slots.py` already owns, placed after the
+timestamp so the directory still sorts by time.
 
 So the counters live in a file under `flock` that every server on the machine shares, and
 `admission.py` tests the capacity rules against the sum. `slots.py` owns that file; the policy
@@ -1108,11 +1112,6 @@ and tool result stayed on the far side of the call.
 The gap between them is the resource delegation protects: 2,002 tokens of 907,400 on a
 twelve-turn run, or 0.22%. A one-turn delegation returns everything it generated, which is
 the honest signal that a one-shot displaces far less per token than a long agentic run.
-
-An earlier `spared` column mixed a peak prompt with total output, to avoid what looked like
-counting the same documents once per turn. That premise was wrong — the caller would have
-paid for them the same number of times — so the column measured no clean quantity and was
-replaced rather than renamed.
 
 **The list redraws by overwriting, never by blanking first.** Erasing the screen and then
 painting it leaves the terminal empty for as long as the paint takes, which at the list's

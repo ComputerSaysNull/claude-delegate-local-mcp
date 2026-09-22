@@ -38,6 +38,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #267 — 2026-09-21 — fix: a transcript name is unique across processes
+
+### Fixed
+
+- **Two server processes writing in the same millisecond produced one transcript, and the
+  record erased rather than interleaved.** The per-dispatch counter is module-level, so
+  every process starts at `0001`, and a name was only the timestamp, that counter and the
+  agent slug -- no pid, no uuid, no random suffix. Two processes writing for the same agent
+  inside one millisecond therefore built the same filename; the `.jsonl` stream appended,
+  so one file held two interleaved runs, and the `.json` record is opened `O_TRUNC`, so the
+  second write destroyed the first outright.
+- It was reachable before and is ordinary now: `run` dispatches a delegation from a shell,
+  so a fan-out is routinely several processes rather than one.
+- The name carries a short hash of the `pid:start_time` identity `slots.py` already owns,
+  rather than a second notion of "this process". It sits after the timestamp, so the
+  directory still sorts by start time and a stream still pairs with its record by time.
+- Red before green: two dispatches left **one** record and **one** stream where there
+  should have been two of each.
+
 ## #266 — 2026-09-21 — fix: the rate seed no longer runs inside the first turn's stall clock
 
 ### Fixed

@@ -47,11 +47,17 @@ import re
 import time
 from collections.abc import Iterable
 from datetime import datetime, UTC
+from hashlib import blake2s
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .backends.base import answer_of as _answer_of
 from .backends.base import duplicate_line_share
+# The one notion of "this process" this server has. The module rather than the name, so
+# the call below reads through `slots` at the moment it runs: a bound alias would freeze
+# this module's idea of process identity at import, which is exactly the second
+# definition the import exists to avoid.
+from . import slots
 from .wsl import UntranslatablePath, to_local
 
 if TYPE_CHECKING:
@@ -69,6 +75,35 @@ _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 # Enough to make two records written in the same millisecond by concurrent calls distinct.
 _COUNTER = {"n": 0}
+
+# And not enough on its own, because it is per *process*: two processes both start at
+# 0001, so a same-millisecond, same-agent pair across two of them produced one filename --
+# and the record is written with O_TRUNC, so the second silently clobbered the first. The
+# `run` subcommand makes cross-process fan-out ordinary, so that is live data loss rather
+# than a hypothetical.
+#
+# The discriminator that supplies it is below, read once: a process does not change its
+# identity, and re-deriving it per dispatch would only invite the two builders to derive
+# it differently.
+
+
+def _process_token() -> str:
+    """A short, filename-safe token that is this process and no other.
+
+    Derived from `slots._identity` rather than from a pid, a uuid or a random suffix
+    invented here. That string is already this server's answer to "which process is
+    this" -- pid plus the incarnation of that pid, so a reused pid is a different
+    process -- and a second answer to the same question is a second thing to keep true.
+
+    Hashed rather than used verbatim because the identity is spelt with a colon, which
+    has no business in a filename. Six hex characters: fixed-width, so it cannot disturb
+    the timestamp ordering it sits behind, and wide enough that a collision between two
+    concurrent processes is not the failure mode anyone meets.
+    """
+    return blake2s(slots._identity().encode("utf-8"), digest_size=3).hexdigest()
+
+
+_PROCESS = _process_token()
 
 
 def _rate(tokens: int | None, ms: int | None) -> float | None:
@@ -356,11 +391,26 @@ def open_stream(cfg: Config, agent_name: str | None) -> Stream | None:
     try:
         target = directory(cfg)
         target.mkdir(parents=True, exist_ok=True, mode=0o700)
-        _COUNTER["n"] += 1
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%f")[:-3]
-        return Stream(target / f"{stamp}-{_COUNTER['n']:04d}-{_slug(agent_name)}.jsonl")
+        return Stream(target / _filename(agent_name, ".jsonl"))
     except (OSError, UntranslatablePath):
         return None
+
+
+def _filename(agent_name: str | None, suffix: str) -> str:
+    """The name one dispatch's stream or record is written under.
+
+    Three discriminators, and none of them is redundant. The stamp orders the directory
+    and is what a reader pairs a stream with its record by. The counter separates two
+    dispatches *this* process began in the same millisecond. `_PROCESS` separates two
+    processes, which the counter cannot, both of them having started at one.
+
+    One function rather than the same f-string twice: the stream and the record are named
+    a moment apart and must stay the same shape, and two copies is how one of them gets
+    the new discriminator and the other does not.
+    """
+    _COUNTER["n"] += 1
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%f")[:-3]
+    return f"{stamp}-{_PROCESS}-{_COUNTER['n']:04d}-{_slug(agent_name)}{suffix}"
 
 
 def enabled(cfg: Config) -> bool:
@@ -504,10 +554,7 @@ def write(  # noqa: PLR0913 -- one record's worth of facts, from four different 
         target = directory(cfg)
         target.mkdir(parents=True, exist_ok=True, mode=0o700)
 
-        _COUNTER["n"] += 1
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%f")[:-3]
-        agent = _slug(agent_name)
-        path = target / f"{stamp}-{_COUNTER['n']:04d}-{agent}.json"
+        path = target / _filename(agent_name, ".json")
 
         record: dict[str, Any] = {
             "at": datetime.now(UTC).isoformat(),
