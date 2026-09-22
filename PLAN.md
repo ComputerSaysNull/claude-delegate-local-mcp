@@ -1,4 +1,4 @@
-<!-- BUDGET: 1011
+<!-- BUDGET: 1017
      Raised from 1006 (+1 for this line) on 2026-09-21: a defect found while reviewing the
      cross-process burst flag has no other home, and an unfiled bug is one nobody ranks. -->
 <!-- Raised from 997 (+1 for this line) on 2026-09-21: the deadline thread was proposed twice on 2026-09-20 and written down nowhere, and the question it ends with -- whether the reply budget need exist -- outranks two items already in this list. -->
@@ -913,10 +913,10 @@ local, because they are working notes rather than a product fact.
   The gate read `inflight_seqs: 0` against a cluster still running six, so a full burst is
   admitted on top of work nobody waits for. Wanted: a cancel that reaches the request (JOURNAL)
     - a. ⬜ **Spike first, the lag is unmeasured:** wall clock of the kill against the transcript's `end`
-60. ⬜ **An empty rate memory prices from a blend that may not exist either.** `expect`
+60. ✅ 2026-09-22 **An empty rate memory prices from a blend that may not exist either.** `expect`
   returning None falls through to the since-boot figure at face value — 41.7% over (ADR-0094),
   1.745x on 2026-09-19 — and a newly served model has no such figure at all (JOURNAL)
-    - a. ⬜ **Spike: what does the since-boot rate read on an engine minutes old**, and does
+    - a. ❌ 2026-09-22 **Spike: what does the since-boot rate read on an engine minutes old**, and does
     the stamp's own discard land a delegation in exactly this state? Neither is measured
 61. ✅ 2026-09-22 **Price from periodic cluster samples, and from the bucket mean not its minimum.**
   A per-turn sample is filed under `expected_concurrency`, frozen at lease grant, and carries
@@ -961,6 +961,12 @@ local, because they are working notes rather than a product fact.
 69. ⬜ **A burst flag stranded by a failed close outlives its usefulness.** `_announce_burst`
   is best effort, and a live record is kept by liveness rather than by `_is_idle`, so other
   processes read an open wait nobody holds until that process exits or next goes idle
+70. ⬜ **`files[]` takes whole files, so a large one is refused rather than sampled.**
+  `CHANGELOG.md` is 182,236 tokens against the 140,000 cap and comes back in
+  `files_skipped`, where a range was all anyone wanted. The file's own numbers, not the range's
+71. ⬜ **`test_tool_time_is_the_tools_and_not_the_queue` is load-sensitive under the full
+  WSL suite.** Three failures on 2026-09-22 under three unrelated changes, each passing
+  alone and on re-run; widening its absolute bound reduced but did not end it
 
 ## Deferred
 

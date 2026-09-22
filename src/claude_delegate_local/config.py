@@ -629,6 +629,21 @@ class Config:
         "cold start is not. Blank restores the old tmpfs behaviour (ADR-0094).",
     )
 
+    rate_fallback_tok_s: float = _f(
+        10.0,
+        "Decode rate assumed when the rate memory has nothing at this concurrency or "
+        "busier. Only the empty case: a bucket with samples always answers from them. "
+        "It replaces the endpoint's since-boot figure, which is a blend over every "
+        "regime the engine has served and was measured 41.7% over (ADR-0094) and 1.745x "
+        "over. Optimistic is the dangerous direction -- it authorises a reply the clock "
+        "cannot deliver, so the turn dies with nothing, where under-pricing truncates "
+        "and something comes back. Ten because the operator benchmark's worst measured "
+        "figure is just under 20 tok/s at six-wide, so this sits below every rate this "
+        "deployment has been seen to achieve rather than being invented. It is a floor "
+        "to start from, not an estimate to keep: the sampler files a real one within a "
+        "scrape or two of any load. Zero restores the since-boot fallthrough.",
+        unit="tokens/second",
+    )
     rate_sample_seconds: float = _f(
         10.0,
         "How often the decode rate is sampled from the cluster while anything is in "

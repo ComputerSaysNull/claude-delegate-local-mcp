@@ -866,12 +866,14 @@ class RateSampler:
         }
 
 
-async def seed_decode_rate(
+async def seed_decode_rate(  # noqa: PLR0913 -- one argument per thing the seed consults
     backend: Backend,
     history: RateHistory | None = None,
     expected_concurrency: int = 1,
     on_pool: Callable[[int | None], None] | None = None,
     label_trusted: bool = False,
+    *,
+    fallback: float = 0.0,
 ) -> DecodeRate:
     """The estimator, seeded from the cluster if it will say and empty if it will not.
 
@@ -920,6 +922,9 @@ async def seed_decode_rate(
         if remembered is not None:
             return DecodeRate(remembered, float(expected_concurrency),
                               source="observed_at_concurrency")
+        # Deliberately NOT the floor below. That floor answers "nothing was ever
+        # measured at this concurrency"; this is "the scrape that would have told us
+        # failed", and the established answer is no ceiling rather than a guessed one.
         return DecodeRate(source="unknown")
     # The same payload carries the size of the KV pool, and it used to be dropped here.
     # Reporting it costs nothing -- this scrape already happened to price the turn -- and it
@@ -932,8 +937,23 @@ async def seed_decode_rate(
     if remembered is not None:
         return DecodeRate(remembered, float(expected_concurrency),
                           source="observed_at_concurrency")
-    rate = (cluster or {}).get("decode_tokens_per_second_since_boot")
     running = (cluster or {}).get("requests_running")
+    # Nothing remembered at this concurrency or busier. The endpoint's since-boot figure
+    # is what used to answer here and it is the wrong shape for the question: a blend over
+    # every regime the engine has served, measured 41.7% over (ADR-0094) and 1.745x over.
+    # Its error runs optimistic, which is the direction that kills a turn rather than
+    # truncating it -- a budget above what the clock can pay for authorises a reply that
+    # never arrives. A configured floor errs the other way and costs a first turn some of
+    # its ceiling until the sampler files a real sample, which under load is a scrape or
+    # two. Narrows ADR-0055 knowingly: the rate is still measured everywhere a measurement
+    # exists, and this is only what to do when none does (ADR-0101).
+    if fallback > 0:
+        return DecodeRate(
+            float(fallback),
+            running if isinstance(running, (int, float)) else float(expected_concurrency),
+            source="configured_fallback",
+        )
+    rate = (cluster or {}).get("decode_tokens_per_second_since_boot")
     return DecodeRate(
         rate if isinstance(rate, (int, float)) else None,
         running if isinstance(running, (int, float)) else None,
@@ -1630,6 +1650,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         rate = await seed_decode_rate(
             backend, rate_history, expected_concurrency, on_pool=on_pool,
             label_trusted=cfg.admission_idle_hold > 0,
+        fallback=cfg.rate_fallback_tok_s,
         )
         ceiling = rate.ceiling(cfg, budget_seconds(
             cfg, dispatch_left=deadline - clock()
@@ -3052,6 +3073,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     decode_rate = await seed_decode_rate(
         backend, rate_history, expected_concurrency, on_pool=on_pool,
         label_trusted=cfg.admission_idle_hold > 0,
+        fallback=cfg.rate_fallback_tok_s,
     )
 
     # When a turn last *finished*. Deliberately not when one last started, which is what

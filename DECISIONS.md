@@ -19,6 +19,43 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0101 — 2026-09-22 — An empty rate memory prices from a configured floor, not the endpoint's blend — Accepted
+
+**Context.** `expect` returning None fell through to the endpoint's
+`decode_tokens_per_second_since_boot`. That figure is a blend over every concurrency
+regime the engine has served, and the turn about to be priced is meeting one specific
+regime -- measured 41.7% over (ADR-0094) and 1.745x over on 2026-09-19. Its error runs
+optimistic, and optimistic is the expensive direction: a budget above what the clock can
+pay for authorises a reply that never arrives and the turn dies with nothing, where a
+budget below it truncates and something comes back. ADR-0094's durability move was
+supposed to end cold starts and instead caused one, so the empty case is not rare.
+
+**Decision.** When nothing is remembered at this concurrency or busier, price from
+`DELEGATE_RATE_FALLBACK_TOK_S`, default 10 tok/s, rather than from the blend. Setting it
+to zero restores the blend.
+
+**Only that case.** A scrape that *failed* keeps its existing answer, `unknown`, which
+means no ceiling: "nothing was ever measured here" and "the reading that would have told
+us did not arrive" are different questions, and giving them one answer widened the change
+until unrelated deadline tests moved.
+
+**Why ten.** It is not invented. The operator benchmark's worst measured figure is just
+under 20 tok/s at six-wide, so ten sits below every rate this deployment has been seen to
+achieve. It is a floor to start from rather than an estimate to keep: since ADR-0100's
+sibling change the sampler files a real sample within a scrape or two of any load, so the
+floor's blast radius is the first turn of a cold process.
+
+**This knowingly narrows ADR-0055**, which made the rate measured and never configured.
+The narrowing is precise: a bucket with samples in it still answers from them and never
+reaches this path. What is configured is only what to do when no measurement exists at
+all, where the alternative was not a measurement either -- it was a different regime's
+average wearing a measurement's clothes.
+
+**Consequences.** A first turn on a cold process gets a smaller ceiling than it used to,
+and a large first answer may truncate where it previously died. `rate_source` reads
+`configured_fallback`, so a priced row says plainly that no measurement backed it --
+which the `cluster_since_boot` label never did.
+
 ## ADR-0100 — 2026-09-21 — turn_timeout is retired; silence and total time are the only deadlines — Accepted
 
 **Context.** `turn_timeout` arrived with ADR-0047 as a per-turn backend-call deadline, when

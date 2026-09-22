@@ -38,6 +38,42 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #273 — 2026-09-22 — feat: an empty rate memory prices from a floor, not the endpoint's blend
+
+### Fixed
+
+- **A rate memory with nothing at this concurrency or busier priced the turn from the
+  endpoint's since-boot figure.** That is a blend over every regime the engine has served,
+  measured 41.7% over (ADR-0094) and 1.745x over on 2026-09-19, and its error runs
+  *optimistic* -- the direction that kills a turn rather than truncating it. A budget above
+  what the clock can pay for authorises a reply that never arrives; one below it truncates
+  and something comes back.
+- `DELEGATE_RATE_FALLBACK_TOK_S`, default 10, answers that case instead. Ten is not
+  invented: the operator benchmark's worst measured figure is just under 20 tok/s at
+  six-wide, so it sits below every rate this deployment has been seen to achieve. It is a
+  floor to start from rather than an estimate to keep -- the sampler added in #272 files a
+  real sample within a scrape or two of any load, so its reach is the first turn of a cold
+  process. Zero restores the blend.
+- **A failed scrape is deliberately not floored** and keeps its existing `unknown`.
+  "Nothing was ever measured at this concurrency" and "the reading that would have told us
+  did not arrive" are different questions; answering both with the floor widened the change
+  until four unrelated deadline tests moved, which is how the scope creep was caught.
+- `rate_source` reads `configured_fallback`, so a priced row says plainly that no
+  measurement backed it. `cluster_since_boot` never did.
+- **Knowingly narrows ADR-0055**, which made the rate measured and never configured
+  (ADR-0101). The narrowing is precise: a bucket with samples still answers from them and
+  never reaches this path. What is configured is only what to do when no measurement exists
+  -- where the previous answer was not a measurement either, but another regime's average
+  wearing a measurement's clothes.
+- Red before green, measured against the committed code because the signature moved: an
+  empty six-wide memory priced at **34.38 tok/s**, and a failed scrape at **None**.
+
+### Changed
+
+- PLAN 60.a is cancelled rather than done. It asked what the since-boot rate reads on an
+  engine minutes old; the operator declined a restart, and the answer stopped mattering
+  once that figure no longer prices anything.
+
 ## #272 — 2026-09-22 — feat: the decode rate is sampled on a ticker and priced from the bucket mean
 
 ### Fixed
