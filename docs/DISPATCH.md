@@ -1,4 +1,6 @@
-<!-- BUDGET: 823
+<!-- BUDGET: 838
+     Raised from 823 (+1 for this line) on 2026-09-22: the decode rate is sampled on a ticker and priced from a bucket mean, which is a subsystem rather than a constant. -->
+<!-- 
      Raised from 821 (+1 for this line) on 2026-09-21: the resolved turn budget reaches the stream, so a count a reader could not measure against anything now has something to measure against.
      Raised from 815 (+1 for this line) on 2026-09-21: a reply reports its own repetition, which is the only field that tells a loop from a long answer rather than from a small budget.
      Raised from 807 (+1 for this line) on 2026-09-21: sampling becomes a described subsystem rather than one unstated constant, and a wire parameter nothing sent now exists.
@@ -361,7 +363,21 @@ delegation's own, a refused one relabels nothing, so the label never outlives th
 names. The seed itself comes from the rate memory, keyed by concurrency, and whether that key
 can be *believed* is what `admission_idle_hold` buys: held, the memory answers from the
 bucket asked about; unheld, from the worst sample at that concurrency or busier, which is
-pessimistic on purpose and measured at 4.0x for a solo call (ADR-0085). That observation is
+pessimistic on purpose and measured at 4.0x for a solo call (ADR-0085).
+
+**A bucket answers with its mean, and samples arrive on a ticker rather than per turn.**
+Both halves are one change. The minimum priced 24-71% below the operator benchmark where
+the means matched it to 1-3%, and it got worse as a bucket filled -- the more a regime was
+measured, the worse its worst sample. And a sample per *completed turn* meant six streams
+filed six readings on one moment, so a six-wide bucket's 64 slots held about eleven moments
+where a solo bucket's held sixty-four: the wider the fan-out, the shorter the memory.
+`DELEGATE_RATE_SAMPLE_SECONDS` scrapes while the gate is busy and files one sample per
+scrape, the aggregate over the concurrency read in the same scrape, so every bucket spans
+the same wall clock and the buckets are comparable. A window that generated nothing is
+dropped and counted rather than filed, because a scrape lying inside a prefill would
+otherwise report a rate of zero at a busy concurrency. The widening then takes the worst
+bucket *mean*; pooling every busier sample into one mean would mix regimes and pull a
+six-way answer above anything six-way ever did. That observation is
 timed over the attempt that **answered**, not over the turn:
 the token count comes from one attempt (ADR-0014), so dividing it by every recovery stage
 and transport retry measures two different events — across 46 recorded turns it halved the

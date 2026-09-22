@@ -12,7 +12,7 @@ would have priced them correctly had been collected seconds earlier, by the same
 for the same cluster.
 
 The fix is not a warm-up: a synthetic sample is a guess at a concurrency and an effort no
-real work met, entering a structure whose `min()` makes one bad sample permanent. It is to
+real work met, entering a structure that keeps one bad sample for 64 observations. It is to
 keep what was actually measured.
 
 **Where it goes, and why that is not the blocked state-directory question.**
@@ -55,7 +55,7 @@ def test_a_second_process_reads_what_the_first_measured(tmp_path: Path):
 
 
 def test_the_worst_sample_survives_rather_than_the_last(tmp_path: Path):
-    """`expect` takes a minimum, so persistence has to carry every sample, not a summary."""
+    """A bucket is priced from all of its samples, so persistence carries each, not a summary."""
     first = RateHistory(path=tmp_path / "rates.json", stamp=STAMP)
     first.observe(*SOLO, concurrency=1)
     first.observe(*SIX_WAY, concurrency=6)
@@ -69,7 +69,7 @@ def test_a_model_swap_discards_the_memory(tmp_path: Path):
     """The rate belongs to a model as much as to the hardware, and the model moves.
 
     Without this the memory is worse than useless after a swap: it is confidently wrong,
-    and `min()` keeps the wrongest sample for 64 observations.
+    and a sample keeps its vote for 64 observations.
     """
     first = RateHistory(path=tmp_path / "rates.json", stamp=STAMP)
     first.observe(*SIX_WAY, concurrency=6)

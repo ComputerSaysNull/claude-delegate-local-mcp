@@ -1,8 +1,9 @@
 """One deque shared by every concurrency, so quiet samples evicted the busy ones.
 
 `RateHistory` kept a single `deque(maxlen=64)` holding `(concurrency, rate)` pairs, evicted
-by recency. `expect` takes a *minimum*, so the busiest samples carry all of the value: a
-six-way reading is the one that stops a six-way delegation being priced for an idle cluster.
+by recency. Pricing widens to the busiest readings it has, so those carry all of the value:
+a six-way reading is the one that stops a six-way delegation being priced for an idle
+cluster.
 
 Recency does not know that. Thirteen five-wide dispatches are sixty-five samples, and the
 sixty-fifth pushes out the six-way reading that was the only thing standing between a burst
@@ -12,8 +13,8 @@ through to the widening and returns a plausible number from the wrong regime.
 
 The fix is per-concurrency buckets, each retaining its own samples, so a flood at one
 concurrency cannot displace what was learned at another. Eviction by value was the
-alternative and is not taken: "value" here means the minimum, so eviction by value keeps the
-slowest sample for ever and the memory stops tracking hardware that changed.
+alternative and is not taken: it would keep whichever sample the statistic favours for ever,
+and the memory would stop tracking hardware that changed.
 
 The cap survives per bucket rather than being dropped. Unbounded would be a slow leak in a
 process that runs for days, and would let one ancient sample pin a bucket for the life of the
@@ -23,6 +24,8 @@ Named after the bug, per the project's convention.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from claude_delegate_local.loop import RateHistory
 
@@ -71,17 +74,21 @@ def test_each_bucket_still_forgets_its_own_oldest():
     assert h.expect(3) == 25.0, "an evicted sample is still answering"
 
 
-def test_the_minimum_within_a_bucket_is_still_what_is_returned():
-    """Control. The asymmetry the whole design rests on must be untouched.
+def test_the_mean_within_a_bucket_is_what_is_returned():
+    """Rewritten rather than deleted: it asserted the minimum, which was a second defect.
 
-    Over-estimating authorises a reply the clock cannot pay for; under-estimating truncates
-    and something still comes back.
+    The bucketing this file is about is untouched -- what changed is the statistic read
+    off a bucket. Three samples at one width are one regime measured three times, so the
+    spread between them is noise and the worst draw measures nothing; measured
+    2026-09-20, the mean tracked the operator benchmark to 1-3% where the minimum sat
+    24-71% low. The asymmetry that made a minimum attractive is still paid, one level up:
+    the widening below takes the worst bucket *mean*.
     """
     h = RateHistory(keep=8)
     for rate in (30.0, 22.5, 27.1):
         observe(h, 2, rate)
 
-    assert h.expect(2, trusted=True) == 22.5
+    assert h.expect(2, trusted=True) == pytest.approx((30.0 + 22.5 + 27.1) / 3)
 
 
 def test_the_widening_still_answers_an_empty_bucket():

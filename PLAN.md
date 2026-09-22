@@ -918,14 +918,14 @@ local, because they are working notes rather than a product fact.
   1.745x on 2026-09-19 — and a newly served model has no such figure at all (JOURNAL)
     - a. ⬜ **Spike: what does the since-boot rate read on an engine minutes old**, and does
     the stamp's own discard land a delegation in exactly this state? Neither is measured
-61. ⬜ **Price from periodic cluster samples, and from the bucket mean not its minimum.**
+61. ✅ 2026-09-22 **Price from periodic cluster samples, and from the bucket mean not its minimum.**
   A per-turn sample is filed under `expected_concurrency`, frozen at lease grant, and carries
   whatever contention that turn met; the minimum then makes one bad minute the price for 64
   samples. Measured 2026-09-20: bucket means match the operator benchmark to 1-3% at every
   well-populated concurrency, the minima sit 24-71% below it (JOURNAL)
-    - a. ⬜ Scrape on a ticker while `inflight_seqs > 0`: `_DecodeWindow` already differences
+    - a. ✅ 2026-09-22 Scrape on a ticker while `inflight_seqs > 0`: `_DecodeWindow` already differences
     `generation_tokens_total`, so rate and concurrency come from one reading
-    - b. ⬜ **Not what 14.b refuted** — that rejected the window as a *ceiling*; this makes it a
+    - b. ✅ 2026-09-22 **Not what 14.b refuted** — that rejected the window as a *ceiling*; this makes it a
     *sample* the bucket and the margin still act on. The mean is safe only once samples are regular
 62. ⬜ **Reasoning effort may be binary here, and the recovery ladder is built on it not being.**
   Measured only under 1k tokens, where the three looked alike; at a realistic size all of them

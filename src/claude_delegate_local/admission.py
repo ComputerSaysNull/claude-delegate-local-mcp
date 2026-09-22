@@ -791,6 +791,16 @@ class Admission:
             await self.release(lease)
 
     # ---- what the operator reads -------------------------------------------------
+    @property
+    def inflight_seqs(self) -> int:
+        """Requests this process currently holds slots for.
+
+        Named rather than read out of `status()`, which builds a dict of a dozen keys and
+        locks a caller to their spelling. The rate sampler asks this on every tick to
+        decide whether there is anything to sample, which is the only hot reader.
+        """
+        return self._inflight_seqs
+
     def status(self) -> dict[str, Any]:
         """Live gauges, high-water marks and wait totals. ADR-0012's reporting half."""
         return {

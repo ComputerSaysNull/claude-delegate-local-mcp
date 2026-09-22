@@ -256,9 +256,20 @@ def test_tool_time_is_the_tools_and_not_the_queue(tmp_path, monkeypatch) -> None
 
     expected = TOOL_ONE + TOOL_TWO
     for name, end in (("idle", idle), ("queued", queued)):
-        assert end["tool_seconds"] == pytest.approx(expected, abs=SLACK), (
-            f"the {name} run's tools slept {expected}s and the event reports "
+        # A floor and a loose ceiling rather than an approximate equality. Under the full
+        # parallel suite the sleeps themselves stretch, so a tight upper bound fails while
+        # the figure is correct -- it did exactly that under two unrelated changes before
+        # this was widened. The floor still catches a zero or a truncated measurement, and
+        # the ceiling still catches the failure this was written for, which is
+        # `tool_seconds` reporting the whole run. What the queue does is asserted below,
+        # relatively, and that is the actual subject.
+        assert end["tool_seconds"] >= expected - SLACK, (
+            f"the {name} run's tools slept {expected}s and the event reports only "
             f"{end['tool_seconds']}s"
+        )
+        assert end["tool_seconds"] < expected * 3, (
+            f"the {name} run reports {end['tool_seconds']}s of tool time against "
+            f"{expected}s of sleeping, which is the whole run rather than the tools"
         )
 
     naive_idle = idle["elapsed_seconds"] - (idle["backend_ms"] or 0) / 1000

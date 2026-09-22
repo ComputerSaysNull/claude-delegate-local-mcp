@@ -27,13 +27,14 @@ import os
 import random
 import time
 from collections import Counter, deque
-from collections.abc import Awaitable, Callable, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from pathlib import Path
+from statistics import fmean
 from typing import Any
 
 from .backends.base import (
@@ -445,15 +446,28 @@ class RateHistory:
     this cluster: prose decodes at 44.1 tok/s alone and 19.4 at six concurrent. Asking for
     "the rate" without saying at what concurrency is asking a question with six answers.
 
-    `expect` returns the **worst** rate seen at that concurrency or above, never the mean.
-    A budget has to survive the bad case; pricing at the average leaves every
-    below-average turn unpayable, and the average sat exactly on the failure threshold
-    when this was measured.
+    `expect` returns a bucket's **mean**, and then the worst of those means across the
+    buckets at that concurrency or above. The pessimism therefore lives between buckets,
+    where it is the sound part -- contention only slows a stream -- and not inside one,
+    where it was a sampling artefact. Measured 2026-09-20: at every well-populated
+    concurrency the bucket mean matched the operator benchmark to within 1-3% while the
+    bucket minimum sat 24-71% below it, and the minimum gets *worse* as a bucket fills,
+    because the more moments are kept the likelier one of them is the slowest minute the
+    cluster had. An under-priced rate is not free: 31 of 953 recorded turns ended with
+    `output_tokens` exactly equal to `budget_ceiling`, every one of them a large answer,
+    so the budget genuinely binds and pricing it low truncates the biggest replies the
+    server produces.
     """
 
     # Enough to outlast one fan-out and forget a cluster that has since been reconfigured.
     # Unbounded would be a slow leak in a process that runs for days, and would let one
-    # ancient bad sample pin the estimate for the life of the server.
+    # ancient sample keep a vote in the estimate for the life of the server.
+    #
+    # Counted in *moments* since the sampler files one reading per scrape rather than one
+    # per stream, so this is the same span of wall-clock memory at every fan-out width.
+    # Per completed turn it was not: six streams filed six samples on one moment, so a
+    # six-wide bucket held a sixth of the history a solo bucket did and the two were not
+    # comparable numbers.
     DEFAULT_KEEP = 64
 
     # The same test `DecodeRate` applies, and shared rather than restated so the two
@@ -479,10 +493,10 @@ class RateHistory:
         The file is durable, and `slots.rate_history_path` decides where. tmpfs was the
         home until 2026-09-19 on the argument that discarding on a reboot is correct,
         because a rate describes hardware that may have changed. ADR-0094 reverses that:
-        a stale rate is replaced by the first completed turn and `expect` takes a
-        minimum, so being wrong about the hardware costs a turn, where the cold start it
-        left behind costs every dispatch until the memory refills. `stamp` still covers
-        a model swap.
+        a stale rate is diluted by the samples that follow it and the buckets are capped,
+        so being wrong about the hardware costs a bucket's worth of samples, where the
+        cold start it left behind costs every dispatch until the memory refills. `stamp`
+        still covers a model swap.
 
         Never a hard dependency. Every failure below leaves an empty memory rather than
         raising, because the worst this can cost is the pricing it was already missing.
@@ -493,8 +507,8 @@ class RateHistory:
         # *lately*, so thirteen five-wide dispatches walked out the six-way reading that
         # was the only thing pricing a six-way call honestly -- the memory got worse the
         # more it was used. The cap moves here rather than going: unbounded would be a
-        # slow leak in a process that runs for days, and would let one ancient sample pin
-        # a bucket for the life of the server.
+        # slow leak in a process that runs for days, and would let one ancient sample keep
+        # a vote in a bucket for the life of the server.
         self._seen: dict[int, deque[float]] = {}
         self._path = path
         self._stamp = stamp
@@ -509,6 +523,17 @@ class RateHistory:
             bucket = self._seen[concurrency] = deque(maxlen=self._keep)
         bucket.append(rate)
 
+    def samples_at(self, concurrency: int) -> tuple[float, ...]:
+        """One bucket's held samples, oldest first. Empty when nothing was seen there.
+
+        `expect` answers with a statistic, and a statistic cannot say how many moments it
+        was taken over -- which is the quantity this whole mechanism is about, since a
+        bucket filled one reading per stream covered a sixth of the wall clock a solo
+        bucket did. A reader that needs the count should not have to reach into `_seen`
+        for it.
+        """
+        return tuple(self._seen.get(max(int(concurrency), 1)) or ())
+
     def _pairs(self) -> list[tuple[int, float]]:
         """Every sample held, flattened back to the shape the file stores."""
         return [(seen_at, rate) for seen_at, b in self._seen.items() for rate in b]
@@ -517,7 +542,7 @@ class RateHistory:
         """Whatever the file holds that is still trustworthy, and nothing else.
 
         Every field is shape-checked rather than trusted. The file sits on a tmpfs any
-        process of this user can write, and a sample reaching `expect` is permanent for
+        process of this user can write, and a sample reaching `expect` keeps its vote for
         `DEFAULT_KEEP` observations -- so a malformed pair is skipped and the rest are
         kept, which is what a partial write during a reboot actually looks like.
         """
@@ -553,9 +578,12 @@ class RateHistory:
 
         stdio gives every connected client a process of its own (ADR-0040), so two can
         share this file. Writing only what this process has seen would drop the other's
-        samples, and `expect` takes a *minimum* -- the sample most worth keeping is
-        exactly the one a clobber is most likely to lose. Merged as a set because for a
-        minimum a duplicate says nothing a single copy does not.
+        samples, and a bucket priced at its mean is only as good as how many moments it
+        holds. Merged as a set, and that stays right now the statistic counts duplicates:
+        two byte-identical float rates at one concurrency are a sample this process
+        already read back from the file far more often than they are two separate
+        measurements that happened to agree, so counting the copy would weight one moment
+        twice on every write.
 
         Written to a sibling and renamed, so a reader never sees a half-written file.
         """
@@ -615,8 +643,38 @@ class RateHistory:
         if self._path is not None:
             self._write()
 
+    def observe_window(self, generated: int, seconds: float, *, concurrency: int) -> bool:
+        """One scrape window of the cluster's own counter, filed as a single sample.
+
+        Separate from `observe` because a window is not a turn and the two are judged
+        differently. `observe`'s token floor refuses a turn too short to be a throughput
+        measurement -- a handful of tokens over an interval that was mostly prefill -- and
+        applying it here would silently throw away every solo window, which decodes well
+        under that many tokens in a sampling interval. A window has no prefill charged to
+        it: `RateSampler` refuses the window that lies inside one and counts how often it
+        does. What is left to check is that the clock is long enough for the counter's
+        granularity not to dominate, which is `MIN_SECONDS`.
+
+        The aggregate is divided by the concurrency read in the *same* scrape, so the rate
+        and its divisor describe one moment rather than two. Exactly one sample comes out,
+        whatever the width -- that is what makes a full bucket the same span of wall-clock
+        memory at six streams as at one.
+
+        `generated < 1` is refused here as well as by the sampler, for the reason
+        `observe`'s floors live here rather than at their call site: a second caller must
+        not be able to get a zero-throughput sample in by dividing on its own. Returns
+        whether the sample was kept, which is what the sampler counts.
+        """
+        if generated < 1 or seconds < self.MIN_SECONDS:
+            return False
+        width = max(int(concurrency), 1)
+        self._remember(width, generated / seconds / width)
+        if self._path is not None:
+            self._write()
+        return True
+
     def expect(self, concurrency: int, *, trusted: bool = False) -> float | None:
-        """The worst rate seen at this concurrency, or at any busier one. None if neither.
+        """This concurrency's mean rate, or the worst busier bucket's. None if neither.
 
         Busier observations answer quieter questions and not the reverse: contention only
         slows a stream, so a six-way measurement bounds a four-way one from below, while a
@@ -635,21 +693,177 @@ class RateHistory:
         burst to arrive before the label is recorded -- which is why that setting disables
         both halves at once and why this one cannot be turned on by itself (ADR-0085).
 
-        The minimum *within* the bucket is kept either way, and that is not timidity. The
-        error is asymmetric: over-estimating authorises a reply that cannot be decoded
-        inside the delegation deadline and the turn dies with nothing, where
-        under-estimating truncates and something comes back.
+        A bucket answers with its **mean**, and the widening then takes the worst of those
+        means rather than the worst sample anywhere in them. Pooling every sample from
+        every busier bucket into one mean would be the obvious alternative and is wrong:
+        it mixes regimes, so a quiet bucket's fast samples would pull a six-way answer up
+        past anything six-way was ever measured at. Taking the minimum *of the means*
+        keeps the one direction that is sound -- a busier bucket bounds a quieter question
+        from below -- while pricing each bucket at what that bucket actually did.
+
+        The asymmetry the old within-bucket minimum was defending is real: over-estimating
+        authorises a reply that cannot be decoded inside the delegation deadline and the turn
+        dies
+        with nothing, where under-estimating truncates and something comes back. It is
+        paid for between buckets, above, and by `reply_budget_margin`. Paying it a third
+        time inside the bucket bought no safety and cost the large answers -- see the class
+        docstring for the measurement.
         """
         want = max(int(concurrency), 1)
         if trusted:
             at = self._seen.get(want)
             if at:
-                return min(at)
-        rates = [
-            rate for seen_at, bucket in self._seen.items() if seen_at >= want
-            for rate in bucket
+                return fmean(at)
+        # One mean per bucket, then the worst of them. An empty bucket cannot have a mean
+        # and is skipped rather than counted as zero -- a bucket is only ever empty here
+        # if something created it without filing, and a zero would price the next turn at
+        # no throughput at all.
+        means = [
+            fmean(bucket) for seen_at, bucket in self._seen.items()
+            if seen_at >= want and bucket
         ]
-        return min(rates) if rates else None
+        return min(means) if means else None
+
+
+class RateSampler:
+    """Fills `RateHistory` from the cluster's counter on a ticker, not on turn completion.
+
+    A completed turn is the wrong unit, and the reason is arithmetic rather than taste.
+    Six streams each filing when they finish put six samples on one moment, so a bucket
+    of `DEFAULT_KEEP` slots holds only a sixth as many moments at six-wide as at
+    one-wide: the wider the fan-out, the shorter that bucket's memory in wall-clock
+    terms, and the less two buckets' means have to do with each other. One sample per
+    scrape makes every bucket span the same number of moments at every width, which is
+    what makes `expect`'s comparison across buckets a comparison at all.
+
+    Rate and concurrency come from the *same* reading. `_DecodeWindow` differences
+    `generation_tokens_total` across two scrapes, so one scrape yields the aggregate
+    tokens generated, the seconds they took and `requests_running` together -- and the
+    per-stream rate is then a quotient of two numbers describing one moment, rather than
+    a rate from one moment divided by a width observed at another.
+
+    Never a dependency. Every failure below leaves the memory exactly as it was: this is
+    a monitoring read, and a sampler that could fail a delegation would be trading a
+    pricing improvement for an outage.
+    """
+
+    # How much longer than the interval a window may be before it is thrown away. The
+    # ticker only scrapes while something is in flight, so the first scrape of a busy
+    # period differences against the last scrape of the previous one -- which may be
+    # hours old and spans an idle stretch the counter did not move through. That window
+    # reports the burst's tokens over the idle time as well, which is a spuriously low
+    # rate at a genuinely busy concurrency: exactly the sample this whole item exists to
+    # stop being filed. Two intervals is loose enough that an ordinary tick that ran late
+    # still counts.
+    STALE_WINDOW_FACTOR = 2.0
+
+    __slots__ = ("_busy", "_every", "_filed", "_history", "_prefill_windows",
+                 "_probe", "_stale_windows", "_windows")
+
+    def __init__(
+        self,
+        history: RateHistory,
+        *,
+        probe: Callable[[], Awaitable[Mapping[str, Any] | None]],
+        busy: Callable[[], bool],
+        every: float,
+    ) -> None:
+        self._history = history
+        self._probe = probe
+        self._busy = busy
+        # Clamped rather than validated, the way `admission_idle_hold` is: a
+        # non-positive interval means the operator has turned sampling off, and a
+        # ticker that refused to start the server over it would be the worse failure.
+        self._every = max(0.0, float(every))
+        self._windows = 0
+        self._filed = 0
+        self._prefill_windows = 0
+        self._stale_windows = 0
+
+    @property
+    def enabled(self) -> bool:
+        """Whether an interval was configured at all."""
+        return self._every > 0
+
+    def record(self, scrape: Mapping[str, Any] | None) -> bool:
+        """File the one sample this scrape supports, if it supports one.
+
+        Synchronous and pure apart from the history it writes, so the decision can be
+        tested against a dict rather than against a cluster.
+        """
+        generated = scrape.get("decode_tokens_window") if scrape else None
+        seconds = scrape.get("decode_window_seconds") if scrape else None
+        running = scrape.get("requests_running") if scrape else None
+        # A scrape with no window in it is the first one after a gap, which `_DecodeWindow`
+        # correctly refuses to turn into a rate. Not counted as a drop: nothing was
+        # measured, so there is no measurement to have thrown away.
+        if not isinstance(generated, int) or isinstance(generated, bool):
+            return False
+        if not isinstance(seconds, (int, float)) or not isinstance(running, (int, float)):
+            return False
+        # Concurrency is the divisor, so a window the cluster spent idle has nothing to
+        # divide by and nothing to say. Also not a drop, for the same reason.
+        concurrency = int(running)
+        if concurrency < 1:
+            return False
+
+        self._windows += 1
+        # Only when an interval was configured: with sampling off there is no tick to
+        # compare against, and `0 * anything` would make every window stale.
+        if self.enabled and seconds > self._every * self.STALE_WINDOW_FACTOR:
+            self._stale_windows += 1
+            return False
+        # The prefill guard. A window lying entirely inside a prefill differences to zero
+        # generated tokens while `requests_running` is nonzero, and filing that would put
+        # a rate of zero in a busy bucket. Not a rare shape: prefill runs about 1,060
+        # tok/s on this deployment, so a 175k-token prompt spends over two minutes
+        # generating nothing at all. Counted rather than silently skipped -- a guard whose
+        # firing rate nobody can see is a guard nobody can tell has started firing on
+        # everything.
+        if generated == 0:
+            self._prefill_windows += 1
+            return False
+
+        kept = self._history.observe_window(
+            generated, float(seconds), concurrency=concurrency
+        )
+        if kept:
+            self._filed += 1
+        return kept
+
+    async def run(self) -> None:
+        """Scrape on the interval for as long as anything is decoding. Cancelled to stop.
+
+        Idle ticks cost nothing and reach no endpoint: with nothing in flight there is no
+        rate to sample, and scraping anyway would keep a connection warm against a cluster
+        this process is not using.
+        """
+        if not self.enabled:
+            return
+        while True:
+            await asyncio.sleep(self._every)
+            if not self._busy():
+                continue
+            try:
+                self.record(await self._probe())
+            except Exception:  # a monitoring read must never fail anything
+                continue
+
+    def status(self) -> dict[str, Any]:
+        """What the sampler has seen and what it threw away, for `backend_status`.
+
+        The drop counts are the point of reporting this at all. Both guards are silent by
+        construction -- a dropped window leaves no trace in the memory it declined to
+        write -- so without these an operator cannot tell a sampler that is working from
+        one that has been refusing every window since the last deployment change.
+        """
+        return {
+            "sample_interval_seconds": round(self._every, 1),
+            "windows_seen": self._windows,
+            "samples_filed": self._filed,
+            "windows_dropped_prefill": self._prefill_windows,
+            "windows_dropped_stale": self._stale_windows,
+        }
 
 
 async def seed_decode_rate(
@@ -2966,10 +3180,15 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             measured = dispatch.response.decode_seconds
             interval = measured or dispatch.answered_seconds or backend_seconds
             decode_rate.observe(dispatch.response.output_tokens, interval)
-            # And remembered past this delegation, tagged with how contended it was. This
-            # is the only thing that can price a *later* delegation's first turn, which
-            # has no observation of its own and is the one that dies.
-            if rate_history is not None:
+            # And remembered past this delegation, tagged with how contended it was --
+            # but only where nothing else is filling that memory. `RateSampler` files one
+            # sample per scrape, and a completed turn files one per *stream*, so leaving
+            # both on would put six readings on one moment at six-wide and one at solo:
+            # the bucket widths stop being comparable, which is precisely the defect the
+            # sampler exists to remove. Off by default, therefore, and back the moment an
+            # operator turns sampling off, because a memory with no feeder at all is the
+            # cold start that costs every first turn.
+            if rate_history is not None and cfg.rate_sample_seconds <= 0:
                 # Tokens and the interval, not the quotient. Dividing here is what left the
                 # memory unable to tell a throughput measurement from a turn too short to
                 # be one, and its own floor is stricter than `DecodeRate`'s above.

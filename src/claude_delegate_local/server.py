@@ -20,7 +20,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from typing import Annotated, Any
 
@@ -53,6 +53,7 @@ from .loop import (
     DispatchTimedOut,
     InvalidDelegation,
     RateHistory,
+    RateSampler,
     resolve_max_turns,
     run_agentic_loop,
     run_one_shot,
@@ -507,6 +508,32 @@ async def probe_entry(
     except (TimeoutError, BackendError):
         row["cluster"] = None
     return row
+
+
+@asynccontextmanager
+async def sampling(sampler: RateSampler) -> AsyncIterator[None]:
+    """Run the rate sampler for the life of the block, and never a moment past it.
+
+    Started here rather than where the sampler is built, because a task needs a running
+    loop and `build` has none. Nested *inside* the backend cache's teardown by the caller,
+    so the ticker is gone before the connection pool it scrapes through is closed.
+
+    Cancelled and then awaited, not merely cancelled: `cancel()` only schedules the
+    interruption, so without the await the task can reach one more scrape after shutdown
+    has begun -- a traceback out of a monitoring read, which is the single thing this
+    sampler promises never to produce.
+
+    Public because it is behaviour worth testing on its own; a test can drive it with a
+    sampler whose probe counts calls and assert the task is not still running afterwards.
+    """
+    ticker = asyncio.create_task(sampler.run()) if sampler.enabled else None
+    try:
+        yield
+    finally:
+        if ticker is not None:
+            ticker.cancel()
+            with suppress(asyncio.CancelledError):
+                await ticker
 
 
 def admission_deadline(cfg: Config) -> float | None:
@@ -1525,10 +1552,24 @@ def build(
         stamp=registry.resolve(None).served_model_id,
     )
 
+    # What actually fills that memory now. A completed turn files one sample per stream,
+    # so six of them land on one moment and a six-wide bucket remembers a sixth as long as
+    # a narrow one; this files one sample per scrape instead, which is what makes the
+    # buckets comparable. It scrapes the default entry's endpoint because that is the
+    # model `rates` is stamped with -- a memory keyed to one model must not be fed by
+    # another's counter.
+    sampler = RateSampler(
+        rates,
+        probe=lambda: cache.get(registry.resolve(None)).probe_cluster(),
+        busy=lambda: admission.inflight_seqs > 0,
+        every=cfg.rate_sample_seconds,
+    )
+
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncIterator[dict[str, Any]]:
         try:
-            yield {}
+            async with sampling(sampler):
+                yield {}
         finally:
             await cache.aclose()
 
@@ -1790,6 +1831,11 @@ def build(
                 **admission.status(),
                 "cross_process": await cross_process_status(slots, slots_reason),
             },
+            # Beside admission rather than inside it: these describe what fed the rate
+            # memory, and both of the sampler's guards are invisible in the memory itself
+            # -- a dropped window leaves nothing behind. Without the counts, a sampler
+            # refusing every window looks exactly like a quiet cluster.
+            "rate_sampling": sampler.status(),
         }
 
     # ---- the long form, pulled rather than pushed ---------------------------------

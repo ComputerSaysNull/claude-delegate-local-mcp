@@ -9,7 +9,7 @@ itself 1 — microseconds before five siblings arrive and it decodes at six-way 
 That label is the key the rate memory is written under and read by, so an untrue one poisons
 both ends.
 
-`expect` has been carrying the cost of that. It returns the worst rate seen at the requested
+`expect` has been carrying the cost of that. It returns the worst bucket seen at the requested
 concurrency **or busier**, precisely because the label cannot be trusted, and that pooling is
 what already protects this call (see `test_a_short_turn_poisoned_the_rate_memory`). Measured
 2026-09-15 over 94 `priced` events, the protection costs 4.0x: `expect` returned 10.95 at
@@ -23,6 +23,8 @@ Named after the bug, per the project's convention.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from claude_delegate_local import admission as adm
 from claude_delegate_local.admission import Admission
@@ -41,10 +43,15 @@ def history(*samples: tuple[int, float]) -> RateHistory:
 # --- the bucketing, which is only reachable once the label can be trusted ----------------
 
 def test_a_trusted_solo_label_is_answered_from_solo_samples():
-    """The fix. Today the six-way sample wins because it is the minimum overall."""
+    """The fix. Without it the six-way bucket answers, because it is the slower one.
+
+    The figure is the solo bucket's mean. It was that bucket's minimum until the
+    statistic changed; what this test is about is which *bucket* answers, and that is
+    unchanged.
+    """
     h = history((1, 44.1), (1, 41.8), (6, 10.95))
 
-    assert h.expect(1, trusted=True) == 41.8
+    assert h.expect(1, trusted=True) == pytest.approx((44.1 + 41.8) / 2)
 
 
 def test_an_untrusted_label_still_pools_exactly_as_before():
@@ -90,15 +97,17 @@ def test_a_quieter_sample_never_answers_a_busier_question():
     assert h.expect(6, trusted=True) is None
 
 
-def test_the_worst_sample_in_the_bucket_is_the_one_used():
-    """Control. Within the bucket the minimum is kept, deliberately.
+def test_the_bucket_answers_with_its_mean():
+    """Rewritten: it asserted the within-bucket minimum, which was a defect of its own.
 
-    Over-estimating authorises a reply the clock cannot pay for; under-estimating truncates.
-    A mean would discard that asymmetry, which is the one thing the old design got right.
+    Over-estimating authorises a reply the clock cannot pay for and under-estimating
+    truncates, so the asymmetry is real -- but it is paid between buckets, where the
+    widening takes the worst bucket mean, and by `reply_budget_margin`. Paying it a third
+    time inside one bucket priced every turn from the worst minute the cluster had.
     """
     h = history((2, 30.0), (2, 22.5), (2, 27.1))
 
-    assert h.expect(2, trusted=True) == 22.5
+    assert h.expect(2, trusted=True) == pytest.approx((30.0 + 22.5 + 27.1) / 3)
 
 
 # --- the hold, which is what makes `trusted=True` legitimate -----------------------------

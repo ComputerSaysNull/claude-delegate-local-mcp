@@ -1197,6 +1197,23 @@ def test_two_scrapes_give_the_rate_over_the_window_they_span():
     assert got["decode_tokens_per_second_window"] == 40.0
     assert got["decode_tokens_per_second_per_request_window"] == 20.0
     assert got["decode_window_seconds"] == 10.0
+    assert got["decode_tokens_window"] == 400
+
+
+def test_the_generated_delta_is_reported_rather_than_left_to_be_inferred():
+    """The rate is rounded, so it cannot answer "did this window generate anything?".
+
+    A window lying inside a prefill differences to exactly zero, and the rate sampler has
+    to refuse that sample. Reconstructing the delta from two decimal places would make
+    that decision a rounding question; the numerator is reported instead.
+    """
+    window = oc._DecodeWindow()
+    window.observe(tokens=1000, running=6.0, now=0.0)
+
+    got = window.observe(tokens=1000, running=6.0, now=10.0)
+
+    assert got["decode_tokens_window"] == 0
+    assert got["decode_tokens_per_second_window"] == 0.0
 
 
 def test_the_window_length_is_reported_so_the_figure_can_be_judged():

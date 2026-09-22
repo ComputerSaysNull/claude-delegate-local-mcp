@@ -5,8 +5,12 @@ says why: *"A turn answering in a few tokens spends most of its backend interval
 and queueing, so its apparent decode rate describes the queue rather than the decoder."*
 `RateHistory.observe` never applied that test, and it is the one that matters: `DecodeRate`
 dies with its delegation and keeps an exponential average that decays, while `RateHistory`
-outlives every delegation and feeds a `min()` that is permanent for 64 observations. **A
-minimum needs a stricter admission test than an average**, and it had a weaker one -- none.
+outlives every delegation and holds a sample for 64 observations. The floor was written
+when `expect` took a minimum, where one bad sample decided the answer outright; `expect`
+takes the bucket mean now, which dilutes rather than obeys it, and the floor is no less
+necessary for that. A refused-from-the-start sample is the only kind that cannot skew an
+average, and this one is systematically wrong rather than noisy -- every short turn reads
+the same way.
 
 Measured 2026-09-12 on this deployment. A turn emitting 237 tokens over a 14.2s decode
 interval recorded 16.64 tok/s. The same model, the same day, reproducing the same file
@@ -43,7 +47,7 @@ def test_a_short_turn_is_not_remembered():
 
 
 def test_the_short_sample_is_refused_rather_than_outvoted():
-    """Not "kept but rarely returned" -- `expect` takes a minimum, so it must never enter."""
+    """Not "kept and averaged away" -- it is systematically wrong, so it must never enter."""
     h = RateHistory()
     h.observe(*SHORT_TURN, concurrency=1)
     assert h.expect(1) is None
@@ -52,7 +56,7 @@ def test_the_short_sample_is_refused_rather_than_outvoted():
 def test_a_legitimately_slow_long_turn_is_still_remembered():
     """The control that matters, and the one a guard like this usually breaks.
 
-    Pessimism is the point of the minimum: a budget has to survive the bad case. A guard
+    Pessimism is the point: a budget has to survive the bad case. A guard
     that quietly became "ignore bad news" would pass the test above and destroy the
     estimator, so a genuinely slow turn -- 13,268 tokens over 1,750s, 7.6 tok/s, the
     `PLAN.md` sample that does not fit one turn -- has to survive.
@@ -62,10 +66,11 @@ def test_a_legitimately_slow_long_turn_is_still_remembered():
     assert h.expect(6) == pytest.approx(7.58, rel=0.01)
 
 
-def test_the_minimum_still_answers_a_quiet_question_with_a_busy_measurement():
+def test_the_widening_still_answers_a_quiet_question_with_a_busy_measurement():
     """What must NOT change, and it is why the burst's first member needs no counter fix.
 
-    `expect(1)` searching every sample and keeping the worst is the design, not the defect:
+    `expect(1)` searching every busier bucket and keeping the worst is the design, not the
+    defect:
     contention only slows a stream, so a six-way measurement bounds a solo one from below.
     That is what already protects the first call admitted in a fan-out, which asks for
     concurrency 1 and gets the six-way floor.
