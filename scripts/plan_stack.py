@@ -23,10 +23,13 @@ the rewritten history until a later rebase conflicts for no visible reason.
 Two temporary files are written, for the pull request body and the gate payload, because a
 body carrying newlines cannot go on a command line. Neither is in the repository and
 neither reaches GitHub except as the text of the pull request the operator then approves.
+The body is the front branch's newest CHANGELOG section plus a Verification section read
+from `--verification <file>` -- never the commit body, which is shorter on purpose.
 """
 
 from __future__ import annotations
 
+import argparse
 import itertools
 import json
 import re
@@ -129,6 +132,30 @@ def claimed_number(branch: str) -> str | None:
     return None
 
 
+def newest_section(changelog: str) -> str | None:
+    """Everything under the newest `## #N` heading, up to the next one, or None if empty.
+
+    This is the pull request body's first half. The commit body is deliberately not: the
+    commit stays short, and the pull request carries the CHANGELOG entry with its
+    `Added` / `Changed` / `Fixed` subsections as they are.
+    """
+    lines = changelog.splitlines()
+    for i, line in enumerate(lines):
+        if re.match(r"## #\d+", line):
+            body: list[str] = []
+            for rest in lines[i + 1:]:
+                if rest.startswith("## "):
+                    break
+                body.append(rest)
+            return "\n".join(body).strip() or None
+    return None
+
+
+def pr_body(section: str, verification: str) -> str:
+    """The CHANGELOG section, then how the change was verified."""
+    return f"{section}\n\n### Verification\n\n{verification.strip()}\n"
+
+
 def next_number() -> int | None:
     """One past the highest number GitHub has issued, or None if it cannot be read.
 
@@ -150,14 +177,14 @@ def write_temp(text: str, suffix: str) -> str:
         return f.name
 
 
-def plan(stack: list[str]) -> int:
+def plan(stack: list[str], verification: str | None = None) -> int:
     branch, rest = stack[0], stack[1:]
     # Read before anything is proposed, because the restack below names these tips and the
     # first rebase is what makes them unfindable by branch name afterwards.
     old_tips = {b: git("rev-parse", b) for b in stack}
     title = git("log", "-1", "--format=%s", branch)
-    body = git("log", "-1", "--format=%b", branch)
     claimed = claimed_number(branch)
+    section = newest_section(git("show", f"{branch}:CHANGELOG.md"))
 
     print("stack, base first:")
     for b in stack:
@@ -166,6 +193,19 @@ def plan(stack: list[str]) -> int:
     if claimed is None:
         print(f"\nREFUSED: {branch} has no CHANGELOG heading to check a number against.")
         return 1
+    if section is None:
+        print(f"\nREFUSED: {branch}'s newest CHANGELOG section is empty, and it is the pull "
+              f"request body.")
+        return 1
+    if not (verification or "").strip():
+        print(
+            f"\nREFUSED: no verification for {branch}. The pull request body is the CHANGELOG "
+            f"section plus how the change was verified -- the red-before-green result or the "
+            f"check that fired before it passed, and the suites. Write it to a file and run "
+            f"again with --verification <file>."
+        )
+        return 1
+    body = pr_body(section, verification)
 
     issued = next_number()
     if issued is not None and int(claimed) != issued:
@@ -208,11 +248,18 @@ def plan(stack: list[str]) -> int:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--verification", metavar="FILE",
+                    help="how the front branch was verified; becomes the pull request "
+                         "body's Verification section")
+    args = ap.parse_args()
+    verification = (Path(args.verification).read_text(encoding="utf-8")
+                    if args.verification else None)
     stack = local_stack()
     if not stack:
         print("no branches to ship")
         return 0
-    return plan(stack)
+    return plan(stack, verification)
 
 
 if __name__ == "__main__":

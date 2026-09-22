@@ -92,8 +92,15 @@ branch and closes any stacked child unreopenably.
 
 ## 4. The pull request
 
-`python scripts/plan_stack.py` derives the stack and prints the commands that publish its
-front branch. It reads and publishes nothing, so it is safe to run at any time, on any
+`python scripts/plan_stack.py --verification <file>` derives the stack and prints the
+commands that publish its front branch.
+
+**The commit and the pull request say different things.** The commit body is short: what
+changed, why it is allowed, any correction a reader would otherwise trust. The pull request
+body is the branch's CHANGELOG section as it stands — its `Added`, `Changed` and `Fixed`
+subsections — plus a `### Verification` section: the red-before-green result or the check
+that fired before it passed, and the suites. The file you pass is that last section; the
+planner assembles the body and refuses without it. It reads and publishes nothing, so it is safe to run at any time, on any
 branch. **You then run those commands yourself, one at a time**, and each push, `pr create`
 and `pr merge` asks before it happens.
 
