@@ -108,7 +108,7 @@ Rules a machine cannot check, so they land here:
 ## Environment
 
 - Claude Code runs on Windows; the server runs in **WSL2 Ubuntu 24.04**. Paths cross that
-  boundary in exactly one place, `wsl.py`, and everything inside it is POSIX-only.
+  boundary in one place, `wsl.py` — what it converts and refuses is `docs/ARCHITECTURE.md`'s.
 - The workspace lives on `/mnt/c`, which is roughly 12x slower for a test run and ~27x for
   creating a virtualenv. Expected, measured, and accepted. (ADR-0020)
 - **Never run the Windows and WSL suites at once against the same checkout.** Both write

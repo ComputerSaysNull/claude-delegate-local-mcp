@@ -72,22 +72,21 @@ directory holding your projects. It is layer 1 of the policy in
 
 ### `Model registry not found`
 
-Copy `models.toml.example` to `models.toml` and fill in your endpoint. It is gitignored on
-purpose — it names a host. See [MODELS.md](MODELS.md).
+Copy `models.toml.example` to `models.toml` and fill in your endpoint. See
+[MODELS.md](MODELS.md).
 
 ### `has unknown field 'xyz'`
 
-Refused rather than ignored: a typo in a registry key would otherwise cost you the setting
-silently. Check the field list in [MODELS.md](MODELS.md#fields).
+Refused rather than ignored. Check the field list in [MODELS.md](MODELS.md#fields).
 
 ### `base_url should not include the /v1 suffix`
 
-The server appends the API path itself. The message gives the corrected value.
+The message gives the corrected value. See [MODELS.md](MODELS.md#fields).
 
 ### Several models and none marked default
 
-Silently choosing a model changes cost and behaviour, so the server will not choose. Mark
-one `default = true` or set the global default. See [MODELS.md](MODELS.md).
+The server will not choose. Mark one `default = true` or set the global default. See
+[MODELS.md](MODELS.md).
 
 ---
 

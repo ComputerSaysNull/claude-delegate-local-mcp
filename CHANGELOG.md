@@ -38,6 +38,58 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #277 — 2026-09-22 — docs: the 2026-09-22 audit, and the viewer pass the runbook does not have
+
+### Added
+
+- **The 2026-09-22 audit record**, `docs/audits/2026-09-22-audit.md`. Sixteen passes over
+  nineteen delegations; ten findings upheld, five not upheld, one retracted. It resets the
+  gate's audit-due pressure, which stood at 22 commits.
+- **A sixteenth pass, `docs/ARCHITECTURE.md` against `scripts/watch_delegations.py`.**
+  *Symptom:* the viewer is owned by ARCHITECTURE.md and no pass had ever read it, so three
+  disagreements sat there undetected. *Cause:* the pass list was built from the module
+  table's subsystems and the viewer is a script beside them. *Fix:* pass 16, plus the rule
+  in CONTRIBUTING.md that earns one — a document owning code no pass reads.
+
+### Fixed
+
+- **A read-only delegation was documented as a one-shot in two places.** *Symptom:*
+  `README.md` filed `delegate_readonly()` under "One-shot — ... a single prompt", and
+  `docs/ARCHITECTURE.md` said "a read-only call is a one-shot by construction". *Cause:* the
+  2026-09-03 change giving it `READ_ONLY_TOOL_NAMES` (ADR-0048) reached neither, and
+  ARCHITECTURE.md already carried the correction elsewhere, so the document disagreed with
+  itself. *Fix:* the one-shot is `delegate()` with an empty toolset; `delegate_readonly()`
+  is the agentic loop with every writing tool withheld.
+- **`docs/ARCHITECTURE.md` denied a cross-process behaviour it documents 56 lines later.**
+  *Symptom:* "the file does not yet carry that a wait is open, so members in other processes
+  still price on their own position". *Cause:* a leftover from before `_BURST_FIELD` and
+  `burst_wait_elsewhere` existed. *Fix:* the sentence points at the shared record instead.
+- **A turn's timing was described two changes out of date.** *Symptom:* "Two intervals are
+  recorded per turn", and tokens per second "taken from the second". *Cause:*
+  `prefill_seconds`, `decode_seconds` and the move to the answering attempt's decode span
+  all landed in code without reaching the paragraph. *Fix:* four intervals, and the rate
+  divides by the answering attempt — `backend_ms` spans the empty attempts and so
+  under-reports a retried turn, which is the 7.6 tok/s reading that prompted the change.
+- **The viewer's highlight and repetition share were described as they were before their own
+  last fix.** *Symptom:* "stripped of colour before it is inverted", and "the viewer renders
+  the first two". *Cause:* both changed in code and neither in prose. *Fix:* the row keeps
+  its colours and re-opens the inverse after each reset; all three turn figures render.
+- **`docs/MODELS.md` restated a `Config` default as a numeral.** *Symptom:* "Defaults to 6,
+  which is the global cap". *Cause:* `max_inflight_seqs` is 6 in `config.py` and
+  `DEFAULT_CONCURRENCY` is 6 in `registry.py`, so the prose was a third copy held in step by
+  discipline alone. *Fix:* "Defaults to the global in-flight cap", which cannot go stale.
+- **`docs/TROUBLESHOOTING.md` restated four facts `docs/MODELS.md` owns**, in the one
+  document whose rule is that it owns none. *Fix:* each entry keeps the symptom and the
+  action and links for the reason; the `/v1` entry gains the link it never had.
+- **Two project-plane sentences stated a product-plane fact without naming its owner.**
+  *Symptom:* `CLAUDE.md` on the `wsl.py` boundary and `README.md` on the progress
+  notification each restated what `docs/ARCHITECTURE.md` and `docs/DISPATCH.md` own, where
+  every neighbouring invariant names its owner. *Fix:* both name the owner.
+- **The audit runbook told two incidents where a rule would serve.** It is re-read on every
+  invocation, so the provenance costs on every run. *Fix:* the rules stay and the stories
+  go; the `hit_turn_limit` figure that calibrates the 40-turn choice stays, because a number
+  doing work is not a story.
+
 ## #276 — 2026-09-22 — fix: the supported floor is the interpreter we actually run
 
 ### Changed

@@ -1,4 +1,5 @@
-<!-- BUDGET: 411      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- BUDGET: 413      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- Raised from 411 (+1 for this line) on 2026-09-22: when a pass is added the rule that earned it belongs here, or the next audit re-derives which code no pass reads. -->
 <!-- Raised from 404 (+1 for this line) on 2026-09-20: a pass that never terminates was read as a wording fault four times before anyone looked at the sampling, and the agents section is where that is looked up. -->
 <!-- Raised from 398 (+1 for this line) on 2026-09-18: publishing a stack is a procedure with a script now, and which half is the hook's belongs beside the merge rule. -->
 <!-- Raised from 396 (+1 for this line) on 2026-09-18: the body-history rule is enforced now, and which half the gate takes belongs beside the rule itself. -->
@@ -369,6 +370,7 @@ nothing in it may assume this repository — the reason it exists, since `docs/`
 `docs-audit-dispatch` is the runbook for `docs-audit-local` — the pass list, the check-class
 definitions and each pass's effort — what makes two audits comparable. **Both readers must
 accept these files**: `agents.py` is the permissive one, so quote any value holding a colon.
+A pass is added when a document owns code no pass reads — how the viewer earned pass 16.
 
 A check class names every place its evidence can live, and CLAIMS names three: ADR, JOURNAL
 and CHANGELOG. A measurement recorded in the section for the pull request that made it is

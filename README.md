@@ -24,11 +24,11 @@ Two shapes of delegation:
 
 - **One-shot** — the server reads the files you name and answers from them in a single
   prompt, so their contents never reach your context. Good for review, summary and
-  explanation. `delegate_readonly()` is this shape guaranteed rather than chosen, which is
-  what lets a caller run it where a write would not be allowed.
+  explanation. It is `delegate()` handed an explicitly empty toolset.
 - **Agentic** — the local model gets its own tools and iterates: write, run the tests,
   read the real failure, try again, at no cloud token cost, then hand back a result for
-  Claude to review.
+  Claude to review. `delegate_readonly()` is this loop with every writing tool withheld,
+  which is what lets a caller run it where a write would not be allowed.
 
 That second loop is why a shell exists, why it is confined by
 [bubblewrap](https://github.com/containers/bubblewrap), what happens when bubblewrap is
@@ -146,8 +146,8 @@ in the wrong directory or is not found at all, and neither failure names its own
 [TROUBLESHOOTING](docs/TROUBLESHOOTING.md#startup) has both symptoms. Give `--cd` the
 Windows form of the path; `/mnt/c/...` is rejected.
 
-`timeout` is milliseconds and the wall-clock default is generous. The per-turn progress
-notification holds off the separate stdio *idle* timeout but does not extend the wall clock.
+`timeout` is milliseconds and the wall-clock default is generous. What the per-turn progress
+notification holds off, and what it does not, is [DISPATCH](docs/DISPATCH.md)'s.
 
 ## Documentation
 
