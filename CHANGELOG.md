@@ -38,6 +38,50 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #270 — 2026-09-21 — feat: the slots file carries that a burst wait is open
+
+### Fixed
+
+- **A burst spread across processes priced every arm at the position it arrived in.**
+  Measured: three arms from three processes priced 2, 3 and 4 where all three ran at
+  three, because each later arm sees only the siblings ahead of it, so
+  `seqs_at_grant + waiting_at_grant + 1` is its own arrival position rather than the
+  burst's size. The rate memory is keyed by that number, so a six-way rate was filed under
+  a contention it never met. Within one process this was already right -- a member joins
+  the open wait -- but that wait is an `asyncio.Future`, which reaches exactly one process.
+- The wait is now published **inside the publishing process's record**, keyed
+  `(pid, start_time)` and reaped when that process stops, so a process that dies holding
+  one takes its flag with it and no second staleness rule is needed. An arm that finds a
+  wait open elsewhere runs its own window over the same shared totals rather than awaiting
+  a future it cannot reach. `_SCHEMA_VERSION` does not move: the field is additive inside a
+  record, an older reader ignores it, and nothing gates on the version.
+- Red before green: `[3, 2, 3]` against the `[3, 3, 3]` all three ran at, and `(1, 0)`
+  against `(2, 0)` on both flag paths. Every test asserts on a price rather than on a
+  symbol existing, and writes its document by hand with the on-disk key as a literal, so
+  the tests pin the format two processes agree on rather than this implementation.
+
+### Changed
+
+- **`_announce_burst` moved inside the `try` that settles the burst wait.** Found by
+  review, not by a test. It is an await, and it sat between creating `_holding` and
+  entering the block that settles it -- so a cancellation delivered there left the future
+  pending for ever, every later burst in that process joined a wait nobody would finish,
+  and the slot leaked because the release was skipped with it. A negative control puts it
+  back outside and the new test fails with `_holding` still pending.
+- **The cross-process flag is read only while `admission_idle_hold` is on**, which is
+  what `_burst_open_elsewhere`'s docstring already claimed and the code did not do. The
+  hold is the debounce this flag exists to widen, so with it off there is no window to
+  join and reading another process's flag could only add work. Found by the full suite
+  and not by any single test: every worker shares one machine-wide slots file, so one
+  worker's open wait reached another's gate and moved a timing assertion that passes in
+  isolation. The same shape as the stall-seed comment fixed in #266 -- a docstring
+  asserting a property nothing enforced.
+- **An open burst wait is no longer counted by `_is_idle`.** It was redundant, since a
+  process counting a burst holds the slot it was just granted and `seqs` already keeps the
+  record, and it removed an exit: a record kept alive by its own flag can never be reaped.
+  What that does **not** fix is a flag stranded on a process that is still alive, which is
+  kept by liveness rather than by this predicate. Filed as PLAN 69 rather than claimed here.
+
 ## #269 — 2026-09-21 — feat: the viewer summarises a run, and gives a path its own line
 
 ### Added

@@ -1,4 +1,6 @@
-<!-- BUDGET: 1250 -->
+<!-- BUDGET: 1258
+     Raised from 1250 (+1 for this line) on 2026-09-21: a record now carries a claim other
+     processes act on, not just counters, and six trims went in before this line was added. -->
 <!-- Raised from 1241 (+1 for this line) on 2026-09-21: the stream now carries the turn budget, the three durations and the repetition share, and what the viewer shows is the half of that work a person actually reads. -->
 <!-- Raised from 1238 (+1 for this line) on 2026-09-21: a second answer now returns under a banner, and which two do is the fact a reader needs rather than that one of them does. -->
 <!-- Raised from 1231 (+1 for this line) on 2026-09-21: the prefetch block is addressable now, and what that costs is a measured 10% rather than a guess, so the figure belongs beside the claim. -->
@@ -145,8 +147,8 @@ large file being dropped while the budget it would have fitted in sat unused (AD
 | `run_task.py` | `run`: one delegation from a shell, printed as JSON |
 
 The table covers every module; the three marked above live in [DISPATCH.md](DISPATCH.md),
-which owns them, and `agents.py` in [AGENTS.md](AGENTS.md). The ancestor put all of this in one large file; we add two concerns it
-never had — path translation and sandboxing — so the split follows concerns, not line count.
+which owns them, and `agents.py` in [AGENTS.md](AGENTS.md). The split follows concerns
+rather than line count, two of them — path translation and sandboxing — being ours alone.
 `server.py` stays thin wiring; the logic lives in `loop.py`, `backends/` and `context.py`.
 
 `delegate_readonly` is no longer the one-shot path. It was given the read-only tools in
@@ -848,6 +850,12 @@ processes both start at `0001`, and a same-millisecond same-agent pair built one
 that the record's `O_TRUNC` then erased rather than interleaved. The name now carries a
 short hash of the `pid:start_time` identity `slots.py` already owns, placed after the
 timestamp so the directory still sorts by time.
+
+A record also says whether that process is **counting a burst**. Within one process a
+member joining an open wait takes its answer, which is an `asyncio.Future` and so reaches
+exactly one process; across processes there is nothing to await, so the wait is published
+in the record and a member that finds one runs its own window over the same shared totals.
+Both settle on the whole burst rather than on the siblings ahead of them.
 
 So the counters live in a file under `flock` that every server on the machine shares, and
 `admission.py` tests the capacity rules against the sum. `slots.py` owns that file; the policy

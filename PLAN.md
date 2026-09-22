@@ -1,4 +1,6 @@
-<!-- BUDGET: 1006 -->
+<!-- BUDGET: 1011
+     Raised from 1006 (+1 for this line) on 2026-09-21: a defect found while reviewing the
+     cross-process burst flag has no other home, and an unfiled bug is one nobody ranks. -->
 <!-- Raised from 997 (+1 for this line) on 2026-09-21: the deadline thread was proposed twice on 2026-09-20 and written down nowhere, and the question it ends with -- whether the reply budget need exist -- outranks two items already in this list. -->
 <!-- Raised from 990 (+1 for this line) on 2026-09-20: read_file cannot bound a range and the sampler is off the evaluated pair, both of which cost every delegation; and a forced answer has been called clean in three audit records running. -->
 <!-- Raised from 982 (+1 for this line) on 2026-09-20: the exhausted passes are a termination failure rather than a budget one, and a roadmap that files it as "needs a bigger ceiling" sends the next session after the wrong lever. -->
@@ -895,13 +897,13 @@ local, because they are working notes rather than a product fact.
 56. ✅ 2026-09-19 **A delegation runs from the command line**, `run --task`, because the 120s
   stagger is the client's own queue and no server-side change reaches it — six arms span 88ms
   against 600s, and a result lands in a file rather than the caller's window (ADR-0092)
-57. ⬜ **The idle hold fixes one member of a burst, not the burst.** It fires only where
+57. ✅ 2026-09-21 **The idle hold fixes one member of a burst, not the burst.** It fires only where
   `seqs` and `waiting` are both zero, so a simultaneous six priced 2,3,4,5,6,6 — no 1 and two
   6s is the hold moving exactly one arm, measured 2026-09-19 over the out-of-process fan-out
     - a. ✅ 2026-09-19 50 closed this for a burst the *client* staggered. Removing that stagger
     makes the burst simultaneous and the under-count returns in a shape the hold does not
     reach, so the question is whether a member prices on the gate it joins or the one it meets
-    - b. ⬜ **The cross-process half is what remains.** A member takes an open wait's answer
+    - b. ✅ 2026-09-21 **The cross-process half is what remains.** A member takes an open wait's answer
     within one process; the slots file does not carry that a wait is open, so three arms from
     three processes still price 2,3,4 — measured, and the counting itself now reads shared
 58. ✅ 2026-09-19 **A cancellation during the idle hold took a slot nothing released.** The
@@ -956,6 +958,9 @@ local, because they are working notes rather than a product fact.
   (JOURNAL 2026-09-21), so if 67 removes `turn_timeout` the thing it avoids may not remain
     - a. ⬜ Settle before building 60 or 61 — a positive answer deletes both, and ADR-0055 with
     them. Proposed twice on 2026-09-20 and recorded nowhere until now, which is why it is here
+69. ⬜ **A burst flag stranded by a failed close outlives its usefulness.** `_announce_burst`
+  is best effort, and a live record is kept by liveness rather than by `_is_idle`, so other
+  processes read an open wait nobody holds until that process exits or next goes idle
 
 ## Deferred
 
