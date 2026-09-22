@@ -105,6 +105,7 @@ HOLDER = textwrap.dedent(
         slots.prepare()
         cfg = Config(
             workspace_roots=(".",), max_inflight_seqs=seqs, kv_token_budget=100000,
+            admission_idle_hold=0.0,   # a holder proves the bound, not the debounce
         )
         gate = Admission(cfg, slots)
         await gate.acquire(

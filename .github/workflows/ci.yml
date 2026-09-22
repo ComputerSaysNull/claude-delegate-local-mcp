@@ -110,8 +110,13 @@ jobs:
 
       # Integration tests need the private cluster, which CI cannot reach. Excluded by
       # marker so the exclusion is explicit rather than a silently absent test.
+      #
+      # `--durations` because this job is the one place the suite is timed on hardware
+      # nobody can inspect afterwards. A tail that grew is otherwise a wall-clock number
+      # with nothing behind it, and reading the durations locally does not reproduce it:
+      # the slow tests here are the ones a four-core runner serialises.
       - name: Run tests
-        run: python -m pytest -q -m "not integration"
+        run: python -m pytest -q -m "not integration" --durations=25
 
       # A stale generated document fails the build, not merely the hook.
       - name: Verify generated documents are current

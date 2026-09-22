@@ -38,6 +38,45 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #275 — 2026-09-22 — fix: the suite waits out a debounce and a whole gate run it does not need
+
+### Added
+
+- **The CI tests job reports its 25 slowest tests.** It is the only place the suite is timed
+  on hardware nobody can inspect afterwards, and the durations do not reproduce locally --
+  the tests that dominate there are the ones a four-core runner serialises. Without them a
+  grown tail is a wall-clock number with nothing behind it, which is how the entry below
+  went four weeks unexplained.
+
+### Fixed
+
+- **Roughly thirty unit tests waited out `admission_idle_hold`, ten seconds each.** The hold
+  is a debounce that fires whenever a delegation finds the gate idle, and in a unit test
+  that is every time, because each one builds its own server. The tests were paying it to
+  prove things that have nothing to do with the debounce. This is the first of the two
+  candidates the hand-off notebook listed for the unexplained CI slowdown -- a test reaching
+  admission *through the server* rather than constructing the gate -- and it was never
+  checked because reading the durations locally does not reproduce what the runner sees.
+- **The cost moves rather than disappearing if only some helpers zero it.** Zeroing
+  `test_server.cfg` alone took `tests/test_server.py` from 96.72s to **135.48s**: whoever
+  arrived next found the gate idle and paid the hold instead. Fixed at all three sites --
+  `cfg`, `files_cfg`, and the holder subprocess in `tests/test_slots.py` that builds its
+  own `Config`. `cfg` is the shared helper for four files, so the three regression modules
+  importing it are covered by the same change.
+- **A regression test ran the entire gate in a subprocess to read one check's findings.**
+  `test_the_secret_glob_list_does_not_flag_itself` spawned `docs_gate.py --mode pre-commit`,
+  which runs all 26 checks over every tracked file and itself spawns five generator
+  subprocesses and about twenty-five `git` ones, re-reading the tree once per content
+  scanner. It now calls `check_secret_paths()` in process: **47.10s to 0.10s**, and the
+  file it lives in from 49.36s to 3.40s. Everything else that spawn ran has its own test.
+- **That test now also proves the check can fail.** The exemption for the policy files is
+  the entire reason it passed, so a pass said nothing about whether anything was looked at
+  -- the shape this repository has already found six times. With `POLICY_FILES` emptied the
+  check reports exactly one finding, `security/secret_globs.txt is tracked but matches
+  secret glob '*secret*'`, and with it as shipped, none.
+- Measured on the WSL suite at four workers, the count CI runs: **114.6s to 91.9s**, with
+  the whole ten-second band gone from `--durations` and the slowest test now 15.18s.
+
 ## #274 — 2026-09-22 — docs: cancelling a delegation does not reach the cluster
 
 ### Changed

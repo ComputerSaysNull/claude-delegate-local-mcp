@@ -179,15 +179,24 @@ def test_generated_config_doc_is_in_sync():
 # The gate's own self-reference false positive.
 # ---------------------------------------------------------------------------
 
-def test_the_secret_glob_list_does_not_flag_itself():
+def test_the_secret_glob_list_does_not_flag_itself(monkeypatch):
     """security/secret_globs.txt matches its own '*secret*' pattern. A pattern list that
-    describes itself will trip on itself unless the policy files are exempt."""
-    proc = _run(GATE, "--mode", "pre-commit")
-    offending = [
-        ln for ln in proc.stdout.splitlines()
-        if "BLOCK" in ln and "secret-path" in ln and "security/" in ln
-    ]
-    assert not offending, offending
+    describes itself will trip on itself unless the policy files are exempt.
+
+    Called in process rather than through the gate. Spawning it ran all 26 checks and
+    five generator subprocesses over the whole tree -- 47 of the suite's slowest
+    seconds -- to read one check's findings, and everything else it ran is covered by
+    its own test.
+    """
+    offending = [f for f in docs_gate.check_secret_paths() if "security/" in f.message]
+    assert not offending, [str(f) for f in offending]
+
+    # The exemption is the whole reason that passed, so prove the check still fires
+    # without it. A self-describing pattern list that nothing looks at would pass the
+    # assertion above just as quietly.
+    monkeypatch.setattr(docs_gate, "POLICY_FILES", set())
+    assert any("security/secret_globs.txt" in f.message
+               for f in docs_gate.check_secret_paths())
 
 
 # ---------------------------------------------------------------------------
