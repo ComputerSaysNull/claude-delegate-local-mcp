@@ -119,8 +119,7 @@ cancellation included, and no token still means no partial.
 Two things follow that a reader would otherwise be caught by. `stream_options.include_usage`
 is required, or the final chunk carries no `usage` and every token count reads zero. And
 httpx applies its read timeout per chunk once a body streams, so that timeout is
-`stall_timeout`: the same question one layer down, and since ADR-0100 the only thing
-bounding one call.
+`stall_timeout` -- the same question one layer down, and since ADR-0100 the only bound.
 
 Streaming also made token arrival observable, and until ADR-0072 `decode_seconds` was its
 only consumer. `complete()` now takes an optional `on_token`, fired on each frame carrying
@@ -281,7 +280,8 @@ the model produced something — and it is the one signal that sees *inside* a t
 completion alone killed a pass in its thirtieth, having completed twenty-nine, and gave a
 one-shot no progress signal at all. A moving deadline cannot be enforced by a fixed timeout,
 so the attempt runs beside a watchdog re-reading the budget while the call is in flight,
-rather than inside `asyncio.wait_for`. (ADR-0072)
+rather than inside `asyncio.wait_for`. (ADR-0072) The clock starts *below* the one-off
+rate seed rather than above it, so a slow metrics scrape is not charged to turn 1.
 
 Arrival is forwarded to the loop's own caller as well as consumed here, because the deadline
 is not its only consumer: [ARCHITECTURE.md](ARCHITECTURE.md) owns the other, an admission
@@ -354,9 +354,9 @@ reported as stalls.
 
 It is what the delegation has left, times `rate × reply_budget_margin`, floored at
 `reply_budget_floor`. It was once the tightest of three: the stall clock left with ADR-0099,
-`turn_timeout` with ADR-0100. That one retired the per-call deadline rather than merely
-dropping it from the comparison, because keeping the deadline while dropping the term is
-exactly what let a budget authorise a reply the attempt could not deliver. The rate is **measured, never
+`turn_timeout` with ADR-0100, which retired the per-call deadline rather than merely
+dropping it: keeping the deadline while dropping the term is what let a budget authorise
+a reply the attempt could not deliver. The rate is **measured, never
 configured**: it belongs to the deployment and moved twice in one week. `DecodeRate` seeds from the cluster's since-boot figure so the first turn is
 bounded — a one-shot and a tool-forbidden final turn both live there — and every later turn
 replaces the seed with what this delegation achieved, which is the rate its own deadline is
