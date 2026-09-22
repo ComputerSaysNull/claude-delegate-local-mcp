@@ -286,6 +286,69 @@ def _size_note(call: dict) -> str:
     return " · ".join(bits)
 
 
+INDENT = "      "     # where a tool call's own lines start, under the `▸` marker
+
+
+def _alone(text: str, colour: str, width: int) -> list[str]:
+    """One value on lines of its own, sharing them with nothing else.
+
+    **The honest limit**: a path or a pattern longer than the terminal still occupies
+    more than one row. `_wrap` breaks on word boundaries and a path is one word, so it
+    is emitted over-long and the terminal folds it where it likes. The promise these
+    layouts make is not that a path never wraps -- it is that a path never *shares*, so
+    whatever a reader sees on the rest of that row belongs to the same value.
+    """
+    return [f"{colour}{line}{R}" for line in _wrap(text, width, INDENT)]
+
+
+def _rest(arguments: dict, *named: str) -> list[str]:
+    """Every argument a layout did not name, still as `k=v`.
+
+    A layout that knew about three keys and silently dropped a fourth would be lying
+    about what the call was asked. `search_files` alone carries two more -- `glob` and
+    `max_results` -- and a search narrowed to `*.py` that found nothing reads very
+    differently from one that was not narrowed at all.
+    """
+    return [f"{k}={v}" for k, v in arguments.items() if k not in named]
+
+
+def _read_file_lines(call: dict, width: int) -> list[str]:
+    """`read_file`: the path, then the range asked for and the size returned."""
+    args = call.get("arguments") or {}
+    out = _alone(str(args.get("path", "?")), CYAN, width)
+    # Optional arguments, so they are collected rather than positioned: a missing
+    # `end_line` must not leave behind the separator that would have followed it.
+    bits = [f"{label} {args[key]}" for key, label in
+            (("start_line", "start"), ("end_line", "end")) if args.get(key) is not None]
+    bits += _rest(args, "path", "start_line", "end_line")
+    # `_size_note` owns the absent-versus-zero rule for these counts, so this joins its
+    # answer rather than reading `result_bytes` and `result_lines` a second time.
+    bits += [note] if (note := _size_note(call)) else []
+    return out + ([f"{INDENT}{DIM}{' · '.join(bits)}{R}"] if bits else [])
+
+
+def _search_files_lines(call: dict, width: int) -> list[str]:
+    """`search_files`: the path, the pattern, then what came back.
+
+    Two lines rather than one because they are the two halves of the question, and the
+    generic layout put them on the same line whenever they happened to fit -- which is
+    the report this exists to answer: `pattern=` running straight on from `path=`, with
+    nothing to say where one ended.
+    """
+    args = call.get("arguments") or {}
+    out = (_alone(str(args.get("path", "?")), CYAN, width)
+           + _alone(str(args.get("pattern", "?")), BOLD, width))
+    bits = _rest(args, "path", "pattern")
+    bits += [note] if (note := _size_note(call)) else []
+    return out + ([f"{INDENT}{DIM}{' · '.join(bits)}{R}"] if bits else [])
+
+
+# The tools worth laying out by hand, and the only ones. Everything else keeps the
+# generic `k=v` tail: a per-tool layout is a claim about which of a call's arguments a
+# reader looks at first, and that claim is only worth making where someone has looked.
+_LAYOUTS = {"read_file": _read_file_lines, "search_files": _search_files_lines}
+
+
 def _call_lines(call: dict, width: int) -> list[str]:
     """One tool call: what it was asked, how it ended, and why if it refused.
 
@@ -294,23 +357,30 @@ def _call_lines(call: dict, width: int) -> list[str]:
     calls could not be diagnosed at all before it existed -- so if anything has to give on
     a narrow terminal it is the argument list, which drops to its own line rather than
     being cut.
+
+    `▸ name` stays yellow whichever layout runs, because that marker is what a reader
+    scans for down the left of a turn, and a layout that recoloured it would cost them
+    the scan to gain a line.
     """
     outcome = str(call.get("outcome") or "error")
     colour = GREEN if outcome in _GOOD_OUTCOMES else RED
     head = f"  {YELLOW}▸ {call.get('name', '?')}{R} {colour}{outcome}{R}"
-    tail = "  ".join(
-        part
-        for part in (
-            "  ".join(f"{k}={v}" for k, v in (call.get("arguments") or {}).items()),
-            _size_note(call),
-        )
-        if part
-    )
     out = [head]
-    if tail and len(_plain(head)) + len(tail) + 2 <= width:
-        out = [f"{head}  {DIM}{tail}{R}"]
-    elif tail:
-        out.extend(f"{DIM}{line}{R}" for line in _wrap(tail, width, "      "))
+    if layout := _LAYOUTS.get(str(call.get("name") or "")):
+        out.extend(layout(call, width))
+    else:
+        tail = "  ".join(
+            part
+            for part in (
+                "  ".join(f"{k}={v}" for k, v in (call.get("arguments") or {}).items()),
+                _size_note(call),
+            )
+            if part
+        )
+        if tail and len(_plain(head)) + len(tail) + 2 <= width:
+            out = [f"{head}  {DIM}{tail}{R}"]
+        elif tail:
+            out.extend(f"{DIM}{line}{R}" for line in _wrap(tail, width, INDENT))
     if message := str(call.get("message") or "").strip():
         # Red, like the outcome beside it. The word `error` was coloured and the reason for
         # it was not, which is the wrong way round: the outcome is one token a reader can
@@ -319,9 +389,20 @@ def _call_lines(call: dict, width: int) -> list[str]:
         # colour nothing.
         out.extend(
             f"{RED}{line}{R}" if line.strip() else line
-            for line in _wrap(message, width, "      ")
+            for line in _wrap(message, width, INDENT)
         )
     return out
+
+
+def _span(seconds: float) -> str:
+    """A duration inside a sentence, where `_duration`'s floor reads as a missing number.
+
+    `_duration` rounds for the picker's column of totals, so a tool that returned in 140ms
+    renders as `0s` -- which reads as a placeholder for a figure nobody recorded rather
+    than as the measurement it is. Its rounding is right there and wrong here, so this
+    says "under a second" instead of changing it for every other caller.
+    """
+    return _duration(seconds) if seconds >= 1 else "<1s"
 
 
 def _turn_timings(event: dict) -> str:
@@ -348,12 +429,7 @@ def _turn_timings(event: dict) -> str:
         # two are measured by different clocks and a few milliseconds of skew should
         # read as "none" rather than as a negative duration.
         spent = max(ms - gen, 0) / 1000
-        # `_duration` floors under a minute, so a tool that returned in 140ms rendered
-        # as "0s" -- which reads as a placeholder for a missing number rather than as
-        # the measurement it is. Its rounding is right for the column of totals it was
-        # written for and wrong here, so this says "under a second" instead of changing
-        # it for every other caller.
-        parts.append(f"{_duration(spent) if spent >= 1 else '<1s'} tools")
+        parts.append(f"{_span(spent)} tools")
     if isinstance(gen, (int, float)):
         parts.append(f"{_duration(gen / 1000)} generating")
     return f"  {DIM}{' · '.join(parts)}{R}" if parts else ""
@@ -496,6 +572,87 @@ def _end_head(event: dict) -> str:
     return f"{BOLD}{verdict}{R}  {tail}"
 
 
+def _end_counts(event: dict) -> list[str]:
+    """What the run did, and how much of it went wrong.
+
+    `tool_calls` is an integer here and a list of call records on a `turn` event -- the
+    same key, two shapes, because the loop reports a total where the turn reports its
+    calls. Every read below is type-guarded rather than truth-tested for that reason: a
+    truthy `tool_calls` on the wrong event shape would format a list into this line.
+    """
+    out: list[str] = []
+    if isinstance(calls := event.get("tool_calls"), int):
+        out.append(f"{calls} tool call{'' if calls == 1 else 's'}")
+    # Only where a shell actually ran. A measured zero is a real fact, but `0 shell` on
+    # every read-only delegation is noise, and nothing here rests on telling that zero
+    # from an absent field -- `tool_calls` beside it already says whether anything ran.
+    if isinstance(shells := event.get("bash_calls"), int) and shells:
+        out.append(f"{shells} shell")
+    errors, bad_shell = event.get("tool_errors"), event.get("bash_failures")
+    if isinstance(errors, int) and isinstance(bad_shell, int):
+        # They overlap, and the sum therefore errs high by exactly one per `run_bash`
+        # call the server refused: such a call is an error, so it lands in `tool_errors`,
+        # and `bash_failures` counts a refusal too. Summed anyway, and erring high is the
+        # direction chosen deliberately -- this line exists to make failure visible, and a
+        # count that hides one is worse than a count that flags one twice. Both are
+        # required rather than defaulted, because they are written by one ledger in one
+        # event: adding an absent half as zero would be the absent-is-not-zero mistake
+        # the rest of this renderer goes to trouble to avoid.
+        failed = errors + bad_shell
+        word = f"{failed} failure{'' if failed == 1 else 's'}"
+        # The one thing that breaks the dimness, and only when there is something to
+        # break it for. Dim and red combine into a dim red rather than replacing each
+        # other, so the dim is closed first and reopened after -- the same trick
+        # `_highlight` uses on the row it selects.
+        out.append(f"{R}{RED}{word}{R}{DIM}" if failed else word)
+    return out
+
+
+def _end_timings(event: dict) -> list[str]:
+    """Where the whole run's wall clock went, in the words a turn already uses.
+
+    Nothing at all unless the backend's own halves were recorded. `elapsed_seconds` is on
+    every transcript ever written and already heads the closing line above, so a summary
+    carrying it alone would be the same number a second time with nothing to divide it
+    between -- and the division is the only reason this line exists.
+    """
+    total = event.get("elapsed_seconds")
+    prefill, decode = event.get("prefill_seconds"), event.get("decode_seconds")
+    halves = ((prefill, "prefill"), (decode, "generating"))
+    if not any(isinstance(value, (int, float)) for value, _ in halves):
+        return []
+    out = [f"{_span(total)} total"] if isinstance(total, (int, float)) else []
+    # Read, never derived. `elapsed - (prefill + decode)` looks like the same number and is
+    # not: the turn clock starts before the admission gate, so that subtraction carries the
+    # queue and the server's bookkeeping as well, and calling the result "tools" overstates
+    # it by however long the run waited for a slot. `tool_seconds` is timed from the grant.
+    if isinstance(tools := event.get("tool_seconds"), (int, float)):
+        out.append(f"{_span(tools)} tools")
+    out += [f"{_span(value)} {label}" for value, label in halves
+            if isinstance(value, (int, float))]
+    return out
+
+
+def _end_summary(event: dict) -> list[str]:
+    """The whole run on one line beneath the verdict: what it ran, and where its time went.
+
+    A second line rather than more of the first. The closing line answers "did it work and
+    what did it cost"; this answers "what did it spend that on", which is the question a
+    reader only asks once the first answer looked wrong -- the same ordering `_turn_timings`
+    follows one level down.
+
+    Every field is absent on a transcript written before the loop reported it, and absent
+    is not zero: an unmeasured run must not read as a run that called no tools in no time.
+    So each part appears only where its own field does, and a stream carrying none of them
+    gets no line at all rather than a row of zeroes.
+
+    A list rather than a string, so `render` extends with it and stays a dispatcher: the
+    empty case is "nothing to add" rather than a branch on the way past.
+    """
+    parts = _end_counts(event) + _end_timings(event)
+    return [f"  {DIM}{' · '.join(parts)}{R}"] if parts else []
+
+
 def render(event: dict, width: int) -> list[str]:
     """One event, as a block a person reads rather than a line a machine parses."""
     kind = event.get("t")
@@ -560,6 +717,7 @@ def render(event: dict, width: int) -> list[str]:
 
     if kind == "end":
         lines = ["", f"{stamp}  {_end_head(event)}"]
+        lines.extend(_end_summary(event))
         # A truncated reply is a *successful* dispatch -- `ok` is true and nothing raised --
         # so "done" is the one word that reads most wrongly about it. Said on its own line,
         # with the reason, because the failure worth catching here is a reader treating a

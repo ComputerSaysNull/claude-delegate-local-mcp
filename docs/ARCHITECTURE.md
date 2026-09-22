@@ -442,7 +442,7 @@ state. (ADR-0009, [MODELS.md](MODELS.md))
 Moved to [DISPATCH.md](DISPATCH.md), which now owns `loop.py` and `backends/`: the wire
 format seam, retry above the adapter, per-request reasoning control, recovery from an
 empty answer, the whole-delegation deadline, and the turn loop that M4 added on top of
-them. Split out at 423 lines, before that loop -- also `loop.py` -- landed. (ADR-0032)
+them. (ADR-0032)
 
 What stays here is how those failures reach a caller. `server.py` maps each one to a
 `ToolError` that names the fix rather than the layer: a path refusal, a backend that is
@@ -767,10 +767,8 @@ successors is never feasible at the instant they ask, because they hold what it 
 Past `admission_starvation_grace` it counts as ahead regardless, and becomes a barrier.
 (ADR-0068)
 
-**A lease is released once, at the end.** It was released in two parts between ADR-0072 and
-ADR-0077, the large-prefill count going back at first token because the prefill it serialised
-was over by then — 64.1s measured against delegations running 271 to 847s. That count no
-longer exists, so neither does the early release. What is held is held until the delegation
+**A lease is released once, at the end.** The two-part release went with the large-prefill
+count it belonged to (ADR-0077). What is held is held until the delegation
 ends, because the request is still running and still occupying KV, and forgetting it would
 over-admit against the budget.
 
@@ -824,10 +822,8 @@ held. A positive value still caps it, which is a judgement about latency rather 
 safety (ADR-0093). The number itself lives in [CONFIGURATION.md](CONFIGURATION.md).
 
 One number sizes a request: its KV footprint, the prompt plus the reply it is permitted to
-generate, which is what the token budget counts. There were two until 2026-09-16 — a prefill
-estimate, the prompt alone — and conflating them was a trap while both existed. Its only
-reader was the large-cold-prefill cap above, so removing that left every caller computing an
-estimate the predicate never saw; the argument was removed rather than left to read as live.
+generate, which is what the token budget counts. A second one, the prompt alone, went with
+the large-cold-prefill cap that was its only reader.
 
 The estimate is fixed when a slot is granted and never grows, so for a long agentic
 delegation the token rule is a floor-time approximation rather than a running total.
@@ -1087,10 +1083,8 @@ prompt tokens sent — input only, since output is never cached — and is the o
 when a run stops reusing its prefix. A total alone grows fastest exactly when reuse is worst,
 so it cannot show that; a share alone never says how much was avoided.
 
-The column is named for what it measures rather than for what a reader hopes it measures. It
-was `saved` until it had been misread twice: once into deleting it outright, and once by a
-reader taking it for tokens the *caller* did not have to spend. It is neither, and would read
-the same if no caller existed.
+The column is named for what it measures rather than for what a reader hopes it measures:
+not tokens a caller was spared, and it would read the same if no caller existed.
 
 `return` and `load` answer the different question of what delegating was worth, and both are
 exact. **`load` is what the cluster processed** — prompt plus output, summed over every turn
@@ -1127,6 +1121,13 @@ deliberately does not return on its own — the last thing a dispatch writes is 
 thing that was being waited for, and taking the screen away at that moment is the one
 behaviour a watcher must not have. The list redraws itself every couple of seconds so a
 dispatch started elsewhere appears without a keypress, and `r` forces it.
+
+A tool call renders through a per-tool layout where one is registered, and the generic
+`k=v` tail otherwise. `read_file` and `search_files` have one because their arguments are
+long and unbreakable: the tail is wrapped on word boundaries, and a path is one word, so
+it landed wherever the wrap fell and shared a line with whatever followed. The layouts give
+the path a line to itself. A path longer than the terminal still wraps -- the promise is
+that it does not *share*.
 
 Ordering comes from the stream format rather than the filesystem: from **when the dispatch
 started** — the `start` event's `at`, falling back to the timestamp `transcript.py` puts in the

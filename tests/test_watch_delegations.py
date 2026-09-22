@@ -1517,3 +1517,342 @@ def test_an_end_event_from_before_this_change_still_renders(viewer):
 
     assert "done" in out
     assert "cut off" not in out
+
+
+# --- the closing line was too thin: a whole-run summary beneath it --------------------
+
+
+def _summary(viewer, **over) -> str:
+    """The second line of an `end` block, stripped of colour, or "" where there is none.
+
+    Indexed rather than searched for: the summary sits directly under the verdict, and a
+    test that went looking for a line matching some substring would still pass if the
+    renderer emitted it somewhere else entirely.
+    """
+    lines = viewer.render(_end(**over), 100)
+    return viewer._plain(lines[2]) if len(lines) > 3 else ""
+
+
+def _measured(**over) -> dict:
+    """An `end` event carrying everything the loop's ledger reports about a whole run."""
+    event = {
+        "turns": 6, "max_turns": 25, "elapsed_seconds": 250.0, "out_tok_s": 44.0,
+        "input_tokens": 90_000, "output_tokens": 4_000,
+        "tool_calls": 8, "tool_errors": 1, "bash_calls": 3, "bash_failures": 2,
+        "prefill_seconds": 12.0, "decode_seconds": 170.0, "tool_seconds": 68.0,
+    }
+    event.update(over)
+    return event
+
+
+def test_a_finished_run_says_what_it_ran_and_where_its_time_went(viewer):
+    """The closing line answered "did it work and what did it cost" and stopped there.
+
+    Which leaves the next question -- what did it spend that on -- answerable only by
+    scrolling back through every turn and adding up. Asserted as the whole line rather
+    than as substrings, because the order is the point: what ran, what broke, then the
+    clock split from the largest share down.
+    """
+    line = _summary(viewer, **_measured())
+
+    assert line == (
+        "  8 tool calls · 3 shell · 3 failures · 4m10s total · 1m08s tools"
+        " · 12s prefill · 2m50s generating"
+    ), line
+
+
+def test_the_tool_share_is_read_and_never_derived(viewer):
+    """`tool_seconds`, not `elapsed - (prefill + decode)`.
+
+    The subtraction looks like the same number and is not: the turn clock starts before
+    the admission gate, so it carries the queue too. This fixture makes the two disagree
+    on purpose -- the subtraction would read 8m00s, the real tool clock reads 1m00s -- so
+    a later change that quietly went back to deriving it fails here.
+    """
+    line = _summary(viewer, **_measured(elapsed_seconds=600.0, prefill_seconds=30.0,
+                                        decode_seconds=90.0, tool_seconds=60.0))
+
+    assert "10m00s total" in line
+    assert "1m00s tools" in line, line
+    assert "8m00s" not in line, line
+
+
+def test_a_run_whose_tool_clock_was_not_recorded_omits_it_rather_than_inventing_it(viewer):
+    """Absent is not zero, applied to the one field that used to be derived.
+
+    Before the end event carried `tool_seconds` the viewer subtracted the backend's halves
+    from the whole run, which always produced *a* number -- so a stream that never
+    measured tool time still showed some. It must now show none, while the rest of the
+    split survives.
+    """
+    event = _measured()
+    del event["tool_seconds"]
+    line = _summary(viewer, **event)
+
+    assert "tools" not in line, line
+    assert "4m10s total" in line, line
+    assert "12s prefill" in line, line
+
+
+def test_an_end_event_from_before_these_fields_renders_no_summary_at_all(viewer):
+    """Absent is not zero, and this is the rule's hardest case: every number here has a
+    plausible zero, so an unmeasured run would read as a run that called no tools, broke
+    nothing and spent no time doing it -- a complete and completely invented account.
+
+    `elapsed_seconds` is on every transcript ever written, so it alone does not earn the
+    line: repeating the total from the head with nothing to divide it between is not a
+    summary, it is the same number twice.
+    """
+    assert _summary(viewer) == "", _summary(viewer)
+    # The control, and what keeps the assertion above from passing on a renderer that has
+    # no summary to suppress -- which is every renderer written before this one.
+    assert _summary(viewer, **_measured()) != "", "the line the rule is a rule about"
+
+
+def test_a_run_whose_ledger_was_recorded_without_timings_still_counts_its_calls(viewer):
+    """The other direction: the two halves of the line are independent.
+
+    A change that gated the whole summary on the timings would pass the test above by
+    printing nothing at all, which is the failure mode that test cannot see on its own.
+    """
+    line = _summary(viewer, tool_calls=2, tool_errors=0, bash_failures=0)
+
+    assert line == "  2 tool calls · 0 failures", line
+
+
+def test_a_failure_count_above_zero_is_the_one_thing_that_breaks_the_dimness(viewer):
+    """The line is dim because it is a reference, not news. A failure is news.
+
+    Asserted on the escape sequence rather than on the word, because the word was never
+    the problem -- a count nobody notices is a count that does not do its job, and dim
+    red is what you get from leaving the dim open around it.
+    """
+    summary = viewer.render(_end(**_measured()), 100)[2]
+
+    assert viewer.RED in summary, summary
+    # Closed before the red opens, or the terminal renders the two combined and the
+    # count is a slightly warm grey instead of a red.
+    assert viewer.R + viewer.RED in summary, summary
+    assert summary.endswith(viewer.R)
+
+
+def test_a_measured_zero_failure_count_stays_dim(viewer):
+    """The negative control. A run that broke nothing still says so -- a measured zero is
+    a fact worth reading -- but it says it in the same grey as everything beside it, or
+    the colour stops meaning anything on the runs where it matters."""
+    summary = viewer.render(
+        _end(**_measured(tool_errors=0, bash_failures=0, bash_calls=0)), 100)[2]
+
+    assert "0 failures" in viewer._plain(summary)
+    assert viewer.RED not in summary, summary
+
+
+def test_a_delegation_that_ran_no_shell_does_not_say_so(viewer):
+    """`bash_calls` appears only where a shell actually ran. `0 shell` on every read-only
+    delegation is noise, and nothing rests on telling that zero from an absent field --
+    unlike the failure count, which is read for exactly that distinction."""
+    line = _summary(viewer, **_measured(bash_calls=0, bash_failures=0))
+
+    assert "shell" not in line, line
+    assert "8 tool calls" in line, "the total still counts what did run"
+
+
+def test_the_summary_counts_read_the_end_events_integer_not_a_turns_list(viewer):
+    """`tool_calls` is an integer on `end` and a list of call records on `turn`.
+
+    One key, two shapes, because the loop reports a total where a turn reports its calls.
+    A truthy test instead of a type guard would format a list of dicts into this line, and
+    on the event where it matters most -- the one a reader opens the transcript for.
+    """
+    turn_screen = "\n".join(viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
+        "input_tokens": 10, "output_tokens": 5,
+        "tool_calls": [{"name": "read_file", "outcome": "ran",
+                        "arguments": {"path": "/mnt/c/w/a.py"}}],
+    }, 100))
+
+    assert "tool call" not in turn_screen, turn_screen
+    # Paired with the shape that does get counted, so this cannot pass by counting
+    # nothing anywhere -- which is what every renderer before this one did.
+    assert "8 tool calls" in _summary(viewer, **_measured())
+
+
+# --- a long path shared its line with the next argument ------------------------------
+
+
+DEEP = ("/mnt/c/Users/operator/Projects/Personal/ClaudeLocalMCP/src/claude_delegate_local"
+        "/backends/" + "deeply/nested/" * 6 + "openai_compat.py")
+BIG_PATTERN = r"def\s+(_?[a-z_]+)\(self,\s*\*\*kwargs\)\s*->\s*(None|dict\[str, Any\]):"
+
+
+def _calls(viewer, call: dict, width: int = 100) -> list[str]:
+    """The lines one tool call renders, without the turn head or its machine-local clock."""
+    return [viewer._plain(line) for line in viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
+        "input_tokens": 100, "output_tokens": 5, "tool_calls": [call],
+    }, width)][2:]
+
+
+def test_a_long_path_never_shares_its_line_with_anything_else(viewer):
+    """The report. `_call_lines` joined every argument into one `k=v` tail and handed it
+    to `_wrap`, which breaks on word boundaries -- and a path is one word, so it landed
+    wherever the wrap happened to fall and whatever came next started beside it.
+
+    The promise is not that a long path never wraps: `_wrap` cannot break a word and this
+    one is 190 characters, so a narrow terminal still folds it. The promise is that it
+    never *shares*, so everything a reader sees on those rows belongs to the path.
+    """
+    lines = _calls(viewer, {
+        "name": "search_files", "outcome": "ran",
+        "arguments": {"path": DEEP, "pattern": BIG_PATTERN, "glob": "*.py"},
+        "result_bytes": 640, "result_lines": 12,
+    })
+
+    assert lines == [
+        "  ▸ search_files ran",
+        f"      {DEEP}",
+        f"      {BIG_PATTERN}",
+        "      glob=*.py · 640 B · 12 lines",
+    ], lines
+
+
+def test_a_path_short_enough_to_share_a_line_no_longer_does(viewer):
+    """The same defect at the width where it is loudest, and the shape the report named.
+
+    A 57-character path and a short pattern both fit inside one wrapped line, so the old
+    layout ran them together -- `path=/mnt/.../loop.py pattern=TODO 640 B ·`, with the
+    size note torn in half across the break and nothing to say where the path ended.
+    Asserted as the property as well as the lines, because the property is what is being
+    promised and the lines are only this fixture's instance of it.
+    """
+    path, pattern = "/mnt/c/w/ClaudeLocalMCP/src/claude_delegate_local/loop.py", "TODO"
+    lines = _calls(viewer, {
+        "name": "search_files", "outcome": "ran",
+        "arguments": {"path": path, "pattern": pattern},
+        "result_bytes": 640, "result_lines": 12,
+    })
+
+    assert not any(path in line and pattern in line for line in lines), lines
+    assert lines == [
+        "  ▸ search_files ran",
+        f"      {path}",
+        f"      {pattern}",
+        "      640 B · 12 lines",
+    ], lines
+
+
+def test_a_read_file_call_puts_the_range_and_the_size_under_its_path(viewer):
+    """Two lines: what was asked for, then what came back. The path alone above them.
+
+    `start` and `end` are optional arguments, so they are appended rather than positioned
+    -- a missing `end_line` must not leave behind the separator that would have followed
+    it, which is the tidy-looking bug a fixed-format line would have.
+    """
+    lines = _calls(viewer, {
+        "name": "read_file", "outcome": "ran",
+        "arguments": {"path": DEEP, "start_line": 120, "end_line": 400},
+        "result_bytes": 2100, "result_lines": 84,
+    })
+
+    assert lines == [
+        "  ▸ read_file ran",
+        f"      {DEEP}",
+        "      start 120 · end 400 · 2,100 B · 84 lines",
+    ], lines
+
+
+def test_a_read_file_call_with_no_range_leaves_no_stray_separator(viewer):
+    """Both optional arguments absent, which is the commonest `read_file` of all."""
+    lines = _calls(viewer, {
+        "name": "read_file", "outcome": "ran", "arguments": {"path": "/mnt/c/w/a.py"},
+        "result_bytes": 2100, "result_lines": 84,
+    })
+
+    assert lines == [
+        "  ▸ read_file ran",
+        "      /mnt/c/w/a.py",
+        "      2,100 B · 84 lines",
+    ], lines
+
+
+def test_a_read_file_from_before_the_sizes_were_recorded_shows_no_metadata_line(viewer):
+    """`_size_note` owns the absent-versus-zero rule and this layout joins its answer
+    rather than reading the counts again. An older record has neither, and a metadata
+    line reading `0 B` would claim a measurement nobody took."""
+    lines = _calls(viewer, {
+        "name": "read_file", "outcome": "ran", "arguments": {"path": "/mnt/c/w/a.py"},
+    })
+
+    assert lines == ["  ▸ read_file ran", "      /mnt/c/w/a.py"], lines
+
+
+def test_the_layout_is_not_pinned_to_one_terminal_width(viewer):
+    """Sixty columns. The path still holds its own row, the pattern wraps on its own
+    words rather than into the path, and the metadata line stays whole.
+
+    A layout tested only at 100 is a layout that works at 100: the follow view takes its
+    width from the terminal, and the terminals this is read in are split panes.
+    """
+    lines = _calls(viewer, {
+        "name": "search_files", "outcome": "ran",
+        "arguments": {"path": DEEP, "pattern": BIG_PATTERN, "glob": "*.py"},
+        "result_bytes": 640, "result_lines": 12,
+    }, width=60)
+
+    assert lines == [
+        "  ▸ search_files ran",
+        f"      {DEEP}",
+        r"      def\s+(_?[a-z_]+)\(self,\s*\*\*kwargs\)\s*->\s*(None|dict\[str,",
+        r"      Any\]):",
+        "      glob=*.py · 640 B · 12 lines",
+    ], lines
+
+
+def test_an_argument_the_layout_does_not_name_is_still_shown(viewer):
+    """A layout that knew three keys and silently dropped a fourth would lie about what
+    the call was asked. A search narrowed to `*.py` that found nothing reads very
+    differently from one that was not narrowed, and `max_results` is the difference
+    between "that is everything" and "that is the first hundred"."""
+    lines = _calls(viewer, {
+        "name": "search_files", "outcome": "ran",
+        "arguments": {"path": "/mnt/c/w", "pattern": "TODO",
+                      "glob": "*.py", "max_results": 50},
+        "result_bytes": 640, "result_lines": 12,
+    })
+
+    assert lines[-1] == "      glob=*.py · max_results=50 · 640 B · 12 lines", lines
+
+
+def test_every_other_tool_keeps_the_generic_argument_tail(viewer):
+    """The control, and the reason there are two layouts rather than a rewrite.
+
+    A per-tool layout is a claim about which of a call's arguments a reader looks at
+    first, and that claim is only worth making where someone has looked. `read_git` has
+    not been looked at, so it renders exactly as it did.
+    """
+    lines = _calls(viewer, {
+        "name": "read_git", "outcome": "ran",
+        "arguments": {"repo": ".", "command": "log -1"},
+        "result_bytes": 640, "result_lines": 12,
+    })
+
+    assert lines == ["  ▸ read_git ran  repo=.  command=log -1  640 B · 12 lines"], lines
+
+
+def test_the_tool_name_marker_stays_yellow_under_a_per_tool_layout(viewer):
+    """`▸ name` is what a reader scans for down the left of a turn. A layout that took
+    the marker's colour for the path would cost them the scan to gain a line -- so the
+    path is cyan on its own row and the marker is left where it was."""
+    lines = viewer.render({
+        "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
+        "input_tokens": 100, "output_tokens": 5,
+        "tool_calls": [{"name": "read_file", "outcome": "ran",
+                        "arguments": {"path": DEEP},
+                        "result_bytes": 1, "result_lines": 1}],
+    }, 100)
+    head = next(line for line in lines if "read_file" in line)
+    path_line = next(line for line in lines if DEEP in line)
+
+    assert viewer.YELLOW in head and viewer.GREEN in head
+    assert viewer.CYAN in path_line, path_line
+    assert viewer.YELLOW not in path_line, "the marker's colour leaked onto the path"

@@ -38,6 +38,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #269 — 2026-09-21 — feat: the viewer summarises a run, and gives a path its own line
+
+### Added
+
+- **A run summary beneath the closing line**: tool calls, shell calls, failures, total
+  time, tool time, prefill and generation. The closing line answered "did it work and what
+  did it cost" and stopped there, leaving "what did it spend that on" answerable only by
+  scrolling back through every turn and adding up. It reads the `end` event's own fields,
+  and renders nothing at all where they are absent -- an unmeasured run must not read as a
+  run that called no tools in no time.
+- Tool time is **read from `tool_seconds`, never derived**. The obvious subtraction,
+  `elapsed_seconds - (prefill_seconds + decode_seconds)`, looks like the same number and
+  is not: the turn clock starts before the admission gate, so it carries the queue as well,
+  and calling that "tools" overstates it by however long the run waited for a slot. A test
+  makes the two figures disagree on purpose so a later change cannot go back to deriving it.
+- A non-zero failure count is the one thing that breaks the line's dimness.
+
+### Fixed
+
+- **A long path shared its line with whatever followed, and the size note was torn in
+  half.** There was no per-tool rendering at all: every argument was joined into one `k=v`
+  tail and, when it did not fit, wrapped on word boundaries -- and a path is one word, so
+  it landed wherever the wrap fell. A real `search_files` call rendered as
+  `path=<190 chars> pattern=... glob=*.py 640` and then `B · 12 lines` on the next line.
+- `read_file` and `search_files` now have layouts: the path alone on its own line, then
+  the range and size, and for `search_files` the pattern on a line between them. Every
+  other tool keeps the generic tail unchanged. A path longer than the terminal still
+  wraps -- the promise is that it does not *share* a line, and the test asserts that and
+  nothing stronger.
+
 ## #268 — 2026-09-21 — feat: the end event carries what a run summary needs
 
 ### Added
