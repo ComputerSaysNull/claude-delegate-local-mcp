@@ -33,7 +33,13 @@ HOST = "http://example.com:8000"  # on the gate's placeholder allowlist
 
 
 def cfg(**over) -> Config:
-    kw = {"workspace_roots": (".",)}
+    # The idle hold is a debounce that fires whenever a delegation finds the gate idle,
+    # which in a unit test is every time: each one builds its own server. Such a test is
+    # testing what the server does, not the hold, so it waits the hold out for nothing --
+    # ten seconds apiece. Zeroing it in only some helpers moves the cost rather than
+    # removing it, because whoever arrives next finds the gate idle instead. The tests
+    # that are about the debounce set their own value.
+    kw = {"workspace_roots": (".",), "admission_idle_hold": 0.0}
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
 
@@ -672,6 +678,7 @@ def files_cfg(tmp_path, **over) -> Config:
         "workspace_roots": (os.path.realpath(tmp_path),),
         "secret_globs_file": str(globs),
         "respect_gitignore": False,
+        "admission_idle_hold": 0.0,  # see cfg()
     }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
