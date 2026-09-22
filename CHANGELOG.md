@@ -38,6 +38,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #280 — 2026-09-22 — fix: the planner's pull request body is the CHANGELOG entry
+
+### Fixed
+
+- **The printed `gh pr create` published the commit body.** *Symptom:* #279 went out with
+  its short commit text as the pull request body, where the convention is the CHANGELOG
+  entry plus how the change was verified. *Cause:* `plan_stack.py` wrote the body file
+  from `git log -1 --format=%b`, and nothing in the repository stated the convention, so
+  a session following the planner's commands had no way to know the text was wrong.
+  *Fix:* the body is now the front branch's newest CHANGELOG section, subsections as they
+  are, plus a `### Verification` section read from `--verification <file>`; without that
+  file the planner refuses, because only the author can say how a change was verified.
+  The gate payload carries the same body, so the pre-publication scan reads exactly the
+  text `gh` will send.
+
+### Changed
+
+- **The convention is written down.** The session-execute skill says the commit and the
+  pull request say different things and what each carries, and CONTRIBUTING.md describes
+  the planner's new argument.
+
 ## #279 — 2026-09-22 — docs: CLAUDE.md states the repository, not the author's machine
 
 ### Changed

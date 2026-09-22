@@ -113,9 +113,9 @@ the cause, and the fix. In six months the why is the only part still worth havin
 `main` requires a pull request and green checks. Squash-merge, delete the branch.
 
 **A stack ships one pull request at a time**, because merging one deletes its base and
-closes a stacked child unreopenably. `python scripts/plan_stack.py` derives the order,
-refuses what is not one chain, checks the front branch's number, and prints the commands —
-**which you run yourself**, since a hook cannot see a subprocess of a script it approved.
+closes a stacked child unreopenably. `python scripts/plan_stack.py` orders it, refuses a fork,
+checks the number, builds the body from the CHANGELOG section plus `--verification <file>`,
+and prints the commands — **which you run yourself**: a hook cannot see a script's subprocess.
 
 ## Which document do I update?
 

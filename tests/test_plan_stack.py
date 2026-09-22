@@ -116,6 +116,76 @@ def test_a_changelog_with_no_heading_reads_as_none(monkeypatch):
     assert plan_stack.claimed_number("any-branch") is None
 
 
+# --- the pull request body ------------------------------------------------------------
+
+CHANGELOG = (
+    "# Changelog\n\nPreamble.\n\n"
+    "## #280 — 2026-09-22 — fix: a thing\n\n"
+    "### Fixed\n\n- **The newest entry.** Symptom, cause, fix.\n\n"
+    "## #279 — 2026-09-21 — docs: an older thing\n\n"
+    "### Changed\n\n- **An older entry.**\n"
+)
+
+
+@pytest.fixture
+def repo(monkeypatch):
+    """A one-branch stack whose commit body and CHANGELOG entry say different things.
+
+    Returns the files `plan` wrote, by suffix, so a test reads exactly what `gh pr create`
+    and the gate would have been handed.
+    """
+    def fake_git(*args, **kwargs):
+        if args[0] == "rev-parse":
+            return "abc1234"
+        if args[:2] == ("log", "-1") and args[2] == "--format=%s":
+            return "fix: a thing"
+        if args[:2] == ("log", "-1") and args[2] == "--format=%b":
+            return "COMMIT BODY, which is shorter and not the pull request text."
+        if args[0] == "show":
+            return CHANGELOG
+        raise AssertionError(f"unexpected git call {args}")
+
+    written: dict[str, str] = {}
+
+    def fake_write(text, suffix):
+        written[suffix] = text
+        return f"/tmp/plan{suffix}"
+
+    monkeypatch.setattr(plan_stack, "git", fake_git)
+    monkeypatch.setattr(plan_stack, "gh", lambda *a, **k: "279")
+    monkeypatch.setattr(plan_stack, "write_temp", fake_write)
+    return written
+
+
+def test_the_pr_body_is_the_changelog_section_not_the_commit_body(repo):
+    """The bug: the body file was the commit body, so a session following the printed
+    `gh pr create` published the short commit text where the CHANGELOG entry belongs."""
+    assert plan_stack.plan(["fix/a-thing"], verification="- Both suites pass.") == 0
+
+    body = repo[".md"]
+    assert "### Fixed" in body and "The newest entry." in body
+    assert "COMMIT BODY" not in body
+    assert "An older entry." not in body  # the next section is not part of this one
+    assert "### Verification" in body and "Both suites pass." in body
+
+
+def test_a_plan_without_verification_is_refused(repo, capsys):
+    """The convention needs a verification section, and only the author can write it, so
+    a missing one is refused rather than published without."""
+    assert plan_stack.plan(["fix/a-thing"]) == 1
+
+    assert ".md" not in repo
+    assert "--verification" in capsys.readouterr().out
+
+
+def test_the_gate_is_handed_the_body_that_will_be_published(repo):
+    """Control. The scan is only worth something if it reads the text `gh` will send."""
+    plan_stack.plan(["fix/a-thing"], verification="- Both suites pass.")
+
+    import json
+    assert json.loads(repo[".json"])["pull_request"]["body"] == repo[".md"]
+
+
 # --- the read-only promise, which is the reason this script replaced a publisher ---------
 
 @pytest.mark.parametrize("subcommand", ["fetch", "checkout", "reset", "rebase", "push"])
