@@ -86,8 +86,15 @@ jobs:
       # at once -- applied wherever it can be machine-enforced rather than merely written down.
       max-parallel: 6
       fail-fast: false
+      # Floor and ceiling, not floor and floor+1. 3.12 is what the server runs on --
+      # Ubuntu 24.04's system interpreter, in WSL2 -- and 3.14 is what development
+      # happens on, so between them every interpreter anyone here actually uses is
+      # covered. Testing 3.12 and 3.13 would have bought a second reading of a version
+      # nobody runs while leaving the newest untested. 3.11 was dropped with the floor:
+      # nothing needed it, and it was only ever the floor because the project started
+      # there.
       matrix:
-        python: ["3.11", "3.12"]
+        python: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@v4
 
@@ -113,8 +120,8 @@ jobs:
       #
       # `--durations` because this job is the one place the suite is timed on hardware
       # nobody can inspect afterwards. A tail that grew is otherwise a wall-clock number
-      # with nothing behind it, and reading the durations locally does not reproduce it:
-      # the slow tests here are the ones a four-core runner serialises.
+      # with nothing behind it, which is how a 2x slowdown went four weeks unexplained
+      # (#275): the cause was a ten-second wait, and one duration would have named it.
       - name: Run tests
         run: python -m pytest -q -m "not integration" --durations=25
 

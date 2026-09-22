@@ -52,7 +52,7 @@ mechanism there.
 
 - A local OpenAI-compatible endpoint (this was built against vLLM serving DeepSeek V4
   Flash on two DGX-Spark-class machines, but nothing depends on that specific stack).
-- Python 3.11+.
+- Python 3.12+.
 - **Linux, or WSL2 on Windows** — `bubblewrap` is Linux-only, so the server runs there even
   when Claude Code does not ([why](docs/ARCHITECTURE.md)).
 

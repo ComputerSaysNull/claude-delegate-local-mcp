@@ -38,6 +38,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #276 — 2026-09-22 — fix: the supported floor is the interpreter we actually run
+
+### Changed
+
+- **`requires-python` is `>=3.12`, and the CI matrix is 3.12 and 3.14.** 3.11 was never a
+  decision -- the project started there and the floor stayed. Nothing needs it: nobody else
+  is running this yet, so the floor is free to be whatever is useful, and the useful floor
+  is the interpreter the server runs on. That is Ubuntu 24.04's system Python, 3.12, in
+  WSL2.
+- **The matrix is floor and ceiling now, rather than floor and floor+1.** 3.12 was covered
+  twice -- by CI and by the WSL suite that runs before every commit -- while 3.14, which
+  every local Windows run uses, was tested nowhere in CI. Testing the version below the one
+  you develop on is the cheapest possible matrix and the least informative. A second leg
+  also costs no wall-clock, the jobs running concurrently, and nothing at all on a public
+  repository.
+- **What the dropped leg was worth, stated rather than assumed.** The 3.11 entry earned its
+  place exactly once: it caught `gen_config_docs.py` tokenising source instead of parsing
+  it, which reads an f-string as one STRING token before PEP 701 and as its parts after, so
+  a *generated* document depended on which interpreter rendered it. The fix was to parse,
+  which removes the divergence rather than working around it, and with 3.11 unsupported the
+  class cannot recur here. It is on the record because a matrix entry that has caught a real
+  defect should not be dropped silently.
+- ruff's `target-version` follows the floor to `py312`.
+- The comment above `--durations=25` loses the clause that said reading durations locally
+  does not reproduce the runner. #275 made that false in the act of landing: with the
+  ten-second hold gone, CI's tail and WSL's agree to within two seconds.
+
 ## #275 — 2026-09-22 — fix: the suite waits out a debounce and a whole gate run it does not need
 
 ### Added

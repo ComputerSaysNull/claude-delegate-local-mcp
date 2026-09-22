@@ -165,7 +165,7 @@ Security-sensitive work — `sandbox.py`, `paths.py`, `wsl.py` — gets a short 
 ## CI
 
 `.github/workflows/ci.yml` runs four jobs on every pull request — **gate**, **lint**,
-**tests** (3.11 and 3.12), and **gitleaks**. `pyproject.toml` pins the ruff version *and*
+**tests** (3.12 and 3.14), and **gitleaks**. `pyproject.toml` pins the ruff version *and*
 the rule set, because a lint job on a moving rule set fails builds nobody broke. Workflow
 comments explain the rest, including why the tests job reports its 25 slowest.
 The generated-document step now checks `docs/CONFIGURATION.md` alone (ADR-0044).
