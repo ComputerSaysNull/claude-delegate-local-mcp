@@ -38,6 +38,36 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #265 — 2026-09-21 — fix: turn_timeout is retired, and the reply budget is the run deadline
+
+### Changed
+
+- **`turn_timeout` is retired.** It was the denominator of every reply budget --
+  `budget_seconds` returned `min(dispatch_left, turn_timeout)` -- and it was not earning
+  the place. Doubling it 1800 to 3600 moved the ceiling 18,905 to 31,793 and bought 347
+  seconds and 111 tokens: the same answer, from the same attempt, at the same effort
+  (JOURNAL 2026-09-20). `budget_seconds` is now `max(dispatch_left, 0.0)`.
+- **It goes entirely rather than staying on as a plain deadline**, because that second
+  option is the configuration #166 was written to fix: a budget sized to the run, plus a
+  per-call deadline able to cut the reply that budget authorised, is what made an attempt
+  overrun and retry against a third of the clock. Removing the term while keeping the
+  deadline reinstates it exactly, so the two halves are one decision. (ADR-0100)
+- **What bounds a call now is silence.** A producing stream emits frames 0.4s apart or
+  better at every effort level, so a wedged call is a silent one and `stall_timeout` is the
+  signal built for it. The httpx read budget becomes `stall_timeout` too -- the same
+  question one layer down -- and the adapter's whole-call bound goes with the setting, so a
+  stream that keeps producing is bounded by `dispatch_timeout` rather than by a constant.
+- `DELEGATE_TURN_TIMEOUT` is refused at load naming no replacement, the way #255 established
+  for a retired setting, because the two remaining deadlines already cover what it covered.
+  The chain config enforces is now `connect <= stall <= dispatch`.
+
+### Fixed
+
+- **ADR-0099's body states the stall default "drops from 2100 to 600"; it shipped at 900**,
+  which is what its own reasoning derives two paragraphs earlier. An ADR body is never
+  edited, so the correction is recorded in ADR-0100 and `.env.example`'s commented value is
+  brought to 900. `config.py` remains the only authority for a default.
+
 ## #264 — 2026-09-21 — feat: the viewer says where a run is, what it repeated and where its time went
 
 ### Added

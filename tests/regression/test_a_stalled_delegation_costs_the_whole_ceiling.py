@@ -2,8 +2,8 @@
 
 Measured on 2026-09-03, and not hypothetically: eight research delegations were fanned
 out at once, and one of them sat for 3600s and died "waiting on the backend" having
-completed no turns at all. `turn_timeout` was 1800 and `retry_max_attempts` 3, so that
-hour was two full-length wedged attempts back to back. Meanwhile five siblings were
+completed no turns at all. A per-call ceiling of 1800s and `retry_max_attempts` 3 made
+that hour two full-length wedged attempts back to back. Meanwhile five siblings were
 refused by admission after waiting out `admission_wait_timeout`, because the wedged one
 was holding a slot it was not using.
 
@@ -177,11 +177,11 @@ def test_the_stall_deadline_fires_when_no_turn_ever_completes(registered):
 
     A stall is a delegation that cannot finish a turn, so the backend here never returns
     one: every call is a retryable failure that charges the clock first. That is the
-    2026-09-03 shape -- `turn_timeout` elapsing twice inside one `dispatch_timeout`.
+    2026-09-03 shape -- two full-length wedged attempts inside one `dispatch_timeout`.
     """
     clock = Clock()
     backend = Failing(clock, 700.0)
-    config = cfg(turn_timeout=600, stall_timeout=900, dispatch_timeout=14400,
+    config = cfg(stall_timeout=900, dispatch_timeout=14400,
                  retry_max_attempts=9, retry_base_delay=0.01, retry_max_delay=0.01)
 
     with pytest.raises(loop.DispatchTimedOut) as e:
@@ -212,7 +212,7 @@ def test_a_merely_long_delegation_still_dies_on_the_ceiling_and_says_so(register
     """
     clock = Clock()
     backend = NeverFinishes(clock, seconds=700)
-    config = cfg(turn_timeout=600, stall_timeout=900, dispatch_timeout=3500)
+    config = cfg(stall_timeout=900, dispatch_timeout=3500)
 
     with pytest.raises(loop.DispatchTimedOut) as e:
         run(backend, clock, config=config)
@@ -235,7 +235,7 @@ def test_the_stall_deadline_stays_silent_while_turns_keep_completing(registered)
     """
     clock = Clock()
     backend = Backend(clock, 400.0, wants(), wants(), wants(), says("done"))
-    config = cfg(turn_timeout=600, stall_timeout=900, dispatch_timeout=14400)
+    config = cfg(stall_timeout=900, dispatch_timeout=14400)
 
     result = run(backend, clock, config=config)
 
@@ -257,7 +257,7 @@ def test_a_one_shot_is_bounded_by_the_tighter_of_the_two():
     # test said -- the deadline is consulted before an attempt and before a retry sleep,
     # so provoking it needs the loop to come back round with nothing.
     backend = Failing(clock, 1000.0)
-    config = cfg(turn_timeout=600, stall_timeout=900, dispatch_timeout=14400,
+    config = cfg(stall_timeout=900, dispatch_timeout=14400,
                  retry_max_attempts=9, retry_base_delay=0.01, retry_max_delay=0.01)
 
     with pytest.raises(loop.DispatchTimedOut) as e:
@@ -284,15 +284,15 @@ def test_a_stall_deadline_above_the_dispatch_ceiling_is_refused_at_load():
     """One bound left, and it is the one that can still be wrong.
 
     A stall above the delegation ceiling can never fire, which is a configuration error
-    rather than a loose setting. The lower bound against `turn_timeout` is gone
-    (ADR-0099): it existed because ADR-0047's stall signal was turn completion, and
-    ADR-0072 replaced that with token arrival, so a slow call that is producing resets
-    the clock instead of stalling against it. Measured 2026-09-21, the longest gap
-    between frames on this deployment is 0.3s at every effort level.
+    rather than a loose setting. The lower bound it used to have went with ADR-0099:
+    ADR-0047's stall signal was turn completion, and ADR-0072 replaced that with token
+    arrival, so a slow call that is producing resets the clock instead of stalling
+    against it. Measured 2026-09-21, the longest gap between frames on this deployment is
+    0.3s at every effort level.
     """
     with pytest.raises(Exception, match="DELEGATE_STALL_TIMEOUT"):
-        cfg(turn_timeout=600, stall_timeout=20000, dispatch_timeout=14400)
-    # Below `turn_timeout` is now legal, and is the configuration the default ships.
-    cfg(turn_timeout=1800, stall_timeout=600, dispatch_timeout=14400)
-    # Equal is legal at both ends.
-    cfg(turn_timeout=600, stall_timeout=600, dispatch_timeout=600)
+        cfg(stall_timeout=20000, dispatch_timeout=14400)
+    # A small stall budget under a large ceiling is legal, and is what the default ships.
+    cfg(stall_timeout=600, dispatch_timeout=14400)
+    # Equal is legal, and so is a connect bound equal to it.
+    cfg(connect_timeout=600, stall_timeout=600, dispatch_timeout=600)

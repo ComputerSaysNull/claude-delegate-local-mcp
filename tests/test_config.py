@@ -65,7 +65,7 @@ def test_config_is_frozen_so_nothing_mutates_it_mid_delegation():
     [
         ("DELEGATE_THINKING_DEFAULT", "maximum", "not one of"),
         ("DELEGATE_TRANSPORT", "websocket", "is refused; this server implements"),
-        ("DELEGATE_TURN_TIMEOUT", "soon", "not an integer"),
+        ("DELEGATE_MAX_TURNS_DEFAULT", "soon", "not an integer"),
         ("DELEGATE_RESEND_REASONING", "maybe", "not a boolean"),
         ("DELEGATE_RETRY_BASE_DELAY", "slow", "not a number"),
     ],
@@ -103,13 +103,6 @@ def test_turn_budget_cannot_exceed_the_hard_cap():
         config.load({**ROOTS, "DELEGATE_MAX_TURNS_DEFAULT": "500"})
 
 
-def test_a_turn_cannot_outlive_the_delegation_containing_it():
-    with pytest.raises(config.ConfigError, match="outlive"):
-        config.load({**ROOTS,
-                     "DELEGATE_TURN_TIMEOUT": "7200",
-                     "DELEGATE_DISPATCH_TIMEOUT": "3600"})
-
-
 def test_a_keepalive_that_cannot_hold_the_idle_timer_off_is_refused():
     """The interval is a correctness setting, and the failure it causes is invisible from
     inside the server.
@@ -134,11 +127,18 @@ def test_a_keepalive_with_room_to_beat_twice_is_accepted():
     assert config.load(dict(ROOTS)).keepalive_interval < half, "the default must pass too"
 
 
-def test_the_connect_phase_cannot_outlast_the_call_it_belongs_to():
+def test_the_connect_phase_cannot_outlast_the_silence_budget_containing_it():
+    """A route that never connects is silence, so the connect bound belongs inside it.
+
+    It used to be checked against `turn_timeout`, which is retired. Left unchecked, a
+    connect bound above the stall budget would mean a blackholed route was reported as a
+    stall rather than as a connect failure -- the diagnosis sent to an operator would
+    name the wrong layer.
+    """
     with pytest.raises(config.ConfigError, match="outlast"):
         config.load({**ROOTS,
                      "DELEGATE_CONNECT_TIMEOUT": "600",
-                     "DELEGATE_TURN_TIMEOUT": "300"})
+                     "DELEGATE_STALL_TIMEOUT": "300"})
 
 
 def test_connect_timeout_must_be_positive():
@@ -297,17 +297,17 @@ def test_the_port_only_the_http_transport_used_is_gone():
 # --- the deadlines no longer nest through stall (ADR-0099) -----------------------------
 
 
-def test_a_stall_budget_below_the_turn_timeout_is_permitted():
-    """The link the two settings used to have, and no longer should.
+def test_a_small_stall_budget_under_a_large_ceiling_is_permitted():
+    """The link stall used to have to a per-call bound, and no longer should.
 
     It was written when stall meant "has not COMPLETED a turn" (ADR-0047): under that
     reading a stall shorter than one call would cut short a legitimately slow one. Since
     ADR-0072 the signal is token arrival, so a slow call that is producing never stalls,
-    and the reason the bound existed went with it.
+    and the reason the bound existed went with it -- ahead of the setting itself.
     """
     cfg = config.load({**ROOTS, "DELEGATE_STALL_TIMEOUT": "600"})
     assert cfg.stall_timeout == 600
-    assert cfg.turn_timeout > cfg.stall_timeout, "the point of the test is that it is lower"
+    assert cfg.dispatch_timeout > cfg.stall_timeout, "the ceiling must still sit above it"
 
 
 def test_a_stall_budget_above_the_dispatch_timeout_is_still_refused():
@@ -343,6 +343,31 @@ def test_a_retired_temperature_name_is_refused_rather_than_ignored():
     for name in ("DELEGATE_TOOL_CALL_TEMPERATURE", "DELEGATE_ONE_SHOT_TEMPERATURE"):
         with pytest.raises(config.ConfigError, match="retired"):
             config.load({**ROOTS, name: "0.7"})
+
+
+def test_the_retired_per_call_deadline_is_refused_rather_than_ignored():
+    """`DELEGATE_TURN_TIMEOUT` is live in every `.env` written before it went.
+
+    Ignoring the line would leave an operator believing they had bounded a call, which
+    is the exact belief the retirement removes: nothing bounds a call by length any
+    more. The refusal has to name what does the job instead, or the operator has no
+    move.
+    """
+    with pytest.raises(config.ConfigError, match="retired") as caught:
+        config.load({**ROOTS, "DELEGATE_TURN_TIMEOUT": "1800"})
+    assert "DELEGATE_STALL_TIMEOUT" in str(caught.value)
+
+
+def test_every_retired_field_has_a_remedy():
+    """The roster and the remedies are two lists that must agree.
+
+    `_check_retired` indexes one by the other, so a field added to the roster alone
+    raises `KeyError` at load -- from inside the check that exists to produce a readable
+    refusal. Cheaper to catch here than in an operator's terminal.
+    """
+    assert set(config.RETIRED_FIELDS) == set(config.RETIRED_REMEDY)
+    for name in config.RETIRED_FIELDS:
+        assert config.RETIRED_REMEDY[name].strip(), name
 
 
 def test_the_retirement_refusal_is_specific_and_not_a_blanket():

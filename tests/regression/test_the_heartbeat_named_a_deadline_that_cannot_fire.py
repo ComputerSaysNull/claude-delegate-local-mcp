@@ -2,20 +2,19 @@
 
 `_keepalive` sent `cfg.dispatch_timeout` as the figure a caller measures elapsed against.
 That is the whole-delegation ceiling — 14400s by default — while what actually kills a
-turn is `stall_timeout` (2100) or the per-attempt `turn_timeout` (1800), whichever is
-tighter. So every one of the nine delegations abandoned at 2100s spent its last half hour
-reporting "60s of 14400s": four tenths of one percent elapsed, while minutes from death.
+turn is the no-progress deadline, far below it. So every one of the nine delegations
+abandoned at 2100s spent its last half hour reporting "60s of 14400s": four tenths of one
+percent elapsed, while minutes from death.
 
 The fix adds the number rather than redefining the old one. `of_seconds` still means the
 delegation ceiling, which is true and which old transcripts already carry; `ends_in_seconds`
 is the new and actionable one.
 
-It is deliberately *not* `budget_seconds`, though the shapes look identical. That function
-sizes one attempt and so includes `turn_timeout`, which restarts with every attempt — a
-constant, not a countdown. `test_what_is_left_shrinks_as_the_turn_runs` is what caught
-that: reported here, `budget_seconds` sat unchanged at its ceiling while the delegation ran
-out of time underneath it. Sizing an attempt and counting down a delegation are two
-questions, and only the second is what a watcher is asking.
+It is deliberately *not* `budget_seconds`, though the shapes look close. That function
+sizes one reply against the delegation clock alone, because a stream that is producing is
+not silent and must not be charged the stall clock; a countdown has the opposite job, and
+must name whichever deadline will actually end the run. Sizing a reply and counting down a
+delegation are two questions, and only the second is what a watcher is asking.
 
 Named after the bug, per the project's convention.
 """
@@ -50,7 +49,7 @@ def beats(**over) -> list[tuple[float, int, float]]:
 
 def test_the_heartbeat_says_how_long_is_left_not_only_how_long_is_allowed():
     """The bug. `dispatch_timeout` was the only figure reported, and it cannot fire first."""
-    seen = beats(connect_timeout=5, turn_timeout=30, stall_timeout=60, dispatch_timeout=120)
+    seen = beats(connect_timeout=5, stall_timeout=60, dispatch_timeout=120)
     assert seen, "the heartbeat did not beat at all"
     _, of, ends_in = seen[0]
     assert of == 120, f"the delegation ceiling should still be reported, got {of}"
@@ -61,7 +60,7 @@ def test_the_heartbeat_says_how_long_is_left_not_only_how_long_is_allowed():
 
 def test_what_is_left_shrinks_as_the_turn_runs():
     """A countdown that does not count down is a constant wearing a countdown's name."""
-    seen = beats(connect_timeout=5, turn_timeout=30, stall_timeout=60, dispatch_timeout=120)
+    seen = beats(connect_timeout=5, stall_timeout=60, dispatch_timeout=120)
     assert len(seen) >= 2, f"needed two beats to compare, got {len(seen)}"
     assert seen[-1][2] < seen[0][2], (
         f"remaining did not fall across beats: {[round(s[2], 1) for s in seen]}"
@@ -69,12 +68,12 @@ def test_what_is_left_shrinks_as_the_turn_runs():
 
 
 def test_the_ceiling_binds_when_it_is_the_tightest():
-    """It is the tightest of three, not a substitution of one for another.
+    """It is the tighter of two, not a substitution of one for another.
 
-    Config enforces `turn_timeout <= stall_timeout <= dispatch_timeout`, so all three
-    equal is the shape where the delegation ceiling is what remains.
+    Config enforces `connect_timeout <= stall_timeout <= dispatch_timeout`, so both equal
+    is the shape where the delegation ceiling is what remains.
     """
-    seen = beats(connect_timeout=5, turn_timeout=20, stall_timeout=20, dispatch_timeout=20)
+    seen = beats(connect_timeout=5, stall_timeout=20, dispatch_timeout=20)
     assert seen
     _, of, ends_in = seen[0]
     assert of == 20

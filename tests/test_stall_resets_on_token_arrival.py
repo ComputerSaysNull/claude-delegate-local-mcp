@@ -76,8 +76,7 @@ def _run(backend, clock, *, stall_timeout: int):
 
     return asyncio.run(
         loop.complete_with_retry(
-            cfg(dispatch_timeout=3600, turn_timeout=stall_timeout,
-                stall_timeout=stall_timeout),
+            cfg(dispatch_timeout=3600, stall_timeout=stall_timeout),
             backend,
             one_shot("hello"),
             deadline=clock() + 3600,
@@ -109,6 +108,12 @@ def test_a_call_producing_nothing_still_dies():
     change that reset the deadline unconditionally would pass the test above, and that
     change is exactly the one ADR-0047 refused: it would have called the 2026-09-04 stalls
     healthy, every one of which had an endpoint reporting itself idle throughout.
+
+    It is also the whole of what guards a wedged call now that the call-length bound is
+    retired.
+    A call-length ceiling used to sit beside this and was believed to be the real guard;
+    this shows the guard it was believed to be duplicating is the one that works, because
+    a wedged call is silent and only this measures silence.
     """
     clock = FakeClock()
     backend = TricklingBackend(

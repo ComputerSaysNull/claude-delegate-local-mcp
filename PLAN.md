@@ -948,7 +948,7 @@ local, because they are working notes rather than a product fact.
 66. ✅ 2026-09-21 **A pass that hits `max_turns` answered under duress, and nothing treats it as partial.**
   `hit_turn_limit` already marks it; every audit record since 2026-09-18 has noted the weakness
   and none has acted on it. A forced answer is evidence of a different kind, and should say so
-67. ⬜ **`turn_timeout` is the reply ceiling's denominator and may not be earning it.** Doubling
+67. ✅ 2026-09-21 **`turn_timeout` is the reply ceiling's denominator and may not be earning it.** Doubling
   it 1800→3600 took the ceiling 18,905→31,793 and bought 347 seconds and 111 tokens (JOURNAL
   2026-09-20). Either it leaves the `min()` and stays a plain deadline, or it goes entirely
 68. ⬜ **Spike, and it outranks 60 and 61: is the reply budget needed at all?** It exists to keep

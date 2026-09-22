@@ -118,9 +118,9 @@ decoded (ADR-0078) — the tokens ride out on the exception as a whole `Canonica
 cancellation included, and no token still means no partial.
 Two things follow that a reader would otherwise be caught by. `stream_options.include_usage`
 is required, or the final chunk carries no `usage` and every token count reads zero. And
-`turn_timeout` no longer bounds the call for free — httpx applies its read timeout per chunk
-once a body streams — so the adapter enforces the whole-turn bound itself, against a clock
-injected for the purpose.
+httpx applies its read timeout per chunk once a body streams, so that timeout is
+`stall_timeout`: the same question one layer down, and since ADR-0100 the only thing
+bounding one call.
 
 Streaming also made token arrival observable, and until ADR-0072 `decode_seconds` was its
 only consumer. `complete()` now takes an optional `on_token`, fired on each frame carrying
@@ -270,7 +270,8 @@ is a ceiling, and a second deadline does the killing:
 [`stall_timeout`](CONFIGURATION.md) is how long a delegation may run without *a frame
 arriving*. Both bound every attempt and the tighter one wins; without that, the ceiling
 would let a single wedged call sit for its whole duration, which is the failure the pair
-exists to split apart. It is no longer tied to `turn_timeout`. (ADR-0047, ADR-0099)
+exists to split apart. `turn_timeout` was a third and is retired, because a wedged call is
+a silent one and silence is what these measure. (ADR-0047, ADR-0099, ADR-0100)
 
 The progress signal is turn **completion** or **token arrival**, and which signals count is
 a real design constraint. The per-turn notification fires at the *top* of a turn, so it
@@ -291,8 +292,8 @@ is a deadline that can be walked past:
 
 - **Before an attempt**, so an expired budget costs nothing.
 - **As a live ceiling on the attempt**, re-read from what is left rather than fixed when it
-  starts. `turn_timeout` already bounds one call inside the adapter's client, but it knows
-  nothing of how much delegation remains, so without this it could be overshot by a turn.
+  starts. Nothing else bounds one call to what the delegation has left, so without this an
+  attempt could overshoot it by a whole turn.
 - **Against the backoff wait**, before sleeping. A wait that would end past the deadline
   ends the delegation instead — sleeping first would spend the rest of the budget and then
   report a deadline reached by a wait this server chose rather than by the work.
@@ -351,11 +352,11 @@ deadline can deliver and no version of the request beats it. A budget above it b
 same answer discarded at `stall_timeout` — which is how productive turns came to be
 reported as stalls.
 
-It is the tightest of `turn_timeout`, the stall clock and the delegation ceiling, times
-`rate × reply_budget_margin`, floored at `reply_budget_floor`. `turn_timeout` is in that
-comparison because one backend call carries the reply: sized against the delegation alone
-the budget authorised what the attempt could not deliver, which then overran and was retried
-with the same budget against a fraction of the clock. The rate is **measured, never
+It is what the delegation has left, times `rate × reply_budget_margin`, floored at
+`reply_budget_floor`. It was once the tightest of three: the stall clock left with ADR-0099,
+`turn_timeout` with ADR-0100. That one retired the per-call deadline rather than merely
+dropping it from the comparison, because keeping the deadline while dropping the term is
+exactly what let a budget authorise a reply the attempt could not deliver. The rate is **measured, never
 configured**: it belongs to the deployment and moved twice in one week. `DecodeRate` seeds from the cluster's since-boot figure so the first turn is
 bounded — a one-shot and a tool-forbidden final turn both live there — and every later turn
 replaces the seed with what this delegation achieved, which is the rate its own deadline is
@@ -676,8 +677,7 @@ well inside [`dispatch_timeout`](CONFIGURATION.md). (ADR-0018)
 
 One per turn is not enough, and the one-shot path has no turns to hang it on at all, so
 both report on a timer as well, every [`keepalive_interval`](CONFIGURATION.md). A turn's own
-duration is bounded by `turn_timeout` and by the per-attempt ceiling above, whichever is
-tighter, and `turn_timeout` defaults to the client's idle timeout -- so a one-shot was
+duration is bounded by the per-attempt ceiling above and by silence -- so a one-shot was
 measured running 1645s with nothing sent between its start and its answer.
 
 **Measured on 2026-09-01**, against a deliberately silenced two-item batch: at 1800s the
@@ -690,8 +690,8 @@ being one problem from two sides. It carries elapsed, the delegation ceiling it 
 against, and — since it was found reporting "60s of 14400s", the ceiling of the day, while
 minutes from death — **how long until the tightest deadline fires**. Two figures, because
 they answer two questions, and the ceiling is the deadline least likely to end a run. The
-countdown is the stall and delegation clocks only: `turn_timeout` restarts with
-every attempt, so reported here it would sit unchanged while the time ran out beneath it —
+countdown is the stall and delegation clocks, now the only two: a per-attempt deadline
+restarts each attempt, so reported here it would sit unchanged while time ran out beneath it —
 which is why sizing an attempt and counting down a delegation use different functions. It
 Since ADR-0072 it also carries what the model is *doing*: how many frames carrying output
 have arrived, and how long since the last — the gap being what separates a delegation

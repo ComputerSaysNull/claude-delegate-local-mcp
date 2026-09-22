@@ -1,9 +1,10 @@
 """A turn that died mid-stream discarded every token it had already decoded.
 
 `_post_stream` reaches `acc.payload()` on exactly one path -- the normal return after
-`[DONE]`. There is no `finally` and no `except` that returns it, so a turn killed by the
-turn bound, by a transport failure or by the caller's deadline dropped the accumulator on
-the floor. Nine dispatches generated 265,092 tokens and answered with the empty string.
+`[DONE]`. There is no `finally` and no `except` that returns it, so a turn killed by a
+read timeout, by any other transport failure or by the caller's deadline dropped the
+accumulator on the floor. Nine dispatches generated 265,092 tokens and answered with the
+empty string.
 
 Every assertion here is driven through a *lazy* body. A buffered `httpx.Response` hands
 the adapter the whole stream before the clock can move, so the deadline under test never
@@ -23,7 +24,7 @@ from claude_delegate_local.backends import base
 
 from test_backends_openai_compat import backend, cfg, request
 from test_loop import FakeClock, cfg as cfg_loop, ok_response, one_shot
-from wire_double import Clock, paced
+from wire_double import Clock
 
 
 class _NoPrefetch:
@@ -38,24 +39,32 @@ def frame(content: str) -> str:
     return "data: " + json.dumps(body) + "\n\n"
 
 
-async def test_a_turn_killed_by_the_bound_keeps_what_it_decoded():
-    """The partial rides out on the exception rather than dying with the accumulator.
+def cut_off(*frames: str):
+    """A handler whose body delivers `frames` and then times out waiting for the next.
 
-    `turn_timeout` is 60 and not something smaller because the deadlines nest and
-    `connect_timeout` defaults to 30 -- a lower bound is a `ConfigError`, which would fail
-    this test for a reason that has nothing to do with what it is about.
+    A read timeout rather than a call-length bound: the latter was retired, so the
+    per-chunk timeout is the only thing that ends a stream the endpoint has abandoned,
+    and it is the path the partial has to survive.
     """
+    async def body():
+        for chunk in frames:
+            yield chunk.encode()
+        raise httpx.ReadTimeout("no further chunk")
+
+    def handler(_request):
+        return httpx.Response(
+            200, content=body(), headers={"content-type": "text/event-stream"}
+        )
+
+    return handler
+
+
+async def test_a_turn_killed_by_the_read_bound_keeps_what_it_decoded():
+    """The partial rides out on the exception rather than dying with the accumulator."""
     clock = Clock()
-    schedule = [
-        (1.0, frame("the first half")),
-        (2.0, frame(" and the second")),
-        (999.0, frame(" never seen")),
-        (999.0, "data: [DONE]\n\n"),
-    ]
-    with pytest.raises(base.BackendUnavailable, match="turn_timeout") as caught:
-        await backend(
-            paced(clock, schedule), config=cfg(turn_timeout=60), clock=clock
-        ).complete(request())
+    handler = cut_off(frame("the first half"), frame(" and the second"))
+    with pytest.raises(base.BackendUnavailable, match="ReadTimeout") as caught:
+        await backend(handler, config=cfg(), clock=clock).complete(request())
 
     partial = caught.value.partial
     assert partial is not None, "two frames were decoded and the failure reported none"
@@ -71,17 +80,14 @@ async def test_a_turn_that_never_decoded_carries_no_partial():
     shape a stall already reports.
     """
     clock = Clock()
-    schedule = [(999.0, frame("never reached"))]
-    with pytest.raises(base.BackendUnavailable, match="turn_timeout") as caught:
-        await backend(
-            paced(clock, schedule), config=cfg(turn_timeout=60), clock=clock
-        ).complete(request())
+    with pytest.raises(base.BackendUnavailable, match="ReadTimeout") as caught:
+        await backend(cut_off(), config=cfg(), clock=clock).complete(request())
 
     assert caught.value.partial is None
 
 
 async def test_a_turn_that_never_decoded_was_not_generating():
-    """`while_generating` was `True` on the bound's raise whatever had happened.
+    """`while_generating` was `True` on the raise whatever had happened.
 
     It is the field the retry decides on, and its whole purpose is to separate an
     allowance that was spent from one that was not. A turn killed before its first token
@@ -89,11 +95,8 @@ async def test_a_turn_that_never_decoded_was_not_generating():
     wrong way.
     """
     clock = Clock()
-    schedule = [(999.0, frame("never reached"))]
     with pytest.raises(base.BackendUnavailable) as caught:
-        await backend(
-            paced(clock, schedule), config=cfg(turn_timeout=60), clock=clock
-        ).complete(request())
+        await backend(cut_off(), config=cfg(), clock=clock).complete(request())
 
     assert caught.value.while_generating is False
 
@@ -119,7 +122,7 @@ async def test_a_cancelled_turn_keeps_what_it_decoded():
             200, content=body(), headers={"content-type": "text/event-stream"}
         )
 
-    call = backend(handler, config=cfg(turn_timeout=60), clock=clock).complete(request())
+    call = backend(handler, config=cfg(), clock=clock).complete(request())
     task = asyncio.ensure_future(call)
     await decoded.wait()
     task.cancel()
@@ -175,8 +178,7 @@ def test_the_deadline_carries_the_partial_out_of_the_loop():
     with pytest.raises(loop.DispatchTimedOut) as caught:
         asyncio.run(
             loop.complete_with_retry(
-                cfg_loop(dispatch_timeout=2, turn_timeout=2, stall_timeout=2,
-                         connect_timeout=1),
+                cfg_loop(dispatch_timeout=2, stall_timeout=2, connect_timeout=1),
                 _DiesHolding(kept),
                 one_shot("hello"),
                 deadline=clock() + 2,
