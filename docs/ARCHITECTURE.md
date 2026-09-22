@@ -799,9 +799,9 @@ the siblings ahead of it and none still arriving behind, so it prices on its own
 a simultaneous three read 1, 2 and 3. One wait serves the burst rather than one each — a
 second would re-count the same arrivals, and a joiner cannot wait inside the wait it is
 joining. It costs no latency that was not already paid, since it is that same window shared,
-and a request joining a busy gate with nothing open still does not wait. Within one process:
-the file does not yet carry that a wait is open, so members in other processes still price on
-their own position even though the counting itself now reads shared totals.
+and a request joining a busy gate with nothing open still does not wait. Across processes the
+wait is published in the shared record instead, which is the same rule reached by a different
+route — below, under what a record carries.
 
 The slot is taken *before* that wait, so the wait gives it back on any exit from it. Nothing
 else can: a lease is released by `admit`, which has not been handed one until the wait
@@ -1020,8 +1020,8 @@ recoverable from the repository by path, and a reply is neither — it is small 
 nowhere else, which is the same argument ADR-0039 used to write the task verbatim.
 
 A `turn` carries **the effort that turn ran at, how many attempts it took, and how much of
-itself it repeated**, and the viewer renders the first two — attempts only above one, which
-is the whole signal. Empty-answer recovery steps the level down and retries, so a run
+itself it repeated**, and the viewer renders all three — attempts only above one, and the
+repeated share only once it is worth saying, which is the whole signal. Empty-answer recovery steps the level down and retries, so a run
 requested at `high` can answer at `low`; the requested level is the `start` event's and the
 picker's column, and showing only that described a run no turn had performed. The repeated
 share is per turn because a turn that loops never ends, so no per-dispatch figure arrives.
@@ -1048,10 +1048,10 @@ is reported as unknown, while an empty one is a one-shot. The files are in the s
 as the record because the record is written when the work is over, and a reader asking what a
 delegation is chewing on is asking while it runs.
 
-Two intervals are recorded per turn and the difference between them is the point. `ms` is
-the turn's wall clock, including tool execution and any wait for a slot; `backend_ms` is the
-backend call alone. Tokens per second is taken from the second, because a rate divided by
-the first would blame the cluster for time it did not spend generating.
+Four intervals are recorded per turn. `ms` is the turn's wall clock, including tools and any
+wait for a slot; `backend_ms` is the backend call across every attempt, split by
+`prefill_seconds` and `decode_seconds`. Tokens per second divides the answering attempt's
+tokens by its own decode span: `backend_ms` spans the empty attempts too, and under-reports.
 
 **A turn's tool calls are a record, not a pair.** `(name, outcome)` is why a delegation
 reporting one tool error across twelve `read_git` calls could not be diagnosed even with
@@ -1124,9 +1124,9 @@ frames. The whole frame is one write, wrapped in DEC 2026 synchronised output, w
 terminals that do not know it ignore. `CLEAR` survives for the follow view, which paints
 once and has nothing to tear.
 
-**The selected row is stripped of colour before it is inverted**, because a row carries its
-own dim/reset pairs and a reset ends the inverse as surely as it ends the dim — highlighting
-only as far as the first one, two columns in. It is padded to the terminal width and never
+**The selected row keeps its colours, and re-opens the inverse after each reset**, because a
+row carries its own dim/reset pairs and a reset ends the inverse as surely as it ends the dim
+— highlighting only as far as the first one, two columns in. It is padded to the terminal width and never
 truncated to it: a cut row loses the end of the task text, which is what tells two
 delegations apart. Leaving the follow view returns the highlight to the row it was opened
 from, falling back to the top when that transcript has aged out of the newest N.
@@ -1170,9 +1170,9 @@ it shows from the first redraw rather than once the call ends.
 The listing also names the **kind** of each call in one word — `delegate`, `readonly`,
 `agent`, or `one-shot` for a `delegate` that was handed no tools — because that is
 the difference between two rows that otherwise look alike, and it decides which one is worth
-opening. Two facts share the column, since only one of them is ever a surprise: a read-only
-call is a one-shot by construction, so the shape is worth naming only where a `delegate`
-quietly ran as one. A transcript from before the field existed reads `?`. That is the point
+opening. Two facts share the column, since only one of them is ever a surprise: which tool was
+called is in the name, so the shape is worth naming only where a `delegate` given no tools
+quietly ran as one — `readonly` once implied that and no longer does. A transcript from before the field existed reads `?`. That is the point
 rather than a gap — every call once wrote `delegate` whether or not it was one, so defaulting
 an old row to `delegate` would reproduce exactly the confusion the column ends. Opening a
 transcript then shows the resolved tools and every file it was given, skipped ones named with

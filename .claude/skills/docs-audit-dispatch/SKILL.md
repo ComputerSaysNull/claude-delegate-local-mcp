@@ -5,7 +5,7 @@ description: "Runs the complete documentation audit for this repository by dispa
 
 # Documentation audit runbook
 
-Fifteen passes complete one audit. Running the same fifteen every time is what makes two
+Sixteen passes complete one audit. Running the same sixteen every time is what makes two
 audits comparable, so run them all and record the ones you skipped. Pass 14 is the one you
 run yourself.
 
@@ -26,6 +26,7 @@ Audit progress:
 - [ ] 13 ESCAPE ABUSE     history only
 - [ ] 14 FILED ALREADY    the hand-off notebook (run by the caller, not delegated)
 - [ ] 15 NARRATIVE        .claude/ bodies — skills and agents
+- [ ] 16 STALE            docs/ARCHITECTURE.md vs the viewer
 ```
 
 ## Before you start
@@ -57,6 +58,7 @@ the repository root or the agent is not found. Generated documents (`docs/CONFIG
 | 13 | ESCAPE ABUSE | nothing | low |
 | 14 | FILED ALREADY | the hand-off notebook — **not delegable**, see below | — |
 | 15 | NARRATIVE | every `.claude/agents/*.md` and `.claude/skills/*/SKILL.md` | high |
+| 16 | STALE | `docs/ARCHITECTURE.md` + `scripts/watch_delegations.py` | high |
 
 **Pass 14 is run by whoever is driving the audit, not by a delegation.** The notebook lives
 in the plans directory, outside every workspace root, so `files[]` refuses it and the agent
@@ -77,9 +79,8 @@ module or combined length separates the two. The shape of the question is the le
 **Every pass gets `max_turns: 25`, and the searching ones need more than that.** The agent
 file's 5 is sized for one verification round and forces an answer before a search has
 finished — and an absence established by a pass that ran out of turns is not an absence, it
-reports clean. MISSING and CLAIMS both reported clean at 5 in earlier audits and found
-something at 25; CLAIMS *still* returned `hit_turn_limit: true` at 25, so give those two 40
-or split them. A caller's number is clamped silently at `max_turns_hard_cap`, so asking high
+reports clean. Give MISSING and CLAIMS 40 or split them: CLAIMS returned
+`hit_turn_limit: true` at 25, and at 40 split in two it used 21 turns and 54 tool calls. A caller's number is clamped silently at `max_turns_hard_cap`, so asking high
 costs nothing. Turns are cheap: measured over a 25-turn pass, tools were 3.4% of the wall
 clock and 94% of input tokens were cache hits, so what a turn costs is what the model writes
 in it. Prefetching what they seek is weaker, because neither knows which document holds it.
@@ -152,8 +153,8 @@ leak. Only a restatement of the same substance counts.
 class misfires. `CLAUDE.md` states a trap and then says whose the explanation is — "what
 that buys ... is `docs/ARCHITECTURE.md`'s" — and `README.md` states what a reader needs at
 that point and links to the owner with a bracketed `why`. Both are the prescribed pattern. **Quote the whole
-sentence including the clause that follows it**, or every invariant in the project plane
-reads as a duplicate: eleven of twelve candidates were not upheld for exactly this reason.
+sentence including the clause that follows it**, and check whether it names its owner before
+reporting it — otherwise every invariant in the project plane reads as a duplicate.
 
 **MISSING** — a module or behaviour with no documentation coverage at all. Check `PLAN.md`
 and `archive/PLAN-milestones.md` first: not-yet-built is not undocumented. And check
