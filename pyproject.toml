@@ -3,7 +3,7 @@ name = "claude-delegate-local-mcp"
 version = "0.0.0"
 description = "MCP server that delegates Claude Code work to self-hosted local models over an OpenAI-compatible endpoint."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "ComputerSaysNull" }]
 dependencies = [
@@ -100,7 +100,7 @@ nested-deselect = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 # The rule set is written out rather than inherited. Ruff's default selection widens
 # between releases: with no `select` and an unbounded `ruff>=0.6`, this repository went
