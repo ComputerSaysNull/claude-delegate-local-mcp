@@ -2341,3 +2341,44 @@ built for.
 
 Read the stream's `t` key, never `event`: a reader keyed on the wrong one reports a
 transcript with no priced rows, which looks exactly like a dispatch that never priced.
+
+## 2026-09-22 — Cancelling a delegation stops the server in two seconds and the cluster in 281
+
+PLAN 59 says the gate reads `inflight_seqs: 0` against a cluster still running, so a burst
+can be admitted on top of work nobody waits for. 59.a asked for the size of that window:
+the wall clock of the kill against the transcript's `end`.
+
+**The transcript is the wrong instrument, and answering from it gave the wrong number.**
+Measured first that way: `end` lands 2.1s and 2.2s after the kill, and 10.7s to 19.2s when
+a shell command is running (a tool call is not an await point -- `_run_calls` goes through
+`asyncio.to_thread` and a thread cannot be interrupted). Those figures are real and they
+answer a different question: when the *server* stops. They say nothing about the work.
+
+**The cluster keeps generating.** Polling the endpoint's own counters across a cancel:
+`num_requests_running` stayed at 1 and `generation_tokens_total` kept climbing 60 to 90
+tokens every two seconds for the whole 125s the poller ran past the kill, and the request
+did not finish until **281 seconds** after it -- about 9,500 tokens produced for nobody, at
+a steady ~34 tok/s. The server had written `end` at about two seconds. So the viewer says
+"failed" while the GPUs are still working, which is exactly what the operator had been
+seeing.
+
+**The 305 to 320 seconds recorded on 2026-09-19 was right all along.** It looked like a
+different phenomenon from a different cancellation path; it is the same one, measured at
+the layer that can see it.
+
+**What bounds the window is the answer's own length.** A prediction of "about thirty
+minutes" from `max_tokens` 60,000 at 34 tok/s was wrong: the model hit a stop token at
+about 9,500 tokens because it had finished what it was asked for. `max_tokens` is the
+ceiling, not the expectation, so the blind window is however long that particular reply
+had left to generate. A short answer ends in seconds -- which is probably why the first
+two trials looked so quick, having been killed with little left to produce.
+
+This makes 59 more urgent rather than less: admission is blind not for seconds but for the
+remainder of an abandoned generation, and the cancel never reaches the cluster at all.
+
+**Two traps, both hit.** The endpoint's series are unlabelled and their values are in
+scientific notation, so a regex demanding `{labels}` or stopping at the `e` reads
+`1.3130189e+07` as **1** and reports a busy cluster as idle -- the same shape as the three
+probes that once counted the wrong reasoning key. And within one delegation the model does
+not generate while a tool runs, so the shell trials above measured a sleeping process being
+torn down, never a cluster still decoding.
