@@ -120,7 +120,7 @@ test fails when an agent or skill body names one.
   `search_files`
 3. ⬜ **Nothing checks that agent and skill bodies name real tool arguments** (R8). Test the
   names and their required-ness against the declared schemas, so a rename cannot strand one
-4. ⬜ **The turn-limit banner fires on a run that finished** (R9): `hit_turn_limit` is
+4. ✅ 2026-09-23 **The turn-limit banner fires on a run that finished** (R9): `hit_turn_limit` is
   `turn == turns`, and the banner claims more than that flag knows
 5. ⬜ **Progress notifications are not monotonic** (R7): heartbeats send `progress(0, 0)`
   between turns. One rising counter per call, no unknown `total`, the words in `message`
