@@ -244,14 +244,15 @@ def check_provisioned(cfg: Config) -> list[Check]:
         if current is None:
             checks.append(Check(
                 f"provisioned:{name}", FAIL,
-                f"its project no longer has a readable {provision.HASH_SOURCE}",
+                "its project no longer has a readable dependency declaration "
+                f"({', '.join(provision.HASH_SOURCES)})",
                 "The project may have moved or been deleted. Re-run provision, or remove "
                 "this environment.",
             ))
         elif current != record.get("dependency_hash"):
             checks.append(Check(
                 f"provisioned:{name}", FAIL,
-                f"{provision.HASH_SOURCE} has changed since it was built",
+                "its dependency declaration has changed since it was built",
                 "Re-run provision. Until then a test run here exercises the dependencies "
                 "that were installed, not the ones the project declares, and still exits "
                 "0 -- which ADR-0007 says to trust.",

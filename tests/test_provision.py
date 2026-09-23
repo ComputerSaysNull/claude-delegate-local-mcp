@@ -325,7 +325,7 @@ def recorded(home: Path, project: Path, **over) -> Path:
         "project": project.as_posix(),
         "interpreter": (venv / "bin" / "python").as_posix(),
         "dependency_hash": provision.dependency_hash(project.as_posix()),
-        "hash_source": provision.HASH_SOURCE,
+        "hash_sources": list(provision.HASH_SOURCES[:1]),
     }
     record.update(over)
     (venv / provision.RECORD_NAME).write_text(json.dumps(record), encoding="utf-8")
