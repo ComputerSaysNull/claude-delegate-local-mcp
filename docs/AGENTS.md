@@ -1,4 +1,5 @@
-<!-- BUDGET: 520
+<!-- BUDGET: 530
+     Raised from 520 (+1 for this line) on 2026-09-23: host-side git now refuses a repository by its own config, a new rule rather than a restatement.
      Raised from 496 (+1 for this line) on 2026-09-19: files[] takes a pattern now, and that expansion runs before the four layers rather than beside them is what keeps it from being a second search tool.
      Raised from 481 (+1 for this line) on 2026-09-19: layer 3 now asks about bytes as well as names, and ADR-0049 paragraph said in terms that a substituted file is never judged -- a correction costs more than an addition.
      Raised from 478 on 2026-09-16: layer 1 now remembers a prefix, and what it must never remember is a security fact.
@@ -512,6 +513,12 @@ ADR-0034). `repo_status` sees only work trees the delegation wrote to, never eve
 Each is fed or has stdin closed, never inherited, for the reason ARCHITECTURE's stdio rule gives.
 A git failure in layer 4 refuses: only git's own "not a git repository", read in the C
 locale, means outside a work tree, and anything else is a layer that could not answer.
+
+Before `check-ignore` or `status`, a fourth call reads the repository's own config, and one
+carrying a key off `TRUSTED_GIT_CONFIG_KEYS` is refused: that config can name a program for
+git to run, and a repository `run_bash` created holds config the model wrote. `read_git`
+refuses the same way, and every host-side git takes `GIT_HARDENING` and `git_env()`. Why
+flags alone cannot do it is the [design note](specs/2026-09-23-host-acted-paths.md)'s.
 
 `rev-parse` is the one that costs: it is charged per distinct *directory*, so a wide batch
 spends a subprocess on each before a single `check-ignore` runs. The search walk calls layer

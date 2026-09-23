@@ -430,17 +430,79 @@ def _check_secret(given: str, real: str, globs: Sequence[str]) -> Refusal | None
 # ---- layer 4 ---------------------------------------------------------------------
 
 
+# Host-side git runs outside the sandbox, in repositories a delegation may have created, so
+# it trusts neither their config nor the server's environment. Both helpers that run it --
+# `_git` here and `tools._run_git` -- put these flags first and take `git_env()`. What each
+# stops was measured; the table is docs/specs/2026-09-23-host-acted-paths.md.
+GIT_HARDENING: tuple[str, ...] = (
+    "-c", "core.fsmonitor=false", "-c", "diff.ignoreSubmodules=all",
+)
+
+# Environment keys that redirect git somewhere other than where it was pointed, or hand
+# part of its work to another program.
+GIT_ENV_DENY = (
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_EXTERNAL_DIFF", "GIT_PAGER", "GIT_EDITOR",
+    "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_CONFIG", "GIT_CONFIG_GLOBAL",
+)
+
+# The keys a repository's *own* config may carry for host-side git to run in it. Flags
+# cannot do this job: a filter or textconv driver is named by the planted config itself, so
+# no `-c` can switch off a driver it has never heard of. Exact names rather than sections,
+# because a harmless-looking section hides the dangerous key: `extensions.partialclone`
+# makes a plain `show` fetch, and a fetch from a local path runs `remote.*.uploadpack`.
+TRUSTED_GIT_CONFIG_KEYS: tuple[str, ...] = (
+    # What `git init` and `git clone` write, and settings that change no command we run.
+    "core.repositoryformatversion", "core.filemode", "core.bare", "core.logallrefupdates",
+    "core.ignorecase", "core.precomposeunicode", "core.symlinks", "core.autocrlf",
+    "core.eol", "core.safecrlf", "core.longpaths", "core.quotepath", "core.checkstat",
+    "core.trustctime", "core.untrackedcache", "core.commitgraph", "core.abbrev",
+    "extensions.objectformat", "extensions.worktreeconfig", "extensions.refstorage",
+    "branch.*", "remote.*.url", "remote.*.pushurl", "remote.*.fetch", "remote.*.push",
+    "remote.*.tagopt", "remote.*.prune", "remote.*.mirror", "remote.*.gh-resolved",
+    "submodule.*.url", "submodule.*.active", "submodule.*.branch",
+    "user.name", "user.email", "user.signingkey", "init.defaultbranch",
+    "pull.rebase", "pull.ff", "push.default", "push.autosetupremote", "fetch.prune",
+    "commit.gpgsign", "tag.gpgsign", "rerere.enabled", "merge.conflictstyle",
+    "lfs.repositoryformatversion",
+    # Hooks run on writes, and host-side git writes nothing: GIT_OPTIONAL_LOCKS=0 keeps
+    # even `status` off the index. Husky sets this one in ordinary repositories.
+    "core.hookspath",
+    # Network only. Host-side git never fetches, pushes or authenticates, and this
+    # repository's own config carries a credential helper.
+    "credential.*", "http.*",
+)
+
+
+def git_env() -> dict[str, str]:
+    """The environment every host-side git runs with: the server's, less `GIT_ENV_DENY`."""
+    env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DENY}
+    # The C locale, because `_repo_top` tells "not a repository" from every other failure
+    # by git's own words, and a translated git would say them differently.
+    env["LC_ALL"] = "C"
+    # Never wait for a human: there is nobody at the other end of a delegation to answer.
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    # Read-only means read-only. `git status` takes a lock to refresh the index otherwise,
+    # which writes inside .git for a command the model was told cannot write.
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    return env
+
+
+def hardened(argv: Sequence[str]) -> list[str]:
+    """`argv` with `GIT_HARDENING` after the executable, where `-c` has to go."""
+    return [argv[0], *GIT_HARDENING, *argv[1:]]
+
+
 def _git(args: list[str], stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
     """Run git, turning an absent git into a policy error rather than a silent pass."""
     # Fed or closed, never inherited: the server's own stdin is the MCP stream.
     feed: dict[str, object] = (
         {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
     )
-    # The C locale, because `_repo_top` tells "not a repository" from every other failure
-    # by git's own words, and a translated git would say them differently.
-    env = {**os.environ, "LC_ALL": "C"}
     try:
-        return subprocess.run(args, capture_output=True, check=False, env=env, **feed)
+        return subprocess.run(
+            hardened(args), capture_output=True, check=False, env=git_env(), **feed
+        )
     except FileNotFoundError as e:
         raise PathPolicyError(
             "Layer 4 cannot run: git is not on PATH. It is not skipped when absent -- "
@@ -462,6 +524,26 @@ def _layer4_failed(what: str, proc: subprocess.CompletedProcess[bytes]) -> PathP
         "ignored' -- a layer that cannot answer refuses. Repair the repository, or set "
         "DELEGATE_RESPECT_GITIGNORE=false to drop the layer deliberately."
     )
+
+
+def untrusted_git_config(top: str) -> str | None:
+    """The first key in `top`'s own config that host-side git does not trust, or None.
+
+    Only the `local` and `worktree` scopes: the operator's global config is theirs. Reading
+    config never executes anything, which is what makes asking first safe. A listing git
+    cannot produce is itself an answer, and not a clean one.
+    """
+    proc = _git(["git", "-C", top, "config", "--list", "--show-scope", "-z"])
+    if proc.returncode != 0:
+        return "(its config could not be read)"
+    fields = proc.stdout.split(b"\0")
+    for scope, entry in zip(fields[0::2], fields[1::2], strict=False):
+        if scope not in (b"local", b"worktree"):
+            continue
+        key = entry.split(b"\n", 1)[0].decode("utf-8", "replace").lower()
+        if not any(fnmatch.fnmatchcase(key, glob) for glob in TRUSTED_GIT_CONFIG_KEYS):
+            return key
+    return None
 
 
 def _repo_top(directory: str) -> str | None:
@@ -502,6 +584,8 @@ def repo_status(directories: Sequence[str]) -> dict[str, tuple[str, ...]]:
             tops[top] = None
     out: dict[str, tuple[str, ...]] = {}
     for top in tops:
+        if untrusted_git_config(top) is not None:
+            continue  # its config could run a program; the report goes without it
         proc = _git(["git", "-C", top, "status", "--porcelain"])
         if proc.returncode != 0:
             continue
@@ -549,6 +633,16 @@ def gitignored(
 
     ignored: set[str] = set()
     for top, group in by_repo.items():
+        key = untrusted_git_config(top)
+        if key is not None:
+            raise PathPolicyError(
+                f"Layer 4 will not run git in {top}: its own config sets {key!r}, which is "
+                "not on the list of keys host-side git trusts. Repository config can name a "
+                "program for git to run, and a repository a delegation created holds config "
+                "the model wrote. Remove the key from that repository's config if it is "
+                "yours, or set DELEGATE_RESPECT_GITIGNORE=false to drop the layer "
+                "deliberately."
+            )
         proc = _git(
             ["git", "-C", top, "check-ignore", "--stdin", "-z"],
             stdin=b"\0".join(p.encode("utf-8") for p in group) + b"\0",

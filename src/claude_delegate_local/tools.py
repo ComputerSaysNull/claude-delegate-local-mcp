@@ -37,7 +37,9 @@ from .paths import (
     PathRefused,
     ResolvedPath,
     extension_refusal,
+    git_env,
     gitignored,
+    hardened,
     key_material_marker,
     load_secret_globs,
     open_resolved,
@@ -46,6 +48,7 @@ from .paths import (
     resolve_search_root,
     resolved_roots,
     secret_match,
+    untrusted_git_config,
 )
 
 
@@ -950,15 +953,11 @@ GIT_COUNT_SHORTHAND = frozenset({"log", "rev-list"})
 # reachable; a module constant because it bounds this tool, not anything an operator tunes.
 GIT_TIMEOUT_SECONDS = 60.0
 
-# Environment keys that redirect git somewhere other than where it was pointed, or hand
-# part of its work to another program. None of these is reachable by the model -- the
-# environment belongs to the server process -- so this is defence in depth rather than a
-# control, and it costs one dict comprehension.
-GIT_ENV_DENY = (
-    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_EXTERNAL_DIFF", "GIT_PAGER", "GIT_EDITOR",
-    "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_CONFIG", "GIT_CONFIG_GLOBAL",
-)
+# Subcommands that render a diff, and so would run a textconv or external diff driver.
+# Belt and braces: `untrusted_git_config` already refuses a repository whose own config
+# names one, and these keep the operator's global drivers out of what the model reads.
+GIT_NO_TEXTCONV = frozenset({"log", "show", "diff", "blame"})
+GIT_NO_EXT_DIFF = frozenset({"log", "show", "diff"})
 
 
 def git_available() -> bool:
@@ -966,24 +965,15 @@ def git_available() -> bool:
     return shutil.which("git") is not None
 
 
-def _git_env() -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DENY}
-    # Never wait for a human: a prompt would hang the server until the timeout, and there
-    # is nobody at the other end of a delegation to answer it.
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    # Read-only means read-only. `git status` takes a lock to refresh the index otherwise,
-    # which writes inside .git for a command the model was told cannot write.
-    env["GIT_OPTIONAL_LOCKS"] = "0"
-    return env
-
-
 def _run_git(argv: list[str]) -> tuple[int, str, str]:
     """One git invocation. Fixed argv, never a shell, never a pager."""
     try:
         # Fixed argv from the allowlist above, and no shell: nothing the model wrote
-        # reaches a command interpreter.
+        # reaches a command interpreter. Hardened and filtered exactly as layer 4's own
+        # git is -- `paths.GIT_HARDENING` says why.
         done = subprocess.run(
-            argv,
+            hardened(argv),
+            env=git_env(),
             capture_output=True,
             # Closed rather than inherited. Several git subcommands read from stdin when it
             # is not a terminal -- `shortlog` takes its commits that way -- so an inherited
@@ -1211,6 +1201,23 @@ def _git_toplevel(cfg: Config, given: str) -> str:
     return resolve_search_root(cfg, top)
 
 
+def _require_trusted_config(scope: str) -> None:
+    """Refuse a repository whose own config could make git run a program.
+
+    Called before anything but the `rev-parse` that found the repository, because every
+    later command can run what that config names. What was measured is in
+    docs/specs/2026-09-23-host-acted-paths.md.
+    """
+    key = untrusted_git_config(scope)
+    if key is not None:
+        raise ToolRefused(
+            f"git will not run in {scope}: its own config sets {key!r}, which is not on "
+            f"the list of keys host-side git trusts. Repository config can name a program "
+            f"for git to run, and a repository a delegation created holds config the model "
+            f"wrote. read_file still reads its files."
+        )
+
+
 def _read_git(cfg: Config, args: dict[str, object]) -> str:
     """Read git history, in the server process and outside the sandbox.
 
@@ -1241,6 +1248,7 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
     checked = _checked_args(command, args.get("args"))
     paths = _checked_paths(args.get("paths"))
     scope = _git_toplevel(cfg, _text_arg(args, "repo"))
+    _require_trusted_config(scope)
     if command in GIT_CONTENT_COMMANDS:
         _require_commits(scope, command, _revisions(checked))
         for rel in paths:
@@ -1251,7 +1259,11 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
                     f"would return its contents, which read_file refuses too."
                 )
 
-    argv = ["git", "--no-pager", "-C", scope, command, *checked]
+    fixed = [
+        *(["--no-textconv"] if command in GIT_NO_TEXTCONV else []),
+        *(["--no-ext-diff"] if command in GIT_NO_EXT_DIFF else []),
+    ]
+    argv = ["git", "--no-pager", "-C", scope, command, *fixed, *checked]
     if command == "shortlog" and not any(not a.startswith("-") for a in checked):
         # `git shortlog` defaults to reading commits from stdin, not to HEAD, so with stdin
         # closed it succeeds and prints nothing -- an empty answer that reads like "no

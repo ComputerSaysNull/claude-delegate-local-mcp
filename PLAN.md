@@ -74,7 +74,7 @@ by a test that took the route first.
 7. ⬜ **The read-write workdir reaches files the host acts on** (R3): `.claude/` settings,
   agents and skills, `CLAUDE.md`, editor task files. Bind them read-only in the sandbox and
   refuse them in the write tools
-8. ⬜ **Host-side git trusts repository config a delegation could have written** (R4). Pass
+8. ✅ 2026-09-23 **Host-side git trusts repository config a delegation could have written** (R4). Pass
   hardening `-c` overrides on every host-side git call, and pin them with a test
 9. ⬜ **`provision` runs project-controlled build steps on the host** (R5). Show the change to
   the dependency declaration since the last build, or refuse an uncommitted one
