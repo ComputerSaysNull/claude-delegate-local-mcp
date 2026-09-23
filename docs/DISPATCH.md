@@ -1,4 +1,4 @@
-<!-- BUDGET: 845
+<!-- BUDGET: 850
      Raised from 838 (+1 for this line) on 2026-09-22: what prices a turn when nothing has been measured at all is a third case, and it was previously the endpoint's blend. -->
 <!-- 
      Raised from 823 (+1 for this line) on 2026-09-22: the decode rate is sampled on a ticker and priced from a bucket mean, which is a subsystem rather than a constant. -->
@@ -116,6 +116,8 @@ payload the non-streaming parser already reads, and the whole response returns o
 stream ends, so no tool result changes shape. A **failing** one no longer discards what it
 decoded (ADR-0078) — the tokens ride out on the exception as a whole `CanonicalResponse`,
 cancellation included, and no token still means no partial.
+The call runs as a task that `_until_deadline` cancels and awaits on any exit, not only its
+own deadline, so a caller's cancel closes the stream and the engine stops generating.
 Two things follow that a reader would otherwise be caught by. `stream_options.include_usage`
 is required, or the final chunk carries no `usage` and every token count reads zero. And
 httpx applies its read timeout per chunk once a body streams, so that timeout is
