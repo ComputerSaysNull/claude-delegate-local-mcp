@@ -1,4 +1,5 @@
-<!-- BUDGET: 420 -->
+<!-- BUDGET: 430
+     Raised from 420 (+1 for this line) on 2026-09-23: an item filed from the transcripts, with M13's ticks. -->
 # Plan
 
 Open work, status first so the file scans.
@@ -365,6 +366,9 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
   CI checkout stages nothing. Use the `--diff` range the other checks use
 79. ⬜ **The gate's `run()` turns a failed git command into an empty answer** (R23), so a check
   built on it passes having looked at nothing. Raise on a non-zero exit where empty is clean
+80. ⬜ **A queued delegation writes a `waiting` event every quarter second**, so eight calls held
+  40 minutes in admission wrote 7.7 MB, a quarter of the transcript directory, into a synced
+  folder. Thin what the stream records, not what the caller is told
 
 ## Deferred
 
