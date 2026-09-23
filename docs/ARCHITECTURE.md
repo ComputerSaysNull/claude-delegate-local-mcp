@@ -277,15 +277,15 @@ read-write, persistent, and outside the workspace.
 
 `provision <project>` builds a virtualenv under it from the project's own declaration, every
 one of `pyproject.toml`, `setup.cfg` and `setup.py` present, and records what it built from
-beside it, so [`--doctor`](#--doctor-asks-what-startup-does-not)
-finds it with no setting to keep in step and **fails** on a stale dependency hash — stale
-dependencies do not error, they pass against the wrong versions and return 0. Newlines are
-normalised out of the digest first, and that is not tidiness: on a Windows checkout a
-`git reset --hard` rewrites CRLF to LF, which unnormalised read as a changed declaration
-and withheld the interpreter with nothing about the project changed. It runs
-server-side, where the network is, which is why a test run needs none (ADR-0063). The
-interpreter is reached by absolute path: `SANDBOX_PATH` stays `/usr/bin:/usr/sbin`, since
-widening it would put one project's tools on every command's PATH.
+beside it, so [`--doctor`](#--doctor-asks-what-startup-does-not) finds it with no setting to
+keep in step and **fails** on a stale dependency hash — stale dependencies do not error, they
+pass against the wrong versions and return 0. Newlines are normalised out of the digest first,
+and that is not tidiness: on a Windows checkout a `git reset --hard` rewrites CRLF to LF, which
+unnormalised read as a changed declaration and withheld the interpreter with nothing about the
+project changed. A rebuild moves the working environment aside and puts it back if the build
+fails. It runs server-side, where the network is, which is why a test run needs none
+(ADR-0063). The interpreter is reached by absolute path: `SANDBOX_PATH` stays
+`/usr/bin:/usr/sbin`, since widening it would put one project's tools on every command's PATH.
 
 It is the first command here that reads an argument rather than testing for one, so it is
 matched on `sys.argv[1]` and not by membership — matched the way `--doctor` is, a project

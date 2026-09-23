@@ -38,6 +38,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #300 — 2026-09-23 — fix: a failed re-provision keeps the environment that worked
+
+### Fixed
+
+- **A failed rebuild deleted the working environment** (PLAN M13.9.a). *Symptom:* a
+  re-provision that failed, with the network down or a bad pin, left no interpreter at all
+  where one had been working. *Cause:* `build` removed the old tree before building the
+  new one. *Fix:* the old one is moved aside, the build runs in place, and a failure puts
+  the old one back. PLAN said "build aside, rename", and that shape is wrong: a virtualenv
+  writes its own absolute path into its scripts, measured in 26 of the 31 files in a
+  `bin/`, so a tree renamed after building is broken.
+- **An `OSError` in `provision` was a traceback** (PLAN M13.9.d). *Cause:* `run` catches
+  only `ProvisionError` and a timeout, and neither the removal nor the record write was
+  wrapped. *Fix:* both, and the move, raise `ProvisionError`. The closing message no longer
+  says "nothing usable was left behind", which stopped being true.
+- **Red first:** the failed rebuild left the new stub interpreter in place of the old, the
+  unwritable record escaped as `PermissionError`, and `run` said nothing of the previous
+  environment. The control, a successful rebuild, replaces it either way.
+
 ## #299 — 2026-09-23 — fix: every dependency declaration counts toward a current environment
 
 ### Fixed
