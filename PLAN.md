@@ -79,8 +79,8 @@ by a test that took the route first.
 9. ⬜ **`provision` runs project-controlled build steps on the host** (R5). Show the change to
   the dependency declaration since the last build, or refuse an uncommitted one
     - a. ⬜ The old environment is deleted before the new build succeeds: build aside, rename.
-    - b. ⬜ `HASH_SOURCE` is only `pyproject.toml`, so a `setup.cfg` change goes unseen.
-    - c. ⬜ A project without `pyproject.toml` builds but can never be current.
+    - b. ✅ 2026-09-23 `HASH_SOURCE` is only `pyproject.toml`, so a `setup.cfg` change goes unseen.
+    - c. ✅ 2026-09-23 A project without `pyproject.toml` builds but can never be current.
     - d. ⬜ An `OSError` from `rmtree` or the record write surfaces as a traceback.
 
 ### M14 — A cancel stops its own work, and nobody else's

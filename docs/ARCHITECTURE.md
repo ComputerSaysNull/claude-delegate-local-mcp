@@ -275,8 +275,9 @@ was filed once as an architectural limit and was not one — nothing had asked w
 *other* bound path could hold an interpreter. [`sandbox_home`](CONFIGURATION.md) can: bound
 read-write, persistent, and outside the workspace.
 
-`provision <project>` builds a virtualenv under it from the project's own declaration and
-records what it built from beside it, so [`--doctor`](#--doctor-asks-what-startup-does-not)
+`provision <project>` builds a virtualenv under it from the project's own declaration, every
+one of `pyproject.toml`, `setup.cfg` and `setup.py` present, and records what it built from
+beside it, so [`--doctor`](#--doctor-asks-what-startup-does-not)
 finds it with no setting to keep in step and **fails** on a stale dependency hash — stale
 dependencies do not error, they pass against the wrong versions and return 0. Newlines are
 normalised out of the digest first, and that is not tidiness: on a Windows checkout a
@@ -627,9 +628,8 @@ is not covered and cannot be. Defence in depth for one tool, not a replacement. 
 
 **Protected paths are kept, not covered.** The same walk binds each match of
 `protected_globs_file` inside the workdir read-only onto itself, before any secret cover. A
-missing protected directory is created and bound, then removed if still empty; a protected
-file the command creates at the workdir root is moved aside and named in the result. Why only
-the root is the [design note](specs/2026-09-23-host-acted-paths.md)'s.
+missing protected directory is created, bound and removed if still empty; a protected file
+created at the workdir root is moved aside and named ([why](specs/2026-09-23-host-acted-paths.md)).
 
 **Bulk directories are covered and not walked.** The walk is per `run_bash` call, on a
 workspace that lives on `/mnt/c`, and the budget above is what a project's own installed

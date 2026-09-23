@@ -38,6 +38,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #299 — 2026-09-23 — fix: every dependency declaration counts toward a current environment
+
+### Fixed
+
+- **A `setup.cfg` change left a provisioned environment reading current** (PLAN M13.9.b,
+  .c). *Symptom:* a project declaring its dependencies in `setup.cfg` or `setup.py` could
+  change them and `is_current` still offered the old interpreter, so a test run passed
+  against the wrong versions at exit 0. The converse held too: a project with no
+  `pyproject.toml` built, and could never read current. *Cause:* the digest was taken over
+  `pyproject.toml` alone. *Fix:* it covers every file of `HASH_SOURCES` that exists, and a
+  file that exists but cannot be read makes the answer "cannot tell" rather than leaving
+  it out. A project whose only declaration is `pyproject.toml` keeps exactly the digest it
+  had, so no environment recorded before this change has to be rebuilt. **Red first:** both
+  `setup.cfg` and `setup.py` edits left the digest unchanged, and a project without
+  `pyproject.toml` had none. The controls held either way: no declaration at all still has
+  no digest, and line endings still do not move it.
+
 ## #298 — 2026-09-23 — fix: run_bash sees files a host program acts on read-only
 
 ### Fixed

@@ -59,11 +59,13 @@ from .sandbox import provisioned_root, resolve_home
 # shared from here rather than written out twice.
 RECORD_NAME = "provision.json"
 
-# What the dependency hash is taken over. Deliberately the whole file rather than the
-# dependency tables inside it: the check is asymmetric, and hashing coarsely errs the safe
-# way. A false "stale" costs one re-provision; a false "fresh" means a delegation tests
-# against the wrong dependencies and returns the clean exit code ADR-0007 says to trust.
-HASH_SOURCE = "pyproject.toml"
+# What the dependency hash is taken over: every file a build backend reads dependencies from.
+# Deliberately whole files rather than the dependency tables inside them: the check is
+# asymmetric, and hashing coarsely errs the safe way. A false "stale" costs one re-provision;
+# a false "fresh" means a delegation tests against the wrong dependencies and returns the
+# clean exit code ADR-0007 says to trust. `pyproject.toml` alone was a false fresh for any
+# project declaring them in `setup.cfg` or `setup.py`.
+HASH_SOURCES = ("pyproject.toml", "setup.cfg", "setup.py")
 
 # The environment name a sandboxed command finds the interpreter under. Absent when nothing
 # current is provisioned for the workdir, never empty -- see `sandbox_env`.
@@ -121,13 +123,31 @@ def dependency_hash(project_real: str) -> str | None:
     hands back a clean exit code from a test run that proved nothing. Normalising newlines
     removes a false stale without weakening that -- a real edit still moves the digest,
     because a change to a dependency is a change to bytes that are not newlines.
+
+    Every file in `HASH_SOURCES` that exists counts. One that exists and cannot be read makes
+    the answer None -- "cannot tell" -- rather than leaving it out, which would be a false
+    fresh. A project whose only declaration is `pyproject.toml` gets exactly the digest it
+    always had, so an environment recorded before the other two counted is still current.
     """
-    source = Path(project_real) / HASH_SOURCE
-    try:
-        raw = source.read_bytes()
-    except OSError:
+    parts: list[tuple[str, bytes]] = []
+    for name in HASH_SOURCES:
+        try:
+            raw = (Path(project_real) / name).read_bytes()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return None
+        parts.append((name, raw.replace(b"\r\n", b"\n")))
+    if not parts:
         return None
-    return hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest()
+    if [name for name, _ in parts] == ["pyproject.toml"]:
+        return hashlib.sha256(parts[0][1]).hexdigest()
+    digest = hashlib.sha256()
+    for name, raw in parts:
+        # Name and length before the bytes, so no two different file sets can concatenate
+        # to the same input.
+        digest.update(f"{name}\0{len(raw)}\0".encode() + raw)
+    return digest.hexdigest()
 
 
 def _extras(project_real: str) -> tuple[str, ...]:
@@ -380,7 +400,9 @@ def build(cfg: Config, project_real: str, *, out) -> str:
         "project": project_real,
         "interpreter": python,
         "dependency_hash": dependency_hash(project_real),
-        "hash_source": HASH_SOURCE,
+        "hash_sources": [
+            n for n in HASH_SOURCES if os.path.exists(posixpath.join(project_real, n))
+        ],
         "install_target": target,
         "base_python": sys.executable,
         "provisioned": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
