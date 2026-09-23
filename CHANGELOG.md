@@ -38,6 +38,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #304 — 2026-09-23 — fix: the default extension allowlist covers common source and config types
+
+### Changed
+
+- **`DELEGATE_EXT_ALLOWLIST` covers 132 types, up from 37.** *Symptom:* ordinary source was
+  refused as if it were a binary, each case costing a skipped prefetch or a refused read and
+  a turn. *Cause:* the default had grown by accretion and disagreed with itself -- `.mjs`
+  without `.cjs`, `.sh` without `.ps1`, no XML at all -- and whole families of plain text
+  were missing: .NET and MSBuild, the JVM languages, shells, web frameworks, build and
+  infrastructure files. *Fix:* the families are listed in full, grouped in `config.py`.
+  Left out on purpose, because each commonly carries credentials: `.properties`,
+  `.tfvars`, `.conf`, `.npmrc`, `.pypirc` and `.netrc`; and `.ipynb`, whose outputs embed
+  images. Layer 2 still fails closed (ADR-0006), and the allowlist governs the file tools
+  only: `run_bash` never consults it. The setting's description now says that setting it
+  replaces the whole list, so an existing override gains none of these. **Red first:** 22
+  names, one or two per family, were refused by the unfixed default; the nine controls,
+  binaries, keystores and the credential-bearing types above, are refused either way. The
+  suite caught one more: #295's control used `LICENSE` as a name off the allowlist, and
+  `LICENSE` is on it now, so that control uses `AUTHORS` and asserts its own premise first.
+
 ## #303 — 2026-09-23 — docs: file the transcript volume a queued delegation writes
 
 ### Added
