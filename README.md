@@ -135,7 +135,7 @@ Windows, server in WSL2:
 { "mcpServers": { "delegate-local": {
     "command": "wsl.exe",
     "args": ["-d", "Ubuntu-24.04",
-             "--cd", "C:\path\to\claude-delegate-local-mcp",
+             "--cd", "C:\\path\\to\\claude-delegate-local-mcp",
              "-e", "/home/YOU/.venvs/delegate/bin/claude-delegate-local-mcp"],
     "timeout": 900000
 } } }

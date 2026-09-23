@@ -934,7 +934,7 @@ a data file as for a source file, which is backwards. Budgets are denominated in
 tokens instead, from ratios measured per extension. The measurements and what they buy are
 in [AGENTS.md](AGENTS.md). (ADR-0019)
 
-## Read-only tools say so, and the ones that can write must not
+### Read-only tools say so, and the ones that can write must not
 
 An MCP tool annotation is a claim made to the client before the call runs, so a client can
 act on it without asking. `backend_status` and `list_agents` carry `readOnlyHint` because
@@ -1255,8 +1255,8 @@ must not be called dead for it.
 
 ## Non-goals
 
-- **No standalone CLI.** The server speaks MCP only. Recorded here so nobody adds an
-  undocumented one later.
+- **No standalone CLI but `run`.** The server speaks MCP; `run`, above, is the same delegation
+  from a shell. Recorded here so nobody adds an undocumented one later.
 - **No streaming in v1.** MCP tool calls are request/response, so Claude sees nothing
   incrementally either way. Progress notifications — which are *required*, to avoid the
   stdio idle timeout — cover the part that matters. (ADR-0018)

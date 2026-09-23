@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #302 — 2026-09-23 — docs: four defects a reader of the documentation would hit
+
+### Fixed
+
+- **Four documentation defects from the 2026-09-22 review** (PLAN Unscheduled.75, R15).
+  - *README's Windows registration was not valid JSON.* A path with single backslashes is
+    an illegal escape, so pasting the block as written failed to parse. **Red first:** a
+    parse of every `json` block in README failed on it at the old commit and passes now.
+  - *ARCHITECTURE listed "No standalone CLI" as a non-goal* while documenting `run`. It now
+    names `run` as the one exception.
+  - *ARCHITECTURE nested "Read-only tools say so" as an H2* among H3 siblings, so one design
+    decision read as a top-level section.
+  - *A `slots.py` comment still reasoned about the large-prefill cap* ADR-0077 removed, and
+    counted four rules where three remain.
+
 ## #301 — 2026-09-23 — fix: provision shows a changed dependency declaration before building it
 
 ### Changed
