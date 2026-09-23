@@ -38,6 +38,28 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #294 — 2026-09-23 — docs: a design note for host-acted paths, host-side git and provision
+
+### Added
+
+- **`docs/specs/2026-09-23-host-acted-paths.md`, the design note CONTRIBUTING asks for** before
+  `sandbox.py` or `paths.py` changes. It is the first one: `docs/specs/` had never existed. It
+  settles the shape of PLAN M13.7 to M13.9 from measurements rather than from the review's
+  fix directions, and two of those directions did not survive:
+  - *Binding a missing path is not free.* bwrap creates the mount point on the host, and for
+    a file that is an empty 0444 file left in the project. So a missing protected directory
+    is created and bound, and a missing protected file is caught after the command.
+  - *`-c` overrides cannot harden host git.* A planted clean-filter driver runs on `diff` and
+    `blame`, and only `-c filter.<name>.clean=` stops it, with the name chosen by the
+    planted config. So M13.8 refuses a repository whose own config carries a key off an
+    allowlist, before running git in it.
+  - *The environment half was never covered.* The review took `GIT_ENV_DENY` as already
+    applied. `tools._git_env()` is defined and never called.
+- **Measured for it**, each in a throwaway repository inside bwrap: fsmonitor on `status`
+  and `blame`, textconv on `log -p` and `blame`, a filter on `diff` and `blame`, and a
+  submodule's fsmonitor reached through the top repository's `status`, whose own config was
+  clean. `--attr-source` does not help, because `.git/info/attributes` is read regardless.
+
 ## #293 — 2026-09-23 — fix: the stack planner keeps every commit of a multi-commit branch
 
 ### Fixed

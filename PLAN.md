@@ -68,7 +68,7 @@ by a test that took the route first.
   `resolve_search_root` and `resolve_workdir`, where `_resolve_one` does the reverse
 5. ⬜ **`search_files` cannot see suffix-less names that `read_file` allows** (R12), such as
   `Makefile` and `.gitignore`, so a search reports absent what a read would show
-6. ⬜ **Spike: what the sandbox's write access must not reach, and how host-side git runs**
+6. ✅ 2026-09-23 **Spike: what the sandbox's write access must not reach, and how host-side git runs**
   (R3, R4, R5). A short design note before the three items below, which is CONTRIBUTING's
   rule for `sandbox.py` and `paths.py`
 7. ⬜ **The read-write workdir reaches files the host acts on** (R3): `.claude/` settings,
