@@ -38,6 +38,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #287 — 2026-09-23 — fix: cancelling a delegation cancels its backend request
+
+### Fixed
+
+- **A cancelled delegation kept the cluster working** (M14.1, review R2). *Symptom:*
+  measured in #274, generation carried on for 281s after a cancel. Meanwhile admission had
+  released the lease and read the cluster as idle, so a full burst was admitted on top of
+  work nobody was waiting for. *Cause:* `_until_deadline` wraps the backend call in a task
+  and cancelled it only when its own deadline expired. A cancel from the caller (an MCP
+  `notifications/cancelled`, a client disconnect) left the wait and orphaned the task. The
+  task kept reading the stream, so the connection never closed and the engine never saw
+  a disconnect. *Fix:* the task is cancelled and awaited on every exit that is not a
+  normal return, and the caller's own exception still propagates.
+- **Red first:** a backend call cancelled 0.1s in never saw `CancelledError` against the
+  unfixed code, under both waiting shapes (the default and the `tick_sleep` seam). It does
+  now. **Measured live:** a real streaming call wrapped by the old `_until_deadline` and
+  cancelled 3.7s in still showed one running request 15s later. With the fix the engine's
+  running count read 0 one second after the cancel.
+
 ## #286 — 2026-09-23 — fix: a path outside the roots is not told whether it exists
 
 ### Fixed

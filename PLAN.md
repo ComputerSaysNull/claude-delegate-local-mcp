@@ -90,11 +90,11 @@ running count, and fails no sibling that joined its burst wait.
 
 Items 1 and 5 were Unscheduled.59 and Unscheduled.69, moved unchanged on 2026-09-23.
 
-1. ⬜ **A cancelled delegation keeps the cluster working, and admission stops seeing it.**
+1. ✅ 2026-09-23 **A cancelled delegation keeps the cluster working, and admission stops seeing it.**
   The gate read `inflight_seqs: 0` against a cluster still running six, so a full burst is
   admitted on top of work nobody waits for. Wanted: a cancel that reaches the request (JOURNAL)
     - a. ✅ 2026-09-22 **Spike first, the lag is unmeasured:** wall clock of the kill against the transcript's `end`
-    - b. ⬜ **The cause is `_until_deadline`** (R2, and the review's P6): an outer cancel leaves its
+    - b. ✅ **The cause is `_until_deadline`** (R2, and the review's P6): an outer cancel leaves its
     inner task streaming, so the HTTP stream never closes. Cancel and await it on every exit
     that is not a normal return.
 2. ⬜ **Cancelling a burst wait's opener fails every sibling that joined it** (R18). Its

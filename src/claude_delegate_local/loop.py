@@ -1165,33 +1165,44 @@ async def _until_deadline(
     asks which of the two deadlines expired rather than assuming.
     """
     task = asyncio.ensure_future(coro)
-    while True:
-        budget = left()
-        if budget is not None and budget <= 0:
-            task.cancel()
-            partial = None
-            try:
-                await task
-            except BaseException as e:  # the cancellation itself; TimeoutError reports it
-                # The one place the partial can be caught. The adapter hangs what it had
-                # decoded on whatever exception leaves it, cancellation included, and the
-                # attribute does survive `await task` -- measured on 3.12.3 and 3.14.6.
-                # The task object cannot be asked instead: once it is cancelled,
-                # `task.exception()` refuses rather than answering.
-                partial = getattr(e, "partial", None)
-            timed_out = TimeoutError()
-            timed_out.partial = partial  # type: ignore[attr-defined]
-            raise timed_out
-        wait_for = tick if budget is None else min(tick, budget)
-        if tick_sleep is None:
-            done, _ = await asyncio.wait({task}, timeout=wait_for)
+    try:
+        while True:
+            budget = left()
+            if budget is not None and budget <= 0:
+                task.cancel()
+                partial = None
+                try:
+                    await task
+                except BaseException as e:  # the cancellation itself; TimeoutError reports it
+                    # The one place the partial can be caught. The adapter hangs what it had
+                    # decoded on whatever exception leaves it, cancellation included, and the
+                    # attribute does survive `await task` -- measured on 3.12.3 and 3.14.6.
+                    # The task object cannot be asked instead: once it is cancelled,
+                    # `task.exception()` refuses rather than answering.
+                    partial = getattr(e, "partial", None)
+                timed_out = TimeoutError()
+                timed_out.partial = partial  # type: ignore[attr-defined]
+                raise timed_out
+            wait_for = tick if budget is None else min(tick, budget)
+            if tick_sleep is None:
+                done, _ = await asyncio.wait({task}, timeout=wait_for)
+                if done:
+                    return task.result()
+                continue
+            done, _ = await asyncio.wait({task}, timeout=0)
             if done:
                 return task.result()
-            continue
-        done, _ = await asyncio.wait({task}, timeout=0)
-        if done:
-            return task.result()
-        await tick_sleep(wait_for)
+            await tick_sleep(wait_for)
+    finally:
+        # Whatever brought us here -- the caller cancelled, a client disconnected -- the call
+        # must not outlive it. Cancelling the task is what closes its HTTP stream, and a
+        # closed stream is the only thing that tells the engine to stop generating.
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass  # its own cancellation; the exception that brought us here propagates
 
 
 async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test seams
