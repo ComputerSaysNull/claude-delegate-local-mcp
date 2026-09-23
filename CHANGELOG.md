@@ -38,6 +38,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #296 — 2026-09-23 — fix: host-side git refuses a repository whose own config could run a program
+
+### Fixed
+
+- **Host-side git ran programs a delegation's own repository named** (PLAN M13.8, review
+  R4). *Symptom:* `read_git` and the gitignore layer run the host's git, outside the
+  sandbox. In a repository `run_bash` created, a planted `core.fsmonitor` ran on `status`
+  and `blame`, a textconv driver on `show` and `blame`, a clean filter on `diff` and
+  `blame`, and a submodule's fsmonitor through a top repository whose own config was clean.
+  *Cause:* git honours repository-local config, several keys of which name a program, and
+  nothing checked it. The environment filter meant to strip `GIT_DIR` and its kin,
+  `tools._git_env()`, was defined and never called. *Fix:*
+  - Before running git in a repository, both helpers read its `local` and `worktree`
+    config and refuse a key off `paths.TRUSTED_GIT_CONFIG_KEYS`. Flags cannot do this job:
+    a driver is named by the planted config, so no `-c` can switch off one it has never
+    heard of. `repo_status` leaves such a repository out of its report instead.
+  - Every host-side git takes `-c core.fsmonitor=false -c diff.ignoreSubmodules=all` and
+    `paths.git_env()`. `read_git` adds `--no-textconv` and `--no-ext-diff` where the
+    subcommand takes them.
+- **Red first:** every planted route wrote its marker file against the unfixed code, and
+  the unit pin failed on git inheriting the server's environment unfiltered. The controls
+  hold both ways: the same commands in unplanted repositories, and a repository carrying
+  the keys this checkout's own config holds, including a credential helper.
+
 ## #295 — 2026-09-23 — fix: search_files searches the suffix-less names read_file allows
 
 ### Fixed

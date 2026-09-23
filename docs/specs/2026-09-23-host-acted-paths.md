@@ -64,7 +64,7 @@ nested repository the point-in-time `.git/**` shadow never saw, and the gitignor
 | Planted in the repository's own config | Runs on | Stopped by |
 |---|---|---|
 | `core.fsmonitor` | `status`, `blame` | `-c core.fsmonitor=false` |
-| textconv driver | `log -p`, `blame` | `--no-textconv` |
+| textconv driver | `log -p`, `show`, `blame` | `--no-textconv` |
 | clean filter driver | `diff`, `blame` | only `-c filter.<name>.clean=` |
 | any of these, in a submodule | the top's `status` | `-c diff.ignoreSubmodules=all` |
 
@@ -85,7 +85,8 @@ The operator's global config is not checked; it is theirs. It costs one more git
 measured at 28 ms against 23 ms for the `rev-parse` it sits beside, and one per repository top
 per call. The flags stay too: `-c core.fsmonitor=false -c diff.ignoreSubmodules=all` on both
 helpers, and `--no-textconv`/`--no-ext-diff` where `read_git`'s subcommand takes them. Both
-helpers take their environment from `tools._git_env()`. It was defined and never called, so
+helpers take their environment from `paths.git_env()`, formerly `tools._git_env()`, which was
+defined and never called, so
 the review's "`GIT_ENV_DENY` already covers the environment half" described code that did not
 run.
 
