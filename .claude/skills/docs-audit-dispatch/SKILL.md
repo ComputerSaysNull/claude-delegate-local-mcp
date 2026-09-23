@@ -196,13 +196,13 @@ trailers — two waivers in one commit for one reason are one event.
 ## Concurrency
 
 `max_inflight_seqs` is the only admission gate, and bounds how many passes run at once. A
-pass over it waits, and one waiting longer than `admission_wait_timeout` is failed rather
-than queued indefinitely. Read both values from
+pass over it waits its turn, by default for as long as the work ahead takes; only a
+non-zero `admission_wait_timeout` fails it instead. Read both values from
 [docs/CONFIGURATION.md](../../../docs/CONFIGURATION.md) and do not assume them — they are
 configuration, and this file is not their home.
 
-**Never dispatch more passes than the gate admits.** The overflow waits out the full
-admission timeout and is then refused having produced nothing, while the admitted ones run.
+**Dispatching more passes than the gate admits costs wall clock, not results**, unless
+that timeout is set: the overflow queues and runs as the admitted ones finish.
 
 The wait is **not silent**: a queued delegation reports progress on every tick. A fan-out
 that looks stalled is a fan-out that is queueing, and the way to tell is that stream plus a

@@ -38,6 +38,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #288 — 2026-09-23 — docs: agent and skill bodies state the tools as they are
+
+### Changed
+
+- **Five agent and skill bodies told a model something the server does not do** (M15.1,
+  review R8). *Symptom:* each sentence costs a wrong call or a wrong action every time the
+  file runs. `docs-audit-local`, with `max_turns: 5`, spends a fifth of its turns on a
+  `search_files` with no `path`. *Cause:* the text was written against earlier behaviour
+  and nothing checks it against the tool schemas. *Fix:*
+  - `docs-audit-local` now says `path` is required rather than optional, and that the
+    prefetched block is numbered like `read_file`'s output.
+  - `docs-audit-dispatch` now says an overflow pass queues rather than being refused,
+    since `admission_wait_timeout` defaults to 0.
+  - `code-reviewer` now states the bind order `build_argv` actually uses, in place of two
+    rules it never had.
+  - `docs-audit` returns its findings for the caller to record, instead of claiming it
+    commits them with no tool that writes.
+  - `researcher` and `code-reviewer` cite as file, `line`, number, since a colon is
+    refused at four digits.
+
 ## #287 — 2026-09-23 — fix: cancelling a delegation cancels its backend request
 
 ### Fixed

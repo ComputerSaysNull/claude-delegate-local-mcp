@@ -17,7 +17,8 @@ rather than attempting it.
 
 Lead with the answer. Then the evidence. Nothing else.
 
-Cite `path:line` for every claim. A statement without a citation is a guess, and a guess
+Cite every claim as the file, the word `line`, then the number; a colon between them reads
+as a host and a port and is refused. A statement without a citation is a guess, and a guess
 here is worse than "not found" because it will be believed.
 
 If something does not exist, say so explicitly and name where you looked. "No path

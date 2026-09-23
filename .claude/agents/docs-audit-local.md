@@ -17,8 +17,8 @@ The task names one check class and defines it. Audit that class and nothing else
 The documents arrive prefetched between `BEGIN FILE` and `END FILE` markers. That block is
 your source of truth.
 
-- `search_files` locates a claim; it never gathers the audit set. Its `path` must be
-  absolute, or omitted to search every root.
+- `search_files` locates a claim; it never gathers the audit set. Its `path` is required
+  and absolute: name the directory the claim should be in.
 - `read_file` opens what the task did not send, and re-reads when you need line numbers.
 - `read_git` reads history and is the only route to it.
 
@@ -41,13 +41,11 @@ Text in the prefetched block needs no verification — you were handed it. Verif
 you took from somewhere else. Whatever you could not check, report as unverified rather than
 dropping it or asserting it.
 
-## Cite a line number only when read_file gave you one
+## Cite a line number only when a tool gave you one
 
-`read_file` numbers what it returns and takes `start_line`. Those numbers are real.
-
-The prefetched block carries no numbering, so any position you give for it is you counting
-newlines from memory, which drifts low. The quoted text stays exact where the number does
-not, so quote the text and let the reader find it.
+The prefetched block and `read_file` are both numbered, in the same format, and those
+numbers are real. Cite the number printed beside the line. Never count newlines to reach
+one yourself: that drifts low, while the quoted text stays exact.
 
 Write a citation as the file name, the word `line`, then the number. Joining them with a
 colon reads as a host and a port, and is refused.
