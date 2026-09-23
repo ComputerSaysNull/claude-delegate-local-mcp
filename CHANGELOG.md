@@ -38,6 +38,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #293 — 2026-09-23 — fix: the stack planner keeps every commit of a multi-commit branch
+
+### Fixed
+
+- **The planner's restack dropped commits.** *Symptom:* publishing #282, a two-commit branch,
+  the printed restack command replayed only the branch's second commit. The first was
+  silently dropped, and only a CHANGELOG conflict exposed it. The session finished the stack
+  with a hand-written restack. *Cause:* every line was
+  `git rebase --onto <parent> <old tip>^ <branch>`, which names the parent's tip only when
+  the branch is one commit. *Fix:*
+  - A child now rebases from its parent's old tip.
+  - The front branch, whose parent has been squash-merged and deleted, rebases from the
+    newest ancestor whose tree `main` now holds, which is the squashed parent. With nothing
+    merged yet, that is the fork point.
+  - The title had the same assumption: it was the tip commit's subject. It is now the
+    CHANGELOG heading's, which is the pull request's title by that file's rule.
+- **Red first:** a real temporary repository reproduced the #282 shape, a two-commit parent
+  squash-merged and deleted with a two-commit child on top. All four cases failed against
+  the old planner. They pass now, and the printed rebase, run as printed, keeps both of the
+  child's commits.
+
 ## #292 — 2026-09-23 — fix: read_git accepts a short flag with its value attached
 
 ### Fixed
