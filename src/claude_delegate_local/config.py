@@ -195,6 +195,12 @@ class Config:
         "Layer 3: globs a model must never receive, shared with the git secrets gate so "
         "there is one list and not two that drift.",
     )
+    protected_globs_file: str = _f(
+        "./security/protected_globs.txt",
+        "Paths a host program acts on -- Claude Code's settings, agent files, CLAUDE.md, "
+        "editor tasks -- which the write tools refuse. Missing is fatal, as for the secret "
+        "denylist: a list that protects nothing looks exactly like one that passed.",
+    )
     respect_gitignore: bool = _f(
         True,
         "Layer 4: refuse paths git ignores. Cheap, and catches build output and local "

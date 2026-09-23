@@ -151,7 +151,12 @@ def _int_arg(args: dict[str, object], name: str, default: int) -> int:
 
 
 def _one_path(
-    cfg: Config, given: str, *, must_exist: bool, surface: str = "`path` argument"
+    cfg: Config,
+    given: str,
+    *,
+    must_exist: bool,
+    writing: bool = False,
+    surface: str = "`path` argument",
 ) -> ResolvedPath:
     """Run the caller's path through the four-layer policy and return the resolved entry.
 
@@ -167,7 +172,8 @@ def _one_path(
     # back to the model as an error result and the delegation carries on. Naming the
     # prefetch argument here sent the model to correct something it had not written.
     resolved = resolve_all(
-        cfg, [given], must_exist=must_exist, surface=surface, before_dispatch=False
+        cfg, [given], must_exist=must_exist, writing=writing, surface=surface,
+        before_dispatch=False,
     )
     if not resolved:
         # Layer 4 dropped it without a refusal only if the caller passed nothing at all.
@@ -687,7 +693,7 @@ def _write_file(cfg: Config, args: dict[str, object]) -> str:
             f"{len(encoded)} bytes exceeds the {cfg.max_write_bytes}-byte limit for one "
             f"write. Write it in parts.")
 
-    entry = _one_path(cfg, given, must_exist=False)
+    entry = _one_path(cfg, given, must_exist=False, writing=True)
     try:
         opened = open_resolved(entry, "wb")
         with opened.handle as fh:
@@ -718,7 +724,7 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
     against one check is exactly the gap ADR-0049 closed, and a tool that has to read
     before it writes is where it would otherwise come straight back.
     """
-    entry = _one_path(cfg, _text_arg(args, "path"), must_exist=True)
+    entry = _one_path(cfg, _text_arg(args, "path"), must_exist=True, writing=True)
     old = _text_arg(args, "old_string")
     new = _text_arg(args, "new_string")
     if not old:

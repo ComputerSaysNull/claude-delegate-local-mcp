@@ -5,6 +5,7 @@ Machine-checkable safety lists. Deliberately small and deliberately shared.
 | File | Consumed by | Purpose |
 | --- | --- | --- |
 | `secret_globs.txt` | `paths.py` (layer 3) **and** `scripts/docs_gate.py` | Paths a delegated model must never receive, and git must never accept |
+| `protected_globs.txt` | `paths.py` (write tools) | Paths a host program acts on, which a delegation may read but never change |
 | `allowed_emails.txt` | `scripts/docs_gate.py` | The only addresses permitted as a commit author/committer or inside a tracked file |
 | `forbidden_strings.txt` | `scripts/docs_gate.py` | **Untracked, local only.** Host identifiers -- see below |
 

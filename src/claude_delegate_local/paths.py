@@ -60,6 +60,9 @@ LAYER_GITIGNORE = 4
 # rather than a fifth filter, and it runs at open time instead of resolve time, which is
 # the whole reason it exists (ADR-0049).
 LAYER_OPENED = 5
+# Asked only by the write tools. Layers 1 to 4 decide what a model may *see*; this one
+# decides what it may *change*, and a protected file stays readable.
+LAYER_PROTECTED = 6
 
 LAYER_NAMES = {
     LAYER_FORM: "path form",
@@ -68,6 +71,7 @@ LAYER_NAMES = {
     LAYER_SECRET: "secret denylist",
     LAYER_GITIGNORE: "gitignore",
     LAYER_OPENED: "the opened file",
+    LAYER_PROTECTED: "protected path",
 }
 
 
@@ -411,6 +415,49 @@ def key_material_marker(head: bytes) -> str | None:
     return None
 
 
+def load_protected_globs(cfg: Config) -> tuple[str, ...]:
+    """Read the protected-path list, or refuse to write without it.
+
+    Fatal when missing or empty for the reason `load_secret_globs` gives: a list that
+    protects nothing reads exactly like one that matched nothing.
+    """
+    path = resolve_configured_path(cfg.protected_globs_file)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise PathPolicyError(
+            f"The write tools cannot run: the protected-path list at {path} is unreadable "
+            f"({e}). Set DELEGATE_PROTECTED_GLOBS_FILE, or start the server with its "
+            "working directory at the repository root."
+        ) from e
+    globs = tuple(
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    if not globs:
+        raise PathPolicyError(f"The write tools cannot run: {path} contains no patterns.")
+    return globs
+
+
+def _check_protected(given: str, real: str, globs: Sequence[str]) -> Refusal | None:
+    # The same matcher as the secret denylist, so `!` exemptions and suffix matching mean
+    # one thing across both lists.
+    glob = secret_match(real, globs)
+    if glob is None:
+        return None
+    return Refusal(
+        given=given,
+        layer=LAYER_PROTECTED,
+        reason=f"it matches the protected pattern {glob!r}, a file a host program acts on.",
+        remedy=(
+            "Claude Code's settings, agent and skill files, CLAUDE.md and editor task "
+            "files take effect on the host before anyone reads a diff, so a delegation may "
+            "read them but never change them. Report the change you would make instead."
+        ),
+    )
+
+
 def _check_secret(given: str, real: str, globs: Sequence[str]) -> Refusal | None:
     glob = secret_match(real, globs)
     if glob is None:
@@ -708,6 +755,8 @@ class _Batch:
     roots: Sequence[str]
     globs: Sequence[str]
     prefixes: dict[str, str]
+    # Empty unless the batch is for a write tool, so reading never pays for the list.
+    protected: Sequence[str] = ()
 
 
 def _resolve_one(
@@ -748,6 +797,8 @@ def _resolve_one(
         refusal = _check_ext(cfg, raw, real)
     if refusal is None:
         refusal = _check_secret(raw, real, batch.globs)
+    if refusal is None and batch.protected:
+        refusal = _check_protected(raw, real, batch.protected)
     return refusal or ResolvedPath(given=raw, posix=real)
 
 
@@ -923,6 +974,7 @@ def resolve_files(
     given: Sequence[str],
     *,
     must_exist: bool = True,
+    writing: bool = False,
 ) -> tuple[tuple[ResolvedPath, ...], tuple[Refusal, ...]]:
     """Resolve every caller path, returning what survived beside what did not.
 
@@ -938,7 +990,7 @@ def resolve_files(
     data. An exception carrying a list the handler must take apart is a return value that
     has to be caught first.
     """
-    survivors, refusals = _resolve_many(cfg, given, must_exist)
+    survivors, refusals = _resolve_many(cfg, given, must_exist, writing=writing)
     return survivors, tuple(refusals)
 
 
@@ -1071,11 +1123,12 @@ def _expand_one(cfg: Config, raw: str, roots: Sequence[str]) -> list[str] | Refu
     return sorted(found)
 
 
-def resolve_all(
+def resolve_all(  # noqa: PLR0913 -- all keyword-only; each one is a disposition flag
     cfg: Config,
     given: Sequence[str],
     *,
     must_exist: bool = True,
+    writing: bool = False,
     surface: str = "files[]",
     before_dispatch: bool = True,
 ) -> tuple[ResolvedPath, ...]:
@@ -1090,7 +1143,7 @@ def resolve_all(
     that asked for six files and silently got five reads exactly like one that got six.
     `resolve_permitted` is the other disposition, for paths nobody named.
     """
-    survivors, refusals = resolve_files(cfg, given, must_exist=must_exist)
+    survivors, refusals = resolve_files(cfg, given, must_exist=must_exist, writing=writing)
     if refusals:
         raise PathRefused(
             list(refusals), total=len(given),
@@ -1122,20 +1175,25 @@ def resolve_permitted(
 
 
 def _resolve_many(
-    cfg: Config, given: Sequence[str], must_exist: bool
+    cfg: Config, given: Sequence[str], must_exist: bool, *, writing: bool = False
 ) -> tuple[tuple[ResolvedPath, ...], list[Refusal]]:
-    """The four layers over a list, raising nothing. Both dispositions share this."""
+    """The four layers over a list, raising nothing. Both dispositions share this.
+
+    `writing` adds the protected-path check. It is its own flag rather than read off
+    `must_exist`, because `edit_file` writes a file that must already exist.
+    """
     if not given:
         return (), []
 
     roots = resolved_roots(cfg)
     globs = load_secret_globs(cfg)
+    protected = load_protected_globs(cfg) if writing else ()
 
     refusals: list[Refusal] = []
     survivors: list[ResolvedPath] = []
     seen: set[str] = set()
     # One batch, one cache. See `_realpath` for why it holds prefixes and not whole paths.
-    batch = _Batch(roots=roots, globs=globs, prefixes={})
+    batch = _Batch(roots=roots, globs=globs, prefixes={}, protected=protected)
 
     for raw in given:
         outcome = _resolve_one(cfg, raw, batch, must_exist)

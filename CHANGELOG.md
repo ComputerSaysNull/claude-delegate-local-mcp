@@ -38,6 +38,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #297 — 2026-09-23 — fix: the write tools refuse files a host program acts on
+
+### Added
+
+- **`security/protected_globs.txt` and `DELEGATE_PROTECTED_GLOBS_FILE`**: the paths a host
+  program acts on as configuration, which are `.claude/**`, `CLAUDE.md`,
+  `CLAUDE.local.md`, `.mcp.json`, `.vscode/**` and `.idea/**`. A missing or empty list is
+  fatal to the write tools, as the secret denylist is to every tool.
+
+### Fixed
+
+- **A delegation could rewrite the rules the operator's own session runs under** (PLAN
+  M13.7, the write-tool half; review R3). *Symptom:* `write_file` and `edit_file` accepted
+  `.claude/settings.json`, `CLAUDE.md` and the like, which take effect on the host before
+  anyone reads a diff: hooks apply mid-session. *Cause:* the path policy refused secrets
+  and gitignored files, and nothing else, because it was built to decide what a model may
+  see. *Fix:* a write-only layer 6 refuses a protected path by name, so a file that does
+  not exist yet is refused too. It is its own `writing` flag rather than read off
+  `must_exist`, because `edit_file` writes a file that must already exist, and a rule keyed
+  on creation would have missed it. Protected files stay readable. **Red first:** all eight
+  writes and edits went through against the unfixed code; the controls, an ordinary write
+  and a read of `CLAUDE.md`, pass either way.
+
 ## #296 — 2026-09-23 — fix: host-side git refuses a repository whose own config could run a program
 
 ### Fixed
