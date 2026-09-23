@@ -383,10 +383,47 @@ def build(cfg: Config, project_real: str, *, out) -> str:
     sandbox.ensure_home(home)
     venv = venv_dir(home, project_real)
 
+    # The working environment is moved aside, never deleted first, so a failed rebuild --
+    # network down, a bad pin -- puts it back rather than leaving no interpreter at all.
+    # Aside rather than building the new one aside: a virtualenv writes its own absolute
+    # path into its scripts, so a tree built at one path and renamed to another is broken.
+    previous: str | None = None
     if os.path.exists(venv):
-        print(f"  replacing the existing environment at {venv}", file=out)
-        shutil.rmtree(venv)
+        previous = f"{venv}.previous"
+        if os.path.exists(previous):
+            _remove(previous)  # left by an interrupted run; the live one is `venv`
+        print(f"  moving the existing environment aside while {venv} is rebuilt", file=out)
+        _move(venv, previous)
+    try:
+        _build_into(project_real, venv, out=out)
+    except BaseException:
+        if os.path.exists(venv):
+            _remove(venv)
+        if previous is not None:
+            _move(previous, venv)
+            print("  the build failed, so the previous environment is back in place", file=out)
+        raise
+    if previous is not None:
+        _remove(previous)
+    return venv
 
+
+def _remove(path: str) -> None:
+    try:
+        shutil.rmtree(path)
+    except OSError as e:
+        raise ProvisionError(f"could not remove {path}: {e.strerror or e}") from e
+
+
+def _move(src: str, dst: str) -> None:
+    try:
+        os.rename(src, dst)
+    except OSError as e:
+        raise ProvisionError(f"could not move {src} to {dst}: {e.strerror or e}") from e
+
+
+def _build_into(project_real: str, venv: str, *, out) -> None:
+    """The build steps and the record, into `venv`. Raises `ProvisionError` on any failure."""
     print(f"  building {venv}", file=out)
     _run([sys.executable, "-m", "venv", venv], out=out)
 
@@ -407,10 +444,12 @@ def build(cfg: Config, project_real: str, *, out) -> str:
         "base_python": sys.executable,
         "provisioned": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    (Path(venv) / RECORD_NAME).write_text(
-        json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    return venv
+    try:
+        (Path(venv) / RECORD_NAME).write_text(
+            json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    except OSError as e:
+        raise ProvisionError(f"could not write the build record: {e.strerror or e}") from e
 
 
 def run(cfg: Config, given: str, *, out) -> int:
@@ -425,7 +464,9 @@ def run(cfg: Config, given: str, *, out) -> int:
     try:
         venv = build(cfg, project_real, out=out)
     except ProvisionError as e:
-        print(f"\nNothing usable was left behind: {e}", file=out)
+        # Not "nothing usable was left behind" any more: a previous environment is put
+        # back, and `build` has already said so when it was.
+        print(f"\nThe build failed: {e}", file=out)
         return 1
     except subprocess.TimeoutExpired:
         print(f"\nThe build exceeded {_BUILD_TIMEOUT:.0f}s and was abandoned.", file=out)
