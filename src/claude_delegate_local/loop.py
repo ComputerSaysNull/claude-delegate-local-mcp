@@ -2756,10 +2756,9 @@ class AgenticDispatch:
 def _assistant_blocks(cfg: Config, response: CanonicalResponse) -> tuple[ContentBlock, ...]:
     """The model's own turn, as it goes back into the history.
 
-    Reasoning is dropped unless `resend_reasoning` says otherwise: it costs input tokens
-    and prefill on every subsequent turn, and the conclusions already survive in the text
-    the model wrote. Tool calls are never dropped -- a result whose `tool_use` is missing
-    is a history some backends reject outright.
+    Reasoning goes back only when `resend_reasoning` says so; its description has why.
+    Tool calls are never dropped -- a result whose `tool_use` is missing is a history some
+    backends reject outright.
     """
     if cfg.resend_reasoning:
         return response.content

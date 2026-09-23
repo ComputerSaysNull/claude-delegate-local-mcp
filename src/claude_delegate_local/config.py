@@ -324,10 +324,11 @@ class Config:
         unit="tokens",
     )
     resend_reasoning: bool = _f(
-        False,
-        "Send the model's prior reasoning back as history. Off: it costs input tokens and "
-        "prefill on every turn, the conclusions already survive in the visible answer, and "
-        "a growing prefix defeats prefix caching.",
+        True,
+        "Send the model's prior reasoning back as history. The served encoder renders it "
+        "only when the request carries tools, which every agentic turn does, and the model "
+        "expects it inside a tool loop. History stays append-only, so the prefix cache "
+        "holds (JOURNAL 2026-09-23).",
     )
     temperature: float = _f(
         1.0,

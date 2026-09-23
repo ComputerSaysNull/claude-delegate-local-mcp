@@ -144,11 +144,11 @@ counted the same way, and kept only where it wins.
 
 Item 2 was Unscheduled.62, moved unchanged on 2026-09-23.
 
-1. ⬜ **The model can be shown its earlier reasoning, and is not** (R25, corrected). Measured
+1. ✅ 2026-09-23 **The model can be shown its earlier reasoning, and is not** (R25, corrected). Measured
   2026-09-23: with `tools` in the request the endpoint renders it, 338 to 619 prompt tokens;
   without them it does not, and that is all the review's probe sent
-    - a. ⬜ A/B `resend_reasoning` on fixed tasks, then set its default and fix its description.
-    - b. ⬜ Visible working notes, only if 1.a loses: one static sentence in the system prompt.
+    - a. ✅ A/B `resend_reasoning` on fixed tasks, then set its default and fix its description.
+    - b. ❌ 2026-09-23 **Not needed: 1.a did not lose.** Visible working notes, only if 1.a loses: one static sentence in the system prompt.
 2. ⬜ **Reasoning effort may be binary here, and the recovery ladder is built on it not being.**
   Measured only under 1k tokens, where the three looked alike; at a realistic size all of them
   spend the budget reasoning. Our four map onto the encoder's three plus off, so none is missing
