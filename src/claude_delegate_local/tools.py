@@ -1041,11 +1041,6 @@ def _checked_args(command: str, raw: object) -> list[str]:
     permitted = GIT_SUBCOMMANDS[command]
     out: list[str] = []
     for token in raw:
-        if token == "--":
-            raise ToolRefused(
-                "Do not pass '--' yourself; put file paths in 'paths' and the separator is "
-                "added for you."
-            )
         if token.startswith("-"):
             name = _git_flag(token)
             if (
@@ -1064,6 +1059,22 @@ def _checked_args(command: str, raw: object) -> list[str]:
                 )
         out.append(token)
     return out
+
+
+def _split_separator(args: object, paths: object) -> tuple[object, object]:
+    """`args` up to a `--`, and `paths` with whatever followed it added.
+
+    Git's own convention, and what a model reaches for first: 7 of 132 calls put paths
+    after a `--` in `args`, and refusing it cost each a turn to re-issue the same call.
+    What follows the separator is unambiguous, so it joins `paths` and is checked as they
+    are. Anything that is not a list is passed through for the checks below to refuse.
+    """
+    if not isinstance(args, list) or "--" not in args:
+        return args, paths
+    at = args.index("--")
+    if paths is not None and not isinstance(paths, list):
+        return args[:at], paths
+    return args[:at], [*(paths or []), *args[at + 1:]]
 
 
 def _checked_paths(raw: object) -> list[str]:
@@ -1263,8 +1274,9 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
     # they are the security-relevant ones; resolving the repository runs git. Doing it the
     # other way round also reported a bad flag as a path problem whenever both were wrong,
     # which is the less specific of the two answers.
-    checked = _checked_args(command, args.get("args"))
-    paths = _checked_paths(args.get("paths"))
+    raw_args, raw_paths = _split_separator(args.get("args"), args.get("paths"))
+    checked = _checked_args(command, raw_args)
+    paths = _checked_paths(raw_paths)
     scope = _git_toplevel(cfg, _text_arg(args, "repo"))
     _require_trusted_config(scope)
     if command in GIT_CONTENT_COMMANDS:
@@ -1558,9 +1570,10 @@ READ_GIT = RegisteredTool(
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Flags and revisions, e.g. [\"--oneline\", \"-n\", "
-                                   "\"20\"] or [\"HEAD~5..HEAD\"]. File paths do not go "
-                                   "here, and for show, diff and blame a revision must "
-                                   "be a commit.",
+                                   "\"20\"] or [\"HEAD~5..HEAD\"]. File paths belong in "
+                                   "'paths'; anything after a '--' here is taken as paths "
+                                   "too. For show, diff and blame a revision must be a "
+                                   "commit.",
                 },
                 "paths": {
                     "type": "array",
