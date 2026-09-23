@@ -38,6 +38,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #289 — 2026-09-23 — fix: tool descriptions name only result keys the server returns
+
+### Fixed
+
+- **Two descriptions pointed a model at things that are not there** (M15.2, review R8).
+  *Symptom:* the `task` argument of all four delegation tools, and the orchestration
+  resource, said an empty answer "returns `ok: true`". No tool result has an `ok` key, so
+  a caller checking it found nothing, where `empty_response` is the key to read.
+  `search_files` said a workspace root is refused as `path`, though it has been accepted
+  since 2026-09-16. *Fix:* both now say what the server does.
+- **`backend_status` now describes its per-model keys.** The description has always told a
+  caller to read `status` and `id_confirmed`, while the output schema left each `models`
+  row undescribed. The new check below found that. The row now declares `status`,
+  `id_confirmed`, `detail` and `cluster` and stays open to additions, so no real result is
+  refused.
+
+### Added
+
+- **A check that the contract's homes agree.** Every backticked `key: value` in a tool
+  description, an argument description or the orchestration resource must name a key
+  some tool's output schema declares, at any depth. Red first: it listed seven stranded
+  keys against the unfixed text (five `ok`, plus `status` and `id_confirmed`). A planted
+  `ok: true` is its negative control.
+
 ## #288 — 2026-09-23 — docs: agent and skill bodies state the tools as they are
 
 ### Changed

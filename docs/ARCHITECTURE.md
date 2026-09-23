@@ -1000,7 +1000,8 @@ deliberately permissive — nothing `required`, additions allowed — because th
 omits the loop ledger and `diagnostics` appears only when asked, so a stricter one would
 refuse results this server legitimately produces. A test holds each description to a target well
 under the client's cut, since a 2000-character description passes a length check while
-failing its purpose. (ADR-0066)
+failing its purpose. (ADR-0066) Another holds the homes to each other: a backticked
+`key: value` in any description or the resource must be a key some `outputSchema` declares.
 
 ## A dispatch is written twice, because "what happened" and "what is happening" are different questions
 

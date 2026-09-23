@@ -41,7 +41,7 @@ Search the workspace for a regular expression and get back the matching lines, e
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `pattern` | string | yes | Python regular expression, matched per line. Prefix (?i) to ignore case. |
-| `path` | string | yes | Absolute path to a directory or file to search, and the only argument that narrows the walk. Required, and a workspace root itself is refused -- name something inside one. Pass the exact string '_unscoped_' to walk every workspace root -- the slowest call this server offers, by roughly two orders of magnitude. |
+| `path` | string | yes | Absolute path to a directory or file to search, and the only argument that narrows the walk. Required. A workspace root itself is accepted but walks all of it, so name a directory inside one where you can. Pass the exact string '_unscoped_' to walk every workspace root -- the slowest call this server offers, by roughly two orders of magnitude. |
 | `glob` | string | no | Only open files whose NAME matches this glob, e.g. *.py or test_*.py. Matches the name, not the path. It narrows what is opened, never what is walked, so it does not replace path. |
 | `max_results` | integer | no | Most matching lines to return. Defaults to 100. |
 

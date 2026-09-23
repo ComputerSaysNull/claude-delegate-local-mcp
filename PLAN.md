@@ -115,7 +115,7 @@ test fails when an agent or skill body names one.
 1. ✅ 2026-09-23 **Agent and skill bodies carry stale tool facts** (R8): `docs-audit-local`, the
   `docs-audit-dispatch` skill, `code-reviewer`, `docs-audit` and `researcher`, each with a
   sentence the review quotes against the code that contradicts it
-2. ⬜ **Tool descriptions name what does not exist** (R8): an `ok: true` in the `task`
+2. ✅ 2026-09-23 **Tool descriptions name what does not exist** (R8): an `ok: true` in the `task`
   argument and the orchestration resource, and "a workspace root is refused" for
   `search_files`
 3. ⬜ **Nothing checks that agent and skill bodies name real tool arguments** (R8). Test the
