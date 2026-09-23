@@ -38,6 +38,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #305 — 2026-09-23 — fix: read_git takes the paths after a `--` in args
+
+### Changed
+
+- **`read_git` accepts `--` in `args`**, and whatever follows it joins `paths`. *Symptom:*
+  7 of 132 `read_git` calls across every transcript wrote paths after a `--`, git's own
+  convention, and were refused; 6 of the 7 re-issued the same call with `paths` on the next
+  turn, a turn spent on a spelling. *Cause:* the refusal protected a real property, that no
+  path reaches git through a channel the path checks do not see, by refusing the spelling
+  rather than by checking what it carried. *Fix:* the tokens after the separator become
+  `paths` before any check runs, so they are checked exactly as `paths` are: relative,
+  inside the repository, and through the path policy for commands that return contents.
+  The `args` description says so. **Red first:** a `log` limited by a path after `--`, and
+  one combining that with `paths`, were refused against the unfixed code; the control, a
+  call with no separator, answers the same either way. The unit test that pinned the old
+  refusal now pins the property instead: a path after `--` that climbs out is refused.
+
 ## #304 — 2026-09-23 — fix: the default extension allowlist covers common source and config types
 
 ### Changed

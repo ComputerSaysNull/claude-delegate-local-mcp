@@ -53,7 +53,7 @@ Read a repository's git history: log, show, diff, blame, ls-files, shortlog, rev
 | --- | --- | --- | --- |
 | `repo` | string | yes | Absolute path to the repository, or any directory inside it. |
 | `command` | string | yes | The git subcommand: log, show, diff, blame, ls-files, shortlog, rev-list, status or rev-parse. |
-| `args` | array | no | Flags and revisions, e.g. ["--oneline", "-n", "20"] or ["HEAD~5..HEAD"]. File paths do not go here, and for show, diff and blame a revision must be a commit. |
+| `args` | array | no | Flags and revisions, e.g. ["--oneline", "-n", "20"] or ["HEAD~5..HEAD"]. File paths belong in 'paths'; anything after a '--' here is taken as paths too. For show, diff and blame a revision must be a commit. |
 | `paths` | array | no | File paths to limit the command to, relative to the repository root. A path deleted long ago is fine. |
 
 ## `write_file`

@@ -1372,12 +1372,13 @@ def test_a_path_that_leaves_the_repository_is_refused(workspace, given):
     assert "repository" in result.content
 
 
-def test_the_separator_cannot_be_passed_by_hand(workspace):
-    """`--` is added around `paths` by the tool. Accepting it in `args` would let a path
-    be smuggled in through the channel that is not path-checked."""
-    result = git_call(workspace, repo=str(workspace), command="log", args=["--", "x"])
+def test_a_path_after_the_separator_is_path_checked(workspace):
+    """`--` in `args` is accepted, and what follows it becomes `paths`. The property that
+    refusing it used to protect still holds: no path reaches git through the channel that
+    is not path-checked. One that climbs out is refused before git runs at all."""
+    result = git_call(workspace, repo=str(workspace), command="log", args=["--", "../x"])
     assert result.is_error
-    assert "Do not pass '--' yourself" in result.content
+    assert "climbs out" in result.content, result.content
 
 
 @posix_only
