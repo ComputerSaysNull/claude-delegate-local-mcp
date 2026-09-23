@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #281 — 2026-09-23 — docs: archive the closed milestones and the ticked Unscheduled items
+
+### Changed
+
+- **PLAN.md holds open work again.** *Symptom:* the roadmap was 1,021 lines, three
+  quarters of them ticked, so every session paid to read work already done before
+  reaching what was left. *Cause:* completed items stay until the roadmap closes or the
+  owner says to archive, and M8, M9, M10 and M12 had all closed without that call being
+  made. *Fix:* on the owner's word, those four milestones, M11's six closed items and the
+  59 ticked Unscheduled items move verbatim to `archive/PLAN-milestones.md`. Each goes
+  with its sub-items, its struck originals and the note that introduced it. An item moved
+  only if it was itself ✅, so a ticked sub-item under an open parent stays with that
+  parent. Ids are kept, so an old citation still resolves. A script moved the lines and
+  asserted that every line removed arrived and nothing else did. PLAN.md is now 247 lines.
+
 ## #280 — 2026-09-22 — fix: the planner's pull request body is the CHANGELOG entry
 
 ### Fixed
