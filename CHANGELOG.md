@@ -38,6 +38,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #286 — 2026-09-23 — fix: a path outside the roots is not told whether it exists
+
+### Fixed
+
+- **Two path checks answered "does it exist" before "is it allowed"** (M13.4, review
+  R11). *Symptom:* a search path or workdir outside every root got "does not exist" when
+  it was missing and "outside every root" when it was there. That is a small oracle about
+  the host's filesystem. *Cause:* `resolve_search_root` and `resolve_workdir` tested
+  existence first, where `_resolve_one` has always done the reverse for this very reason.
+  *Fix:* both check the roots first. **Red first:** a missing path outside the roots got the
+  existence refusal from both functions against the unfixed code. It gets the roots
+  refusal now, and a missing path inside a root is still told it is missing.
+
 ## #285 — 2026-09-23 — fix: the gitignore layer refuses when git cannot answer
 
 ### Fixed
