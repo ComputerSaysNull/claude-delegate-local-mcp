@@ -439,10 +439,10 @@ class SharedSlots:
         happened to look at the right moment.
 
         But only a waiter that could be admitted *now* counts. Strict ticket order would
-        reintroduce head-of-line blocking -- the failure the four rules are checked as one
-        predicate to avoid. A large request parked on the large-prefill cap would
-        otherwise block a small one that fits every rule, for as long as the request ahead
-        of *it* keeps running. A waiter that cannot take the slot is not spending its
+        reintroduce head-of-line blocking -- the failure the rules are checked as one
+        predicate to avoid. A large request waiting for token budget would otherwise
+        block a small one that fits every rule, for as long as the request ahead of *it*
+        keeps running. A waiter that cannot take the slot is not spending its
         turn, so it does not hold one.
         """
         return sum(

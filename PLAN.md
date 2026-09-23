@@ -350,11 +350,11 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
   declaring two return values where it returns three. Pyright or mypy in basic mode, `src/`
 74. ⬜ **Synchronous file work blocks the event loop** (R14): `expand_globs`, `resolve_files`
   and `prefetch` run inline in `run_delegation`, 0.54 to 0.62s measured. Tolerable today
-75. ⬜ **Documentation defects a user would hit** (R15)
-    - a. ⬜ `README.md` puts a Windows path in JSON with single backslashes, illegal escapes.
-    - b. ⬜ ARCHITECTURE lists "no standalone CLI" as a non-goal and documents the `run` CLI.
-    - c. ⬜ ARCHITECTURE nests "Read-only tools" as an H2 inside another H2.
-    - d. ⬜ A `slots.py` comment still reasons about the cap ADR-0077 removed.
+75. ✅ 2026-09-23 **Documentation defects a user would hit** (R15)
+    - a. ✅ 2026-09-23 `README.md` puts a Windows path in JSON with single backslashes, illegal escapes.
+    - b. ✅ 2026-09-23 ARCHITECTURE lists "no standalone CLI" as a non-goal and documents the `run` CLI.
+    - c. ✅ 2026-09-23 ARCHITECTURE nests "Read-only tools" as an H2 inside another H2.
+    - d. ✅ 2026-09-23 A `slots.py` comment still reasons about the cap ADR-0077 removed.
 76. ⬜ **Build and supply chain** (R16)
     - a. ⬜ GitHub Actions are pinned by tag rather than by commit.
     - b. ⬜ No lock file, so CI resolves every dependency fresh.
