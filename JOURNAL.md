@@ -2416,3 +2416,16 @@ no-tools rows are the probe's negative control: reasoning present, count unchang
 **The trap is the probe's shape, not its arithmetic.** A four-request probe with no `tools`
 is the natural minimal reproduction and exercises the one branch agentic traffic never takes.
 Probe the shape the loop actually sends.
+
+**The A/B: four multi-turn repository questions, twice per arm, all sixteen launched
+together through the `run` CLI so both arms shared the cluster's load (effort `low`):**
+
+| arm | correct | turns | output tokens | input tokens | cached share | wall, summed |
+|---|---|---|---|---|---|---|
+| off | 8/8 | 29 | 5,390 | 382,332 | 61% | 1,583s |
+| on | 8/8 | 27 | 4,819 | 297,793 | 64% | 1,508s |
+
+Resending cost nothing measurable and kept the prefix cache, which the setting's old
+description said it would defeat. The gain is small, and one eight-turn `off` run carries
+most of it, so this supports turning it on rather than proving a win. These tasks reasoned
+little; the heavy-reasoning case is where it should matter most.

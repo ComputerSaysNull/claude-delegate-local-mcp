@@ -550,7 +550,7 @@ def test_progress_is_reported_even_for_a_single_turn(registered):
 # --- history, budget and the ledger ------------------------------------------------------
 
 
-def test_reasoning_is_dropped_from_the_history_by_default(registered):
+def test_reasoning_is_dropped_from_the_history_when_resend_is_off(registered):
     backend = ScriptedTurns(
         CanonicalResponse(
             content=(ThinkingBlock("long thoughts"), ToolUseBlock("call-0", "echo", {})),
@@ -561,7 +561,7 @@ def test_reasoning_is_dropped_from_the_history_by_default(registered):
         ),
         says("done"),
     )
-    run(backend)
+    run(backend, cfg=cfg(resend_reasoning=False))
     assistant = backend.requests[1].messages[1]
     assert not any(isinstance(b, ThinkingBlock) for b in assistant.content)
     assert any(isinstance(b, ToolUseBlock) for b in assistant.content)

@@ -560,7 +560,8 @@ half rather than an hour.
 ## The history is resent every turn, and trimmed in steps
 
 Each turn resends everything before it, so an untrimmed history makes a delegation cost the
-square of its length — the tenth turn paying again for the first nine tool results.
+square of its length — the tenth turn paying again for the first nine tool results. The
+model's reasoning goes back too ([`resend_reasoning`](CONFIGURATION.md), JOURNAL 2026-09-23).
 [`retained_tool_result_tokens`](CONFIGURATION.md) decides how much survives and the oldest
 results collapse to a one-line stub until what remains fits it.
 [`keep_tool_results`](CONFIGURATION.md) is the floor and the step, no longer the trigger: a

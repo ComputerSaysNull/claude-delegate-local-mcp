@@ -49,6 +49,20 @@ Older entries, in the previous flat format, are in
   turn carries tools, so on the path the setting exists for, the reasoning is rendered:
   338 → 619 prompt tokens with it, under either field name.
 
+### Changed
+
+- **`resend_reasoning` is on by default.** *Why:* the model is trained to have its
+  reasoning inside a tool loop (DeepSeek's own API requires it), and an A/B measured no
+  cost. Four multi-turn tasks were run twice per arm, with both arms launched together:
+  8/8 correct each way. With it on, the runs took 27 turns against 29, used 4,819
+  output tokens against 5,390 and 297,793 input tokens against 382,332, and kept 64% of
+  the prompt cached against 61%. The gain is small and these tasks reasoned little, so
+  this supports the default rather than proving a win. *What changed:* the default, and
+  a description that no longer claims resending defeats prefix caching. A test that
+  assumed the old default now states "off" explicitly, and the wire test reads the
+  default from `Config` rather than restating it. `DELEGATE_RESEND_REASONING=false`
+  restores the old behaviour.
+
 ## #290 — 2026-09-23 — fix: the turn-limit banner no longer calls a finished run unfinished
 
 ### Fixed

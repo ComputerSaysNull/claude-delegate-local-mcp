@@ -658,14 +658,28 @@ async def test_a_tool_result_precedes_new_user_text_in_the_same_turn():
     assert roles == ["system", "tool", "user"]
 
 
-async def test_reasoning_is_dropped_on_resend_by_default():
-    """Config.resend_reasoning defaults to False, and the default must be observable."""
+async def test_reasoning_is_dropped_when_resend_is_off():
     handler, seen = capture()
     req = request(
         messages=(base.Message("assistant", (base.ThinkingBlock("private"),)),)
     )
     await backend(handler, config=cfg(resend_reasoning=False)).complete(req)
     assert "private" not in json.dumps(seen["body"])
+
+
+async def test_the_default_is_observable_on_the_wire():
+    """Whatever `Config` defaults `resend_reasoning` to is what the wire shows.
+
+    Read from `Config` rather than restated: a default lives only in config.py.
+    """
+    handler, seen = capture()
+    req = request(
+        messages=(
+            base.Message("assistant", (base.ThinkingBlock("private"), base.TextBlock("t"))),
+        )
+    )
+    await backend(handler).complete(req)
+    assert ("private" in json.dumps(seen["body"])) is cfg().resend_reasoning
 
 
 async def test_reasoning_is_resent_when_configured():
