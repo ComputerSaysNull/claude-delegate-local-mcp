@@ -50,6 +50,26 @@ Older entries, in the previous flat format, are in
   `docs/reviews/`, it is point-in-time evidence and read-only: a later correction lives
   where the finding was filed.
 
+### Changed
+
+- **The review's findings are roadmap items.** *Symptom:* 25 findings and seven cluster
+  levers existed only in a report, unranked against anything, and M11 held four open items
+  waiting on a viewer nobody had scheduled. *Fix:* six themed milestones, each with its exit
+  line, citing the review by its own ids: path policy (M13), cancellation (M14), the
+  model-facing contract (M15), cluster time (M16), the Agent Skills specification (M17), and
+  code and docs that describe what is (M18). M19 and M20 take M11's open items unchanged.
+  Unscheduled.59, .62 and .69 move into M14 and M16, and the rest become Unscheduled.73 to
+  .79. A script moved every item verbatim, changing only its number. A second script checks
+  that every cited id is in the review and every open finding is filed, and it fails on a
+  planted `R99` or a dropped citation.
+- **R25 is filed corrected, not as the review states it.** The review found resent
+  reasoning never reaches the model. Measured on 2026-09-23, the endpoint renders it
+  whenever the request carries `tools` (338 → 619 prompt tokens), and every agentic turn
+  carries them. The review's probe sent no tools. M16.1 is now an A/B test, not a retirement.
+- **M18.1 records the owner's answers** to the review's four questions on prose and records.
+  The first to apply is PLAN.md's own header: its raise history goes, and its budget drops
+  from 1,021 to 420. The file is now 415 lines, and a budget far above that could not fire.
+
 ## #281 — 2026-09-23 — docs: archive the closed milestones and the ticked Unscheduled items
 
 ### Changed
