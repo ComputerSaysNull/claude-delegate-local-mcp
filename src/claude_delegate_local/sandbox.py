@@ -842,6 +842,9 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
             proc = subprocess.run(
                 argv,
                 capture_output=True,
+                # Closed, never inherited: under stdio the server's fd 0 is the MCP stream,
+                # and a `cat` with no file would eat the client's messages.
+                stdin=subprocess.DEVNULL,
                 text=True,
                 timeout=cfg.run_bash_timeout,
                 start_new_session=True,

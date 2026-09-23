@@ -310,8 +310,8 @@ def build_env() -> dict[str, str]:
 def _run(argv: list[str], *, out) -> None:
     """One build step, with its real exit code honoured and its output shown on failure."""
     proc = subprocess.run(
-        argv, capture_output=True, text=True, timeout=_BUILD_TIMEOUT,
-        env=build_env(), check=False,
+        argv, capture_output=True, stdin=subprocess.DEVNULL, text=True,
+        timeout=_BUILD_TIMEOUT, env=build_env(), check=False,
     )
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-8:]

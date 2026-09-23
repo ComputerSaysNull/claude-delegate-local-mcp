@@ -149,7 +149,8 @@ def check_bwrap(cfg: Config) -> Check:
     ]
     try:
         proc = subprocess.run(
-            argv, capture_output=True, text=True, timeout=_BWRAP_PROBE_TIMEOUT, check=False
+            argv, capture_output=True, stdin=subprocess.DEVNULL, text=True,
+            timeout=_BWRAP_PROBE_TIMEOUT, check=False,
         )
     except (OSError, subprocess.SubprocessError) as e:
         return Check("bwrap", FAIL, f"{cfg.bwrap_bin} could not be run: {e}",

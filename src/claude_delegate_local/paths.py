@@ -432,8 +432,12 @@ def _check_secret(given: str, real: str, globs: Sequence[str]) -> Refusal | None
 
 def _git(args: list[str], stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
     """Run git, turning an absent git into a policy error rather than a silent pass."""
+    # Fed or closed, never inherited: the server's own stdin is the MCP stream.
+    feed: dict[str, object] = (
+        {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
+    )
     try:
-        return subprocess.run(args, input=stdin, capture_output=True, check=False)
+        return subprocess.run(args, capture_output=True, check=False, **feed)
     except FileNotFoundError as e:
         raise PathPolicyError(
             "Layer 4 cannot run: git is not on PATH. It is not skipped when absent -- "
