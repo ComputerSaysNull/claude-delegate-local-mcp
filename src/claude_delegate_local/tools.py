@@ -432,7 +432,6 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
     Returns the candidates and whether the scan cap was reached.
     """
     globs = load_secret_globs(cfg)
-    allowed_exts = {e.lower() for e in cfg.ext_allowlist}
     found: list[str] = []
     scanned = 0
     capped = False
@@ -464,7 +463,9 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
             full = posixpath.join(dirpath, name)
             if os.path.islink(full):
                 continue
-            if os.path.splitext(name)[1].lower() not in allowed_exts:
+            # Layer 2's own predicate, not a copy of half of it: a suffix-less name such as
+            # `Makefile` is allowlisted by the whole name, which `splitext` cannot see.
+            if extension_refusal(cfg, name) is not None:
                 continue
             if name_glob and not fnmatch.fnmatchcase(name, name_glob):
                 continue

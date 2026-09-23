@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #295 — 2026-09-23 — fix: search_files searches the suffix-less names read_file allows
+
+### Fixed
+
+- **A search answered "no match" for text a read would show** (PLAN M13.5, review R12).
+  *Symptom:* `read_file` returns an allowlisted `Makefile` or `.gitignore`, and
+  `search_files` over the same directory reports the pattern absent. *Cause:* the walk
+  re-derived the extension allowlist and tested `splitext` alone, which is empty for both
+  names. The allowlist carries them as whole names (`.makefile`, `.gitignore`), and only
+  layer 2's own check knew to look. *Fix:* the walk asks `paths.extension_refusal`, so the
+  two tools share one predicate. **Red first:** both names were missed against the unfixed
+  code. The first draft of the test passed there anyway, because the empty answer lists the
+  root's entries by name; it now asserts on the no-match wording instead. The controls, a
+  suffixed file and an unlisted `LICENSE`, hold either way.
+
 ## #294 — 2026-09-23 — docs: a design note for host-acted paths, host-side git and provision
 
 ### Added
