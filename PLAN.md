@@ -59,7 +59,7 @@ by a test that took the route first.
 1. ✅ 2026-09-23 **`read_git` returns what the path policy refuses** (R21). `show <rev>:<path>`, `diff`,
   `blame` and blob ids reach denylisted, gitignored and unlisted content, history included.
   Revisions must be commits, and paths go through layers 2 and 3
-2. ⬜ **Subprocesses inherit the server's stdin, which is the MCP stream** (R1), so a command
+2. ✅ 2026-09-23 **Subprocesses inherit the server's stdin, which is the MCP stream** (R1), so a command
   that reads stdin eats protocol frames. `stdin=DEVNULL` in `sandbox.run`, `paths._git`,
   `doctor.py` and `provision.py`, as `tools._run_git` already does
 3. ⬜ **The gitignore layer fails open on git errors** (R10): any exit 128 reads as "not

@@ -38,6 +38,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #284 — 2026-09-23 — fix: a subprocess no longer inherits the server's stdin
+
+### Fixed
+
+- **A sandboxed command could read the MCP stream** (M13.2, review R1). *Symptom:* a
+  live delegation running `readlink /proc/self/fd/0` reported the server's own stdio
+  pipe. Any command that reads stdin (a `cat` with no file, a REPL, a prompting test)
+  would consume JSON-RPC frames meant for the server, so requests would hang
+  unanswered. It could also see traffic belonging to other delegations. *Cause:*
+  `sandbox.run` passed no `stdin=`, so the shell inherited fd 0. `paths._git`, the doctor's
+  bwrap probe and provisioning's build steps did the same. Only `tools._run_git` closed it.
+  *Fix:* each passes `stdin=DEVNULL`, or the bytes it is meant to read in `_git`'s
+  `check-ignore` case. ARCHITECTURE states the rule beside the stdout rule it mirrors.
+- **Red first:** the new regression test put a marker on a real pipe at fd 0, and the
+  sandboxed `cat` printed it. The three host-side calls were pinned the same way. All four
+  failed against the unfixed code, and all pass now.
+
 ## #283 — 2026-09-23 — fix: read_git no longer returns what the path policy refuses
 
 ### Fixed

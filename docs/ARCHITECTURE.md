@@ -1,4 +1,4 @@
-<!-- BUDGET: 1269
+<!-- BUDGET: 1280
      Raised from 1266 (+1 for this line) on 2026-09-22: tool time is gated on the calls at two sites now, and a reader who knows only one of them still cannot tell why a toolless run once reported tools.
      Raised from 1258 (+1 for this line) on 2026-09-22: the admission gate now drives the rate sampler's ticker, which is a second reader of a number this document owns. -->
 <!-- 
@@ -177,6 +177,10 @@ symptom is the client reporting a server that failed without saying why. Diagnos
 stderr; `main.py` writes startup failures there and exits non-zero, because a non-zero exit
 is the one thing a launcher can report. Reading that message means running the command by
 hand — [TROUBLESHOOTING](TROUBLESHOOTING.md) says so, since there is nowhere else it shows.
+
+**stdin is the wire too.** Every subprocess the server starts gets `stdin=DEVNULL`, or the
+bytes it is meant to read. An inherited fd 0 is the client's JSON-RPC stream, so a `cat` under
+`run_bash` would consume frames meant for the server, and requests would hang unanswered.
 
 The FastMCP banner is suppressed for the same reason it would otherwise be harmless: it is
 drawn to stderr, but drawing it first calls PyPI for a version check. An outbound request
