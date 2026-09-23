@@ -1418,9 +1418,9 @@ SEARCH_FILES = RegisteredTool(
                 "path": {
                     "type": "string",
                     "description": "Absolute path to a directory or file to search, and "
-                                   "the only argument that narrows the walk. Required, and "
-                                   "a workspace root itself is refused -- name something "
-                                   "inside one. "
+                                   "the only argument that narrows the walk. Required. A "
+                                   "workspace root itself is accepted but walks all of "
+                                   "it, so name a directory inside one where you can. "
                                    f"Pass the exact string {UNSCOPED!r} to walk every "
                                    "workspace root -- the slowest call this server offers, "
                                    "by roughly two orders of magnitude.",

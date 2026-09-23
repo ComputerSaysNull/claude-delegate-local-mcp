@@ -1331,7 +1331,19 @@ _BACKEND_STATUS_RESULT: dict[str, Any] = {
     "additionalProperties": True,
     "properties": {
         "default": {"type": "string", "description": "The registry key used when none is named."},
-        "models": {"type": "array", "items": {"type": "object", "additionalProperties": True},
+        "models": {"type": "array", "items": {
+            "type": "object",
+            "additionalProperties": True,
+            "properties": {
+                "status": {"type": "string", "description": "`ok`, or why the entry is unusable."},
+                "id_confirmed": {"type": ["boolean", "null"], "description": (
+                    "Whether the endpoint lists this entry's served model id; null when it "
+                    "could not be asked.")},
+                "detail": {"type": "string", "description": "What went wrong, or empty."},
+                "cluster": {"type": ["object", "null"], "additionalProperties": True,
+                            "description": "The serving stack's own numbers, or null."},
+            },
+        },
                    "description": (
             "One row per registry entry: `status`, `id_confirmed`, `detail`, and a "
             "`cluster` block of the serving stack's own numbers. `id_confirmed: false` "
@@ -1382,8 +1394,8 @@ Task = Annotated[
     str,
     Field(description=(
         "One self-contained question or instruction. A task carrying several either stalls "
-        "without completing a turn or returns `ok: true` with an empty answer, so send "
-        "several as several calls -- they share the cached prefix anyway."
+        "without completing a turn or returns an empty answer with `empty_response: true`, "
+        "so send several as several calls -- they share the cached prefix anyway."
     )),
 ]
 
@@ -1912,7 +1924,7 @@ because the task is rendered last under a byte-constant prefix.
 ## One question per call
 
 A task carrying several fails in two ways. It stalls without completing a turn, which reads
-like an outage; or it completes one and returns an empty answer with `ok: true`, which
+like an outage; or it completes one and returns an empty answer and no error, which
 reads like success. "List every X and what each does" is enumerable and counts as many.
 
 So check `empty_response` before trusting a short reply, and read `reasoning_exhausted`
