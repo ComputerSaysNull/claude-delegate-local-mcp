@@ -38,6 +38,16 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #306 — 2026-09-23 — docs: the 2026-09-23 audit
+
+### Added
+
+- **`docs/audits/2026-09-23-audit.md`.** All sixteen passes returned, none partial. Fourteen
+  findings upheld, two lowered in severity and one rejected. The same shape as the previous
+  audit finished in 4,604s of wall clock against 6,405s, with four more delegations, which
+  is the first measurement of the runbook as it now stands. The fixes are not in this pull
+  request: each touches an owning document and lands with it.
+
 ## #305 — 2026-09-23 — fix: read_git takes the paths after a `--` in args
 
 ### Changed
