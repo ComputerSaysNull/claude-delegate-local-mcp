@@ -1,7 +1,7 @@
 # Paths a host program acts on as configuration or instructions, without a person running
-# anything and before a diff is read. Consumed by paths.py: the write tools refuse them.
-# Anything else that must honour it reads it through paths.load_protected_globs, never a
-# second copy, exactly as secret_globs.txt says of itself.
+# anything and before a diff is read. Consumed by paths.py (the write tools refuse them)
+# and sandbox.py (run_bash sees them read-only), both through paths.load_protected_globs.
+# One list, two enforcers -- a second copy would drift, as secret_globs.txt says of itself.
 #
 # Format: secret_globs.txt's. One fnmatch-style glob per line, matched against every
 # trailing run of path components, so `CLAUDE.md` matches one at any depth. A leading `!`

@@ -49,11 +49,12 @@ So a missing path cannot simply be bound: a file placeholder is litter, untracke
   created by the server before the command and bound read-only. Afterwards it is removed if it
   is still empty and the server created it. Git never shows an empty directory, so the
   placeholder is invisible while it exists.
-- **A missing protected file** cannot be covered. After the command, the same walk runs again,
-  and any protected match that did not exist before is renamed to
-  `<name>.delegate-refused` and listed in the result. It is renamed rather than deleted, so a
-  file the operator created at the same moment is never lost. The window this leaves is the
-  length of one command, for files that are read at session start.
+- **A missing protected file** cannot be covered. The literal names at the workdir root
+  (`CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`) are checked before and after the command;
+  one that appeared is renamed, never deleted, to `<name>.delegate-refused` and listed in the
+  result. A second walk to catch a nested one was rejected on cost: the walk measured 1.5s
+  here and 5.8s over a project with `node_modules`, and would run twice per command. So a new
+  *nested* `CLAUDE.md` is not caught; the write tools refuse it, and the next command binds it.
 
 ## M13.8 — host-side git
 

@@ -32,13 +32,14 @@ import subprocess
 import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
 
 from .config import Config
 from .paths import (
     key_material_marker,
+    load_protected_globs,
     load_secret_globs,
     resolve_configured_path,
     secret_match,
@@ -234,7 +235,9 @@ class ShadowTarget:
     """
 
     path: str
-    kind: str  # "dir" | "file"
+    # "dir" | "file" cover a secret. "keep" is a protected path bound read-only onto
+    # itself: still readable, never changeable (docs/specs/2026-09-23-host-acted-paths.md).
+    kind: str
     matched: str
 
 
@@ -282,6 +285,9 @@ class SandboxResult:
     # where the status shell was unavailable, which is indistinguishable from a clean run
     # and is why the shell is chosen once and reported rather than guessed at. (ADR-0095)
     masked_failure: bool = False
+    # Protected files the command created at the workdir root, which a bind could not
+    # cover because they did not exist yet. Each was moved aside rather than left in effect.
+    protected_moved: tuple[str, ...] = ()
 
 
 def probe_toolchain_binds(cfg: Config) -> tuple[str, ...]:
@@ -560,6 +566,10 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
     exempt = _list_file_exemptions(cfg)
     found: list[ShadowTarget] = []
     seen: set[str] = set()
+    # Protected paths ride the same walk rather than a second one, which would cost what
+    # this one does again: measured 1.5s over this repository and 5.8s over a project with
+    # a `node_modules`. Only inside the workdir, the one read-write bind of a real project.
+    protect = _Protect.for_request(cfg, req)
     budget = cfg.secret_shadow_max_entries
     scan_bytes = cfg.secret_content_scan_bytes
 
@@ -587,14 +597,14 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
                 shadow = _dir_shadow(full, globs, opaque)
                 if shadow is None:
                     kept.append(name)
+                    # Descended into even when protected, so a secret inside is covered.
+                    _add(found, seen, protect.match(full, is_dir=True))
                     continue
                 # Matched: shadow it and do not descend. Pruning is what keeps `.git/**`
                 # from walking every loose object, and it also guarantees no shadow is ever
                 # emitted inside another one, where the outer tmpfs would hide the target
                 # the inner op needs to exist.
-                if full not in seen:
-                    seen.add(full)
-                    found.append(shadow)
+                _add(found, seen, shadow)
             dirnames[:] = kept
 
             for name in filenames:
@@ -602,11 +612,120 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
                 if os.path.islink(full):
                     continue
                 glob = _file_match(full, globs, exempt, scan_bytes)
-                if glob is not None and full not in seen:
-                    seen.add(full)
-                    found.append(ShadowTarget(path=full, kind="file", matched=glob))
+                # A secret is covered; only a file that is not one can be kept readable.
+                _add(found, seen, (
+                    ShadowTarget(path=full, kind="file", matched=glob) if glob is not None
+                    else protect.match(full, is_dir=False)
+                ))
 
     return tuple(found)
+
+
+def _add(found: list[ShadowTarget], seen: set[str], target: ShadowTarget | None) -> None:
+    """Record one mount target, once. One bind can reach the same path twice."""
+    if target is not None and target.path not in seen:
+        seen.add(target.path)
+        found.append(target)
+
+
+_REFUSED_SUFFIX = ".delegate-refused"
+
+
+@dataclass
+class _Protect:
+    """The protected list, as the walk and `run` need it. Empty without a workdir."""
+
+    globs: tuple[str, ...]
+    inside: str | None
+    bound: list[str] = field(default_factory=list)  # directories already kept whole
+
+    @classmethod
+    def for_request(cls, cfg: Config, req: SandboxRequest) -> _Protect:
+        if req.workdir is None:
+            return cls(globs=(), inside=None)
+        return cls(globs=load_protected_globs(cfg), inside=req.workdir.rstrip("/") + "/")
+
+    def match(self, full: str, *, is_dir: bool) -> ShadowTarget | None:
+        if self.inside is None or not full.startswith(self.inside):
+            return None
+        if any(full.startswith(d + "/") for d in self.bound):
+            return None  # inside a directory already bound read-only whole
+        glob = _dir_match(full, self.globs) if is_dir else secret_match(full, self.globs)
+        if glob is None:
+            return None
+        if is_dir:
+            self.bound.append(full)
+        return ShadowTarget(path=full, kind="keep", matched=glob)
+
+
+def _protected_names(globs: Sequence[str]) -> tuple[list[str], list[str]]:
+    """The names a protected glob spells out literally: `X/**` directories, `X` files.
+
+    These are the only protected paths `run` can do anything about while they are absent,
+    because a bind needs something to mount on. A wildcard names nothing to create or check.
+    """
+    dirs: list[str] = []
+    files: list[str] = []
+    for glob in globs:
+        if glob.startswith("!"):
+            continue
+        stem = glob[:-3] if glob.endswith("/**") else None
+        if stem and not any(c in stem for c in "*?[/"):
+            dirs.append(stem)
+        elif stem is None and not any(c in glob for c in "*?[/"):
+            files.append(glob)
+    return dirs, files
+
+
+def _prepare_protected(cfg: Config, req: SandboxRequest) -> tuple[list[str], list[str]]:
+    """Create the missing protected directories; list the missing protected files.
+
+    A missing directory is created so the walk binds it read-only, and `run` removes it
+    again if it is still empty. The placeholder is invisible to git, which never shows an
+    empty directory. A file cannot be treated that way -- bwrap would leave an empty 0444
+    placeholder in the project, measured -- so a missing one is only noted, and checked
+    for after the command.
+    """
+    if req.workdir is None:
+        return [], []
+    dirs, files = _protected_names(load_protected_globs(cfg))
+    made: list[str] = []
+    for name in dirs:
+        path = posixpath.join(req.workdir, name)
+        if os.path.lexists(path):
+            continue
+        with suppress(OSError):
+            os.mkdir(path)
+            made.append(path)
+    absent = [
+        path for path in (posixpath.join(req.workdir, n) for n in files)
+        if not os.path.lexists(path)
+    ]
+    return made, absent
+
+
+def _settle_protected(made: Sequence[str], absent: Sequence[str]) -> tuple[str, ...]:
+    """After the command: remove empty placeholders, move aside any created file.
+
+    Renamed rather than deleted, so a file the operator created at the same moment is
+    never lost. The result names each one, and says so if the rename itself failed.
+    """
+    moved: list[str] = []
+    for path in absent:
+        if not os.path.lexists(path):
+            continue
+        target = path + _REFUSED_SUFFIX
+        if os.path.lexists(target):
+            target = f"{target}-{uuid.uuid4().hex[:8]}"
+        try:
+            os.rename(path, target)
+            moved.append(path)
+        except OSError as e:
+            moved.append(f"{path} (still in place: {e.strerror})")
+    for path in made:
+        with suppress(OSError):
+            os.rmdir(path)  # refuses a directory that is no longer empty, which is right
+    return tuple(moved)
 
 
 def _file_match(
@@ -658,6 +777,36 @@ def _key_marker_at(path: str, scan_bytes: int) -> str | None:
         return None
     finally:
         os.close(fd)
+
+
+def _shadow_argv(shadows: Sequence[ShadowTarget]) -> list[str]:
+    """The mounts over what the walk found, in the order rules 3a and 3 need."""
+    out: list[str] = []
+    # Rule 3a: protected paths first, so a secret inside one is covered on top of them.
+    for shadow in shadows:
+        if shadow.kind == "keep":
+            out += ["--ro-bind", shadow.path, shadow.path]
+    # Rule 3: after every bind, so each shadow has something to mount on.
+    for shadow in shadows:
+        if shadow.kind == "keep":
+            continue
+        if shadow.kind == "dir":
+            # `--remount-ro` immediately after the tmpfs, and it is a correctness fix rather
+            # than hardening. ADR-0041 recorded the writable cover as discarding a write;
+            # measured 2026-09-08, it is worse -- the mount is 64 KiB, a larger write is
+            # truncated at exactly 65536 bytes with no error, and the corrupt remainder is
+            # still there to be read. A nested `pytest` writing bytecode into a covered
+            # `__pycache__` then dies on `EOFError: marshal data too short` in the same run.
+            # Read-only turns that into a refusal Python already handles. (ADR-0064)
+            out += [
+                "--size", str(_SHADOW_TMPFS_BYTES), "--tmpfs", shadow.path,
+                "--remount-ro", shadow.path,
+            ]
+        else:
+            # A tmpfs needs a directory. /dev/null is the file-shaped equivalent: readable
+            # as a mount source, and an unreadable empty thing once it is in place.
+            out += ["--ro-bind", "/dev/null", shadow.path]
+    return out
 
 
 def build_argv(
@@ -713,6 +862,10 @@ def build_argv(
        assertable only on a machine with a real bwrap and a real tree -- which on Windows,
        where a contributor's first `pytest` happens, means not at all. `run` does the walk.
 
+    3a. Protected paths, bound read-only onto themselves, come before every secret shadow.
+       A secret inside `.claude/` must stay hidden, so its cover has to land on top of the
+       read-only bind rather than beneath it.
+
     Both rules are asserted directly in the tests, because both are invisible until the day
     the paths overlap.
     """
@@ -750,24 +903,8 @@ def build_argv(
         # build or a test suite, which is most of why run_bash exists.
         argv += ["--bind", req.workdir, req.workdir]
 
-    # Rule 3: after every bind, so each shadow has something to mount on.
-    for shadow in shadows:
-        if shadow.kind == "dir":
-            # `--remount-ro` immediately after the tmpfs, and it is a correctness fix rather
-            # than hardening. ADR-0041 recorded the writable cover as discarding a write;
-            # measured 2026-09-08, it is worse -- the mount is 64 KiB, a larger write is
-            # truncated at exactly 65536 bytes with no error, and the corrupt remainder is
-            # still there to be read. A nested `pytest` writing bytecode into a covered
-            # `__pycache__` then dies on `EOFError: marshal data too short` in the same run.
-            # Read-only turns that into a refusal Python already handles. (ADR-0064)
-            argv += [
-                "--size", str(_SHADOW_TMPFS_BYTES), "--tmpfs", shadow.path,
-                "--remount-ro", shadow.path,
-            ]
-        else:
-            # A tmpfs needs a directory. /dev/null is the file-shaped equivalent: readable
-            # as a mount source, and an unreadable empty thing once it is in place.
-            argv += ["--ro-bind", "/dev/null", shadow.path]
+    # Rules 3a and 3: see `_shadow_argv`.
+    argv += _shadow_argv(shadows)
 
     if req.network:
         argv.append("--share-net")
@@ -836,43 +973,51 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
     # *next* call would then have to distinguish from its own.
     marker = Path(req.home) / f".delegate-bash-status-{uuid.uuid4().hex}"
     status_file = str(marker) if status_shell_available() else None
-    argv = build_argv(cfg, req, discover_secret_shadows(cfg, req), status_file=status_file)
+    # Before the walk, so a directory created here is found and bound read-only by it.
+    made, absent = _prepare_protected(cfg, req)
+    moved: tuple[str, ...] = ()
     try:
-        try:
-            proc = subprocess.run(
-                argv,
-                capture_output=True,
-                # Closed, never inherited: under stdio the server's fd 0 is the MCP stream,
-                # and a `cat` with no file would eat the client's messages.
-                stdin=subprocess.DEVNULL,
-                text=True,
-                timeout=cfg.run_bash_timeout,
-                start_new_session=True,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as e:
-            log.warning(
-                "sandboxed command exceeded %ss and was killed", cfg.run_bash_timeout
-            )
-            return SandboxResult(
-                stdout=_as_text(e.stdout),
-                stderr=_as_text(e.stderr),
-                exit_code=None,
-                timed_out=True,
-            )
-        return SandboxResult(
-            stdout=proc.stdout,
-            stderr=proc.stderr,
-            exit_code=proc.returncode,
-            # Only where the status disagrees with the trap. A non-zero exit already
-            # reports the failure, and the trap fired for that same command, so counting
-            # it here would double-count the ordinary case and call it hidden.
-            masked_failure=proc.returncode == 0 and _trap_fired(marker),
-            timed_out=False,
-        )
+        argv = build_argv(cfg, req, discover_secret_shadows(cfg, req), status_file=status_file)
+        result = _execute(cfg, argv, marker)
     finally:
         with suppress(OSError):
             marker.unlink(missing_ok=True)
+        moved = _settle_protected(made, absent)
+    return replace(result, protected_moved=moved) if moved else result
+
+
+def _execute(cfg: Config, argv: list[str], marker: Path) -> SandboxResult:
+    """Run the built argv once, and say what the process actually did."""
+    try:
+        proc = subprocess.run(
+            argv,
+            capture_output=True,
+            # Closed, never inherited: under stdio the server's fd 0 is the MCP stream,
+            # and a `cat` with no file would eat the client's messages.
+            stdin=subprocess.DEVNULL,
+            text=True,
+            timeout=cfg.run_bash_timeout,
+            start_new_session=True,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as e:
+        log.warning("sandboxed command exceeded %ss and was killed", cfg.run_bash_timeout)
+        return SandboxResult(
+            stdout=_as_text(e.stdout),
+            stderr=_as_text(e.stderr),
+            exit_code=None,
+            timed_out=True,
+        )
+    return SandboxResult(
+        stdout=proc.stdout,
+        stderr=proc.stderr,
+        exit_code=proc.returncode,
+        # Only where the status disagrees with the trap. A non-zero exit already
+        # reports the failure, and the trap fired for that same command, so counting
+        # it here would double-count the ordinary case and call it hidden.
+        masked_failure=proc.returncode == 0 and _trap_fired(marker),
+        timed_out=False,
+    )
 
 
 @lru_cache(maxsize=1)

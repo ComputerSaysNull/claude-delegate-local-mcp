@@ -820,6 +820,17 @@ def _capped(cfg: Config, result: sandbox.SandboxResult) -> str:
     )
 
 
+def _protected_note(moved: Sequence[str]) -> str:
+    """What the model is told when its command created a file a host program acts on."""
+    if not moved:
+        return ""
+    return (
+        f"\n\nThis command created {', '.join(moved)}, which a host program acts on as "
+        f"configuration. Each was moved aside to a `.delegate-refused` name rather than "
+        f"left in effect. Report the change you meant to make instead."
+    )
+
+
 def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashResult:
     """Run one command in the sandbox, and report what the server saw it do.
 
@@ -862,12 +873,13 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
     except (sandbox.SandboxUnavailable, sandbox.SecretShadowIncomplete) as e:
         return BashResult(str(e), BashOutcome(exit_code=None), is_error=True)
 
+    moved = _protected_note(result.protected_moved)
     if result.timed_out:
         # Said in words, not left to a null exit code. "No exit code" must not be readable
         # as success by a model summarising its own run.
         return BashResult(
-            f"Timed out after {cfg.run_bash_timeout}s and was killed. Output up to that "
-            f"point:\n\n{_capped(cfg, result)}",
+            f"Timed out after {cfg.run_bash_timeout}s and was killed.{moved} Output up to "
+            f"that point:\n\n{_capped(cfg, result)}",
             BashOutcome(exit_code=None, timed_out=True, ran=True),
             is_error=True,
         )
@@ -884,7 +896,7 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
         else ""
     )
     return BashResult(
-        f"exit {result.exit_code}{masked}\n\n{body}",
+        f"exit {result.exit_code}{masked}{moved}\n\n{body}",
         BashOutcome(
             exit_code=result.exit_code, ran=True, masked_failure=result.masked_failure
         ),

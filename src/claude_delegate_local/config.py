@@ -198,8 +198,9 @@ class Config:
     protected_globs_file: str = _f(
         "./security/protected_globs.txt",
         "Paths a host program acts on -- Claude Code's settings, agent files, CLAUDE.md, "
-        "editor tasks -- which the write tools refuse. Missing is fatal, as for the secret "
-        "denylist: a list that protects nothing looks exactly like one that passed.",
+        "editor tasks -- which the write tools refuse and run_bash sees read-only. Missing "
+        "is fatal, as for the secret denylist: a list that protects nothing looks exactly "
+        "like one that passed.",
     )
     respect_gitignore: bool = _f(
         True,

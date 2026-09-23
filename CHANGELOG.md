@@ -38,6 +38,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #298 — 2026-09-23 — fix: run_bash sees files a host program acts on read-only
+
+### Fixed
+
+- **A sandboxed command could rewrite the rules the operator's own session runs under**
+  (PLAN M13.7, the sandbox half; review R3). *Symptom:* with a `workdir`, `echo x >
+  .claude/settings.json` or `> CLAUDE.md` went through, and so did creating either. The
+  write tools refuse them since #297, which is no cover here: `run_bash` never goes through
+  the path policy. *Cause:* the mount-level walk covered secrets and nothing else. *Fix:*
+  - The same walk binds each protected path inside the workdir read-only onto itself, before
+    any secret cover, so a secret inside `.claude/` stays hidden. No second walk: it measured
+    1.5s over this repository and 5.8s over a project with `node_modules`.
+  - A missing path cannot be bound, and binding anyway leaves a placeholder on the host,
+    measured as an empty 0444 file. So a missing protected directory is created, bound, and
+    removed if still empty. A protected file the command creates at the workdir root is
+    renamed to `.delegate-refused` and named in `run_bash`'s reply. A new nested
+    `CLAUDE.md` is not caught; the design note says why.
+- **Red first:** every write and create went through against the unfixed code, and the
+  argv put the protected path under `/dev/null`. The controls hold: an ordinary write, a
+  read of `CLAUDE.md`, and a secret inside `.claude/` that stays covered.
+
 ## #297 — 2026-09-23 — fix: the write tools refuse files a host program acts on
 
 ### Added
