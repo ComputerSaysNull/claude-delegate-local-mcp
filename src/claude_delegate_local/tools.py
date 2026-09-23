@@ -1004,8 +1004,17 @@ def _run_git(argv: list[str]) -> tuple[int, str, str]:
     return done.returncode, out or "", err or ""
 
 
+# Short flags that take a value, which git also accepts attached: `-U1`, `-M50%`, `-n5`,
+# `-L1,5`. For `-U` and `-M` attached is the only spelling -- measured, `diff -U 1` reads
+# the `1` as a revision -- so without this those two were allowlisted and unusable.
+GIT_SHORT_VALUE_FLAGS = frozenset({"-U", "-M", "-n", "-L"})
+
+
 def _git_flag(token: str) -> str:
-    """The flag's name, without any attached value. `--since=yesterday` is `--since`."""
+    """The flag's name, without any attached value. `--since=yesterday` is `--since`,
+    and `-U1` is `-U`."""
+    if not token.startswith("--") and len(token) > 2 and token[:2] in GIT_SHORT_VALUE_FLAGS:
+        return token[:2]
     return token.split("=", 1)[0]
 
 

@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #292 — 2026-09-23 — fix: read_git accepts a short flag with its value attached
+
+### Fixed
+
+- **`-U` and `-M` were allowlisted and unusable.** *Symptom:* `read_git diff` refused `-U1`
+  as "not an accepted flag" while listing `-U` among the accepted ones. Found while writing
+  #283's regression test, whose context-width case had to fall back to `--unified=1`.
+  *Cause:* the allowlist looked each token up whole. Git spells a short option's value
+  attached (`-U1`, `-M50%`, `-n5`, `-L1,5`), and for `-U` and `-M` that is the only
+  spelling: measured, `diff -U 1` reads the `1` as a revision. *Fix:* for those four short
+  flags, an attached value is read as the flag. Everything else is still looked up whole,
+  so `-O<file>`, `log -U1` and bundled booleans stay refused. **Red first:** the four
+  attached forms were refused against the unfixed code; the three refusals held either way.
+
 ## #291 — 2026-09-23 — feat: resend_reasoning, decided by measurement
 
 ### Added
