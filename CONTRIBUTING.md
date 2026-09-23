@@ -1,4 +1,4 @@
-<!-- BUDGET: 413      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
+<!-- BUDGET: 420      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
 <!-- Raised from 411 (+1 for this line) on 2026-09-22: when a pass is added the rule that earned it belongs here, or the next audit re-derives which code no pass reads. -->
 <!-- Raised from 404 (+1 for this line) on 2026-09-20: a pass that never terminates was read as a wording fault four times before anyone looked at the sampling, and the agents section is where that is looked up. -->
 <!-- Raised from 398 (+1 for this line) on 2026-09-18: publishing a stack is a procedure with a script now, and which half is the hook's belongs beside the merge rule. -->
@@ -114,8 +114,9 @@ the cause, and the fix. In six months the why is the only part still worth havin
 
 **A stack ships one pull request at a time**, because merging one deletes its base and
 closes a stacked child unreopenably. `python scripts/plan_stack.py` orders it, refuses a fork,
-checks the number, builds the body from the CHANGELOG section plus `--verification <file>`,
-and prints the commands — **which you run yourself**: a hook cannot see a script's subprocess.
+checks the number, takes the title and body from the CHANGELOG section plus `--verification
+<file>`, and prints the commands — **which you run yourself**: a hook cannot see a script's
+subprocess. A branch may hold several commits; each restack keeps them all.
 
 ## Which document do I update?
 

@@ -137,6 +137,10 @@ def repo(monkeypatch):
     def fake_git(*args, **kwargs):
         if args[0] == "rev-parse":
             return "abc1234"
+        if args[0] == "merge-base":
+            return "fork123"
+        if args[0] == "log" and args[1] in ("--format=%T", "--format=%H %T"):
+            return ""  # nothing merged yet: the front starts at the fork point
         if args[:2] == ("log", "-1") and args[2] == "--format=%s":
             return "fix: a thing"
         if args[:2] == ("log", "-1") and args[2] == "--format=%b":

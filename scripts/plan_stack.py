@@ -14,7 +14,9 @@ branch is still based on the OLD tip: a plain `git rebase main` then replays a c
 content is already upstream and conflicts on `CHANGELOG.md`, the one file every commit
 touches. Every move is therefore `--onto <new parent> <old parent> <branch>` against tips
 read before anything moved, which is exactly what goes stale the moment a merge lands. Run
-this again after each merge.
+this again after each merge. The old parent is the parent branch's old tip, never
+`<branch>^`, so a branch of several commits keeps them all; for the front branch, whose
+parent is gone, it is the squashed parent found by tree (`front_base`).
 
 The stack is derived, never configured. A hardcoded order goes stale the moment a branch is
 added, and it fails silently: the missing branch is simply not restacked and drifts behind
@@ -151,6 +153,39 @@ def newest_section(changelog: str) -> str | None:
     return None
 
 
+def claimed_title(branch: str) -> str | None:
+    """The title the newest CHANGELOG heading gives the pull request, or None.
+
+    The heading carries the pull request's own title, by CHANGELOG.md's rule. The tip
+    commit's subject is the same thing only on a one-commit branch.
+    """
+    for line in git("show", f"{branch}:CHANGELOG.md").splitlines():
+        m = re.match(r"## #\d+ — [^—]+ — (.+)$", line)
+        if m:
+            return m.group(1).strip()
+        if re.match(r"## #\d+", line):
+            return None
+    return None
+
+
+def front_base(branch: str) -> str:
+    """Where the front branch's own commits begin: what `--onto main <base>` must name.
+
+    Not `<tip>^`, which is right only for a one-commit branch. Once the parent below this
+    branch is squash-merged and deleted, the parent's tip is still an ancestor here and its
+    tree is a commit on `main` -- the squash -- so the newest ancestor whose tree `main`
+    holds is where this branch's work starts. With nothing merged yet, no ancestor matches
+    and the answer is the fork point.
+    """
+    fork = git("merge-base", MAIN, branch)
+    on_main = set(git("log", "--format=%T", f"{fork}..{MAIN}").split())
+    for line in git("log", "--format=%H %T", f"{fork}..{branch}").splitlines():
+        sha, tree = line.split()
+        if tree in on_main:
+            return sha
+    return fork
+
+
 def pr_body(section: str, verification: str) -> str:
     """The CHANGELOG section, then how the change was verified."""
     return f"{section}\n\n### Verification\n\n{verification.strip()}\n"
@@ -182,7 +217,8 @@ def plan(stack: list[str], verification: str | None = None) -> int:
     # Read before anything is proposed, because the restack below names these tips and the
     # first rebase is what makes them unfindable by branch name afterwards.
     old_tips = {b: git("rev-parse", b) for b in stack}
-    title = git("log", "-1", "--format=%s", branch)
+    base = front_base(branch)
+    title = claimed_title(branch) or git("log", "-1", "--format=%s", branch)
     claimed = claimed_number(branch)
     section = newest_section(git("show", f"{branch}:CHANGELOG.md"))
 
@@ -228,9 +264,9 @@ def plan(stack: list[str], verification: str | None = None) -> int:
     print("  git fetch origin")
     print(f"  git checkout {MAIN}")
     print(f"  git reset --hard origin/{MAIN}")
-    print(f"  git rebase --onto {MAIN} {old_tips[branch]}^ {branch}")
+    print(f"  git rebase --onto {MAIN} {base} {branch}")
     for parent, child in itertools.pairwise(stack):
-        print(f"  git rebase --onto {parent} {old_tips[child]}^ {child}")
+        print(f"  git rebase --onto {parent} {old_tips[parent]} {child}")
     print(f"  git checkout {branch}")
     # `python` rather than this interpreter's own path: the emitted lines are meant to be
     # pasted, and CLAUDE.md's command list spells it that way. sys.executable's basename
