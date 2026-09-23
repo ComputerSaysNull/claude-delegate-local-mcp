@@ -1,30 +1,4 @@
-<!-- BUDGET: 1021
-     Raised from 1017 (+1 for this line) on 2026-09-22: gating tool time on the calls closed the visible half, and the half it did not close needs saying or the next reader reads the gate as the whole fix.
-     Raised from 1006 (+1 for this line) on 2026-09-21: a defect found while reviewing the
-     cross-process burst flag has no other home, and an unfiled bug is one nobody ranks. -->
-<!-- Raised from 997 (+1 for this line) on 2026-09-21: the deadline thread was proposed twice on 2026-09-20 and written down nowhere, and the question it ends with -- whether the reply budget need exist -- outranks two items already in this list. -->
-<!-- Raised from 990 (+1 for this line) on 2026-09-20: read_file cannot bound a range and the sampler is off the evaluated pair, both of which cost every delegation; and a forced answer has been called clean in three audit records running. -->
-<!-- Raised from 982 (+1 for this line) on 2026-09-20: the exhausted passes are a termination failure rather than a budget one, and a roadmap that files it as "needs a bigger ceiling" sends the next session after the wrong lever. -->
-<!-- Raised from 967 (+1 for this line) on 2026-09-20: the rate memory's sampling and its statistic are one question with a measured answer, and the effort enum is narrower than the server's in exactly the place the audit needs. -->
-<!-- Raised from 957 (+1 for this line) on 2026-09-19: the rate memory was stranded by a move and put back by hand, so the half that is still unfixed has to be an item rather than a JOURNAL line; and an orphan releases its slot rather than holding it, which is the worse half and was written backwards. -->
-<!-- Raised from 951 (+1 for this line) on 2026-09-19: a cancel the cluster never hears misprices every dispatch behind it, and the lag nobody has timed belongs beside the item. -->
-<!-- Raised from 947 (+1 for this line) on 2026-09-19: half of 25 is closed and the other half has a named wrong answer, which is worth more beside the item than in an ADR alone. -->
-<!-- Raised from 943 (+1 for this line) on 2026-09-19: the burst under-count is fixed within a process, and which half is left belongs beside the item rather than only in a commit. -->
-<!-- Raised from 936 (+1 for this line) on 2026-09-19: a slot leak that closes the gate for a server's whole life, and what it means for 40, both belong where the items are read. -->
-<!-- Raised from 926 (+1 for this line) on 2026-09-19: the command-line entry point shipped unplanned, and it made two latent bugs reachable; a roadmap that omits either is the drift this file exists against. -->
-<!-- Raised from 922 (+1 for this line) on 2026-09-19: the obvious fix for 40 was read out of the code and refuted, and that correction belongs beside the item. -->
-<!-- Raised from 919 (+1 for this line) on 2026-09-18: 52.a argued from an ownership gap that the commit filing it had already closed, and the correction has to sit where the item is read. -->
-<!-- Raised from 912 (+1 for this line) on 2026-09-18: two sub-items of 49 were measured wrong and are struck beside their corrections, and the artefact they described is filed where it actually belongs. -->
-<!-- Raised from 896 (+1 for this line) on 2026-09-18: delegated writing measured at three tasks ever, all asked for, so the agent twins left Deferred and the policy half was filed beside them. -->
-<!-- Raised from 893 (+1 for this line, and 895 was an arithmetic slip) on 2026-09-17: the runbook names the one failure shape that did not happen, and a caller reading empty_response alone files every failure today as a clean pass. -->
-<!-- Raised from 890 on 2026-09-17: a pass succeeded at 58,959 tokens and another exhausted at 20,378 with less input, which is 44.b's claim demonstrated rather than argued. -->
-<!-- Raised from 881 on 2026-09-17: expect returns a bucket of one whole when the label is trusted, which this deployment always is, and the idle-hold proposal it argues for. -->
-<!-- Earlier raises are in this file's git history, and each one's reason is in the
-     CHANGELOG.md section for the pull request that made it. This opener is load-bearing:
-     line 1 self-closes, so without a `<!--` here every line below would render as body
-     text. Trimmed on 2026-09-06 for exactly this reason, then regrown from that trim to 27
-     reasons and 64 lines in nine days -- so a trim does not hold on its own, and what is
-     kept here is the six most recent raises rather than the history. -->
+<!-- BUDGET: 420 -->
 # Plan
 
 Open work, status first so the file scans.
@@ -73,26 +47,211 @@ Milestones M0a to M7 closed on 2026-09-02. M8, M9, M10 and M12, M11's closed ite
 every ticked Unscheduled item followed on 2026-09-23. All of them are in
 [archive/PLAN-milestones.md](archive/PLAN-milestones.md), with their ids.
 
-### M11 — A call you can watch, and a cluster you can see
+M13 to M18 come from the [2026-09-22 review](docs/reviews/review-2026-09-22.md), cited by its
+own ids, R1 to R26 and P1 to P7. M19 and M20 hold what M11 left open. Ordered security,
+correctness, contract, cost, housekeeping, then the two features waiting on a viewer.
+
+### M13 — A delegation cannot reach past the path policy
+
+**Exit:** every route around the path policy that the review found is refused, each shown
+by a test that took the route first.
+
+1. ⬜ **`read_git` returns what the path policy refuses** (R21). `show <rev>:<path>`, `diff`,
+  `blame` and blob ids reach denylisted, gitignored and unlisted content, history included.
+  Revisions must be commits, and paths go through layers 2 and 3
+2. ⬜ **Subprocesses inherit the server's stdin, which is the MCP stream** (R1), so a command
+  that reads stdin eats protocol frames. `stdin=DEVNULL` in `sandbox.run`, `paths._git`,
+  `doctor.py` and `provision.py`, as `tools._run_git` already does
+3. ⬜ **The gitignore layer fails open on git errors** (R10): any exit 128 reads as "not
+  ignored". Only git's own "not a git repository" means outside; anything else refuses
+4. ⬜ **Two path checks answer "does it exist" before "is it allowed"** (R11):
+  `resolve_search_root` and `resolve_workdir`, where `_resolve_one` does the reverse
+5. ⬜ **`search_files` cannot see suffix-less names that `read_file` allows** (R12), such as
+  `Makefile` and `.gitignore`, so a search reports absent what a read would show
+6. ⬜ **Spike: what the sandbox's write access must not reach, and how host-side git runs**
+  (R3, R4, R5). A short design note before the three items below, which is CONTRIBUTING's
+  rule for `sandbox.py` and `paths.py`
+7. ⬜ **The read-write workdir reaches files the host acts on** (R3): `.claude/` settings,
+  agents and skills, `CLAUDE.md`, editor task files. Bind them read-only in the sandbox and
+  refuse them in the write tools
+8. ⬜ **Host-side git trusts repository config a delegation could have written** (R4). Pass
+  hardening `-c` overrides on every host-side git call, and pin them with a test
+9. ⬜ **`provision` runs project-controlled build steps on the host** (R5). Show the change to
+  the dependency declaration since the last build, or refuse an uncommitted one
+    - a. ⬜ The old environment is deleted before the new build succeeds: build aside, rename.
+    - b. ⬜ `HASH_SOURCE` is only `pyproject.toml`, so a `setup.cfg` change goes unseen.
+    - c. ⬜ A project without `pyproject.toml` builds but can never be current.
+    - d. ⬜ An `OSError` from `rmtree` or the record write surfaces as a traceback.
+
+### M14 — A cancel stops its own work, and nobody else's
+
+**Exit:** cancelling a delegation stops its request on the cluster, shown by the endpoint's
+running count, and fails no sibling that joined its burst wait.
+
+Items 1 and 5 were Unscheduled.59 and Unscheduled.69, moved unchanged on 2026-09-23.
+
+1. ⬜ **A cancelled delegation keeps the cluster working, and admission stops seeing it.**
+  The gate read `inflight_seqs: 0` against a cluster still running six, so a full burst is
+  admitted on top of work nobody waits for. Wanted: a cancel that reaches the request (JOURNAL)
+    - a. ✅ 2026-09-22 **Spike first, the lag is unmeasured:** wall clock of the kill against the transcript's `end`
+    - b. ⬜ **The cause is `_until_deadline`** (R2, and the review's P6): an outer cancel leaves its
+    inner task streaming, so the HTTP stream never closes. Cancel and await it on every exit
+    that is not a normal return.
+2. ⬜ **Cancelling a burst wait's opener fails every sibling that joined it** (R18). Its
+  `CancelledError` is stored in the shared future, and each joiner re-raises it as its own
+3. ⬜ **Two openers in one process can orphan a burst wait** (R19): `_holding` is read, awaited
+  across, then written, so whoever joined the first future is never settled
+4. ⬜ **One `admit` call has no `SlotsUnavailable` fallback** (R20), so a lock held too long
+  fails the delegation instead of falling back to per-process counting
+5. ⬜ **A burst flag stranded by a failed close outlives its usefulness.** `_announce_burst`
+  is best effort, and a live record is kept by liveness rather than by `_is_idle`, so other
+  processes read an open wait nobody holds until that process exits or next goes idle
+
+### M15 — The contract says what the server does
+
+**Exit:** no model-facing text names an argument, key or behaviour the server lacks, and a
+test fails when an agent or skill body names one.
+
+1. ⬜ **Agent and skill bodies carry stale tool facts** (R8): `docs-audit-local`, the
+  `docs-audit-dispatch` skill, `code-reviewer`, `docs-audit` and `researcher`, each with a
+  sentence the review quotes against the code that contradicts it
+2. ⬜ **Tool descriptions name what does not exist** (R8): an `ok: true` in the `task`
+  argument and the orchestration resource, and "a workspace root is refused" for
+  `search_files`
+3. ⬜ **Nothing checks that agent and skill bodies name real tool arguments** (R8). Test the
+  names and their required-ness against the declared schemas, so a rename cannot strand one
+4. ⬜ **The turn-limit banner fires on a run that finished** (R9): `hit_turn_limit` is
+  `turn == turns`, and the banner claims more than that flag knows
+5. ⬜ **Progress notifications are not monotonic** (R7): heartbeats send `progress(0, 0)`
+  between turns. One rising counter per call, no unknown `total`, the words in `message`
+6. ⬜ **Tool annotations are left to defaults** (review §5): no `title`, and the two writing
+  tools do not state `destructiveHint` or `openWorldHint`
+7. ⬜ **Three caller rules live only in the operator's memory**: narrow a verifying pass to
+  reading, bound a delegation with `max_turns`, and expect writing calls to be serialised.
+  Their home is `delegate://orchestration`
+8. ⬜ **The read-only tools cannot narrow their own toolset**, so a pass limited to
+  `read_file` needs `delegate`, a writing tool. Accept an `allowed_tools` that can only
+  narrow within the read-only set
+9. ⬜ **Server-format agent files are also loaded as Claude Code subagents, with every tool**
+  (R6), because both read `.claude/agents/`. A directory of their own, the old one read for a
+  release, and the shipped skill updated
+    - a. ⬜ A Claude Code file in the project tier hides a valid personal agent of the same name.
+
+### M16 — Cluster time goes to answers
+
+**Exit:** each lever is measured on the same multi-turn tasks before and after, both arms
+counted the same way, and kept only where it wins.
+
+Item 2 was Unscheduled.62, moved unchanged on 2026-09-23.
+
+1. ⬜ **The model can be shown its earlier reasoning, and is not** (R25, corrected). Measured
+  2026-09-23: with `tools` in the request the endpoint renders it, 338 to 619 prompt tokens;
+  without them it does not, and that is all the review's probe sent
+    - a. ⬜ A/B `resend_reasoning` on fixed tasks, then set its default and fix its description.
+    - b. ⬜ Visible working notes, only if 1.a loses: one static sentence in the system prompt.
+2. ⬜ **Reasoning effort may be binary here, and the recovery ladder is built on it not being.**
+  Measured only under 1k tokens, where the three looked alike; at a realistic size all of them
+  spend the budget reasoning. Our four map onto the encoder's three plus off, so none is missing
+    - a. ⬜ The review's per-level figures are not controlled (P1). Run the same tasks at `off`,
+    `low` and `high`; `off` was twelve times cheaper at the median.
+3. ⬜ **A reasoning-token budget at the server** (P2). ADR-0017 found it refused on the build
+  then deployed. Re-check the current one: a cap would cut the tail and most runs that end
+  with no answer
+4. ⬜ **Price from the bucket median, not the mean** (review §9): a few prefill-window
+  samples pull a bucket 4 to 9% low. Agreed with the operator; the widening rule stays
+5. ⬜ **The priced label is frozen at admission, and the real cap is not recorded** (R24).
+  Re-read concurrency from the shared totals at every turn, and carry the `max_tokens` sent
+6. ⬜ **Speculative decoding is on, and its gain when six-wide is unmeasured** (P3,
+  corrected: the endpoint already drafts six tokens). Measure acceptance at one and six
+  streams before changing the draft length
+7. ⬜ **Long prompts may decode slower** (P5): 29 against 44 tok/s at one stream, from five
+  and six samples. Benchmark it before prefetching less
+8. ⬜ **Width past six is unmeasured** (P7), and aggregate still rises at six. Measure
+  eight-wide with real prompt sizes before raising `max_inflight_seqs` and the endpoint's
+9. ⬜ **Topology** (P4): tensor parallelism spans both machines, an all-reduce every decode
+  step. Compare one replica per machine behind one endpoint, if a quantised copy fits
+10. ⬜ **`analyse_transcripts.py concurrency` understates the cluster by about a third**
+  (review §9): it spreads a turn's tokens over its prefill too. Use `out_tok_s` or retire it
+11. ⬜ **A watcher cannot tell thinking from answering** (review §9): the `alive` event counts
+  chunks of both. The accumulator knows which, so split the count
+
+### M17 — Skills follow the Agent Skills specification
+
+**Exit:** every skill here and in the package meets the specification's hard limits under a
+gate check that fails on a planted violation, and each description has passed a trigger eval.
+
+Sources: the [specification](https://agentskills.io/specification),
+[best practices](https://agentskills.io/skill-creation/best-practices) and
+[optimising descriptions](https://agentskills.io/skill-creation/optimizing-descriptions).
+
+1. ⬜ **Nothing checks a skill against the specification's hard limits**: `name` format and
+  directory match, `description` at most 1,024 characters, body under 500 lines. All five
+  pass today, so the negative test plants a violation
+2. ⬜ **`docs-audit-dispatch` loads its whole runbook every time** (review §5). Keep the
+  steps and gotchas in `SKILL.md`; move the check-class definitions and sizing evidence to
+  `references/`, each with when to read it
+3. ⬜ **No description has been tested for triggering.** Rewrite each as "Use when…", then a
+  trigger eval: about twenty queries, half near-misses, three runs each, a fixed 60/40 split
+    - a. ⬜ Start with the shipped `write-delegate-agent`, the one skill other people load.
+
+### M18 — Code and docs describe what is, and records own the rest
+
+**Exit:** the rules below each have one home, an AST check proves every comment pass
+changed no code, and the gate warns on a date or a TODO in a `src/` comment.
+
+1. ✅ 2026-09-23 **The owner's answers to the review's four questions** (review §4). Comments
+  and product docs describe what is; history goes to JOURNAL and CHANGELOG, a design's
+  reason to an ADR, a TODO to this file. The explanations are shortened too
+    - a. ✅ Scope is `src/` and `docs/`, `Config` descriptions included. CHANGELOG, JOURNAL,
+    DECISIONS, PLAN, `archive/`, `docs/audits/` and `docs/reviews/` own history and are exempt.
+    - b. ✅ A BUDGET header holds only its number, and a raise's reason goes in the commit. A
+    new ADR needs a structural decision; a tuned value's reason is a JOURNAL measurement.
+2. ⬜ **Each rule gets one home and the rest point at it**: CONTRIBUTING.md for comments, the
+  ADR bar and budget raises, and JOURNAL's header admits a tuning measurement. CLAUDE.md,
+  the session-plan skill, this file, ARCHITECTURE and the gate's messages link
+    - a. ⬜ The gate counts header lines, so each budget drops to its file's new size.
+3. ⬜ **An AST check makes a comment pass provably behaviour-free**: each module's `ast.dump`
+  with docstrings stripped is identical before and after. Negative-tested on one literal
+4. ⬜ **One comment pass per module, largest first** (review §4)
+    - a. ⬜ `loop.py`, which has more prose than code.
+    - b. ⬜ `server.py`.
+    - c. ⬜ `sandbox.py`, cutting history but keeping its security reasoning.
+    - d. ⬜ `paths.py`, likewise.
+    - e. ⬜ `tools.py`.
+5. ⬜ **Product docs describe the current state**: `docs/` without its history, and each
+  `Config` description cut to what the setting does plus a link. Some run to 250 words
+6. ⬜ **Stop it regrowing**: the gate warns on a date, a `TODO` or future-work phrasing in a
+  `src/` comment, and reports each module's prose ratio without blocking
+
+### M19 — A browser viewer, and the ledger it reads
 
 **Exit:** the viewer shows a running delegation and live cluster figures on a host where
 nothing was configured, and no tool result changes shape.
 
-3. ⬜ Split the running totals from the transcripts so retention and accuracy stop competing:
+M11's exit, carried. Items 1 to 3 were M11.3, M11.4 and M11.9, moved unchanged on
+2026-09-23, to be picked up with the browser viewer.
+
+1. ⬜ Split the running totals from the transcripts so retention and accuracy stop competing:
   an append-only ledger of one line per dispatch, never pruned, beside the fat per-dispatch
   records, which may be aged out
-4. ⬜ The ledger counts *cluster* tokens, which is a fact. Calling the number a saving assumes
+2. ⬜ The ledger counts *cluster* tokens, which is a fact. Calling the number a saving assumes
   what Claude would otherwise have read, which is not measured — report the facts and state
   the assumption beside any saving
-9. ⬜ **Showing the stream itself, for a person watching a delegation run.** The `.jsonl`
+3. ⬜ **Showing the stream itself, for a person watching a delegation run.** The `.jsonl`
   has carried everything needed since slices 2-3, and the shape was already settled: **a
   non-terminal viewer first**.
     - a. ⬜ `follow` never repaints and making it repaint is the expensive half, where a browser
     over the same `.jsonl` gets repaint, scrollback and selection for nothing.
     - b. ⬜ The consumer is not the caller — an MCP tool call is request/response either way — it
     is the person reading the transcript stream while the work happens.
+### M20 — A call returns a handle
 
-10. ⬜ **A delegation returns a handle, and a second call collects it** — the 120s is when
+**Exit:** a delegation longer than the client's window returns a handle, and a second call
+collects the answer with no caller-visible ramp or admission wait.
+
+Item 1 was M11.10, moved unchanged on 2026-09-23.
+
+1. ⬜ **A delegation returns a handle, and a second call collects it** — the 120s is when
   the client stops *waiting*, not when it issues the next call, so what is left to remove is
   the ramp on the two write-capable tools and the caller-visible admission wait.
     - a. ✅ 2026-09-19 **The ramp is real for the write-capable tools only**, which is what re-ranked this
@@ -178,16 +337,6 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     2026-09-19 it marks `grep <absent> | head` and `yes | head -1` as failures. The `ERR`
     trap covers the sequence shape only, so the count undercounts by design (ADR-0095).
 
-59. ⬜ **A cancelled delegation keeps the cluster working, and admission stops seeing it.**
-  The gate read `inflight_seqs: 0` against a cluster still running six, so a full burst is
-  admitted on top of work nobody waits for. Wanted: a cancel that reaches the request (JOURNAL)
-    - a. ✅ 2026-09-22 **Spike first, the lag is unmeasured:** wall clock of the kill against the transcript's `end`
-62. ⬜ **Reasoning effort may be binary here, and the recovery ladder is built on it not being.**
-  Measured only under 1k tokens, where the three looked alike; at a realistic size all of them
-  spend the budget reasoning. Our four map onto the encoder's three plus off, so none is missing
-69. ⬜ **A burst flag stranded by a failed close outlives its usefulness.** `_announce_burst`
-  is best effort, and a live record is kept by liveness rather than by `_is_idle`, so other
-  processes read an open wait nobody holds until that process exits or next goes idle
 70. ⬜ **`files[]` takes whole files, so a large one is refused rather than sampled.**
   `CHANGELOG.md` is 182,236 tokens against the 140,000 cap and comes back in
   `files_skipped`, where a range was all anyone wanted. The file's own numbers, not the range's
@@ -197,6 +346,25 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 72. ⬜ **A first turn that runs tools still charges the dispatch's setup to them.**
   `tool_clock` starts at the grant, so turn 1's window holds budget pricing and request
   assembly as well as the tools. Needs the loop to time each call, where the number is
+73. ⬜ **No type checker runs in CI** (R13), and one would have caught `complete_with_retry`
+  declaring two return values where it returns three. Pyright or mypy in basic mode, `src/`
+74. ⬜ **Synchronous file work blocks the event loop** (R14): `expand_globs`, `resolve_files`
+  and `prefetch` run inline in `run_delegation`, 0.54 to 0.62s measured. Tolerable today
+75. ⬜ **Documentation defects a user would hit** (R15)
+    - a. ⬜ `README.md` puts a Windows path in JSON with single backslashes, illegal escapes.
+    - b. ⬜ ARCHITECTURE lists "no standalone CLI" as a non-goal and documents the `run` CLI.
+    - c. ⬜ ARCHITECTURE nests "Read-only tools" as an H2 inside another H2.
+    - d. ⬜ A `slots.py` comment still reasons about the cap ADR-0077 removed.
+76. ⬜ **Build and supply chain** (R16)
+    - a. ⬜ GitHub Actions are pinned by tag rather than by commit.
+    - b. ⬜ No lock file, so CI resolves every dependency fresh.
+    - c. ⬜ Local runs include `integration` tests, which the marker says are skipped.
+77. ⬜ **The transcript viewer trusts line shapes** (R17): a JSON line that is not an object
+  takes down `summarise` and `follow`, and `follow` piped to another program crashes
+78. ⬜ **The split-dodge check cannot fire in CI** (R22): it reads `git diff --cached`, and a
+  CI checkout stages nothing. Use the `--diff` range the other checks use
+79. ⬜ **The gate's `run()` turns a failed git command into an empty answer** (R23), so a check
+  built on it passes having looked at nothing. Raise on a non-zero exit where empty is clean
 
 ## Deferred
 
