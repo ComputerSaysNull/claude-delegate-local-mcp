@@ -264,6 +264,15 @@ def _check_ext(cfg: Config, given: str, real: str) -> Refusal | None:
     )
 
 
+def extension_refusal(cfg: Config, path: str) -> Refusal | None:
+    """Layer 2 for a path that need not exist, for callers outside this module.
+
+    `read_git` judges paths in history, which may be long deleted, by the same rule
+    `read_file` applies to the worktree -- one predicate, so the two cannot disagree.
+    """
+    return _check_ext(cfg, path, path)
+
+
 # ---- layer 3 ---------------------------------------------------------------------
 
 

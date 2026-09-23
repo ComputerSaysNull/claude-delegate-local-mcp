@@ -56,7 +56,7 @@ correctness, contract, cost, housekeeping, then the two features waiting on a vi
 **Exit:** every route around the path policy that the review found is refused, each shown
 by a test that took the route first.
 
-1. ⬜ **`read_git` returns what the path policy refuses** (R21). `show <rev>:<path>`, `diff`,
+1. ✅ 2026-09-23 **`read_git` returns what the path policy refuses** (R21). `show <rev>:<path>`, `diff`,
   `blame` and blob ids reach denylisted, gitignored and unlisted content, history included.
   Revisions must be commits, and paths go through layers 2 and 3
 2. ⬜ **Subprocesses inherit the server's stdin, which is the MCP stream** (R1), so a command
