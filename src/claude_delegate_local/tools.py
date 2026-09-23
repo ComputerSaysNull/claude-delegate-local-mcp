@@ -36,7 +36,9 @@ from .paths import (
     PathPolicyError,
     PathRefused,
     ResolvedPath,
+    extension_refusal,
     gitignored,
+    key_material_marker,
     load_secret_globs,
     open_resolved,
     resolve_all,
@@ -1076,6 +1078,102 @@ def _checked_paths(raw: object) -> list[str]:
         out.append(given)
     return out
 
+# Subcommands whose output can carry file *contents*, not just names and metadata. `log`
+# cannot: its patch flags are not on the allowlist. These three can, so the path policy's
+# layers 2 and 3 are applied to them here -- `read_file` would refuse the same bytes, and
+# history is strictly more than the worktree, so it must not be the way round.
+GIT_CONTENT_COMMANDS = frozenset({"show", "diff", "blame"})
+
+# Flags whose value may arrive as the next token, which is then a value rather than a
+# revision. Measured: of the allowlisted flags only these two accept it separated; `-U`,
+# `--unified`, `--format` and `--pretty` take theirs attached or refuse.
+GIT_VALUE_FLAGS = frozenset({"-L", "--date"})
+
+_PATCH_HEADER = re.compile(r"^diff --(?:git a/(?P<a>.+) b/(?P<b>.+)|(?:cc|combined) (?P<c>.+))$")
+
+
+def _revisions(checked: list[str]) -> list[str]:
+    """The tokens git will read as revisions: not a flag, and not a flag's value."""
+    out: list[str] = []
+    after_value_flag = False
+    for token in checked:
+        if after_value_flag:
+            after_value_flag = False
+            continue
+        if token.startswith("-"):
+            after_value_flag = token in GIT_VALUE_FLAGS
+            continue
+        out.append(token)
+    return out
+
+
+def _require_commits(scope: str, command: str, revisions: list[str]) -> None:
+    """Every revision names a commit, never a blob, a tree or `<rev>:<path>`.
+
+    `<rev>:<path>` and a bare blob id are how a file's bytes come back without the path
+    ever being named in `paths`, so no path check could see them. A range is checked side
+    by side.
+    """
+    for token in revisions:
+        if ":" in token:
+            raise ToolRefused(
+                f"{token!r} names a file inside a revision. 'git {command}' here takes "
+                f"commits only: put the revision in 'args' and the file in 'paths', where "
+                f"the path policy can check it."
+            )
+        sides = [s for s in re.split(r"\.{2,3}", token) if s]
+        for side in sides:
+            code, _, _ = _run_git(["git", "--no-pager", "-C", scope, "rev-parse", "--verify",
+                                   "--quiet", "--end-of-options", f"{side}^{{commit}}"])
+            if code != 0:
+                raise ToolRefused(
+                    f"{side!r} is not a commit in this repository. 'git {command}' here "
+                    f"takes commits only -- a blob or a tree id would hand back a file's "
+                    f"contents without the path policy seeing its name."
+                )
+
+
+def _path_refusal(cfg: Config, rel: str) -> str | None:
+    """Why layers 2 or 3 refuse this repository-relative path, or None.
+
+    The same two predicates `read_file` applies, called rather than copied, so a history
+    path and a worktree path are judged by one rule. Layer 4 is not asked: a tracked file
+    is not ignored in any sense git reports, and history holds no ignore state to consult.
+    """
+    rel = rel.replace("\\", "/")
+    refusal = extension_refusal(cfg, rel)
+    if refusal is not None:
+        return refusal.reason
+    glob = secret_match(rel, load_secret_globs(cfg))
+    if glob is not None:
+        return f"it matches the secret denylist pattern {glob!r}."
+    return None
+
+
+def _withhold_refused_sections(cfg: Config, out: str) -> str:
+    """Drop the patch body of every file the path policy refuses, and say so.
+
+    The header survives, so the reply still says the file changed -- names are not what
+    the policy withholds, contents are. A quoted path is git escaping something unusual,
+    and it is withheld rather than unescaped here by a second parser.
+    """
+    kept: list[str] = []
+    withholding = False
+    for line in out.splitlines():
+        header = _PATCH_HEADER.match(line)
+        if header:
+            path = header.group("b") or header.group("c") or ""
+            reason = ("its name is quoted, so it is not checked here"
+                      if path.startswith('"') else _path_refusal(cfg, path))
+            withholding = reason is not None
+            kept.append(line)
+            if withholding:
+                kept.append(f"[contents withheld: the path policy refuses this file -- {reason}]")
+            continue
+        if not withholding:
+            kept.append(line)
+    return "\n".join(kept)
+
 
 def _git_toplevel(cfg: Config, given: str) -> str:
     """The repository root for `given`, proven to still be inside a workspace root.
@@ -1133,6 +1231,15 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
     checked = _checked_args(command, args.get("args"))
     paths = _checked_paths(args.get("paths"))
     scope = _git_toplevel(cfg, _text_arg(args, "repo"))
+    if command in GIT_CONTENT_COMMANDS:
+        _require_commits(scope, command, _revisions(checked))
+        for rel in paths:
+            reason = _path_refusal(cfg, rel)
+            if reason is not None:
+                raise ToolRefused(
+                    f"{rel!r} is refused by the path policy: {reason} 'git {command}' "
+                    f"would return its contents, which read_file refuses too."
+                )
 
     argv = ["git", "--no-pager", "-C", scope, command, *checked]
     if command == "shortlog" and not any(not a.startswith("-") for a in checked):
@@ -1154,6 +1261,17 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
             f"git {command} produced no output and succeeded, so the answer is empty "
             f"rather than missing -- no commits, no changes, or nothing matched."
         )
+    if command in GIT_CONTENT_COMMANDS:
+        out = _withhold_refused_sections(cfg, out)
+        # The last net, as `read_file` has one: a file whose name and extension are both
+        # allowed can still hold a key, and history keeps one after the worktree drops it.
+        marker = key_material_marker(out.encode("utf-8", "replace"))
+        if marker is not None:
+            raise ToolRefused(
+                f"The output of 'git {command}' contains key material -- it includes "
+                f"{marker!r} -- so none of it is returned. Narrow it with 'paths' to the "
+                f"files you need."
+            )
 
     # Bounded by `max_read_chars`, which is what bounds a reply, rather than by a third
     # setting for the same idea (the reasoning `edit_file` used for `max_write_bytes`).
@@ -1377,8 +1495,11 @@ READ_GIT = RegisteredTool(
             "'paths', never in 'args', and never pass '--' yourself. Only subcommands and "
             "flags on a fixed allowlist run: nothing that writes, fetches or pushes, and no "
             "flag that could name a program or a file to write, so a refusal here is the "
-            "design rather than a gap. Long output is truncated on a line boundary and says "
-            "so -- read that before concluding something is absent."
+            "design rather than a gap. show, diff and blame take commits only -- never "
+            "'<rev>:<path>' or a blob id -- and read_file's rules apply to the files they "
+            "would print: a refused file is named, its contents withheld. Long output is "
+            "truncated on a line boundary and says so -- read that before concluding "
+            "something is absent."
         ),
         input_schema={
             "type": "object",
@@ -1398,7 +1519,8 @@ READ_GIT = RegisteredTool(
                     "items": {"type": "string"},
                     "description": "Flags and revisions, e.g. [\"--oneline\", \"-n\", "
                                    "\"20\"] or [\"HEAD~5..HEAD\"]. File paths do not go "
-                                   "here.",
+                                   "here, and for show, diff and blame a revision must "
+                                   "be a commit.",
                 },
                 "paths": {
                     "type": "array",

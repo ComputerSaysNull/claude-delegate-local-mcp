@@ -1,4 +1,4 @@
-<!-- BUDGET: 509
+<!-- BUDGET: 520
      Raised from 496 (+1 for this line) on 2026-09-19: files[] takes a pattern now, and that expansion runs before the four layers rather than beside them is what keeps it from being a second search tool.
      Raised from 481 (+1 for this line) on 2026-09-19: layer 3 now asks about bytes as well as names, and ADR-0049 paragraph said in terms that a substituted file is never judged -- a correction costs more than an addition.
      Raised from 478 on 2026-09-16: layer 1 now remembers a prefix, and what it must never remember is a security fact.
@@ -359,6 +359,10 @@ suffix; `.gitignore`, `.makefile` and `.dockerfile` are whole filenames written 
 leading dot. A file with no suffix is therefore matched by *name*, which is what makes
 `Makefile` and `.gitignore` readable at all — matching suffixes alone would refuse exactly
 the entries somebody added on purpose.
+
+History gets the same two layers. `read_git`'s `show`, `diff` and `blame` judge each file
+they would print by `extension_refusal` and `secret_match`, take commits only, and refuse
+output carrying key material; layer 4 is not asked, since git reports no tracked file ignored.
 
 ### Approval is not the open
 

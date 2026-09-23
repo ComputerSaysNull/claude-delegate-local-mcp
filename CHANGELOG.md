@@ -38,6 +38,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #283 — 2026-09-23 — fix: read_git no longer returns what the path policy refuses
+
+### Fixed
+
+- **`read_git` was a way round the path policy** (M13.1, review R21). *Symptom:* a delegation
+  refused `security/secret_globs.txt` by `read_file` read it through `read_git` instead.
+  *Cause:* every argument that was not a flag went to git as a revision, and `paths` was
+  checked only for leaving the repository. So `show <rev>:<path>`, a blob id from
+  `ls-files --stage`, a commit's whole patch, `diff` and `blame` all returned the bytes
+  layers 2 and 3 withhold, including files deleted long ago. *Fix:* `show`, `diff` and
+  `blame` now take commits only. A token with a colon is refused, and every side of a range
+  must resolve with `^{commit}`. Their `paths` go through the extension allowlist and the
+  secret denylist that `read_file` uses, called rather than copied. A patch section for a
+  refused file keeps its header but not its contents. Output carrying key material is
+  refused whole, as `read_file` does.
+- **Red first:** the new regression test failed on nine routes against the unfixed code
+  and now passes. Three cases that must keep working pass either way: a blame line range,
+  a diff with a context width, and a `--stat` that still names every file.
+
 ## #282 — 2026-09-23 — docs: file the 2026-09-22 review as milestones M13 to M20
 
 ### Added

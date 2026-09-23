@@ -47,13 +47,13 @@ Search the workspace for a regular expression and get back the matching lines, e
 
 ## `read_git`
 
-Read a repository's git history: log, show, diff, blame, ls-files, shortlog, rev-list, status and rev-parse -- and rev-list --count is how you count commits. This is the only way to reach history, because run_bash cannot see .git at all -- a git command there fails rather than telling you why. Use it for questions the worktree cannot answer: when a line changed and why, whether a claim in a document predates the code it describes, what a commit touched, which files are untracked. 'repo' is an absolute path inside the repository and the repository must sit in the workspace. Put file paths in 'paths', never in 'args', and never pass '--' yourself. Only subcommands and flags on a fixed allowlist run: nothing that writes, fetches or pushes, and no flag that could name a program or a file to write, so a refusal here is the design rather than a gap. Long output is truncated on a line boundary and says so -- read that before concluding something is absent.
+Read a repository's git history: log, show, diff, blame, ls-files, shortlog, rev-list, status and rev-parse -- and rev-list --count is how you count commits. This is the only way to reach history, because run_bash cannot see .git at all -- a git command there fails rather than telling you why. Use it for questions the worktree cannot answer: when a line changed and why, whether a claim in a document predates the code it describes, what a commit touched, which files are untracked. 'repo' is an absolute path inside the repository and the repository must sit in the workspace. Put file paths in 'paths', never in 'args', and never pass '--' yourself. Only subcommands and flags on a fixed allowlist run: nothing that writes, fetches or pushes, and no flag that could name a program or a file to write, so a refusal here is the design rather than a gap. show, diff and blame take commits only -- never '<rev>:<path>' or a blob id -- and read_file's rules apply to the files they would print: a refused file is named, its contents withheld. Long output is truncated on a line boundary and says so -- read that before concluding something is absent.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `repo` | string | yes | Absolute path to the repository, or any directory inside it. |
 | `command` | string | yes | The git subcommand: log, show, diff, blame, ls-files, shortlog, rev-list, status or rev-parse. |
-| `args` | array | no | Flags and revisions, e.g. ["--oneline", "-n", "20"] or ["HEAD~5..HEAD"]. File paths do not go here. |
+| `args` | array | no | Flags and revisions, e.g. ["--oneline", "-n", "20"] or ["HEAD~5..HEAD"]. File paths do not go here, and for show, diff and blame a revision must be a commit. |
 | `paths` | array | no | File paths to limit the command to, relative to the repository root. A path deleted long ago is fine. |
 
 ## `write_file`
