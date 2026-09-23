@@ -86,9 +86,10 @@ enough commits that touched the code it owns, and when enough commits have passe
 the last recorded audit. That is evidence rather than a calendar: a quiet month needs no
 audit, and a busy week needs one whatever the date.
 
-Write your findings to `docs/audits/YYYY-MM-DD-audit.md` and commit them. That file is
-what resets the counter, so the record and the reset are the same act -- an audit whose
-findings were never written down did not happen.
+Return your findings; you have no tool that writes. The caller records them in
+`docs/audits/YYYY-MM-DD-audit.md` and commits it. That file is what resets the counter, so
+the record and the reset are the same act -- an audit whose findings were never written
+down did not happen.
 
 Findings at BLOCKER or MAJOR should become one tracked item each; MINOR items batch into
 one. A finding read once and forgotten was not worth generating.

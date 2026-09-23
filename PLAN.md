@@ -112,7 +112,7 @@ Items 1 and 5 were Unscheduled.59 and Unscheduled.69, moved unchanged on 2026-09
 **Exit:** no model-facing text names an argument, key or behaviour the server lacks, and a
 test fails when an agent or skill body names one.
 
-1. ⬜ **Agent and skill bodies carry stale tool facts** (R8): `docs-audit-local`, the
+1. ✅ 2026-09-23 **Agent and skill bodies carry stale tool facts** (R8): `docs-audit-local`, the
   `docs-audit-dispatch` skill, `code-reviewer`, `docs-audit` and `researcher`, each with a
   sentence the review quotes against the code that contradicts it
 2. ⬜ **Tool descriptions name what does not exist** (R8): an `ok: true` in the `task`

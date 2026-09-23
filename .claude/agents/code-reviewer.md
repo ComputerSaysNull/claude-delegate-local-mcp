@@ -32,9 +32,10 @@ offered. If one site changed and the other did not, that is a finding.
 `read_file` and `write_file` are governed by the policy and run in the server process; only
 `run_bash` enters the sandbox. A change that assumes one covers the other is a finding.
 
-**Sandbox bind order.** Later binds win on overlap, so order depends on how the workdir
-relates to HOME. Skip the HOME bind entirely when HOME sits under the workdir. Bind HOME at
-both its literal path and its realpath. `--symlink usr/lib64 /lib64` is mandatory on
+**Sandbox bind order.** Later binds win on overlap, so the order is a set of rules that
+`build_argv`'s docstring lists: HOME binds once, before the workdir, the provisioned root read-only
+straight after it, and read-only toolchain binds before the read-write workdir, which
+must stay writable. `--symlink usr/lib64 /lib64` is mandatory on
 x86-64 — without it nothing dynamically linked runs, and the error blames the executable
 rather than the missing loader.
 
@@ -71,7 +72,7 @@ Naming and structure only where they will mislead someone later.
 Findings ordered most severe first. Each one:
 
 ```
-[severity] path:line — what is wrong — the concrete failure it causes — suggested fix
+[severity] file line N — what is wrong — the concrete failure it causes — suggested fix
 ```
 
 Severity is about consequence, not confidence. A silent sandbox escape is critical even if
