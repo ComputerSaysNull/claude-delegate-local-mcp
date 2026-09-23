@@ -38,6 +38,16 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #303 — 2026-09-23 — docs: file the transcript volume a queued delegation writes
+
+### Added
+
+- **PLAN Unscheduled.80.** A delegation waiting in admission records a `waiting` event
+  roughly every 0.26 seconds. Eight calls queued for 40 minutes behind six long ones wrote
+  7.7 MB of a 30 MB transcript directory. The queue itself was admission working as
+  designed, not a hang: the operator cancelled the eight to reconnect the MCP, before any
+  slot freed.
+
 ## #302 — 2026-09-23 — docs: four defects a reader of the documentation would hit
 
 ### Fixed
