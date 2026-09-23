@@ -180,15 +180,38 @@ class Config:
     )
     ext_allowlist: tuple[str, ...] = _f(
         (
-            ".py", ".pyi", ".md", ".rst", ".txt", ".toml", ".yaml", ".yml", ".json",
-            ".ts", ".tsx", ".js", ".jsx", ".mjs", ".css", ".html", ".sql", ".sh",
-            ".rs", ".go", ".java", ".kt", ".c", ".h", ".cpp", ".hpp", ".cs", ".rb",
-            ".php", ".swift", ".lua", ".ini", ".cfg", ".env-example", ".gitignore",
-            ".dockerfile", ".makefile",
+            # prose and data
+            ".md", ".mdx", ".rst", ".adoc", ".tex", ".bib", ".org", ".txt",
+            ".toml", ".yaml", ".yml", ".json", ".jsonc", ".json5", ".xml", ".xsd",
+            ".xsl", ".xslt", ".csv", ".tsv", ".ini", ".cfg", ".sql", ".graphql", ".gql",
+            ".proto",
+            # web
+            ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".vue",
+            ".svelte", ".astro", ".css", ".scss", ".sass", ".less", ".html", ".htm",
+            # shells
+            ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".bat", ".cmd",
+            # general-purpose languages
+            ".py", ".pyi", ".rs", ".go", ".c", ".h", ".cpp", ".hpp", ".rb", ".php",
+            ".swift", ".lua", ".dart", ".ex", ".exs", ".erl", ".hs", ".ml", ".elm",
+            ".r", ".jl", ".pl", ".pm", ".zig", ".m", ".mm",
+            # JVM
+            ".java", ".kt", ".kts", ".scala", ".groovy", ".gradle", ".clj", ".cljs",
+            # .NET and MSBuild
+            ".cs", ".fs", ".fsx", ".fsi", ".vb", ".razor", ".cshtml", ".xaml", ".resx",
+            ".csproj", ".fsproj", ".vbproj", ".vcxproj", ".sqlproj", ".pcfproj", ".proj",
+            ".props", ".targets", ".sln",
+            # build and infrastructure
+            ".tf", ".hcl", ".nix", ".bzl", ".cmake", ".mk",
+            # whole filenames, matched by name because they have no suffix
+            ".env-example", ".gitignore", ".gitattributes", ".gitmodules", ".dockerignore",
+            ".editorconfig", ".prettierrc", ".eslintrc", ".babelrc", ".nvmrc",
+            ".dockerfile", ".makefile", ".justfile", ".gemfile", ".rakefile", ".procfile",
+            ".vagrantfile", ".jenkinsfile", ".license", ".notice", ".codeowners",
         ),
         "Layer 2: the practical allowlist. A pure allowlist cannot work for file "
         "contents -- you cannot enumerate every source file you will ever delegate -- so "
-        "extension is the axis that can be allowlisted. Anything not listed is refused.",
+        "extension is the axis that can be allowlisted. Anything not listed is refused. "
+        "Setting it replaces this whole list rather than adding to it.",
     )
     secret_globs_file: str = _f(
         "./security/secret_globs.txt",

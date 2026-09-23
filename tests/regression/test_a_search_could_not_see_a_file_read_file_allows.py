@@ -20,6 +20,7 @@ import pytest
 from claude_delegate_local import tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
+from claude_delegate_local.paths import extension_refusal
 
 posix_only = pytest.mark.skipif(
     os.name != "posix",
@@ -68,10 +69,13 @@ def test_a_suffixless_name_read_file_allows_is_searched(tree, name, needle):
 @posix_only
 def test_a_suffixless_name_off_the_allowlist_is_still_skipped(tree):
     """The control. Widening to whole names must not widen past the allowlist: a file named
-    `LICENSE` has no allowlisted suffix and no allowlisted name, so `read_file` refuses it
-    and the search must not return it."""
-    (tree / "LICENSE").write_text("needle-in-license\n", encoding="utf-8")
-    out = _run(tree, "search_files", pattern="needle-in-license", path=str(tree))
+    `AUTHORS` has no allowlisted suffix and no allowlisted name, so `read_file` refuses it
+    and the search must not return it. It was `LICENSE` until that name joined the list,
+    which is what an allowlist control is for: it failed the day its premise stopped
+    holding, instead of passing on a file the policy now allows."""
+    assert extension_refusal(Config(workspace_roots=(".",)), "AUTHORS") is not None  # type: ignore[arg-type]
+    (tree / "AUTHORS").write_text("needle-in-authors\n", encoding="utf-8")
+    out = _run(tree, "search_files", pattern="needle-in-authors", path=str(tree))
     assert NO_MATCH in out, out
 
 
