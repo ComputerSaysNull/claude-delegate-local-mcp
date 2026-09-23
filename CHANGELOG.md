@@ -38,6 +38,34 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #306 — 2026-09-23 — docs: the 2026-09-23 audit, and every finding from it that was wording
+
+### Added
+
+- **`docs/audits/2026-09-23-audit.md`.** All sixteen passes returned, none partial. Thirteen
+  findings upheld, two lowered in severity, one rejected and one withdrawn when its fix was
+  drafted. The same shape as the previous audit finished in 4,604s of wall clock against
+  6,405s, with four more delegations — the first measurement of the runbook as it now stands.
+
+### Fixed
+
+- **`docs/DISPATCH.md` described the cold start as it was before ADR-0101.** An empty rate
+  memory meets the configured floor, not the since-boot figure; two sentences still said
+  otherwise, beside a third that had been updated. It also said the unarmed eviction guard
+  always steps, though it holds off wherever the window was declared, and evaluated
+  `dispatch_timeout` times the turn cap from defaults it does not own — to a figure that was
+  wrong at both the old and the current values.
+- **`docs/ARCHITECTURE.md`'s viewer paragraphs lagged the viewer.** The selected row stopped
+  being padded to the terminal in #190, on purpose; `agent-ro` and `queued` were missing from
+  the enumerations; `alive` was said to report no work although it carries a chunk count; and
+  head-of-line blocking was explained with the prefill cap ADR-0077 removed.
+- **`CLAUDE.md`'s exit-code invariant now names its owner**, as every other one does, and
+  `README.md`'s two paragraphs pointing at the product plane are one, with a `why` link for
+  the backend-format claim.
+- `CONTRIBUTING.md`'s three waivers in ninety days point at its scope, not its wording. Its
+  line 403 already names the split — the CI and agent-roster half into its own document —
+  and its trigger; the waivers are a second signal for it, recorded rather than acted on.
+
 ## #305 — 2026-09-23 — fix: read_git takes the paths after a `--` in args
 
 ### Changed

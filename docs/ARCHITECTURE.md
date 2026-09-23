@@ -774,7 +774,7 @@ polling is unchanged, and a broker is what it would take to change it.
 
 A waiter is ahead of you only if it could be admitted **now**, and that qualification is
 load-bearing. Strict ticket order would reintroduce exactly the head-of-line blocking the
-single predicate exists to prevent: a large request parked on the prefill cap would stall
+single predicate exists to prevent: a large request waiting for token budget would stall
 every small request behind it for as long as the request ahead of *it* kept running. A
 waiter that cannot spend its turn does not hold one, so a ticket orders contention rather
 than serialising the gate.
@@ -1140,9 +1140,9 @@ once and has nothing to tear.
 
 **The selected row keeps its colours, and re-opens the inverse after each reset**, because a
 row carries its own dim/reset pairs and a reset ends the inverse as surely as it ends the dim
-— highlighting only as far as the first one, two columns in. It is padded to the terminal width and never
-truncated to it: a cut row loses the end of the task text, which is what tells two
-delegations apart. Leaving the follow view returns the highlight to the row it was opened
+— highlighting only as far as the first one, two columns in. The band ends with the row
+rather than being padded to the terminal: a pad counted in characters overshoots on a task
+carrying an emoji, which renders two cells wide, and the row wraps. Leaving the follow view returns the highlight to the row it was opened
 from, falling back to the top when that transcript has aged out of the newest N.
 
 The list and the follow view are two states of one process, not two runs of it. `q` leaves
@@ -1182,7 +1182,7 @@ column and why it beats a last-write clock at comparing rows. Effort is read fro
 it shows from the first redraw rather than once the call ends.
 
 The listing also names the **kind** of each call in one word — `delegate`, `readonly`,
-`agent`, or `one-shot` for a `delegate` that was handed no tools — because that is
+`agent`, `agent-ro`, or `one-shot` for a `delegate` that was handed no tools — because that is
 the difference between two rows that otherwise look alike, and it decides which one is worth
 opening. Two facts share the column, since only one of them is ever a surprise: which tool was
 called is in the name, so the shape is worth naming only where a `delegate` given no tools
@@ -1201,8 +1201,8 @@ line did neither before, and carried two checks that could not fire: it tested s
 successful call was painted red — and it interpolated a `detail` key no producer has ever
 written. Both survived because nothing asserts on a colour.
 
-Both paths write a fourth kind of event, `alive`, and it is the only one that reports no
-work done. The other three mark something that happened; this one exists because either
+Both paths write a fourth kind of event, `alive`, and it is the only one written on a clock
+rather than on an occurrence. The other three mark something that happened; this one exists because either
 shape can be silent for a long time — a one-shot has no turns at all, and one turn can
 outlast the client's idle timer unaided. A synthetic `turn` is written when a one-shot's
 answer arrives, so the record is never the empty shape a failed delegation has.
@@ -1242,9 +1242,10 @@ carry nothing — recording a timed-out delegation as having run none, which is 
 as its error text in the file read afterwards. [DISPATCH.md](DISPATCH.md) owns what such a
 failure reports and why.
 
-A stream ends by writing an `end` event, so the listing has three states rather than two:
-`ok`/`fail` for one that ended, `live` for one written to recently, and `quiet <age>` for
-one that has neither ended nor been written to for `STALL_SECONDS`. The third exists
+A stream ends by writing an `end` event, so the listing has more states than two: `ok`/`fail`
+for one that ended, `live` for one written to recently, `queued <age>` for one waiting at the
+gate, and `quiet <age>` for one that has neither ended nor been written to for
+`STALL_SECONDS`. The last exists
 because a dispatch whose server was killed — closing the editor takes the whole process
 tree with it — leaves a file that is byte-for-byte indistinguishable from one still being
 written, and calling that `live` is a claim the file cannot support. It cannot be resolved

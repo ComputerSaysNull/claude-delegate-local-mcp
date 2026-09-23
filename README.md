@@ -33,16 +33,14 @@ Two shapes of delegation:
 That second loop is why a shell exists, why it is confined by
 [bubblewrap](https://github.com/containers/bubblewrap), what happens when bubblewrap is
 absent, and why the server watches process exit codes rather than the model's account of
-them.
-
-How each of those works is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-[docs/DISPATCH.md](docs/DISPATCH.md); this file sketches them and links, and leaves the
-mechanism there.
+them — each is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)'s or
+[docs/DISPATCH.md](docs/DISPATCH.md)'s, and this file only sketches and links.
 
 ## What it is not
 
 - Not a cloud router. One backend format ships — OpenAI-compatible. Anthropic-compatible
-  endpoints are a planned addition behind an existing seam, not a current feature.
+  endpoints are a planned addition behind an existing seam, not a current feature
+  ([why](docs/DISPATCH.md)).
 - Not a way to run Claude Code against a different model. It delegates *tasks*; Claude
   Code stays Claude Code.
 - Not a sandbox for untrusted code. It confines a model you chose to run against a
