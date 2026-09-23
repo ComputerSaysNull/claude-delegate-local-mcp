@@ -84,7 +84,7 @@ Rules a machine cannot check, so they land here:
   what it never was: it narrows only what is *declared*, never a substitute for the check.
 - **Trust server-captured exit codes, never the model's account of them.** `bash_failures`
   and `last_bash_exit` come from real process exits and may contradict the model's final
-  text. The whole self-verification design rests on this. (ADR-0007)
+  text. Why the design rests on this is `docs/ARCHITECTURE.md`'s. (ADR-0007)
 - **Never trust a cached compile in a tool that compares an artefact against source.**
   Python validates a `.pyc` on `(mtime, size)`, so a same-length edit inside one timestamp
   tick is invisible. Set `sys.pycache_prefix` to a fresh temp directory. `-B` does *not*

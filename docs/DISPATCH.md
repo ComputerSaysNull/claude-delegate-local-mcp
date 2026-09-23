@@ -358,8 +358,8 @@ It is what the delegation has left, times `rate × reply_budget_margin`, floored
 `reply_budget_floor`. It was once the tightest of three: the stall clock left with ADR-0099,
 `turn_timeout` with ADR-0100, which retired the per-call deadline rather than merely
 dropping it: keeping the deadline while dropping the term is what let a budget authorise
-a reply the attempt could not deliver. The rate is **measured, never
-configured**: it belongs to the deployment and moved twice in one week. `DecodeRate` seeds from the cluster's since-boot figure so the first turn is
+a reply the attempt could not deliver. The rate is **measured wherever a measurement
+exists**: it belongs to the deployment and moved twice in one week. `DecodeRate` is seeded so the first turn is
 bounded — a one-shot and a tool-forbidden final turn both live there — and every later turn
 replaces the seed with what this delegation achieved, which is the rate its own deadline is
 paid in. `rate_source` moves with it — a taken sample relabels the estimate as the
@@ -423,10 +423,10 @@ Samples sit in a bucket per concurrency, each capped on its own. One shared cap 
 recency spends itself on whichever regime ran most recently, so thirteen five-wide dispatches
 walk the six-way reading out and leave every question answered from the flood — a memory that
 gets worse the more it is used.
-An empty memory falls through to the since-boot figure. That is **not** the benign cold start
-it reads as: `expect` searches every sample at the asked concurrency *or busier*, so a low
-expectation searches widely and keeps the worst, while a high one searches an empty set and
-takes the optimistic blend. Measured 2026-09-12 — in one six-way fan-out the two passes
+An empty memory used to fall through to the since-boot figure, and that was **not** the benign
+cold start it read as: `expect` searches every sample at the asked concurrency *or busier*, so a
+low expectation searched widely and kept the worst, while a high one searched an empty set and
+took the optimistic blend — which is why it now meets the configured floor instead. Measured 2026-09-12 — in one six-way fan-out the two passes
 expecting the most contention got the most generous ceilings, and one then died at the stall
 deadline having completed no turn. A reconnect used to reach that state every time, because
 the memory died with the process; it now loads and saves under `rate_history_dir`, durable
@@ -554,8 +554,8 @@ cascade below lives in one function that both call. Two copies would be two diag
 exhaustion, drifting apart at whichever one was next edited.
 
 One deadline still covers the whole delegation, not each turn. Per-turn budgets would make
-the real bound `dispatch_timeout` times `max_turns`, which at the defaults is a day and a
-half rather than an hour.
+the real bound [`dispatch_timeout`](CONFIGURATION.md) times
+[`max_turns_default`](CONFIGURATION.md): the ceiling multiplied by the turn cap.
 
 ## The history is resent every turn, and trimmed in steps
 
@@ -587,8 +587,9 @@ never recovering. Stepping means one rewrite buys `keep` turns instead of one.
 **Stepping is unconditional; only *holding off* is gated.** With
 [`context_overflow_enabled`](CONFIGURATION.md) armed, `OVERFLOW_EVICT_AT` holds the boundary
 still while there is genuinely room — the first stage of the same ladder that tightens,
-nudges and aborts. Unarmed, the guard steps anyway, because that flag is off by default and
-gating the whole policy on it would leave the common configuration bounding nothing. Below
+nudges and aborts. Unarmed, it holds off only where the window was declared, as below; with a
+defaulted window the guard steps anyway, because gating the whole policy on a flag that is off
+by default would leave the common configuration bounding nothing. Below
 the threshold the boundary is held rather than reset: un-stubbing rewrites the history in the
 other direction at the same cost.
 
@@ -713,7 +714,7 @@ the same session. So `keepalive_interval` is a correctness setting rather than a
 the server cannot discover that nobody is listening, and sending something is the only guard.
 The same heartbeat writes an `alive` event to the stream, a silent stream and a silent wire
 being one problem from two sides. It carries elapsed, the delegation ceiling it is measured
-against, and — since it was found reporting "60s of 14400s", the ceiling of the day, while
+against, and — since it was found reporting "60s of 14400s", the ceiling at the time, while
 minutes from death — **how long until the tightest deadline fires**. Two figures, because
 they answer two questions, and the ceiling is the deadline least likely to end a run. The
 countdown is the stall and delegation clocks, now the only two: a per-attempt deadline
