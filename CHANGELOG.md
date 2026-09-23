@@ -38,6 +38,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #301 — 2026-09-23 — fix: provision shows a changed dependency declaration before building it
+
+### Changed
+
+- **`provision --yes`.** A rebuild from a dependency declaration that changed since the
+  last build prints the diff and exits 1 without building; `--yes` builds from it. A first
+  build, and a rebuild of an unchanged declaration, need nothing new.
+
+### Fixed
+
+- **A re-provision ran an edited declaration unseen** (PLAN M13.9, review R5). *Symptom:*
+  `provision` runs `pip install --editable`, and so the project's own build backend, on the
+  host with the network. A delegation can edit the declaration; `--doctor` then reports the
+  environment stale, and the natural response, re-provisioning, built whatever the edit
+  named. *Cause:* the record kept a hash of the declaration and nothing else, so a rebuild
+  could say only *that* it changed, and did not stop to say even that. *Fix:* the record
+  keeps a copy of each declaration, and the rebuild shows the diff and asks. A record from
+  before copies were kept says the change cannot be shown, and asks anyway. Refusing an
+  uncommitted declaration was the other option in the review, and was rejected: it would add
+  a third host-side git call to harden, and a committed change is no safer to build blind.
+  **Red first:** against the unfixed code both a changed declaration and one with no copy
+  were built and exited 0. The controls, a first build and an unchanged rebuild, build
+  either way.
+
 ## #300 — 2026-09-23 — fix: a failed re-provision keeps the environment that worked
 
 ### Fixed

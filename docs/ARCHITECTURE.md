@@ -1,4 +1,5 @@
-<!-- BUDGET: 1280
+<!-- BUDGET: 1290
+     Raised from 1280 (+1 for this line) on 2026-09-23: provision now shows a changed declaration and asks before building it on the host.
      Raised from 1266 (+1 for this line) on 2026-09-22: tool time is gated on the calls at two sites now, and a reader who knows only one of them still cannot tell why a toolless run once reported tools.
      Raised from 1258 (+1 for this line) on 2026-09-22: the admission gate now drives the rate sampler's ticker, which is a second reader of a number this document owns. -->
 <!-- 
@@ -283,7 +284,8 @@ pass against the wrong versions and return 0. Newlines are normalised out of the
 and that is not tidiness: on a Windows checkout a `git reset --hard` rewrites CRLF to LF, which
 unnormalised read as a changed declaration and withheld the interpreter with nothing about the
 project changed. A rebuild moves the working environment aside and puts it back if the build
-fails. It runs server-side, where the network is, which is why a test run needs none
+fails, and a rebuild from a changed declaration prints the diff and needs `--yes`, because the
+build runs the project's own backend on the host. It runs server-side, where the network is, which is why a test run needs none
 (ADR-0063). The interpreter is reached by absolute path: `SANDBOX_PATH` stays
 `/usr/bin:/usr/sbin`, since widening it would put one project's tools on every command's PATH.
 
