@@ -625,6 +625,12 @@ covers a link whose *name* matches while its target does not. The scan is point-
 `run_bash` holds a read-write bind for the whole call, so a file the command writes afterwards
 is not covered and cannot be. Defence in depth for one tool, not a replacement. (ADR-0035)
 
+**Protected paths are kept, not covered.** The same walk binds each match of
+`protected_globs_file` inside the workdir read-only onto itself, before any secret cover. A
+missing protected directory is created and bound, then removed if still empty; a protected
+file the command creates at the workdir root is moved aside and named in the result. Why only
+the root is the [design note](specs/2026-09-23-host-acted-paths.md)'s.
+
 **Bulk directories are covered and not walked.** The walk is per `run_bash` call, on a
 workspace that lives on `/mnt/c`, and the budget above is what a project's own installed
 dependencies exhaust: this repository walked 10,586 entries in 66 seconds once it carried a

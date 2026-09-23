@@ -71,7 +71,7 @@ by a test that took the route first.
 6. ✅ 2026-09-23 **Spike: what the sandbox's write access must not reach, and how host-side git runs**
   (R3, R4, R5). A short design note before the three items below, which is CONTRIBUTING's
   rule for `sandbox.py` and `paths.py`
-7. ⬜ **The read-write workdir reaches files the host acts on** (R3): `.claude/` settings,
+7. ✅ 2026-09-23 **The read-write workdir reaches files the host acts on** (R3): `.claude/` settings,
   agents and skills, `CLAUDE.md`, editor task files. Bind them read-only in the sandbox and
   refuse them in the write tools
 8. ✅ 2026-09-23 **Host-side git trusts repository config a delegation could have written** (R4). Pass
