@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #290 — 2026-09-23 — fix: the turn-limit banner no longer calls a finished run unfinished
+
+### Fixed
+
+- **The banner said more than its flag knows** (M15.4, review R9). *Symptom:* a two-turn
+  probe made one tool call and then answered. It came back labelled "ran out of turns while
+  still working" and "a report of an unfinished investigation", though it had finished.
+  *Cause:* `hit_turn_limit` is exactly "the loop reached its last turn", and that turn
+  always has its tools forbidden, so sizing `max_turns` to the work plus one trips it. The
+  banner claimed the work was unfinished, which the flag cannot know. *Fix:* the banner says
+  the answer was written on the last turn with tools forbidden, that it may be complete or
+  partial, and what to do if it reads unfinished. **Red first:** the pin on the banner text
+  failed against the old wording.
+
 ## #289 — 2026-09-23 — fix: tool descriptions name only result keys the server returns
 
 ### Fixed

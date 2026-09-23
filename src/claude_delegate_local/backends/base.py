@@ -382,10 +382,10 @@ REASONING_ONLY_BANNER = (
 )
 
 TURN_LIMIT_BANNER = (
-    "[this answer was forced: the delegation ran out of turns while still working, and "
-    "what follows is what it could write once its tools were taken away. It is a report "
-    "of an unfinished investigation, not a finished one -- raise max_turns or narrow the "
-    "task rather than treating it as a conclusion.]\n\n"
+    "[this answer was written on the delegation's last turn, with its tools forbidden. It "
+    "may be complete, or it may be what could be written when the turns ran out -- if it "
+    "reads unfinished, raise max_turns or narrow the task rather than treating it as a "
+    "conclusion.]\n\n"
 )
 
 

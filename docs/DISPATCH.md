@@ -546,7 +546,8 @@ not, as reasoning already is. It is exactly "the loop reached its last
 turn". It once also required a tool call on that final reply, which a model forbidden to make
 one does not, so it was false in precisely the case it names. A delegation that would have
 finished on its last turn anyway now reports the limit too; that costs a reader one look at
-`max_turns`, where the old reading cost them a truncated answer read as a whole one.
+`max_turns`, where the old reading cost them a truncated answer read as a whole one. So the
+banner says only that: the last turn, tools forbidden, and possibly partial.
 
 Recovery from an empty answer is per turn and is the same code as the one-shot path — the
 cascade below lives in one function that both call. Two copies would be two diagnoses of
