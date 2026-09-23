@@ -36,6 +36,7 @@ to live.
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
@@ -437,6 +438,8 @@ def _build_into(project_real: str, venv: str, *, out) -> None:
         "project": project_real,
         "interpreter": python,
         "dependency_hash": dependency_hash(project_real),
+        # A copy, so the next rebuild can show what changed rather than only that it did.
+        "declarations": declarations(project_real),
         "hash_sources": [
             n for n in HASH_SOURCES if os.path.exists(posixpath.join(project_real, n))
         ],
@@ -452,7 +455,46 @@ def _build_into(project_real: str, venv: str, *, out) -> None:
         raise ProvisionError(f"could not write the build record: {e.strerror or e}") from e
 
 
-def run(cfg: Config, given: str, *, out) -> int:
+def declarations(project_real: str) -> dict[str, str]:
+    """The text of each dependency declaration the project has, newlines normalised."""
+    found: dict[str, str] = {}
+    for name in HASH_SOURCES:
+        try:
+            raw = (Path(project_real) / name).read_bytes()
+        except OSError:
+            continue
+        found[name] = raw.replace(b"\r\n", b"\n").decode("utf-8", "replace")
+    return found
+
+
+def declaration_change(project_real: str, record: dict[str, Any] | None) -> str | None:
+    """What changed in the declaration since `record` was built, or None if nothing did.
+
+    The build runs the project's own backend on the host, and a delegation can edit the
+    declaration, so a rebuild from a changed one is shown before it runs (R5). A record from
+    before copies were kept can only say *that* it changed.
+    """
+    if record is None or dependency_hash(project_real) == record.get("dependency_hash"):
+        return None
+    before = record.get("declarations")
+    if not isinstance(before, dict):
+        return (
+            "The declaration has changed since the last build, and that build kept no copy "
+            "of it, so the change cannot be shown.\n"
+        )
+    now = declarations(project_real)
+    lines: list[str] = []
+    for name in HASH_SOURCES:
+        old, new = str(before.get(name, "")), now.get(name, "")
+        if old != new:
+            lines += difflib.unified_diff(
+                old.splitlines(keepends=True), new.splitlines(keepends=True),
+                fromfile=f"{name} (last build)", tofile=f"{name} (now)",
+            )
+    return "".join(line if line.endswith("\n") else line + "\n" for line in lines)
+
+
+def run(cfg: Config, given: str, *, out, yes: bool = False) -> int:
     """Validate the project path, build, and report. Returns an exit code."""
     try:
         project_real = paths.resolve_workdir(cfg, given)
@@ -461,6 +503,20 @@ def run(cfg: Config, given: str, *, out) -> int:
         return 1
 
     print(f"delegate-local provision {project_real}", file=out)
+    change = declaration_change(
+        project_real, read_record(venv_dir(resolve_home(cfg), project_real))
+    )
+    if change is not None:
+        print("\nThe dependency declaration changed since the last build:\n", file=out)
+        print(change, file=out)
+        if not yes:
+            print(
+                "Building runs the project's own build backend on this machine, outside the "
+                "sandbox, and a delegation can edit these files. Read the change above, then "
+                "re-run with --yes to build from it.",
+                file=out,
+            )
+            return 1
     try:
         venv = build(cfg, project_real, out=out)
     except ProvisionError as e:
@@ -504,12 +560,14 @@ def main(*, argv: list[str] | None = None, out=None) -> int:
         )
         return 2
 
-    rest = [a for a in args if a != "provision"]
+    yes = "--yes" in args
+    rest = [a for a in args if a not in ("provision", "--yes")]
     if len(rest) != 1:
         print(
-            "usage: claude-delegate-local-mcp provision <project>\n\n"
+            "usage: claude-delegate-local-mcp provision [--yes] <project>\n\n"
             "One project directory, which must resolve inside a configured workdir root.\n"
-            "A pasted Windows path is accepted and translated.",
+            "A pasted Windows path is accepted and translated. --yes builds from a\n"
+            "dependency declaration that changed since the last build, after it is shown.",
             file=sys.stderr,
         )
         return 2
@@ -520,4 +578,4 @@ def main(*, argv: list[str] | None = None, out=None) -> int:
         print(str(e), file=sys.stderr)
         return 1
 
-    return run(cfg, rest[0], out=stream)
+    return run(cfg, rest[0], out=stream, yes=yes)
