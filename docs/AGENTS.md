@@ -312,6 +312,9 @@ missing file is allowed, while the directory to write into must still exist and 
 *directory* is still refused. Every other layer runs unchanged, because writing to a secret
 path is worse than reading one rather than better.
 
+Inside layer 1 the roots come before existence, for a file, a search path and a workdir
+alike, so a path outside every root is never told whether it exists.
+
 | | Layer | Refuses |
 |---|---|---|
 | 1 | Workspace roots | Anything whose **real** path falls outside a configured root. Resolution happens after symlinks, which closes escape through a link that was already there; one planted afterwards is caught at the open, below |

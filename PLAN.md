@@ -64,7 +64,7 @@ by a test that took the route first.
   `doctor.py` and `provision.py`, as `tools._run_git` already does
 3. ✅ 2026-09-23 **The gitignore layer fails open on git errors** (R10): any exit 128 reads as "not
   ignored". Only git's own "not a git repository" means outside; anything else refuses
-4. ⬜ **Two path checks answer "does it exist" before "is it allowed"** (R11):
+4. ✅ 2026-09-23 **Two path checks answer "does it exist" before "is it allowed"** (R11):
   `resolve_search_root` and `resolve_workdir`, where `_resolve_one` does the reverse
 5. ⬜ **`search_files` cannot see suffix-less names that `read_file` allows** (R12), such as
   `Makefile` and `.gitignore`, so a search reports absent what a read would show

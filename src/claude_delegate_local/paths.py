@@ -747,6 +747,11 @@ def resolve_search_root(
         )], 1, surface=surface, before_dispatch=before_dispatch)
 
     real = os.path.realpath(posix)
+    # Roots before existence, as in `_resolve_one`: the other order tells a caller whether
+    # a path outside every root exists.
+    refusal = _check_roots(given, real, resolved_roots(cfg))
+    if refusal is not None:
+        raise PathRefused([refusal], 1, surface=surface, before_dispatch=before_dispatch)
     if not os.path.exists(real):
         raise PathRefused([Refusal(
             given=given,
@@ -757,11 +762,6 @@ def resolve_search_root(
                 f"a subdirectory where you can: {roots}"
             ),
         )], 1, surface=surface, before_dispatch=before_dispatch)
-
-    roots = resolved_roots(cfg)
-    refusal = _check_roots(given, real, roots)
-    if refusal is not None:
-        raise PathRefused([refusal], 1, surface=surface, before_dispatch=before_dispatch)
     return real
 
 
@@ -795,18 +795,8 @@ def resolve_workdir(cfg: Config, given: str) -> str:
         )], 1, surface="workdir")
 
     real = os.path.realpath(posix)
-    if not os.path.isdir(real):
-        raise PathRefused([Refusal(
-            given=given,
-            layer=LAYER_FORM,
-            reason=(
-                f"its real location {real} is not a directory."
-                if os.path.exists(real)
-                else f"its real location {real} does not exist."
-            ),
-            remedy="A workdir must be an existing directory.",
-        )], 1, surface="workdir")
-
+    # Roots before existence, as in `_resolve_one`: the other order tells a caller whether
+    # a path outside every root exists.
     roots = resolved_workdir_roots(cfg)
     if not any(_within(real, root) for root in roots):
         raise PathRefused([Refusal(
@@ -819,6 +809,17 @@ def resolve_workdir(cfg: Config, given: str) -> str:
                 "of it is refused on where it lands, not on where it sits. Set "
                 "DELEGATE_WORKDIR_ROOTS, or DELEGATE_WORKSPACE_ROOTS which it falls back to."
             ),
+        )], 1, surface="workdir")
+    if not os.path.isdir(real):
+        raise PathRefused([Refusal(
+            given=given,
+            layer=LAYER_FORM,
+            reason=(
+                f"its real location {real} is not a directory."
+                if os.path.exists(real)
+                else f"its real location {real} does not exist."
+            ),
+            remedy="A workdir must be an existing directory.",
         )], 1, surface="workdir")
     return real
 
