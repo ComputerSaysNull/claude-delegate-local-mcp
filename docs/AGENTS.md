@@ -507,6 +507,8 @@ ground truth in a context-overflow abort report. None is a route into `run_bash`
 bwrap-confined and refuses rather than run unconfined where bubblewrap is absent (ADR-0010,
 ADR-0034). `repo_status` sees only work trees the delegation wrote to, never every root.
 Each is fed or has stdin closed, never inherited, for the reason ARCHITECTURE's stdio rule gives.
+A git failure in layer 4 refuses: only git's own "not a git repository", read in the C
+locale, means outside a work tree, and anything else is a layer that could not answer.
 
 `rev-parse` is the one that costs: it is charged per distinct *directory*, so a wide batch
 spends a subprocess on each before a single `check-ignore` runs. The search walk calls layer
