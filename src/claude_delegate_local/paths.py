@@ -436,8 +436,11 @@ def _git(args: list[str], stdin: bytes | None = None) -> subprocess.CompletedPro
     feed: dict[str, object] = (
         {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
     )
+    # The C locale, because `_repo_top` tells "not a repository" from every other failure
+    # by git's own words, and a translated git would say them differently.
+    env = {**os.environ, "LC_ALL": "C"}
     try:
-        return subprocess.run(args, capture_output=True, check=False, **feed)
+        return subprocess.run(args, capture_output=True, check=False, env=env, **feed)
     except FileNotFoundError as e:
         raise PathPolicyError(
             "Layer 4 cannot run: git is not on PATH. It is not skipped when absent -- "
@@ -447,11 +450,27 @@ def _git(args: list[str], stdin: bytes | None = None) -> subprocess.CompletedPro
         ) from e
 
 
+# The one failure that is an answer: git found no repository. Measured in both of its
+# shapes, "(or any of the parent directories)" and "(or any parent up to mount point ...)".
+_NOT_A_REPOSITORY = "fatal: not a git repository"
+
+
+def _layer4_failed(what: str, proc: subprocess.CompletedProcess[bytes]) -> PathPolicyError:
+    err = proc.stderr.decode("utf-8", "replace").strip() or f"exit {proc.returncode}"
+    return PathPolicyError(
+        f"Layer 4 cannot run: git could not {what} ({err}). It is not read as 'nothing "
+        "ignored' -- a layer that cannot answer refuses. Repair the repository, or set "
+        "DELEGATE_RESPECT_GITIGNORE=false to drop the layer deliberately."
+    )
+
+
 def _repo_top(directory: str) -> str | None:
     """The work tree containing `directory`, or None if it is not in one."""
     proc = _git(["git", "-C", directory, "rev-parse", "--show-toplevel"])
     if proc.returncode != 0:
-        return None  # exit 128: outside any repository. Not an error, just not ignored.
+        if proc.stderr.decode("utf-8", "replace").startswith(_NOT_A_REPOSITORY):
+            return None  # outside any repository: not an error, just not ignored
+        raise _layer4_failed(f"find the repository holding {directory}", proc)
     return proc.stdout.decode("utf-8", "replace").strip() or None
 
 
@@ -535,7 +554,7 @@ def gitignored(
             stdin=b"\0".join(p.encode("utf-8") for p in group) + b"\0",
         )
         if proc.returncode not in (0, 1):
-            continue  # 128 and anything else: treated as not-ignored, never as fatal
+            raise _layer4_failed(f"read what {top} ignores", proc)
         ignored.update(
             chunk.decode("utf-8", "replace") for chunk in proc.stdout.split(b"\0") if chunk
         )

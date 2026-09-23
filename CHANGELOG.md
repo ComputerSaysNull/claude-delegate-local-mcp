@@ -38,6 +38,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #285 — 2026-09-23 — fix: the gitignore layer refuses when git cannot answer
+
+### Fixed
+
+- **Layer 4 failed open** (M13.3, review R10). *Symptom:* when a repository was damaged or
+  git refused it, every file was reported as not ignored, so build output and local files
+  reached the model. *Cause:* `_repo_top` read any non-zero `rev-parse` as "outside every
+  repository", and `gitignored` skipped any `check-ignore` exit other than 0 or 1. The
+  module's own rule is that a layer which cannot fire raises instead of defaulting to
+  "nothing matched". *Fix:* only git's own "not a git repository" means outside. It is
+  read in the C locale so a translated git cannot hide it. Every other failure raises
+  `PathPolicyError`, the same way a missing git already did.
+- **Red first:** a repository whose index git cannot read made `check-ignore` exit 128
+  (measured), and the unfixed code reported nothing ignored. An ownership refusal was
+  read as outside a repository too. Both raise now. Both "not a repository" message shapes
+  still mean outside.
+
 ## #284 — 2026-09-23 — fix: a subprocess no longer inherits the server's stdin
 
 ### Fixed

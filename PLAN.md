@@ -62,7 +62,7 @@ by a test that took the route first.
 2. ✅ 2026-09-23 **Subprocesses inherit the server's stdin, which is the MCP stream** (R1), so a command
   that reads stdin eats protocol frames. `stdin=DEVNULL` in `sandbox.run`, `paths._git`,
   `doctor.py` and `provision.py`, as `tools._run_git` already does
-3. ⬜ **The gitignore layer fails open on git errors** (R10): any exit 128 reads as "not
+3. ✅ 2026-09-23 **The gitignore layer fails open on git errors** (R10): any exit 128 reads as "not
   ignored". Only git's own "not a git repository" means outside; anything else refuses
 4. ⬜ **Two path checks answer "does it exist" before "is it allowed"** (R11):
   `resolve_search_root` and `resolve_workdir`, where `_resolve_one` does the reverse
