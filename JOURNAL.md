@@ -2382,3 +2382,37 @@ scientific notation, so a regex demanding `{labels}` or stopping at the `e` read
 probes that once counted the wrong reasoning key. And within one delegation the model does
 not generate while a tool runs, so the shell trials above measured a sleeping process being
 torn down, never a cluster still decoding.
+
+## 2026-09-23 — Resent reasoning reaches the model whenever the request carries tools
+
+The 2026-09-22 review measured `resend_reasoning` as inert: the endpoint reported the same
+prompt-token count with the earlier turn's reasoning sent as without it, 353 against 353,
+under both field names. It concluded the serving template drops reasoning, and a memory and
+a PLAN item were built on that.
+
+**It holds only for a request without `tools`, which is all the probe sent.** Measured again
+with 1-token replies, one assistant turn carrying a tool call and a 20-sentence reasoning
+string, then its tool result:
+
+| request | no reasoning | + `reasoning_content` | + `reasoning` |
+|---|---|---|---|
+| no `tools` | 71 | 71 | 71 |
+| no `tools`, extra user message | 78 | 78 | 78 |
+| with `tools` | 338 | 619 | 619 |
+| with `tools`, extra user message | 345 | 626 | 626 |
+
+**Why:** vLLM's DeepSeek-V4 encoder drops reasoning from turns before the last user message,
+unless any message carries `tools`, in which case it keeps all of it: `if any(m.get("tools")
+for m in full_messages): effective_drop_thinking = False`. Request-level tools are attached
+to the system message before that test runs. DeepSeek's own API goes further and *requires*
+`reasoning_content` back inside a tool-calling loop. A tool result counts as a user message
+in this encoding, so without tools every earlier turn is "before the last user message".
+
+**Every agentic delegation carries tools on every turn**, because the final turn forbids them
+with `tool_choice: "none"` rather than withdrawing them (ADR-0057). So on the path the setting
+exists for, resent reasoning is rendered, and the countdown message changes nothing. The
+no-tools rows are the probe's negative control: reasoning present, count unchanged.
+
+**The trap is the probe's shape, not its arithmetic.** A four-request probe with no `tools`
+is the natural minimal reproduction and exercises the one branch agentic traffic never takes.
+Probe the shape the loop actually sends.

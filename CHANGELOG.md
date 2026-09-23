@@ -38,6 +38,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #291 — 2026-09-23 — feat: resend_reasoning, decided by measurement
+
+### Added
+
+- **JOURNAL 2026-09-23: resent reasoning reaches the model whenever the request carries
+  tools** (M16.1, review R25 corrected). *Symptom:* the review measured the setting as inert,
+  and a memory and a roadmap item were built on that. *Cause:* its probe sent no `tools`,
+  and vLLM's DeepSeek-V4 encoder drops earlier reasoning only in that case. Every agentic
+  turn carries tools, so on the path the setting exists for, the reasoning is rendered:
+  338 → 619 prompt tokens with it, under either field name.
+
 ## #290 — 2026-09-23 — fix: the turn-limit banner no longer calls a finished run unfinished
 
 ### Fixed
