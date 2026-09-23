@@ -38,6 +38,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #282 — 2026-09-23 — docs: file the 2026-09-22 review as milestones M13 to M20
+
+### Added
+
+- **The 2026-09-22 review is tracked**, as `docs/reviews/review-2026-09-22.md`.
+  *Symptom:* the roadmap needed to cite the review's findings, but the report was a
+  gitignored local file, so no colleague could follow a citation and the server refused
+  it to a delegation (its gitignore layer). *Fix:* a copy is tracked without its §6 and
+  §10, which review the operator's own memory and CLAUDE.md files. Like every file in
+  `docs/reviews/`, it is point-in-time evidence and read-only: a later correction lives
+  where the finding was filed.
+
 ## #281 — 2026-09-23 — docs: archive the closed milestones and the ticked Unscheduled items
 
 ### Changed
