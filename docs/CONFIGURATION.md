@@ -1,4 +1,4 @@
-<!-- BUDGET: 200
+<!-- BUDGET: 190
      Raised from 180 (+1 for this line) on 2026-09-24: two settings for handles, and a section of their own for them.
      Raised from 178 (+1 for this line) on 2026-09-23: one more setting, DELEGATE_PROTECTED_GLOBS_FILE.
      Raised from 175 (+1 for this line) on 2026-09-22: one more setting, DELEGATE_RATE_SAMPLE_SECONDS, and this file is one row per setting.
@@ -145,11 +145,12 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_HANDLE_TTL_SECONDS` | 3600.0 seconds | How long a finished delegation's result is kept for `collect` after it finished. A running one is never forgotten; one nobody collects is dropped after this, and its transcript record remains. |
 | `DELEGATE_COLLECT_WAIT_SECONDS` | 110.0 seconds | How long `collect` waits for a running delegation when the caller does not say. Just under the 120s a client commonly waits on one call before giving up or backgrounding it, so the default answers within any client's patience. |
 
-### Operator transcript
+### Operator records
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DELEGATE_TRANSCRIPT_DIR` | *(empty)* | Directory to write one record per dispatch into. Empty disables it, and empty is the default. Given in either form -- a Windows path is translated like every other path setting, which until 2026-09-07 it was not, and an untranslated one is a relative filename rather than an error. Independent of the caller's `diagnostics` argument by design: what an operator can audit should not depend on what the calling session thought to ask for. Setting it must not change a single byte of any response. Records carry the task, the files and their accounting, real token usage and the server-captured ledger -- but never file contents, which are recoverable from the repository by path and are the only bulky part. Where they land is a trade rather than a rule, and both directions cost something: a synchronised or backed-up directory sends the task text off this machine on someone else's schedule, while a directory inside the WSL distribution dies with it and /mnt/c survives -- so the durable choice and the leaky one can be the same choice. |
+| `DELEGATE_LEDGER_PATH` | ~/.cache/claude-delegate-local/ledger.jsonl | Append-only token ledger: one JSON line per dispatch, the running total that is never pruned. Must be on the Linux filesystem (not under /mnt/, where concurrent appends lose lines); empty disables it. |
 
 ### Sandbox
 
@@ -182,14 +183,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting, unlike ADR-0034's sandbox_enabled, because naming another transport should be an error rather than silence -- load() reads only variables matching a field, so deleting this one would make a stale value do nothing without saying so. |
-
-### Other
-
-<!-- These fields matched no section in gen_config_docs.py SECTIONS. Add them to a group. -->
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `DELEGATE_LEDGER_PATH` | ~/.cache/claude-delegate-local/ledger.jsonl | Append-only token ledger: one JSON line per dispatch, the running total that is never pruned. Must be on the Linux filesystem (not under /mnt/, where concurrent appends lose lines); empty disables it. |
 
 *77 settings.*
 

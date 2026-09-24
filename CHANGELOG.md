@@ -60,6 +60,10 @@ Older entries, in the previous flat format, are in
   version resolved the path before its `try`, and a UNC share raises there, so a wrong
   setting became a failed dispatch, despite the module's own promise. Red first, on
   Linux, where the translation runs.
+- **The new setting landed in the configuration reference's catch-all section.** The full
+  suite caught it, through a test that keeps "Other" empty. `ledger_path` now sits with
+  `transcript_dir` under a section renamed from "Operator transcript" to "Operator records".
+  Nothing linked to the old heading.
 
 ## #342 — 2026-09-25 — docs: the audit runbook keeps its definitions and evidence in references
 

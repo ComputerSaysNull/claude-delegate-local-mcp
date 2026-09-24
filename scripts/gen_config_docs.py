@@ -84,7 +84,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                            "admission_wait_timeout", "cross_process_slots",
                            "slots_dir")),
     ("Handles", ("handle_ttl_seconds", "collect_wait_seconds")),
-    ("Operator transcript", ("transcript_dir",)),
+    ("Operator records", ("transcript_dir", "ledger_path")),
     ("Sandbox", ("bwrap_bin", "prlimit_bin", "sandbox_home", "toolchain_binds",
                  "env_passthrough", "max_bash_output_chars",
                  "secret_shadow_max_entries", "secret_shadow_max_depth",
