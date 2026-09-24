@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #313 — 2026-09-24 — fix: a Claude Code agent file no longer hides a personal agent of the same name
+
+### Fixed
+
+- **A project's Claude Code agent file made a valid personal agent unreachable.** The lookup
+  took the first file that existed, so a `<project>/.claude/agents/helper.md` written for
+  Claude Code — a `tools:` key, that format rather than a broken copy of this one — was
+  refused as invalid, and the personal `helper.md` behind it was never tried. `list_agents`
+  did the same, the foreign file claiming the name. *Fix:* both pass over a Claude Code file
+  to the next tier. A file in this server's format that fails validation still refuses:
+  quietly running the next tier's agent would hide that the project's own is broken, and a
+  test pins that half. The red was the lookup refusing on the unknown `tools` key. (PLAN
+  M15.9a, review R6.)
+
 ## #312 — 2026-09-24 — fix: the docs gate blocks when git cannot answer instead of passing
 
 ### Fixed

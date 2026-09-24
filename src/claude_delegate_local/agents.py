@@ -449,14 +449,34 @@ def validate(
 
 
 def load_agent(cfg: Config, name: str, workdir: str | None = None) -> AgentSpec:
-    """Find, parse and validate one agent. The only entry point a caller needs."""
-    path = find_agent_file(cfg, name, workdir)
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as e:
-        raise AgentError(f"{path} could not be read: {e}") from e
-    raw, body = parse_frontmatter(text, where=str(path))
-    return validate(cfg, raw, body, name=name, where=str(path))
+    """Find, parse and validate one agent. The only entry point a caller needs.
+
+    A Claude Code file is passed over rather than taken as the match: it is that format's
+    agent sharing the directory (`FOREIGN_KEYS`), not a broken copy of this one, and taking
+    it hid a valid personal agent of the same name behind it. A file in *this* format that
+    fails validation still refuses -- running the next tier's instead would hide the fault.
+    """
+    first = find_agent_file(cfg, name, workdir)
+    tiers = _candidates(cfg, name, workdir)
+    passed_over: list[Path] = []
+    for path in tiers[tiers.index(first):]:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as e:
+            raise AgentError(f"{path} could not be read: {e}") from e
+        raw, body = parse_frontmatter(text, where=str(path))
+        if FOREIGN_KEYS & set(raw):
+            passed_over.append(path)
+            continue
+        return validate(cfg, raw, body, name=name, where=str(path))
+    listed = "\n  ".join(str(p) for p in passed_over)
+    raise AgentError(
+        f"No agent named {name!r} exists in this server's format. Claude Code's own agent "
+        f"files carry that name, and are not runnable here:\n  {listed}\n"
+        "An agent for this server spells its tool list `allowed_tools`, not `tools`."
+    )
 
 
 # Frontmatter keys that belong to Claude Code's agent format and never to this one. A file
@@ -544,7 +564,9 @@ def survey_agents(cfg: Config, workdir: str | None = None) -> AgentListing:
             continue
         for path in sorted(directory.glob(pattern)):
             name = path.parent.name if path.name == "SKILL.md" else path.stem
-            if name in seen or name in skipped or name in foreign:
+            # A foreign file does not claim the name: the lookup passes over it, so a
+            # later tier's agent of the same name is the one that would run.
+            if name in seen or name in skipped:
                 continue
             if not _NAME_RE.match(name):
                 continue
@@ -568,7 +590,7 @@ def survey_agents(cfg: Config, workdir: str | None = None) -> AgentListing:
             # this category exists to undo.
             claimed = FOREIGN_KEYS & set(raw)
             if claimed:
-                foreign[name] = ForeignAgent(name, str(path), tuple(sorted(claimed)))
+                foreign.setdefault(name, ForeignAgent(name, str(path), tuple(sorted(claimed))))
                 continue
 
             try:

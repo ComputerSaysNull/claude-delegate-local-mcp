@@ -136,7 +136,7 @@ test fails when an agent or skill body names one.
 9. ⬜ **Server-format agent files are also loaded as Claude Code subagents, with every tool**
   (R6), because both read `.claude/agents/`. A directory of their own, the old one read for a
   release, and the shipped skill updated
-    - a. ⬜ A Claude Code file in the project tier hides a valid personal agent of the same name.
+    - a. ✅ 2026-09-24 A Claude Code file in the project tier hides a valid personal agent of the same name.
 
 ### M16 — Cluster time goes to answers
 
