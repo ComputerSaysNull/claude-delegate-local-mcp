@@ -2332,6 +2332,11 @@ class _Watch:
         # two loses the new fact: "three calls exited non-zero" and "one call hid a failure
         # inside a compound line" are different things for a caller to do something about.
         self.bash_masked_failures = 0
+        # Calls that failed in any way, each counted once. `tool_errors` and `bash_failures`
+        # overlap on every shell call that exits non-zero, and neither contains the other --
+        # a masked failure is a shell failure and not an error -- so no sum of the two, and
+        # neither alone, says how many calls went wrong.
+        self.failed_calls = 0
         self.last_bash_exit: int | None = None
         self._paths: dict[str, str] = {}  # tool_use_id -> the path argument it carried
         self._evicted_at: dict[str, int] = {}  # path -> the turn its result was dropped
@@ -2345,8 +2350,10 @@ class _Watch:
         self.by_tool[call.name] += 1
         self.tool_errors += is_error
         self.deduped += outcome == "repeat"
+        shell_failed = False
         if result is not None and result.bash is not None:
-            self._bash(result.bash, is_error)
+            shell_failed = self._bash(result.bash, is_error)
+        self.failed_calls += is_error or shell_failed
         path = str(call.input.get("path") or "")
         self.calls.append((call.name, path, is_error))
         if path:
@@ -2357,7 +2364,7 @@ class _Watch:
             self._paths[call.id] = path
         self._reread(path)
 
-    def _bash(self, bash: BashOutcome, is_error: bool) -> None:
+    def _bash(self, bash: BashOutcome, is_error: bool) -> bool:
         """One shell command, as the server saw it rather than as the model reports it.
 
         Attempts, not completions: a call refused before a process started still happened,
@@ -2380,12 +2387,12 @@ class _Watch:
         """
         self.bash_calls += 1
         masked = bash.ran and bash.masked_failure
-        self.bash_failures += (
-            is_error or bash.timed_out or bash.exit_code != 0 or masked
-        )
+        failed = bool(is_error or bash.timed_out or bash.exit_code != 0 or masked)
+        self.bash_failures += failed
         self.bash_masked_failures += masked
         if bash.ran:
             self.last_bash_exit = bash.exit_code
+        return failed
 
     def evicted(self, before: tuple[Message, ...], after: tuple[Message, ...], count: int) -> None:
         self.evictions += count
@@ -2739,6 +2746,7 @@ class AgenticDispatch:
     # answer different questions: how many calls failed, and how many of those the exit
     # code alone would not have shown.
     bash_masked_failures: int = 0
+    failed_calls: int = 0
     last_bash_exit: int | None = None
     # Zero means never, rather than "on turn zero" -- turns are numbered from one, so the
     # sentinel cannot collide with a real answer. Reported because a delegation that was
@@ -3296,6 +3304,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             bash_calls=watch.bash_calls,
             bash_failures=watch.bash_failures,
             bash_masked_failures=watch.bash_masked_failures,
+            failed_calls=watch.failed_calls,
             last_bash_exit=watch.last_bash_exit,
             overflow_tightened_at=guard.tightened_at,
             overflow_nudged_at=guard.nudged_at,

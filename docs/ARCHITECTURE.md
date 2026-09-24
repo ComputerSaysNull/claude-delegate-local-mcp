@@ -1234,8 +1234,8 @@ killed at a deadline recorded nothing. An absent ceiling is written as null rath
 omitted, because "no cap applied" is the most incriminating thing the record can say.
 
 The `end` event also carries what a whole run cost, because a reader following the stream
-never sees the per-dispatch record: `tool_calls`, `tool_errors`, `bash_calls` and
-`bash_failures`, taken from the same ledger the record uses rather than counted a second
+never sees the per-dispatch record: `tool_calls`, `tool_errors`, `bash_calls`, `bash_failures`
+and `failed_calls` (what the viewer shows), from the same ledger the record uses rather than counted a second
 way, beside `prefill_seconds`, `decode_seconds` and `tool_seconds`. Tool time gets its own
 clock rather than `ms` minus `backend_ms`, which on turn 1 would charge the admission wait
 to the tools — and it accrues only on turns that called one, the rest of that window being

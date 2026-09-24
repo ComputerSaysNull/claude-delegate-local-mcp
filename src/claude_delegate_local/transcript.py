@@ -425,6 +425,7 @@ class Stream:
             "tool_errors": ledger.get("tool_errors"),
             "bash_calls": ledger.get("bash_calls"),
             "bash_failures": ledger.get("bash_failures"),
+            "failed_calls": ledger.get("failed_calls"),
             **({"error": error} if error else {}),
         })
 
@@ -562,6 +563,7 @@ def _ledger(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
         "bash_calls": dispatched.bash_calls,
         "bash_failures": dispatched.bash_failures,
         "bash_masked_failures": dispatched.bash_masked_failures,
+        "failed_calls": dispatched.failed_calls,
         "last_bash_exit": dispatched.last_bash_exit,
         "overflow_tightened_at": dispatched.overflow_tightened_at,
         "overflow_nudged_at": dispatched.overflow_nudged_at,

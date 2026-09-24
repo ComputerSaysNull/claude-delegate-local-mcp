@@ -169,6 +169,7 @@ def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
         "bash_calls": dispatched.bash_calls,
         "bash_failures": dispatched.bash_failures,
         "bash_masked_failures": dispatched.bash_masked_failures,
+        "failed_calls": dispatched.failed_calls,
         # None means nothing exited -- no command ran, or the last was killed on timeout.
         # 0 is a real exit code and cannot carry either meaning (ADR-0007).
         "last_bash_exit": dispatched.last_bash_exit,
@@ -1279,6 +1280,11 @@ _DELEGATION_RESULT: dict[str, Any] = {
         "tool_calls_deduplicated": _num("Repeat calls the loop collapsed."),
         "tool_results_evicted": _num(
             "Tool results dropped from history to stay inside the window."
+        ),
+        "failed_calls": _num(
+            "Tool calls that failed in any way, each counted once: refused, a command that "
+            "exited non-zero or timed out, or a masked failure. `tool_errors` and "
+            "`bash_failures` overlap on a failing command, so their sum overcounts."
         ),
         "bash_calls": _num("Shell commands run."),
         "bash_failures": _num(
