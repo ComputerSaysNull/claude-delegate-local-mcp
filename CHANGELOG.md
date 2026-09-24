@@ -50,6 +50,18 @@ Older entries, in the previous flat format, are in
   `max_tokens`. It is the first attempt's budget; a recovery stage that enlarges a retry
   comes after pricing. Red first: both new tests failed on the missing field, and they also
   check that the fake backend received that same number.
+- **Every turn was priced, labelled and filed at the concurrency seen at admission.** A
+  delegation that started alone and was soon one of six still wrote `requests_running: 1` on
+  every `priced` row, and filed its rate samples in the solo bucket, skewing the memory every
+  later turn is priced from. Before each turn after the first, the server now re-reads the
+  shared totals that admission itself uses, keeping the last good figure if the read fails.
+  The label alone would not have been enough. A turn too short to measure leaves the rate
+  at its seed, so the row would name five-wide beside a solo rate. Until the delegation's
+  own turns replace it, the seed is now re-priced at the new figure. Red first: turn two
+  reported 1 where the totals said 5, and was priced at the solo 40 tok/s where the five-wide
+  bucket said 15. The first version wired the reading into the loop but never handed it
+  over, since loop and reader were tested apart. A test of the hand-off itself was red on
+  that.
 
 ## #340 — 2026-09-24 — fix: a turn is priced from its bucket's median, not its mean
 

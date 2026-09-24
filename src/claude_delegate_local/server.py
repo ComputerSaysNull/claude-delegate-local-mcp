@@ -67,7 +67,13 @@ from .paths import (
     resolve_workdir,
 )
 from .registry import ModelEntry, Registry, RegistryError
-from .slots import build_slots, cross_process_status, rate_history_path
+from .slots import (
+    SharedSlots,
+    SlotsUnavailable,
+    build_slots,
+    cross_process_status,
+    rate_history_path,
+)
 from . import transcript
 from .tools import READ_ONLY_TOOL_NAMES, BashPolicy, resolve_allowed
 
@@ -370,6 +376,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
+    concurrency_now: Callable[[], Awaitable[int]] | None = None,
     on_token: Callable[[], None] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
@@ -388,6 +395,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 on_alive=on_alive, on_turn_done=on_turn_done, on_priced=on_priced,
                 on_pool=on_pool,
                 rate_history=rate_history, expected_concurrency=expected_concurrency,
+                concurrency_now=concurrency_now,
                 on_token=on_token,
             )
         # An explicitly empty toolset. Not the loop with nothing declared: the one-shot
@@ -637,6 +645,23 @@ _clock: Callable[[], float] = time.monotonic
 # How often a queued delegation's `waiting` event reaches the transcript. Half the viewer's
 # once-a-minute repeat, so its line never lags by more than one interval.
 _WAITING_EVERY_SECONDS = 30.0
+
+
+async def _shared_concurrency_now(
+    slots: SharedSlots | None, *, cap: int, fallback: int
+) -> int:
+    """The concurrency the cluster is at right now, or the admission figure when it cannot say.
+
+    Reads the same shared snapshot admission itself reads. This request is already counted
+    in `seqs`, so there is no `+ 1` -- unlike the grant-time formula.
+    """
+    if slots is None:
+        return fallback
+    try:
+        totals, _, _ = await slots.snapshot()
+    except SlotsUnavailable:
+        return fallback
+    return min(max(totals.seqs + totals.waiting, 1), cap)
 
 
 async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's arguments,
@@ -981,6 +1006,14 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 lease.seqs_at_grant + lease.waiting_at_grant + 1, cfg.max_inflight_seqs
             )
 
+            # Re-read the concurrency from the shared totals at every turn, so a delegation
+            # that started alone and is now one of six is priced, labelled and filed at
+            # six-wide. Falls back to the admission figure when the shared file cannot say.
+            async def concurrency_now() -> int:
+                return await _shared_concurrency_now(
+                    admission._slots, cap=cfg.max_inflight_seqs, fallback=expected
+                )
+
             # The origin tool time is measured from. Here rather than beside `turn_clock`
             # because the slot has now been granted: everything before this line is
             # queueing, and attributing it to the tools would make a contended cluster
@@ -1010,6 +1043,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 on_pool=None if admission.pool_known else admission.observe_pool,
                 rate_history=rates,
                 expected_concurrency=expected,
+                concurrency_now=concurrency_now,
             )
     except AdmissionError as e:
         # Not routed through `_refuse`, for the same reason `DispatchTimedOut` is not:

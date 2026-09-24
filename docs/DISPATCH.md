@@ -1,4 +1,4 @@
-<!-- BUDGET: 860
+<!-- BUDGET: 870
      Raised from 850 (+1 for this line) on 2026-09-24: the loop counts failing calls once, because its two failure counters overlap.
      Raised from 838 (+1 for this line) on 2026-09-22: what prices a turn when nothing has been measured at all is a third case, and it was previously the endpoint's blend. -->
 <!-- 
@@ -368,7 +368,10 @@ delegation's own, a refused one relabels nothing, so the label never outlives th
 names. The seed itself comes from the rate memory, keyed by concurrency, and whether that key
 can be *believed* is what `admission_idle_hold` buys: held, the memory answers from the
 bucket asked about; unheld, from the worst sample at that concurrency or busier, which is
-pessimistic on purpose and measured at 4.0x for a solo call (ADR-0085).
+pessimistic on purpose and measured at 4.0x for a solo call (ADR-0085). The key is re-read
+from the shared totals before every later turn, so a delegation that started alone is priced
+and files its samples at the concurrency it now meets, and a seed no turn has replaced yet is
+re-seeded at that figure.
 
 **With nothing remembered at all, the price is a configured floor** rather than the
 endpoint's since-boot figure, which is a blend over every regime the engine has served and
