@@ -896,7 +896,8 @@ because holding the event loop inside it would stall delegations that are alread
 `backend_status` reports whether the shared budget is actually active, the machine-wide
 totals, and how many processes hold slots — observed rather than assumed, since a gate that
 has quietly narrowed to one process looks exactly like a working one until the cluster is
-oversubscribed. Where no POSIX lock exists it degrades to per-process counting and says so.
+oversubscribed. Where no POSIX lock exists it degrades to per-process counting and says so;
+a file that stops answering mid-run does the same per call, and that slot never goes back to it.
 The decode-rate memory has its own setting, durable where these are tmpfs, and unlocked
 because every failure path leaves it empty: it merges on write instead
 ([DISPATCH.md](DISPATCH.md), ADR-0075, ADR-0094). Settings: [CONFIGURATION.md](CONFIGURATION.md). (ADR-0040)

@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #310 — 2026-09-24 — fix: an unreachable slot file admits on local counts instead of failing
+
+### Fixed
+
+- **A slot file locked past its timeout failed the delegation.** Every other shared-file
+  call in `admission.py` falls back to this process's own counting on `SlotsUnavailable`;
+  the one that takes the slot did not, so it failed a delegation the gate could have
+  admitted. *Fix:* it falls back too, keeping its queue ticket so a refusal still waits in
+  place. Falling back had a second half the review did not name: `release` would then hand
+  back to the file a slot the file never took, and `slots.py` subtracts that from this
+  process's record, so it gave back one of the process's *other* slots. The lease now
+  records that it was taken locally, and `release` leaves the file alone for it. The red was
+  `SlotsUnavailable` raised out of `acquire`; a control without the release guard fails on
+  the file's count. (PLAN M14.4, review R20.)
+
 ## #309 — 2026-09-24 — fix: a call cancelled while reading the shared burst flag gives its slot back
 
 ### Fixed

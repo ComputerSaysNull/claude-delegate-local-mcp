@@ -168,6 +168,10 @@ class AdmissionLease:
     # cluster saturated"; this answers "was *this* delegation slow because it queued",
     # which is the question asked of one dispatch after the fact.
     waited: float = 0.0
+    # False when the shared file could not be reached as the slot was taken, so it exists
+    # only in this process's counters. Releasing it to the file would give back one of this
+    # process's *other* slots there.
+    shared: bool = True
 
 
 class Admission:
@@ -392,14 +396,28 @@ class Admission:
             )
 
         if self._slots is not None:
-            binding, ticket = await self._slots.admit(
-                tokens=tokens,
-                entry_key=key,
-                decide=decide,
-                rival_fits=rival_fits,
-                spec=spec,
-                ticket=ticket,
-            )
+            try:
+                binding, ticket = await self._slots.admit(
+                    tokens=tokens,
+                    entry_key=key,
+                    decide=decide,
+                    rival_fits=rival_fits,
+                    spec=spec,
+                    ticket=ticket,
+                )
+            except SlotsUnavailable:
+                # Degrade as every other shared-file call here does: this process's own
+                # counting, with queue order lost for this attempt. The ticket is kept, so
+                # a refusal still waits in its place and an admission still gives it back.
+                log.warning(
+                    "the shared slot file was unreachable; admitting on this process's "
+                    "own counts"
+                )
+                binding = decide(self._local_totals())
+                if binding is None:
+                    self._take_locally(tokens, key)
+                    seen["local_only"] = 1
+                    return None, ticket, seen
         else:
             base = self._local_totals()
             ahead = self._local_ahead(ticket, lambda s: rival_fits(base, s))
@@ -519,7 +537,8 @@ class Admission:
                         await on_wait()
         finally:
             # None once admitted: `_try_take` gives the ticket back inside the same step
-            # that takes the slot, so this only fires on a path that never got one.
+            # that takes the slot, so this only fires on a path that never got one -- or
+            # on one admitted locally because the file was unreachable, which still holds it.
             if ticket is not None:
                 await self._drop_ticket(ticket)
 
@@ -527,21 +546,25 @@ class Admission:
         if waited:
             self._record_wait(elapsed)
 
+        shared = not seen.get("local_only")
         seqs_at_grant, waiting_at_grant = await self._settle_burst(
             seen.get("seqs", 0),
             seen.get("waiting", 0),
             tokens=tokens,
             entry_key=entry_key,
             elapsed=elapsed,
+            shared=shared,
         )
 
         return AdmissionLease(
             tokens=tokens, entry_key=entry_key, waited=elapsed,
             seqs_at_grant=seqs_at_grant, waiting_at_grant=waiting_at_grant,
+            shared=shared,
         )
 
-    async def _settle_burst(
-        self, seqs: int, waiting: int, *, tokens: int, entry_key: str, elapsed: float
+    async def _settle_burst(  # noqa: PLR0913 -- the snapshot, and the lease it may give back
+        self, seqs: int, waiting: int, *, tokens: int, entry_key: str, elapsed: float,
+        shared: bool = True,
     ) -> tuple[int, int]:
         """What this request should say it met, once the burst around it has settled.
 
@@ -579,7 +602,9 @@ class Admission:
         if self._idle_hold <= 0:
             return seqs, waiting
 
-        lease = AdmissionLease(tokens=tokens, entry_key=entry_key, waited=elapsed)
+        lease = AdmissionLease(
+            tokens=tokens, entry_key=entry_key, waited=elapsed, shared=shared
+        )
         open_wait = self._holding
         if open_wait is None and not (seqs == 0 and waiting == 0):
             try:
@@ -756,7 +781,7 @@ class Admission:
 
     async def release(self, lease: AdmissionLease) -> None:
         async with self._cond:
-            if self._slots is not None:
+            if self._slots is not None and lease.shared:
                 # Best effort on purpose. A slot this process cannot give back is
                 # reclaimed by the next acquirer as soon as this process exits, since
                 # a record is keyed by a PID that will no longer be live -- so the
