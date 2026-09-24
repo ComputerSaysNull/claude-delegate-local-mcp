@@ -26,11 +26,12 @@ not about compute:
 - **Every commit edits the top of `CHANGELOG.md`**, so two items built in parallel conflict
   there even when nothing else they touch does.
 
-**Separate worktrees do not buy parallel suites.** A worktree run
-collects its tests from the worktree but imports `claude_delegate_local` from the *main*
-checkout, because the editable install points there — so it exercises code the branch does
-not have. It is wrong rather than merely slow, and the fix is a provisioned venv per
-worktree, which costs more than one run's parallelism returns.
+**A worktree lets a suite run while work continues, with `PYTHONPATH` set.** `conftest.py`
+puts the worktree's `src/` first, but a test that starts a subprocess never runs it and
+imports the *main* checkout through the editable install; `PYTHONPATH=<worktree>/src` makes
+both import the worktree. Each worktree has its own `__pycache__`, so the collision above does
+not apply. WSL needs a worktree made by WSL's git, and ignored config files must be copied in
+or tests that need them skip — the notebook has this machine's paths.
 
 **What spends the window is what enters this conversation**, and that is as true of writing a
 module as of reading one. Quote a suite's tail rather than pasting its whole run.

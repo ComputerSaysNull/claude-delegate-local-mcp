@@ -2477,3 +2477,29 @@ this point, and ADR-0017's decision stands: never send the field.
 The only route is a cluster change, not a repository one: booting vLLM on the V1 runner.
 Whether that costs decode speed is unmeasured, and it would have to be weighed against the
 per-request waste above before anyone flips it.
+
+## 2026-09-24 — A worktree runs the suite against its own code once PYTHONPATH is set
+
+The session-execute skill said a worktree cannot run the suite: tests would import the
+package from the main checkout through the editable install, so a separate venv per worktree
+was needed. Measured with a probe test in a worktree, printing where the package came from
+both in the test process and in a child it started:
+
+| run | in-process import | subprocess import |
+|---|---|---|
+| plain | worktree | **main checkout** |
+| `PYTHONPATH=<worktree>/src` | worktree | worktree |
+
+`conftest.py` puts its own checkout's `src/` first, which covers every in-process test; a
+subprocess never runs conftest and falls through to the editable install. One environment
+variable closes it, so no second venv is needed.
+
+The full suite then gave 1741 passed and 413 skipped against 1745 and 409 in the main
+checkout. The four were tests that need ignored files a fresh checkout does not have; with
+`.env`, `models.toml` and `security/forbidden_strings.txt` copied in, the counts matched
+exactly. The WSL side needs its own worktree, made by WSL's git, because a worktree's `.git`
+file records the path in the form the creating git uses; on ext4 it matched too, 2152 and 2.
+
+What this buys is the suite running while the main checkout carries on. The rule against
+running both platforms' suites at once was about a shared `__pycache__`, and separate
+worktrees do not share one; memory is now the only reason to keep them sequential.
