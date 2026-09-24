@@ -20,9 +20,7 @@ break it.
 
 from __future__ import annotations
 
-import asyncio
 import json
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -189,12 +187,32 @@ def test_the_reconciliation_fires_on_a_run_that_does_not_reconcile(run) -> None:
 
 # ---- tool time, which is not elapsed minus backend --------------------------------------
 
-TOOL_ONE = 0.25
-TOOL_TWO = 0.45
-GATE_WAIT = 0.60
-# Real sleeps on a real clock, with three turns of bookkeeping between them. Wide enough
-# that a loaded machine does not fail this, far narrower than what is being told apart.
-SLACK = 0.25
+class FakeClock:
+    """The clock `run_delegation` reads its figures from, moved only by the test.
+
+    Real sleeps on a real clock made this test fail under the full parallel suite while the
+    figure was correct: the sleeps stretch with load, the two runs stretch differently, and
+    the difference between them is exactly what it asserts on (PLAN Unscheduled.71). On this
+    clock the tools and the queue take the time they are given, however loaded the machine.
+    """
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+# Long, because on a fake clock length is free, and a margin this wide is what makes the
+# test unable to pass by accident: the queue's hundred seconds either reach `tool_seconds`
+# or they do not. What stays real is the backend's own few milliseconds, which come off.
+TOOL_ONE = 10.0
+TOOL_TWO = 20.0
+GATE_WAIT = 100.0
+REAL_BACKEND_MS_BOUND = 1.0
 
 
 def _two_tool_turns(request):
@@ -206,29 +224,29 @@ def _two_tool_turns(request):
     return as_stream(tool_call_reply("read_file", {"path": "/nope.py"}))
 
 
-def _sleeping_tools(monkeypatch) -> None:
+def _timed_tools(monkeypatch, clock: FakeClock) -> None:
     """Make the two tool-running turns take a known length of time each.
 
-    Patched at `_run_calls`, the one place a turn's tools are executed, so the sleep
-    lands inside the interval being measured rather than beside it.
+    Patched at `_run_calls`, the one place a turn's tools are executed, so the time lands
+    inside the interval being measured rather than beside it.
     """
     real = loop._run_calls
     waits = iter((TOOL_ONE, TOOL_TWO))
 
-    def slow(*args, **kwargs):
-        time.sleep(next(waits, 0.0))
+    def timed(*args, **kwargs):
+        clock.advance(next(waits, 0.0))
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(loop, "_run_calls", slow)
+    monkeypatch.setattr(loop, "_run_calls", timed)
 
 
-def _queue_for(monkeypatch, seconds: float) -> None:
+def _queue_for(monkeypatch, clock: FakeClock, seconds: float) -> None:
     """Make every delegation wait at the gate, which an idle one never does."""
 
     class SlowGate(server.Admission):
         @asynccontextmanager
         async def admit(self, *args, **kwargs):
-            await asyncio.sleep(seconds)
+            clock.advance(seconds)
             async with super().admit(*args, **kwargs) as lease:
                 yield lease
 
@@ -246,9 +264,11 @@ def test_tool_time_is_the_tools_and_not_the_queue(tmp_path, monkeypatch) -> None
     """
     def once(directory: Path, queue: float) -> dict:
         with monkeypatch.context() as patch:
-            _sleeping_tools(patch)
+            clock = FakeClock()
+            patch.setattr(server, "_clock", clock)
+            _timed_tools(patch, clock)
             if queue:
-                _queue_for(patch, queue)
+                _queue_for(patch, clock, queue)
             return _end(_run(directory, _two_tool_turns, "delegate", TASK, **FAST))
 
     idle = once(tmp_path / "idle", 0.0)
@@ -256,20 +276,9 @@ def test_tool_time_is_the_tools_and_not_the_queue(tmp_path, monkeypatch) -> None
 
     expected = TOOL_ONE + TOOL_TWO
     for name, end in (("idle", idle), ("queued", queued)):
-        # A floor and a loose ceiling rather than an approximate equality. Under the full
-        # parallel suite the sleeps themselves stretch, so a tight upper bound fails while
-        # the figure is correct -- it did exactly that under two unrelated changes before
-        # this was widened. The floor still catches a zero or a truncated measurement, and
-        # the ceiling still catches the failure this was written for, which is
-        # `tool_seconds` reporting the whole run. What the queue does is asserted below,
-        # relatively, and that is the actual subject.
-        assert end["tool_seconds"] >= expected - SLACK, (
-            f"the {name} run's tools slept {expected}s and the event reports only "
+        assert expected - REAL_BACKEND_MS_BOUND < end["tool_seconds"] <= expected, (
+            f"the {name} run's tools took {expected}s and the event reports "
             f"{end['tool_seconds']}s"
-        )
-        assert end["tool_seconds"] < expected * 3, (
-            f"the {name} run reports {end['tool_seconds']}s of tool time against "
-            f"{expected}s of sleeping, which is the whole run rather than the tools"
         )
 
     naive_idle = idle["elapsed_seconds"] - (idle["backend_ms"] or 0) / 1000

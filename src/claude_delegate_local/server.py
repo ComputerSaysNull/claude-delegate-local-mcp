@@ -627,6 +627,11 @@ def tool_ms_for_turn(
     return max(int((now - tool_clock) * 1000) - backend_ms, 0)
 
 
+# Every timing figure `run_delegation` reports is read from this, never from `time`
+# directly, so a test can drive them from a fake clock. Real sleeps on a real clock made
+# the tool-time test fail under load while the figure was correct (PLAN Unscheduled.71).
+_clock: Callable[[], float] = time.monotonic
+
 # How often a queued delegation's `waiting` event reaches the transcript. Half the viewer's
 # once-a-minute repeat, so its line never lags by more than one interval.
 _WAITING_EVERY_SECONDS = 30.0
@@ -814,7 +819,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
 
     stream = transcript.open_stream(cfg, agent.name if agent else None)
     turns_streamed = 0
-    turn_clock = time.monotonic()
+    turn_clock = _clock()
     streamed_out_tokens = 0
     streamed_backend_ms = 0
     # Summed rather than taken from the final turn: every turn resends the history, so
@@ -848,7 +853,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         nonlocal streamed_cached_tokens
         nonlocal streamed_prefill_seconds, streamed_decode_seconds
         nonlocal streamed_tool_ms, tool_clock
-        now = time.monotonic()
+        now = _clock()
         turns_streamed += 1
         backend_ms = int(backend_seconds * 1000)
         # Measured from the dispatch for the first turn and from the previous turn after
@@ -887,7 +892,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             max_turns=resolved_turns,
         )
 
-    waiting_since = time.monotonic()
+    waiting_since = _clock()
     waiting_written: float | None = None
 
     async def ticked() -> None:
@@ -907,7 +912,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         for eight queued calls; the viewer shows one line a minute regardless.
         """
         nonlocal waiting_written
-        now = time.monotonic()
+        now = _clock()
         await progress(0, 0, f"queued {now - waiting_since:.0f}s")
         if stream is not None and (
             waiting_written is None or now - waiting_written >= _WAITING_EVERY_SECONDS
@@ -952,7 +957,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         if stream is not None:
             stream.priced(**row)
 
-    started = time.monotonic()
+    started = _clock()
     lease: AdmissionLease | None = None
     dispatched: Dispatch | AgenticDispatch | None = None
     failure: BaseException | None = None
@@ -978,7 +983,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             # because the slot has now been granted: everything before this line is
             # queueing, and attributing it to the tools would make a contended cluster
             # look like an expensive toolset.
-            tool_clock = time.monotonic()
+            tool_clock = _clock()
 
             dispatched = await dispatch_delegation(
                 loop_cfg, entry, backend, delegation,
@@ -1036,11 +1041,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             if turns_streamed == 0 and dispatched is not None:
                 stream.turn(
                     _OneShotTurn(dispatched), dispatched.response.text,
-                    ms=int((time.monotonic() - turn_clock) * 1000),
-                    backend_ms=int((time.monotonic() - turn_clock) * 1000),
+                    ms=int((_clock() - turn_clock) * 1000),
+                    backend_ms=int((_clock() - turn_clock) * 1000),
                 )
                 streamed_out_tokens = dispatched.response.output_tokens or 0
-                streamed_backend_ms = int((time.monotonic() - turn_clock) * 1000)
+                streamed_backend_ms = int((_clock() - turn_clock) * 1000)
                 streamed_cached_tokens = dispatched.response.cached_tokens
                 # `getattr` because a failure may leave an `AgenticDispatch` here, which
                 # keeps its two clocks per turn rather than on itself -- and that path
@@ -1059,7 +1064,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                     else failure.turns if isinstance(failure, DispatchTimedOut)
                     else None
                 ),
-                elapsed_seconds=time.monotonic() - started,
+                elapsed_seconds=_clock() - started,
                 # `getattr` for the reason `turns` above uses it: the one-shot path has
                 # no budget to report, and a failure may have no dispatch at all. 0 is
                 # the dataclass default and means "not a loop", so it is sent as None
