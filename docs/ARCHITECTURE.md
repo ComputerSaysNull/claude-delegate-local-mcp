@@ -367,8 +367,8 @@ is unbuilt, so it is never declared and cannot be asked back in. That does not r
 refusal at execution, which stays: a model can call a tool it was never offered.
 
 The per-turn progress notification is wired here, the only layer holding an MCP session:
-`loop.py` takes it as an injected callable and stays free of MCP imports (ADR-0018). Every
-delegating tool passes its `ctx` and reports the turn numbers directly. What that hook protected still holds and is still
+`loop.py` takes it as an injected callable and stays free of MCP imports (ADR-0018). One counter
+per call rises on every turn and heartbeat, the turn in `message`. What that hook protected still holds and is still
 worth stating: withholding the notification is what let a client abandon a call at its idle
 timeout while the server carried on to `dispatch_timeout`, holding the machine-wide budget
 for the remainder. Effort resolves
