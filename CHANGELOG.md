@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #338 — 2026-09-24 — fix: a dispatch's summary record carries the whole run's tokens
+
+### Fixed
+
+- **Summing summary records undercounted every multi-turn delegation.** A record's
+  `input_tokens`, `output_tokens` and `cached_tokens` describe only the turn that answered,
+  while the docstring beside them said summing them across records is how to answer what the
+  cluster has spent. The whole-run figures already existed on the dispatch, and the stream's
+  `end` event already used them. The record now carries `total_input_tokens`,
+  `total_output_tokens` and `total_cached_tokens` beside the existing fields, whose meaning is
+  unchanged, so no reader breaks. On the one-shot path the single turn is the totals. This
+  is the substrate the planned token ledger counts from. Red first: both new tests failed on
+  the missing keys, against the unchanged module.
+
 ## #337 — 2026-09-24 — fix: the integration marker says what it does
 
 ### Fixed
