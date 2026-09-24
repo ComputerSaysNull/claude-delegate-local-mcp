@@ -2127,6 +2127,19 @@ that gates writes runs them without asking. Prefer them whenever the work is rea
 that is most work. Reach for the writing forms when the delegation must produce a file or
 run a command, and pass `workdir` only then.
 
+## Shaping a pass
+
+A pass that verifies -- a review, an audit -- should read and report, not check itself: give
+it the read-only tools, tell it not to verify its own quotations, and check them yourself
+afterwards. Measured on one audit pass, the full toolset took 26 turns and 29 calls, most
+of them re-verification, where reading alone took one turn for as many findings.
+
+Bound a pass with `max_turns`, not with prose. "Verify once, then report" in a task does
+not hold; the turn cap does, because the last turn is sent with tools withdrawn and the
+model has to write. Set it to what the work needs plus one -- turns are cheap -- and read
+`hit_turn_limit` as a partial answer. It cannot stop a loop inside one turn, because that
+turn never ends.
+
 ## History is `read_git`'s, and only `read_git`'s
 
 `run_bash` cannot see `.git` at all: the scan covers it, so a git command inside the sandbox

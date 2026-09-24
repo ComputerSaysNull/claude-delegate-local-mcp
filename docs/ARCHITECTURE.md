@@ -1001,7 +1001,7 @@ Each fact goes to the home that owns it, and all four are delivered:
 | What an argument means and costs | property `description` | Own budget, shown beside the argument |
 | What went wrong and how to fix it | the refusal itself | Arrives when it matters, not on every listing |
 | What the result's keys mean | `outputSchema`, described | Read where a caller reads the result |
-| Sizing, fan-out, failure modes | `delegate://orchestration` | Unbounded, and costs nothing until read |
+| Sizing, fan-out, handles, shaping a pass, failure modes | `delegate://orchestration` | Unbounded, and costs nothing until read |
 | What must be known before choosing | server `instructions` | Pushed once, server-wide |
 
 **The resource is the one that makes the rest possible.** A prompt could not do this job:
