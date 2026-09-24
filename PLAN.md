@@ -383,6 +383,12 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 84. ⬜ **The workdir's tool caches are read-only in the sandbox**: `.pytest_cache` and `.ruff_cache`
   sit under opaque mounts, so `ruff check` exited 2 until run with `--no-cache` and pytest warns on
   every run. Point the caches at sandbox scratch through the environment, not by unmounting them
+85. ⬜ **A retried turn does not say why**: `attempts` counts a dropped connection or a 429/5xx, but
+  the error is caught and slept on unrecorded, so a turn with two attempts cannot be diagnosed from
+  the stream, the summary or the log. Record each failed attempt's kind, status and seconds
+86. ⬜ **An `edit_file` miss gives the model nothing to correct**: one delegation re-read the lines and
+  sent the byte-identical edit again. Name the nearest matching region and the first difference;
+  the stream keeps only a hash of `old_string`, so the transcript cannot show it either
 
 ## Deferred
 
