@@ -1310,10 +1310,10 @@ def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
             ),
         ),
     )
-    seen: list[tuple[float, float | None]] = []
+    seen: list[tuple[float, str | None]] = []
 
     async def on_progress(progress, total, message):
-        seen.append((progress, total))
+        seen.append((progress, message))
 
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
@@ -1325,7 +1325,9 @@ def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
     assert result["turns"] == 2
     assert result["tool_errors"] == 1, "the refusal is the turn, and it is reported as one"
     assert [p for p, _ in seen] == [1, 2]
-    assert {total for _, total in seen} == {4}, "the budget reported is the turn budget"
+    assert [m for _, m in seen] == ["turn 1 of 4", "turn 2 of 4"], (
+        "the turn budget is reported in the message, since a cap is not a known total"
+    )
 
 
 def test_a_one_turn_delegation_still_notifies(tmp_path):

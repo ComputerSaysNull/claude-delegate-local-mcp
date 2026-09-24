@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #316 — 2026-09-24 — fix: progress notifications only rise, and say what happened in their message
+
+### Fixed
+
+- **Progress notifications went backwards and claimed a total of zero.** Turns reported
+  `progress(turn, of)` and the heartbeats — a queued tick, the keepalive — reported
+  `progress(0, 0)`, so one call's sequence read 0, 0, 1, 0, 2. The MCP specification requires
+  the value to rise with every notification; Claude Code only uses them to reset its idle
+  timer, so it worked here, but a stricter client may drop the stream, and `total=0` reads as
+  "zero of zero". *Fix:* one counter per call rises on every notification, `total` is left
+  out because the turn cap is a ceiling rather than a count, and the text — "turn 2 of 4",
+  "queued 12s", "working, 300s" — goes in `message`. The red was a queued call's sequence
+  reading 0, 0, 0, 1, 2. (PLAN M15.5, review R7.)
+
 ## #315 — 2026-09-24 — fix: a queued delegation writes a waiting event every thirty seconds, not every poll
 
 ### Fixed

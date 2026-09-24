@@ -771,7 +771,9 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         extra_binds=agent.extra_binds if agent else (),
     )
 
-    async def progress(turn: int, of: int) -> None:
+    notified = 0
+
+    async def progress(turn: int, of: int, message: str | None = None) -> None:
         """ADR-0018: this is what stops the client abandoning a delegation still running.
 
         The client's stdio idle timer is 1800s and `dispatch_timeout` defaults to 3600s,
@@ -779,9 +781,16 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         while the server works on. Nothing renders it and it cannot be cancelled through
         -- resetting that timer is the whole of its job.
 
+        One counter for every notification, turns and heartbeats alike, because the MCP
+        specification requires the value to rise each time and the heartbeats used to
+        send 0 between turns. No `total`: the turn cap is a ceiling, not a count of what
+        will run, and `0` read as "zero of zero". What happened goes in `message`.
         """
+        nonlocal notified
         if ctx is not None:
-            await ctx.report_progress(progress=turn, total=of)
+            notified += 1
+            text = message or (f"turn {turn} of {of}" if of else None)
+            await ctx.report_progress(progress=notified, message=text)
 
     loop_cfg, overflow_off_because = await arm_overflow(
         windows, backend, entry, cfg, agentic=bool(allowed)
@@ -898,8 +907,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         for eight queued calls; the viewer shows one line a minute regardless.
         """
         nonlocal waiting_written
-        await progress(0, 0)
         now = time.monotonic()
+        await progress(0, 0, f"queued {now - waiting_since:.0f}s")
         if stream is not None and (
             waiting_written is None or now - waiting_written >= _WAITING_EVERY_SECONDS
         ):
@@ -923,7 +932,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         from one whose server was killed, and the viewer was calling both of them live.
         One heartbeat answers both, because both are the same question.
         """
-        await progress(0, 0)
+        await progress(0, 0, f"working, {elapsed_seconds:.0f}s")
         if stream is not None:
             stream.alive(elapsed_seconds=elapsed_seconds, of_seconds=of_seconds,
                          ends_in_seconds=ends_in, chunks_seen=chunks_seen,

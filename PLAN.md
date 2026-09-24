@@ -123,7 +123,7 @@ test fails when an agent or skill body names one.
   names and their required-ness against the declared schemas, so a rename cannot strand one
 4. ✅ 2026-09-23 **The turn-limit banner fires on a run that finished** (R9): `hit_turn_limit` is
   `turn == turns`, and the banner claims more than that flag knows
-5. ⬜ **Progress notifications are not monotonic** (R7): heartbeats send `progress(0, 0)`
+5. ✅ 2026-09-24 **Progress notifications are not monotonic** (R7): heartbeats send `progress(0, 0)`
   between turns. One rising counter per call, no unknown `total`, the words in `message`
 6. ⬜ **Tool annotations are left to defaults** (review §5): no `title`, and the two writing
   tools do not state `destructiveHint` or `openWorldHint`
