@@ -2,7 +2,8 @@
 """Generate the build-time agent roster from the agent definitions themselves.
 
 The table in `CONTRIBUTING.md` listing each subagent's model and effort is rendered from
-the frontmatter in `.claude/agents/*.md`, between the GEN markers, and the docs gate fails
+the frontmatter in `.claude/agents/*.md` and `.claude/delegate-agents/*.md`, between the
+GEN markers, and the docs gate fails
 if the committed file differs from what this script produces.
 
 Same anti-drift mechanism as the configuration reference (ADR-0004), applied to the same
@@ -28,6 +29,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 AGENTS_DIR = ROOT / ".claude" / "agents"
+DELEGATE_AGENTS_DIR = ROOT / ".claude" / "delegate-agents"
 TARGET = ROOT / "CONTRIBUTING.md"
 
 START = "<!-- GEN:AGENTS:START -->"
@@ -56,7 +58,10 @@ def frontmatter(path: Path) -> dict[str, str]:
 
 def agents() -> list[dict[str, str]]:
     rows = []
-    for path in sorted(AGENTS_DIR.glob("*.md")):
+    # Both directories, one roster sorted by name: which directory a file sits in says
+    # which executor reads it (ADR-0102), not which agents the repository has.
+    paths = [*AGENTS_DIR.glob("*.md"), *DELEGATE_AGENTS_DIR.glob("*.md")]
+    for path in sorted(paths, key=lambda p: p.name):
         fm = frontmatter(path)
         rows.append({
             "name": fm.get("name") or path.stem,
@@ -78,7 +83,8 @@ def render() -> str:
     rows = agents()
     out = [
         START,
-        ("<!-- Generated from .claude/agents/*.md by scripts/gen_agents_docs.py."
+        ("<!-- Generated from .claude/agents/*.md and .claude/delegate-agents/*.md by"
+         " scripts/gen_agents_docs.py."
          " Change the frontmatter, not this. -->"),
         "",
         "| Agent | Model | Effort | For |",
@@ -117,7 +123,7 @@ def main() -> int:
         if existing == updated:
             print(f"ok: {TARGET.relative_to(ROOT)} roster is current ({n} agents)")
             return 0
-        print(f"STALE: {TARGET.relative_to(ROOT)} does not match .claude/agents/.")
+        print(f"STALE: {TARGET.relative_to(ROOT)} does not match the agent directories.")
         print("Run: python scripts/gen_agents_docs.py\n")
         diff = difflib.unified_diff(
             existing.splitlines(), updated.splitlines(),

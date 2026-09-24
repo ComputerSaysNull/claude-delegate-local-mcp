@@ -1,6 +1,6 @@
 """A Claude Code agent file in the project tier hid a valid personal agent of the same name.
 
-The lookup took the first file that existed, so a project's `.claude/agents/helper.md`
+The lookup took the first file that existed, so a project's `.claude/delegate-agents/helper.md`
 written for Claude Code -- a `tools:` key, which is that format and not a broken copy of
 this one -- was refused as invalid, and the personal `helper.md` behind it was never tried.
 The listing did the same: the foreign file claimed the name, so the usable agent vanished.
@@ -27,7 +27,7 @@ def _setup(tmp_path: Path, project_file: str) -> tuple[Config, Path]:
     )
     work = tmp_path / "proj"
     for path, text in (
-        (work / ".claude" / "agents" / "helper.md", project_file),
+        (work / ".claude" / "delegate-agents" / "helper.md", project_file),
         (Path(c.agents_dir) / "helper.md", OURS),
     ):
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -26,7 +26,7 @@ from claude_delegate_local import agents
 from claude_delegate_local.config import Config
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-AGENT = ROOT / ".claude/agents/docs-audit-local.md"
+AGENT = ROOT / ".claude/delegate-agents/docs-audit-local.md"
 DISPATCH = ROOT / ".claude/skills/docs-audit-dispatch/SKILL.md"
 
 # The value that broke YAML while the server's own parser accepted it.
@@ -36,6 +36,7 @@ POISON = 'description: Guidance for dispatching it. Not a role to dispatch: it h
 def frontmatter_files() -> list[pathlib.Path]:
     """Every file either reader will try to parse as frontmatter."""
     found = sorted(ROOT.glob(".claude/agents/*.md"))
+    found += sorted(ROOT.glob(".claude/delegate-agents/*.md"))
     found += sorted(ROOT.glob(".claude/skills/*/SKILL.md"))
     found += sorted(ROOT.glob("src/claude_delegate_local/skills/*/SKILL.md"))
     return found

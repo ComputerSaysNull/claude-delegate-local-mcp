@@ -18,7 +18,7 @@ This lists what will bite you.
     python scripts/install_hooks.py                 # installs the commit-msg hook
     python scripts/docs_gate.py --owner <path>      # which document owns this file
     python scripts/gen_config_docs.py               # after touching config.py
-    python scripts/gen_agents_docs.py               # after touching .claude/agents/
+    python scripts/gen_agents_docs.py               # after touching either agents directory
     python scripts/gen_tools_docs.py                # after touching tools.py
     python scripts/plan_stack.py                    # the stack, and the commands to ship it
     python -m pytest -q                             # parallel by default, `-n 0` for serial

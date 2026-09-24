@@ -532,8 +532,9 @@ def test_scan_coverage_says_nothing_about_a_binary_file(repo: Path):
 # ------------------------------------------------------- agent bodies vs their capabilities
 
 
-def agent(repo: Path, name: str, frontmatter: str, body: str) -> None:
-    d = repo / ".claude" / "agents"
+def agent(repo: Path, name: str, frontmatter: str, body: str,
+          directory: str = "agents") -> None:
+    d = repo / ".claude" / directory
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{name}.md").write_text(
         f"---\nname: {name}\n{frontmatter}---\n{body}\n", encoding="utf-8"
@@ -546,6 +547,14 @@ def test_agent_capability_fires_on_a_body_that_needs_a_shell_it_lacks(repo: Path
     agent(repo, "reader", "tools: Read, Grep\n",
           "Start by running `pytest -q` to see what is broken.")
     assert fired(gate(repo), "agent-capability", "reader.md", "no shell")
+
+
+def test_agent_capability_reads_this_servers_own_agent_directory(repo: Path):
+    """The server-format agents moved to `.claude/delegate-agents/` (ADR-0102), and they are
+    the files this check exists for; moving them must not move them out of its reach."""
+    agent(repo, "reader-local", "allowed_tools: [read_file]\n",
+          "Start by running `pytest -q` to see what is broken.", directory="delegate-agents")
+    assert fired(gate(repo), "agent-capability", "reader-local.md"), gate(repo)
 
 
 def test_agent_capability_is_silent_when_the_agent_has_a_shell(repo: Path):

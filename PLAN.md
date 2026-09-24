@@ -133,7 +133,7 @@ test fails when an agent or skill body names one.
 8. ⬜ **The read-only tools cannot narrow their own toolset**, so a pass limited to
   `read_file` needs `delegate`, a writing tool. Accept an `allowed_tools` that can only
   narrow within the read-only set
-9. ⬜ **Server-format agent files are also loaded as Claude Code subagents, with every tool**
+9. ✅ 2026-09-24 **Server-format agent files are also loaded as Claude Code subagents, with every tool**
   (R6), because both read `.claude/agents/`. A directory of their own, the old one read for a
   release, and the shipped skill updated
     - a. ✅ 2026-09-24 A Claude Code file in the project tier hides a valid personal agent of the same name.

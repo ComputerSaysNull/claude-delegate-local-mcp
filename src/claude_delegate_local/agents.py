@@ -104,10 +104,30 @@ def _candidates(cfg: Config, name: str, workdir: str | None) -> list[Path]:
     found: list[Path] = []
     if workdir:
         root = Path(workdir)
-        found.append(root / ".claude" / "agents" / f"{name}.md")
+        found.append(root / PROJECT_AGENTS_DIR / f"{name}.md")
         found.append(root / ".claude" / "skills" / name / "SKILL.md")
     found.append(Path(os.path.expanduser(cfg.agents_dir)) / f"{name}.md")
+    found.extend(d / f"{name}.md" for d in old_directories(cfg, workdir))
     return found
+
+
+# Where this server's agent files live. Not `.claude/agents/`: Claude Code reads that
+# directory as its own subagents, so a file written for this server was loaded there too,
+# with every tool and a body written for a different executor (ADR-0102).
+PROJECT_AGENTS_DIR = Path(".claude") / "delegate-agents"
+OLD_AGENTS_DIR = Path(".claude") / "agents"
+
+
+def old_directories(cfg: Config, workdir: str | None) -> list[Path]:
+    """The directory project agent files lived in before ADR-0102, read for one release.
+
+    Searched after every current tier, so a file that has been moved wins over one left
+    behind, and `list_agents` names each agent found here with where it should go. The
+    project's only: the old personal default, `~/.claude/agents`, is where Claude Code keeps
+    its own agents, so reading it would list every one of them as `other_format` for good.
+    """
+    del cfg  # the signature says what the answer may depend on; today only the workdir
+    return [Path(workdir) / OLD_AGENTS_DIR] if workdir else []
 
 
 def find_agent_file(cfg: Config, name: str, workdir: str | None = None) -> Path:
@@ -282,7 +302,7 @@ def _check_network_grant(cfg: Config, *, name: str, where: str) -> None:
     in the other.
 
     A name alone is not enough because `_candidates` searches the workspace tiers *first*:
-    a repository shipping `.claude/agents/<an-allowlisted-name>.md` would shadow the
+    a repository shipping `.claude/delegate-agents/<an-allowlisted-name>.md` would shadow the
     operator's own file and inherit its grant by matching a string an attacker picked. The
     provenance test is what that string cannot forge.
     """
@@ -532,6 +552,9 @@ class AgentListing:
     agents: tuple[AgentSpec, ...]
     skipped: tuple[SkippedAgent, ...]
     other_format: tuple[ForeignAgent, ...]
+    # Usable agents read from a pre-ADR-0102 directory, each with the directory it belongs
+    # in. A subset of `agents`, not a fourth category: they still run, for one release.
+    old_location: tuple[tuple[str, str, str], ...] = ()
 
 
 def survey_agents(cfg: Config, workdir: str | None = None) -> AgentListing:
@@ -555,9 +578,13 @@ def survey_agents(cfg: Config, workdir: str | None = None) -> AgentListing:
     foreign: dict[str, ForeignAgent] = {}
     directories: list[tuple[Path, str]] = []
     if workdir:
-        directories.append((Path(workdir) / ".claude" / "agents", "*.md"))
+        directories.append((Path(workdir) / PROJECT_AGENTS_DIR, "*.md"))
         directories.append((Path(workdir) / ".claude" / "skills", "*/SKILL.md"))
-    directories.append((Path(os.path.expanduser(cfg.agents_dir)), "*.md"))
+    personal = Path(os.path.expanduser(cfg.agents_dir))
+    directories.append((personal, "*.md"))
+    old = old_directories(cfg, workdir)
+    directories.extend((d, "*.md") for d in old)
+    old_location: list[tuple[str, str, str]] = []
 
     for directory, pattern in directories:
         if not directory.is_dir():
@@ -597,9 +624,14 @@ def survey_agents(cfg: Config, workdir: str | None = None) -> AgentListing:
                 seen[name] = validate(cfg, raw, body, name=name, where=str(path))
             except AgentError as e:
                 skipped[name] = SkippedAgent(name, str(path), str(e))
+                continue
+            if directory in old:
+                home = directory.parent.parent / PROJECT_AGENTS_DIR
+                old_location.append((name, str(path), str(home)))
 
     return AgentListing(
-        tuple(seen.values()), tuple(skipped.values()), tuple(foreign.values())
+        tuple(seen.values()), tuple(skipped.values()), tuple(foreign.values()),
+        tuple(old_location),
     )
 
 

@@ -1468,7 +1468,7 @@ def called(handler, tool, *, entries=None, config=None, **kwargs):
 
 
 def agent_file(root: Path, name: str, frontmatter: str = "", body: str = "You help.") -> Path:
-    d = root / ".claude" / "agents"
+    d = root / ".claude" / "delegate-agents"
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{name}.md"
     path.write_text(f"---\nname: {name}\n{frontmatter}---\n{body}\n", encoding="utf-8")
@@ -1687,7 +1687,7 @@ def test_a_broken_agent_file_is_left_out_rather_than_breaking_the_list(tmp_path)
     """Discovery is not validation. One unparseable file must not make every other agent
     undiscoverable -- but asking for it by name still says exactly what is wrong."""
     agent_file(tmp_path, "good")
-    (tmp_path / ".claude" / "agents" / "broken.md").write_text(
+    (tmp_path / ".claude" / "delegate-agents" / "broken.md").write_text(
         "---\nname: broken\nnonsense: 1\n---\nb\n", encoding="utf-8")
 
     config = cfg(workspace_roots=(str(tmp_path),), agents_dir=str(tmp_path / "nowhere"))
@@ -1715,7 +1715,7 @@ def test_the_three_answers_are_distinguishable_in_one_call(tmp_path):
     permanently non-empty here -- and a list that is never empty is one nobody reads.
     """
     agent_file(tmp_path, "mine")
-    d = tmp_path / ".claude" / "agents"
+    d = tmp_path / ".claude" / "delegate-agents"
     (d / "broken.md").write_text(
         "---\nname: broken\nnonsense: 1\n---\nb\n", encoding="utf-8")
     (d / "theirs.md").write_text(

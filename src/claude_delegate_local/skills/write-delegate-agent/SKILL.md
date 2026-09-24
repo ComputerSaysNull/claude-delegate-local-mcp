@@ -15,9 +15,13 @@ worked example.
 Three locations, **first match wins**, so a project's own agent shadows a personal one of
 the same name:
 
-1. `<project>/.claude/agents/<name>.md`
+1. `<project>/.claude/delegate-agents/<name>.md`
 2. `<project>/.claude/skills/<name>/SKILL.md`
 3. `<agents_dir>/<name>.md` — the personal tier, set by `DELEGATE_AGENTS_DIR`
+
+**Not `.claude/agents/`**: Claude Code loads every file there as its own subagent, with
+every tool. That directory is still read, last, for one release, and `list_agents` names
+each agent it finds there under `old_location`, with where to move it.
 
 The **filename supplies the name** — `<name>.md`, or the skill directory for a `SKILL.md`.
 A name must match `^[A-Za-z0-9_-]+$`: it is a name, not a path, so it cannot traverse.
