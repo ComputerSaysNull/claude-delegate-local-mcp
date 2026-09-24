@@ -45,6 +45,7 @@ from .agents import AgentError, AgentSpec, load_agent
 from .agents import survey_agents as discover_agents
 from .config import EFFORT_INHERIT, EFFORT_LEVELS, Config, ConfigError
 from .context import estimate_text_tokens, prefetch, skip_from_refusal
+from .handles import Handles, UnknownHandle
 from .loop import (
     AgenticDispatch,
     ContextOverflowAborted,
@@ -1204,6 +1205,13 @@ _DELEGATION_RESULT: dict[str, Any] = {
             "model's reasoning under a banner instead, because the reply stopped at its "
             "token limit with nothing else written."
         )},
+        "handle": {"type": "string", "description": (
+            "Set on the write-capable delegations: the name `collect` reads this run back by."
+        )},
+        "status": {"type": "string", "description": (
+            "From `collect` only: `done` with the result, `running` with `running_seconds` "
+            "while it is still going, or `cancelled`."
+        )},
         "empty_response": {"type": "boolean", "description": (
             "Nothing came back at all -- neither an answer nor reasoning. Reaching this "
             "means the server already retried at a larger budget and then at a lower "
@@ -1531,6 +1539,24 @@ Diagnostics = Annotated[
     )),
 ]
 
+HandleArg = Annotated[
+    str,
+    Field(description=(
+        "The `handle` a delegating call returned. It names a run in this server process, "
+        "so a reconnect forgets it."
+    )),
+]
+
+WaitSeconds = Annotated[
+    float | None,
+    Field(description=(
+        "How long to wait for the run to finish before returning where it has got to. "
+        "Omit for the server's default, which answers within a client's usual patience; "
+        "a client that backgrounds a slow read-only call and notifies on completion, as "
+        "Claude Code does, can pass the whole remaining run instead."
+    )),
+]
+
 AgentName = Annotated[
     str,
     Field(description=(
@@ -1585,7 +1611,7 @@ failure modes worth knowing, kept there rather than here so it costs nothing unt
 """.strip()
 
 
-def build(
+def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiring
     cfg: Config, registry: Registry, cache: BackendCache | None = None
 ) -> FastMCP:
     """Construct the server. Pure wiring; no I/O beyond what the tools do when called.
@@ -1641,6 +1667,17 @@ def build(
         every=cfg.rate_sample_seconds,
     )
 
+    handles = Handles(cfg.handle_ttl_seconds)
+
+    async def _answered(run: Awaitable[dict[str, Any]], tool: str) -> dict[str, Any]:
+        """Run a write-capable delegation under a handle, and answer with it inline.
+
+        The run is awaited as a task, so cancelling this call cancels it exactly as before;
+        the handle is what `collect` can read the same result back by.
+        """
+        handle = handles.start(run, tool=tool)
+        return {**await handles.task(handle), "handle": handle}
+
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncIterator[dict[str, Any]]:
         try:
@@ -1684,13 +1721,14 @@ def build(
         so a client that gates writes runs it without stopping to ask. Reach for
         `delegate_to_agent` when the work has a *kind* an agent file already shapes.
         """
-        return await run_delegation(
+        run = run_delegation(
             cfg, registry, cache, windows, admission, rates=rates,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             workdir=_rooted(workdir),
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate",
         )
+        return await _answered(run, "delegate")
 
     @mcp.tool(title="Delegate a read-only task", annotations=_READS,
               output_schema=_DELEGATION_RESULT)
@@ -1795,13 +1833,14 @@ def build(
         resolved_workdir = _rooted(workdir)
         resolved_project = _rooted(project) if project is not None else resolved_workdir
         agent = _load(agent_name, resolved_project)
-        return await run_delegation(
+        run = run_delegation(
             cfg, registry, cache, windows, admission, rates=rates,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             agent=agent, workdir=resolved_workdir,
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent",
         )
+        return await _answered(run, "delegate_to_agent")
 
     @mcp.tool(title="Delegate a read-only task to a named agent", annotations=_READS,
               output_schema=_DELEGATION_RESULT)
@@ -1845,6 +1884,22 @@ def build(
             agent=agent,
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent_readonly",
         )
+
+    @mcp.tool(title="Collect a delegation", annotations={**_READS, "idempotentHint": True},
+              output_schema=_DELEGATION_RESULT)
+    async def collect(handle: HandleArg, wait_seconds: WaitSeconds = None) -> dict[str, Any]:
+        """Collect a delegation by the `handle` a delegating call returned.
+
+        Answers with the run's result once it has finished, carrying `status: done`, or
+        with `status: running` and how long it has run if it is still going when the wait
+        is over. Waiting never cancels the run, and collecting twice returns the same
+        result until the server forgets it. A run that was stopped says `cancelled`.
+        """
+        wait = cfg.collect_wait_seconds if wait_seconds is None else wait_seconds
+        try:
+            return await handles.collect(handle, wait)
+        except UnknownHandle as e:
+            raise ToolError(str(e)) from e
 
     @mcp.tool(title="List agents", annotations={**_READS, "idempotentHint": True},
               output_schema=_AGENT_LIST_RESULT)

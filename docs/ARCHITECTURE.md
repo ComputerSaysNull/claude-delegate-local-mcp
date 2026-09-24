@@ -1,4 +1,5 @@
-<!-- BUDGET: 1290
+<!-- BUDGET: 1300
+     Raised from 1290 (+1 for this line) on 2026-09-24: a call can now return a handle, a new module and a new way a delegation's lifetime is decoupled from its call.
      Raised from 1280 (+1 for this line) on 2026-09-23: provision now shows a changed declaration and asks before building it on the host.
      Raised from 1266 (+1 for this line) on 2026-09-22: tool time is gated on the calls at two sites now, and a reader who knows only one of them still cannot tell why a toolless run once reported tools.
      Raised from 1258 (+1 for this line) on 2026-09-22: the admission gate now drives the rate sampler's ticker, which is a second reader of a number this document owns. -->
@@ -142,7 +143,8 @@ large file being dropped while the budget it would have fitted in sat unused (AD
 | `admission.py` | The capacity gate every delegation passes before it reaches a backend |
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
-| `server.py` | MCP wiring, the six tool declarations, the backend cache |
+| `handles.py` | A delegation's handle, and the task `collect` reads its result from |
+| `server.py` | MCP wiring, the tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
 | `init.py` | `--init`: the two files that have no safe default, from answers |

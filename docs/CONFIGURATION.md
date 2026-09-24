@@ -1,4 +1,5 @@
-<!-- BUDGET: 180
+<!-- BUDGET: 190
+     Raised from 180 (+1 for this line) on 2026-09-24: two settings for handles, and a section of their own for them.
      Raised from 178 (+1 for this line) on 2026-09-23: one more setting, DELEGATE_PROTECTED_GLOBS_FILE.
      Raised from 175 (+1 for this line) on 2026-09-22: one more setting, DELEGATE_RATE_SAMPLE_SECONDS, and this file is one row per setting.
           Raised from 150 on 2026-08-30: this file is generated, one row per
@@ -137,6 +138,13 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_CROSS_PROCESS_SLOTS` | True | Count the four admission rules against every server process on this machine rather than against this one alone. On by default because the default transport is stdio, which gives each connected client its own server process: with this off, every rule above bounds one editor window, and the cluster sees the configured limit multiplied by however many windows are open. Turning it off is only correct where this really is the sole process against the endpoint. Needs a POSIX filesystem lock, so it is inert on Windows -- backend_status reports whether it is actually active, and never assumes it is. See ADR-0040. |
 | `DELEGATE_SLOTS_DIR` | *(empty)* | Directory holding the shared admission counters. Empty means XDG_RUNTIME_DIR, falling back to /dev/shm -- both tmpfs, which is what makes losing the file on reboot correct rather than lossy. Set it only to separate installations that must not share a budget, such as two checkouts pointed at genuinely different clusters; two projects sharing one cluster must share one directory, which is the default and needs no configuration. Never put this on /mnt/c: locking across the Windows drive boundary is not dependable (ADR-0020). |
 
+### Handles
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DELEGATE_HANDLE_TTL_SECONDS` | 3600.0 seconds | How long a finished delegation's result is kept for `collect` after it finished. A running one is never forgotten; one nobody collects is dropped after this, and its transcript record remains. |
+| `DELEGATE_COLLECT_WAIT_SECONDS` | 110.0 seconds | How long `collect` waits for a running delegation when the caller does not say. Just under the 120s a client commonly waits on one call before giving up or backgrounding it, so the default answers within any client's patience. |
+
 ### Operator transcript
 
 | Variable | Default | Description |
@@ -175,6 +183,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting, unlike ADR-0034's sandbox_enabled, because naming another transport should be an error rather than silence -- load() reads only variables matching a field, so deleting this one would make a stale value do nothing without saying so. |
 
-*74 settings.*
+*76 settings.*
 
 <!-- GEN:CONFIG:END -->

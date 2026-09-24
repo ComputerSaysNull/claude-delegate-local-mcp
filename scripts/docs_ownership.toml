@@ -114,6 +114,7 @@ owns = [
   # this document's, where TOOLS.md describes what the model is offered.
   "src/claude_delegate_local/run_task.py",
   "src/claude_delegate_local/admission.py",
+  "src/claude_delegate_local/handles.py",
   "src/claude_delegate_local/slots.py",
   "src/claude_delegate_local/transcript.py",
   # The viewer belongs to the same document as the stream it reads: the file format and

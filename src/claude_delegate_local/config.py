@@ -813,6 +813,22 @@ class Config:
         unit="MB",
     )
 
+    # ---- handles -----------------------------------------------------------------
+    handle_ttl_seconds: float = _f(
+        3600.0,
+        "How long a finished delegation's result is kept for `collect` after it finished. "
+        "A running one is never forgotten; one nobody collects is dropped after this, "
+        "and its transcript record remains.",
+        unit="seconds",
+    )
+    collect_wait_seconds: float = _f(
+        110.0,
+        "How long `collect` waits for a running delegation when the caller does not say. "
+        "Just under the 120s a client commonly waits on one call before giving up or "
+        "backgrounding it, so the default answers within any client's patience.",
+        unit="seconds",
+    )
+
     # ---- agents ------------------------------------------------------------------
     agents_dir: str = _f(
         "~/.claude/delegate-agents",

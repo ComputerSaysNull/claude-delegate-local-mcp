@@ -38,6 +38,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #320 — 2026-09-24 — feat: a write-capable delegation carries a handle, and collect reads it back
+
+### Added
+
+- **A seventh tool, `collect(handle, wait_seconds)`, and a `handle` on every `delegate` and
+  `delegate_to_agent` result.** The first slice of returning a handle instead of holding the
+  call open (ADR-0103): the client releases write-capable calls one at a time, so six in one
+  message started 120s apart. Here every call still answers inline, so nothing about timing
+  changes; what lands is the registry in the new `handles.py`, which runs each write-capable
+  delegation as a task and keeps a finished result for `handle_ttl_seconds`, and `collect`,
+  which returns that result with `status: done`, or `running` with how long it has run.
+  Waiting never cancels the run. An unknown handle — never issued, forgotten, or from before
+  a reconnect — is refused with a pointer to the transcript. `collect`'s default wait is
+  `collect_wait_seconds`, just under a client's usual 120s. The red was the delegation
+  result having no `handle` and `collect` being an unknown tool.
+
 ## #319 — 2026-09-24 — fix: the transcript viewer survives odd lines and a pipe
 
 ### Fixed
