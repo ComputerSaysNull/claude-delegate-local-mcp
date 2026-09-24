@@ -938,3 +938,110 @@ def test_never_track_is_silent_when_the_file_is_only_on_disk(repo: Path):
     subprocess.run(["git", "rm", "--cached", "-q", "security/forbidden_strings.txt"],
                    cwd=repo, capture_output=True)
     assert not fired(gate(repo), "never-track", "forbidden_strings.txt")
+
+
+# ------------------------------------------------------------------- prose regrowth (M18.6)
+#
+# M18 cut the history out of `src/` comments module by module. The gate that stops it growing
+# back warns on a date, a TODO/FIXME/XXX or future-work phrasing in an ADDED comment or
+# docstring line, and reports a module's prose ratio when it rises. It warns rather than
+# blocks, because the per-module passes are still cutting the existing prose -- blocking would
+# block every edit to a file still awaiting its pass.
+#
+# Each case is built from concatenated strings so the test file itself never carries a literal
+# ISO date or a bare `TODO`, which a future scan of tests could trip on.
+
+
+def _commit(repo: Path, message: str) -> None:
+    """Stage everything and commit, so HEAD is the base the gate compares against."""
+    subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@example.com", "-c", "user.name=t",
+         "commit", "-qm", message],
+        cwd=repo, capture_output=True, check=True)
+
+
+def _mod(repo: Path, body: str) -> Path:
+    p = repo / "src" / "pkg" / "mod.py"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(body, encoding="utf-8")
+    return p
+
+
+def test_prose_regrowth_warns_on_an_added_todo_comment_and_still_passes(repo: Path):
+    """A staged `# TODO` comment warns, and the warning is a WARN, never a BLOCK.
+
+    The point is to make the history loud, not to stop the edit. Blocking would block every
+    edit to a file still awaiting its per-module pass. The whole run is not asserted green:
+    this throwaway repository trips unrelated blocking checks, and the level is the claim.
+    """
+    _mod(repo, "x = 1\n")
+    _commit(repo, "base")
+    todo = "TO" + "DO"
+    _mod(repo, "x = 1\n# " + todo + ": cut this later\n")
+    lines = gate(repo)
+    assert fired(lines, "prose-regrowth", "mod.py line 2", todo), lines
+    assert any("[prose-regrowth]" in ln and "WARN" in ln for ln in lines), lines
+    assert not any("[prose-regrowth]" in ln and "BLOCK" in ln for ln in lines), lines
+
+
+def test_prose_regrowth_warns_on_an_added_iso_date_comment(repo: Path):
+    """History is what M18 cut out, so a date in an added comment warns."""
+    _mod(repo, "x = 1\n")
+    _commit(repo, "base")
+    d = "20" + "26-01-01"
+    _mod(repo, "x = 1\n# cut since " + d + "\n")
+    lines = gate(repo)
+    assert fired(lines, "prose-regrowth", "mod.py line 2", d), lines
+
+
+def test_prose_regrowth_warns_on_future_phrasing_in_an_added_docstring(repo: Path):
+    """A docstring line is prose too, so `for now` inside one warns."""
+    _mod(repo, "def f():\n    pass\n")
+    _commit(repo, "base")
+    _mod(repo, 'def f():\n    """Do it for now."""\n    pass\n')
+    lines = gate(repo)
+    assert fired(lines, "prose-regrowth", "mod.py line 2", "for now"), lines
+
+
+def test_prose_regrowth_ignores_todo_inside_a_string_literal(repo: Path):
+    """A `#` inside a string is not a comment, so a TODO there is not prose.
+
+    A naive `'#' in line` comment test would call this line a comment, find the TODO and
+    warn. `tokenize` knows the `#` belongs to a STRING token, so the line is code and the
+    check stays silent.
+    """
+    _mod(repo, "x = 1\n")
+    _commit(repo, "base")
+    line = 's = "a # ' + "TO" + "DO" + ' b"\n'
+    _mod(repo, "x = 1\n" + line)
+    lines = gate(repo)
+    assert not fired(lines, "prose-regrowth", "mod.py line 2"), lines
+
+
+def test_prose_regrowth_ignores_an_unchanged_comment_with_a_date(repo: Path):
+    """Only added lines count. A date that already shipped is a decision already made."""
+    d = "20" + "26-01-01"
+    _mod(repo, "x = 1\n# since " + d + "\n")
+    _commit(repo, "base")
+    _mod(repo, "x = 1\n# since " + d + "\ny = 2\n")
+    lines = gate(repo)
+    assert not fired(lines, "prose-regrowth", "mod.py line 2", d), lines
+
+
+def test_prose_regrowth_reports_a_ratio_rise(repo: Path):
+    """A comment that adds prose moves the module's ratio, and that is reported."""
+    _mod(repo, "x = 1\ny = 2\nz = 3\n")
+    _commit(repo, "base")
+    _mod(repo, "x = 1\ny = 2\nz = 3\n# a note\n")
+    lines = gate(repo)
+    assert fired(lines, "prose-regrowth", "rose from 0% to 25%"), lines
+
+
+def test_prose_regrowth_reports_no_ratio_for_a_code_only_edit(repo: Path):
+    """A code-only edit changes the denominator but not the numerator, so no rise."""
+    _mod(repo, "x = 1\n")
+    _commit(repo, "base")
+    _mod(repo, "x = 1\ny = 2\n")
+    lines = gate(repo)
+    assert not fired(lines, "prose-regrowth", "rose from"), lines
