@@ -944,8 +944,8 @@ in [AGENTS.md](AGENTS.md). (ADR-0019)
 An MCP tool annotation is a claim made to the client before the call runs, so a client can
 act on it without asking. `backend_status` and `list_agents` carry `readOnlyHint` because
 neither can change anything; a caller gating writes on that declaration -- plan mode in
-Claude Code does -- runs them without stopping. Measured rather than assumed: the same call
-prompts for approval without the annotation and does not with it.
+Claude Code does -- runs them without stopping; unannotated, the same call prompts (measured).
+`destructiveHint` and `openWorldHint` are stated too: both default to true, so unset they lied.
 
 `delegate_readonly` is what that asymmetry leaves room for: `delegate` with the tool set
 fixed to whatever declares no write, rather than accepted as an argument. It does what

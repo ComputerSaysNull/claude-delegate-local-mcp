@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #317 — 2026-09-24 — fix: every tool states its annotations instead of relying on defaults
+
+### Fixed
+
+- **The read-only tools claimed, by omission, to be destructive and open to the world.**
+  `destructiveHint` and `openWorldHint` default to true when unset, and only `readOnlyHint`
+  and `idempotentHint` were set, so the four read-only tools said they could destroy and
+  reach anything; no tool had a `title` either. Claude Code acts on `readOnlyHint` alone, so
+  nothing broke here, but a client that shows or gates on the others was told something
+  untrue. *Fix:* all six tools carry a title and every hint. The two writing tools are
+  destructive, since they overwrite files and run commands; only `delegate_to_agent` is
+  open-world, because the sandbox has no network unless an agent asks and is on
+  `agent_network_allowed`. The red was every tool lacking a title. (PLAN M15.6, review §5.)
+
 ## #316 — 2026-09-24 — fix: progress notifications only rise, and say what happened in their message
 
 ### Fixed
