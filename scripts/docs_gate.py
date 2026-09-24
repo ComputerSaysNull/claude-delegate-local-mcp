@@ -106,7 +106,11 @@ class Finding:
         return f"{self.level:5} [{self.check}] {self.message}"
 
 
-def run(*args: str) -> str:
+class GitFailed(RuntimeError):
+    """A command a check stands on failed, so that check cannot say what it saw."""
+
+
+def run(*args: str, required: bool = False) -> str:
     """Run a command in the repository and return its stdout.
 
     The encoding is explicit because `text=True` alone decodes with the *ambient* codec,
@@ -118,12 +122,47 @@ def run(*args: str) -> str:
 
     `errors="replace"` rather than strict, because a gate that loses one character is worth
     more than one that loses a whole commit message. And `or ""` because a failed command
-    has no stdout at all, which is a real case rather than an error.
+    has no stdout at all -- a real answer for a guard that asks whether something exists,
+    and a lie for a check that reads empty as clean, which is what `required` is for.
     """
-    return (subprocess.run(
+    proc = subprocess.run(
         args, cwd=ROOT, capture_output=True, text=True, check=False,
         encoding="utf-8", errors="replace",
-    ).stdout or "").strip()
+    )
+    if required and proc.returncode != 0:
+        raise GitFailed(
+            f"`{' '.join(args)}` exited {proc.returncode}: "
+            f"{(proc.stderr or '').strip()[:200]}"
+        )
+    return (proc.stdout or "").strip()
+
+
+def git(*args: str) -> str:
+    """`run("git", ...)` for a check whose empty answer means clean, so a failure raises."""
+    return run("git", *args, required=True)
+
+
+DEFAULT_RANGE = "origin/main...HEAD"
+
+
+def pr_range(diff_range: str | None) -> str | None:
+    """The range to read, or None when it is the default and the default does not exist.
+
+    A range someone passed is required, so a bad one blocks: CI always passes one. The
+    default is only a guess, and a fresh clone or a throwaway repository has no
+    `origin/main` to guess with -- that is "cannot tell", which the caller reports as a
+    SKIP, never the clean result an empty diff would have implied.
+    """
+    if diff_range:
+        return diff_range
+    if run("git", "rev-parse", "--verify", "--quiet", "origin/main"):
+        return DEFAULT_RANGE
+    return None
+
+
+def _no_range(check: str) -> Finding:
+    return Finding(SKIP, check, "no origin/main to compare against and no --diff given; "
+                                "CI passes one.")
 
 
 # Written by the prepare-commit-msg hook when git says the message was reused from HEAD.
@@ -154,7 +193,7 @@ def files_against_previous_commit() -> list[str] | None:
     """
     if not run("git", "rev-parse", "--verify", "--quiet", "HEAD~1"):
         return None
-    out = run("git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "HEAD~1")
+    out = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "HEAD~1")
     return [line for line in out.splitlines() if line]
 
 
@@ -164,12 +203,12 @@ def changed_files(mode: str, diff_range: str | None) -> list[str]:
     # to the CI branch here would diff against origin/main and, with no upstream, scan
     # every tracked file -- a whole-repo audit wearing the costume of a per-commit check.
     if mode in ("pre-commit", "commit-msg"):
-        out = run("git", "diff", "--cached", "--name-only", "--diff-filter=ACMR")
+        out = git("diff", "--cached", "--name-only", "--diff-filter=ACMR")
     else:
-        rng = diff_range or "origin/main...HEAD"
-        out = run("git", "diff", "--name-only", "--diff-filter=ACMR", rng)
+        rng = pr_range(diff_range)
+        out = git("diff", "--name-only", "--diff-filter=ACMR", rng) if rng else ""
         if not out:  # first push, or no upstream yet: fall back to everything tracked
-            out = run("git", "ls-files")
+            out = git("ls-files")
     return [line for line in out.splitlines() if line]
 
 
@@ -188,7 +227,7 @@ def scannable_files_with_skips() -> tuple[list[Path], list[Finding]]:
     """
     skips: list[Finding] = []
     files = []
-    for r in run("git", "ls-files").splitlines():
+    for r in git("ls-files").splitlines():
         p = ROOT / r
         if not p.exists() or p.suffix.lower() in BINARY_SUFFIXES:
             continue
@@ -249,12 +288,14 @@ def check_commit_identity(mode: str, diff_range: str | None) -> list[Finding]:
     if mode == "pre-commit":
         pairs = [(run("git", "config", "user.email"), "pending commit")]
     else:
-        rng = diff_range or "origin/main...HEAD"
+        rng = pr_range(diff_range)
+        if rng is None:
+            return [_no_range("identity")]
         # --no-merges: for a pull_request event, Actions checks out a synthetic merge
         # commit authored by GitHub itself (noreply@github.com). That is not a
         # contribution, and flagging it would block every pull request forever. This
         # project squash-merges, so real merge commits do not appear in history either.
-        raw = run("git", "log", "--no-merges", "--format=%ae%x00%ce%x00%h", rng)
+        raw = git("log", "--no-merges", "--format=%ae%x00%ce%x00%h", rng)
         pairs = []
         for line in raw.splitlines():
             if not line:
@@ -548,8 +589,8 @@ def check_never_tracked() -> list[Finding]:
     edited, even if someone uses `git add -f`, and even when it is empty -- an empty one
     committed today gets populated tomorrow in a commit nobody looks at twice.
     """
-    tracked = set(run("git", "ls-files").splitlines())
-    staged = set(run("git", "diff", "--cached", "--name-only").splitlines())
+    tracked = set(git("ls-files").splitlines())
+    staged = set(git("diff", "--cached", "--name-only").splitlines())
     out = []
     for path in sorted(NEVER_TRACK & (tracked | staged)):
         out.append(Finding(
@@ -584,8 +625,10 @@ def check_commit_message(mode: str, diff_range: str | None,
                         "the message does not exist yet at pre-commit; scanned by the "
                         "commit-msg hook, which is handed the real file.")]
     else:
-        rng = diff_range or "origin/main...HEAD"
-        raw = run("git", "log", "--no-merges", "--format=%h%x1f%B%x1e", rng)
+        rng = pr_range(diff_range)
+        if rng is None:
+            return [_no_range("commit-message")]
+        raw = git("log", "--no-merges", "--format=%h%x1f%B%x1e", rng)
         texts = []
         for chunk in raw.split(chr(30)):
             if chr(31) in chunk:
@@ -830,7 +873,7 @@ def check_secret_paths() -> list[Finding]:
     if not globs:
         return [Finding(BLOCK, "secret-path", "security/secret_globs.txt is empty.")]
     out = []
-    for r in run("git", "ls-files").splitlines():
+    for r in git("ls-files").splitlines():
         # Exempt the policy files BY NAME, not the whole directory. secret_globs.txt
         # matches its own '*secret*' pattern -- the gate's first self-inflicted false
         # positive -- but exempting all of security/ also exempted the one file in there
@@ -1332,7 +1375,7 @@ def check_orphan_docs() -> list[Finding]:
     manifest = load_manifest()
     if manifest is None:
         return [Finding(SKIP, "orphan-doc", f"{MANIFEST.name} not present.")]
-    tracked = set(run("git", "ls-files").splitlines())
+    tracked = set(git("ls-files").splitlines())
     out = []
     for doc, meta in manifest["docs"].items():
         owns = meta.get("owns", [])
@@ -1396,10 +1439,10 @@ def check_audit_pressure() -> list[Finding]:
         # Generated documents cannot drift: their freshness check already covers them.
         if not owns or meta.get("generated") or not (ROOT / doc).exists():
             continue
-        doc_last = run("git", "log", "-1", "--format=%H", "--", doc)
+        doc_last = git("log", "-1", "--format=%H", "--", doc)
         if not doc_last:
             continue
-        since = run("git", "log", "--format=%H", f"{doc_last}..HEAD", "--",
+        since = git("log", "--format=%H", f"{doc_last}..HEAD", "--",
                     *_pathspec(owns))
         n = len([x for x in since.splitlines() if x])
         if n >= AUDIT_PRESSURE_THRESHOLD:
@@ -1417,9 +1460,9 @@ def check_audit_pressure() -> list[Finding]:
     # docs/reviews/. Asking git removes the dependency on naming entirely. (ADR-0025)
     audit_dir = ROOT / "docs" / "audits"
     has_audit = audit_dir.is_dir() and any(audit_dir.glob("*.md"))
-    total = len(run("git", "log", "--format=%H").splitlines())
-    last = run("git", "log", "-1", "--format=%H", "--", "docs/audits") if has_audit else ""
-    n = len(run("git", "log", "--format=%H", f"{last}..HEAD").splitlines()) if last else total
+    total = len(git("log", "--format=%H").splitlines())
+    last = git("log", "-1", "--format=%H", "--", "docs/audits") if has_audit else ""
+    n = len(git("log", "--format=%H", f"{last}..HEAD").splitlines()) if last else total
     if n >= AUDIT_STALE_COMMITS:
         out.append(Finding(
             WARN, "audit-due",
@@ -1471,11 +1514,13 @@ def check_split_dodge(mode: str = "pre-commit", diff_range: str | None = None) -
     if manifest is None:
         return [Finding(SKIP, "split-dodge", f"{MANIFEST.name} not present.")]
     if mode == "ci":
-        added_by = ("git", "diff", "--name-only", "--diff-filter=A",
-                    diff_range or "origin/main...HEAD")
+        rng = pr_range(diff_range)
+        if rng is None:
+            return [_no_range("split-dodge")]
+        added_by = ("git", "diff", "--name-only", "--diff-filter=A", rng)
     else:
         added_by = ("git", "diff", "--cached", "--name-only", "--diff-filter=A")
-    added = set(run(*added_by).splitlines())
+    added = set(run(*added_by, required=True).splitlines())
     out = []
     for doc in added:
         meta = manifest["docs"].get(doc)
@@ -1768,7 +1813,7 @@ def check_doc_references() -> list[Finding]:
     standing between it and the four checks this project has already found unable to fail.
     """
     out = []
-    docs = [ROOT / f for f in run("git", "ls-files", "*.md").splitlines()]
+    docs = [ROOT / f for f in git("ls-files", "*.md").splitlines()]
     for path in docs:
         if not path.exists():
             continue  # staged deletion
@@ -1975,6 +2020,37 @@ def _printable_findings() -> None:
                 pass
 
 
+def _run_checks(args: argparse.Namespace) -> tuple[list[str], list[Finding]]:
+    """Every check's findings, and the changed files the ownership check was given.
+
+    A check that could not read its input has not passed. `GitFailed` makes it block,
+    naming the command, rather than report the clean result an empty answer would imply.
+    """
+    findings: list[Finding] = []
+    try:
+        changed = changed_files(args.mode, args.diff_range)
+    except GitFailed as e:
+        changed = []
+        findings.append(Finding(BLOCK, "changed-files", f"could not run: {e}"))
+    reused_message = message_reused_from_head() if args.mode == "commit-msg" else False
+
+    for name, fn in CHECKS.items():
+        try:
+            if name == "commit-message":
+                findings += fn(args.mode, args.diff_range, args.message_file)
+            elif name in ("identity", "split-dodge"):
+                findings += fn(args.mode, args.diff_range)
+            elif name in ("public-text", "changelog-number"):
+                findings += fn(args.pr_event)
+            elif name == "owning-doc":
+                findings += ownership_findings(changed, reused_message, args.mode)
+            else:
+                findings += fn()
+        except GitFailed as e:
+            findings.append(Finding(BLOCK, name, f"could not run: {e}"))
+    return changed, findings
+
+
 def main() -> int:
     _printable_findings()
     ap = argparse.ArgumentParser()
@@ -2012,22 +2088,8 @@ def main() -> int:
               f"assign it in {MANIFEST.name}")
         return 1
 
-    changed = changed_files(args.mode, args.diff_range)
-    reused_message = message_reused_from_head() if args.mode == "commit-msg" else False
+    changed, findings = _run_checks(args)
     waived = waivers(args.mode, args.message_file)
-
-    findings: list[Finding] = []
-    for name, fn in CHECKS.items():
-        if name == "commit-message":
-            findings += fn(args.mode, args.diff_range, args.message_file)
-        elif name in ("identity", "split-dodge"):
-            findings += fn(args.mode, args.diff_range)
-        elif name in ("public-text", "changelog-number"):
-            findings += fn(args.pr_event)
-        elif name == "owning-doc":
-            findings += ownership_findings(changed, reused_message, args.mode)
-        else:
-            findings += fn()
 
     blocks = [f for f in findings if f.level == BLOCK and f.check not in waived]
     waived_hits = [f for f in findings if f.level == BLOCK and f.check in waived]
