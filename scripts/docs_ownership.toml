@@ -225,6 +225,8 @@ paths = [
   # The check a comment pass runs to prove it changed no code. Owns no behaviour and
   # documents itself: its whole subject is comment passes, and it reads only source text.
   "scripts/ast_unchanged.py",
+  # A read-only report over the dispatch ledger. Owns no behaviour and documents itself.
+  "scripts/ledger_report.py",
   "security/**",
   # Point-in-time evidence, like an ADR body: dated, written once, never edited, and
   # owning no current behaviour. Registering each review as a document would mean a

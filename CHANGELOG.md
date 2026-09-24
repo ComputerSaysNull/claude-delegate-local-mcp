@@ -38,6 +38,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #345 — 2026-09-25 — feat: a report over the ledger states the facts and labels the assumption
+
+### Added
+
+- **`scripts/ledger_report.py` totals what the cluster has spent.** The ledger records
+  cluster tokens, which are facts. Calling them a saving assumes what Claude would otherwise
+  have read, and that is unmeasured. The report prints dispatches, failures and input,
+  cached and output tokens, grouped by day, model or tool, with a total. A dispatch that
+  recorded no tokens is counted as such, never summed as zero, and an unreadable line is
+  skipped and counted. `--saving` adds an estimate under the heading "An estimate, not a
+  measurement", with the assumption stated beside it; the estimate never appears without
+  that sentence, and a test holds it to that.
+
 ## #344 — 2026-09-25 — fix: a new module no longer earns a prose-ratio warning
 
 ### Fixed
