@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #307 — 2026-09-24 — fix: cancelling a burst's opener no longer fails the calls that joined it
+
+### Fixed
+
+- **Cancelling one call of a fan-out failed every sibling that had joined its burst wait.**
+  The call that opens the idle-hold wait shares it as a future, and a cancelled opener
+  stores its `CancelledError` there. Each joiner, never cancelled itself, caught that as its
+  own cancellation, gave back a slot it validly held and re-raised, so stopping one call of
+  six killed the others waiting behind it. *Fix:* a joiner re-raises only when
+  `current_task().cancelling()` says the cancellation is its own; otherwise it keeps its
+  slot and prices on its own snapshot, as it already did for any other failure of the
+  opener. A second test pins the other half, that a joiner cancelled itself still gives its
+  slot back. (PLAN M14.2, review R18.)
+
 ## #306 — 2026-09-23 — docs: the 2026-09-23 audit, and every finding from it that was wording
 
 ### Added
