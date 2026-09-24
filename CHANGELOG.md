@@ -38,6 +38,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #309 — 2026-09-24 — fix: a call cancelled while reading the shared burst flag gives its slot back
+
+### Fixed
+
+- **A cancellation during the cross-process burst check leaked the slot.** `_settle_burst`
+  runs after the slot is taken and before `acquire` hands back a lease, so the caller cannot
+  release it; its own docstring says anything raised there leaves a slot with no owner. The
+  opener and joiner paths were guarded, but the read of the shared flag, an await on a file
+  lock, was not, so a call cancelled there stayed counted for the life of the process. Found
+  while fixing the two-openers race beside it. *Fix:* that await gives the slot back if it
+  raises. The red was `inflight_seqs` staying at 2 after the cancel.
+
 ## #308 — 2026-09-24 — fix: two openers in one process no longer orphan a burst wait
 
 ### Fixed

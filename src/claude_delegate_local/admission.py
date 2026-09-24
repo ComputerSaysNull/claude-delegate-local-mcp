@@ -582,7 +582,14 @@ class Admission:
         lease = AdmissionLease(tokens=tokens, entry_key=entry_key, waited=elapsed)
         open_wait = self._holding
         if open_wait is None and not (seqs == 0 and waiting == 0):
-            if not await self._burst_open_elsewhere():
+            try:
+                elsewhere = await self._burst_open_elsewhere()
+            except BaseException:
+                # An await on a file lock, after the slot was taken: nobody else can give
+                # it back, which is the hazard the docstring names.
+                await self.release(lease)
+                raise
+            if not elsewhere:
                 return seqs, waiting
             # That await let a sibling in this process open a wait of its own. Join it
             # rather than replace it: `_settle_waiters` settles whichever future is current,
