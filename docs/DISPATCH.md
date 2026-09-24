@@ -753,6 +753,10 @@ this for exit codes and the same argument covers the loop's economics: a model's
 its own work is a claim, these are observations. All are absent rather than zeroed on the
 one-shot path, where `tool_calls: 0` would read as a model that chose not to use its tools.
 
+`duplicate_line_share` is what tells a loop from a long answer: the share of non-blank lines
+already said. Code fences are left out, since they are markup; a report with four code blocks
+otherwise read as a fifth repeated.
+
 `bash_calls`, `bash_failures` and `last_bash_exit` are the subject ADR-0007 was written
 about, and are now counted the same way. The exit code reaches the ledger as a field on the
 result block, never parsed back out of the text the model also reads: a trailer regex over
