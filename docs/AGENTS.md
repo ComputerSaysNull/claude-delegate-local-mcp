@@ -108,8 +108,8 @@ out, and the standing advice for a missing agent — ask by name, read the error
 very name an omission hides. Hence three, and `other_format` (ADR-0031) rather than a
 second kind of broken: four of this repository's own five agent files are in it
 deliberately, and folding them into `skipped` would leave that list permanently non-empty,
-which is a list nobody reads. A name shadowed by a nearer tier is in none of the three —
-the lookup really does offer only one.
+which is a list nobody reads. A shadowed name is listed once, as the lookup offers one — but a
+Claude Code file shadows nothing: the lookup passes over it, so its name can be in both lists.
 
 <!-- GEN:AGENT-FORMAT-FIELDS:START -->
 <!-- Generated from src/claude_delegate_local/skills/write-delegate-agent/SKILL.md by scripts/gen_agent_format_docs.py. That file ships inside the package; edit it, not this. -->
