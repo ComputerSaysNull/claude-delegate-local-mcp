@@ -74,7 +74,7 @@ def test_each_bucket_still_forgets_its_own_oldest():
     assert h.expect(3) == 25.0, "an evicted sample is still answering"
 
 
-def test_the_mean_within_a_bucket_is_what_is_returned():
+def test_the_median_within_a_bucket_is_what_is_returned():
     """Rewritten rather than deleted: it asserted the minimum, which was a second defect.
 
     The bucketing this file is about is untouched -- what changed is the statistic read
@@ -82,13 +82,13 @@ def test_the_mean_within_a_bucket_is_what_is_returned():
     spread between them is noise and the worst draw measures nothing; measured
     2026-09-20, the mean tracked the operator benchmark to 1-3% where the minimum sat
     24-71% low. The asymmetry that made a minimum attractive is still paid, one level up:
-    the widening below takes the worst bucket *mean*.
+    the widening below takes the worst bucket *median*.
     """
     h = RateHistory(keep=8)
     for rate in (30.0, 22.5, 27.1):
         observe(h, 2, rate)
 
-    assert h.expect(2, trusted=True) == pytest.approx((30.0 + 22.5 + 27.1) / 3)
+    assert h.expect(2, trusted=True) == pytest.approx(27.1)
 
 
 def test_the_widening_still_answers_an_empty_bucket():

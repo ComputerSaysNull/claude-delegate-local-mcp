@@ -158,7 +158,7 @@ Item 2 was Unscheduled.62, moved unchanged on 2026-09-23.
 3. ✅ **A reasoning-token budget at the server** (P2). ADR-0017 found it refused on the build
   then deployed. Re-check the current one: a cap would cut the tail and most runs that end
   with no answer
-4. ⬜ **Price from the bucket median, not the mean** (review §9): a few prefill-window
+4. ✅ **Price from the bucket median, not the mean** (review §9): a few prefill-window
   samples pull a bucket 4 to 9% low. Agreed with the operator; the widening rule stays
 5. ⬜ **The priced label is frozen at admission, and the real cap is not recorded** (R24).
   Re-read concurrency from the shared totals at every turn, and carry the `max_tokens` sent
