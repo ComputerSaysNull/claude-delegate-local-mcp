@@ -219,6 +219,9 @@ paths = [
   # itself: it reports what a delegation cost, and the findings it was written for live in
   # JOURNAL 2026-09-05, which is where a reader is sent rather than to a document here.
   "scripts/analyse_transcripts.py",
+  # The check a comment pass runs to prove it changed no code. Owns no behaviour and
+  # documents itself: its whole subject is comment passes, and it reads only source text.
+  "scripts/ast_unchanged.py",
   "security/**",
   # Point-in-time evidence, like an ADR body: dated, written once, never edited, and
   # owning no current behaviour. Registering each review as a document would mean a
