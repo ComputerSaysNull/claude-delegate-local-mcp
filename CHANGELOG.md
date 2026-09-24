@@ -38,6 +38,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #337 — 2026-09-24 — fix: the integration marker says what it does
+
+### Fixed
+
+- **The `integration` marker claimed its tests were skipped by default, and they are not.**
+  `addopts` carries no `-m` filter, so all 43 run in every local suite and only CI deselects
+  them. The review suggested making the text true by adding the filter. Measured first:
+  28 of the 38 markers are real-bwrap sandbox tests, and CI deselects them too, so skipping
+  them locally would leave the real sandbox tested nowhere. The marker's description now
+  says what happens instead. No mechanical check applies; the `markers` line is the thing
+  to read.
+
 ## #336 — 2026-09-24 — fix: every GitHub Action in CI is pinned to a commit
 
 ### Fixed

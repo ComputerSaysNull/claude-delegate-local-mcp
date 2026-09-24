@@ -69,7 +69,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 markers = [
-    "integration: needs the live cluster or a real bwrap; skipped by default",
+    "integration: needs the live cluster or a real bwrap; runs locally, CI deselects it",
 ]
 
 # Tests that cannot run nested, i.e. inside the sandbox a delegation's `run_bash` gets.
@@ -86,8 +86,8 @@ markers = [
 # were found by actually running this suite nested on 2026-09-09, once the denylist stopped
 # covering its own list file: four talk to the live endpoint, and one runs a real `pip
 # install` to build a virtualenv. They pass on the host, where the cluster is up, which is
-# why nothing had noticed. Note that `integration` is documented as "skipped by default" and
-# is not -- `addopts` carries no `-m` filter, so these run unless deselected.
+# why nothing had noticed. `integration` is not skipped by default -- `addopts` carries no
+# `-m` filter, so these run unless deselected, and only CI deselects the marker.
 [tool.delegate-local]
 nested-deselect = [
     "tests/test_sandbox.py::test_network_is_reachable_by_address_when_shared",
