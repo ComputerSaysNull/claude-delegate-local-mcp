@@ -870,7 +870,9 @@ A record also says whether that process is **counting a burst**. Within one proc
 member joining an open wait takes its answer, which is an `asyncio.Future` and so reaches
 exactly one process; across processes there is nothing to await, so the wait is published
 in the record and a member that finds one runs its own window over the same shared totals.
-Both settle on the whole burst rather than on the siblings ahead of them.
+Both settle on the whole burst rather than on the siblings ahead of them. Only a joiner's
+own cancellation fails it: an opener's reaches it through the future looking identical, so
+`cancelling()` tells the two apart, and a cancelled opener leaves joiners their own snapshot.
 
 The gate is also what tells the rate sampler whether to scrape: it ticks only while
 `inflight_seqs` is above zero, so an idle cluster costs nothing and a busy one is measured

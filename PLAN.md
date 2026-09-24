@@ -98,7 +98,7 @@ Items 1 and 5 were Unscheduled.59 and Unscheduled.69, moved unchanged on 2026-09
     - b. ✅ **The cause is `_until_deadline`** (R2, and the review's P6): an outer cancel leaves its
     inner task streaming, so the HTTP stream never closes. Cancel and await it on every exit
     that is not a normal return.
-2. ⬜ **Cancelling a burst wait's opener fails every sibling that joined it** (R18). Its
+2. ✅ 2026-09-24 **Cancelling a burst wait's opener fails every sibling that joined it** (R18). Its
   `CancelledError` is stored in the shared future, and each joiner re-raises it as its own
 3. ⬜ **Two openers in one process can orphan a burst wait** (R19): `_holding` is read, awaited
   across, then written, so whoever joined the first future is never settled

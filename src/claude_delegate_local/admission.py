@@ -585,8 +585,15 @@ class Admission:
             try:
                 return await asyncio.shield(open_wait)
             except asyncio.CancelledError:
-                await self.release(lease)
-                raise
+                # Either this call was cancelled or the opener was, and the opener's
+                # `CancelledError` arrives here through the shared future looking exactly
+                # like our own. Only `cancelling()` tells them apart; without it, cancelling
+                # one call of a fan-out failed every sibling that had joined its wait.
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    await self.release(lease)
+                    raise
+                return seqs, waiting
             except Exception:
                 # Whoever opened it failed. Its siblings are not implicated, and their own
                 # snapshot is what they would have been given anyway.
