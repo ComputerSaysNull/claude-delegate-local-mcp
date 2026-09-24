@@ -188,7 +188,7 @@ Sources: the [specification](https://agentskills.io/specification),
 1. ✅ **Nothing checks a skill against the specification's hard limits**: `name` format and
   directory match, `description` at most 1,024 characters, body under 500 lines. All five
   pass today, so the negative test plants a violation
-2. ⬜ **`docs-audit-dispatch` loads its whole runbook every time** (review §5). Keep the
+2. ✅ **`docs-audit-dispatch` loads its whole runbook every time** (review §5). Keep the
   steps and gotchas in `SKILL.md`; move the check-class definitions and sizing evidence to
   `references/`, each with when to read it
 3. ⬜ **No description has been tested for triggering.** Rewrite each as "Use when…", then a

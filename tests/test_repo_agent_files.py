@@ -104,10 +104,24 @@ def test_the_server_parser_accepts_them_too(tmp_path: pathlib.Path) -> None:
 DEFINED_ONLY_IN_SKILL = ("CROSS-PLANE LEAK", "ESCAPE ABUSE", "TOO VERBOSE")
 
 
+def skill_text(folder: pathlib.Path) -> str:
+    """The skill as a whole: SKILL.md plus the references a step tells the caller to read."""
+    files = [folder / "SKILL.md", *sorted((folder / "references").glob("*.md"))]
+    return "\n".join(f.read_text(encoding="utf-8") for f in files if f.exists())
+
+
 def test_the_check_definitions_live_in_the_skill() -> None:
-    body = DISPATCH.read_text(encoding="utf-8")
+    """The definition itself, `**NAME**`, not the bare name the pass table also carries."""
+    body = skill_text(DISPATCH.parent)
     for name in DEFINED_ONLY_IN_SKILL:
-        assert name in body, f"{name} is defined nowhere"
+        assert f"**{name}**" in body, f"{name} is defined nowhere"
+
+
+def test_the_definitions_check_would_catch_a_lost_definition(tmp_path: pathlib.Path) -> None:
+    """The negative control: the skill without its references defines none of them."""
+    (tmp_path / "SKILL.md").write_text(DISPATCH.read_text(encoding="utf-8"), encoding="utf-8")
+    body = skill_text(tmp_path)
+    assert not [name for name in DEFINED_ONLY_IN_SKILL if f"**{name}**" in body]
 
 
 def test_the_agent_body_does_not_redefine_them() -> None:
