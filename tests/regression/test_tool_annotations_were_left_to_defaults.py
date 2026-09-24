@@ -32,8 +32,8 @@ def _tools() -> dict:
 
 def test_every_tool_has_a_title() -> None:
     tools = _tools()
-    for name in READ_ONLY + WRITING:
-        assert tools[name].title, f"{name} has no title"
+    for name, tool in tools.items():
+        assert tool.title, f"{name} has no title"
 
 
 def test_the_destructive_and_open_world_hints_are_stated_and_true() -> None:

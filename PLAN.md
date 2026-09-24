@@ -275,6 +275,8 @@ Item 1 was M11.10, moved unchanged on 2026-09-23.
     - g. ⬜ Restructures the model-facing tool contract, so it is a behaviour change with an ADR.
     **Related to streaming but not blocked on it** — streaming is token-level liveness
     inside a turn, this is call-level detachment. Say so in the ADR.
+    - h. ✅ 2026-09-24 **A detached run needs its own stop**, since the call a client would
+    cancel is already over: `cancel_delegation`, filed and built together.
 
 ### Unscheduled — open, real, and in no milestone
 Neither queued nor deferred: real work not (yet) ranked against a milestone.

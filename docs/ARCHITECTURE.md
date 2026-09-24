@@ -143,7 +143,7 @@ large file being dropped while the budget it would have fitted in sat unused (AD
 | `admission.py` | The capacity gate every delegation passes before it reaches a backend |
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
-| `handles.py` | A delegation's handle, and the task `collect` reads its result from |
+| `handles.py` | A delegation's handle, the task `collect` reads, and what `cancel_delegation` stops |
 | `server.py` | MCP wiring, the tool declarations, the backend cache |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
