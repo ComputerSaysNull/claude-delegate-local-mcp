@@ -77,6 +77,8 @@ def test_the_tool_refuses_an_unknown_handle_and_reports_a_finished_one(tmp_path)
     async def go():
         async with Client(mcp) as client:
             done = payload(await client.call_tool("delegate", {"task": "t", "effort": "inherit"}))
+            # Finished first, so "already over" is what is being asked about.
+            await client.call_tool("collect", {"handle": done["handle"], "wait_seconds": 30})
             late = payload(await client.call_tool("cancel_delegation", {"handle": done["handle"]}))
             with pytest.raises(ToolError, match=r"unknown_handle"):
                 await client.call_tool("cancel_delegation", {"handle": "d-000000000000"})

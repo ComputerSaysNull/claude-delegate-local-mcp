@@ -17,11 +17,11 @@ from fastmcp import Client
 from claude_delegate_local import server, transcript
 from wire_double import as_stream
 from test_server import (
+    answered,
     DoubleCache,
     cfg,
     chat_reply,
     entry,
-    payload,
     registry,
     tool_call_reply,
 )
@@ -45,7 +45,7 @@ def _run(tmp_path: Path, handler, tool: str, args: dict, **over) -> list[dict]:
 
     async def go():
         async with Client(mcp) as client:
-            return payload(await client.call_tool(tool, args))
+            return await answered(client, tool, args)
 
     asyncio.run(go())
     return _events(tmp_path)

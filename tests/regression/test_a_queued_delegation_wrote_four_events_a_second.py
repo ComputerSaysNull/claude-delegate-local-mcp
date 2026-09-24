@@ -56,7 +56,7 @@ def test_a_queued_delegation_writes_few_waiting_events_but_notifies_every_tick(
 
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
-            await client.call_tool("delegate", {"task": "t", "effort": "inherit"})
+            await client.call_tool("delegate_readonly", {"task": "t", "effort": "inherit"})
 
     asyncio.run(go())
     waiting = [e for e in _events(tmp_path) if e.get("t") == "waiting"]

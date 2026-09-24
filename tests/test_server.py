@@ -407,6 +407,19 @@ def payload(result):
     return structured if structured is not None else result.data
 
 
+async def answered(client, tool: str, args: dict) -> dict:
+    """Call a delegating tool and return its answer, collecting it if it came as a handle.
+
+    The write-capable tools answer at once with a handle and the run carries on (ADR-0103),
+    so a test that wants the result collects it, exactly as a caller does.
+    """
+    result = payload(await client.call_tool(tool, args))
+    if result.get("status") == "running" and "handle" in result:
+        result = payload(await client.call_tool(
+            "collect", {"handle": result["handle"], "wait_seconds": 600}))
+    return result
+
+
 def chat_handler(**over):
     return lambda request: as_stream(chat_reply(**over))
 
@@ -427,7 +440,7 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
 
     async def go():
         async with Client(mcp) as client:
-            return payload(await client.call_tool("delegate", kwargs))
+            return await answered(client, "delegate", kwargs)
 
     return asyncio.run(go())
 
@@ -1322,7 +1335,7 @@ def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
             call = client.call_tool(
-                "delegate", {"task": "read it", "effort": "inherit"})
+                "delegate_readonly", {"task": "read it", "effort": "inherit"})
             return payload(await call)
 
     result = asyncio.run(go())
@@ -1349,7 +1362,7 @@ def test_a_one_turn_delegation_still_notifies(tmp_path):
 
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
-            await client.call_tool("delegate", {"task": "q", "effort": "inherit"})
+            await client.call_tool("delegate_readonly", {"task": "q", "effort": "inherit"})
 
     asyncio.run(go())
     assert len(seen) == 1
@@ -1468,7 +1481,7 @@ def called(handler, tool, *, entries=None, config=None, **kwargs):
 
     async def go():
         async with Client(mcp) as client:
-            return payload(await client.call_tool(tool, kwargs))
+            return await answered(client, tool, kwargs)
 
     return asyncio.run(go())
 
@@ -1823,8 +1836,10 @@ def test_a_single_delegate_is_bounded_by_the_endpoints_concurrency_too():
 
     async def go():
         async with Client(mcp) as client:
+            # Collected, since each call answers with a handle at once (ADR-0103): leaving
+            # the session before the runs finish would measure how far four got, not a peak.
             await asyncio.gather(
-                *(client.call_tool("delegate", {"task": f"t{i}", "effort": "inherit"})
+                *(answered(client, "delegate", {"task": f"t{i}", "effort": "inherit"})
                   for i in range(4))
             )
 
@@ -1854,7 +1869,7 @@ def test_a_delegation_that_fails_still_gives_its_slot_back():
         async with Client(mcp) as client:
             for _ in range(3):
                 with pytest.raises(Exception, match="backend_refused"):
-                    await client.call_tool("delegate", {"task": "x", "effort": "inherit"})
+                    await answered(client, "delegate", {"task": "x", "effort": "inherit"})
             return payload(await client.call_tool("backend_status", {}))
 
     gate = asyncio.run(go())["admission"]
@@ -2099,56 +2114,54 @@ def slow_chat_handler(seconds: float, **over):
     return handler
 
 
-def one_shot_progress(config, *, seconds=0.35):
-    """Run a one-shot against a slow backend and collect what the client saw.
+def one_shot_heartbeats(config, *, seconds=0.35):
+    """Run a one-shot against a slow backend and return the heartbeats its transcript got.
 
-    `delegate` with an explicitly empty toolset, which is what the one-shot path is now.
-    It used to be `delegate_readonly`, until that was given the read-only tools and so the
-    turn loop (ADR-0048) -- at which point this helper was quietly measuring the loop's
-    per-turn notification instead of the keepalive it exists to test.
+    `delegate` with an explicitly empty toolset, which is what the one-shot path is. It is
+    reachable only through the write-capable tools, and those answer with a handle at once
+    (ADR-0103), so no client waits on a one-shot and its progress notification reaches
+    nobody. The half that still matters is the transcript's: a stream silent for the whole
+    call is indistinguishable from one whose server was killed, so that is what is counted.
     """
     mcp = server.build(config, registry(entry()),
                        DoubleCache(config, slow_chat_handler(seconds)))
-    seen: list[tuple[float, float | None]] = []
-
-    async def on_progress(progress, total, message):
-        seen.append((progress, total))
 
     async def go():
-        async with Client(mcp, progress_handler=on_progress) as client:
-            await client.call_tool(
-                "delegate", {"task": "q", "effort": "inherit", "allowed_tools": []})
+        async with Client(mcp) as client:
+            await answered(
+                client, "delegate", {"task": "q", "effort": "inherit", "allowed_tools": []})
 
     asyncio.run(go())
-    return seen
+    lines = [ln for p in Path(config.transcript_dir).glob("*.jsonl")
+             for ln in p.read_text(encoding="utf-8").splitlines() if ln]
+    return [e for e in map(json.loads, lines) if e.get("t") == "alive"]
 
 
-def test_a_slow_one_shot_keeps_the_client_informed():
+def test_a_slow_one_shot_keeps_its_transcript_alive(tmp_path):
     """The gap ADR-0018 left open and `run_one_shot`'s own docstring named.
 
-    A one-shot is a single backend call with no turns, so the per-turn notification has
-    nothing to hang on and the call is silent for its whole duration. Measured on
-    2026-08-31 as the only remaining shape that can reach the client's stdio idle timeout
-    and be abandoned while working perfectly.
+    A one-shot is a single backend call with no turns, so nothing lands between `start` and
+    `end` for its whole duration unless the keepalive writes it. Measured on 2026-08-31 as
+    the one shape a watcher could not tell from a dead server.
     """
-    seen = one_shot_progress(cfg(keepalive_interval=1), seconds=2.5)
-    assert len(seen) >= 2, (
-        f"a one-shot lasting 2.5s past a 1s keepalive sent {len(seen)} notification(s)")
+    config = cfg(keepalive_interval=1, transcript_dir=str(tmp_path / "t"),
+                 slots_dir=str(tmp_path))
+    beats = one_shot_heartbeats(config, seconds=2.5)
+    assert len(beats) >= 2, (
+        f"a one-shot lasting 2.5s past a 1s keepalive wrote {len(beats)} heartbeat(s)")
 
 
-def test_a_one_shot_that_returns_promptly_sends_nothing(tmp_path):
-    """The other direction. A notification per fast call is noise on the wire, and a
-    test that only asserted 'some progress' would pass on a heartbeat that never stopped.
+def test_a_one_shot_that_returns_promptly_writes_no_heartbeat(tmp_path):
+    """The other direction. A heartbeat per fast call is noise, and a test that only
+    asserted 'some heartbeat' would pass on one that never stopped.
 
-    `slots_dir` is isolated because this asserts an *absence*, and the keepalive is not the
-    only thing that can send `progress(0, 0)`: `ticked` sends the same shape while a
-    delegation waits for admission. Left at the default this test takes the machine's real
-    slots, so a neighbouring xdist worker holding them made it queue and read its own wait
-    as a heartbeat that would not stop. A 30s keepalive cannot fire inside a 0.05s call, so
-    every notification it can legitimately see is zero -- but only once nothing can queue.
+    `slots_dir` is isolated because this asserts an *absence*: left at the default this
+    test takes the machine's real slots, and a neighbouring xdist worker holding them made
+    it queue. A 30s keepalive cannot fire inside a 0.05s call.
     """
-    config = cfg(keepalive_interval=30, slots_dir=str(tmp_path))
-    assert one_shot_progress(config, seconds=0.05) == []
+    config = cfg(keepalive_interval=30, transcript_dir=str(tmp_path / "t"),
+                 slots_dir=str(tmp_path))
+    assert one_shot_heartbeats(config, seconds=0.05) == []
 
 
 def test_the_heartbeat_stops_when_the_dispatch_does():
@@ -2332,7 +2345,7 @@ def test_an_unknown_effort_is_refused_and_the_message_names_inherit():
 
     async def go():
         async with Client(mcp) as client:
-            await client.call_tool("delegate", {"task": "q", "effort": "medium"})
+            await answered(client, "delegate", {"task": "q", "effort": "medium"})
 
     with pytest.raises(Exception, match="inherit"):
         asyncio.run(go())
@@ -2357,7 +2370,7 @@ def _loop_progress(config, handler, *, before_call=None):
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
             await client.call_tool(
-                "delegate", {"task": "q", "effort": "inherit", "allowed_tools": ["read_file"]}
+                "delegate_readonly", {"task": "q", "effort": "inherit"}
             )
 
     if before_call is not None:
@@ -2444,7 +2457,7 @@ def test_the_loops_heartbeat_stops_when_the_delegation_fails():
         async with Client(mcp, progress_handler=on_progress) as client:
             try:
                 await client.call_tool(
-                    "delegate", {"task": "q", "effort": "inherit", "allowed_tools": ["read_file"]}
+                    "delegate_readonly", {"task": "q", "effort": "inherit"}
                 )
             except Exception:
                 pass  # the failure is the point; what it is belongs to another test

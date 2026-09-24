@@ -1209,8 +1209,12 @@ _DELEGATION_RESULT: dict[str, Any] = {
             "Set on the write-capable delegations: the name `collect` reads this run back by."
         )},
         "status": {"type": "string", "description": (
-            "From `collect` only: `done` with the result, `running` with `running_seconds` "
-            "while it is still going, or `cancelled`."
+            "`running` from a write-capable call, which answers at once; from `collect`, "
+            "`done` with the result, `running` while it is still going, or `cancelled`."
+        )},
+        "tool": {"type": "string", "description": "Beside `running`: which tool started it."},
+        "running_seconds": {"type": "number", "description": (
+            "From `collect` while it is still going: how long the run has taken so far."
         )},
         "empty_response": {"type": "boolean", "description": (
             "Nothing came back at all -- neither an answer nor reasoning. Reaching this "
@@ -1690,13 +1694,15 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
     handles = Handles(cfg.handle_ttl_seconds)
 
     async def _answered(run: Awaitable[dict[str, Any]], tool: str) -> dict[str, Any]:
-        """Run a write-capable delegation under a handle, and answer with it inline.
+        """Start a write-capable delegation and answer with its handle at once (ADR-0103).
 
-        The run is awaited as a task, so cancelling this call cancels it exactly as before;
-        the handle is what `collect` can read the same result back by.
+        The client runs one write-capable call at a time and releases the next only when
+        the current one returns or passes 120s, so answering at once is what lets six start
+        together instead of 120s apart. The run -- admission wait included -- carries on in
+        a task this process owns; `collect` answers it and `cancel_delegation` stops it.
         """
         handle = handles.start(run, tool=tool)
-        return {**await handles.task(handle), "handle": handle}
+        return {"handle": handle, "status": "running", "tool": tool}
 
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncIterator[dict[str, Any]]:
@@ -1714,7 +1720,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
 
     @mcp.tool(title="Delegate to the local model", annotations=_WRITES,
               output_schema=_DELEGATION_RESULT)
-    async def delegate(  # noqa: PLR0913 -- ctx is injected, not an argument the caller sees
+    async def delegate(  # noqa: PLR0913 -- one tool's arguments, one dispatch
         task: Task,
         effort: Effort,
         files: Files = None,
@@ -1727,9 +1733,6 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         max_turns: MaxTurns = None,
         workdir: Workdir = None,
         diagnostics: Diagnostics = False,
-        # Not an argument at all -- fastmcp injects it by type, and it never appears in
-        # the schema the model reads.
-        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Delegate a task to a local model that can read, write and run commands.
 
@@ -1740,13 +1743,15 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         Reach for `delegate_readonly` when nothing needs writing; it is declared read-only,
         so a client that gates writes runs it without stopping to ask. Reach for
         `delegate_to_agent` when the work has a *kind* an agent file already shapes.
+
+        Answers at once with a `handle`: `collect` it for the result.
         """
         run = run_delegation(
             cfg, registry, cache, windows, admission, rates=rates,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             workdir=_rooted(workdir),
-            diagnostics=diagnostics, ctx=ctx, tool_name="delegate",
+            diagnostics=diagnostics, ctx=None, tool_name="delegate",
         )
         return await _answered(run, "delegate")
 
@@ -1834,7 +1839,6 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         max_tokens: MaxTokens = None,
         max_turns: MaxTurns = None,
         diagnostics: Diagnostics = False,
-        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Delegate to a named agent: a file that shapes how one *kind* of task is done.
 
@@ -1845,6 +1849,8 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
 
         Can write and run commands, like `delegate`. Use `delegate_to_agent_readonly` when
         the agent's work is reading.
+
+        Answers at once with a `handle`: `collect` it for the result.
         """
         # Both are checked *before* either is used to look anything up. The agent lookup
         # reads `<project>/.claude/delegate-agents/`, so passing the caller's argument to it
@@ -1858,7 +1864,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             agent=agent, workdir=resolved_workdir,
-            diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent",
+            diagnostics=diagnostics, ctx=None, tool_name="delegate_to_agent",
         )
         return await _answered(run, "delegate_to_agent")
 
@@ -2058,6 +2064,17 @@ file attached.
 
 Prefetching is a head start, not a limit. The read-only tools have turns and can go
 looking, so name the obvious material and let the delegation find the rest.
+
+## Write-capable calls answer with a handle
+
+`delegate` and `delegate_to_agent` answer at once with `status: running` and a `handle`, and
+the work carries on, so several start together. Send the calls in one message, then collect
+them in one message: `collect` waits up to `wait_seconds`, and a client that backgrounds a
+slow read-only call and says when it finishes -- Claude Code does -- can pass the whole
+remaining run and be told when it is done. `running` means wait again, never start again. A
+refusal from inside the run arrives from `collect`, not from the call. `cancel_delegation`
+stops a run; cancelling a `collect` only stops waiting. Until a writing run is collected,
+leave its `workdir` alone: it may still be writing there. A reconnect forgets every handle.
 
 ## How many run at once
 
