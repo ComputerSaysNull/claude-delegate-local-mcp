@@ -364,7 +364,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
   takes down `summarise` and `follow`, and `follow` piped to another program crashes
 78. ✅ 2026-09-24 **The split-dodge check cannot fire in CI** (R22): it reads `git diff --cached`, and a
   CI checkout stages nothing. Use the `--diff` range the other checks use
-79. ⬜ **The gate's `run()` turns a failed git command into an empty answer** (R23), so a check
+79. ✅ 2026-09-24 **The gate's `run()` turns a failed git command into an empty answer** (R23), so a check
   built on it passes having looked at nothing. Raise on a non-zero exit where empty is clean
 80. ⬜ **A queued delegation writes a `waiting` event every quarter second**, so eight calls held
   40 minutes in admission wrote 7.7 MB, a quarter of the transcript directory, into a synced

@@ -38,6 +38,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #312 — 2026-09-24 — fix: the docs gate blocks when git cannot answer instead of passing
+
+### Fixed
+
+- **A gate whose git calls all failed reported PASS.** `run()` returned an empty string for a
+  failed command, and most checks read empty as clean: no files tracked means no secret
+  paths, no documents means no dangling reference. Run where git could not read the tree, the
+  gate checked nothing and passed, which is the fail-open shape this repository treats as its
+  worst kind of check. *Fix:* `run(..., required=True)`, with a `git()` shorthand, raises
+  `GitFailed` on a non-zero exit, and the gate turns that into a block naming the command.
+  Eighteen call sites whose empty answer means clean use it. The two `rev-parse` guards,
+  `git config user.email` (which exits 1 when unset) and the waiver scan stay lenient,
+  because there an empty answer is true. A range passed with `--diff` is required, and CI
+  always passes one; the *default* `origin/main...HEAD`, which a fresh clone or a throwaway
+  repository does not have, is now reported as a SKIP where it used to read as clean. Several
+  existing tests had been passing identity and commit-message checks that looked at nothing
+  for exactly that reason. Measured first: in a repository with no commits,
+  `git diff --cached` and `git ls-files` exit 0, so a fresh repository is not refused. The
+  red was the unfixed gate printing PASS outside any repository. The first draft of that
+  test passed against the unfixed gate, because the identity check blocked on the machine's
+  own address; it now carries its own identity and asserts on the git failure by name.
+  (PLAN Unscheduled.79, review R23.)
+
 ## #311 — 2026-09-24 — fix: the split-dodge check reads the pull request's range in CI
 
 ### Fixed
