@@ -182,6 +182,22 @@ def test_a_plan_without_verification_is_refused(repo, capsys):
     assert "--verification" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("heading", ["### Verification", "## Verification", "### verification:"])
+def test_a_verification_that_brings_its_own_heading_is_refused(repo, capsys, heading):
+    """The planner writes the `### Verification` heading, so a file that starts with one
+    published it twice -- #307 to #324 all did. Refused rather than stripped: the file is
+    the author's text, and quietly rewriting it would hide that it was written wrongly."""
+    assert plan_stack.plan(["fix/a-thing"], verification=f"{heading}\n\n- Both suites pass.") == 1
+
+    assert ".md" not in repo, "a body was written for a plan that should have been refused"
+    assert "heading" in capsys.readouterr().out
+
+
+def test_a_verification_mentioning_the_word_is_still_accepted(repo):
+    """Control: only a heading is the duplicate, not the word in a sentence."""
+    assert plan_stack.plan(["fix/a-thing"], verification="- Verification: both suites pass.") == 0
+
+
 def test_the_gate_is_handed_the_body_that_will_be_published(repo):
     """Control. The scan is only worth something if it reads the text `gh` will send."""
     plan_stack.plan(["fix/a-thing"], verification="- Both suites pass.")

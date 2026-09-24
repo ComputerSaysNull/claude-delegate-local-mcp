@@ -115,7 +115,7 @@ the cause, and the fix. In six months the why is the only part still worth havin
 **A stack ships one pull request at a time**, because merging one deletes its base and
 closes a stacked child unreopenably. `python scripts/plan_stack.py` orders it, refuses a fork,
 checks the number, takes the title and body from the CHANGELOG section plus `--verification
-<file>`, and prints the commands — **which you run yourself**: a hook cannot see a script's
+<file>` (its text, no heading), and prints the commands — **which you run yourself**: a hook cannot see a script's
 subprocess. A branch may hold several commits; each restack keeps them all.
 
 ## Which document do I update?

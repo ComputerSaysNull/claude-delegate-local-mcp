@@ -186,6 +186,11 @@ def front_base(branch: str) -> str:
     return fork
 
 
+# A markdown heading named Verification, at any level. `pr_body` writes that heading, so a
+# verification file carrying one publishes it twice.
+_OWN_HEADING = re.compile(r"^\s{0,3}#{1,6}\s*verification\b", re.IGNORECASE | re.MULTILINE)
+
+
 def pr_body(section: str, verification: str) -> str:
     """The CHANGELOG section, then how the change was verified."""
     return f"{section}\n\n### Verification\n\n{verification.strip()}\n"
@@ -239,6 +244,16 @@ def plan(stack: list[str], verification: str | None = None) -> int:
             f"section plus how the change was verified -- the red-before-green result or the "
             f"check that fired before it passed, and the suites. Write it to a file and run "
             f"again with --verification <file>."
+        )
+        return 1
+    if _OWN_HEADING.search(verification or ""):
+        # Refused rather than stripped: the file is the author's text, and rewriting it
+        # quietly would hide that it was written for a different contract.
+        print(
+            f"\nREFUSED: the verification for {branch} brings its own Verification heading, "
+            f"and this planner writes that heading itself, so the body would carry it twice "
+            f"-- #307 to #324 did. The file is the section's body: remove the heading line "
+            f"and run again."
         )
         return 1
     body = pr_body(section, verification)
