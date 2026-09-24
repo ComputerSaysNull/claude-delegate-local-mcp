@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #323 — 2026-09-24 — docs: two caller rules move from one operator's notes into delegate://orchestration
+
+### Changed
+
+- **Two rules for shaping a delegation were known only to one operator.** Give a verifying
+  pass the reading tools and check its quotations yourself — measured on one audit pass, the
+  full toolset took 26 turns and 29 calls where reading alone took one — and bound a pass
+  with `max_turns` rather than prose, since "verify once, then report" does not hold while
+  the tool-less last turn does, though it cannot stop a loop inside one turn. Anyone else
+  given this server met neither. *Fix:* both are in `delegate://orchestration`, the long
+  form the model reads on demand. The accuracy half of the first is still unmeasured
+  (Unscheduled.1b), so only the cost half is stated. The third rule on the list, that
+  write-capable calls are released one per 120s, is not written down: the previous change
+  removed it. The red was the resource carrying neither rule. (PLAN M15.7.)
+
 ## #322 — 2026-09-24 — feat: write-capable calls answer with a handle at once, so a fan-out starts together
 
 ### Changed
