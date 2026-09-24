@@ -360,7 +360,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     - a. ⬜ GitHub Actions are pinned by tag rather than by commit.
     - b. ⬜ No lock file, so CI resolves every dependency fresh.
     - c. ⬜ Local runs include `integration` tests, which the marker says are skipped.
-77. ⬜ **The transcript viewer trusts line shapes** (R17): a JSON line that is not an object
+77. ✅ 2026-09-24 **The transcript viewer trusts line shapes** (R17): a JSON line that is not an object
   takes down `summarise` and `follow`, and `follow` piped to another program crashes
 78. ✅ 2026-09-24 **The split-dodge check cannot fire in CI** (R22): it reads `git diff --cached`, and a
   CI checkout stages nothing. Use the `--diff` range the other checks use

@@ -1098,7 +1098,7 @@ compares. A twelve-turn delegation reported `output_tokens: 2,002` against a rea
 
 `scripts/watch_delegations.py` reads that stream: it lists what is in the transcript
 directory, follows the one you pick, and renders turns as a conversation rather than as
-JSON. It is owned by this document rather than its own, because a renderer and the format
+JSON — passing over a line that is not an event, and surviving a pipe. It is owned here, because a renderer and the format
 it renders are one decision — split across two documents, a renderer ends up describing a
 shape the writer no longer produces.
 

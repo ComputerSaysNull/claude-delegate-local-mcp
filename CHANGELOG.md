@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #319 — 2026-09-24 — fix: the transcript viewer survives odd lines and a pipe
+
+### Fixed
+
+- **The viewer crashed on a line that was JSON but not an object, and whenever it was
+  piped.** `summarise` and `follow` caught only `JSONDecodeError`, so a line parsing as a
+  list or a number went on to `.get` and took down the list view or the followed one.
+  `follow` also asked stdout for its size, which raises when stdout is a pipe, while `main`
+  checked only that stdin was a terminal — so `watch_delegations.py | tee log` crashed before
+  showing anything — and a reader that exited mid-print raised `BrokenPipeError`. The writer
+  is this server, so the practical source is a truncated or hand-edited file. *Fix:* both
+  readers pass over a non-object line, the width falls back when stdout is not a terminal,
+  and a closed pipe ends `follow` quietly. The reds were `AttributeError` on a list and
+  `OSError` from the terminal-size call. (PLAN Unscheduled.77, review R17.)
+
 ## #318 — 2026-09-24 — fix: the tool-time test runs on a fake clock and stops failing under load
 
 ### Fixed
