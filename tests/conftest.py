@@ -8,9 +8,33 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 REPO = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _ledger_stays_out_of_the_real_home(tmp_path_factory):
+    """A test that dispatches must never append to the operator's real token ledger.
+
+    Configs built here keep the default `ledger_path`, under the real home, so the default
+    is redirected for the session. A test that names its own path keeps it.
+    """
+    from claude_delegate_local import ledger
+    from claude_delegate_local.config import Config
+
+    default = Config.__dataclass_fields__["ledger_path"].default
+    redirect = tmp_path_factory.mktemp("ledger") / "ledger.jsonl"
+    real = ledger.path
+
+    def path(cfg):
+        return redirect if cfg.ledger_path == default else real(cfg)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(ledger, "path", path)
+        yield
 
 # The commit a negative control compares against: `main` as it stood before the work that
 # these controls prove the red of. **A fixed commit, never a branch name.**

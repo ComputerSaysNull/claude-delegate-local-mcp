@@ -64,6 +64,14 @@ Older entries, in the previous flat format, are in
   suite caught it, through a test that keeps "Other" empty. `ledger_path` now sits with
   `transcript_dir` under a section renamed from "Operator transcript" to "Operator records".
   Nothing linked to the old heading.
+- **Every suite run appended fake dispatches to the real ledger.** Test configs carry the
+  default `ledger_path`, under the real home, so each server-level test that dispatched wrote
+  a line there: 253 in WSL, 419 on Windows and 142 in the sandbox's home after one evening,
+  all fake, in the very file the cost report sums. Caught when the report, run without a
+  path, found a ledger nothing real had written yet. `conftest.py` now redirects the default
+  for the whole session, and a test naming its own path keeps it. Red first: a default
+  config resolved to the real file. The polluted files were test lines only and were
+  deleted.
 
 ## #342 — 2026-09-25 — docs: the audit runbook keeps its definitions and evidence in references
 
