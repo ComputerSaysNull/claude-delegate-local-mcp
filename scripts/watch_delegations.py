@@ -24,6 +24,7 @@ import json
 import os
 import re
 import select
+import shutil
 import sys
 import time
 from datetime import datetime, UTC
@@ -799,6 +800,8 @@ def summarise(path: Path) -> dict:
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if not isinstance(event, dict):
+                    continue  # JSON, but not an event: a hand-edited or truncated file
                 # Which of the recurring events came last, which is what separates a
                 # delegation still queued from one that got a slot and then went quiet.
                 # A flag set by `waiting` alone would stay set for the rest of the run.
@@ -1270,7 +1273,19 @@ def follow(path: Path) -> None:
     dispatch writes is usually the thing you were waiting to read, and yanking the screen
     away at that exact moment is the one behaviour a watcher must not have.
     """
-    width = min(os.get_terminal_size().columns, 100)
+    try:
+        _follow(path)
+    except BrokenPipeError:
+        # Piped to a program that exited, `| head` being the usual one. Nothing is left to
+        # show anything to, so stop without a traceback; stdout goes to the null device so
+        # the interpreter's own flush at exit does not raise the same error again.
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")  # for the rest of the process
+
+
+def _follow(path: Path) -> None:
+    # `shutil` rather than `os.get_terminal_size()`, which raises when stdout is a pipe:
+    # `watch_delegations.py | tee log` checked only that stdin was a terminal and crashed.
+    width = min(shutil.get_terminal_size((100, 24)).columns, 100)
     print(CLEAR, end="")
     finished = False
     pacing = QueuedPacing()
@@ -1282,6 +1297,8 @@ def follow(path: Path) -> None:
                 try:
                     event = json.loads(line)
                 except json.JSONDecodeError:
+                    continue
+                if not isinstance(event, dict):
                     continue
                 for shown in pacing.admit(event):
                     for out in render(shown, width):
