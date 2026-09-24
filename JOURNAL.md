@@ -2429,3 +2429,26 @@ Resending cost nothing measurable and kept the prefix cache, which the setting's
 description said it would defeat. The gain is small, and one eight-turn `off` run carries
 most of it, so this supports turning it on rather than proving a win. These tasks reasoned
 little; the heavy-reasoning case is where it should matter most.
+
+## 2026-09-24 — Six write-capable calls in one message now start within 3.3s, not 688s
+
+Measured through the real client after the reconnect that loaded ADR-0103, to see whether
+answering at once actually releases the client's queue or only moves the wait somewhere
+else. Six `delegate` calls, one message, a one-word one-shot each, then six `collect`s in
+one message.
+
+Every call answered at once with `status: running`. The streams' `start` events landed at
++0.00, +0.55, +1.77, +2.40, +3.00 and +3.26s, against +688s for the last of six
+`delegate_to_agent` calls on 2026-09-06, when each was held until its run finished or 120s
+passed. All six ended within 0.8s of one another, 8 to 10.6s after they started — most of
+which is the ten-second admission idle hold, since the gate saw the first arrive alone —
+so they ran side by side rather than one after another behind the handle.
+
+`cancel_delegation` was the other thing only the real stack could show: a long write run,
+still `running` at 25s, came back `cancelled: true, stopped: true`, and its stream's `end`
+event carries `ok: false` at 29.5s, the moment of the cancel. The stream to the model closed
+through the same `_until_deadline` path a cancelled call used to take.
+
+One side effect worth knowing: the first session started after the move reported the two
+`*-local` agents as no longer available to Claude Code, which is ADR-0102's claim that the
+client never reads `.claude/delegate-agents/`, observed rather than assumed.
