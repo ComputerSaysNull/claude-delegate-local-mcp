@@ -38,6 +38,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #311 — 2026-09-24 — fix: the split-dodge check reads the pull request's range in CI
+
+### Fixed
+
+- **The split-dodge check could never fire in CI.** It found added documents with
+  `git diff --cached`, whatever the mode, and a CI checkout stages nothing, so in the one run
+  `--no-verify` cannot skip it saw no document added and passed. It only ever worked in the
+  optional pre-commit hook. *Fix:* in `ci` mode it reads the `--diff` range, as the identity
+  and commit-message checks already do. The red was a new ci-mode test, committing a child
+  document whose audience and owned code are a subset of an existing one, that the check
+  passed. (PLAN Unscheduled.78, review R22.)
+
 ## #310 — 2026-09-24 — fix: an unreachable slot file admits on local counts instead of failing
 
 ### Fixed
