@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #326 — 2026-09-24 — fix: the stack planner refuses a verification that brings its own heading
+
+### Fixed
+
+- **Eighteen pull request bodies, #307 to #324, carried the Verification heading twice.**
+  `plan_stack.py` writes `### Verification` itself and appends the file passed with
+  `--verification`, and the session-execute skill described that file as "that last
+  section", which reads as the section heading and all. Every file started with the heading,
+  so every body published it twice; the text was otherwise the approved text. *Fix:* the
+  planner refuses a file carrying a Verification heading at any level and says why, rather
+  than quietly stripping the author's text, and the skill and CONTRIBUTING say the file is
+  the section's text without its heading. A sentence using the word is still accepted. The
+  red was the planner accepting three heading shapes. The published bodies are left as they
+  are, by choice.
+
 ## #325 — 2026-09-24 — fix: the viewer counts each failed call once instead of shell failures twice
 
 ### Fixed

@@ -99,8 +99,8 @@ commands that publish its front branch.
 changed, why it is allowed, any correction a reader would otherwise trust. The pull request
 body is the branch's CHANGELOG section as it stands — its `Added`, `Changed` and `Fixed`
 subsections — plus a `### Verification` section: the red-before-green result or the check
-that fired before it passed, and the suites. The file you pass is that last section; the
-planner assembles the body and refuses without it. It reads and publishes nothing, so it is safe to run at any time, on any
+that fired before it passed, and the suites. The file you pass is that section's text
+*without* its heading; the planner writes the heading, and refuses a file that is missing or brings its own. It reads and publishes nothing, so it is safe to run at any time, on any
 branch. **You then run those commands yourself, one at a time**, and each push, `pr create`
 and `pr merge` asks before it happens.
 
