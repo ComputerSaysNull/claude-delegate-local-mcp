@@ -38,6 +38,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #324 — 2026-09-24 — docs: the fan-out measured through the real client after the handle change
+
+### Added
+
+- **A JOURNAL entry measuring ADR-0103 end to end.** The tests drive an in-memory client, so
+  whether answering at once really releases Claude Code's queue could only be seen through
+  the real one. Six `delegate` calls in one message started within 3.26s of each other,
+  against +688s for the last of six on 2026-09-06, and ran side by side; a cancelled long
+  run's stream ended at the moment of the cancel. It also records that Claude Code stopped
+  offering the moved `*-local` agents, which ADR-0102 had only assumed.
+
 ## #323 — 2026-09-24 — docs: two caller rules move from one operator's notes into delegate://orchestration
 
 ### Changed
