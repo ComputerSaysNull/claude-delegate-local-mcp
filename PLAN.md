@@ -341,7 +341,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 70. ⬜ **`files[]` takes whole files, so a large one is refused rather than sampled.**
   `CHANGELOG.md` is 182,236 tokens against the 140,000 cap and comes back in
   `files_skipped`, where a range was all anyone wanted. The file's own numbers, not the range's
-71. ⬜ **`test_tool_time_is_the_tools_and_not_the_queue` is load-sensitive under the full
+71. ✅ 2026-09-24 **`test_tool_time_is_the_tools_and_not_the_queue` is load-sensitive under the full
   WSL suite.** Four failures on 2026-09-22, each passing alone and on re-run; the fourth
   was a commit changing no code at all, which is what rules out every change as its cause
 72. ⬜ **A first turn that runs tools still charges the dispatch's setup to them.**

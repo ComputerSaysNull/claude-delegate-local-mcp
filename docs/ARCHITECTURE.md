@@ -1237,7 +1237,7 @@ way, beside `prefill_seconds`, `decode_seconds` and `tool_seconds`. Tool time ge
 clock rather than `ms` minus `backend_ms`, which on turn 1 would charge the admission wait
 to the tools — and it accrues only on turns that called one, the rest of that window being
 the dispatch's own bookkeeping. The accrual and the viewer's line both gate on the calls;
-either alone still reports seconds of "tools" on a run that called none.
+either alone reports "tools" on a run that called none. All of it reads `server._clock`.
 
 The `end` event carries `finish_reason` verbatim, and the viewer names the truncating ones
 with what to do about each. A cut-off reply is a *successful* dispatch — nothing raised, so

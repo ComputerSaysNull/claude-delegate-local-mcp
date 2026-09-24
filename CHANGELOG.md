@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #318 — 2026-09-24 — fix: the tool-time test runs on a fake clock and stops failing under load
+
+### Fixed
+
+- **`test_tool_time_is_the_tools_and_not_the_queue` failed under the full WSL suite while the
+  figure was correct.** Four failures on 2026-09-22, each passing alone, the fourth on a
+  commit changing no code. It ran the same delegation twice on real sleeps and a real clock
+  and asserted on the difference, and under load the sleeps stretch by different amounts in
+  the two runs. *Fix:* every timing figure `run_delegation` reports now reads a module-level
+  `_clock` rather than `time` directly, and the test drives it: the tools take 10s and 20s
+  and the queue 100s of fake time, however loaded the machine, and only the backend's own
+  real milliseconds come off. Negative control: with `tool_clock` set before the gate, the
+  test fails on every run, reporting 129.997s of tools against 30s. (PLAN Unscheduled.71.)
+
 ## #317 — 2026-09-24 — fix: every tool states its annotations instead of relying on defaults
 
 ### Fixed
