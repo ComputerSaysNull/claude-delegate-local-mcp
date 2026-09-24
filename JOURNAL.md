@@ -2452,3 +2452,28 @@ through the same `_until_deadline` path a cancelled call used to take.
 One side effect worth knowing: the first session started after the move reported the two
 `*-local` agents as no longer available to Claude Code, which is ADR-0102's claim that the
 client never reads `.claude/delegate-agents/`, observed rather than assumed.
+
+## 2026-09-24 — The reasoning-token budget is still refused, and the refusal names the only way in
+
+The review's P2 lever: a server-side cap on reasoning tokens would cut the tail and most of
+the runs that end with no answer. ADR-0017 found `thinking_token_budget` refused on the
+build deployed then; this re-checks the current one (vLLM 0.25.2.dev, from the endpoint's
+`system_fingerprint`), with a control beside it so that a short reasoning could not pass
+for a budget working.
+
+One prompt that reasons at length (count the primes between 1000 and 1200 by hand), effort
+`high`, `max_tokens` 6000, sent twice through the registry's own entry:
+
+| request | result |
+|---|---|
+| control, no budget | 200 in 156s, `finish_reason: length`, 6,000 completion tokens, 11,311 characters of reasoning, **no answer at all** |
+| `thinking_token_budget: 256` | 400 at once: not supported by the V2 model runner; run vLLM with `VLLM_USE_V2_MODEL_RUNNER=0` |
+
+The control makes the lever's case on the spot: a high-effort request spent its whole
+ceiling reasoning and returned nothing, which is the no-answer waste the cap was meant to
+cut. The refusal is word for word the one ADR-0017 recorded, so the build has not moved on
+this point, and ADR-0017's decision stands: never send the field.
+
+The only route is a cluster change, not a repository one: booting vLLM on the V1 runner.
+Whether that costs decode speed is unmeasured, and it would have to be weighed against the
+per-request waste above before anyone flips it.
