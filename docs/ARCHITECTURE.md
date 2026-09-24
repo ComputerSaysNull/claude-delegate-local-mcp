@@ -873,6 +873,7 @@ in the record and a member that finds one runs its own window over the same shar
 Both settle on the whole burst rather than on the siblings ahead of them. Only a joiner's
 own cancellation fails it: an opener's reaches it through the future looking identical, so
 `cancelling()` tells the two apart, and a cancelled opener leaves joiners their own snapshot.
+A member that finds a wait opened while it read the shared flag joins it, never replaces it.
 
 The gate is also what tells the rate sampler whether to scrape: it ticks only while
 `inflight_seqs` is above zero, so an idle cluster costs nothing and a busy one is measured

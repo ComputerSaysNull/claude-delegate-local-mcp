@@ -38,6 +38,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #308 — 2026-09-24 — fix: two openers in one process no longer orphan a burst wait
+
+### Fixed
+
+- **A call that joined a burst wait could hang for ever, holding its slot.** `_settle_burst`
+  read `_holding`, awaited the cross-process check, then wrote `_holding`, so a second opener
+  crossing that await replaced the first opener's future. `_settle_waiters` settles whichever
+  future is current, so the replaced one was never settled and its joiners waited until their
+  client gave up. *Fix:* after the await, `_holding` is read again and an open wait is joined
+  rather than replaced. The red was the replacement itself, observed in a test that parks one
+  opener inside the await while another opens and a third joins. (PLAN M14.3, review R19.)
+
 ## #307 — 2026-09-24 — fix: cancelling a burst's opener no longer fails the calls that joined it
 
 ### Fixed

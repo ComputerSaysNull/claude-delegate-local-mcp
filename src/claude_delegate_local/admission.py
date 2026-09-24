@@ -581,6 +581,13 @@ class Admission:
 
         lease = AdmissionLease(tokens=tokens, entry_key=entry_key, waited=elapsed)
         open_wait = self._holding
+        if open_wait is None and not (seqs == 0 and waiting == 0):
+            if not await self._burst_open_elsewhere():
+                return seqs, waiting
+            # That await let a sibling in this process open a wait of its own. Join it
+            # rather than replace it: `_settle_waiters` settles whichever future is current,
+            # so a replaced one is never settled and whoever joined it waits for ever.
+            open_wait = self._holding
         if open_wait is not None:
             try:
                 return await asyncio.shield(open_wait)
@@ -598,9 +605,6 @@ class Admission:
                 # Whoever opened it failed. Its siblings are not implicated, and their own
                 # snapshot is what they would have been given anyway.
                 return seqs, waiting
-
-        if not (seqs == 0 and waiting == 0) and not await self._burst_open_elsewhere():
-            return seqs, waiting
 
         self._holding = asyncio.get_running_loop().create_future()
         try:
