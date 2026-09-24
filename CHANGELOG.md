@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #315 — 2026-09-24 — fix: a queued delegation writes a waiting event every thirty seconds, not every poll
+
+### Fixed
+
+- **A queued delegation wrote four transcript events a second.** Waiting on a shared slot
+  file polls every quarter second, and each poll wrote a `waiting` event, so eight calls
+  held forty minutes in admission wrote 7.7 MB, a quarter of the transcript directory, into
+  a synced folder. *Fix:* the transcript gets the first tick and then one every thirty
+  seconds; the client is still notified on every tick, because that is what keeps its idle
+  timer from abandoning a queued call. No reader depends on the cadence: the viewer repeats
+  a queued line once a minute and takes the age from the event's own cumulative
+  `waited_seconds`. The red was forty `waiting` events for forty polls. (PLAN
+  Unscheduled.80.)
+
 ## #314 — 2026-09-24 — feat: this server's agent files move to .claude/delegate-agents
 
 ### Changed

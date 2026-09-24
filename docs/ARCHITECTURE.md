@@ -1216,7 +1216,8 @@ The viewer renders it as one dim line, and its chunk count is what makes a runni
 delegation legible as *working* rather than merely *unfinished*.
 
 A sixth, `waiting`, is written while a delegation is still queued at the gate, from the
-same tick that resets the client's idle timer during an admission wait. It exists because
+tick that resets the client's idle timer — on the first tick, then every thirty seconds,
+where the wire hears every quarter-second poll. It exists because
 a queued delegation and one whose server was killed leave identical files — unfinished and
 silent — so the viewer reported both as `quiet`, which is true of each and useful about
 neither. Only the server can tell them apart, so the fact is written down when it is known
