@@ -432,7 +432,7 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_exactly_six_tools_are_declared():
+def test_exactly_seven_tools_are_declared():
     """docs/AGENTS.md promises this exact set, and this is what holds it to that.
 
     The promise is the design: a new *kind* of delegated task is a markdown file, not
@@ -457,7 +457,8 @@ def test_exactly_six_tools_are_declared():
     Its *name* said seven for a day after that, which is the small lesson here: the number
     lives in the assertion and the name was never updated, so the one thing a reader sees
     first was the one thing nothing checked. Six now, for `delegate_to_agent_readonly` --
-    the third application of the same argument, written down in ADR-0059.
+    the third application of the same argument, written down in ADR-0059. Seven for
+    `collect`, which a call that returns a handle needs to be answered at all (ADR-0103).
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -468,7 +469,7 @@ def test_exactly_six_tools_are_declared():
 
     assert set(asyncio.run(go())) == {
         "delegate", "delegate_readonly", "delegate_to_agent",
-        "delegate_to_agent_readonly", "list_agents", "backend_status",
+        "delegate_to_agent_readonly", "list_agents", "backend_status", "collect",
     }
 
 
@@ -2064,7 +2065,7 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
             return {t.name: t.annotations for t in await client.list_tools()}
 
     seen = asyncio.run(go())
-    cannot_write = ("backend_status", "list_agents", "delegate_readonly",
+    cannot_write = ("backend_status", "list_agents", "collect", "delegate_readonly",
                     "delegate_to_agent_readonly")
     can_write = ("delegate", "delegate_to_agent")
 

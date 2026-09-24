@@ -19,6 +19,39 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0103 — 2026-09-24 — A write-capable delegation returns a handle, and `collect` answers it — Accepted
+
+**Context.** The client runs one write-capable call at a time and releases the next when
+the current one returns or passes 120s, so six `delegate_to_agent` calls in one message
+started 120s apart, the last at +688s (JOURNAL 2026-09-06); read-only calls are not held
+back and start within seconds. The work does not need the call to stay open — the call
+only needs to return.
+
+**Decision.** `delegate` and `delegate_to_agent` run the delegation as a task this process
+owns and answer with a `handle` at once. A seventh tool, `collect(handle, wait_seconds)`,
+returns the result when the run has finished and `running` otherwise; it is read-only, so
+several wait together, and a client that backgrounds a slow read-only call and notifies on
+completion gets the old notification back by collecting with a long wait. An eighth,
+`cancel_delegation(handle)`, stops a run, because the call a client would cancel is already
+over. The admission wait happens inside the task, so it is behind the handle too.
+
+**No grace window.** Answering inline when a run finishes within a few seconds was the
+shape PLAN proposed. Measured over the transcripts: 11 of 115 write-capable runs finished
+successfully inside 10s, nearly all probes of a few tokens, against medians of 61s and
+710s. A window only puts back the stagger it was meant to remove, for the rare short run
+that costs one immediate `collect` without it.
+
+**Server-side, not a client setting.** `MCP_TOOL_TIMEOUT` could shorten the ramp, but it is
+per-machine setup that does not travel with the server, and whether it backgrounds or
+kills is untested. **Not streaming, and not blocked on it:** streaming is liveness within
+a turn; this is a call's lifetime. **It does not change the fan-out trade:** `stall_timeout`
+is wall-clock per delegation, so a wide fan-out still costs each run its share of the
+cluster; a handle only stops that being time the caller sits in.
+
+**In-process.** A handle names a task in the server that issued it, so a reconnect forgets
+both, as a reconnect already killed a running call; a finished result is kept for
+`handle_ttl_seconds`, and the transcript keeps its record regardless.
+
 ## ADR-0102 — 2026-09-24 — This server's agent files get a directory Claude Code does not read — Accepted
 
 **Context.** The first tier was `<project>/.claude/agents/`, which is also where Claude Code

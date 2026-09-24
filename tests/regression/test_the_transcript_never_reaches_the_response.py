@@ -57,6 +57,8 @@ def test_the_transcript_never_reaches_the_response(tmp_path):
     """The whole response, byte for byte, with the directory set and unset."""
     off = response_with(cfg())
     on = response_with(cfg(transcript_dir=str(tmp_path)))
+    # Each run's handle names that run, so two runs never share one; it is not transcript.
+    off.pop("handle"), on.pop("handle")
 
     assert json.dumps(off, sort_keys=True, default=str) == json.dumps(
         on, sort_keys=True, default=str
