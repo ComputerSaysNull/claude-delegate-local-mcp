@@ -125,7 +125,7 @@ test fails when an agent or skill body names one.
   `turn == turns`, and the banner claims more than that flag knows
 5. ✅ 2026-09-24 **Progress notifications are not monotonic** (R7): heartbeats send `progress(0, 0)`
   between turns. One rising counter per call, no unknown `total`, the words in `message`
-6. ⬜ **Tool annotations are left to defaults** (review §5): no `title`, and the two writing
+6. ✅ 2026-09-24 **Tool annotations are left to defaults** (review §5): no `title`, and the two writing
   tools do not state `destructiveHint` or `openWorldHint`
 7. ⬜ **Three caller rules live only in the operator's memory**: narrow a verifying pass to
   reading, bound a delegation with `max_turns`, and expect writing calls to be serialised.

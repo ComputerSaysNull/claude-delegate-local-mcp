@@ -1326,6 +1326,14 @@ _DELEGATION_RESULT: dict[str, Any] = {
     },
 }
 
+# Every hint stated rather than left to the specification's defaults, which are true for
+# both `destructiveHint` and `openWorldHint`: unset, the read-only tools claimed to be
+# destructive and open to the world. The writing tools overwrite files and run commands.
+# Only `delegate_to_agent` is open-world, because the sandbox has no network unless an
+# agent asks and is on `agent_network_allowed`, and it is the one that runs agents.
+_READS: dict[str, Any] = {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+_WRITES: dict[str, Any] = {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
+
 _AGENT_LIST_RESULT: dict[str, Any] = {
     "type": "object",
     "additionalProperties": True,
@@ -1642,7 +1650,8 @@ def build(
         instructions=_server_instructions(cfg),
     )
 
-    @mcp.tool(output_schema=_DELEGATION_RESULT)
+    @mcp.tool(title="Delegate to the local model", annotations=_WRITES,
+              output_schema=_DELEGATION_RESULT)
     async def delegate(  # noqa: PLR0913 -- ctx is injected, not an argument the caller sees
         task: Task,
         effort: Effort,
@@ -1678,7 +1687,8 @@ def build(
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate",
         )
 
-    @mcp.tool(annotations={"readOnlyHint": True}, output_schema=_DELEGATION_RESULT)
+    @mcp.tool(title="Delegate a read-only task", annotations=_READS,
+              output_schema=_DELEGATION_RESULT)
     async def delegate_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
         task: Task,
         effort: Effort,
@@ -1745,7 +1755,9 @@ def build(
         except PathPolicyError as e:
             raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
-    @mcp.tool(output_schema=_DELEGATION_RESULT)
+    @mcp.tool(title="Delegate to a named agent",
+              annotations={**_WRITES, "openWorldHint": True},
+              output_schema=_DELEGATION_RESULT)
     async def delegate_to_agent(  # noqa: PLR0913 -- ctx is injected, not a caller argument
         agent_name: AgentName,
         task: Task,
@@ -1786,7 +1798,8 @@ def build(
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent",
         )
 
-    @mcp.tool(annotations={"readOnlyHint": True}, output_schema=_DELEGATION_RESULT)
+    @mcp.tool(title="Delegate a read-only task to a named agent", annotations=_READS,
+              output_schema=_DELEGATION_RESULT)
     async def delegate_to_agent_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
         agent_name: AgentName,
         task: Task,
@@ -1828,7 +1841,7 @@ def build(
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent_readonly",
         )
 
-    @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True},
+    @mcp.tool(title="List agents", annotations={**_READS, "idempotentHint": True},
               output_schema=_AGENT_LIST_RESULT)
     async def list_agents(project: ProjectLookup = None) -> dict[str, Any]:
         """List the agents `delegate_to_agent` can reach, and where each was found.
@@ -1871,7 +1884,7 @@ def build(
             ],
         }
 
-    @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True},
+    @mcp.tool(title="Check the local models", annotations={**_READS, "idempotentHint": True},
               output_schema=_BACKEND_STATUS_RESULT)
     async def backend_status() -> dict[str, Any]:
         """Report whether each configured local model is reachable and serving what it should.
