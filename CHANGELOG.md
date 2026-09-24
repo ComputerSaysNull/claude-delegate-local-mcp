@@ -38,6 +38,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #325 — 2026-09-24 — fix: the viewer counts each failed call once instead of shell failures twice
+
+### Fixed
+
+- **One failed shell call showed as "2 failures".** A delegation whose only failure was a
+  `run_bash` exiting 2 read "11 tool calls 9 shell 2 failures" in the viewer, against one
+  failing call in its transcript. The summary added `tool_errors` and `bash_failures`, and a
+  command that exits non-zero is counted in both; the comment beside the sum said the
+  overlap was only a refused call. Neither counter alone is the count either, because a
+  masked failure reaches `bash_failures` without being an error. *Fix:* the loop counts
+  `failed_calls`, each failing call once however it failed, and it travels with the other
+  counters to the result, the dispatch record and the transcript's `end` event, where the
+  viewer shows it. A transcript written before it existed keeps the old sum rather than a
+  count nobody made. The red was that exact line reading "2 failures". (PLAN
+  Unscheduled.81.)
+
 ## #324 — 2026-09-24 — docs: the fan-out measured through the real client after the handle change
 
 ### Added

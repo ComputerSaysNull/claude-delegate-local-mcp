@@ -590,16 +590,16 @@ def _end_counts(event: dict) -> list[str]:
     if isinstance(shells := event.get("bash_calls"), int) and shells:
         out.append(f"{shells} shell")
     errors, bad_shell = event.get("tool_errors"), event.get("bash_failures")
-    if isinstance(errors, int) and isinstance(bad_shell, int):
-        # They overlap, and the sum therefore errs high by exactly one per `run_bash`
-        # call the server refused: such a call is an error, so it lands in `tool_errors`,
-        # and `bash_failures` counts a refusal too. Summed anyway, and erring high is the
-        # direction chosen deliberately -- this line exists to make failure visible, and a
-        # count that hides one is worse than a count that flags one twice. Both are
-        # required rather than defaulted, because they are written by one ledger in one
-        # event: adding an absent half as zero would be the absent-is-not-zero mistake
-        # the rest of this renderer goes to trouble to avoid.
-        failed = errors + bad_shell
+    distinct = event.get("failed_calls")
+    if isinstance(distinct, int) or (isinstance(errors, int) and isinstance(bad_shell, int)):
+        # `failed_calls` counts each failing call once. The two counters beside it overlap
+        # on every shell call that exits non-zero -- it is an error and a shell failure at
+        # once -- so their sum showed one failed command as "2 failures". The sum is kept
+        # only for a transcript written before `failed_calls` existed, where it errs high:
+        # a count that flags one twice beats one that hides one. Both halves are required
+        # there rather than defaulted, since adding an absent half as zero would be the
+        # absent-is-not-zero mistake the rest of this renderer goes to trouble to avoid.
+        failed = distinct if isinstance(distinct, int) else errors + bad_shell
         word = f"{failed} failure{'' if failed == 1 else 's'}"
         # The one thing that breaks the dimness, and only when there is something to
         # break it for. Dim and red combine into a dim red rather than replacing each

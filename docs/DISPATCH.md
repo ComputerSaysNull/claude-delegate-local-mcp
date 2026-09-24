@@ -1,4 +1,5 @@
-<!-- BUDGET: 850
+<!-- BUDGET: 860
+     Raised from 850 (+1 for this line) on 2026-09-24: the loop counts failing calls once, because its two failure counters overlap.
      Raised from 838 (+1 for this line) on 2026-09-22: what prices a turn when nothing has been measured at all is a third case, and it was previously the endpoint's blend. -->
 <!-- 
      Raised from 823 (+1 for this line) on 2026-09-22: the decode rate is sampled on a ticker and priced from a bucket mean, which is a subsystem rather than a constant. -->
@@ -761,7 +762,9 @@ prose stops firing the day the wording changes, and nothing reports that it stop
 status does not say so, and is added to `bash_failures` too: that field accumulates across
 the delegation, and until ADR-0095 its `exit_code != 0` term missed the case entirely — a
 delegation whose third command failed inside a compound line reported `bash_failures: 0`.
-Never applied to `last_bash_exit`, which every call that ran overwrites.
+Never applied to `last_bash_exit`, which every call that ran overwrites. `failed_calls` counts
+each failing call once: a command that exits non-zero is in both `tool_errors` and
+`bash_failures`, and a masked one only in the second, so no sum of the two is a count.
 
 Two distinctions in those numbers are worth stating, because both are easy to get
 backwards. **Attempts, not completions** — a call refused before a process started still

@@ -371,6 +371,9 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 80. ✅ 2026-09-24 **A queued delegation writes a `waiting` event every quarter second**, so eight calls held
   40 minutes in admission wrote 7.7 MB, a quarter of the transcript directory, into a synced
   folder. Thin what the stream records, not what the caller is told
+81. ✅ 2026-09-24 **The viewer shows each failed shell call twice**: it sums `tool_errors` and `bash_failures`,
+  and a non-zero `run_bash` is in both. Neither alone is right, since a masked failure is in
+  `bash_failures` only, so count distinct failing calls from the turn events
 
 ## Deferred
 
