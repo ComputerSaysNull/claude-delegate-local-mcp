@@ -627,6 +627,11 @@ def tool_ms_for_turn(
     return max(int((now - tool_clock) * 1000) - backend_ms, 0)
 
 
+# How often a queued delegation's `waiting` event reaches the transcript. Half the viewer's
+# once-a-minute repeat, so its line never lags by more than one interval.
+_WAITING_EVERY_SECONDS = 30.0
+
+
 async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's arguments,
     # one dispatch. The branches are the paths a dispatch can end on, and each one has
     # to close the transcript stream as well as write the record.
@@ -874,6 +879,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         )
 
     waiting_since = time.monotonic()
+    waiting_written: float | None = None
 
     async def ticked() -> None:
         """ADR-0018 again, one layer earlier.
@@ -885,11 +891,21 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         It writes to the transcript as well as the wire, for the reason `alive` does: a
         queued delegation and one whose server was killed leave identical files, and the
         server is the only thing that can tell them apart (ADR-0072).
+
+        The wire hears every tick and the transcript one every `_WAITING_EVERY_SECONDS`,
+        the first at once so a viewer shows `queued` straight away. A shared slot file is
+        polled four times a second, and writing each poll put 7.7 MB into a synced folder
+        for eight queued calls; the viewer shows one line a minute regardless.
         """
+        nonlocal waiting_written
         await progress(0, 0)
-        if stream is not None:
+        now = time.monotonic()
+        if stream is not None and (
+            waiting_written is None or now - waiting_written >= _WAITING_EVERY_SECONDS
+        ):
+            waiting_written = now
             stream.waiting(
-                waited_seconds=time.monotonic() - waiting_since,
+                waited_seconds=now - waiting_since,
                 of_seconds=cfg.admission_wait_timeout,
             )
 
