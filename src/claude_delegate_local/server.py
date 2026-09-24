@@ -1379,6 +1379,26 @@ _AGENT_LIST_RESULT: dict[str, Any] = {
     },
 }
 
+_CANCEL_RESULT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "handle": {"type": "string", "description": "The delegation this was asked to stop."},
+        "cancelled": {"type": "boolean", "description": (
+            "Whether this call stopped it. False when it had already finished or been stopped."
+        )},
+        "stopped": {"type": "boolean", "description": (
+            "Whether the run has ended. A run inside a shell command can take a few seconds "
+            "longer, and `collect` reports `cancelled` once it has."
+        )},
+    },
+}
+
+# How long `cancel_delegation` waits for the run to wind down before answering. A shell
+# command runs in a thread and cannot be interrupted mid-call (JOURNAL 2026-09-22 measured
+# 10-19s there against 2s otherwise), so this bounds the wait rather than promising the end.
+_CANCEL_SETTLE_SECONDS = 5.0
+
 _BACKEND_STATUS_RESULT: dict[str, Any] = {
     "type": "object",
     "additionalProperties": True,
@@ -1900,6 +1920,29 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             return await handles.collect(handle, wait)
         except UnknownHandle as e:
             raise ToolError(str(e)) from e
+
+    # Not read-only -- it stops work -- but it destroys nothing and reaches nothing outside
+    # this process, and stopping a run twice is the same as stopping it once.
+    @mcp.tool(title="Stop a delegation",
+              annotations={"readOnlyHint": False, "destructiveHint": False,
+                           "idempotentHint": True, "openWorldHint": False},
+              output_schema=_CANCEL_RESULT)
+    async def cancel_delegation(handle: HandleArg) -> dict[str, Any]:
+        """Stop a running delegation by the `handle` a delegating call returned.
+
+        The call that started it has already answered, so cancelling that call no longer
+        reaches the work; this does, closing the stream to the model as a cancelled call
+        used to. `cancelled` says whether this stopped anything, `stopped` whether the run
+        has ended. Cancelling a `collect` only stops that wait, never the run.
+        """
+        try:
+            cancelled = handles.cancel(handle)
+            task = handles.task(handle)
+        except UnknownHandle as e:
+            raise ToolError(str(e)) from e
+        if not task.done():
+            await asyncio.wait({task}, timeout=_CANCEL_SETTLE_SECONDS)
+        return {"handle": handle, "cancelled": cancelled, "stopped": task.done()}
 
     @mcp.tool(title="List agents", annotations={**_READS, "idempotentHint": True},
               output_schema=_AGENT_LIST_RESULT)

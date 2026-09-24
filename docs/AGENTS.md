@@ -60,8 +60,8 @@ that reach it in M6. Everything below describes behaviour. The roadmap is
 
 ## Why agents are files
 
-There are seven MCP tools: `delegate`, `delegate_readonly`, `delegate_to_agent`,
-`delegate_to_agent_readonly`, `collect`, `list_agents` and `backend_status`. A new *kind* of delegated task — review, test-writing,
+There are eight MCP tools: `delegate`, `delegate_readonly`, `delegate_to_agent`,
+`delegate_to_agent_readonly`, `collect`, `cancel_delegation`, `list_agents` and `backend_status`. A new *kind* of delegated task — review, test-writing,
 refactoring, migration — is a markdown file, not a new tool. A test asserts the exact set,
 so another cannot arrive unargued.
 

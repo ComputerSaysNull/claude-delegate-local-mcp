@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #321 — 2026-09-24 — feat: cancel_delegation stops a delegation by its handle
+
+### Added
+
+- **An eighth tool, `cancel_delegation(handle)`.** Today a client stops a backgrounded
+  delegation by cancelling its call, which works because the work runs inside the call. The
+  next slice answers write-capable calls with a handle at once, and then the call a client
+  would cancel is already over — so without this, returning early would take away the only
+  way to stop a write-capable run (ADR-0103). It cancels the run's task, which closes the
+  stream to the model through the same path a cancelled call took, and waits a few seconds
+  for it to end before answering. Stopping and waiting stay apart: cancelling a `collect`
+  only ends that wait. Not read-only, since it stops work, but not destructive either. Not
+  in PLAN's text for M20.1; filed there as a sub-bullet with this. The red was the tool being
+  unknown.
+
 ## #320 — 2026-09-24 — feat: a write-capable delegation carries a handle, and collect reads it back
 
 ### Added

@@ -432,7 +432,7 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_exactly_seven_tools_are_declared():
+def test_exactly_eight_tools_are_declared():
     """docs/AGENTS.md promises this exact set, and this is what holds it to that.
 
     The promise is the design: a new *kind* of delegated task is a markdown file, not
@@ -458,7 +458,9 @@ def test_exactly_seven_tools_are_declared():
     lives in the assertion and the name was never updated, so the one thing a reader sees
     first was the one thing nothing checked. Six now, for `delegate_to_agent_readonly` --
     the third application of the same argument, written down in ADR-0059. Seven for
-    `collect`, which a call that returns a handle needs to be answered at all (ADR-0103).
+    `collect`, which a call that returns a handle needs to be answered at all, and eight for
+    `cancel_delegation`, because the call a client would cancel is then already over
+    (ADR-0103).
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -470,6 +472,7 @@ def test_exactly_seven_tools_are_declared():
     assert set(asyncio.run(go())) == {
         "delegate", "delegate_readonly", "delegate_to_agent",
         "delegate_to_agent_readonly", "list_agents", "backend_status", "collect",
+        "cancel_delegation",
     }
 
 
@@ -2067,7 +2070,7 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
     seen = asyncio.run(go())
     cannot_write = ("backend_status", "list_agents", "collect", "delegate_readonly",
                     "delegate_to_agent_readonly")
-    can_write = ("delegate", "delegate_to_agent")
+    can_write = ("delegate", "delegate_to_agent", "cancel_delegation")
 
     for name in cannot_write:
         assert seen[name] is not None and seen[name].readOnlyHint is True, (
