@@ -323,12 +323,13 @@ answered, 1 if it did not, and 2 on bad usage. Everything between goes through
 `run_delegation`, so admission, the budget, the transcript and every refusal behave exactly
 as they do for a tool call. This module owns argument handling and an exit code, nothing else.
 
-It answers a limit on the *client* rather than on this server. A conversation speaking MCP
-keeps one write-capable call in flight and releases the next at whichever of completion or
-120s comes first, so a six-wide fan-out spends 600s staggering before any work overlaps;
-started from a shell the same six span 88ms. The second gain is context rather than time —
-a tool result lands in the caller's window whole, where this one is redirected to a file and
-read back in part.
+It answered a limit on the *client*: a conversation speaking MCP keeps one write-capable call
+in flight and releases the next at whichever of completion or 120s comes first, so a
+six-wide fan-out spent 600s staggering. The write-capable tools now answer at once with a
+handle instead (ADR-0103), so the run carries on in a task the server owns, admission wait
+included, and `collect` reads it back; they send no progress, having no call left open to
+send it on. What `run` still buys is context — a tool result lands in the caller's window
+whole, where this one is redirected to a file and read back in part.
 
 stdout carries that JSON, which is why `main.run` dispatches here *before* building a
 server, exactly as it does for `--doctor`: a server started underneath would interleave MCP

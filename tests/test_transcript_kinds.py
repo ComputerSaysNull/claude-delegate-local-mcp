@@ -18,6 +18,7 @@ from fastmcp import Client
 
 from claude_delegate_local import server
 from test_server import (
+    answered,
     DoubleCache,
     cfg,
     chat_handler,
@@ -39,7 +40,7 @@ def _call(config, handler, tool: str, args: dict) -> None:
 
     async def go():
         async with Client(mcp) as client:
-            await client.call_tool(tool, args)
+            await answered(client, tool, args)
 
     asyncio.run(go())
 

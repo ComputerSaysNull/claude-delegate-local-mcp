@@ -33,13 +33,14 @@ def test_a_writing_call_names_its_handle_and_collect_returns_the_same_answer(tmp
     async def go():
         async with Client(mcp) as client:
             first = payload(await client.call_tool("delegate", {"task": "t", "effort": "inherit"}))
-            again = payload(await client.call_tool("collect", {"handle": first["handle"]}))
+            again = payload(await client.call_tool(
+                "collect", {"handle": first["handle"], "wait_seconds": 30}))
             return first, again
 
     first, again = asyncio.run(go())
     assert first["handle"].startswith("d-")
     assert again["status"] == "done"
-    assert again["answer"] == first["answer"] == "done"
+    assert again["answer"] == "done"
 
 
 def test_an_unknown_handle_is_refused_with_where_to_look(tmp_path) -> None:

@@ -24,13 +24,13 @@ from claude_delegate_local import server
 from claude_delegate_local.config import Config
 
 from test_server import (
+    answered,
     DoubleCache,
     cfg,
     chat_reply,
     entry,
     files_cfg,
     files_posix_only,
-    payload,
     registry,
 )
 from wire_double import as_stream
@@ -50,7 +50,7 @@ def run(handler, *, config: Config, tool: str = "delegate", **kwargs) -> dict:
 
     async def go():
         async with Client(mcp) as client:
-            return payload(await client.call_tool(tool, kwargs))
+            return await answered(client, tool, kwargs)
 
     return asyncio.run(go())
 

@@ -252,7 +252,7 @@ collects the answer with no caller-visible ramp or admission wait.
 
 Item 1 was M11.10, moved unchanged on 2026-09-23.
 
-1. ⬜ **A delegation returns a handle, and a second call collects it** — the 120s is when
+1. ✅ 2026-09-24 **A delegation returns a handle, and a second call collects it** — the 120s is when
   the client stops *waiting*, not when it issues the next call, so what is left to remove is
   the ramp on the two write-capable tools and the caller-visible admission wait.
     - a. ✅ 2026-09-19 **The ramp is real for the write-capable tools only**, which is what re-ranked this
@@ -261,18 +261,18 @@ Item 1 was M11.10, moved unchanged on 2026-09-23.
     - b. ✅ **Measured 2026-09-05:** four passes issued together started 20:24:30, 20:26:32,
     20:28:32, 20:30:32, and ran concurrently once started. `seqs=4, large=0` was *not*
     evidence of health — see the admission item for why that counter cannot see a fan-out.
-    - c. ⬜ **The fan-out is worth more than the ramp, and handles do not change that.**
+    - c. ✅ 2026-09-24 **The fan-out is worth more than the ramp, and handles do not change that.**
     `stall_timeout` is wall-clock per delegation, so the batch takes the gain while each run
     pays the penalty; a handle only stops it being caller-visible (JOURNAL 2026-09-05).
-    - d. ⬜ **Server-side rather than a client setting**, deliberately. `MCP_TOOL_TIMEOUT` might
+    - d. ✅ 2026-09-24 **Server-side rather than a client setting**, deliberately. `MCP_TOOL_TIMEOUT` might
     shorten the ramp, but it is per-machine setup that does not travel, and whether it
     backgrounds or kills is untested with a severe failure mode.
-    - e. ⬜ **Shape that keeps the common case cheap:** a short grace window returning inline if it
+    - e. ❌ 2026-09-24 (short runs are rare, so a window only restored the stagger; ADR-0103) **Shape that keeps the common case cheap:** a short grace window returning inline if it
     finishes, otherwise a handle. `collect(handle, wait_seconds)` blocks just under the
     client's threshold, which costs nothing because the work is already running.
-    - f. ⬜ Moves the admission wait behind the handle, so `admission_wait_timeout` stacking on
+    - f. ✅ 2026-09-24 Moves the admission wait behind the handle, so `admission_wait_timeout` stacking on
     `dispatch_timeout` stops being caller-visible wall time (ADR-0038).
-    - g. ⬜ Restructures the model-facing tool contract, so it is a behaviour change with an ADR.
+    - g. ✅ 2026-09-24 Restructures the model-facing tool contract, so it is a behaviour change with an ADR.
     **Related to streaming but not blocked on it** — streaming is token-level liveness
     inside a turn, this is call-level detachment. Say so in the ADR.
     - h. ✅ 2026-09-24 **A detached run needs its own stop**, since the call a client would

@@ -38,6 +38,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #322 — 2026-09-24 — feat: write-capable calls answer with a handle at once, so a fan-out starts together
+
+### Changed
+
+- **`delegate` and `delegate_to_agent` answer at once with `status: running` and a
+  `handle`, and the run carries on.** The client runs one write-capable call at a time and
+  releases the next when the current one returns or passes 120s, so six in one message
+  started 120s apart, the last at +688s. Now each returns at once, so the next is released
+  at once; the run, admission wait included, continues in a task the server owns, `collect`
+  answers it and `cancel_delegation` stops it (ADR-0103). There is no grace window for runs
+  that finish quickly: over the transcripts, 11 of 115 write-capable runs finished in under
+  10s, nearly all probes, so a window would only have put the stagger back. A detached run
+  sends no progress, since no call is left open to carry it; the read-only tools, which
+  never staggered, answer inline as before. A refusal from inside the run now arrives from
+  `collect`; one about the arguments the handler checks itself, a workdir or an agent, still
+  refuses the call. `delegate://orchestration` says how to use them. The reds were a call
+  against a 3s run taking 3.05s to answer when queued, and `cancel_delegation` finding no
+  run still going to stop. (PLAN M20.1, ADR-0103.)
+
 ## #321 — 2026-09-24 — feat: cancel_delegation stops a delegation by its handle
 
 ### Added

@@ -45,7 +45,7 @@ def test_progress_only_rises_across_queued_ticks_and_turns(tmp_path, monkeypatch
 
     async def go():
         async with Client(mcp, progress_handler=on_progress) as client:
-            await client.call_tool("delegate", {"task": "t", "effort": "inherit"})
+            await client.call_tool("delegate_readonly", {"task": "t", "effort": "inherit"})
 
     asyncio.run(go())
     values = [p for p, _, _ in seen]
