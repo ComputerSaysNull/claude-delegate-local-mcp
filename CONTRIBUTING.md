@@ -183,6 +183,9 @@ Two things that live outside it and are easy to miss:
   tolerates documentation placeholders and service accounts. A service address able to
   author commits would defeat the identity check.
 - Host literals reach CI through a `FORBIDDEN_STRINGS` repository secret, never the repo.
+  That secret sits in a job running third-party actions, so every `uses:` is pinned to a
+  commit hash, with its version in a comment; a tag can be moved by whoever controls the
+  action. A test fails on a tag. Bumping one means looking up the new tag's commit.
 - The gate job also scans the **pull request title and body**, via the Actions event
   payload. Those are written outside git, so no hook and no file check can see them — a
   specimen once reached a public pull request body while every other check passed. The
