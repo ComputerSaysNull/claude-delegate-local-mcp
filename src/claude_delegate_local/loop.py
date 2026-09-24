@@ -1456,6 +1456,11 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     on_token: Callable[[], None] | None = None,
     max_tokens: int | None = None,
     budget_ceiling: int | None = None,
+    # The first attempt's resolved budget, computed by the caller so the priced row and
+    # the send are the same number rather than two computations that can drift. When not
+    # supplied -- the direct callers in the tests -- this falls back to the same
+    # `resolve_max_tokens` below, so the behaviour is unchanged.
+    asked_budget: int | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -1494,7 +1499,8 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     token counts: those come from the attempt that answered. ADR-0014 says the retry must
     not charge the turn budget, so a turn is charged for the answer it got.
     """
-    asked_budget = resolve_max_tokens(cfg, entry, effort, max_tokens, ceiling=budget_ceiling)
+    if asked_budget is None:
+        asked_budget = resolve_max_tokens(cfg, entry, effort, max_tokens, ceiling=budget_ceiling)
     attempts = 0
     # The wall clock this dispatch spent, split the way the engine spends it, and summed
     # over the stages because each stage is a fresh prompt and so a fresh prefill. The
@@ -1675,9 +1681,17 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         ))
         # The one-shot completes no turns, so without this it can only ever be explained
         # by what it was *asked*, never by what it was allowed.
+        # Resolved once, here, so the priced row and the send are the same number. The
+        # budget is computed before the row because the row has to say what the turn was
+        # *allowed*; passing it down keeps `dispatch_with_recovery` from recomputing it a
+        # second way.
+        asked_budget = resolve_max_tokens(
+            cfg, entry, resolved, max_tokens, ceiling=ceiling
+        )
         if on_priced is not None:
             await on_priced({
                 "turn": 1, "effort": resolved, "max_tokens": max_tokens,
+                "max_tokens_sent": asked_budget,
                 "budget_ceiling": ceiling, "decode_rate": rate.rate,
                 "rate_source": rate.source,
                 "expected_concurrency": expected_concurrency,
@@ -1687,7 +1701,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         return await dispatch_with_recovery(
             cfg, entry, backend, request_at,
             effort=resolved, max_tokens=max_tokens,
-            budget_ceiling=ceiling,
+            budget_ceiling=ceiling, asked_budget=asked_budget,
             sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=token_arrived,
             tick_sleep=tick_sleep, clock=clock,
         )
@@ -3186,10 +3200,17 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # Recorded before the call, not after it. A turn killed at a deadline having
             # finished nothing writes no `turn` event, so pricing reported afterwards is
             # reported only for the turns that never needed explaining.
+            # Resolved once, per turn, so the priced row and the send are the same number:
+            # the row is emitted before the dispatch, and passing the budget down stops
+            # `dispatch_with_recovery` from resolving it a second way.
+            asked_budget = resolve_max_tokens(
+                cfg, entry, resolved_effort, max_tokens, ceiling=ceiling
+            )
             if on_priced is not None:
                 await on_priced({
                     "turn": turn, "effort": resolved_effort,
-                    "max_tokens": max_tokens, "budget_ceiling": ceiling,
+                    "max_tokens": max_tokens, "max_tokens_sent": asked_budget,
+                    "budget_ceiling": ceiling,
                     "decode_rate": decode_rate.rate,
                     "rate_source": decode_rate.source,
                     "expected_concurrency": expected_concurrency,
@@ -3200,7 +3221,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             dispatch = await dispatch_with_recovery(
                 cfg, entry, backend, build,
                 effort=resolved_effort, max_tokens=max_tokens,
-                budget_ceiling=ceiling,
+                budget_ceiling=ceiling, asked_budget=asked_budget,
                 sleep=sleep, deadline=deadline, stall_left=stall_left,
                 on_token=token_arrived, tick_sleep=tick_sleep, clock=clock,
             )

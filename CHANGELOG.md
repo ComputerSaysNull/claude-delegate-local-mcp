@@ -38,6 +38,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #341 — 2026-09-25 — fix: each turn is priced for the concurrency it meets, and says what it sent
+
+### Fixed
+
+- **The `priced` event named the caller's budget, not the one sent.** It recorded
+  `max_tokens` as the caller passed it, which is empty whenever the caller left the budget to
+  the server, so a transcript could not say what a turn was actually allowed. The budget is
+  now resolved once per turn, before the row is written, and handed down to the dispatch, so
+  the row and the request carry the same number: `max_tokens_sent`, beside the unchanged
+  `max_tokens`. It is the first attempt's budget; a recovery stage that enlarges a retry
+  comes after pricing. Red first: both new tests failed on the missing field, and they also
+  check that the fake backend received that same number.
+
 ## #340 — 2026-09-24 — fix: a turn is priced from its bucket's median, not its mean
 
 ### Fixed

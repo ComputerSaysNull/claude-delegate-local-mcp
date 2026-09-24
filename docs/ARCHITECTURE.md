@@ -1228,8 +1228,8 @@ rather than inferred later from silence: a reader has nothing to go on, and a pi
 stream would only mean something on the machine that wrote it. (ADR-0072)
 
 A fifth, `priced`, is written *before* each turn, carrying the ceiling that turn was given,
-the rate it came from, the load that rate was read against, and the sampling it was drawn
-at. Ordering is the whole of it: a `turn` event lands only when a turn completes, so a turn
+the budget its first attempt sent, the rate it came from, the load that rate was read
+against, and the sampling it was drawn at. Ordering is the whole of it: a `turn` event lands only when a turn completes, so a turn
 killed at a deadline recorded nothing. An absent ceiling is written as null rather than
 omitted, because "no cap applied" is the most incriminating thing the record can say.
 

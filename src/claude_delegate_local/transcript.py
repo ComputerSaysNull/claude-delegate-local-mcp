@@ -256,6 +256,7 @@ class Stream:
         expected_concurrency: int | None = None,
         temperature: float | None = None, top_p: float | None = None,
         of_turns: int | None = None,
+        max_tokens_sent: int | None = None,
     ) -> None:
         """What a turn was allowed, and what that allowance was calculated from.
 
@@ -275,6 +276,8 @@ class Stream:
         self._put({
             "t": "priced", "at": datetime.now(UTC).isoformat(), "turn": turn,
             "effort": effort, "max_tokens": max_tokens,
+            # What the first attempt sent; `max_tokens` is the caller's argument, often None.
+            "max_tokens_sent": max_tokens_sent,
             "budget_ceiling": budget_ceiling, "decode_rate": decode_rate,
             "requests_running": requests_running,
             # Where the rate came from, and the concurrency it was asked for. Without
