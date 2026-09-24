@@ -74,7 +74,7 @@ from .slots import (
     cross_process_status,
     rate_history_path,
 )
-from . import transcript
+from . import ledger, transcript
 from .tools import READ_ONLY_TOOL_NAMES, BashPolicy, resolve_allowed
 
 SERVER_NAME = "delegate-local"
@@ -1134,6 +1134,18 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             started=started,
             tool=tool_name,
             tools=allowed,
+        )
+        ledger.append(
+            cfg,
+            ledger.record_for(
+                tool=tool_name,
+                agent_name=agent.name if agent else None,
+                entry=entry,
+                effort=effort,
+                dispatched=dispatched,
+                error=failure,
+                started=started,
+            ),
         )
 
     response = dispatched.response

@@ -744,6 +744,13 @@ class Config:
         "survives -- so the durable choice and the leaky one can be the same choice.",
     )
 
+    ledger_path: str = _f(
+        "~/.cache/claude-delegate-local/ledger.jsonl",
+        "Append-only token ledger: one JSON line per dispatch, the running total that "
+        "is never pruned. Must be on the Linux filesystem (not under /mnt/, where "
+        "concurrent appends lose lines); empty disables it.",
+    )
+
     # ---- sandbox (ADR-0010) ------------------------------------------------------
     bwrap_bin: str = _f("bwrap", "bubblewrap binary name or path.")
     prlimit_bin: str = _f(

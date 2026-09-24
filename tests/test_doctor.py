@@ -320,6 +320,33 @@ def test_unwritable_transcript_dir_fails(tmp_path):
     assert "not writable" in check.detail
 
 
+# --- ledger -------------------------------------------------------------------------
+
+
+def test_ledger_disabled_warns():
+    """Off is not a failure: the ledger is a running total, and none kept is a gap, not a break."""
+    assert doctor.check_ledger(cfg(ledger_path="")).verdict == WARN
+
+
+@posix_only
+def test_ledger_under_mnt_warns(tmp_path):
+    """Concurrent appends on the Windows drive lose lines, so this is warned and never OK."""
+    check = doctor.check_ledger(cfg(ledger_path="/mnt/c/ledger.jsonl"))
+    assert check.verdict == WARN
+    assert "/mnt/" in check.detail
+    assert "concurrent appends" in check.detail
+
+
+@posix_only
+def test_unwritable_ledger_dir_fails(tmp_path):
+    """Runtime swallows a ledger failure by design, so this is the only report of it."""
+    blocker = tmp_path / "a-file"
+    blocker.write_text("", encoding="utf-8")
+    check = doctor.check_ledger(cfg(ledger_path=str(blocker / "ledger.jsonl")))
+    assert check.verdict == FAIL
+    assert "not writable" in check.detail
+
+
 # --- cross-process slots ------------------------------------------------------------
 
 

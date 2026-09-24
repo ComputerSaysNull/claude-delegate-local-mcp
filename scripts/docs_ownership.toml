@@ -117,6 +117,9 @@ owns = [
   "src/claude_delegate_local/handles.py",
   "src/claude_delegate_local/slots.py",
   "src/claude_delegate_local/transcript.py",
+  # The ledger belongs to the same document as the transcript it runs beside: both are
+  # one decision -- what an operator records of a delegation -- seen from two ends.
+  "src/claude_delegate_local/ledger.py",
   # The viewer belongs to the same document as the stream it reads: the file format and
   # the thing that renders it are one decision, and splitting them across two documents is
   # how a renderer ends up describing a shape the writer no longer produces.

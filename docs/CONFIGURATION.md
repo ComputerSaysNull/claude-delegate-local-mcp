@@ -1,4 +1,4 @@
-<!-- BUDGET: 190
+<!-- BUDGET: 200
      Raised from 180 (+1 for this line) on 2026-09-24: two settings for handles, and a section of their own for them.
      Raised from 178 (+1 for this line) on 2026-09-23: one more setting, DELEGATE_PROTECTED_GLOBS_FILE.
      Raised from 175 (+1 for this line) on 2026-09-22: one more setting, DELEGATE_RATE_SAMPLE_SECONDS, and this file is one row per setting.
@@ -183,6 +183,14 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting, unlike ADR-0034's sandbox_enabled, because naming another transport should be an error rather than silence -- load() reads only variables matching a field, so deleting this one would make a stale value do nothing without saying so. |
 
-*76 settings.*
+### Other
+
+<!-- These fields matched no section in gen_config_docs.py SECTIONS. Add them to a group. -->
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DELEGATE_LEDGER_PATH` | ~/.cache/claude-delegate-local/ledger.jsonl | Append-only token ledger: one JSON line per dispatch, the running total that is never pruned. Must be on the Linux filesystem (not under /mnt/, where concurrent appends lose lines); empty disables it. |
+
+*77 settings.*
 
 <!-- GEN:CONFIG:END -->
