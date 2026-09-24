@@ -18,12 +18,15 @@ Three reports, in the order they were needed:
                history is appended to, then falls to a floor on the turn the first tool
                result is evicted and creeps back one stub at a time.
 
-  concurrency  Aggregate against per-sequence throughput. Each turn's output is spread over
-               its own backend interval, the timeline is sampled on a one-second grid, and
-               each instant is bucketed by how many delegations were decoding then. The
-               aggregate column is the cluster's; the per-sequence column is what a single
-               delegation's deadline is measured against, and they move in opposite
-               directions -- which is the whole point of running it.
+  concurrency  Aggregate against per-sequence throughput. Each turn's tokens are spread over
+               its own *decode* window (`(finish - decode_seconds, finish)` at
+               `out_tok_s`), not over `backend_ms` -- which also spans prefill and the
+               admission queue and would dilute the rate -- the timeline is sampled on a
+               one-second grid, and each instant is bucketed by how many delegations were
+               decoding then. Turns whose events predate `decode_seconds`/`out_tok_s` are
+               skipped and counted. The aggregate column is the cluster's; the per-sequence
+               column is what a single delegation's deadline is measured against, and they
+               move in opposite directions -- which is the whole point of running it.
 
 Usage:  python scripts/analyse_transcripts.py [rates|cache|concurrency|all] [--dir PATH]
 
@@ -173,16 +176,28 @@ def report_cache(directory: str) -> None:
 
 
 def report_concurrency(directory: str) -> None:
+    """Per-instant decoding load, measured over each turn's decode window only.
+
+    A turn's tokens are produced during `decode_seconds`, not over `backend_ms` -- which
+    also spans prefill and the admission queue. Spreading them over `backend_ms` dilutes
+    the rate and widens the interval, understating the cluster by about a third (PLAN
+    M16.10). Each turn is modelled as `(finish - decode_seconds, finish)` at `out_tok_s`;
+    a turn event from an older stream without `decode_seconds`/`out_tok_s` is skipped
+    rather than guessed at, and the count is reported so a reader knows the figure covers
+    fewer turns.
+    """
     spans = _streams(directory)
     intervals = []
+    skipped = 0
     for r in _turns(directory):
-        seconds = (r.get("backend_ms") or 0) / 1000.0
         at = r.get("at")
-        if seconds <= 0 or not at:
+        decode_seconds = r.get("decode_seconds")
+        rate = r.get("out_tok_s")
+        if not at or not decode_seconds or not rate:
+            skipped += 1
             continue
         finish = datetime.fromisoformat(at).timestamp()
-        output = r.get("output_tokens") or 0
-        intervals.append((finish - seconds, finish, output / seconds))
+        intervals.append((finish - decode_seconds, finish, rate))
     if not intervals:
         raise SystemExit("no priced turns found")
 
@@ -197,6 +212,9 @@ def report_concurrency(directory: str) -> None:
         now += STEP_SECONDS
 
     print(f"{len(spans)} streams, {len(intervals)} priced turns")
+    if skipped:
+        print(f"skipped {skipped} turn(s) with no decode timing "
+              "(missing decode_seconds/out_tok_s)")
     print()
     print("decoding    wall s      tokens   aggregate   per sequence")
     for count in sorted(tokens):
