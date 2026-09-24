@@ -200,19 +200,17 @@ catching what reaches GitHub even if a local hook was skipped.
 
 ## Build-time agents
 
-`.claude/agents/` holds the subagents used while working *on* this repository. Not shipped,
-and not the delegation agents in [docs/AGENTS.md](docs/AGENTS.md) — different thing, same
-file format. A recipe inside one is run and believed, so it earns a check's scrutiny.
+`.claude/agents/` holds the Claude Code subagents used while working *on* this repository,
+and `.claude/delegate-agents/` this server's agents for the same work, run on the local model
+through `delegate_to_agent`. Not shipped, and not the delegation agents in
+[docs/AGENTS.md](docs/AGENTS.md). A recipe inside one is run and believed, so it earns a
+check's scrutiny.
 
-**Two formats live here at once, and that is temporary.** Most of these files are Claude
-Code's format; `docs-audit-local` is this server's, for running the audit on the local model
-through `delegate_to_agent`. **The two readers fail differently, and both failures are
-quiet.** This server skips a file it cannot parse silently, so a malformed agent is simply
-not there and `list_agents` returning nothing is what a typo looks like. Claude Code does
-not skip this server's format at all: it loads the file and ignores frontmatter it does not
-recognise, so `allowed_tools` goes unapplied and the named model is not the one that runs —
-the worse of the two, because the agent appears to work. Confirm an edit against the
-consumer you meant; neither is evidence the other is happy.
+**The two formats used to share one directory, and Claude Code loaded this server's files as
+subagents with every tool** — the agent appeared to work while `allowed_tools` and the model
+went unapplied. Separate directories end that (ADR-0102). What remains is quiet too: this
+server skips a file it cannot parse, so `list_agents` returning nothing is what a typo looks
+like. Confirm an edit against the consumer you meant.
 
 Say which one you want when asking for an audit. The duplication ends when the local route
 is dependable enough to be the only one; the copy is then deleted, not left to rot.
@@ -278,7 +276,7 @@ asked of that file rather than hardcoded. What it cannot see is a command needin
 looks runnable and shells out to git underneath. Read the pair yourself for that.
 
 <!-- GEN:AGENTS:START -->
-<!-- Generated from .claude/agents/*.md by scripts/gen_agents_docs.py. Change the frontmatter, not this. -->
+<!-- Generated from .claude/agents/*.md and .claude/delegate-agents/*.md by scripts/gen_agents_docs.py. Change the frontmatter, not this. -->
 
 | Agent | Model | Effort | For |
 |---|---|---|---|

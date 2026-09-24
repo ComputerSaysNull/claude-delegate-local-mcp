@@ -1601,6 +1601,9 @@ def check_env_example() -> list[Finding]:
 # --- agent bodies that name commands they cannot run ------------------------------------
 
 AGENTS_DIR = ROOT / ".claude" / "agents"
+# This server's agent files (ADR-0102). The server-format ones are the files this check
+# matters most for, so moving them out of AGENTS_DIR must not move them out of scope.
+DELEGATE_AGENTS_DIR = ROOT / ".claude" / "delegate-agents"
 
 # Tokens treated as a command invocation. A heuristic, and deliberately a short one: this
 # reduces false positives on prose in code spans, and a token outside it is simply not
@@ -1694,13 +1697,14 @@ def check_agent_capabilities() -> list[Finding]:
     the dependency is invisible from the text. PLAN.md says a full check is not automatable
     and asks for the narrow one; this is that, and no more.
     """
-    if not AGENTS_DIR.is_dir():
+    dirs = [d for d in (AGENTS_DIR, DELEGATE_AGENTS_DIR) if d.is_dir()]
+    if not dirs:
         return [Finding(SKIP, "agent-capability", f"{AGENTS_DIR.name}/ not present.")]
 
     globs = load_lines(ROOT / "security" / "secret_globs.txt")
     out: list[Finding] = []
 
-    for path in sorted(AGENTS_DIR.glob("*.md")):
+    for path in sorted(p for d in dirs for p in d.glob("*.md")):
         rel_path = rel(path)
         front, body = _agent_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
         can_shell, sandboxed = _agent_can_shell(front)

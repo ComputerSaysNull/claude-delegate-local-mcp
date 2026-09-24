@@ -38,6 +38,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #314 — 2026-09-24 — feat: this server's agent files move to .claude/delegate-agents
+
+### Changed
+
+- **Agent files live in `<project>/.claude/delegate-agents/`, and the personal default is
+  `~/.claude/delegate-agents`.** Both formats shared `.claude/agents/`, which Claude Code
+  reads as its own subagents, so a file written for this server was offered to a cloud
+  session as a subagent with every tool and a body written for the local model — spending
+  exactly what delegating exists to save. The shipped `write-delegate-agent` skill told every
+  adopter to put files there. The old project directory is still read for one release,
+  after the personal tier, and `list_agents` names each agent it finds there under a new
+  `old_location` key with where to move it. The old personal directory is not read: it is
+  Claude Code's own, and reading it would list all of its agents as `other_format` for good.
+  The repository's two `*-local` agents moved, and the docs gate's `agent-capability` check
+  and the CONTRIBUTING roster generator read both directories, so the move takes neither out
+  of scope; a test pins the gate half. The red was an agent in the new directory not being
+  found. (PLAN M15.9, review R6, ADR-0102.)
+
 ## #313 — 2026-09-24 — fix: a Claude Code agent file no longer hides a personal agent of the same name
 
 ### Fixed

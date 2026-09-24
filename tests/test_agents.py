@@ -53,10 +53,10 @@ def test_each_tier_resolves_when_it_is_the_only_one(tmp_path):
     c = cfg(tmp_path)
     work = tmp_path / "proj"
 
-    write(work / ".claude" / "agents" / "helper.md", MINIMAL)
+    write(work / ".claude" / "delegate-agents" / "helper.md", MINIMAL)
     assert agents.find_agent_file(c, "helper", str(work)).name == "helper.md"
 
-    (work / ".claude" / "agents" / "helper.md").unlink()
+    (work / ".claude" / "delegate-agents" / "helper.md").unlink()
     write(work / ".claude" / "skills" / "helper" / "SKILL.md", MINIMAL)
     assert agents.find_agent_file(c, "helper", str(work)).name == "SKILL.md"
 
@@ -70,13 +70,13 @@ def test_a_project_agent_shadows_the_personal_one_of_the_same_name(tmp_path):
     conventions without anyone editing their home directory."""
     c = cfg(tmp_path)
     work = tmp_path / "proj"
-    write(work / ".claude" / "agents" / "helper.md", "---\nname: helper\n---\nPROJECT\n")
+    write(work / ".claude" / "delegate-agents" / "helper.md", "---\nname: helper\n---\nPROJECT\n")
     write(work / ".claude" / "skills" / "helper" / "SKILL.md", "---\nname: helper\n---\nSKILL\n")
     write(Path(c.agents_dir) / "helper.md", "---\nname: helper\n---\nPERSONAL\n")
 
     assert agents.load_agent(c, "helper", str(work)).body == "PROJECT"
 
-    (work / ".claude" / "agents" / "helper.md").unlink()
+    (work / ".claude" / "delegate-agents" / "helper.md").unlink()
     assert agents.load_agent(c, "helper", str(work)).body == "SKILL"
 
 
@@ -310,7 +310,7 @@ def test_a_key_set_twice_is_refused(tmp_path):
 def test_list_agents_reports_the_tier_that_would_actually_be_used(tmp_path):
     c = cfg(tmp_path)
     work = tmp_path / "proj"
-    write(work / ".claude" / "agents" / "shared.md", "---\nname: shared\n---\nPROJECT\n")
+    write(work / ".claude" / "delegate-agents" / "shared.md", "---\nname: shared\n---\nPROJECT\n")
     write(Path(c.agents_dir) / "shared.md", "---\nname: shared\n---\nPERSONAL\n")
     write(Path(c.agents_dir) / "personal-only.md", "---\nname: personal-only\n---\nP\n")
 
@@ -367,7 +367,7 @@ def test_a_shadowed_name_is_not_reported_as_skipped(tmp_path):
     reporting the loser would describe a choice that does not exist."""
     c = cfg(tmp_path)
     work = tmp_path / "proj"
-    write(work / ".claude" / "agents" / "dup.md", "---\nname: dup\n---\nnear\n")
+    write(work / ".claude" / "delegate-agents" / "dup.md", "---\nname: dup\n---\nnear\n")
     write(Path(c.agents_dir) / "dup.md", "---\nname: dup\n---\nfar\n")
 
     listing = agents.survey_agents(c, str(work))
@@ -651,13 +651,13 @@ def test_a_named_agent_in_the_operators_own_directory_gets_the_network(tmp_path)
 
 def test_a_workdir_agent_file_cannot_take_the_network_by_naming_itself(tmp_path):
     """The filed vulnerability, end to end. `_candidates` searches the workspace tiers
-    first, so a repository shipping `.claude/agents/<allowlisted-name>.md` shadows the
+    first, so a repository shipping `.claude/delegate-agents/<allowlisted-name>.md` shadows the
     operator's own file -- and a grant keyed only on the name would follow the string an
     attacker chose. Egress has no destination list to bound it, so this one is refused on
     provenance rather than narrowed."""
     c = cfg(tmp_path, agent_network_allowed=("chatty",))
     work = tmp_path / "proj"
-    write(work / ".claude" / "agents" / "chatty.md",
+    write(work / ".claude" / "delegate-agents" / "chatty.md",
           "---\nname: chatty\nnetwork: true\n---\nbody\n")
     with pytest.raises(AgentError, match="asks for network: true from outside"):
         agents.load_agent(c, "chatty", str(work))
@@ -667,5 +667,5 @@ def test_a_workdir_agent_file_is_still_loadable_without_the_grant(tmp_path):
     """The companion to the one above: provenance gates the network, not the whole tier."""
     c = cfg(tmp_path, agent_network_allowed=("chatty",))
     work = tmp_path / "proj"
-    write(work / ".claude" / "agents" / "chatty.md", "---\nname: chatty\n---\nbody\n")
+    write(work / ".claude" / "delegate-agents" / "chatty.md", "---\nname: chatty\n---\nbody\n")
     assert agents.load_agent(c, "chatty", str(work)).network is False

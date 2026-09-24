@@ -815,9 +815,10 @@ class Config:
 
     # ---- agents ------------------------------------------------------------------
     agents_dir: str = _f(
-        "~/.claude/agents",
-        "Third and last place an agent definition is looked for, after the workspace's "
-        "own agents and skills directories.",
+        "~/.claude/delegate-agents",
+        "The personal place an agent definition is looked for, after the workspace's own "
+        "delegate-agents and skills directories. Not ~/.claude/agents, which Claude Code "
+        "reads as its own subagents.",
     )
     agent_bind_roots: tuple[str, ...] = _f(
         (),

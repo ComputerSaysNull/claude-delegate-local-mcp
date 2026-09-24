@@ -1,4 +1,5 @@
-<!-- BUDGET: 530
+<!-- BUDGET: 540
+     Raised from 530 (+1 for this line) on 2026-09-24: the generated location block now says where an agent file must not go, which every adopter got wrong.
      Raised from 520 (+1 for this line) on 2026-09-23: host-side git now refuses a repository by its own config, a new rule rather than a restatement.
      Raised from 496 (+1 for this line) on 2026-09-19: files[] takes a pattern now, and that expansion runs before the four layers rather than beside them is what keeps it from being a second search tool.
      Raised from 481 (+1 for this line) on 2026-09-19: layer 3 now asks about bytes as well as names, and ADR-0049 paragraph said in terms that a substituted file is never judged -- a correction costs more than an addition.
@@ -94,9 +95,13 @@ borrowed; a file is not moved between the two unedited. (ADR-0031)
 Three locations, **first match wins**, so a project's own agent shadows a personal one of
 the same name:
 
-1. `<project>/.claude/agents/<name>.md`
+1. `<project>/.claude/delegate-agents/<name>.md`
 2. `<project>/.claude/skills/<name>/SKILL.md`
 3. `<agents_dir>/<name>.md` — the personal tier, set by `DELEGATE_AGENTS_DIR`
+
+**Not `.claude/agents/`**: Claude Code loads every file there as its own subagent, with
+every tool. That directory is still read, last, for one release, and `list_agents` names
+each agent it finds there under `old_location`, with where to move it.
 
 The **filename supplies the name** — `<name>.md`, or the skill directory for a `SKILL.md`.
 A name must match `^[A-Za-z0-9_-]+$`: it is a name, not a path, so it cannot traverse.
@@ -482,7 +487,7 @@ that directory into the sandbox, writable, so `run_bash` can run the project's t
 
 **Finding the agent is a separate argument**, `project`, which binds nothing and defaults
 to `workdir`. Both are checked against the workdir roots **before** either is used to look
-the agent up, since the lookup reads `<project>/.claude/agents/` and a check that runs
+the agent up, since the lookup reads `<project>/.claude/delegate-agents/` and a check that runs
 afterwards is not a check.
 
 Several tasks over the same material are several calls, and they still share the prefix:

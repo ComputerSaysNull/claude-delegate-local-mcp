@@ -19,6 +19,32 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0102 — 2026-09-24 — This server's agent files get a directory Claude Code does not read — Accepted
+
+**Context.** The first tier was `<project>/.claude/agents/`, which is also where Claude Code
+loads its own subagents. A file written for this server has no `tools:` key, so Claude Code
+loaded it as a subagent with **every** tool and offered it to a cloud session — a
+`test-writer-local` whose description invites use after any bug fix, running in the cloud
+on a body written for the local model. That spends exactly the tokens delegating exists to
+save, and the shipped `write-delegate-agent` skill told every adopter to put files there
+(review R6).
+
+**Decision.** Agent files live in `<project>/.claude/delegate-agents/`, and the personal
+default moves from `~/.claude/agents` to `~/.claude/delegate-agents`. The old project
+directory is still read for one release, **after** the personal tier, so a moved file wins
+over one left behind and a Claude Code file there cannot shadow anything (M15.9a).
+`list_agents` names each agent it finds there under `old_location`, with where it belongs.
+
+**Not the old personal directory.** `~/.claude/agents` is where Claude Code keeps its own
+agents, so reading it would list each of them as `other_format` indefinitely, and it makes
+every test depend on the machine's home. An operator with personal server agents there
+moves them or sets `DELEGATE_AGENTS_DIR`; nothing there is granted network by the old
+path either way, because the grant is tied to `agents_dir`.
+
+**A directory rather than a marker in the file.** Claude Code decides what to load by
+where a file is, not by what it says, so no frontmatter this server could add would keep
+it out.
+
 ## ADR-0101 — 2026-09-22 — An empty rate memory prices from a configured floor, not the endpoint's blend — Accepted
 
 **Context.** `expect` returning None fell through to the endpoint's

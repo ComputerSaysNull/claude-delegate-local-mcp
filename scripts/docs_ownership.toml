@@ -47,6 +47,7 @@ owns = [
   "scripts/plan_stack.py",
   ".github/**",
   ".claude/agents/**",
+  ".claude/delegate-agents/**",
   ".claude/skills/**",
 ]
 covers_not = """

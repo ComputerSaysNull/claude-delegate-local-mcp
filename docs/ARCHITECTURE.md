@@ -1280,8 +1280,9 @@ returns a *new* config; the server's own is never mutated, so one model whose en
 briefly unreachable cannot disarm the feature for every other model in the registry. When
 the server declines to use a feature the operator armed, the reply says so — silence there
 is indistinguishable from the feature working. `list_agents` applies the same rule to
-discovery: a file it could not read is named in `skipped` rather than omitted, and one in
-Claude Code's format in `other_format` rather than called faulty.
+discovery: a file it could not read is named in `skipped` rather than omitted, one in
+Claude Code's format in `other_format` rather than called faulty, and one still in the old
+directory in `old_location` with where it belongs (ADR-0102).
 
 `dispatch_delegation` holds the two dispatch paths and the translation of every failure they
 can raise into a `ToolError`. It is out of `build()` because it is the only part of that

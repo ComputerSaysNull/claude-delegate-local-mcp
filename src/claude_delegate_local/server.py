@@ -1323,6 +1323,13 @@ _AGENT_LIST_RESULT: dict[str, Any] = {
             "Claude Code's own agent files sharing the directory. Not broken, and not "
             "runnable here."
         )},
+        "old_location": {"type": "array", "items": {"type": "object",
+                                                    "additionalProperties": True},
+                         "description": (
+            "Usable agents read from `.claude/agents/`, where Claude Code also loads them as "
+            "its own subagents. Each still runs, for one release; move the file to "
+            "`move_to`."
+        )},
     },
 }
 
@@ -1740,7 +1747,7 @@ def build(
         the agent's work is reading.
         """
         # Both are checked *before* either is used to look anything up. The agent lookup
-        # reads `<project>/.claude/agents/`, so passing the caller's argument to it
+        # reads `<project>/.claude/delegate-agents/`, so passing the caller's argument to it
         # unchecked would let an unvalidated path drive a filesystem read -- the root check
         # would then be a thing that happened afterwards, which is not a check at all.
         resolved_workdir = _rooted(workdir)
@@ -1833,6 +1840,10 @@ def build(
                 for f in listing.other_format
             ],
             "other_format_count": len(listing.other_format),
+            "old_location": [
+                {"name": name, "source": source, "move_to": move_to}
+                for name, source, move_to in listing.old_location
+            ],
         }
 
     @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True},
