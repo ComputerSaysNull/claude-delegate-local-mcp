@@ -1038,6 +1038,21 @@ def test_prose_regrowth_reports_a_ratio_rise(repo: Path):
     assert fired(lines, "prose-regrowth", "rose from 0% to 25%"), lines
 
 
+def test_prose_regrowth_reports_no_ratio_for_a_new_module(repo: Path):
+    """A new module has no earlier ratio to rise from, so any docstring would warn.
+
+    A warning that every new file earns teaches everyone to skip the warning. Its added
+    lines are still read, so a date or a TODO in it warns the same as anywhere else.
+    """
+    (repo / "README.md").write_text("x\n", encoding="utf-8")
+    _commit(repo, "base")
+    d = "20" + "26-01-01"
+    _mod(repo, '"""A new module."""\n\nx = 1\n# cut since ' + d + "\n")
+    lines = gate(repo)
+    assert not fired(lines, "prose-regrowth", "rose from"), lines
+    assert fired(lines, "prose-regrowth", "mod.py line 4", d), lines
+
+
 def test_prose_regrowth_reports_no_ratio_for_a_code_only_edit(repo: Path):
     """A code-only edit changes the denominator but not the numerator, so no rise."""
     _mod(repo, "x = 1\n")
