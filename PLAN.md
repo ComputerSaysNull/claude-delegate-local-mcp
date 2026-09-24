@@ -362,7 +362,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     - c. ⬜ Local runs include `integration` tests, which the marker says are skipped.
 77. ⬜ **The transcript viewer trusts line shapes** (R17): a JSON line that is not an object
   takes down `summarise` and `follow`, and `follow` piped to another program crashes
-78. ⬜ **The split-dodge check cannot fire in CI** (R22): it reads `git diff --cached`, and a
+78. ✅ 2026-09-24 **The split-dodge check cannot fire in CI** (R22): it reads `git diff --cached`, and a
   CI checkout stages nothing. Use the `--diff` range the other checks use
 79. ⬜ **The gate's `run()` turns a failed git command into an empty answer** (R23), so a check
   built on it passes having looked at nothing. Raise on a non-zero exit where empty is clean

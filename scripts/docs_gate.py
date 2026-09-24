@@ -1450,7 +1450,7 @@ def check_manifest_docs_exist() -> list[Finding]:
     return out
 
 
-def check_split_dodge() -> list[Finding]:
+def check_split_dodge(mode: str = "pre-commit", diff_range: str | None = None) -> list[Finding]:
     """A new document must earn its existence, or it is a budget being evaded.
 
     Valid reasons to split: a different audience, different owned code, or reference
@@ -1462,12 +1462,20 @@ def check_split_dodge() -> list[Finding]:
     that a path changed, not how. It previously accepted a `changed` argument and
     ignored it, which is worse than either: a signature describing a function this is
     not, and an invitation to "fix" the check by wiring the wrong list into it.
+
+    The mode and range it does take, like every check that reads a diff: CI stages
+    nothing, so reading the index there saw no document added in the one run that
+    `--no-verify` cannot skip.
     """
     manifest = load_manifest()
     if manifest is None:
         return [Finding(SKIP, "split-dodge", f"{MANIFEST.name} not present.")]
-    added = set(run("git", "diff", "--cached", "--name-only",
-                    "--diff-filter=A").splitlines())
+    if mode == "ci":
+        added_by = ("git", "diff", "--name-only", "--diff-filter=A",
+                    diff_range or "origin/main...HEAD")
+    else:
+        added_by = ("git", "diff", "--cached", "--name-only", "--diff-filter=A")
+    added = set(run(*added_by).splitlines())
     out = []
     for doc in added:
         meta = manifest["docs"].get(doc)
@@ -2012,7 +2020,7 @@ def main() -> int:
     for name, fn in CHECKS.items():
         if name == "commit-message":
             findings += fn(args.mode, args.diff_range, args.message_file)
-        elif name == "identity":
+        elif name in ("identity", "split-dodge"):
             findings += fn(args.mode, args.diff_range)
         elif name in ("public-text", "changelog-number"):
             findings += fn(args.pr_event)

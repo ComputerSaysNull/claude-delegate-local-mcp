@@ -247,6 +247,18 @@ def test_split_dodge_fires_on_a_subset_of_an_existing_document(repo: Path):
     assert fired(gate(repo), "split-dodge", "docs/CHILD.md", "docs/PARENT.md")
 
 
+def test_split_dodge_fires_in_ci_where_nothing_is_staged(repo: Path):
+    """CI checks out commits and stages nothing, so a check reading the index saw no document
+    added and passed in the one run `--no-verify` cannot skip."""
+    commit = ["git", "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm"]
+    subprocess.run([*commit, "base"], cwd=repo, capture_output=True, check=True)
+    _add_child(repo, audience='"contributor"', owns='"src/real.py"')
+    subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, check=True)
+    subprocess.run([*commit, "docs: a child"], cwd=repo, capture_output=True, check=True)
+    lines = gate(repo, "--mode", "ci", "--diff", "HEAD~1...HEAD")
+    assert fired(lines, "split-dodge", "docs/CHILD.md", "docs/PARENT.md"), lines
+
+
 def test_split_dodge_is_silent_when_the_audience_is_distinct(repo: Path):
     """A real split. Same owned code, different reader -- allowed by ADR-0003."""
     _add_child(repo, audience='"user"', owns='"src/real.py"')
