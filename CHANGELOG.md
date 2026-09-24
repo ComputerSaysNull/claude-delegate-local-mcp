@@ -38,6 +38,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #330 — 2026-09-24 — feat: the gate checks every skill against the Agent Skills hard limits
+
+### Added
+
+- **A blocking `skill-limits` check.** Nothing read a skill's metadata, so a `SKILL.md` Claude
+  Code would refuse to load passed every check. The gate now holds each tracked skill, in
+  `.claude/skills/` and in the package, to the specification's hard limits: a lowercase,
+  hyphenated `name` of at most 64 characters that matches its directory, a `description` of
+  at most 1,024 characters, and a body under 500 lines. It lists files from `git ls-files`,
+  so an untracked copy under `.spike/` or an agent worktree is never read. Every limit has a
+  test that plants one violation, and three tests prove it stays quiet: a valid skill, an
+  untracked invalid one, and a 1,024-character description measured without its quotes.
+
+### Fixed
+
+- **The first draft of that check would have broken the gate in CI on every pull request.**
+  It parsed frontmatter with `import yaml`. CI runs the gate on a bare interpreter, on
+  purpose, while the local hook prefers the project venv, which has PyYAML, so every local
+  run passed. The check now uses the gate's own flat reader. Whether frontmatter is valid
+  YAML stays `tests/test_repo_agent_files.py`'s job, where PyYAML is installed. A regression
+  test now reads the gate's imports and fails on anything outside the standard library; it
+  was red against the draft.
+
 ## #329 — 2026-09-24 — docs: three sandbox frictions a code-writing delegation hit are filed
 
 ### Added

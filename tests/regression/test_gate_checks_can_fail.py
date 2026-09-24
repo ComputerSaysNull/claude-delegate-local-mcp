@@ -616,6 +616,94 @@ def test_agent_capability_ignores_prose_that_merely_mentions_a_command(repo: Pat
     assert not fired(gate(repo), "agent-capability", "explainer.md")
 
 
+# ------------------------------------------------------------- skill files vs their spec
+#
+# The Agent Skills specification (https://agentskills.io/specification) sets hard limits on
+# a SKILL.md, and Claude Code enforces the name rules when it loads one. Nothing checked
+# any of it, so a skill the client would refuse could sit in the tree while every other
+# gate check passed -- the shape this file exists to stop. Each limit below has a
+# fires-on-violation test and a closest-thing-that-is-not-one control.
+SKILL_LIMIT_CHECK = "skill-limits"
+
+
+def skill(repo: Path, directory: str, *, name: str, description: str,
+          body: str = "\n# Body\n\nx\n") -> Path:
+    """Write a valid-shaped SKILL.md into `.claude/skills/<directory>/`, staged and tracked."""
+    d = repo / ".claude" / "skills" / directory
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / "SKILL.md"
+    p.write_text(
+        f"---\nname: {name}\ndescription: \"{description}\"\n---\n{body}",
+        encoding="utf-8")
+    return p
+
+
+def test_skill_limit_fires_on_an_uppercase_name(repo: Path):
+    """The name rules, which Claude Code itself enforces. Only lowercase letters, digits and
+    hyphens are allowed; `MySkill` is refused on load."""
+    skill(repo, "myskill", name="MySkill", description="Does one thing.")
+    assert fired(gate(repo), SKILL_LIMIT_CHECK, ".claude/skills/myskill/SKILL.md")
+
+
+def test_skill_limit_fires_when_the_name_is_not_its_directory(repo: Path):
+    """`name` must equal the directory's name, so the skill can be found by the name it is
+    invoked under."""
+    skill(repo, "myskill", name="other", description="Does one thing.")
+    assert fired(gate(repo), SKILL_LIMIT_CHECK, ".claude/skills/myskill/SKILL.md")
+
+
+def test_skill_limit_fires_on_a_name_over_64_characters(repo: Path):
+    long_name = "a" * 64 + "b"  # 65 characters, and otherwise valid
+    skill(repo, long_name, name=long_name, description="Does one thing.")
+    assert fired(gate(repo), SKILL_LIMIT_CHECK, f".claude/skills/{long_name}/SKILL.md")
+
+
+def test_skill_limit_fires_on_a_description_over_1024_characters(repo: Path):
+    skill(repo, "myskill", name="myskill", description="x" * 1025)
+    assert fired(gate(repo), SKILL_LIMIT_CHECK, ".claude/skills/myskill/SKILL.md")
+
+
+def test_skill_limit_measures_a_quoted_description_without_its_quotes(repo: Path):
+    """1024 characters inside quotes is at the limit, not two over it."""
+    skill(repo, "myskill", name="myskill", description="x" * 1024)
+    assert not fired(gate(repo), SKILL_LIMIT_CHECK)
+
+
+def test_skill_limit_fires_on_a_body_of_500_lines(repo: Path):
+    """The limit is *under* 500 lines, so exactly 500 is already over it."""
+    skill(repo, "myskill", name="myskill", description="Does one thing.",
+          body="line\n" * 500)
+    assert fired(gate(repo), SKILL_LIMIT_CHECK, ".claude/skills/myskill/SKILL.md")
+
+
+def test_skill_limit_fires_when_there_is_no_frontmatter(repo: Path):
+    """The specification requires the block; a SKILL.md without one has no name to find it
+    by."""
+    d = repo / ".claude" / "skills" / "myskill"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "SKILL.md").write_text("# No frontmatter here\n", encoding="utf-8")
+    assert fired(gate(repo), SKILL_LIMIT_CHECK, ".claude/skills/myskill/SKILL.md")
+
+
+def test_skill_limit_is_silent_on_a_valid_skill(repo: Path):
+    """The other direction. A check that refused every skill would pass all the tests above."""
+    skill(repo, "myskill", name="myskill", description="Does one thing.")
+    assert not fired(gate(repo), SKILL_LIMIT_CHECK)
+
+
+def test_skill_limit_ignores_an_untracked_invalid_skill(repo: Path):
+    """The tracked-only rule. An invalid skill sitting on disk -- a `.spike/` copy, an agent
+    worktree -- must not be read, or it would block a commit that did not add it. `.gitignore`
+    is what keeps it out of `git add -A`, exactly as the harness stages on the way in."""
+    (repo / ".gitignore").write_text(
+        ".claude/skills/badskill/SKILL.md\n", encoding="utf-8")
+    d = repo / ".claude" / "skills" / "badskill"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "SKILL.md").write_text(
+        "---\nname: BAD\n---\n\nBody.\n", encoding="utf-8")
+    assert not fired(gate(repo), SKILL_LIMIT_CHECK)
+
+
 
 # ------------------------------------------- references, which nothing checked at all
 #
