@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from itertools import pairwise
 
 from fastmcp import Client
 
@@ -49,6 +50,6 @@ def test_a_slow_prefetch_leaves_the_event_loop_free(tmp_path, monkeypatch) -> No
         await beat
 
     asyncio.run(go())
-    gaps = [b - a for a, b in zip(ticks, ticks[1:])]
+    gaps = [b - a for a, b in pairwise(ticks)]
     assert max(gaps) < BLOCK_SECONDS * 0.7, (
         f"the loop stood still for {max(gaps):.2f}s while prefetch ran")
