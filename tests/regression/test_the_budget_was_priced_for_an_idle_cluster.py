@@ -95,20 +95,21 @@ def test_nothing_observed_yet_is_not_a_rate():
     assert RateHistory().expect(4) is None
 
 
-def test_what_that_concurrency_averaged_is_what_is_returned():
+def test_the_median_at_that_concurrency_is_what_is_returned():
     """Rewritten, not deleted: this asserted the minimum, which was the second defect.
 
     The three samples are one regime measured three times, so the spread between them is
     noise and the worst draw is not a measurement of anything. Measured 2026-09-20, the
     bucket mean matched the operator benchmark to 1-3% where the minimum sat 24-71% below
-    it. The pessimism that is sound survives one level up, between buckets -- see
+    it; the median now answers, which ignores the outliers that pull the mean down. The
+    pessimism that is sound survives one level up, between buckets -- see
     `test_a_busier_observation_counts_for_a_quieter_question` below.
     """
     h = RateHistory()
     h.observe(3000, 100.0, concurrency=4)
     h.observe(1900, 100.0, concurrency=4)
     h.observe(2500, 100.0, concurrency=4)
-    assert h.expect(4) == pytest.approx((30.0 + 19.0 + 25.0) / 3)
+    assert h.expect(4) == pytest.approx(25.0)
 
 
 def test_a_busier_observation_counts_for_a_quieter_question():

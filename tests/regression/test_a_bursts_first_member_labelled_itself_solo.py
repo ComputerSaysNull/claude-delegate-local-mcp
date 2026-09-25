@@ -97,17 +97,17 @@ def test_a_quieter_sample_never_answers_a_busier_question():
     assert h.expect(6, trusted=True) is None
 
 
-def test_the_bucket_answers_with_its_mean():
+def test_the_bucket_answers_with_its_median():
     """Rewritten: it asserted the within-bucket minimum, which was a defect of its own.
 
     Over-estimating authorises a reply the clock cannot pay for and under-estimating
     truncates, so the asymmetry is real -- but it is paid between buckets, where the
-    widening takes the worst bucket mean, and by `reply_budget_margin`. Paying it a third
+    widening takes the worst bucket median, and by `reply_budget_margin`. Paying it a third
     time inside one bucket priced every turn from the worst minute the cluster had.
     """
     h = history((2, 30.0), (2, 22.5), (2, 27.1))
 
-    assert h.expect(2, trusted=True) == pytest.approx((30.0 + 22.5 + 27.1) / 3)
+    assert h.expect(2, trusted=True) == pytest.approx(27.1)
 
 
 # --- the hold, which is what makes `trusted=True` legitimate -----------------------------

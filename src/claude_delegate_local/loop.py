@@ -34,7 +34,7 @@ from datetime import datetime, UTC
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from pathlib import Path
-from statistics import fmean
+from statistics import median
 from typing import Any
 
 from .backends.base import (
@@ -446,14 +446,18 @@ class RateHistory:
     this cluster: prose decodes at 44.1 tok/s alone and 19.4 at six concurrent. Asking for
     "the rate" without saying at what concurrency is asking a question with six answers.
 
-    `expect` returns a bucket's **mean**, and then the worst of those means across the
+    `expect` returns a bucket's **median**, and then the worst of those medians across the
     buckets at that concurrency or above. The pessimism therefore lives between buckets,
     where it is the sound part -- contention only slows a stream -- and not inside one,
     where it was a sampling artefact. Measured 2026-09-20: at every well-populated
     concurrency the bucket mean matched the operator benchmark to within 1-3% while the
     bucket minimum sat 24-71% below it, and the minimum gets *worse* as a bucket fills,
     because the more moments are kept the likelier one of them is the slowest minute the
-    cluster had. An under-priced rate is not free: 31 of 953 recorded turns ended with
+    cluster had. A mean is pulled down the same way, by its slow outliers rather than its
+    worst: samples down to 0.75 tok/s in a bucket whose median was 29 dragged the mean
+    2-14% below it, so every turn was priced a smaller budget than the cluster delivered.
+    A median ignores those outliers and does not move with the sample count the way a
+    minimum does. An under-priced rate is not free: 31 of 953 recorded turns ended with
     `output_tokens` exactly equal to `budget_ceiling`, every one of them a large answer,
     so the budget genuinely binds and pricing it low truncates the biggest replies the
     server produces.
@@ -578,7 +582,7 @@ class RateHistory:
 
         stdio gives every connected client a process of its own (ADR-0040), so two can
         share this file. Writing only what this process has seen would drop the other's
-        samples, and a bucket priced at its mean is only as good as how many moments it
+        samples, and a bucket priced at its median is only as good as how many moments it
         holds. Merged as a set, and that stays right now the statistic counts duplicates:
         two byte-identical float rates at one concurrency are a sample this process
         already read back from the file far more often than they are two separate
@@ -674,7 +678,7 @@ class RateHistory:
         return True
 
     def expect(self, concurrency: int, *, trusted: bool = False) -> float | None:
-        """This concurrency's mean rate, or the worst busier bucket's. None if neither.
+        """This concurrency's median rate, or the worst busier bucket's. None if neither.
 
         Busier observations answer quieter questions and not the reverse: contention only
         slows a stream, so a six-way measurement bounds a four-way one from below, while a
@@ -693,13 +697,16 @@ class RateHistory:
         burst to arrive before the label is recorded -- which is why that setting disables
         both halves at once and why this one cannot be turned on by itself (ADR-0085).
 
-        A bucket answers with its **mean**, and the widening then takes the worst of those
-        means rather than the worst sample anywhere in them. Pooling every sample from
+        A bucket answers with its **median**, and the widening then takes the worst of those
+        medians rather than the worst sample anywhere in them. Pooling every sample from
         every busier bucket into one mean would be the obvious alternative and is wrong:
         it mixes regimes, so a quiet bucket's fast samples would pull a six-way answer up
-        past anything six-way was ever measured at. Taking the minimum *of the means*
+        past anything six-way was ever measured at. Taking the minimum *of the medians*
         keeps the one direction that is sound -- a busier bucket bounds a quieter question
-        from below -- while pricing each bucket at what that bucket actually did.
+        from below -- while pricing each bucket at what that bucket actually did. A median
+        is what the bucket actually did: a slow outlier that drags the mean down (samples
+        down to 0.75 tok/s in a bucket whose median was 29, pulling it 2-14% below) is a
+        minute the cluster had, not the rate it decodes at, and the median ignores it.
 
         The asymmetry the old within-bucket minimum was defending is real: over-estimating
         authorises a reply that cannot be decoded inside the delegation deadline and the turn
@@ -713,16 +720,16 @@ class RateHistory:
         if trusted:
             at = self._seen.get(want)
             if at:
-                return fmean(at)
-        # One mean per bucket, then the worst of them. An empty bucket cannot have a mean
-        # and is skipped rather than counted as zero -- a bucket is only ever empty here
-        # if something created it without filing, and a zero would price the next turn at
-        # no throughput at all.
-        means = [
-            fmean(bucket) for seen_at, bucket in self._seen.items()
+                return median(at)
+        # One median per bucket, then the worst of them. An empty bucket cannot have a
+        # median and is skipped rather than counted as zero -- a bucket is only ever empty
+        # here if something created it without filing, and a zero would price the next
+        # turn at no throughput at all.
+        medians = [
+            median(bucket) for seen_at, bucket in self._seen.items()
             if seen_at >= want and bucket
         ]
-        return min(means) if means else None
+        return min(medians) if medians else None
 
 
 class RateSampler:

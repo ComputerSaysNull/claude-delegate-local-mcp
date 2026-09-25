@@ -38,6 +38,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #340 — 2026-09-24 — fix: a turn is priced from its bucket's median, not its mean
+
+### Fixed
+
+- **Slow outliers priced every turn below what the cluster delivers.** The rate memory keeps
+  up to 64 decode-rate samples per concurrency and answered with their mean, and the
+  buckets hold near-stalls: one sample of 0.75 tok/s in a bucket whose median is 29. A
+  low rate buys a smaller reply budget, and the budget binds on exactly the largest answers.
+  Both the bucket's own answer and the widening, the worst of the busier buckets, now use the
+  median. Measured on the live memory:
+
+  | concurrency | mean | median | median/mean |
+  |---|---|---|---|
+  | 1 | 44.55 | 45.50 | 1.021 |
+  | 2 | 27.93 | 29.35 | 1.051 |
+  | 3 | 21.05 | 23.73 | 1.127 |
+  | 4 | 17.02 | 19.37 | 1.138 |
+  | 5 | 16.68 | 18.04 | 1.082 |
+  | 6 | 15.51 | 16.94 | 1.092 |
+
+  Red first: a bucket of `[1, 40, 41, 42, 43]` answered 33.4 where the median is 41, and a
+  widening answered the lower mean, 9.6, where the lower median is 11. Tests that pinned the
+  mean now pin the median and are renamed to say so.
+
 ## #339 — 2026-09-24 — docs: a venv that goes stale on any pyproject edit is filed
 
 ### Added
