@@ -2181,7 +2181,9 @@ def check_prose_regrowth(mode: str, diff_range: str | None) -> list[Finding]:
         nonblank = sum(1 for ln in lines if ln.strip())
         new_ratio = round(len(prose) * 100 / nonblank) if nonblank else 0
         base_text = _file_at(base_rev, path)
-        base_ratio = _prose_ratio(base_text) if base_text is not None else 0
+        if base_text is None:
+            continue  # a new module has no ratio to rise from; its added lines were read
+        base_ratio = _prose_ratio(base_text)
         if base_ratio is not None and new_ratio > base_ratio:
             out.append(Finding(
                 WARN, "prose-regrowth",

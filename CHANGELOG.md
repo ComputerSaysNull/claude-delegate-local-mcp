@@ -38,6 +38,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #344 — 2026-09-25 — fix: a new module no longer earns a prose-ratio warning
+
+### Fixed
+
+- **Every new module with a docstring warned that its prose ratio had risen.** The ratio arm
+  compared a new file against 0%, so the ledger module warned at 29%, below the codebase's
+  average. A warning every new file earns teaches everyone to skip the warning. A new module
+  now reports no ratio. Its added lines are still read, so a date or a `TODO` in one still
+  warns. Found on the check's first real commits. Red first: a new module with a docstring
+  reported a rise.
+
 ## #343 — 2026-09-25 — feat: an append-only ledger keeps the cluster's running token total
 
 ### Added
