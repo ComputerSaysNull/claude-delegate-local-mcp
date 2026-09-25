@@ -38,6 +38,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #339 — 2026-09-24 — docs: a venv that goes stale on any pyproject edit is filed
+
+### Added
+
+- **Unscheduled 88.** Rewording the `integration` marker's description changed only a
+  string in `pyproject.toml`, and the provisioned venv went stale, because its hash covers
+  the whole file. The server then withheld `$DELEGATE_PYTHON`, and the next delegation spent
+  all 40 of its turns unable to run a test, correctly refusing to invent results. Hashing
+  only what the build reads would keep the protection a stale venv needs while ignoring
+  test and lint configuration.
+
 ## #338 — 2026-09-24 — fix: a dispatch's summary record carries the whole run's tokens
 
 ### Fixed
