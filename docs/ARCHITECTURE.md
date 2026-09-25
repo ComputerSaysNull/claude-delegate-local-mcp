@@ -637,8 +637,8 @@ is not covered and cannot be. Defence in depth for one tool, not a replacement. 
 
 **Protected paths are kept, not covered.** The same walk binds each match of
 `protected_globs_file` inside the workdir read-only onto itself, before any secret cover. A
-missing protected directory is created, bound and removed if still empty; a protected file
-created at the workdir root is moved aside and named ([why](specs/2026-09-23-host-acted-paths.md)).
+missing directory is created, bound and removed if empty, with one fresh start if a run beside
+it removed it first; a root-level protected file is moved aside and named ([why](specs/2026-09-23-host-acted-paths.md)).
 
 **Bulk directories are covered and not walked.** The walk is per `run_bash` call, on a
 workspace that lives on `/mnt/c`, and the budget above is what a project's own installed

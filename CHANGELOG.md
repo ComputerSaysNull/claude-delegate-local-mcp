@@ -38,6 +38,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #356 — 2026-09-25 — fix: a run_bash beside another no longer fails on a vanished placeholder
+
+### Fixed
+
+- **Two `run_bash` calls in one workdir could make the second fail to start.** A missing
+  protected directory is created before the walk, bound read-only, and removed after the
+  command if still empty. A second run that starts while that placeholder exists does not
+  own it, so when the first run removes it between the second's walk and its bwrap start,
+  bwrap refuses with `Can't find source path .../.idea` and nothing runs. Seen live when two
+  delegations ran side by side. The run now prepares again and starts once more, but only
+  when bwrap's own refusal is the whole of stderr, it names a directory this workdir's
+  protected list would create, and that directory is still missing. So a command that ran
+  and failed is never started twice. Red first: the reproduction failed with the live
+  error. A guard loosened to trust the message alone restarted a command that had already
+  run, and the second test failed on it.
+
 ## #355 — 2026-09-25 — fix: two tool descriptions say what their tools do
 
 ### Fixed
