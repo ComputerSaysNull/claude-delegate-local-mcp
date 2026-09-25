@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #358 — 2026-09-25 — fix: a long collect keeps the client from dropping it
+
+### Fixed
+
+- **A `collect` waiting on a long run was dropped by the client.** A 3500s wait was
+  abandoned with no response while the run it waited on finished fine. The client drops a
+  call that sends nothing for its stdio idle timeout (ADR-0018), and `collect` had no
+  context to send anything with, while its own `wait_seconds` description invited the whole
+  remaining run. It now takes the context and reports progress every `keepalive_interval`
+  it waits, on the same rule as the delegating tools' heartbeat: one rising counter, no
+  `total`. A wait that ends at once still sends nothing. The `wait_seconds` and
+  `keepalive_interval` descriptions say so. Red first: a 2.5s wait past a 1s keepalive sent
+  0 notifications.
+
 ## #357 — 2026-09-25 — feat: a delegation that can write gets more turns by default
 
 ### Changed
