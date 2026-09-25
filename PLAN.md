@@ -235,7 +235,7 @@ M11's exit, carried. Items 1 to 3 were M11.3, M11.4 and M11.9, moved unchanged o
 1. ✅ Split the running totals from the transcripts so retention and accuracy stop competing:
   an append-only ledger of one line per dispatch, never pruned, beside the fat per-dispatch
   records, which may be aged out
-2. ⬜ The ledger counts *cluster* tokens, which is a fact. Calling the number a saving assumes
+2. ✅ The ledger counts *cluster* tokens, which is a fact. Calling the number a saving assumes
   what Claude would otherwise have read, which is not measured — report the facts and state
   the assumption beside any saving
 3. ⬜ **Showing the stream itself, for a person watching a delegation run.** The `.jsonl`
