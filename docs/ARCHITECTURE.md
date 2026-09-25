@@ -285,7 +285,10 @@ keep in step and **fails** on a stale dependency hash — stale dependencies do 
 pass against the wrong versions and return 0. Newlines are normalised out of the digest first,
 and that is not tidiness: on a Windows checkout a `git reset --hard` rewrites CRLF to LF, which
 unnormalised read as a changed declaration and withheld the interpreter with nothing about the
-project changed. A rebuild moves the working environment aside and puts it back if the build
+project changed. `pyproject.toml` is hashed parsed, less the tool tables no build reads
+(pytest, ruff, mypy, coverage, pyright and `delegate-local`), so rewording a marker is not a
+changed declaration. It is a denylist: a table nobody listed still counts, and a mistake
+costs a rebuild rather than a false fresh. A rebuild moves the working environment aside and puts it back if the build
 fails, and a rebuild from a changed declaration prints the diff and needs `--yes`, because the
 build runs the project's own backend on the host. It runs server-side, where the network is, which is why a test run needs none
 (ADR-0063). The interpreter is reached by absolute path: `SANDBOX_PATH` stays

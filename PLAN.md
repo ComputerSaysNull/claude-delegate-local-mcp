@@ -391,7 +391,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
   the stream keeps only a hash of `old_string`, so the transcript cannot show it either
 87. ✅ 2026-09-24 **A dispatch's summary record could not be summed**: its token fields are the answering
   turn's, while `_usage` said summing them gives cluster spend. It now carries whole-run `total_*`
-88. ⬜ **Any edit to `pyproject.toml` makes the provisioned venv stale**: the hash covers the whole file,
+88. ✅ **Any edit to `pyproject.toml` makes the provisioned venv stale**: the hash covers the whole file,
   so rewording a pytest marker withheld `$DELEGATE_PYTHON` and a delegation spent 40 turns without an
   interpreter. Hash what the build reads -- dependencies, `requires-python`, the build tables
 

@@ -38,6 +38,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #346 — 2026-09-25 — fix: a provisioned venv no longer goes stale over edits the build never reads
+
+### Fixed
+
+- **Rewording a pytest marker withheld the interpreter.** The staleness digest hashed the
+  whole of `pyproject.toml`, so a change no build reads moved it, `$DELEGATE_PYTHON` went
+  missing, and one delegation spent 40 turns with no interpreter. Correcting
+  `[tool.delegate-local] nested-deselect` did the same, though that list is read at call
+  time so that it would need no re-provision. `pyproject.toml` is now hashed parsed, less a
+  denylist of tool tables: pytest, ruff, mypy, coverage, pyright and `delegate-local`. A
+  denylist, so a table nobody listed still counts and a mistake costs a rebuild, never a
+  false fresh. A file that will not parse is hashed raw. `setup.cfg` and `setup.py` stay
+  whole-file. **Every existing environment reads stale once** and needs one `provision`,
+  because its record holds the old raw-bytes digest. Red first: on `main` the marker test
+  and the `nested-deselect` test failed, and the two that must still move the digest passed.
+
 ## #345 — 2026-09-25 — feat: a report over the ledger states the facts and labels the assumption
 
 ### Added
