@@ -253,6 +253,15 @@ def _proc_start_time(pid: int) -> int | None:
         return None
 
 
+def _burst_open(flag: object, now: float) -> bool:
+    """A number is the flag's expiry; a bare `True`, from an older server, is open."""
+    if flag is True:
+        return True
+    if isinstance(flag, (int, float)) and not isinstance(flag, bool):
+        return flag > now
+    return False
+
+
 def _identity(pid: int | None = None) -> str:
     """The key a process files its record under: PID plus the incarnation of that PID."""
     pid = os.getpid() if pid is None else pid
@@ -571,9 +580,9 @@ class SharedSlots:
         holding the slot `_try_take` granted it a moment earlier, so `seqs` already keeps
         the record. Adding the flag here would be redundant in every normal case and
         harmful in one -- a close that failed against an unreachable file leaves the flag
-        set, and a record protected by its own stranded flag can never be reaped, so every
-        other process would read an open wait for the life of this one. Redundant when it
-        works, permanent when it does not, is not a trade worth making.
+        set, and a record protected by its own stranded flag could never be reaped. The
+        flag's expiry already bounds how long others read it; keeping the record for it
+        would undo that.
         """
         return not (
             int(record.get("seqs", 0))
@@ -582,21 +591,21 @@ class SharedSlots:
         )
 
     # ---- the burst flag --------------------------------------------------------------
-    async def open_burst_wait(self) -> None:
-        """Say that this process is counting a burst, so others can join it."""
-        await self._set_burst_wait(True)
+    async def open_burst_wait(self, expires_in: float) -> None:
+        """Say that this process is counting a burst, until `expires_in` from now."""
+        await self._set_burst_wait(True, expires_in)
 
     async def close_burst_wait(self) -> None:
         """Say that it is no longer counting one. Idempotent: the caller's exit paths
         cannot all know whether the flag was ever written."""
         await self._set_burst_wait(False)
 
-    async def _set_burst_wait(self, open_wait: bool) -> None:
+    async def _set_burst_wait(self, open_wait: bool, expires_in: float = 0.0) -> None:
         async with self._locked() as fd:
             records, next_ticket = self._read(fd)
             if open_wait:
                 mine = self._mine(records)
-                mine[_BURST_FIELD] = True
+                mine[_BURST_FIELD] = time.time() + expires_in
                 mine["updated_at"] = time.time()
             else:
                 mine = records.get(self._me)
@@ -620,8 +629,9 @@ class SharedSlots:
         """
         async with self._locked() as fd:
             records, _ = self._read(fd)
+            now = time.time()
             return any(
-                key != self._me and record.get(_BURST_FIELD)
+                key != self._me and _burst_open(record.get(_BURST_FIELD), now)
                 for key, record in records.items()
             )
 
