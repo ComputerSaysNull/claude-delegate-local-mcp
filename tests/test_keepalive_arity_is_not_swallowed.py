@@ -75,8 +75,8 @@ async def test_a_mismatched_callback_beats_nothing_where_a_correct_one_beats():
     good: list[tuple] = []
     bad: list[tuple] = []
 
-    async def correct(elapsed, of_seconds, ends_in, chunks, since) -> None:
-        good.append((elapsed, of_seconds, ends_in, chunks, since))
+    async def correct(elapsed, of_seconds, ends_in, chunks, reasoning_chunks, since) -> None:  # noqa: PLR0913, PLR0917
+        good.append((elapsed, of_seconds, ends_in, chunks, reasoning_chunks, since))
 
     async def too_few(_only_one) -> None:  # the shape a missed call site leaves behind
         bad.append(("wrong",))

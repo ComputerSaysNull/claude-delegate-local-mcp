@@ -173,7 +173,7 @@ Item 2 was Unscheduled.62, moved unchanged on 2026-09-23.
   step. Compare one replica per machine behind one endpoint, if a quantised copy fits
 10. ✅ **`analyse_transcripts.py concurrency` understates the cluster by about a third**
   (review §9): it spreads a turn's tokens over its prefill too. Use `out_tok_s` or retire it
-11. ⬜ **A watcher cannot tell thinking from answering** (review §9): the `alive` event counts
+11. ✅ **A watcher cannot tell thinking from answering** (review §9): the `alive` event counts
   chunks of both. The accumulator knows which, so split the count
 
 ### M17 — Skills follow the Agent Skills specification

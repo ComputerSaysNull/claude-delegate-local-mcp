@@ -526,10 +526,17 @@ def _alive_line(event: dict) -> str:
     # The gap since the last is the half that separates a delegation generating from one
     # that has gone quiet, so it appears whenever it is long enough to mean anything.
     seen = event.get("chunks_seen")
+    reasoning = event.get("reasoning_chunks")
     since = event.get("since_chunk_seconds")
     flow = ""
     if isinstance(seen, int) and seen > 0:
         flow = f", {seen:,} chunks"
+        # The split, when the stream carries it. A watcher's question is whether the model
+        # is thinking or answering, and the total cannot answer it; the two halves can.
+        # Absent is not zero: a transcript written before the split existed must not read
+        # as a run that reasoned not at all.
+        if isinstance(reasoning, int):
+            flow += f" ({reasoning:,} thinking, {seen - reasoning:,} answering)"
         if isinstance(since, (int, float)) and since >= 2:
             flow += f" (last {since:.0f}s ago)"
     return f"{DIM}still running · {spent}{budget}{ends}{flow}{R}"

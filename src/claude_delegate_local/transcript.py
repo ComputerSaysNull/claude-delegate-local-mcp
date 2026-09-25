@@ -318,9 +318,10 @@ class Stream:
             "waited_seconds": round(waited_seconds, 3), "of_seconds": of_seconds,
         })
 
-    def alive(self, *, elapsed_seconds: float, of_seconds: int,
+    def alive(self, *, elapsed_seconds: float, of_seconds: int,  # noqa: PLR0913 -- one event's fields, all keyword-only
               ends_in_seconds: float | None = None,
-              chunks_seen: int = 0, since_chunk_seconds: float | None = None) -> None:
+              chunks_seen: int = 0, reasoning_chunks: int = 0,
+              since_chunk_seconds: float | None = None) -> None:
         """A delegation is still running, and -- since ADR-0072 -- what it is doing.
 
         Every other event marks something that happened. This one exists because on the
@@ -334,6 +335,11 @@ class Stream:
         `since_chunk_seconds` is how long since the last, which together separate a
         delegation that is producing from one that has gone quiet -- the distinction the
         event was invented for and could not previously make.
+
+        `reasoning_chunks` splits the count so a reader can tell thinking from answering,
+        which the total alone cannot. `answer_chunks` is derived rather than recorded, so
+        the three can never disagree: the total is what was counted and the split is what
+        it was split into.
 
         Chunks rather than tokens, and named so. A frame usually carries one token on this
         stack and is not promised to, and the only real count arrives in the final usage
@@ -350,6 +356,8 @@ class Stream:
                 None if ends_in_seconds is None else round(ends_in_seconds, 3)
             ),
             "chunks_seen": chunks_seen,
+            "reasoning_chunks": reasoning_chunks,
+            "answer_chunks": chunks_seen - reasoning_chunks,
             "since_chunk_seconds": (
                 None if since_chunk_seconds is None else round(since_chunk_seconds, 3)
             ),

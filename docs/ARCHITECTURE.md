@@ -1226,7 +1226,7 @@ outlast the client's idle timer unaided. A synthetic `turn` is written when a on
 answer arrives, so the record is never the empty shape a failed delegation has.
 [DISPATCH.md](DISPATCH.md) owns what the heartbeat carries and why (ADR-0018, ADR-0072).
 The viewer renders it as one dim line, and its chunk count is what makes a running
-delegation legible as *working* rather than merely *unfinished*.
+delegation legible as *working* rather than merely *unfinished* — split by kind, thinking or answering.
 
 A sixth, `waiting`, is written while a delegation is still queued at the gate, from the
 tick that resets the client's idle timer — on the first tick, then every thirty seconds,

@@ -1149,7 +1149,7 @@ def test_the_heartbeat_task_does_not_outlive_the_dispatch():
     """
     beats: list[float] = []
 
-    async def on_alive(elapsed, of, ends_in, chunks=0, since=None):
+    async def on_alive(elapsed, of, ends_in, chunks=0, reasoning_chunks=0, since=None):  # noqa: PLR0913, PLR0917
         beats.append(elapsed)
 
     async def go():
@@ -1179,7 +1179,7 @@ def test_a_heartbeat_that_raises_stops_beating_and_nothing_else():
     """
     calls: list[int] = []
 
-    async def on_alive(elapsed, of, ends_in, chunks=0, since=None):
+    async def on_alive(elapsed, of, ends_in, chunks=0, reasoning_chunks=0, since=None):  # noqa: PLR0913, PLR0917
         calls.append(1)
         raise RuntimeError("nowhere to send it")
 

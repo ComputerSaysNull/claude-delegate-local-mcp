@@ -216,7 +216,7 @@ class OpenAICompatBackend:
         self,
         request: CanonicalRequest,
         *,
-        on_token: Callable[[], None] | None = None,
+        on_token: Callable[[str], None] | None = None,
     ) -> CanonicalResponse:
         payload, decode_seconds, prefill_seconds = await self._post_stream(
             self._entry.chat_url, self.wire_body(request), _CHAT_PATH, on_token=on_token
@@ -231,7 +231,7 @@ class OpenAICompatBackend:
         body: dict[str, Any],
         path: str,
         *,
-        on_token: Callable[[], None] | None = None,
+        on_token: Callable[[str], None] | None = None,
     ) -> tuple[dict[str, Any], float | None, float | None]:
         """Stream the chat call and hand back one payload plus both halves of its clock.
 
@@ -300,7 +300,8 @@ class OpenAICompatBackend:
                         break
                     if frame is None:
                         continue
-                    if acc.feed(frame):
+                    kind = acc.feed(frame)
+                    if kind is not None:
                         now = self._clock()
                         if first is None:
                             first = now
@@ -311,7 +312,7 @@ class OpenAICompatBackend:
                         # decoder producing anything, and reporting it would tell the
                         # admission lease a prefill still running had finished.
                         if on_token is not None:
-                            on_token()
+                            on_token(kind)
         except httpx.HTTPError as e:
             # A read timeout is the one shape here that spent the whole allowance: the
             # request was delivered and the endpoint never answered in time. `ConnectTimeout`
@@ -589,13 +590,15 @@ class _StreamAccumulator:
         self._model: str | None = None
         self._fingerprint: Any = None
 
-    def feed(self, frame: dict[str, Any]) -> bool:
-        """Absorb one frame. True when that frame carried generated tokens.
+    def feed(self, frame: dict[str, Any]) -> str | None:
+        """Absorb one frame. What it carried: `"reasoning"`, `"answer"`, or None.
 
         The return value is what the clock times, so it has to mean *tokens* and not
-        *frames*. The opening frame announcing `role` and the closing one carrying only
-        `usage` are bookkeeping: counting either would put prefill back inside the
-        interval this whole mechanism exists to keep it out of.
+        *frames* -- and now it also names which half of the reply those tokens are, which
+        is the fact a watcher wants. The opening frame announcing `role` and the closing
+        one carrying only `usage` are bookkeeping: counting either would put prefill back
+        inside the interval this whole mechanism exists to keep it out of, and reporting
+        either as a kind would claim a thought or an answer that never arrived.
         """
         if self._model is None and isinstance(frame.get("model"), str):
             self._model = frame["model"]
@@ -607,36 +610,43 @@ class _StreamAccumulator:
 
         choices = frame.get("choices")
         if not isinstance(choices, list) or not choices:
-            return False
+            return None
         choice = choices[0]
         if not isinstance(choice, dict):
-            return False
+            return None
         if choice.get("finish_reason") is not None:
             self._finish = str(choice["finish_reason"])
         if choice.get("stop_reason") is not None:
             self._stop = choice["stop_reason"]
 
         delta = choice.get("delta")
-        return self._feed_delta(delta) if isinstance(delta, dict) else False
+        return self._feed_delta(delta) if isinstance(delta, dict) else None
 
-    def _feed_delta(self, delta: dict[str, Any]) -> bool:
-        """The generated half of a frame. True when any of it was tokens."""
-        carried = False
+    def _feed_delta(self, delta: dict[str, Any]) -> str | None:
+        """The generated half of a frame, as its kind.
+
+        `reasoning` when only reasoning arrived, `answer` once content or a tool-call
+        fragment does -- a frame carrying both is the answer, because the answer is the
+        half a caller will read. `None` when the frame carried no generated output at all,
+        which is the difference between counting an arrival and counting a bookkeeping
+        frame.
+        """
+        kind: str | None = None
         for key in _REASONING_KEYS:
             piece = delta.get(key)
             if isinstance(piece, str) and piece:
                 self._reasoning.append(piece)
                 self._reasoning_key = key
-                carried = True
+                kind = "reasoning"
                 break
         piece = delta.get("content")
         if isinstance(piece, str) and piece:
             self._content.append(piece)
-            carried = True
+            kind = "answer"
         for call in delta.get("tool_calls") or []:
             if isinstance(call, dict) and self._feed_tool_call(call):
-                carried = True
-        return carried
+                kind = "answer"
+        return kind
 
     def _feed_tool_call(self, call: dict[str, Any]) -> bool:
         """One tool-call delta. Arguments arrive split across frames and are concatenated.

@@ -1245,7 +1245,7 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
     jitter: Callable[[float, float], float] = random.uniform,
     deadline: float | None = None,
     stall_left: Callable[[], float] | None = None,
-    on_token: Callable[[], None] | None = None,
+    on_token: Callable[[str], None] | None = None,
     on_retry: Callable[[RetryRecord], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -1487,7 +1487,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     effort: str,
     deadline: float | None,
     stall_left: Callable[[], float] | None = None,
-    on_token: Callable[[], None] | None = None,
+    on_token: Callable[[str], None] | None = None,
     max_tokens: int | None = None,
     budget_ceiling: int | None = None,
     # The first attempt's resolved budget, computed by the caller so the priced row and
@@ -1627,7 +1627,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     *,
     effort: str | None = None,
     max_tokens: int | None = None,
-    on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]] | None = None,
+    on_alive: Callable[[float, int, float, int, int, float | None], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
@@ -1678,23 +1678,36 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         return cfg.stall_timeout - (clock() - last_progress)
 
     chunks = 0
+    reasoning_chunks = 0
 
-    def token_arrived() -> None:
-        nonlocal last_progress, chunks
+    def token_arrived(kind: str = "answer") -> None:
+        """One frame carried generated output. `kind` names which half of the reply.
+
+        The default keeps a backend that still calls `on_token()` with no argument working:
+        the only difference is that the reasoner is not told what arrived, and a frame that
+        arrived at all was at least an answer's worth of progress.
+        """
+        nonlocal last_progress, chunks, reasoning_chunks
         last_progress = clock()
         chunks += 1
+        if kind == "reasoning":
+            reasoning_chunks += 1
         if on_token is not None:
             on_token()
 
-    def streamed() -> tuple[int, float | None]:
+    def streamed() -> tuple[int, int, float | None]:
         """What has arrived, and how long since. Chunks, deliberately not tokens.
 
         A frame usually carries one token on this stack and is not promised to, and the
         only real token count arrives in the final usage frame -- after the heartbeat has
         stopped mattering. Reporting frames as tokens would be a guess dressed as a
         measurement, which is the thing this event's own history warns against.
+
+        The reasoning count rides beside the total so a watcher can tell thinking from
+        answering: the two halves are the point of the split, and a reader that has to
+        subtract them from one number is doing the work this event exists to do.
         """
-        return chunks, None if not chunks else clock() - last_progress
+        return chunks, reasoning_chunks, None if not chunks else clock() - last_progress
 
     def request_at(level: str, budget: int) -> CanonicalRequest:
         return build_one_shot_request(
@@ -1776,10 +1789,10 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
 
 async def _keepalive(
     cfg: Config,
-    on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]],
+    on_alive: Callable[[float, int, float, int, int, float | None], Awaitable[None]],
     clock: Callable[[], float],
     ends_in: Callable[[], float],
-    streamed: Callable[[], tuple[int, float | None]] = lambda: (0, None),
+    streamed: Callable[[], tuple[int, int, float | None]] = lambda: (0, 0, None),
 ) -> None:
     """Say the delegation is still running, on a timer, until cancelled.
 
@@ -1804,9 +1817,10 @@ async def _keepalive(
             # the first showed nine delegations as 0.4% elapsed while minutes from being
             # killed. The last two are what streaming made knowable: how much has arrived,
             # and how long since any of it did (ADR-0072).
-            chunks, since = streamed()
+            chunks, reasoning_chunks, since = streamed()
             await on_alive(
-                clock() - started, cfg.dispatch_timeout, ends_in(), chunks, since
+                clock() - started, cfg.dispatch_timeout, ends_in(),
+                chunks, reasoning_chunks, since,
             )
         except asyncio.CancelledError:
             raise
@@ -3079,7 +3093,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     policy: BashPolicy | None = None,
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
-    on_alive: Callable[[float, int, float, int, float | None], Awaitable[None]] | None = None,
+    on_alive: Callable[[float, int, float, int, int, float | None], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
@@ -3137,33 +3151,43 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     specs = declared_tools(cfg, allowed)
     deadline = clock() + cfg.dispatch_timeout
     chunks = 0
+    reasoning_chunks = 0
 
     def stall_left() -> float:
         return cfg.stall_timeout - (clock() - last_progress)
 
-    def token_arrived() -> None:
+    def token_arrived(kind: str = "answer") -> None:
         """The second progress signal, and since ADR-0072 the finer of the two.
 
         Turn completion still counts -- nothing here replaces it -- but it cannot see
         inside a turn, which is why a pass that had completed twenty-nine of them was
         killed in its thirtieth. Token arrival can, and unlike the notification and the
         keepalive it is real: it happens because the model produced something.
+
+        `kind` names which half of the reply a frame carried, so the reasoner can tally
+        thinking separately from answering. The default keeps a backend that still calls
+        `on_token()` with no argument working.
         """
-        nonlocal last_progress, chunks
+        nonlocal last_progress, chunks, reasoning_chunks
         last_progress = clock()
         chunks += 1
+        if kind == "reasoning":
+            reasoning_chunks += 1
         if on_token is not None:
             on_token()
 
-    def streamed() -> tuple[int, float | None]:
+    def streamed() -> tuple[int, int, float | None]:
         """What has arrived this delegation, and how long since. Chunks, not tokens.
 
         Frames, because that is what the wire carries one of and the only honest token
         count lands in the final usage frame. Not reset per turn: a reader watching a
         delegation wants to know it is still producing, and a counter that restarted at
         every turn boundary would read as though it had stopped.
+
+        The reasoning count rides beside the total so a watcher can tell thinking from
+        answering; the two halves are the point of the split.
         """
-        return chunks, None if not chunks else clock() - last_progress
+        return chunks, reasoning_chunks, None if not chunks else clock() - last_progress
 
     bash_policy = policy or BashPolicy()
 
