@@ -370,7 +370,9 @@ ships inside the wheel and `--install-skills` copies it into someone else's proj
 nothing in it may assume this repository — the reason it exists, since `docs/` does not travel.
 
 `docs-audit-dispatch` is the runbook for `docs-audit-local` — the pass list, the check-class
-definitions and each pass's effort — what makes two audits comparable. **Both readers must
+definitions and each pass's effort — what makes two audits comparable. The definitions and
+the sizing evidence live in its `references/`, read when a step says to rather than every
+time the skill loads. **Both readers must
 accept these files**: `agents.py` is the permissive one, so quote any value holding a colon.
 A pass is added when a document owns code no pass reads — how the viewer earned pass 16.
 

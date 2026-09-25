@@ -38,6 +38,30 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #342 — 2026-09-25 — docs: the audit runbook keeps its definitions and evidence in references
+
+### Changed
+
+- **`docs-audit-dispatch` no longer loads its whole runbook on every run.** The review found
+  the skill carrying the check-class definitions and the sizing evidence on every invocation.
+  The definitions are needed only while writing a pass's task, pasted one at a time, and the
+  evidence only before changing a turn cap or the effort column. Both now sit in
+  `references/`, moved verbatim, and `SKILL.md` keeps the steps and gotchas, dropping from
+  267 to 180 lines. A step says when to read each file, the task template names where the
+  definition comes from, and the NARRATIVE pass now reads `references/` too, or the moved
+  text would have left every audit's scope.
+
+### Fixed
+
+- **A test meant to prove the definitions exist could never fail.** It searched the skill for
+  class *names*, which the pass table also carries, so deleting every definition would have
+  passed it. It now looks for the definitions themselves across the skill's folder, and a
+  negative control shows a skill without its references fails it. The CLAIMS regression test
+  follows the definition to its new file. It was red against the move until it did.
+- **A delegation cannot write under `.claude/`, by design.** The path policy protects files
+  the host acts on, so this item was done by hand after a delegation spent its run probing
+  the refusal.
+
 ## #341 — 2026-09-25 — fix: each turn is priced for the concurrency it meets, and says what it sent
 
 ### Fixed

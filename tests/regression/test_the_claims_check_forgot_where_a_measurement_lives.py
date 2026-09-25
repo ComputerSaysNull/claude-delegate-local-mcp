@@ -24,14 +24,14 @@ import pathlib
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-DISPATCH = ROOT / ".claude/skills/docs-audit-dispatch/SKILL.md"
+DISPATCH = ROOT / ".claude/skills/docs-audit-dispatch/references/check-classes.md"
 
 
 def claims_definition() -> str:
     """Just the CLAIMS paragraph, never the whole file.
 
-    Scoped deliberately. `CHANGELOG.md` is named elsewhere in this skill -- the recording
-    step points at it -- so a test searching the whole document would pass on a mention
+    Scoped deliberately. `CHANGELOG.md` is named elsewhere in this file -- FILED ALREADY
+    names it -- so a test searching the whole document would pass on a mention
     that no auditor reading the check class would ever see. That is the shape of an
     unfailable check, and this file exists because an instruction went unfixed once already.
     """
@@ -61,7 +61,7 @@ def test_the_definition_is_what_is_checked_not_the_whole_skill():
     body = claims_definition()
     whole = DISPATCH.read_text(encoding="utf-8")
     assert len(body) < len(whole) / 2, "the CLAIMS scope is reading too much of the skill"
-    assert "## The passes" not in body
+    assert "**FILED ALREADY**" not in body
 
 
 @pytest.mark.parametrize("other", ["ESCAPE ABUSE", "MISSING"])
