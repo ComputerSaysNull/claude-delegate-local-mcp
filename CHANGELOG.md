@@ -38,6 +38,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #332 — 2026-09-24 — feat: the gate warns when history or future work creeps back into src comments
+
+### Added
+
+- **A `prose-regrowth` warning, so the comment passes do not have to be repeated.** The review
+  found prose outweighing code in `src/`, much of it dated history and future-work notes that
+  belong in CHANGELOG, JOURNAL or PLAN, and the planned per-module passes would cut it once
+  with nothing stopping it growing back. The gate now warns on an *added* comment or
+  docstring line carrying an ISO date, `TODO`/`FIXME`/`XXX`, or phrasing like "for now" or
+  "eventually", and reports a changed module's prose ratio only when the change raised it.
+  It warns and never blocks: most modules are still awaiting their pass, and blocking would
+  stop every edit to them. It reads added lines only, so prose that already shipped stays
+  quiet. Seven tests cover it, including a `TODO` inside a string literal, an untouched dated
+  comment, and a code-only edit, none of which may warn. The first version read the staged
+  file as `::path` rather than `:path`, so git refused and the check silently found nothing;
+  four tests were red on that until it was fixed.
+
 ## #331 — 2026-09-24 — docs: a worktree can run the suite, and the skill said it could not
 
 ### Changed

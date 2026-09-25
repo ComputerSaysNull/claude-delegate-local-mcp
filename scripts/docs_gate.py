@@ -21,14 +21,17 @@ check is worse than an absent one, because it is trusted.
 from __future__ import annotations
 
 import argparse
+import ast
 import atexit
 import fnmatch
+import io
 import json
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import tokenize
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -1992,6 +1995,200 @@ def check_doc_references() -> list[Finding]:
                         f"or nowhere."))
     return out
 
+# -------------------------------------------------------------------------- prose regrowth
+#
+# The history is being cut out of src/ comments module by module, by hand. This is the gate
+# that keeps it from growing back. It only WARNs and never BLOCKs, because the existing prose is
+# still being cut by per-module passes -- blocking would block every edit to a file that is
+# still awaiting its pass. And it only reads ADDED lines, because a date or a TODO that
+# already shipped is a decision already made, not one being made now; the ratio arm is the
+# whole-file part that watches the level rather than the increment.
+
+PROSE_DATE_RE = re.compile(r"\b20\d\d-\d\d-\d\d\b")
+PROSE_TODO_RE = re.compile(r"\b(?:TODO|FIXME|XXX)\b")
+PROSE_FUTURE_RE = re.compile(
+    r"\b(?:for now|in future|in the future|eventually|not yet)\b", re.IGNORECASE)
+
+
+def _added_line_numbers(diff_text: str) -> set[int]:
+    """New-file line numbers of the lines `git diff -U0` reports as added.
+
+    A hunk header is `@@ -l,s +l,s @@` optionally followed by a section heading, so the
+    regex stops at the first `@@` rather than anchoring at end-of-line. With -U0 there is
+    no context, so every `+` line inside a hunk is an addition and the header's starting
+    line is where they begin.
+    """
+    added: set[int] = set()
+    new_no: int | None = None
+    for line in diff_text.splitlines():
+        if line.startswith("@@"):
+            m = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", line)
+            new_no = int(m.group(1)) if m else None
+            continue
+        if new_no is None:
+            continue
+        if line.startswith("+"):
+            added.add(new_no)
+            new_no += 1
+        elif line.startswith("-") or line.startswith("\\"):
+            continue
+        elif line.startswith(" "):
+            new_no += 1
+        else:
+            new_no = None  # out of a hunk (a `diff --git` header for the next file)
+    return added
+
+
+def _docstring_lines(tree: ast.AST) -> set[int]:
+    """Line numbers inside a module, class or function docstring."""
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                             ast.AsyncFunctionDef)):
+            body = getattr(node, "body", None)
+            if not body:
+                continue
+            first = body[0]
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                lines.update(
+                    range(first.lineno, (first.end_lineno or first.lineno) + 1))
+    return lines
+
+
+def _prose_lines(text: str) -> tuple[set[int], set[int]] | None:
+    """(comment line numbers, docstring line numbers), or None when the file does not parse.
+
+    Comments come from `tokenize`, not from a `#` substring test, so a `#` inside a string
+    literal is not mistaken for a comment. Docstrings come from `ast`, because a triple-
+    quoted string that is not the first statement of a module, class or function is not a
+    docstring and should not count as prose.
+    """
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+    comments: set[int] = set()
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT:
+                comments.add(tok.start[0])
+    except (SyntaxError, tokenize.TokenError, IndentationError, ValueError):
+        return None
+    return comments, _docstring_lines(tree)
+
+
+def _prose_ratio(text: str) -> int | None:
+    """Whole-file prose as a percent of non-blank lines, or None when it does not parse."""
+    stats = _prose_lines(text)
+    if stats is None:
+        return None
+    comments, docstring = stats
+    prose = len(comments | docstring)
+    nonblank = sum(1 for ln in text.splitlines() if ln.strip())
+    if nonblank == 0:
+        return 0
+    return round(prose * 100 / nonblank)
+
+
+def _prose_match(line: str) -> str | None:
+    """The first thing on a prose line the gate refuses to let grow back, or None."""
+    for pat in (PROSE_DATE_RE, PROSE_TODO_RE, PROSE_FUTURE_RE):
+        m = pat.search(line)
+        if m:
+            return m.group(0)
+    return None
+
+
+def _file_at(rev: str, path: str) -> str | None:
+    """A tracked file's content at a revision, un-stripped: line numbers must survive.
+
+    The gate's `run` helper strips, and stripping a file shifts every line number after the
+    first blank line, so the content scanners cannot use it for a file whose line numbers
+    are being matched against a diff. `rev` may be `HEAD`, a commit, or the empty string for
+    the index, which git spells `:path` rather than `rev:path`.
+    """
+    proc = subprocess.run(
+        ["git", "show", f"{rev}:{path}"], cwd=ROOT, capture_output=True, text=True,
+        check=False, encoding="utf-8", errors="replace")
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _range_base_and_new(rng: str) -> tuple[str, str]:
+    """(base revision, new revision) for a diff range, in git's own terms.
+
+    A three-dot range diffs against the merge base, so the base revision is the merge base
+    rather than the left operand. A two-dot range diffs the operands directly.
+    """
+    if "..." in rng:
+        left, right = rng.split("...", 1)
+        return run("git", "merge-base", left, right, required=True), right
+    if ".." in rng:
+        left, right = rng.split("..", 1)
+        return left, right
+    return rng, "HEAD"
+
+
+def check_prose_regrowth(mode: str, diff_range: str | None) -> list[Finding]:
+    """Warn on history and future-work phrasing creeping back into `src/` comments.
+
+    The history is being cut out of these files module by module, by hand. This stops it
+    regrowing, and it is deliberately a WARN and never a BLOCK: the existing prose is still
+    being cut by per-module passes, so blocking would block every edit to a file that is
+    still awaiting its pass. Only ADDED lines are read, because a date or a TODO that
+    already shipped is a decision already made, not one being made now; the ratio arm
+    covers the whole file, so a drift that never lands on an added line still surfaces.
+    """
+    if mode == "pre-commit":
+        base_rev, new_rev = "HEAD", ""  # "" reads the index: `git show :path`
+        diff_base = ("git", "diff", "--cached", "-U0")
+        files = [p for p in git("diff", "--cached", "--name-only",
+                                "--diff-filter=ACMR").splitlines() if p]
+    else:
+        rng = pr_range(diff_range)
+        if rng is None:
+            return [_no_range("prose-regrowth")]
+        base_rev, new_rev = _range_base_and_new(rng)
+        diff_base = ("git", "diff", "-U0", rng)
+        files = [p for p in git("diff", "--name-only", "--diff-filter=ACMR",
+                                rng).splitlines() if p]
+
+    out = []
+    for path in files:
+        if not (path.startswith("src/") and path.endswith(".py")):
+            continue
+        new_text = _file_at(new_rev, path)
+        if new_text is None:
+            continue
+        stats = _prose_lines(new_text)
+        if stats is None:
+            continue  # does not parse; another check will complain
+        comments, docstring = stats
+        prose = comments | docstring
+        lines = new_text.splitlines()
+        for n in sorted(_added_line_numbers(
+                run(*diff_base, "--", path, required=True))):
+            if n not in prose:
+                continue
+            line = lines[n - 1] if n - 1 < len(lines) else ""
+            what = _prose_match(line)
+            if what:
+                out.append(Finding(
+                    WARN, "prose-regrowth",
+                    f"{path} line {n}: {what} in a comment -- history belongs in "
+                    f"CHANGELOG/JOURNAL, future work in PLAN.md"))
+        nonblank = sum(1 for ln in lines if ln.strip())
+        new_ratio = round(len(prose) * 100 / nonblank) if nonblank else 0
+        base_text = _file_at(base_rev, path)
+        base_ratio = _prose_ratio(base_text) if base_text is not None else 0
+        if base_ratio is not None and new_ratio > base_ratio:
+            out.append(Finding(
+                WARN, "prose-regrowth",
+                f"{path}: prose ratio rose from {base_ratio}% to {new_ratio}%"))
+    return out
+
+
 CHECKS = {
     "identity": check_commit_identity,
     "email-content": check_emails_in_files,
@@ -2014,6 +2211,7 @@ CHECKS = {
     "orphan-doc": check_orphan_docs,
     "doc-reference": check_doc_references,
     "split-dodge": check_split_dodge,
+    "prose-regrowth": check_prose_regrowth,
     "manifest": check_manifest_docs_exist,
     "audit-due": check_audit_pressure,
     "public-text": check_pr_text,
@@ -2165,7 +2363,7 @@ def _run_checks(args: argparse.Namespace) -> tuple[list[str], list[Finding]]:
         try:
             if name == "commit-message":
                 findings += fn(args.mode, args.diff_range, args.message_file)
-            elif name in ("identity", "split-dodge"):
+            elif name in ("identity", "split-dodge", "prose-regrowth"):
                 findings += fn(args.mode, args.diff_range)
             elif name in ("public-text", "changelog-number"):
                 findings += fn(args.pr_event)
