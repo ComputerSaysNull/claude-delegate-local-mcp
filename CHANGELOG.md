@@ -38,6 +38,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #365 — 2026-09-25 — feat: a files[] entry can name a line range
+
+### Added
+
+- **A file over the prefetch cap can be prefetched in part.** The per-file cap drops a file
+  whole, so `CHANGELOG.md`, about 182k tokens against 140k, always came back in
+  `files_skipped` when a few hundred lines were all anyone wanted, and the delegation spent
+  a turn on `read_file` instead. An entry may now be an object `{path, start_line,
+  end_line}` with `read_file`'s rules. The range is cut before both budget checks, so its
+  own size decides; it keeps the file's line numbers, and its header says `lines A-B of N`
+  inside the markers. A glob, a bad or empty range, a start past the end and a second entry
+  for the same file are each refused for that entry alone. ADR-0105 says why this is not
+  the truncation ADR-0046 refuses. Red first: an object entry was refused as "Input should
+  be a valid string". The local model drafted it; review moved the range inside the
+  markers, because the escaper recognises a marker only when it ends in dashes and a
+  suffix would have been a boundary a file could forge.
+
 ## #364 — 2026-09-25 — fix: CI installs every dependency at a pinned version
 
 ### Fixed

@@ -340,7 +340,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     2026-09-19 it marks `grep <absent> | head` and `yes | head -1` as failures. The `ERR`
     trap covers the sequence shape only, so the count undercounts by design (ADR-0095).
 
-70. ⬜ **`files[]` takes whole files, so a large one is refused rather than sampled.**
+70. ✅ 2026-09-25 **`files[]` takes whole files, so a large one is refused rather than sampled.**
   `CHANGELOG.md` is 182,236 tokens against the 140,000 cap and comes back in
   `files_skipped`, where a range was all anyone wanted. The file's own numbers, not the range's
 71. ✅ 2026-09-24 **`test_tool_time_is_the_tools_and_not_the_queue` is load-sensitive under the full

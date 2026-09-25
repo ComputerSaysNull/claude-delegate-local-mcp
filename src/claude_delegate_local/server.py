@@ -26,7 +26,7 @@ from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from .backends.base import (
     Backend,
@@ -44,7 +44,7 @@ from .admission import Admission, AdmissionError, AdmissionLease
 from .agents import AgentError, AgentSpec, load_agent
 from .agents import survey_agents as discover_agents
 from .config import EFFORT_INHERIT, EFFORT_LEVELS, Config, ConfigError
-from .context import estimate_text_tokens, prefetch, skip_from_refusal
+from .context import FileRequest, estimate_text_tokens, prefetch, skip_from_refusal
 from .handles import Handles, UnknownHandle
 from .loop import (
     AgenticDispatch,
@@ -60,9 +60,12 @@ from .loop import (
     run_one_shot,
 )
 from .paths import (
+    LAYER_FORM,
     PathPolicyError,
     PathRefused,
+    Refusal,
     expand_globs,
+    has_magic,
     resolve_files,
     resolve_workdir,
 )
@@ -747,31 +750,101 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
 
     # Before the backend is even looked up: a refused path must cost nothing, and
     # must not depend on whether the cluster happens to be reachable today.
-    # Expanded first, then resolved, so a match goes through the same four layers a
-    # hand-written path does. One `resolve_files` and therefore one `prefetch` over the
-    # whole expansion: the token budget is per call, so expanding batch by batch would
-    # hand each batch a full budget and never enforce the total. (ADR-0097)
     #
-    # All three run on a thread: they stat, glob, spawn git and read files, and on the
-    # loop that stopped every other delegation in this process while they did.
+    # `files[]` entries are either plain path/glob strings or ranged objects. A ranged
+    # entry is refused (never clamped) for a bad range shape or a glob path, each for
+    # that entry alone, landing in `files_skipped` like any other per-path refusal.
+    #
+    # All of this runs on a thread: it stats, globs, spawns git and reads files, and on
+    # the loop that stopped every other delegation in this process while they did.
+    plain: list[str] = []
+    ranged: list[tuple[str, int, int | None]] = []  # path, start_line, end_line
+    range_refusals: list[Refusal] = []
+    for raw in files or []:
+        if isinstance(raw, str):
+            plain.append(raw)
+            continue
+        path = raw.path
+        start = raw.start_line
+        end = raw.end_line
+        if has_magic(path):
+            range_refusals.append(Refusal(
+                given=path, layer=LAYER_FORM,
+                reason="it is a glob, and a ranged entry names one file, not many.",
+                remedy="Name the single file, and let the range choose the part of it.",
+            ))
+        elif start < 1:
+            range_refusals.append(Refusal(
+                given=path, layer=LAYER_FORM,
+                reason=f"start_line {start} is not a line number; lines are counted from 1.",
+                remedy="Give a 1-based start_line, or name the file plainly without a range.",
+            ))
+        elif end is not None and end < start:
+            range_refusals.append(Refusal(
+                given=path, layer=LAYER_FORM,
+                reason=f"end_line {end} is before start_line {start}, so the range is empty.",
+                remedy=(
+                    "Give an end_line at or after start_line, or omit it to read to the "
+                    "end of the file."
+                ),
+            ))
+        else:
+            ranged.append((path, start, end))
+
     try:
-        named, glob_refusals = await asyncio.to_thread(expand_globs, cfg, files or [])
-        resolved, refusals = await asyncio.to_thread(resolve_files, cfg, named)
+        # Expanded first, then resolved, so a match goes through the same four layers a
+        # hand-written path does. One `prefetch` over the whole expansion: the token budget
+        # is per call, so expanding batch by batch would hand each batch a full budget and
+        # never enforce the total. (ADR-0097)
+        named, glob_refusals = await asyncio.to_thread(expand_globs, cfg, plain)
+        plain_resolved, plain_refusals = await asyncio.to_thread(resolve_files, cfg, named)
     except PathPolicyError as e:
         raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
+
+    # Ranged paths are resolved one at a time, not in the same batch as the plain ones:
+    # `resolve_files` deduplicates by resolved path, so batching would silently collapse a
+    # ranged entry naming a file the caller also named plainly -- and a duplicate ranged
+    # entry is the case that has to be refused, not dropped.
+    seen: set[str] = {r.posix for r in plain_resolved}
+    requests: list[FileRequest] = [FileRequest(entry=r) for r in plain_resolved]
+    ranged_refusals: list[Refusal] = []
+    for path, start, end in ranged:
+        try:
+            survivors, path_refusals = await asyncio.to_thread(resolve_files, cfg, [path])
+        except PathPolicyError as e:
+            raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
+        if path_refusals:
+            ranged_refusals.extend(path_refusals)
+            continue
+        if not survivors:
+            continue
+        r = survivors[0]
+        if r.posix in seen:
+            ranged_refusals.append(Refusal(
+                given=path, layer=LAYER_FORM,
+                reason=(
+                    "this file is already named in files[], so the ranged entry is a "
+                    "duplicate."
+                ),
+                remedy="Name each file once; use one ranged entry for the part you want.",
+            ))
+            continue
+        seen.add(r.posix)
+        requests.append(FileRequest(entry=r, start_line=start, end_line=end))
+
     # A pattern's own refusal comes first: it explains why files the caller expected are
     # missing entirely, where a per-file refusal explains one that is.
-    refusals = glob_refusals + refusals
+    refusals = list(glob_refusals) + range_refusals + list(plain_refusals) + list(ranged_refusals)
 
     # Every path refused is still fatal, and it is the only `files[]` case that is. There
     # is nothing left to send, so dispatching would spend a delegation on a prompt with
     # none of the context it asked for -- and a caller who got every path wrong has one
     # mistake to fix, not a dozen. One refusal among many is different in kind: the other
     # files are still the answer. ADR-0061, superseding ADR-0006 on this point.
-    if refusals and not resolved:
+    if refusals and not requests:
         raise ToolError(str(PathRefused(list(refusals), total=len(files or []))))
 
-    prefetched = await asyncio.to_thread(prefetch, cfg, resolved)
+    prefetched = await asyncio.to_thread(prefetch, cfg, tuple(requests))
     if refusals:
         # Ahead of the budget skips: this is the caller's own error, and the prompt's
         # skipped list is read top-down by whoever has to act on it.
@@ -1536,8 +1609,22 @@ Effort = Annotated[
     ),
 ]
 
+class FileRange(BaseModel):
+    """One files[] entry naming a line range of a single file.
+
+    Uses `read_file`'s argument names and rules: 1-based, inclusive, and an `end_line`
+    that is omitted, null or past the end of the file means the end of the file. No range
+    is validated here -- a bad range is refused for that entry and lands in `files_skipped`
+    rather than failing the call, so this model only carries the shape.
+    """
+
+    path: str
+    start_line: int
+    end_line: int | None = None
+
+
 Files = Annotated[
-    list[str] | None,
+    list[str | FileRange] | None,
     Field(description=(
         "Absolute paths the server reads itself and hands to the model, so their contents "
         "never enter your own context. Naming files here is the cheapest shape there is; "
@@ -1548,7 +1635,10 @@ Files = Annotated[
         "`/repo/src/**/*.py` -- which is shorthand for naming the matches, not a search: "
         "it expands before the path policy runs, the part before the first wildcard must "
         "sit inside a workspace root, and a pattern matching nothing or matching more than "
-        "the cap is refused rather than quietly contributing less than you expected."
+        "the cap is refused rather than quietly contributing less than you expected. An "
+        "entry may instead be an object naming a line range of one file, which is judged by "
+        "the range's own size rather than the file's -- so a file over the per-file cap can "
+        "still be prefetched in part."
     )),
 ]
 

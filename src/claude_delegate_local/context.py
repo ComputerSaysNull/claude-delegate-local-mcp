@@ -123,6 +123,26 @@ class FileEntry:
     text: str
     nbytes: int
     est_tokens: int
+    # A ranged entry. `start_line` is the file's own first line number (1-based) of the
+    # range that was inlined; `total_lines` is the file's whole line count, so the BEGIN
+    # header can say it is part of the file. Both None for a whole-file entry, which is
+    # what keeps the unranged rendering byte-identical to before (ADR-0011).
+    start_line: int | None = None
+    total_lines: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FileRequest:
+    """One files[] entry the path policy approved, and the range of it to prefetch.
+
+    `start_line` None is the whole file. A ranged entry is judged by the range's own
+    size -- estimate, per-file cap and total budget all use the slice's bytes -- so a file
+    over the per-file cap can still be prefetched in part.
+    """
+
+    entry: ResolvedPath
+    start_line: int | None = None
+    end_line: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,13 +186,35 @@ class Prefetch:
                 # letting the first quietly become the second is how a control ends up
                 # resting on something nobody knew it rested on.
                 lines = escape_markers(entry.text).splitlines()
-                width = line_number_width(len(lines))
-                body = "".join(
-                    numbered_line(n, line, width) + "\n"
-                    for n, line in enumerate(lines, 1)
-                )
+                if entry.start_line is None:
+                    # Whole file. Rendered byte-for-byte as it always was, so the cached
+                    # prefix is stable (ADR-0011).
+                    width = line_number_width(len(lines))
+                    begin = BEGIN.format(path=entry.path)
+                    body = "".join(
+                        numbered_line(n, line, width) + "\n"
+                        for n, line in enumerate(lines, 1)
+                    )
+                else:
+                    # A ranged entry keeps the file's own line numbers: the first rendered
+                    # line of a 10-20 range is numbered 10, and the width fits the largest
+                    # number actually shown. The BEGIN header says the file is not there
+                    # whole, so the model does not take the block for the file.
+                    last = entry.start_line + len(lines) - 1
+                    width = line_number_width(last)
+                    # Inside the markers, not after them: `MARKER_LINE` escapes a file line
+                    # only if it ends in dashes, so a suffix would be a shape a file could
+                    # forge unescaped.
+                    begin = BEGIN.format(
+                        path=f"{entry.path} (lines {entry.start_line}-{last} of "
+                        f"{entry.total_lines})"
+                    )
+                    body = "".join(
+                        numbered_line(entry.start_line + n - 1, line, width) + "\n"
+                        for n, line in enumerate(lines, 1)
+                    )
                 parts.append(
-                    BEGIN.format(path=entry.path) + "\n" + body + END.format(path=entry.path)
+                    begin + "\n" + body + END.format(path=entry.path)
                 )
         if self.skips:
             parts.append(SKIPS_HEADER)
@@ -247,8 +289,23 @@ def decode_text(data: bytes) -> tuple[str | None, str]:
     return text.lstrip("﻿"), ""
 
 
-def _prefetch_one(  # noqa: PLR0911 -- one return per reason a file is left out
-    cfg: Config, item: ResolvedPath, total: int
+def _request_split(item: ResolvedPath | FileRequest) -> tuple[ResolvedPath, int | None, int | None]:
+    """The resolved path, and the range of it to prefetch, from either request shape."""
+    if isinstance(item, FileRequest):
+        return item.entry, item.start_line, item.end_line
+    return item, None, None
+
+
+def _request_posix(item: ResolvedPath | FileRequest) -> str:
+    return item.entry.posix if isinstance(item, FileRequest) else item.posix
+
+
+def _request_given(item: ResolvedPath | FileRequest) -> str:
+    return item.entry.given if isinstance(item, FileRequest) else item.given
+
+
+def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is left out
+    cfg: Config, item: ResolvedPath | FileRequest, total: int
 ) -> FileEntry | Skip:
     """One file: open it once, and account for whatever stops it being included.
 
@@ -260,13 +317,22 @@ def _prefetch_one(  # noqa: PLR0911 -- one return per reason a file is left out
     Returns the entry, or the `Skip` explaining why there is none. A returned
     `SKIP_OVER_TOTAL_BUDGET` also means the list is finished, which the caller reads off
     the reason rather than being told twice.
+
+    A ranged request is read whole -- the byte ceiling still applies to the file, and a
+    file has to be decoded before a slice of it can be taken -- but is then sliced *before*
+    the per-file token check and the total budget check, so a file over the per-file cap
+    can still be prefetched in part. The whole-file path keeps the opposite ordering, so a
+    file too big for the budget is never read at all (the "never read a file only to find
+    out it was unusable" rule).
     """
+    entry, start, end = _request_split(item)
+
     try:
-        opened = open_resolved(item, "rb", scan_bytes=cfg.secret_content_scan_bytes)
+        opened = open_resolved(entry, "rb", scan_bytes=cfg.secret_content_scan_bytes)
     except PathRefused:
         return Skip(
-            item.posix,
-            item.given,
+            entry.posix,
+            entry.given,
             SKIP_UNREADABLE,
             "it stopped being the file the path policy approved before it could be read",
         )
@@ -274,7 +340,7 @@ def _prefetch_one(  # noqa: PLR0911 -- one return per reason a file is left out
         # It passed the path policy moments ago, so this is a race or a permission
         # problem rather than a caller error -- a skip, not a refusal.
         return Skip(
-            item.posix, item.given, SKIP_UNREADABLE,
+            entry.posix, entry.given, SKIP_UNREADABLE,
             f"it could not be read ({e.strerror or e})",
         )
 
@@ -283,62 +349,117 @@ def _prefetch_one(  # noqa: PLR0911 -- one return per reason a file is left out
             nbytes = os.fstat(fh.fileno()).st_size
         except OSError as e:
             return Skip(
-                item.posix, item.given, SKIP_UNREADABLE,
+                entry.posix, entry.given, SKIP_UNREADABLE,
                 f"it could not be read ({e.strerror or e})",
             )
 
         if nbytes > cfg.max_file_read_bytes:
             return Skip(
-                item.posix,
-                item.given,
+                entry.posix,
+                entry.given,
                 SKIP_TOO_MANY_BYTES,
                 f"it is {nbytes} bytes, over the {cfg.max_file_read_bytes}-byte hard "
                 "ceiling, so it was not read at all",
             )
 
-        est = cfg.estimate_tokens(nbytes, item.ext)
-        if est > cfg.max_file_tokens:
-            return Skip(
-                item.posix,
-                item.given,
-                SKIP_OVER_FILE_BUDGET,
-                f"an estimated {est} tokens exceeds the {cfg.max_file_tokens} "
-                "per-file limit. It is left out whole rather than truncated, because "
-                "source cut mid-function is worse than absent",
-            )
+        if start is None:
+            # Whole file: token checks before reading, so an over-budget file is never
+            # loaded just to discover it did not fit.
+            est = cfg.estimate_tokens(nbytes, entry.ext)
+            if est > cfg.max_file_tokens:
+                return Skip(
+                    entry.posix,
+                    entry.given,
+                    SKIP_OVER_FILE_BUDGET,
+                    f"an estimated {est} tokens exceeds the {cfg.max_file_tokens} "
+                    "per-file limit. It is left out whole rather than truncated, because "
+                    "source cut mid-function is worse than absent",
+                )
 
-        if total + est > cfg.max_total_prefetch_tokens:
-            return Skip(
-                item.posix,
-                item.given,
-                SKIP_OVER_TOTAL_BUDGET,
-                f"the {cfg.max_total_prefetch_tokens}-token budget for this call was "
-                f"at {total}, and this file needs about {est} more. Everything after "
-                "it in the list was skipped too",
-            )
+            if total + est > cfg.max_total_prefetch_tokens:
+                return Skip(
+                    entry.posix,
+                    entry.given,
+                    SKIP_OVER_TOTAL_BUDGET,
+                    f"the {cfg.max_total_prefetch_tokens}-token budget for this call was "
+                    f"at {total}, and this file needs about {est} more. Everything after "
+                    "it in the list was skipped too",
+                )
 
         try:
             data = fh.read()
         except OSError as e:
             return Skip(
-                item.posix, item.given, SKIP_UNREADABLE,
+                entry.posix, entry.given, SKIP_UNREADABLE,
                 f"it could not be read ({e.strerror or e})",
             )
 
     text, why = decode_text(data)
     if text is None:
-        return Skip(item.posix, item.given, SKIP_BINARY, why)
+        return Skip(entry.posix, entry.given, SKIP_BINARY, why)
+
+    if start is None:
+        return FileEntry(
+            path=entry.posix,
+            given=entry.given,
+            text=text,
+            nbytes=nbytes,
+            est_tokens=est,
+        )
+
+    # Ranged. `splitlines` and not `split("\n")`: the latter invents a trailing empty line
+    # for a file that ends in a newline, and the model would be told the file is one line
+    # longer than it is -- the same rule `read_file` applies. Line endings are dropped and
+    # re-joined with "\n", so a CRLF file reads the same on either side of the boundary.
+    lines = text.splitlines()
+    total_lines = len(lines)
+    if total_lines and start > total_lines:
+        # Past the end is refused, not clamped, exactly as `read_file` refuses it: a range
+        # that starts after the file is a request for nothing, not a request for the file.
+        return Skip(
+            entry.posix,
+            entry.given,
+            SKIP_REFUSED,
+            f"start_line {start} is past the end; the file has {total_lines} lines.",
+        )
+    # `end_line` past the end is the end of the file, deliberately unlike `start_line`:
+    # reading *to* a line beyond the file is a well-formed request with an obvious answer,
+    # while starting there asks for nothing.
+    last = min(end, total_lines) if end is not None else total_lines
+    slice_text = "\n".join(lines[start - 1:last])
+    slice_bytes = len(slice_text.encode("utf-8"))
+    est = cfg.estimate_tokens(slice_bytes, entry.ext)
+    if est > cfg.max_file_tokens:
+        return Skip(
+            entry.posix,
+            entry.given,
+            SKIP_OVER_FILE_BUDGET,
+            f"lines {start}-{last} are an estimated {est} tokens, over the "
+            f"{cfg.max_file_tokens} per-file limit. Name a smaller range",
+        )
+
+    if total + est > cfg.max_total_prefetch_tokens:
+        return Skip(
+            entry.posix,
+            entry.given,
+            SKIP_OVER_TOTAL_BUDGET,
+            f"the {cfg.max_total_prefetch_tokens}-token budget for this call was "
+            f"at {total}, and this file needs about {est} more. Everything after "
+            "it in the list was skipped too",
+        )
 
     return FileEntry(
-        path=item.posix,
-        given=item.given,
-        text=text,
-        nbytes=nbytes,
+        path=entry.posix,
+        given=entry.given,
+        text=slice_text,
+        nbytes=slice_bytes,
         est_tokens=est,
+        start_line=start,
+        total_lines=total_lines,
     )
 
 
-def prefetch(cfg: Config, resolved: tuple[ResolvedPath, ...]) -> Prefetch:
+def prefetch(cfg: Config, resolved: tuple[ResolvedPath | FileRequest, ...]) -> Prefetch:
     """Read what fits, skip what does not, and account for both.
 
     Per file, in this order, because the point is never to read a file only to find out
@@ -354,6 +475,12 @@ def prefetch(cfg: Config, resolved: tuple[ResolvedPath, ...]) -> Prefetch:
        list, and every file after it is skipped too.
     5. Only now read it, and decide whether it is text at all.
 
+    A ranged `FileRequest` is the one exception to the ordering, and only because it has
+    to be: the whole file is read (bounded by the byte ceiling), decoded, and then sliced
+    *before* the per-file token check and the total budget check, so the estimate and both
+    checks use the slice's bytes, not the file's -- which is how a file over the per-file
+    cap can be prefetched in part.
+
     Step 4 stopping rather than continuing is a decision, not an oversight. Carrying on to
     fit whatever happens to be small enough makes the result depend on the size mix in a
     way nobody can predict from the request, and it is worse for the caller: a coherent
@@ -367,12 +494,12 @@ def prefetch(cfg: Config, resolved: tuple[ResolvedPath, ...]) -> Prefetch:
     # Sorted here, once, before anything is accumulated. Doing it later -- or leaving it
     # to the caller -- would make the total-budget cutoff depend on the order the files
     # were named in, so the same request could return a different five of six.
-    for item in sorted(resolved, key=lambda r: r.posix):
+    for item in sorted(resolved, key=_request_posix):
         if exhausted:
             skips.append(
                 Skip(
-                    item.posix,
-                    item.given,
+                    _request_posix(item),
+                    _request_given(item),
                     SKIP_OVER_TOTAL_BUDGET,
                     f"the {cfg.max_total_prefetch_tokens}-token budget for this call was "
                     "already spent by an earlier file in the list",

@@ -120,10 +120,10 @@ the other. Measured on this repository, the numbers cost 10% of the block's toke
 paid on the cheap path to stop the expensive one re-reading what it already has.
 
 A prefetch cap is a **drop** threshold and never a truncation: a file over it is left out
-whole. It is also not a fairness control, and used to be sized as though it were. Fairness
-between concurrent requests is admission's, below, which counts it across every server
-process on the machine rather than per call — so a second control here only meant one
-large file being dropped while the budget it would have fitted in sat unused (ADR-0046).
+whole, though a caller may name a line range of it (ADR-0105). It is not a fairness control
+either. That is admission's, below, which counts across every server process on the machine
+rather than per call — so a second control here only meant one large file being dropped
+while the budget it would have fitted in sat unused (ADR-0046).
 
 ## Modules
 
