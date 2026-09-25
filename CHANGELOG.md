@@ -38,6 +38,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #331 — 2026-09-24 — docs: a worktree can run the suite, and the skill said it could not
+
+### Changed
+
+- **session-execute no longer says a worktree cannot run the suite.** It claimed tests in a
+  worktree import the package from the main checkout, so every suite ran in the one checkout
+  and nothing else could happen meanwhile. Measured, that holds only for tests that start a
+  subprocess, and `PYTHONPATH=<worktree>/src` fixes those; full suites in a worktree then
+  matched the main checkout's counts on both platforms. The JOURNAL has the measurement.
+- **Unscheduled 83 is reworded to what is true.** It said the model-facing contract never
+  mentions that `.git` is hidden, but `read_git`'s description does; only `run_bash`'s does
+  not, which is still the item.
+
 ## #330 — 2026-09-24 — feat: the gate checks every skill against the Agent Skills hard limits
 
 ### Added
