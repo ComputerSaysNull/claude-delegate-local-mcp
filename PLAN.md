@@ -386,7 +386,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 85. ✅ **A retried turn does not say why**: `attempts` counts a dropped connection or a 429/5xx, but
   the error is caught and slept on unrecorded, so a turn with two attempts cannot be diagnosed from
   the stream, the summary or the log. Record each failed attempt's kind, status and seconds
-86. ⬜ **An `edit_file` miss gives the model nothing to correct**: one delegation re-read the lines and
+86. ✅ **An `edit_file` miss gives the model nothing to correct**: one delegation re-read the lines and
   sent the byte-identical edit again. Name the nearest matching region and the first difference;
   the stream keeps only a hash of `old_string`, so the transcript cannot show it either
 87. ✅ 2026-09-24 **A dispatch's summary record could not be summed**: its token fields are the answering
