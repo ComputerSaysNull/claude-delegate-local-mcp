@@ -38,6 +38,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #327 — 2026-09-24 — feat: a script proves a comment pass changed no code
+
+### Added
+
+- **`scripts/ast_unchanged.py` turns "only comments changed" into a measurement.** The
+  comment passes planned for the largest modules cut prose, and the claim that they changed
+  no behaviour was the author's own word. The script parses each module at a base revision
+  and in the working tree, strips every docstring, and compares `ast.dump`: comments never
+  reach the tree, so a comment-and-docstring pass compares equal and anything else differs.
+  It parses source text only, never a cached compile. With no paths it checks every changed
+  *or untracked* module under `src/`: the first draft listed files with `git diff` alone,
+  which never shows an untracked file, so a pass that added a module exited 0 having compared
+  nothing; a test caught that red before the fix. A git failure exits 2 rather than reading
+  as "nothing changed". The negative control changes one literal, in the tests and once by
+  hand on `loop.py`, where the script exited 1 until the edit was reversed.
+
 ## #326 — 2026-09-24 — fix: the stack planner refuses a verification that brings its own heading
 
 ### Fixed
