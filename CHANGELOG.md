@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #347 — 2026-09-25 — feat: a stale provisioned venv is reported instead of silently withheld
+
+### Added
+
+- **A stale environment now says so.** A stale one was withheld with nothing said, which
+  read as never provisioned: one delegation hunted for four turns, found the venv with
+  `find /` and tested with it anyway. Each `run_bash` result now ends with a line saying
+  `$DELEGATE_PYTHON` is unset because the build is stale and nothing here can rebuild it.
+  The delegation result carries `provisioning_stale: true` for the caller. It is checked
+  when a delegation with a `workdir` starts, not when the server does, because the workdir
+  is not known until then. `provision.stale_for` shares its matching with `provisioned_for`,
+  so the two cannot disagree about which record covers a workdir. Red first: the new
+  functions did not exist, and the server test found no `provisioning_stale`.
+
 ## #346 — 2026-09-25 — fix: a provisioned venv no longer goes stale over edits the build never reads
 
 ### Fixed

@@ -374,7 +374,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 81. ✅ 2026-09-24 **The viewer shows each failed shell call twice**: it sums `tool_errors` and `bash_failures`,
   and a non-zero `run_bash` is in both. Neither alone is right, since a masked failure is in
   `bash_failures` only, so count distinct failing calls from the turn events
-82. ⬜ **A stale provisioned venv is invisible to everyone who could fix it**: `$DELEGATE_PYTHON` is
+82. ✅ **A stale provisioned venv is invisible to everyone who could fix it**: `$DELEGATE_PYTHON` is
   withheld silently, so a delegation hunted for four turns, found the stale venv with `find /` and
   tested with it. Only `--doctor` says so: check at start-up, report it to the caller, tell the model why
 83. ⬜ **`run_bash` does not say that `.git` is hidden**; only `read_git`'s description does, so a model

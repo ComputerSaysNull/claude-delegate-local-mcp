@@ -22,7 +22,7 @@ from fastmcp import Client
 
 from claude_delegate_local import loop as loop_module
 from claude_delegate_local import config as config_module
-from claude_delegate_local import sandbox, server
+from claude_delegate_local import provision, sandbox, server
 from claude_delegate_local import tools as tools_module
 from claude_delegate_local.backends import openai_compat as oc
 from claude_delegate_local.config import Config
@@ -1619,6 +1619,33 @@ def test_delegate_takes_a_workdir_and_reaches_the_backend_with_it(tmp_path):
 
     assert seen.get("called"), "the backend was never reached"
     assert out["answer"] == "done"
+
+
+@files_posix_only
+def test_a_stale_environment_for_the_workdir_is_reported_to_the_caller(tmp_path):
+    """Withheld silently, a stale environment reads to the caller as never provisioned."""
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "pyproject.toml").write_text('[project]\nname = "p"\n', encoding="utf-8")
+    home = tmp_path / "home"
+    venv = Path(provision.venv_dir(home.as_posix(), project.as_posix()))
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "python").write_text("", encoding="utf-8")
+    (venv / provision.RECORD_NAME).write_text(json.dumps({
+        "project": project.as_posix(),
+        "interpreter": (venv / "bin" / "python").as_posix(),
+        "dependency_hash": "a declaration that has since moved on",
+    }), encoding="utf-8")
+    config = cfg(workspace_roots=(str(tmp_path),), sandbox_home=str(home))
+
+    stale = called(lambda _r: as_stream(chat_reply(content="done")), "delegate",
+                   config=config, task="t", workdir=str(project))
+    (venv / provision.RECORD_NAME).unlink()
+    absent = called(lambda _r: as_stream(chat_reply(content="done")), "delegate",
+                    config=config, task="t", workdir=str(project))
+
+    assert stale.get("provisioning_stale") is True
+    assert "provisioning_stale" not in absent
 
 
 @files_posix_only

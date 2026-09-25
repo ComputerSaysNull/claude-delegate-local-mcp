@@ -303,9 +303,10 @@ path containing the word would start building a virtualenv instead of a server.
 to the command: `run_bash` takes an opaque shell string, so adding arguments would mean
 parsing shell. The `--setenv` lands in the argv the transcript records, so what was offered
 is answerable from the record. **A stale environment is withheld rather than offered** —
-the name is simply absent, which the model can report and the doctor explains, where an
-interpreter built from a declaration that has moved on would produce a passing suite at
-exit 0 against the wrong versions. Absent rather than empty, too: a shell expands an unset
+an interpreter built from a declaration that has moved on would produce a passing suite at
+exit 0 against the wrong versions. Withheld is not hidden: every `run_bash` result then
+carries a line naming the stale build, and the delegation result `provisioning_stale`, so
+it never reads as never provisioned. Absent rather than empty, too: a shell expands an unset
 name to nothing, and `$DELEGATE_PYTHON -m pytest` would then run `-m pytest`.
 
 **Tests that cannot run nested travel the same way**, as `PYTEST_ADDOPTS`. A project lists
