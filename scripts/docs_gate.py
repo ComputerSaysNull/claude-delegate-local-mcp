@@ -33,6 +33,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+
 # See JOURNAL 2026-08-25: a tool that compares committed artefacts against live source
 # must never read a cached compile of that source. (mtime, size) validation misses a
 # same-length edit inside one timestamp tick.
@@ -1743,6 +1744,127 @@ def check_agent_capabilities() -> list[Finding]:
 
 
 
+# --- skill files vs the Agent Skills specification ----------------------------------------
+
+# The limits below are the hard ones the Agent Skills specification
+# (https://agentskills.io/specification) sets on a SKILL.md, and Claude Code enforces the
+# name rules when it loads one. A skill that violates them is not merely non-conforming --
+# it is a file the tool that is supposed to use it will refuse. The gate's other checks
+# read bodies and frontmatter, but nothing before this looked at a skill's metadata at all.
+SKILL_LIMIT_NAME_MAX = 64
+SKILL_LIMIT_DESCRIPTION_MAX = 1024
+SKILL_LIMIT_BODY_LINES = 500
+SKILL_BASES = (".claude/skills", "src/claude_delegate_local/skills")
+
+
+def _is_skill_md(rel: str) -> bool:
+    """True for a tracked path shaped `<base>/<name>/SKILL.md`.
+
+    Only the two shipped locations are policed, and only where the file sits directly inside
+    its skill directory. A nested `SKILL.md` (a resource inside a skill) is not a skill
+    definition, and a copy under `.claude/worktrees/` or `.spike/` is not one Claude Code
+    loads. Listing from `git ls-files` keeps every untracked copy out of the scan.
+    """
+    for base in SKILL_BASES:
+        if rel.startswith(base + "/"):
+            rest = rel[len(base) + 1:]
+            if rest.count("/") == 1 and rest.endswith("/SKILL.md"):
+                return True
+    return False
+
+
+def _unquote(value: str) -> str:
+    """A flat YAML scalar without its quotes, so a quoted description is measured as text."""
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value[1:-1]
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    return value
+
+
+def check_skill_limits() -> list[Finding]:
+    """A SKILL.md within the hard limits the Agent Skills specification sets.
+
+    The limits come from https://agentskills.io/specification, and Claude Code enforces
+    the name rules (and refuses a file whose frontmatter does not parse) when it loads a
+    skill. Nothing else in the gate reads a skill's metadata, so a skill that violates
+    them passes every existing check while being unloadable -- the same shape as the
+    checks that used to pass for the reason that nothing looked. A body history check
+    reads the prose of these same files; this one reads what the client needs first.
+
+    Frontmatter is read with the gate's own flat `key: value` reader, not with YAML: CI
+    runs this gate with no dependencies installed. Whether the block is valid YAML is
+    `tests/test_repo_agent_files.py`'s question, asked where PyYAML is installed, so it has
+    one home rather than two.
+    """
+    out = []
+    for r in git("ls-files").splitlines():
+        if not _is_skill_md(r):
+            continue
+        path = ROOT / r
+        if not path.exists():
+            continue  # staged deletion; nothing to read
+        text = path.read_text(encoding="utf-8", errors="replace")
+        front, body = _agent_frontmatter(text)
+        if not front:
+            out.append(Finding(
+                BLOCK, "skill-limits",
+                f"{r} has no frontmatter block. A SKILL.md must open with a `---` block "
+                f"carrying its name and description, or Claude Code will not load it."))
+            continue
+        meta = {key: _unquote(value) for key, value in front.items()}
+        parent = path.parent.name
+        name = meta.get("name")
+        if not isinstance(name, str) or not name:
+            out.append(Finding(
+                BLOCK, "skill-limits",
+                f"{r}: name is required."))
+        else:
+            if len(name) > SKILL_LIMIT_NAME_MAX:
+                out.append(Finding(
+                    BLOCK, "skill-limits",
+                    f"{r}: name is {len(name)} characters, the limit is "
+                    f"{SKILL_LIMIT_NAME_MAX}."))
+            if not re.fullmatch(r"[a-z0-9-]+", name):
+                out.append(Finding(
+                    BLOCK, "skill-limits",
+                    f"{r}: name {name!r} may contain only lowercase letters, digits and "
+                    f"hyphens."))
+            if name.startswith("-") or name.endswith("-"):
+                out.append(Finding(
+                    BLOCK, "skill-limits",
+                    f"{r}: name {name!r} may not start or end with a hyphen."))
+            if "--" in name:
+                out.append(Finding(
+                    BLOCK, "skill-limits",
+                    f"{r}: name {name!r} may not contain a double hyphen."))
+            if name != parent:
+                out.append(Finding(
+                    BLOCK, "skill-limits",
+                    f"{r}: name {name!r} must equal its directory name {parent!r}."))
+        description = meta.get("description")
+        if not isinstance(description, str) or not description.strip():
+            out.append(Finding(
+                BLOCK, "skill-limits",
+                f"{r}: description is required."))
+        elif len(description) > SKILL_LIMIT_DESCRIPTION_MAX:
+            out.append(Finding(
+                BLOCK, "skill-limits",
+                f"{r}: description is {len(description)} characters, the limit is "
+                f"{SKILL_LIMIT_DESCRIPTION_MAX}."))
+        body_lines = len(body.splitlines())
+        if body_lines >= SKILL_LIMIT_BODY_LINES:
+            out.append(Finding(
+                BLOCK, "skill-limits",
+                f"{r}: body is {body_lines} lines, the limit is under "
+                f"{SKILL_LIMIT_BODY_LINES}."))
+    return out
+
+
+
 # --------------------------------------------------------------------------- references
 
 MD_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
@@ -1897,6 +2019,7 @@ CHECKS = {
     "public-text": check_pr_text,
     "changelog-number": check_changelog_number,
     "agent-capability": check_agent_capabilities,
+    "skill-limits": check_skill_limits,
 }
 
 
