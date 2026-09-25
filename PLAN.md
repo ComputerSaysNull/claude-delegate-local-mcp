@@ -150,10 +150,10 @@ Item 2 was Unscheduled.62, moved unchanged on 2026-09-23.
   without them it does not, and that is all the review's probe sent
     - a. ✅ A/B `resend_reasoning` on fixed tasks, then set its default and fix its description.
     - b. ❌ 2026-09-23 **Not needed: 1.a did not lose.** Visible working notes, only if 1.a loses: one static sentence in the system prompt.
-2. ⬜ **Reasoning effort may be binary here, and the recovery ladder is built on it not being.**
+2. ✅ **Reasoning effort may be binary here, and the recovery ladder is built on it not being.**
   Measured only under 1k tokens, where the three looked alike; at a realistic size all of them
   spend the budget reasoning. Our four map onto the encoder's three plus off, so none is missing
-    - a. ⬜ The review's per-level figures are not controlled (P1). Run the same tasks at `off`,
+    - a. ✅ The review's per-level figures are not controlled (P1). Run the same tasks at `off`,
     `low` and `high`; `off` was twelve times cheaper at the median.
 3. ✅ **A reasoning-token budget at the server** (P2). ADR-0017 found it refused on the build
   then deployed. Re-check the current one: a cap would cut the tail and most runs that end

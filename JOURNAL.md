@@ -2527,3 +2527,38 @@ offset another had already used. No write discipline fixes that, which is why th
 default lives under `~/.cache`, why doctor warns on a path under `/mnt/`, and why
 `transcript.py`'s one-file-per-dispatch choice was right for the synced folder it writes to.
 Whether a lock would rescue `/mnt/c` was not measured.
+
+## 2026-09-25 — On the same tasks, low and high were equally right and off was not twelve times cheaper
+
+The 2026-09-22 review priced the effort levels from whatever each had happened to run, and
+read `off` as about twelve times cheaper at the median. The recovery ladder assumes the
+levels differ. So: six tasks with answers a script checks, each at `off`, `low` and `high`,
+twice, one delegation at a time through the `run` CLI, `read_file` the only tool. Three
+need reasoning (count the primes in 1000–1200, trace an eight-line loop, a clock
+subtraction), two read a prefetched file, one sorts words.
+
+| level | right | median output tokens | total |
+|---|---|---|---|
+| `off` | 11/12 | 117 | 8,679 |
+| `low` | 12/12 | 252 | 9,598 |
+| `high` | 12/12 | 117 | 18,919 |
+
+Only the prime count separated anything, which makes it the negative control: `off` got it
+wrong once in two (3,322 and 4,322 tokens), `low` right twice (1,925 and 5,708), `high` right
+twice at the highest cost (7,923 and 9,771). Every other task was right at every level for
+at most a few hundred tokens, and there `low` often spent *more* than `high` (the clock
+subtraction 281 and 164 against 100 and 138; the file count 252 and 162 against 110 and 117).
+So the levels are not ordered by cost on small work at all, and on hard work `high` bought
+nothing `low` did not.
+
+What that settles: the twelvefold figure does not reproduce once the tasks are held fixed,
+because on small tasks nothing at any level thinks for long. The saving it pointed at is
+real only on work that reasons at length, and there it is `high` against `low`, about
+double, not `off` against the rest. Nor is effort binary: on that task `low` reasoned for
+about half what `high` did, and still got it right. The ladder's step down to a lower effort after an empty
+answer is supported, not undermined: `low` was as accurate as `high` here, for less.
+
+What it does not settle: two repeats is a small sample, the one discriminating task is
+arithmetic rather than judgement over code, and wall time is unusable because a writing
+delegation shared the cluster during the second repeat (14–24s against 3–13s for the same
+small tasks in the first). Token counts do not depend on that.

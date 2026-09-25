@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #348 — 2026-09-25 — docs: the effort levels measured on fixed tasks
+
+### Added
+
+- **The effort levels compared on the same tasks.** The review read `off` as about twelve
+  times cheaper at the median, from figures each level took on different work, and the
+  recovery ladder assumes the levels differ. Six tasks with checked answers, run at `off`,
+  `low` and `high`, twice each, one at a time. The twelvefold figure does not reproduce:
+  `off` and `high` had the same median. `low` and `high` were both right every time, and
+  only on the one task that reasons at length did `high` cost about twice what `low` did.
+  `off` got that task wrong once. So effort is not binary here, and the ladder's step down
+  after an empty answer is supported. JOURNAL 2026-09-25 has the table and what two repeats
+  cannot show.
+
 ## #347 — 2026-09-25 — feat: a stale provisioned venv is reported instead of silently withheld
 
 ### Added
