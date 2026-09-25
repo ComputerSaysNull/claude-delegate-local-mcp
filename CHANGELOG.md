@@ -38,6 +38,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #361 — 2026-09-25 — docs: speculative decoding and prompt size measured on the cluster
+
+### Added
+
+- **Speculative-decode acceptance, measured at one stream and at six.** The endpoint drafts
+  six tokens a step, and its since-boot counters read 43% of drafts accepted. PLAN M16.6
+  asked for the six-wide figure before anyone shortens the draft. The same essay request,
+  sent solo twice and six-wide twice, with the counters read around each window: 14 to 17%
+  accepted at both widths, about one token in six, and positions four to six almost never.
+  So acceptance follows what is written, not the width. Whether a shorter draft is faster is
+  a cluster change, the operator's to try. JOURNAL 2026-09-25 has the table.
+
 ## #360 — 2026-09-25 — fix: a burst flag left by a failed close expires
 
 ### Fixed

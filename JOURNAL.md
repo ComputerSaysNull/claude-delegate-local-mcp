@@ -2562,3 +2562,33 @@ What it does not settle: two repeats is a small sample, the one discriminating t
 arithmetic rather than judgement over code, and wall time is unusable because a writing
 delegation shared the cluster during the second repeat (14–24s against 3–13s for the same
 small tasks in the first). Token counts do not depend on that.
+
+## 2026-09-25 — Speculative decoding accepts one token in six on new prose, at any width
+
+The endpoint drafts six tokens a step, and its counters since boot read 43% of drafted tokens
+accepted, falling from 83% at the first position to 11% at the sixth. PLAN M16.6 asked whether
+that holds at six-wide before anyone changes the draft length. So: one fixed request, a
+1,660-token prompt asking for a 1,200-word essay in the model's own words, effort `off`,
+about 1,500 tokens out, sent straight to the endpoint rather than through a delegation. Solo
+twice, then six at once twice, with the `spec_decode_*` counters read before and after each
+window.
+
+| width | accepted of drafted | accepted per draft | per-stream tok/s | aggregate |
+|---|---|---|---|---|
+| 1 | 16.1%, 13.8% | 0.97, 0.83 | 28.8, 26.6 | — |
+| 6 | 17.2%, 16.1% | 1.03, 0.97 | 11.9–13.5 | 77.3, 74.5 |
+
+By position, solo and six-wide read alike: about 59%, 25%, 10%, 3%, 1% and 0.3%. Every window
+is clean: the endpoint's `generation_tokens` moved by exactly the completion tokens the
+requests reported, so nothing else ran in them.
+
+What that settles: acceptance does not fall with width. It falls with what is written. The
+since-boot 43% is this deployment's real mix, mostly reading and quoting code, which a drafter
+predicts well; on new prose the same drafter lands about one token in six, and positions four
+to six almost never. So on prose each step verifies five drafted tokens it throws away. The
+27–29 tok/s solo rate is new prose's rate too, well under the 44 tok/s solo benchmark and the
+rate memory's 40, which measured other output.
+
+What it does not settle: whether a shorter draft would be faster, at one stream or at six.
+That needs the draft length changed on the cluster, which is the operator's; the per-position
+figures say where to try (two or three, not six). One output type only.
