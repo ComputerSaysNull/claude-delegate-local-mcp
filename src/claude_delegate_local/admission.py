@@ -693,15 +693,14 @@ class Admission:
 
         Best effort for the reason `release` is: the slot is already taken and the lease
         is about to be handed back, so an unreachable file must cost a label rather than
-        a delegation. A flag stranded by a failed close goes when the record does, which
-        is why `_is_idle` must not treat a flagged record as worth keeping -- that would
-        make the record permanent and the stranded flag with it.
+        a delegation. A flag stranded by a failed close expires two windows after it was
+        last renewed, and `_count_the_burst` renews it every window it goes on counting.
         """
         if self._slots is None:
             return
         try:
             if open_wait:
-                await self._slots.open_burst_wait()
+                await self._slots.open_burst_wait(expires_in=2 * self._idle_hold)
             else:
                 await self._slots.close_burst_wait()
         except SlotsUnavailable:
@@ -754,6 +753,8 @@ class Admission:
             arrived, seqs, waiting = await self._burst_view()
             if arrived >= self._max_seqs or arrived == before:
                 return seqs, waiting
+            # Still counting, so the flag other processes join by must not expire under it.
+            await self._announce_burst(open_wait=True)
 
     async def _burst_view(self) -> tuple[int, int, int]:
         """Everything in or waiting for the gate, then the two numbers a lease carries.

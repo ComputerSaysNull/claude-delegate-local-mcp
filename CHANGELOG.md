@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #360 — 2026-09-25 — fix: a burst flag left by a failed close expires
+
+### Fixed
+
+- **A burst flag stranded by a failed close held every arrival in every other process.**
+  `_announce_burst` is best effort, so a close that fails against an unreachable file leaves
+  the flag behind. It was a bare `True`, and a record is kept while its process holds slots,
+  so other processes read an open wait nobody was counting. Each arrival at a busy gate
+  joined it and waited out one `admission_idle_hold` for nothing, until the owning process
+  went idle or exited. The flag is now the time it expires, two windows ahead, and the count
+  renews it every window it goes on counting, so a live burst never expires under its own
+  count. A bare `True`, which an older server still writes, reads as open, as it always did.
+  Red first, on `main`: an expired flag was joined, the disk held `True`, and a count of
+  three windows announced once.
+
 ## #359 — 2026-09-25 — fix: prefetch no longer stops every other delegation in the process
 
 ### Fixed

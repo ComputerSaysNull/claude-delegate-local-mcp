@@ -104,7 +104,7 @@ Items 1 and 5 were Unscheduled.59 and Unscheduled.69, moved unchanged on 2026-09
   across, then written, so whoever joined the first future is never settled
 4. ✅ 2026-09-24 **One `admit` call has no `SlotsUnavailable` fallback** (R20), so a lock held too long
   fails the delegation instead of falling back to per-process counting
-5. ⬜ **A burst flag stranded by a failed close outlives its usefulness.** `_announce_burst`
+5. ✅ 2026-09-25 **A burst flag stranded by a failed close outlives its usefulness.** `_announce_burst`
   is best effort, and a live record is kept by liveness rather than by `_is_idle`, so other
   processes read an open wait nobody holds until that process exits or next goes idle
 
