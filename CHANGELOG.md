@@ -38,7 +38,7 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #364 — 2026-09-25 — fix: a type checker runs in CI, and what it found is fixed
+## #363 — 2026-09-25 — fix: a type checker runs in CI, and what it found is fixed
 
 ### Added
 
