@@ -394,7 +394,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 88. ✅ **Any edit to `pyproject.toml` makes the provisioned venv stale**: the hash covers the whole file,
   so rewording a pytest marker withheld `$DELEGATE_PYTHON` and a delegation spent 40 turns without an
   interpreter. Hash what the build reads -- dependencies, `requires-python`, the build tables
-89. ⬜ **`collect` is silent while it waits, and the client drops it at 1800s**: its schema invites
+89. ✅ 2026-09-25 **`collect` is silent while it waits, and the client drops it at 1800s**: its schema invites
   the whole remaining run as `wait_seconds`, and a 3500s wait aborted with no response while the
   run finished fine. Send progress while waiting, or cap the wait below the client's idle limit
 90. ✅ **Two `run_bash` calls in one workdir race on a protected placeholder**: bwrap refused to

@@ -74,15 +74,30 @@ class Handles:
     def task(self, handle: str) -> asyncio.Future[dict[str, Any]]:
         return self._entry(handle).task
 
-    async def collect(self, handle: str, wait_seconds: float) -> dict[str, Any]:
+    async def collect(
+        self,
+        handle: str,
+        wait_seconds: float,
+        *,
+        keepalive: Callable[[float], Awaitable[None]] | None = None,
+        every: float = 0.0,
+    ) -> dict[str, Any]:
         """The run's result if it finishes within `wait_seconds`, else where it has got to.
 
         Waiting never cancels the run: `asyncio.wait` leaves what it waits on alone, so a
         caller that stops waiting -- a timeout, a cancelled `collect` -- stops only itself.
+
+        `keepalive` is called with the run's age every `every` seconds of waiting, because
+        a wait that says nothing is dropped by the client at its idle timeout (ADR-0018).
         """
         entry = self._entry(handle)
-        if not entry.task.done() and wait_seconds > 0:
-            await asyncio.wait({entry.task}, timeout=wait_seconds)
+        remaining = wait_seconds
+        while not entry.task.done() and remaining > 0:
+            step = min(remaining, every) if keepalive and every > 0 else remaining
+            await asyncio.wait({entry.task}, timeout=step)
+            remaining -= step
+            if keepalive and not entry.task.done() and remaining > 0:
+                await keepalive(self._clock() - entry.started)
         if not entry.task.done():
             return {"handle": handle, "status": "running", "tool": entry.tool,
                     "running_seconds": round(self._clock() - entry.started, 1)}

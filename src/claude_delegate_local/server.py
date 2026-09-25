@@ -1620,7 +1620,8 @@ WaitSeconds = Annotated[
         "How long to wait for the run to finish before returning where it has got to. "
         "Omit for the server's default, which answers within a client's usual patience; "
         "a client that backgrounds a slow read-only call and notifies on completion, as "
-        "Claude Code does, can pass the whole remaining run instead."
+        "Claude Code does, can pass the whole remaining run instead. A long wait reports "
+        "progress while it waits, so the client's idle timeout does not drop it."
     )),
 ]
 
@@ -1956,7 +1957,9 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
 
     @mcp.tool(title="Collect a delegation", annotations={**_READS, "idempotentHint": True},
               output_schema=_DELEGATION_RESULT)
-    async def collect(handle: HandleArg, wait_seconds: WaitSeconds = None) -> dict[str, Any]:
+    async def collect(
+        handle: HandleArg, wait_seconds: WaitSeconds = None, ctx: Context | None = None,
+    ) -> dict[str, Any]:
         """Collect a delegation by the `handle` a delegating call returned.
 
         Answers with the run's result once it has finished, carrying `status: done`, or
@@ -1965,8 +1968,20 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         result until the server forgets it. A run that was stopped says `cancelled`.
         """
         wait = cfg.collect_wait_seconds if wait_seconds is None else wait_seconds
+        notified = 0
+
+        async def keepalive(running_seconds: float) -> None:
+            # The same rule as the delegating tools' heartbeat: one rising counter, no
+            # `total`, the words in `message`.
+            nonlocal notified
+            if ctx is not None:
+                notified += 1
+                await ctx.report_progress(
+                    progress=notified, message=f"still running after {running_seconds:.0f}s")
+
         try:
-            return await handles.collect(handle, wait)
+            return await handles.collect(
+                handle, wait, keepalive=keepalive, every=cfg.keepalive_interval)
         except UnknownHandle as e:
             raise ToolError(str(e)) from e
 

@@ -545,7 +545,8 @@ class Config:
     keepalive_interval: int = _f(
         60,
         "How often a one-shot delegation reports that it is still running, to the client "
-        "as a progress notification and to the transcript as an `alive` event. The loop "
+        "as a progress notification and to the transcript as an `alive` event, and how "
+        "often a `collect` still waiting reports to the client. The loop "
         "reports once per turn (ADR-0018) and a one-shot has no turns, so without this it "
         "is silent for its whole duration -- which is the one call shape that can still "
         "reach the client's stdio idle timeout and be abandoned while working. That "
