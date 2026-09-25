@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #355 — 2026-09-25 — fix: two tool descriptions say what their tools do
+
+### Fixed
+
+- **A delegation ran a bare `ruff` and got exit 127, three times.** `run_bash` said
+  `$DELEGATE_PYTHON` runs the tests, but not that the project's other tools are no more on
+  PATH than the interpreter is. It now says to run them the same way, with
+  `"$DELEGATE_PYTHON" -m ruff` as the example.
+- **`read_git` told the model never to pass `--`, which it accepts.** Since #305 a `--` in
+  `args` moves what follows into `paths`, and the `args` description says so, but the
+  tool's own description still forbade it, so the two contradicted each other on the same
+  call. It now says a `--` works. Both found by grouping every tool error in the recorded
+  streams. Red first: both new tests failed on the old wording.
+
 ## #354 — 2026-09-25 — feat: a missed edit points at the closest match
 
 ### Added

@@ -397,6 +397,9 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 89. ⬜ **`collect` is silent while it waits, and the client drops it at 1800s**: its schema invites
   the whole remaining run as `wait_seconds`, and a 3500s wait aborted with no response while the
   run finished fine. Send progress while waiting, or cap the wait below the client's idle limit
+90. ⬜ **Two `run_bash` calls in one workdir race on a protected placeholder**: bwrap refused to
+  start with `Can't find source path .../.idea` while a second delegation ran beside it, and passed
+  alone. Read, not reproduced: the first run's settle removes the empty dir the second one bound
 
 ## Deferred
 
