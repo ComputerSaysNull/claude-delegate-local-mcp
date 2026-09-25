@@ -519,7 +519,9 @@ every one at a length stop, so no partial returned at a deadline would have resc
 `attempts` counts every real call across all three stages and every transport retry inside
 them, and across every turn when this runs inside the loop. ADR-0014 requires the retry not
 to charge the turn budget, so a turn is charged for the answer it got rather than for what
-recovering it cost.
+recovering it cost. A count cannot say which failure it was, so each retried attempt is
+also kept as a `retries` entry: the error's kind, its HTTP status, its seconds and the wait
+chosen. The turn's stream event and the summary carry them.
 
 ## Turns, and what ends them
 

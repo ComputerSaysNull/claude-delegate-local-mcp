@@ -1051,6 +1051,8 @@ repeated share only once it is worth saying, which is the whole signal. Empty-an
 requested at `high` can answer at `low`; the requested level is the `start` event's and the
 picker's column, and showing only that described a run no turn had performed. The repeated
 share is per turn because a turn that loops never ends, so no per-dispatch figure arrives.
+A turn that retried also carries `retries`, one entry per failed attempt, so two attempts
+can be told apart as a dropped route or a 503 ([DISPATCH.md](DISPATCH.md) says what each holds).
 
 Both files are created at `0o600` and the directory at `0o700`, by `os.open` with an
 explicit mode rather than a `chmod` afterwards — that would leave a window in which the

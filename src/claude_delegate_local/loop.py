@@ -1212,6 +1212,30 @@ async def _until_deadline(
                 pass  # its own cancellation; the exception that brought us here propagates
 
 
+@dataclass(frozen=True, slots=True)
+class RetryRecord:
+    """One failed attempt `complete_with_retry` chose to retry, and why.
+
+    `attempts` counts a retry but cannot say which failure it was, and a dropped route and a
+    503 have different remedies. `kind` is the exception's class, `status` the HTTP status a
+    refusal carried, `seconds` how long the failed attempt ran, `wait` the sleep chosen.
+    """
+
+    kind: str
+    status: int | None
+    seconds: float
+    wait: float
+
+    def as_json(self) -> dict[str, Any]:
+        """The record as one JSON object, rounded for the transcript."""
+        return {
+            "kind": self.kind,
+            "status": self.status,
+            "seconds": round(self.seconds, 3),
+            "wait": round(self.wait, 3),
+        }
+
+
 async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test seams
     cfg: Config,
     backend: Backend,
@@ -1222,6 +1246,7 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
     deadline: float | None = None,
     stall_left: Callable[[], float] | None = None,
     on_token: Callable[[], None] | None = None,
+    on_retry: Callable[[RetryRecord], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[CanonicalResponse, int]:
@@ -1391,6 +1416,13 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
                 raise DispatchTimedOut(
                     spent() + wait, cfg.dispatch_timeout, "while waiting to retry"
                 ) from e
+            if on_retry is not None:
+                on_retry(RetryRecord(
+                    kind=type(e).__name__,
+                    status=getattr(e, "status", None),
+                    seconds=clock() - attempt_started,
+                    wait=wait,
+                ))
             await sleep(wait)
 
 
@@ -1412,6 +1444,8 @@ class Dispatch:
     response: CanonicalResponse
     effort: str
     attempts: int
+    # Every failed attempt retried, in order, across every stage of the recovery ladder.
+    retries: tuple[RetryRecord, ...] = ()
     reasoning_exhausted: bool = False
     # How long the attempt that *answered* took, which is not how long the turn took.
     # The token counts come from that attempt alone (ADR-0014), so a rate derived from
@@ -1502,6 +1536,8 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     if asked_budget is None:
         asked_budget = resolve_max_tokens(cfg, entry, effort, max_tokens, ceiling=budget_ceiling)
     attempts = 0
+    # `done` closes over this, so no exit from the ladder can drop a record.
+    retries: list[RetryRecord] = []
     # The wall clock this dispatch spent, split the way the engine spends it, and summed
     # over the stages because each stage is a fresh prompt and so a fresh prefill. The
     # token counts deliberately are not summed -- they come from the attempt that answered
@@ -1525,14 +1561,16 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
         added would have been carried by three of them.
         """
         return Dispatch(
-            reply, level, attempts, exhausted, answered_seconds=answered,
+            response=reply, effort=level, attempts=attempts,
+            reasoning_exhausted=exhausted, retries=tuple(retries),
+            answered_seconds=answered,
             prefill_seconds=spans["prefill"], decode_seconds=spans["decode"],
         )
 
     response, spent, answered = await complete_with_retry(
         cfg, backend, build(effort, asked_budget),
         sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=on_token,
-        tick_sleep=tick_sleep, clock=clock,
+        on_retry=retries.append, tick_sleep=tick_sleep, clock=clock,
     )
     attempts += spent
     stage(response)
@@ -1549,7 +1587,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
         response, spent, answered = await complete_with_retry(
             cfg, backend, build(effort, floor),
             sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=on_token,
-            tick_sleep=tick_sleep, clock=clock,
+            on_retry=retries.append, tick_sleep=tick_sleep, clock=clock,
         )
         attempts += spent
         stage(response)
@@ -1574,7 +1612,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
             resolve_max_tokens(cfg, entry, stepped, max_tokens, ceiling=budget_ceiling),
         ),
         sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=on_token,
-        tick_sleep=tick_sleep, clock=clock,
+        on_retry=retries.append, tick_sleep=tick_sleep, clock=clock,
     )
     attempts += spent
     stage(response)
@@ -2227,6 +2265,8 @@ class TurnDiagnostic:
     effort: str
     evicted: int
     tool_calls: tuple[ToolCallRecord, ...]
+    # Beside `attempts`: the count says how many, these say which and why.
+    retries: tuple[RetryRecord, ...] = ()
     # Where this turn's backend time went, summed over its attempts -- a turn sent three
     # times paid three prefills, and wall clock is what a run summary adds up. Carried on
     # the diagnostic rather than handed to the transcript separately, because everything
@@ -2458,6 +2498,7 @@ class _Watch:
                 effort=dispatch.effort,
                 evicted=evicted,
                 tool_calls=(),
+                retries=dispatch.retries,
                 prefill_seconds=dispatch.prefill_seconds,
                 decode_seconds=dispatch.decode_seconds,
                 answered_decode_seconds=dispatch.response.decode_seconds,

@@ -198,6 +198,7 @@ class Stream:
         reply is neither, and is in the same category as the task string that ADR already
         writes verbatim -- it exists nowhere else. See ADR-0043.
         """
+        retries = getattr(diagnostic, "retries", ()) or ()
         self._put({
             "t": "turn", "at": datetime.now(UTC).isoformat(),
             "turn": getattr(diagnostic, "turn", None),
@@ -246,6 +247,7 @@ class Stream:
             # never ends, so `max_turns` cannot reach it and the per-dispatch figure
             # arrives only if something else stopped it first.
             "duplicate_line_share": duplicate_line_share(text or ""),
+            **({"retries": [r.as_json() for r in retries]} if retries else {}),
             "text": text,
         })
 
@@ -601,6 +603,7 @@ def _ledger(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
                 "effort": t.effort,
                 "tool_results_evicted": t.evicted,
                 "tool_calls": [c.as_json() for c in t.tool_calls],
+                "retries": [r.as_json() for r in getattr(t, "retries", ()) or ()],
             }
             for t in dispatched.diagnostics
         ],
