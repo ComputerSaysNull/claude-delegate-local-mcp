@@ -51,7 +51,7 @@ async def test_the_caller_is_told_at_every_token_arrival():
 
     await backend(
         paced(clock, _schedule([5.0, 6.0, 7.0])), clock=clock
-    ).complete(request(), on_token=lambda: seen.append(clock.t))
+    ).complete(request(), on_token=lambda _kind: seen.append(clock.t))
 
     assert seen == [5.0, 6.0, 7.0]
 
@@ -76,7 +76,7 @@ async def test_a_frame_carrying_no_tokens_is_not_an_arrival():
     ]
 
     await backend(paced(clock, schedule), clock=clock).complete(
-        request(), on_token=lambda: seen.append(clock.t)
+        request(), on_token=lambda _kind: seen.append(clock.t)
     )
 
     assert seen == [5.0]
@@ -91,7 +91,7 @@ async def test_the_callback_is_optional_and_the_response_is_unchanged():
     clock = Clock()
     with_cb = await backend(
         paced(clock, _schedule([5.0, 6.0])), clock=clock
-    ).complete(request(), on_token=lambda: None)
+    ).complete(request(), on_token=lambda _kind: None)
 
     clock2 = Clock()
     without = await backend(

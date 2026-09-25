@@ -72,7 +72,7 @@ async def test_the_count_comes_from_frames_that_carried_output():
     clock = Clock()
     seen = 0
 
-    def count() -> None:
+    def count(_kind: str) -> None:
         nonlocal seen
         seen += 1
 

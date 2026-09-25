@@ -32,8 +32,9 @@ def beats(**over) -> list[tuple[float, int, float]]:
     """Run a one-shot slow enough to beat, and collect every heartbeat it sent."""
     seen: list[tuple[float, int, float]] = []
 
-    async def on_alive(elapsed: float, of: int, ends_in: float,
-                       chunks: int = 0, since: float | None = None) -> None:
+    async def on_alive(elapsed: float, of: int, ends_in: float,  # noqa: PLR0913, PLR0917 -- the heartbeat's positional arity, fixed by _keepalive
+                       chunks: int = 0, reasoning_chunks: int = 0,
+                       since: float | None = None) -> None:
         seen.append((elapsed, of, ends_in))
 
     async def go() -> None:

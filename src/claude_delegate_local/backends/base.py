@@ -473,7 +473,7 @@ class Backend(Protocol):
         self,
         request: CanonicalRequest,
         *,
-        on_token: Callable[[], None] | None = None,
+        on_token: Callable[[str], None] | None = None,
     ) -> CanonicalResponse:
         """Send one request. Raises a BackendError subclass; never returns a partial.
 
@@ -483,8 +483,9 @@ class Backend(Protocol):
         thing that ever saw it. It is added *alongside* the return value: the contract
         above still holds, and an adapter that cannot stream simply never calls it.
 
-        Synchronous and argument-free, deliberately. It runs on the read loop once per
-        frame, so awaiting here would put network latency between two tokens; and a
+        Synchronous, and it receives the frame's kind -- `"reasoning"` or `"answer"` -- so
+        a consumer can tell thinking from answering as it happens. It runs on the read loop
+        once per frame, so awaiting here would put network latency between two tokens; and a
         consumer that must act once -- the admission lease does -- guards its own
         once-ness rather than having the adapter decide how often "arrival" means.
         """

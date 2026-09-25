@@ -127,8 +127,9 @@ httpx applies its read timeout per chunk once a body streams, so that timeout is
 Streaming also made token arrival observable, and until ADR-0072 `decode_seconds` was its
 only consumer. `complete()` now takes an optional `on_token`, fired on each frame carrying
 generated output — the same predicate the interval is measured from, so a role preamble or
-a finish reason is not an arrival. It is synchronous and argument-free because it runs on
-the read loop; a consumer that must act once guards its own once-ness.
+a finish reason is not an arrival. It is synchronous because it runs on the read loop, and
+its one argument names what the frame carried, `reasoning` or `answer`, so a heartbeat can
+tell thinking from answering. A consumer that must act once guards its own once-ness.
 
 Built. The seam holds three things the layer above depends on. Flattening lives in the
 adapter and nowhere else, so the canonical side stays block-structured. Failures arrive as

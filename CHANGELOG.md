@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #353 — 2026-09-25 — feat: the heartbeat tells thinking from answering
+
+### Added
+
+- **A watcher could not tell a delegation thinking from one answering.** The `alive`
+  event's `chunks_seen` counted reasoning and answer frames alike, though the stream
+  accumulator already kept the two apart, so a long silence of visible text was
+  indistinguishable from a model still writing. The accumulator now names each frame's
+  kind, `on_token` receives it, and `alive` carries `reasoning_chunks` and `answer_chunks`
+  beside the unchanged total. The viewer shows the split, and the old line for older
+  transcripts. A frame carrying both counts as answer. Fake backends that still call
+  `on_token()` with no argument keep working. Red first: all four new tests failed on the
+  missing kind and fields.
+
 ## #352 — 2026-09-25 — fix: the sandbox's tool caches write to scratch
 
 ### Fixed
