@@ -49,6 +49,12 @@ Older entries, in the previous flat format, are in
   accepted at both widths, about one token in six, and positions four to six almost never.
   So acceptance follows what is written, not the width. Whether a shorter draft is faster is
   a cluster change, the operator's to try. JOURNAL 2026-09-25 has the table.
+- **Decode speed measured against prompt size.** The only evidence that a long prompt
+  decodes slower was 29 against 44 tok/s from five and six samples, and it was the reason
+  to consider prefetching less. Two runs each at 20k, 41k, 81k and 164k prompt tokens, one
+  at a time: 26 to 28.5 tok/s throughout, with no trend. A long prompt only prefills longer,
+  about 1,300 tok/s. The old gap fits output type instead. Nothing measured now supports the
+  140k prefetch cap's value either, so reviewing it is filed as PLAN U.91.
 
 ## #360 — 2026-09-25 — fix: a burst flag left by a failed close expires
 

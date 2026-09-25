@@ -2592,3 +2592,36 @@ rate memory's 40, which measured other output.
 What it does not settle: whether a shorter draft would be faster, at one stream or at six.
 That needs the draft length changed on the cluster, which is the operator's; the per-position
 figures say where to try (two or three, not six). One output type only.
+
+## 2026-09-25 — A long prompt does not decode slower; it only prefills longer
+
+PLAN M16.7's evidence was 29 against 44 tok/s at one stream, for 50–100k against 25–50k
+prompts, from five and six samples. It decides whether prefetching less buys anything, and
+whether the 140k prefetch cap has a reason. So: the same essay request as above, behind
+padding of this repository's own source, a unique first line per request so no prefix is
+reused, one at a time, two runs a size.
+
+| prompt tokens | decode tok/s | prefill | prefill tok/s | peak KV |
+|---|---|---|---|---|
+| 19,987 | 26.1, 27.3 | 14.3s | ~1,400 | 3.1% |
+| 40,543 | 28.5, 26.6 | 29.2s | ~1,390 | 3.7% |
+| 81,300 | 26.8, 28.0 | 59.8s | ~1,360 | 4.6% |
+| 163,980 | 26.9, 27.0 | 127s | ~1,290 | 6.6% |
+
+The sizes are below their 25k–200k targets because the padding was estimated at 3.4
+characters a token and Python runs nearer 4.2. The control is the 1,660-token solo arm above,
+28.8 and 26.6: the same band. The two runs of a size differ by up to 2 tok/s, and no two sizes
+differ by more than that, so there is no trend to 164k.
+
+What that settles: the old gap was not prompt size. It fits output type, which the entry above
+shows moving acceptance and therefore decode, and a quoting turn is known to decode faster
+(PLAN U.14). So prefetching less buys no decode speed. A bigger prompt costs prefill, about
+1,300 tok/s here (between the 1,060 of 2026-09-21 and ADR-0019's 1,900–2,600), and KV, about
+1% per 40k tokens by the engine's own gauge. That is lower than the prompt over
+`kv_cache_size_tokens` would suggest (11% at 164k), so admission, which counts the latter,
+errs safe. Nothing measured here argues for the 140k cap's value, so its review is a PLAN
+item rather than a change made here.
+
+What it does not settle: one stream only, one output type, and a prefix never reused — a
+repeated prefix skips most of that prefill, which is the usual case for a multi-turn
+delegation.
