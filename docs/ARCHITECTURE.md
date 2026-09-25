@@ -1,4 +1,4 @@
-<!-- BUDGET: 1300
+<!-- BUDGET: 1310
      Raised from 1290 (+1 for this line) on 2026-09-24: a call can now return a handle, a new module and a new way a delegation's lifetime is decoupled from its call.
      Raised from 1280 (+1 for this line) on 2026-09-23: provision now shows a changed declaration and asks before building it on the host.
      Raised from 1266 (+1 for this line) on 2026-09-22: tool time is gated on the calls at two sites now, and a reader who knows only one of them still cannot tell why a toolless run once reported tools.
@@ -1263,6 +1263,13 @@ by looking harder: a writer pid in the stream would mean nothing on another mach
 this directory is routinely synchronised. So the state says only what is known, and names
 the age — a one-shot delegation is legitimately silent between its start and its end, and
 must not be called dead for it.
+
+**The running total lives in a ledger, not in these files.** `ledger.py` appends one JSON
+line per dispatch, success or failure, holding the whole-run token totals and the dispatch's
+facts, to `ledger_path`, and nothing prunes it, so the total survives whatever happens to the
+per-dispatch records. One `os.write` per line keeps concurrent writers from tearing it on
+the Linux filesystem, and `--doctor` warns on a path under `/mnt/`, where concurrent appends
+lose lines outright (ADR-0104). Like the transcript, it never raises into a dispatch.
 
 ## Non-goals
 

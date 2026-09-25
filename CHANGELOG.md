@@ -38,6 +38,41 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #343 — 2026-09-25 — feat: an append-only ledger keeps the cluster's running token total
+
+### Added
+
+- **A ledger of what every dispatch cost, kept apart from the transcripts.** The only record
+  of cluster spend was one transcript file per dispatch, in a directory that is off by
+  default and here a synced folder, so an exact total meant keeping every file forever. Each
+  dispatch now appends one JSON line to `ledger_path`, whether it succeeded or failed: time,
+  tool, agent, model, effort, outcome, turns, elapsed time and whole-run token totals.
+  Nothing prunes it. The default sits under `~/.cache`, so it works with nothing configured.
+  `--doctor` reports a disabled or unwritable ledger, and warns on a path under `/mnt/`.
+  Measured before choosing: eight processes appending 500 single-write lines each tore
+  nothing on ext4, while the same test on `/mnt/c` kept barely one line in eight (ADR-0104;
+  JOURNAL has the table). A real two-turn delegation through the working tree wrote one
+  line whose turns and token totals match its own result exactly.
+
+### Fixed
+
+- **A ledger path that cannot be translated would have failed every delegation.** The first
+  version resolved the path before its `try`, and a UNC share raises there, so a wrong
+  setting became a failed dispatch, despite the module's own promise. Red first, on
+  Linux, where the translation runs.
+- **The new setting landed in the configuration reference's catch-all section.** The full
+  suite caught it, through a test that keeps "Other" empty. `ledger_path` now sits with
+  `transcript_dir` under a section renamed from "Operator transcript" to "Operator records".
+  Nothing linked to the old heading.
+- **Every suite run appended fake dispatches to the real ledger.** Test configs carry the
+  default `ledger_path`, under the real home, so each server-level test that dispatched wrote
+  a line there: 253 in WSL, 419 on Windows and 142 in the sandbox's home after one evening,
+  all fake, in the very file the cost report sums. Caught when the report, run without a
+  path, found a ledger nothing real had written yet. `conftest.py` now redirects the default
+  for the whole session, and a test naming its own path keeps it. Red first: a default
+  config resolved to the real file. The polluted files were test lines only and were
+  deleted.
+
 ## #342 — 2026-09-25 — docs: the audit runbook keeps its definitions and evidence in references
 
 ### Changed

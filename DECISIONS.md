@@ -19,6 +19,38 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0104 — 2026-09-25 — Running token totals go in an append-only ledger on the Linux filesystem — Accepted
+
+**Context.** What the cluster has spent is the sum over every dispatch, and the only record
+of it was the per-dispatch transcript: one file each, in a directory that is off by default
+and, on the operator's machine, a synced folder. Keeping those forever to keep the total
+exact makes retention and accuracy compete. `transcript.py` chose one file per dispatch
+precisely to avoid reasoning about concurrent appends on `/mnt/c`.
+
+**Decision.** A separate ledger: one JSON line per dispatch, success or failure, holding the
+whole-run token totals and the facts of the dispatch, never pruned. It is written with a
+single `os.write` on an `O_APPEND` descriptor, and it never raises into a dispatch. Its path
+is `ledger_path`, defaulting under `~/.cache` so it works with nothing configured.
+
+**Measured, not assumed, and the filesystem decides it.** Eight processes each appending 500
+single-write lines of about 400 bytes, three trials per arm (JOURNAL 2026-09-25):
+
+| filesystem | single write per line | line split in two writes |
+|---|---|---|
+| ext4 (`/tmp`) | 4,000 of 4,000 kept, none torn | about 57% torn |
+| `/mnt/c` | 501 to 540 of 4,000 kept, some torn | most lost |
+
+On ext4 a single write per line is enough; the split arm is the control that shows the
+counter can see a tear. On `/mnt/c` concurrent appends overwrite one another even one write
+at a time, so the default is on the Linux filesystem and `--doctor` warns when the path is
+under `/mnt/`.
+
+**Not in the transcript directory.** It is off by default, and a synced folder adds a
+second writer, the sync client, to the same file. **Not a lock like `slots.py`'s.** The
+single write is measured sufficient where the ledger is meant to live, and a lock is a
+second way for a dispatch to wait on bookkeeping. Whether a lock would rescue `/mnt/c` is
+unmeasured, and the ledger does not need it to.
+
 ## ADR-0103 — 2026-09-24 — A write-capable delegation returns a handle, and `collect` answers it — Accepted
 
 **Context.** The client runs one write-capable call at a time and releases the next when

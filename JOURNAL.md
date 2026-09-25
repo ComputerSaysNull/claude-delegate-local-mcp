@@ -2503,3 +2503,27 @@ file records the path in the form the creating git uses; on ext4 it matched too,
 What this buys is the suite running while the main checkout carries on. The rule against
 running both platforms' suites at once was about a shared `__pycache__`, and separate
 worktrees do not share one; memory is now the only reason to keep them sequential.
+
+## 2026-09-25 — Concurrent appends are safe on ext4 and lose most lines on /mnt/c
+
+The token ledger appends one line per dispatch from however many server processes are
+running, and `transcript.py` had avoided exactly that by writing one file per dispatch. So
+before choosing a write discipline: eight processes, each appending 500 lines of about 400
+bytes of JSON to one file, three trials per arm, then count lines that parse and distinct
+records among them.
+
+| filesystem | one `os.write` per line | each line in two writes |
+|---|---|---|
+| ext4, `/tmp` in WSL | 4,000 parsed, 0 torn, every trial | about 1,700 parsed, 2,300 torn |
+| `/mnt/c` | 501, 540 and 533 parsed; 2, 16 and 3 torn | 263 to 293 parsed |
+
+The split arm is the negative control: a counter that never saw a torn line could not show
+the single-write arm was clean. On ext4 it tears more than half the lines, so the counter
+works, and a single write per line with `O_APPEND` tore nothing in 12,000.
+
+`/mnt/c` is a different failure. Lines are not interleaved so much as lost: seven in eight
+never appear, even written one call at a time, as if concurrent writers each wrote at an
+offset another had already used. No write discipline fixes that, which is why the ledger's
+default lives under `~/.cache`, why doctor warns on a path under `/mnt/`, and why
+`transcript.py`'s one-file-per-dispatch choice was right for the synced folder it writes to.
+Whether a lock would rescue `/mnt/c` was not measured.

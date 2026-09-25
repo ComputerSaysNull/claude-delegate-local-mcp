@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import config, paths, provision, registry, sandbox, transcript
+from . import config, ledger, paths, provision, registry, sandbox, transcript
 from .config import Config, ConfigError
 from .server import STATUS_OK, BackendCache, probe_entry
 from .slots import build_slots
@@ -323,6 +323,47 @@ def check_transcripts(cfg: Config) -> Check:
     return Check("transcripts", OK, f"writable at {directory}")
 
 
+def check_ledger(cfg: Config) -> Check:
+    """Is the running total being kept, and where?
+
+    A `WARN` when switched off, on the same reasoning as `check_transcripts`: the ledger
+    is an operator convenience, and the read-heavy majority of delegations needs nothing
+    recorded. A `FAIL` when the directory cannot be written, because the append is
+    swallowed at runtime by design -- this is the only place it is reported. A path
+    under `/mnt/` is warned about rather than failed: the ledger will work, but
+    concurrent appends on the Windows drive lose lines (measured, about 87% lost with 8
+    writers), so the running total quietly stops being one.
+    """
+    target = ledger.path(cfg)
+    if target is None:
+        return Check(
+            "ledger", WARN, "switched off, so no running total is kept",
+            "Set DELEGATE_LEDGER_PATH to keep one. The per-dispatch transcript records "
+            "may be pruned; this is the total that never is.",
+        )
+    if str(target).startswith("/mnt/"):
+        return Check(
+            "ledger", WARN,
+            f"{target} is under /mnt/, where concurrent appends lose lines",
+            "Name a directory on the Linux filesystem. The append is a single write per "
+            "line, which protects it on ext4 and not on the Windows drive, where "
+            "measured about 87% of lines were lost with 8 concurrent writers.",
+        )
+    directory = target.parent
+    try:
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        probe = directory / ".doctor-ledger-probe"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink()
+    except OSError as e:
+        return Check(
+            "ledger", FAIL, f"{directory} is not writable: {e}",
+            "A ledger append is swallowed at runtime by design, so this is the only "
+            "place it is reported.",
+        )
+    return Check("ledger", OK, f"appendable at {target}")
+
+
 def check_cross_process(cfg: Config) -> Check:
     """Are the admission rules counted per machine, or per connected client?
 
@@ -405,6 +446,7 @@ def collect(cfg: Config, reg: registry.Registry) -> list[Check]:
         check_provisioned_secrets(cfg),
         *check_endpoints(cfg, reg),
         check_transcripts(cfg),
+        check_ledger(cfg),
         check_cross_process(cfg),
     ]
 
