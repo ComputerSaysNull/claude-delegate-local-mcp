@@ -38,6 +38,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #364 — 2026-09-25 — fix: CI installs every dependency at a pinned version
+
+### Fixed
+
+- **CI resolved every dependency fresh on each run.** `pyproject.toml` declares ranges, so
+  a new release of `fastmcp`, `httpx`, a test tool or the build backend could break or
+  change CI with no commit here. Both install steps now pass `.github/ci-constraints.txt`
+  as `-c` and `--build-constraint`: 83 pins from a clean 3.12 install. It is pins rather
+  than `pip lock`'s `pylock.toml`, because that lock records only the running
+  interpreter's wheels (every compiled package came back `cp312`) and CI also runs 3.14;
+  so this buys a reproducible build, not tamper-proof downloads. Checked: a fresh install
+  through it freezes to exactly the file, all 83 versions have a Linux wheel for 3.14, and
+  a planted `httpx==0.27.0` makes the install fail. CONTRIBUTING has the refresh command.
+
 ## #363 — 2026-09-25 — fix: a type checker runs in CI, and what it found is fixed
 
 ### Added

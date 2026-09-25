@@ -358,9 +358,9 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     - b. ✅ 2026-09-23 ARCHITECTURE lists "no standalone CLI" as a non-goal and documents the `run` CLI.
     - c. ✅ 2026-09-23 ARCHITECTURE nests "Read-only tools" as an H2 inside another H2.
     - d. ✅ 2026-09-23 A `slots.py` comment still reasons about the cap ADR-0077 removed.
-76. ⬜ **Build and supply chain** (R16)
+76. ✅ 2026-09-25 **Build and supply chain** (R16)
     - a. ✅ GitHub Actions are pinned by tag rather than by commit.
-    - b. ⬜ No lock file, so CI resolves every dependency fresh.
+    - b. ✅ 2026-09-25 No lock file, so CI resolves every dependency fresh.
     - c. ✅ Local runs include `integration` tests, which the marker says are skipped.
 77. ✅ 2026-09-24 **The transcript viewer trusts line shapes** (R17): a JSON line that is not an object
   takes down `summarise` and `follow`, and `follow` piped to another program crashes
