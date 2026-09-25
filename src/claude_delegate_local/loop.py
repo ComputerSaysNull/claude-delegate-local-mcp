@@ -2181,6 +2181,9 @@ class ToolCallRecord:
     # "killed before it could exit", which `bash_failures` distinguishes -- and neither is
     # 0, a real exit code that must not collide with either (see `BashOutcome`).
     exit_code: int | None = None
+    # How long the call took, timed where it executed. `None` where nothing ran: a call
+    # served from the dedup cache.
+    ms: int | None = None
 
     def as_json(self) -> dict[str, Any]:
         """The record as one JSON object, with absent fields absent rather than null.
@@ -2201,17 +2204,23 @@ class ToolCallRecord:
             row["result_lines"] = self.result_lines
         if self.exit_code is not None:
             row["exit_code"] = self.exit_code
+        if self.ms is not None:
+            row["ms"] = self.ms
         return row
 
 
 def tool_call_record(
-    call: ToolUseBlock, outcome: str, result: ToolResultBlock | None
+    call: ToolUseBlock, outcome: str, result: ToolResultBlock | None,
+    *, ms: int | None = None,
 ) -> ToolCallRecord:
     """Build one call's record from what the server saw, never from the model's account.
 
     The refusal text is taken from the result block `tools.py` built, which is the same
     string the model was handed -- so the record and the model agree about what was said,
     and ADR-0007's rule that the server reports what it watched is preserved.
+
+    `ms` is the call's own measured duration, supplied by `_run_calls` and `None` when
+    nothing ran.
     """
     message = ""
     if outcome == "error" and result is not None:
@@ -2230,6 +2239,7 @@ def tool_call_record(
         # `search_files` that found a match.
         result_lines=None if result is None else _line_count(result.content),
         exit_code=exit_code,
+        ms=ms,
     )
 
 
@@ -2835,13 +2845,18 @@ def _assistant_blocks(cfg: Config, response: CanonicalResponse) -> tuple[Content
     return tuple(b for b in response.content if not isinstance(b, ThinkingBlock))
 
 
+# What each tool call is timed by. Looked up per call, so a test can hand it the same fake
+# clock the server reads.
+_tool_clock: Callable[[], float] = time.monotonic
+
+
 def _run_one_call(
     cfg: Config,
     call: ToolUseBlock,
     allowed: frozenset[str],
     cached: dict[tuple[str, str], _CachedResult],
     policy: BashPolicy,
-) -> tuple[ToolResultBlock, str]:
+) -> tuple[ToolResultBlock, str, int | None]:
     """Execute one tool call, or serve it from what an identical earlier one returned.
 
     Dedup is byte-identical on name and arguments, and applies only to tools declared
@@ -2852,6 +2867,8 @@ def _run_one_call(
     Known gap, recorded rather than papered over: a re-read of the same file at a different
     offset is a different argument set and is not caught. Upstream's version has the same
     hole. Closing it needs range tracking, which is its own piece of work.
+
+    The third value is the call's own milliseconds, `None` when the cache answered.
     """
     key = (call.name, _dedup_key(call))
     entry = cached.get(key)
@@ -2859,9 +2876,11 @@ def _run_one_call(
         # Still "repeat" in both cases: nothing ran either way, and the outcome vocabulary
         # is what the ledger and the viewer read. What differs is only what comes back.
         body = EVICTED_REPEAT if entry.evicted else REPEAT_PREFIX + entry.content
-        return ToolResultBlock(tool_use_id=call.id, content=body), "repeat"
+        return ToolResultBlock(tool_use_id=call.id, content=body), "repeat", None
 
+    started = _tool_clock()
     result = execute_tool(cfg, call, allowed, policy)
+    ms = int((_tool_clock() - started) * 1000)
     tool = REGISTRY.get(call.name)
     if tool is None or not tool.cacheable:
         # Unknown or side-effecting. Everything cached so far may describe a world that no
@@ -2872,7 +2891,7 @@ def _run_one_call(
         # exist yet is the obvious one -- and caching a refusal would make it permanent for
         # the rest of the delegation.
         cached[key] = _CachedResult(result.content, call.id)
-    return result, "error" if result.is_error else "ran"
+    return result, "error" if result.is_error else "ran", ms
 
 
 # How many of a turn's calls may be in flight together. A constant rather than a setting,
@@ -2918,7 +2937,7 @@ def _run_group(
     allowed: frozenset[str],
     cached: dict[tuple[str, str], _CachedResult],
     policy: BashPolicy,
-) -> list[tuple[ContentBlock, str]]:
+) -> list[tuple[ContentBlock, str, int | None]]:
     """One group's calls, overlapped, with `cached` read and written only on this thread.
 
     Not a lock. A lock would keep the dict structurally intact and still let two identical
@@ -2930,6 +2949,9 @@ def _run_group(
 
     Every call here is cacheable by construction, so none of them clears the cache and the
     ordering `_run_one_call` protects cannot be observed to change.
+
+    Each executed call carries its own milliseconds, timed on the thread that ran it, so
+    overlapped calls are not charged the group's span; a cached one carries `None`.
     """
     keys = [(c.name, _dedup_key(c)) for c in group]
     first_for: dict[tuple[str, str], ToolUseBlock] = {}
@@ -2937,16 +2959,22 @@ def _run_group(
         if key not in cached:
             first_for.setdefault(key, call)
 
-    fetched: dict[tuple[str, str], ContentBlock] = {}
+    fetched: dict[tuple[str, str], tuple[ContentBlock, int]] = {}
     pending = list(first_for.items())
     if len(pending) == 1:
         # One miss needs no pool, and saying so keeps the common two-call batch where one
         # call is a repeat from paying for a thread it would not use.
         key, call = pending[0]
-        fetched[key] = execute_tool(cfg, call, allowed, policy)
+        started = _tool_clock()
+        fetched[key] = (
+            execute_tool(cfg, call, allowed, policy),
+            int((_tool_clock() - started) * 1000),
+        )
     elif pending:
-        def run(item: tuple[tuple[str, str], ToolUseBlock]) -> ContentBlock:
-            return execute_tool(cfg, item[1], allowed, policy)
+        def run(item: tuple[tuple[str, str], ToolUseBlock]) -> tuple[ContentBlock, int]:
+            started = _tool_clock()
+            block = execute_tool(cfg, item[1], allowed, policy)
+            return block, int((_tool_clock() - started) * 1000)
 
         workers = min(len(pending), MAX_CONCURRENT_TOOL_CALLS)
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -2954,18 +2982,18 @@ def _run_group(
             # the model matches them by id, so completion order is not an ordering at all.
             fetched = dict(zip((k for k, _ in pending), pool.map(run, pending), strict=True))
 
-    out: list[tuple[ContentBlock, str]] = []
+    out: list[tuple[ContentBlock, str, int | None]] = []
     for call, key in zip(group, keys, strict=True):
         entry = cached.get(key)
         if entry is not None:
             body = EVICTED_REPEAT if entry.evicted else REPEAT_PREFIX + entry.content
-            out.append((ToolResultBlock(tool_use_id=call.id, content=body), "repeat"))
+            out.append((ToolResultBlock(tool_use_id=call.id, content=body), "repeat", None))
             continue
-        result = fetched[key]
+        result, ms = fetched[key]
         if isinstance(result, ToolResultBlock) and not result.is_error:
             cached[key] = _CachedResult(result.content, call.id)
         is_error = isinstance(result, ToolResultBlock) and result.is_error
-        out.append((result, "error" if is_error else "ran"))
+        out.append((result, "error" if is_error else "ran", ms))
     return out
 
 
@@ -3003,10 +3031,10 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
         )
         # The ledger is written here, on one thread, in the order the model asked -- a
         # worker appending to `watch` would race it and reorder what the abort report reads.
-        for call, (block, outcome) in zip(group, outcomes, strict=True):
+        for call, (block, outcome, ms) in zip(group, outcomes, strict=True):
             result = block if isinstance(block, ToolResultBlock) else None
             watch.called(call, outcome, result)
-            records.append(tool_call_record(call, outcome, result))
+            records.append(tool_call_record(call, outcome, result, ms=ms))
             results.append(block)
     return results, tuple(records)
 

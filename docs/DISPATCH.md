@@ -850,8 +850,9 @@ what it evicted, and a `ToolCallRecord` per call — the arguments the model sen
 field with a marker saying how much was dropped; a refusal message, on an error outcome
 only; and on success accounting rather than content, since a diagnostic that embedded what
 it was measuring would become the expensive payload it exists to explain. Built in
-`_run_calls`, the one place the arguments and the result are both in scope. ADR-0060 has
-what is recorded and why.
+`_run_calls`, the one place the arguments and the result are both in scope, which is also
+where each call's `ms` is timed, on the thread that ran it. ADR-0060 has what is recorded
+and why.
 
 The field worth asking for is `evicted_then_reread`: files the model read again after this
 server had dropped the first read from the history. The aggregate ledger can already say a

@@ -615,26 +615,17 @@ class _OneShotTurn:
         self.answered_decode_seconds = dispatched.response.decode_seconds
 
 
-def tool_ms_for_turn(
-    tool_clock: float, now: float, backend_ms: int, diagnostic: Any
-) -> int:
-    """What one finished turn spent running the model's tools.
+def tool_ms_for_turn(diagnostic: Any) -> int:
+    """What one finished turn spent running the model's tools, per the calls' own clocks.
 
-    The turn's wall clock since the previous turn -- or since the slot was granted, for
-    the first -- less its own backend call. Floored at zero because the two intervals are
-    read from the same clock a moment apart and a negative would be measurement noise
-    reported as a fact.
-
-    **Gated on the calls rather than on the arithmetic**, exactly as the viewer's per-turn
-    line is. The subtraction is tool time only for a turn that ran tools; for one that ran
-    none it is the dispatch's own bookkeeping -- pricing the budget, assembling the
-    request, writing the transcript -- and naming that "tools" reports the model doing
-    something it did not. A dispatch that called nothing therefore reports no tool time
-    rather than a few seconds of it.
+    Each call's `ms` is measured where the tool executed, so the sum is what the tools
+    actually took -- never the dispatch's own bookkeeping. The old rule subtracted the
+    backend call from the turn's wall clock, which on the first turn charged the slot
+    grant, budget pricing and request assembly to the tools, and on a turn that ran none
+    reported the server's overhead as tool time. A dispatch that called nothing therefore
+    reports no tool time rather than a few seconds of it.
     """
-    if not getattr(diagnostic, "tool_calls", None):
-        return 0
-    return max(int((now - tool_clock) * 1000) - backend_ms, 0)
+    return sum(c.ms or 0 for c in getattr(diagnostic, "tool_calls", ()) or ())
 
 
 # Every timing figure `run_delegation` reports is read from this, never from `time`
@@ -859,15 +850,10 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     # ends absent rather than claiming it spent no time prefilling.
     streamed_prefill_seconds: float | None = None
     streamed_decode_seconds: float | None = None
-    # Tool execution, summed over the turns. Its own accumulator and -- below -- its own
-    # clock, because `ms - backend_ms` is tool time only from the second turn onward:
-    # `turn_clock` starts before the admission gate, deliberately, so the first turn's
-    # `ms` also contains the wait for a slot. Deriving tool time from it would charge
-    # the queue to the tools, which is the exact confusion this field exists to end.
+    # Tool execution, summed over the turns. Each turn adds the sum of its calls' own
+    # measured `ms` -- see `tool_ms_for_turn` -- so the first turn's budget pricing and
+    # request assembly are never charged here, and a turn that ran none adds nothing.
     streamed_tool_ms = 0
-    # Set when the dispatch actually begins, so the first turn is measured from there.
-    # `None` until then: nothing has run, so there is no tool time to attribute.
-    tool_clock: float | None = None
 
     async def streamed_turn(diagnostic: Any, text: str, backend_seconds: float) -> None:
         """Each finished turn, appended while the delegation is still running.
@@ -879,15 +865,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         nonlocal turns_streamed, turn_clock, streamed_out_tokens, streamed_backend_ms
         nonlocal streamed_cached_tokens
         nonlocal streamed_prefill_seconds, streamed_decode_seconds
-        nonlocal streamed_tool_ms, tool_clock
+        nonlocal streamed_tool_ms
         now = _clock()
         turns_streamed += 1
         backend_ms = int(backend_seconds * 1000)
-        # Measured from the dispatch for the first turn and from the previous turn after
-        # that, so no part of the admission wait is counted as tool execution.
-        if tool_clock is not None:
-            streamed_tool_ms += tool_ms_for_turn(tool_clock, now, backend_ms, diagnostic)
-        tool_clock = now
+        streamed_tool_ms += tool_ms_for_turn(diagnostic)
         streamed_out_tokens += getattr(diagnostic, "output_tokens", 0) or 0
         streamed_backend_ms += backend_ms
         cached = getattr(diagnostic, "cached_tokens", None)
@@ -1013,12 +995,6 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 return await _shared_concurrency_now(
                     admission._slots, cap=cfg.max_inflight_seqs, fallback=expected
                 )
-
-            # The origin tool time is measured from. Here rather than beside `turn_clock`
-            # because the slot has now been granted: everything before this line is
-            # queueing, and attributing it to the tools would make a contended cluster
-            # look like an expensive toolset.
-            tool_clock = _clock()
 
             dispatched = await dispatch_delegation(
                 loop_cfg, entry, backend, delegation,

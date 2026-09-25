@@ -86,7 +86,7 @@ def _serve(cached: dict[tuple[str, str], _CachedResult]) -> tuple[str, str]:
     `execute_tool` is reached, so a miss would surface as a refusal rather than a read.
     """
     call = ToolUseBlock(id="call_9", name="read_file", input={"path": "big.py"})
-    block, outcome = loop._run_one_call(
+    block, outcome, _ = loop._run_one_call(
         _cfg(), call, frozenset(), cached, BashPolicy()
     )
     return block.content, outcome

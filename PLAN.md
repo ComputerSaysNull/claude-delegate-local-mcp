@@ -346,7 +346,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 71. ✅ 2026-09-24 **`test_tool_time_is_the_tools_and_not_the_queue` is load-sensitive under the full
   WSL suite.** Four failures on 2026-09-22, each passing alone and on re-run; the fourth
   was a commit changing no code at all, which is what rules out every change as its cause
-72. ⬜ **A first turn that runs tools still charges the dispatch's setup to them.**
+72. ✅ **A first turn that runs tools still charges the dispatch's setup to them.**
   `tool_clock` starts at the grant, so turn 1's window holds budget pricing and request
   assembly as well as the tools. Needs the loop to time each call, where the number is
 73. ⬜ **No type checker runs in CI** (R13), and one would have caught `complete_with_retry`
