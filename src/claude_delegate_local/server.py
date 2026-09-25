@@ -2191,7 +2191,7 @@ run a command, and pass `workdir` only then.
 ## Shaping a pass
 
 A pass that verifies -- a review, an audit -- should read and report, not check itself: give
-it the read-only tools, prefetch what it reads, and check its quotations yourself
+it the read-only tools, tell it not to verify its own quotations, and check them yourself
 afterwards. With its files prefetched, one audit pass took one turn in seven runs of eight,
 and two in the eighth, whether or not it had a shell or was told not to verify: the
 read-only tools buy a pass that cannot write, not a shorter one.
