@@ -1,12 +1,4 @@
-<!-- BUDGET-PER-ENTRY: 131
-     Raised to the size it had already reached on 2026-09-01: the check that should have held this
-     line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
-     stopped matching, so the document grew unenforced. This records where it actually is rather than
-     endorsing it; the 2026-09-01 audit tracks the trim. Raised from 30 on 2026-08-29: 30 was sized
-     for a single-feature pull request, and it had started deciding how work was split rather than
-     how it was described -- a milestone finished in one pull request had to be broken into five to
-     fit. The per-entry cap exists to stop an entry sprawling, not to cap how much one pull request
-     may do. -->
+<!-- BUDGET-PER-ENTRY: 131 -->
 # Changelog
 
 Newest first, **one section per pull request**. The heading carries the number, the merge
@@ -37,6 +29,23 @@ worth citing.
 
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
+
+## #366 — 2026-09-25 — docs: each writing rule has one home, and budget headers hold only a number
+
+### Changed
+
+- **The rules for what prose may hold are written down once.** The owner settled them on
+  2026-09-23 (PLAN M18.1) and nothing recorded them: a comment describes what is, history
+  goes to CHANGELOG or JOURNAL, a new ADR needs a structural decision, a TODO is a PLAN
+  item, and a budget header holds only its number. CLAUDE.md said the opposite on the last
+  one, a raise "with a one-line reason". CONTRIBUTING.md's new "Prose" section is their
+  home. CLAUDE.md, the session-plan skill, JOURNAL's and PLAN's headers and the gate's two
+  messages now point at it rather than restate it.
+- **Budget headers are back to a number.** Eleven documents had regrown raise histories of
+  up to 74 lines, 282 lines in all, which ARCHITECTURE's reset on 2026-09-08 had already
+  removed once. Each is now one line, and each total budget drops to its file's new size,
+  so the next addition is a decision rather than slack. Checked: every budget equals its
+  file's line count, and one line added to CLAUDE.md blocks.
 
 ## #365 — 2026-09-25 — feat: a files[] entry can name a line range
 

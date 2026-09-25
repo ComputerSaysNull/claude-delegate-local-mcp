@@ -1,12 +1,12 @@
-<!-- BUDGET-PER-ENTRY: 56
-     Raised from 55 on 2026-09-13: an entry is measured to the next heading, so the last entry is measured a line short and the 2026-09-13 gate entry landed at a true 56 reading as 55. Raising rather than editing a committed entry; the measurement asymmetry is filed in PLAN.md. -->
+<!-- BUDGET-PER-ENTRY: 56 -->
 # Journal
 
 Things that took real work to figure out, so the next person does not pay for them
 twice. Append-only, newest last. Not a diary: routine work leaves no entry.
 
 The bar is roughly "this cost more than an hour, or it was surprising enough that I
-would have got it wrong again in six months".
+would have got it wrong again in six months". A tuned value's reason, the measurement that
+set a number, belongs here too rather than in a new ADR (CONTRIBUTING, "Prose").
 
 ---
 

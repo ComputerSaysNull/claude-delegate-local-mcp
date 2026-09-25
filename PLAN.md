@@ -1,5 +1,4 @@
-<!-- BUDGET: 460
-     Raised from 450 on 2026-09-25: the prefetch cap filed once a measurement left it without a reason. -->
+<!-- BUDGET: 450 -->
 # Plan
 
 Open work, status first so the file scans.
@@ -17,7 +16,7 @@ a letter and a marker (`✅` if it holds no task), and a parent is `✅` only on
 
 **Three lines a bullet**, measured to the first blank line, with sub-bullets carrying their
 own three. History goes to whichever of CHANGELOG, DECISIONS, JOURNAL or the hand-off
-notebook owns it. `✅` and `❌` bodies are frozen and therefore exempt.
+notebook owns it, and a TODO found in code becomes an item here (CONTRIBUTING, "Prose"). `✅` and `❌` bodies are frozen and therefore exempt.
 
 **Completed items stay until the roadmap closes.** A `✅` keeps its place, with its struck
 original, until every milestone is finished or the owner says to archive; only then does it
@@ -207,10 +206,10 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
     DECISIONS, PLAN, `archive/`, `docs/audits/` and `docs/reviews/` own history and are exempt.
     - b. ✅ A BUDGET header holds only its number, and a raise's reason goes in the commit. A
     new ADR needs a structural decision; a tuned value's reason is a JOURNAL measurement.
-2. ⬜ **Each rule gets one home and the rest point at it**: CONTRIBUTING.md for comments, the
+2. ✅ 2026-09-25 **Each rule gets one home and the rest point at it**: CONTRIBUTING.md for comments, the
   ADR bar and budget raises, and JOURNAL's header admits a tuning measurement. CLAUDE.md,
   the session-plan skill, this file, ARCHITECTURE and the gate's messages link
-    - a. ⬜ The gate counts header lines, so each budget drops to its file's new size.
+    - a. ✅ 2026-09-25 The gate counts header lines, so each budget drops to its file's new size.
 3. ✅ **An AST check makes a comment pass provably behaviour-free**: each module's `ast.dump`
   with docstrings stripped is identical before and after. Negative-tested on one literal
 4. ⬜ **One comment pass per module, largest first** (review §4)

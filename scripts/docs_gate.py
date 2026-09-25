@@ -1013,8 +1013,8 @@ def check_budgets() -> list[Finding]:
                 f"{r} is {total} lines against a budget of {budget}. Three ways out, and "
                 f"none of them is deleting something valuable: trim real redundancy; "
                 f"split it (only for a different audience, different owned code, or "
-                f"reference-vs-narrative); or raise the budget with a one-line reason in "
-                f"this same commit."))
+                f"reference-vs-narrative); or raise the budget, giving the reason in the "
+                f"commit message rather than the header (CONTRIBUTING.md, \"Prose\")."))
     if not seen:
         out.append(Finding(SKIP, "budget", "no document declares a budget header yet."))
     return out
@@ -2177,7 +2177,8 @@ def check_prose_regrowth(mode: str, diff_range: str | None) -> list[Finding]:
                 out.append(Finding(
                     WARN, "prose-regrowth",
                     f"{path} line {n}: {what} in a comment -- history belongs in "
-                    f"CHANGELOG/JOURNAL, future work in PLAN.md"))
+                    f"CHANGELOG/JOURNAL, future work in PLAN.md (CONTRIBUTING.md, "
+                    f"\"Prose\")"))
         nonblank = sum(1 for ln in lines if ln.strip())
         new_ratio = round(len(prose) * 100 / nonblank) if nonblank else 0
         base_text = _file_at(base_rev, path)
