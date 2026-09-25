@@ -799,7 +799,10 @@ def test_a_provisioned_interpreter_reaches_the_command_as_an_environment_name(
 
     (req,) = seen
     assert req.env[provision.SANDBOX_ENV_NAME] == "/sb/venvs/p-1/bin/python"
-    assert req.env["PYTEST_ADDOPTS"] == "--deselect tests/t.py::test_x"
+    assert req.env["PYTEST_ADDOPTS"] == (
+        "--deselect tests/t.py::test_x "
+        f"-o cache_dir={sandbox.SCRATCH_PYTEST_CACHE_DIR}"
+    )
     # Merged, not replaced: the operator's own passthrough must survive.
     assert req.env["LANG"] == "C.UTF-8"
     assert sandbox.SANDBOX_PATH == "/usr/bin:/usr/sbin"
@@ -823,7 +826,8 @@ def test_nothing_provisioned_leaves_the_name_unset_rather_than_empty(workspace, 
 
     (req,) = seen
     assert provision.SANDBOX_ENV_NAME not in req.env
-    assert "PYTEST_ADDOPTS" not in req.env
+    # No deselect list from provision, but the cache redirection is always applied.
+    assert req.env["PYTEST_ADDOPTS"] == f"-o cache_dir={sandbox.SCRATCH_PYTEST_CACHE_DIR}"
 
 
 def test_a_delegation_that_names_no_policy_reaches_nothing_of_yours(workspace, monkeypatch):

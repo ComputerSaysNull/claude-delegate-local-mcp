@@ -87,6 +87,11 @@ _ERR_TRAP = "trap 'printf \"%s\\n\" \"$?\" >> \"$" + STATUS_FILE_ENV + "\"' ERR\
 # `provision` builds interpreters here.
 PROVISIONED_DIRNAME = "venvs"
 
+# Where the tool caches go inside the sandbox. See `scratch_cache_env`.
+SCRATCH_RUFF_CACHE_DIR = "/tmp/.cache/ruff"
+SCRATCH_PYTEST_CACHE_DIR = "/tmp/.cache/pytest"
+SCRATCH_PYCACHE_PREFIX = "/tmp/.cache/pycache"
+
 # The flags that are always present, in order.
 #
 # `--symlink usr/lib64 /lib64` and `--symlink usr/sbin /sbin` are MANDATORY on x86-64 and
@@ -938,6 +943,24 @@ def resolve_env(cfg: Config) -> dict[str, str]:
     names = set(BUILTIN_ENV_ALLOWLIST) | set(cfg.env_passthrough)
     names -= {"HOME", "PATH"}
     return {n: os.environ[n] for n in sorted(names) if n in os.environ}
+
+
+def scratch_cache_env(env: Mapping[str, str]) -> dict[str, str]:
+    """The sandbox environment, with the tool caches pointed at scratch under /tmp.
+
+    A workdir's `.pytest_cache`, `.ruff_cache` and `__pycache__` sit under opaque mounts
+    (empty read-only tmpfs), so `ruff` and `pytest` cannot write their caches there. The
+    caches are redirected through the environment rather than by unmounting: the opaque
+    mounts stay -- they keep the host's caches out of the sandbox and stop a command writing
+    into them -- and the sandbox /tmp is writable. An existing value is never overridden.
+    """
+    out = dict(env)
+    out.setdefault("RUFF_CACHE_DIR", SCRATCH_RUFF_CACHE_DIR)
+    out.setdefault("PYTHONPYCACHEPREFIX", SCRATCH_PYCACHE_PREFIX)
+    option = f"-o cache_dir={SCRATCH_PYTEST_CACHE_DIR}"
+    existing = out.get("PYTEST_ADDOPTS", "")
+    out["PYTEST_ADDOPTS"] = f"{existing} {option}" if existing else option
+    return out
 
 
 def run(cfg: Config, req: SandboxRequest) -> SandboxResult:

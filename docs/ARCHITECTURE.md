@@ -645,7 +645,10 @@ workspace that lives on `/mnt/c`, and the budget above is what a project's own i
 dependencies exhaust: this repository walked 10,586 entries in 66 seconds once it carried a
 virtualenv, against 248 in 0.7 with one covered. So a second list, `opaque_globs_file`,
 names machine-generated directories, and a match is covered with the same tmpfs a matched
-secret directory gets and pruned from the walk for the same reason.
+secret directory gets and pruned from the walk for the same reason. The covers are read-only,
+so the caches that list names are pointed at `/tmp` through the environment instead
+(`RUFF_CACHE_DIR`, `PYTHONPYCACHEPREFIX`, and pytest's `cache_dir` appended to
+`PYTEST_ADDOPTS`); without that, `ruff check` exits 2 on its own cache.
 
 Covering is what makes skipping safe: a secret inside such a directory is hidden by the
 mount over its parent whether or not the walk ever looked inside it. Pruning *without*
