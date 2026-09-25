@@ -68,6 +68,14 @@ RECORD_NAME = "provision.json"
 # project declaring them in `setup.cfg` or `setup.py`.
 HASH_SOURCES = ("pyproject.toml", "setup.cfg", "setup.py")
 
+# Tool tables the build backend never reads, dropped before `pyproject.toml` is hashed, so
+# rewording a pytest marker does not withhold a sound interpreter. `delegate-local` is ours:
+# `nested-deselect` is read at call time and must not need a re-provision. A denylist on
+# purpose: an unknown table still counts, so a mistake here costs one re-provision (a false
+# "stale"), never the false "fresh" that hands a test run against the wrong dependencies a
+# clean exit code.
+NON_BUILD_TOOL_TABLES = ("pytest", "ruff", "mypy", "coverage", "pyright", "delegate-local")
+
 # The environment name a sandboxed command finds the interpreter under. Absent when nothing
 # current is provisioned for the workdir, never empty -- see `sandbox_env`.
 SANDBOX_ENV_NAME = "DELEGATE_PYTHON"
@@ -108,6 +116,26 @@ def interpreter_path(venv: str) -> str:
     return posixpath.join(venv, "bin", "python")
 
 
+def _pyproject_bytes(raw: bytes) -> bytes:
+    """The bytes `pyproject.toml` hashes to: a canonical form of what the build can read.
+
+    Parsed with `tomllib`, the tool tables the build backend never reads dropped, and
+    serialised with sorted keys so equivalent TOML hashes identically. Falling back to the
+    raw bytes when it will not parse is the safe direction: a false "stale" costs one
+    re-provision, a false "fresh" hands a test run against the wrong dependencies a clean
+    exit code (ADR-0007).
+    """
+    try:
+        data = tomllib.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return raw.replace(b"\r\n", b"\n")
+    tool = data.get("tool")
+    if isinstance(tool, dict):
+        for name in NON_BUILD_TOOL_TABLES:
+            tool.pop(name, None)
+    return json.dumps(data, sort_keys=True, default=str).encode()
+
+
 def dependency_hash(project_real: str) -> str | None:
     """A digest of the project's dependency declaration, or None if it has none.
 
@@ -119,10 +147,13 @@ def dependency_hash(project_real: str) -> str | None:
     nothing about the project had changed. On a Windows checkout that is not an edge case,
     it is every branch switch and every fresh clone.
 
-    Still the whole file rather than its dependency tables, which is the asymmetry the
-    original chose deliberately: a false "stale" costs one re-provision, a false "fresh"
-    hands back a clean exit code from a test run that proved nothing. Normalising newlines
-    removes a false stale without weakening that -- a real edit still moves the digest,
+    `pyproject.toml` is parsed and the tool tables the build never reads are dropped before
+    hashing, so rewording a marker description under `[tool.pytest.ini_options]` does not
+    make a sound environment look stale. The list is a denylist, and the asymmetry the
+    original chose deliberately still holds: a false "stale" costs one re-provision, a false
+    "fresh" hands back a clean exit code from a test run that proved nothing, so an unknown
+    table still counts and a file that will not parse falls back to its raw bytes. The other
+    sources stay whole-file, with newlines normalised -- a real edit still moves the digest,
     because a change to a dependency is a change to bytes that are not newlines.
 
     Every file in `HASH_SOURCES` that exists counts. One that exists and cannot be read makes
@@ -138,7 +169,11 @@ def dependency_hash(project_real: str) -> str | None:
             continue
         except OSError:
             return None
-        parts.append((name, raw.replace(b"\r\n", b"\n")))
+        if name == "pyproject.toml":
+            raw = _pyproject_bytes(raw)
+        else:
+            raw = raw.replace(b"\r\n", b"\n")
+        parts.append((name, raw))
     if not parts:
         return None
     if [name for name, _ in parts] == ["pyproject.toml"]:

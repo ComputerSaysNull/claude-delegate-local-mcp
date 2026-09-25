@@ -14,6 +14,8 @@ Named after the bug, per the project's convention.
 from __future__ import annotations
 
 import hashlib
+import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -48,12 +50,15 @@ def test_a_project_with_no_declaration_still_has_none(tmp_path):
     assert provision.dependency_hash(str(tmp_path)) is None
 
 
-def test_a_pyproject_only_project_keeps_the_digest_it_always_had(tmp_path):
-    """So every environment recorded before this change still reads current. Pinned as the
-    formula rather than a stored value, because the formula is what the old records hold."""
+def test_a_pyproject_only_project_hashes_that_file_alone(tmp_path):
+    """Pinned as the formula rather than a stored value: the only-pyproject case hashes
+    that file's canonical form alone, not the framed concatenation the other sources get.
+    It used to pin the raw bytes, so every record older than #346 reads stale once."""
     body = b"[project]\nname = 'p'\n"
     (tmp_path / "pyproject.toml").write_bytes(body)
-    assert provision.dependency_hash(str(tmp_path)) == hashlib.sha256(body).hexdigest()
+    assert provision.dependency_hash(str(tmp_path)) == hashlib.sha256(
+        json.dumps(tomllib.loads(body.decode()), sort_keys=True, default=str).encode()
+    ).hexdigest()
 
 
 def test_line_endings_still_do_not_move_it(project):
