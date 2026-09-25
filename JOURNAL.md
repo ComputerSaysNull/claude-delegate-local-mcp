@@ -2625,3 +2625,33 @@ item rather than a change made here.
 What it does not settle: one stream only, one output type, and a prefix never reused — a
 repeated prefix skips most of that prefill, which is the usual case for a multi-turn
 delegation.
+
+## 2026-09-25 — A prefetched audit pass took one turn whatever it was given
+
+PLAN U.1 asked why withholding `run_bash` took one audit pass from 26 turns and 29 calls to
+one turn (#122): whether the shell was the cause, or stood in for one. The same STALE task
+four ways, twice each, PLAN.md and JOURNAL.md prefetched, effort `high`, `max_turns` 12. The
+task has a known answer: PLAN M16.2.a says `off` was twelve times cheaper, and this file's
+effort entry of the same date says it was not.
+
+| arm | tools | agent file | told not to verify | turns | calls | found it |
+|---|---|---|---|---|---|---|
+| A | the read-only set | `docs-audit-local` | yes | 1, 1 | 0, 0 | 2 of 2 |
+| B | `read_file` only | `docs-audit-local` | yes | 2, 1 | 3, 0 | 2 of 2 |
+| C | read-only and `run_bash` | `docs-audit-local` | yes | 1, 1 | 0, 0 | 2 of 2 |
+| D | read-only and `run_bash` | none | no | 1, 1 | 0, 0 | 2 of 2 |
+
+Output tokens ran 19,583 to 45,237 with no pattern by arm. The known quotation was checked
+by hand; the other findings' precision was not measured.
+
+What that settles: with the files prefetched the 26-turn loop does not reproduce, with a
+shell or without, and with the agent body's "prefetched text needs no verification" and the
+task's "do not verify" or with neither. So neither the shell nor the instruction is a cause
+that matters here, and the 2026-09-06 run differed in something not recorded, what it
+prefetched or an agent body rewritten since. Narrowing to `read_file` bought nothing either,
+which is why PLAN M15.8 is cancelled. The orchestration resource keeps the read-only tools
+for what they are sure to buy, a pass that cannot write, and no longer cites the 26 turns.
+
+What it does not settle: two runs an arm, one task, one check class, and everything the
+task needed already prefetched. A pass that has to go looking may still verify at length,
+which is the case a turn cap bounds.

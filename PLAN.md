@@ -130,7 +130,7 @@ test fails when an agent or skill body names one.
 7. ✅ 2026-09-24 **Three caller rules live only in the operator's memory**: narrow a verifying pass to
   reading, bound a delegation with `max_turns`, and expect writing calls to be serialised.
   Their home is `delegate://orchestration`
-8. ⬜ **The read-only tools cannot narrow their own toolset**, so a pass limited to
+8. ❌ 2026-09-25 (narrowing to read_file bought no turns; JOURNAL 2026-09-25) **The read-only tools cannot narrow their own toolset**, so a pass limited to
   `read_file` needs `delegate`, a writing tool. Accept an `allowed_tools` that can only
   narrow within the read-only set
 9. ✅ 2026-09-24 **Server-format agent files are also loaded as Claude Code subagents, with every tool**
@@ -281,13 +281,13 @@ Item 1 was M11.10, moved unchanged on 2026-09-23.
 ### Unscheduled — open, real, and in no milestone
 Neither queued nor deferred: real work not (yet) ranked against a milestone.
 
-1. ⬜ **Spike** — find the cause behind withholding `run_bash` on a verifying pass, rather
+1. ✅ 2026-09-25 **Spike** — find the cause behind withholding `run_bash` on a verifying pass, rather
   than writing the workaround down. It took an audit from 26 turns to 1 at no cost in
   accuracy, and 24 of its 29 calls were verification. A `verify_quote` tool is the fallback.
     - a. ✅ **Attempted 2026-09-07 and inconclusive: the experiment was designed wrong.** A
     read-only pass has no shell, which is the condition under test, and it ran over a dense
     document for TOO VERBOSE — correctly finding nothing, so nothing could be checked.
-    - b. ⬜ The cost half did reproduce: **one turn, zero tool calls** against 26. Whether accuracy
+    - b. ✅ 2026-09-25 The cost half did reproduce: **one turn, zero tool calls** against 26. Whether accuracy
     holds is still unmeasured, and needs a task that *necessarily* quotes — a STALE pass
     against a known discrepancy, not a class that may legitimately return an empty list.
 4. ⬜ **Eviction is sized in tokens and cannot see what a result cost** — it will drop a 657s read
