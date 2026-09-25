@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #336 — 2026-09-24 — fix: every GitHub Action in CI is pinned to a commit
+
+### Fixed
+
+- **CI ran third-party actions by tags their owners can move.** All eight `uses:` lines
+  named a tag such as `actions/checkout@v4`, which resolves to whatever commit the tag
+  points at on the day. Whoever controls that action's repository, or anyone who breaks into
+  it, can re-point the tag, as happened to a widely used action in 2025, whose hijacked tags
+  printed CI secrets into build logs. Here the gate job hands the `FORBIDDEN_STRINGS` secret
+  to a job that also runs `checkout` and `setup-python`, so a hijacked tag could publish the
+  private list of forbidden literals. Each action is now pinned to the commit its tag named
+  today, with the version beside it: checkout v4.4.0, setup-python v5.6.0,
+  gitleaks-action v2.3.9. A test reads the workflows and fails on any tag; it was red on
+  all eight. The cost is that a version bump is now a deliberate edit.
+
 ## #335 — 2026-09-24 — docs: two gaps that made delegation failures undiagnosable are filed
 
 ### Added
