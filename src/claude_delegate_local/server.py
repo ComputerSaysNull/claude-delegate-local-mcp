@@ -751,9 +751,12 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     # hand-written path does. One `resolve_files` and therefore one `prefetch` over the
     # whole expansion: the token budget is per call, so expanding batch by batch would
     # hand each batch a full budget and never enforce the total. (ADR-0097)
+    #
+    # All three run on a thread: they stat, glob, spawn git and read files, and on the
+    # loop that stopped every other delegation in this process while they did.
     try:
-        named, glob_refusals = expand_globs(cfg, files or [])
-        resolved, refusals = resolve_files(cfg, named)
+        named, glob_refusals = await asyncio.to_thread(expand_globs, cfg, files or [])
+        resolved, refusals = await asyncio.to_thread(resolve_files, cfg, named)
     except PathPolicyError as e:
         raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
     # A pattern's own refusal comes first: it explains why files the caller expected are
@@ -768,7 +771,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     if refusals and not resolved:
         raise ToolError(str(PathRefused(list(refusals), total=len(files or []))))
 
-    prefetched = prefetch(cfg, resolved)
+    prefetched = await asyncio.to_thread(prefetch, cfg, resolved)
     if refusals:
         # Ahead of the budget skips: this is the caller's own error, and the prompt's
         # skipped list is read top-down by whoever has to act on it.
