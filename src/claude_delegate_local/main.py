@@ -18,6 +18,7 @@ to corrupt. All three return before any of the below.
 from __future__ import annotations
 
 import sys
+from typing import Literal, cast
 
 from . import config, registry, server
 
@@ -91,4 +92,4 @@ def run() -> None:
     # else was refused at load, so a second branch here could only be reached by a config
     # that cannot exist. Passing `cfg.transport` also keeps one copy of the value -- a
     # literal here would be a second place to change when a transport is finally added.
-    mcp.run(transport=cfg.transport, show_banner=False)
+    mcp.run(transport=cast("Literal['stdio']", cfg.transport), show_banner=False)

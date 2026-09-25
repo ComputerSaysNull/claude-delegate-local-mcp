@@ -608,12 +608,12 @@ class SharedSlots:
                 mine[_BURST_FIELD] = time.time() + expires_in
                 mine["updated_at"] = time.time()
             else:
-                mine = records.get(self._me)
-                if mine is not None:
-                    mine.pop(_BURST_FIELD, None)
-                    mine["updated_at"] = time.time()
+                held = records.get(self._me)
+                if held is not None:
+                    held.pop(_BURST_FIELD, None)
+                    held["updated_at"] = time.time()
                     # A record that held nothing but the flag is now saying nothing.
-                    if self._is_idle(mine):
+                    if self._is_idle(held):
                         records.pop(self._me, None)
             # Written even when nothing changed, because `_read` has just dropped every
             # dead record and that reclamation is worth persisting either way.

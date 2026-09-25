@@ -371,13 +371,13 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]],
     on_alive: Callable[[float, int, float, int, int, float | None], Awaitable[None]] | None = None,
-    on_turn_done: Callable[[Any, str], Awaitable[None]] | None = None,
+    on_turn_done: Callable[[Any, str, float], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
     concurrency_now: Callable[[], Awaitable[int]] | None = None,
-    on_token: Callable[[str], None] | None = None,
+    on_token: Callable[[], None] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
 

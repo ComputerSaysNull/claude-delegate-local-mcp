@@ -62,6 +62,7 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field, fields
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -276,14 +277,18 @@ def interview_model(answers: Answers, *, inp, out) -> None:
     for name in registry._REQUIRED:
         answers.model[name] = ask(
             _model_label(name), default="", inp=inp, out=out,
-            check=lambda v, n=name: _nonempty(v) or _field_problem(key, n, v))
+            check=partial(_required_field_problem, key, name))
 
     for name in OFFERED_MODEL_FIELDS:
         shown = "" if defaults[name] in ("", None) else str(defaults[name])
         got = ask(_model_label(name), default=shown, inp=inp, out=out,
-                  check=lambda v, n=name: _field_problem(key, n, v))
+                  check=partial(_field_problem, key, name))
         if got != shown:
             answers.model[name] = got
+
+
+def _required_field_problem(key: str, name: str, value: str) -> str | None:
+    return _nonempty(value) or _field_problem(key, name, value)
 
 
 def _field_problem(key: str, name: str, value: str) -> str | None:

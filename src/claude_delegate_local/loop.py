@@ -1249,10 +1249,11 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
     on_retry: Callable[[RetryRecord], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
-) -> tuple[CanonicalResponse, int]:
+) -> tuple[CanonicalResponse, int, float]:
     """Send until it answers, a failure is not worth repeating, or the attempts run out.
 
-    Returns the response and how many real calls it took. That count is server-captured
+    Returns the response, how many real calls it took, and the answering attempt's own
+    seconds. That count is server-captured
     ground truth about what this dispatch actually cost, in the spirit of ADR-0007, and it
     is the only honest way for a caller to see that a quiet success was really three tries.
 
@@ -3159,6 +3160,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     deadline = clock() + cfg.dispatch_timeout
     chunks = 0
     reasoning_chunks = 0
+    last_progress: float  # bound below the seed, where the stall clock starts
 
     def stall_left() -> float:
         return cfg.stall_timeout - (clock() - last_progress)

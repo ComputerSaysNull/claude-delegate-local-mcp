@@ -78,6 +78,11 @@ jobs:
       - name: Ruff
         run: ruff check src scripts tests
 
+      # A step of this job rather than a job of its own: the branch ruleset names required
+      # checks by job name, and a new name would block every pull request until edited.
+      - name: Mypy
+        run: mypy
+
   tests:
     name: tests
     runs-on: ubuntu-latest

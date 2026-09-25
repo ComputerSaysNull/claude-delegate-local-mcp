@@ -25,6 +25,9 @@ dev = [
     # the agent-roster one was found.
     "pytest-xdist>=3.8,<4",
     "ruff>=0.16,<0.17",
+    # Bounded for ruff's reason: a checker that widens between releases fails builds
+    # nobody broke.
+    "mypy>=2.3,<2.4",
     # The build backend, as a *test* dependency. Asking it what the wheel carries costs
     # 0.01s; driving `pip wheel` to find out costs the network, because build isolation
     # fetches hatchling before it can answer. One would have had to sit behind the
@@ -126,3 +129,8 @@ ignore = [
 # a branch count would scatter one policy across several functions, which is the opposite
 # of what this file is for.
 "scripts/docs_gate.py" = ["PLR0912"]
+
+[tool.mypy]
+files = ["src"]
+# The server is POSIX-only, so a Windows run checks what CI checks, not `fcntl`'s absence.
+platform = "linux"
