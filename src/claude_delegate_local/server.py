@@ -74,7 +74,7 @@ from .slots import (
     cross_process_status,
     rate_history_path,
 )
-from . import ledger, transcript
+from . import ledger, provision, transcript
 from .tools import READ_ONLY_TOOL_NAMES, BashPolicy, resolve_allowed
 
 SERVER_NAME = "delegate-local"
@@ -1217,6 +1217,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         # are indistinguishable by every other field here -- both fill the ceiling at a
         # length stop -- so this is the one that tells them apart.
         "duplicate_line_share": repeated,
+        # A stale environment is withheld (see `provisioned_for`), and to the caller that
+        # must not read as "never provisioned".
+        **({"provisioning_stale": True}
+           if workdir is not None and provision.stale_for(cfg, workdir) is not None
+           else {}),
         # Present only when the operator armed overflow handling and this server
         # declined to use it. Absent means it was off, or on and working -- the two the
         # caller has no decision to make about.
@@ -1391,6 +1396,10 @@ _DELEGATION_RESULT: dict[str, Any] = {
         "overflow_disarmed": {"type": ["string", "null"], "description": (
             "Present only when the operator armed overflow handling and this server "
             "declined to use it, with the reason."
+        )},
+        "provisioning_stale": {"type": "boolean", "description": (
+            "Present and true when the workdir's provisioned environment is stale, so "
+            "$DELEGATE_PYTHON was withheld from run_bash. Re-run provision."
         )},
     },
 }

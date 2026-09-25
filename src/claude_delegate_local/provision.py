@@ -265,13 +265,28 @@ def provisioned_for(cfg: Config, workdir: str | None) -> dict[str, Any] | None:
     every reader downstream to believe. Absent is a state the model can report and
     `--doctor` explains; a false pass is neither.
     """
+    return _covering(cfg, workdir, current=True)
+
+
+def stale_for(cfg: Config, workdir: str | None) -> dict[str, Any] | None:
+    """The record covering this workdir that `provisioned_for` withholds as stale, or None.
+
+    Withholding makes a stale build look exactly like "never provisioned", to the model and
+    to the caller alike. This is how the withholding is said out loud instead.
+    """
+    return _covering(cfg, workdir, current=False)
+
+
+def _covering(cfg: Config, workdir: str | None, *, current: bool) -> dict[str, Any] | None:
+    """The longest-matching record for this workdir whose `is_current` equals `current`."""
     if workdir is None:
         return None
     best: tuple[int, dict[str, Any]] | None = None
     for _venv, record in discover(resolve_home(cfg)):
-        if not is_current(record):
+        # A record that is missing or names no project is never current, and not stale
+        # either: there is no project to match it against.
+        if record is None or not record.get("project") or is_current(record) != current:
             continue
-        assert record is not None  # is_current rejects None
         project = str(record["project"]).rstrip("/")
         if workdir == project or workdir.startswith(project + "/"):
             if best is None or len(project) > best[0]:

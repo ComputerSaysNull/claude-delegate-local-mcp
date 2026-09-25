@@ -831,6 +831,21 @@ def _protected_note(moved: Sequence[str]) -> str:
     )
 
 
+def stale_env_note(cfg: Config, workdir: str | None) -> str | None:
+    """One sentence saying `$DELEGATE_PYTHON` is unset because the environment is stale.
+
+    `sandbox_env` returns nothing for a stale environment, so a delegation sees "never
+    provisioned" and cannot tell a stale build from an absent one. This says it out loud.
+    """
+    if provision.stale_for(cfg, workdir) is None:
+        return None
+    return (
+        "$DELEGATE_PYTHON is unset because the environment provisioned for this project is "
+        "stale: its dependency declaration changed after it was built, and nothing here can "
+        "rebuild it -- say so rather than testing without it."
+    )
+
+
 def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashResult:
     """Run one command in the sandbox, and report what the server saw it do.
 
@@ -895,8 +910,10 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
         if result.masked_failure
         else ""
     )
+    note = stale_env_note(cfg, policy.workdir)
+    note_part = f"\n\n{note}" if note else ""
     return BashResult(
-        f"exit {result.exit_code}{masked}{moved}\n\n{body}",
+        f"exit {result.exit_code}{masked}{moved}\n\n{body}{note_part}",
         BashOutcome(
             exit_code=result.exit_code, ran=True, masked_failure=result.masked_failure
         ),
