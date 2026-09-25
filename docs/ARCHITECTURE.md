@@ -1093,10 +1093,10 @@ from, and that is a measurement, where an absent field reads as *not measured*.
 
 **The result reports the whole run beside the answering turn** (ADR-0058). `input_tokens`,
 `output_tokens` and `cached_tokens` have always described the attempt that answered; the
-`total_*` fields in the loop ledger describe every turn there was. Both are kept because
-neither answers the other's question, and because the transcript uses the first three names
-for lifetime sums — so the same words meant two quantities in the two records a reader
-compares. A twelve-turn delegation reported `output_tokens: 2,002` against a real 4,404, and
+`total_*` fields describe every turn there was. Both are kept because neither answers the
+other's question, and the transcript record now carries the `total_*` fields as well — so
+the same words no longer mean two quantities in the two records a reader compares. A
+twelve-turn delegation reported `output_tokens: 2,002` against a real 4,404, and
 `cached_tokens: 0` on a run that reused 559,872.
 
 `scripts/watch_delegations.py` reads that stream: it lists what is in the transcript

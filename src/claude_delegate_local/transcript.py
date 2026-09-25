@@ -511,11 +511,18 @@ def _files(prefetched: Prefetch | None) -> dict[str, Any]:
 def _usage(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
     """Real token usage as the backend reported it, not the estimate admission used.
 
-    The estimate is a guess made before the work; this is what the work cost. Summing
-    these across records is the only way to answer what the local cluster has actually
-    spent, so an estimate standing in for one here would quietly poison that total.
+    The estimate is a guess made before the work; this is what the work cost. Summing the
+    `total_*` fields across records is the only way to answer what the local cluster has
+    actually spent: they describe every turn, where `input_tokens`, `output_tokens` and
+    `cached_tokens` describe only the turn that answered (ADR-0058). An estimate standing
+    in for a real figure -- or a per-turn figure under a lifetime name -- would quietly
+    poison that total.
 
-    `cached_tokens` is the same argument one level down: summing `input_tokens` says what
+    A one-shot `Dispatch` carries no totals of its own (they exist only on the agentic
+    dispatch), and its single turn *is* the whole run, so there the answering turn's own
+    figures are the totals.
+
+    `total_cached_tokens` is the same argument one level down: summing the totals says what
     was sent, and only the cached figure says what the cluster had to compute. A `None`
     here means the endpoint reported no such field, which is not a zero -- do not sum it
     as one.
@@ -523,12 +530,26 @@ def _usage(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
     if dispatched is None:
         return {}
     response = dispatched.response
+    total_input = getattr(dispatched, "total_input_tokens", None)
+    total_output = getattr(dispatched, "total_output_tokens", None)
+    total_cached = getattr(dispatched, "total_cached_tokens", None)
+    if total_input is None:
+        # A one-shot `Dispatch` carries no totals; its one turn is the whole run. The
+        # `total_input is None` test rather than a type check because it is exactly the
+        # one-shot `Dispatch` that is missing the attributes -- an `AgenticDispatch`
+        # always has them, defaulting to a real zero.
+        total_input, total_output, total_cached = (
+            response.input_tokens, response.output_tokens, response.cached_tokens
+        )
     return {
         "model": response.model,
         "finish_reason": response.finish_reason,
         "input_tokens": response.input_tokens,
         "output_tokens": response.output_tokens,
         "cached_tokens": response.cached_tokens,
+        "total_input_tokens": total_input,
+        "total_output_tokens": total_output,
+        "total_cached_tokens": total_cached,
         "total_tokens": response.total_tokens,
         "stop_reason": response.stop_reason,
         "system_fingerprint": response.system_fingerprint,

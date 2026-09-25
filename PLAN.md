@@ -1,5 +1,5 @@
-<!-- BUDGET: 440
-     Raised from 430 on 2026-09-24: three items filed from a delegation's sandbox friction. -->
+<!-- BUDGET: 450
+     Raised from 440 on 2026-09-24: bugs found reading delegation transcripts, filed with their fixes. -->
 # Plan
 
 Open work, status first so the file scans.
@@ -389,6 +389,8 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 86. ⬜ **An `edit_file` miss gives the model nothing to correct**: one delegation re-read the lines and
   sent the byte-identical edit again. Name the nearest matching region and the first difference;
   the stream keeps only a hash of `old_string`, so the transcript cannot show it either
+87. ✅ 2026-09-24 **A dispatch's summary record could not be summed**: its token fields are the answering
+  turn's, while `_usage` said summing them gives cluster spend. It now carries whole-run `total_*`
 
 ## Deferred
 
