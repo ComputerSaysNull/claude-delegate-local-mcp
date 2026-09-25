@@ -38,6 +38,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #351 — 2026-09-25 — fix: run_bash says that .git is hidden
+
+### Fixed
+
+- **A model ran `git show` in `run_bash` and failed without knowing why.** Only
+  `read_git`'s description said the shell cannot see `.git`, and a model reaching for a
+  shell reads the shell's description. Under `run_bash` every git command exits 128
+  against the empty mount. `run_bash`'s description now says `.git` is hidden and points
+  at `read_git`. It is a change to the model-facing contract, not a wording fix. Red
+  first: the new test found no `.git` in the description.
+
 ## #350 — 2026-09-25 — fix: tool time counts only the tools
 
 ### Fixed
