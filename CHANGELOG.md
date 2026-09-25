@@ -38,6 +38,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #333 — 2026-09-24 — fix: the concurrency report counts decode time, not the whole backend call
+
+### Fixed
+
+- **`analyse_transcripts.py concurrency` understated the cluster's throughput.** It treated
+  each turn as producing tokens for its whole backend call, prefill and queueing included,
+  so the rate was diluted and the interval stretched over seconds nobody was decoding in.
+  Every turn event already carries `decode_seconds` and `out_tok_s`, and the report now
+  uses those. A turn recorded before those fields existed is skipped and counted rather
+  than guessed at. Red first: two synthetic streams decoding at 10 and 8 tok/s reported a
+  9.0 aggregate. On the real transcripts the six-wide aggregate moves from 75.4 to 95.0 tok/s
+  and the solo rate from 30.5 to 39.4, over the turns recorded since decode timing existed.
+
 ## #332 — 2026-09-24 — feat: the gate warns when history or future work creeps back into src comments
 
 ### Added

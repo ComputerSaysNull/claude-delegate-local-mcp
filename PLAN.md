@@ -171,7 +171,7 @@ Item 2 was Unscheduled.62, moved unchanged on 2026-09-23.
   eight-wide with real prompt sizes before raising `max_inflight_seqs` and the endpoint's
 9. ⬜ **Topology** (P4): tensor parallelism spans both machines, an all-reduce every decode
   step. Compare one replica per machine behind one endpoint, if a quantised copy fits
-10. ⬜ **`analyse_transcripts.py concurrency` understates the cluster by about a third**
+10. ✅ **`analyse_transcripts.py concurrency` understates the cluster by about a third**
   (review §9): it spreads a turn's tokens over its prefill too. Use `out_tok_s` or retire it
 11. ⬜ **A watcher cannot tell thinking from answering** (review §9): the `alive` event counts
   chunks of both. The accumulator knows which, so split the count
