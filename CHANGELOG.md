@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #354 — 2026-09-25 — feat: a missed edit points at the closest match
+
+### Added
+
+- **An `edit_file` miss gave the model nothing to correct.** The refusal said only to read
+  the file again, and one delegation did, then sent the byte-identical edit back. A miss
+  now also names where the closest match starts, the line and column where it first
+  differs, and the two characters as code points: `U+0009 TAB` in the file where you have
+  `U+0020 SPACE`. It never quotes the file, because the refusal is recorded in the
+  operator transcript and ADR-0039 keeps file contents out of that record. With nothing
+  close, the refusal is as before. The remedy lives in the refusal rather than the tool
+  description, which already says a miss is reported. Red first: all five new tests
+  failed. The guard that no file text leaks was checked against a version that quoted the
+  differing line, and it failed there.
+
 ## #353 — 2026-09-25 — feat: the heartbeat tells thinking from answering
 
 ### Added

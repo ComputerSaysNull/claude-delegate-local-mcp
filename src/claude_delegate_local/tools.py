@@ -19,12 +19,15 @@ per-call; a server-wide default would be a config default living outside `config
 
 from __future__ import annotations
 
+import bisect
+import difflib
 import fnmatch
 import os
 import posixpath
 import re
 import shutil
 import subprocess
+import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 
@@ -706,6 +709,100 @@ def _write_file(cfg: Config, args: dict[str, object]) -> str:
     return f"{verb} {entry.posix} ({len(encoded)} bytes)."
 
 
+# The control characters an edit most often gets wrong, which `unicodedata` leaves unnamed.
+_CONTROL_NAMES = {"\t": "TAB", "\n": "LINE FEED", "\r": "CARRIAGE RETURN"}
+
+
+def _code_point(ch: str) -> str:
+    """One character as `U+XXXX NAME`, or `U+XXXX` when it has no name."""
+    name = _CONTROL_NAMES.get(ch) or unicodedata.name(ch, "")
+    return f"U+{ord(ch):04X} {name}".rstrip()
+
+
+def _line_starts(text: str) -> list[int]:
+    """The character offset at which each line begins, so a column is cheap to recover."""
+    starts = [0]
+    for i, ch in enumerate(text):
+        if ch == "\n":
+            starts.append(i + 1)
+    return starts
+
+
+def _line_col(starts: Sequence[int], index: int) -> tuple[int, int]:
+    """The 1-based line and column for a character offset."""
+    line = bisect.bisect_right(starts, index)
+    return line, index - starts[line - 1] + 1
+
+
+def _nearest_miss(text: str, old: str) -> str | None:
+    """Where `old` almost is, as a line/column hint, or None when it is not close.
+
+    "Read it again" alone gets the same edit sent back unchanged, so this names the
+    nearest region and the first character that differs. Never file text: the refusal
+    lands in the operator transcript, which ADR-0039 keeps free of file contents, so the
+    hint is line numbers, a column and code points.
+    """
+    old_lines = old.splitlines()
+    head_index = next((i for i, line in enumerate(old_lines) if line.strip()), None)
+    if head_index is None:
+        return None
+    head = old_lines[head_index]
+    file_lines = text.splitlines()
+    stripped = [line.strip() for line in file_lines]
+    target = head.strip()
+    if target in stripped:
+        candidates = [i for i, s in enumerate(stripped) if s == target]
+    else:
+        matches = difflib.get_close_matches(head, file_lines, n=1, cutoff=0.6)
+        if not matches:
+            return None
+        match = matches[0]
+        candidates = [i for i, line in enumerate(file_lines) if line == match]
+    if not candidates:
+        return None
+
+    starts = _line_starts(text)
+    old_head_offset = sum(len(line) + 1 for line in old_lines[:head_index])
+    a = old[old_head_offset:]
+    best_cand = candidates[0]
+    best_i = -1
+    for cand in candidates:
+        # Compared in place: a first line as common as `}` can name hundreds of
+        # candidates, and slicing the rest of the file for each would copy it that often.
+        origin = starts[cand]
+        limit = min(len(a), len(text) - origin)
+        i = 0
+        while i < limit and a[i] == text[origin + i]:
+            i += 1
+        if i > best_i:
+            best_i = i
+            best_cand = cand
+
+    start = best_cand + 1
+    b = text[starts[best_cand]:]
+    if best_i >= len(b):
+        # The file runs out before the difference, so there is no file character to
+        # name -- only the character the caller wrote where the file has none.
+        return (
+            f"The closest match starts at line {start}; it first differs where the file "
+            f"ends, and you have {_code_point(a[best_i])}. Read from line {start} and "
+            f"quote it exactly."
+        )
+    if best_i >= len(a):
+        # The caller's text runs out first, the mirror of the case above.
+        return (
+            f"The closest match starts at line {start}; it first differs where your text "
+            f"ends, and the file has {_code_point(b[best_i])}. Read from line {start} "
+            f"and quote it exactly."
+        )
+    line, col = _line_col(starts, starts[best_cand] + best_i)
+    return (
+        f"The closest match starts at line {start}; it first differs at line {line}, "
+        f"column {col}, where the file has {_code_point(b[best_i])} and you have "
+        f"{_code_point(a[best_i])}. Read from line {start} and quote it exactly."
+    )
+
+
 def _edit_file(cfg: Config, args: dict[str, object]) -> str:
     """Replace one exact occurrence of `old_string`, or refuse and change nothing.
 
@@ -762,11 +859,15 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
 
         found = text.count(old)
         if found == 0:
-            raise ToolRefused(
-                "'old_string' does not appear in the file, so nothing was written. Read the "
-                "file again -- what you quoted is either stale or not exactly what is "
+            message = (
+                "'old_string' does not appear in the file, so nothing was written. Read "
+                "the file again -- what you quoted is either stale or not exactly what is "
                 "there, and whitespace counts."
             )
+            hint = _nearest_miss(text, old)
+            if hint:
+                message = f"{message} {hint}"
+            raise ToolRefused(message)
         if found > 1:
             raise ToolRefused(
                 f"'old_string' appears {found} times, so which one to replace is ambiguous "
