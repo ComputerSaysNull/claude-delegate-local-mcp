@@ -38,6 +38,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #335 — 2026-09-24 — docs: two gaps that made delegation failures undiagnosable are filed
+
+### Added
+
+- **Unscheduled 85 and 86, from reading two delegations' failures.** A turn recorded two
+  attempts, and nothing anywhere said why: the retry loop catches the backend error and
+  sleeps without recording it, so the stream, the summary and the server log all show only
+  the count. In another run the model re-read the lines after an `edit_file` miss and sent
+  the identical edit again, because the refusal says only that the quote is absent. The
+  transcript could not show the difference either, since it keeps a hash of `old_string`.
+
 ## #334 — 2026-09-24 — fix: code fences no longer count as a delegation repeating itself
 
 ### Fixed
