@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import os
 import posixpath
+import re
 import shutil
 import subprocess
 import uuid
@@ -709,6 +710,26 @@ def _prepare_protected(cfg: Config, req: SandboxRequest) -> tuple[list[str], lis
     return made, absent
 
 
+_LOST_SOURCE = re.compile(r"bwrap: Can't find source path (.+): No such file or directory")
+
+
+def _lost_a_placeholder(cfg: Config, req: SandboxRequest, result: SandboxResult) -> bool:
+    """Whether bwrap refused to start because a protected directory has since vanished.
+
+    Only bwrap's own refusal, as its whole stderr, naming a directory `_prepare_protected`
+    would create for this workdir, and only while that directory is still absent -- so a
+    command that ran and printed something similar is never started a second time.
+    """
+    if req.workdir is None or result.exit_code != 1 or result.stdout:
+        return False
+    found = _LOST_SOURCE.fullmatch(result.stderr.strip())
+    if found is None:
+        return False
+    dirs, _ = _protected_names(load_protected_globs(cfg))
+    wanted = {posixpath.join(req.workdir, name) for name in dirs}
+    return found.group(1) in wanted and not os.path.lexists(found.group(1))
+
+
 def _settle_protected(made: Sequence[str], absent: Sequence[str]) -> tuple[str, ...]:
     """After the command: remove empty placeholders, move aside any created file.
 
@@ -1002,6 +1023,16 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
     try:
         argv = build_argv(cfg, req, discover_secret_shadows(cfg, req), status_file=status_file)
         result = _execute(cfg, argv, marker)
+        if _lost_a_placeholder(cfg, req, result):
+            # Another run in this workdir removed a placeholder it owned between our walk
+            # and bwrap's start. bwrap refused before the command began, so nothing ran:
+            # prepare again, which now makes the directory ours, and start once more.
+            again, _ = _prepare_protected(cfg, req)
+            made = [*made, *again]
+            argv = build_argv(
+                cfg, req, discover_secret_shadows(cfg, req), status_file=status_file
+            )
+            result = _execute(cfg, argv, marker)
     finally:
         with suppress(OSError):
             marker.unlink(missing_ok=True)
