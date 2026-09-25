@@ -1,5 +1,5 @@
-<!-- BUDGET: 430
-     Raised from 420 (+1 for this line) on 2026-09-23: an item filed from the transcripts, with M13's ticks. -->
+<!-- BUDGET: 440
+     Raised from 430 on 2026-09-24: three items filed from a delegation's sandbox friction. -->
 # Plan
 
 Open work, status first so the file scans.
@@ -374,6 +374,15 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 81. ✅ 2026-09-24 **The viewer shows each failed shell call twice**: it sums `tool_errors` and `bash_failures`,
   and a non-zero `run_bash` is in both. Neither alone is right, since a masked failure is in
   `bash_failures` only, so count distinct failing calls from the turn events
+82. ⬜ **A stale provisioned venv is invisible to everyone who could fix it**: `$DELEGATE_PYTHON` is
+  withheld silently, so a delegation hunted for four turns, found the stale venv with `find /` and
+  tested with it. Only `--doctor` says so: check at start-up, report it to the caller, tell the model why
+83. ⬜ **`run_bash` does not say that `.git` is hidden**, so a delegated model learns it by failing: the
+  sandbox covers `.git` with an empty mount, and history is `read_git`'s. The caller's orchestration
+  resource says so and the model-facing description does not, which makes this a contract change
+84. ⬜ **The workdir's tool caches are read-only in the sandbox**: `.pytest_cache` and `.ruff_cache`
+  sit under opaque mounts, so `ruff check` exited 2 until run with `--no-cache` and pytest warns on
+  every run. Point the caches at sandbox scratch through the environment, not by unmounting them
 
 ## Deferred
 

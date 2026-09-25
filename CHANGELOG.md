@@ -38,6 +38,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #329 — 2026-09-24 — docs: three sandbox frictions a code-writing delegation hit are filed
+
+### Added
+
+- **Unscheduled 82 to 84, from one delegation's nine failed calls.** Asked to write and test a
+  script, a delegation spent four turns discovering that `$DELEGATE_PYTHON` was unset, then
+  found the provisioned venv with `find /` and ran the suite with it. The venv was stale:
+  built before `pyproject.toml` raised the Python floor and added two test dependencies,
+  which is exactly why the server withholds it, and nothing but `--doctor` told the caller or
+  the model. Separately, `run_bash`'s description never says `.git` is hidden, and the
+  workdir's tool caches are read-only, so `ruff` failed until run with `--no-cache`. Each is
+  filed with its symptom rather than fixed now, since none was ranked in this session.
+
 ## #328 — 2026-09-24 — docs: the server-side reasoning budget is re-checked and still refused
 
 ### Added
