@@ -38,6 +38,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #334 — 2026-09-24 — fix: code fences no longer count as a delegation repeating itself
+
+### Fixed
+
+- **A healthy report with code blocks read as a fifth repeated.** `duplicate_line_share` is
+  the number that tells a loop from a long answer, and a delegation's report showing red,
+  green and lint output in four code blocks scored 0.20: 5 of its 25 non-blank lines were
+  the same fence marker, and nothing else repeated. A reader has to stop and check a number
+  like that. Fence lines are markup, so they are now left out of the count. Red first:
+  a report with four blocks scored 0.235. The negative control keeps a loop written
+  between fences above 0.9.
+
 ## #333 — 2026-09-24 — fix: the concurrency report counts decode time, not the whole backend call
 
 ### Fixed

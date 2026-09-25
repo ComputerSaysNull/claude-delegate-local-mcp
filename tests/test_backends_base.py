@@ -158,6 +158,26 @@ def test_the_share_does_not_fire_on_ordinary_prose():
     assert base.duplicate_line_share(prose) < 0.1
 
 
+def test_code_fences_are_not_repetition():
+    """A healthy report with four code blocks read as 20% repeated: the fence lines.
+
+    Measured on a real delegation: 5 of its 25 non-blank lines were the same fence marker,
+    and nothing else repeated. A fence is markup, not something the model said twice.
+    """
+    report = "\n".join([
+        "Done.", "## Red", "```", "E   assert 9.0 == 18.0", "```",
+        "## Green", "```text", "1 passed", "```", "## Ruff", "~~~", "All checks passed!", "~~~",
+        "## Diff", "```python", "x = 1", "```",
+    ])
+    assert base.duplicate_line_share(report) == 0.0
+
+
+def test_a_loop_inside_code_fences_still_counts():
+    """The negative control: excluding fences must not hide a loop written between them."""
+    looping = "```\n" + "\n".join(["Already checked." for _ in range(50)]) + "\n```"
+    assert base.duplicate_line_share(looping) > 0.9
+
+
 @pytest.mark.parametrize("empty", ["", "   ", "\n\n\n"])
 def test_the_share_of_nothing_is_zero_rather_than_an_error(empty):
     """An empty reply is already reported by `empty_response`. This must not divide by

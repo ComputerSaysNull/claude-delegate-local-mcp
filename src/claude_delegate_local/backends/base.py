@@ -402,15 +402,20 @@ def duplicate_line_share(text: str) -> float:
 
     Lines rather than tokens or n-grams, because the observed failure repeats whole
     sentences -- one run produced "Already checked." 385 times -- and a line is the unit
-    a reader would point at. Stripped and blank-dropped first, so prose that breathes is
-    not counted as repetition; the empty reply is 0.0 rather than an error, because
+    a reader would point at. Stripped, with blank lines and code fences dropped, so prose
+    that breathes is not counted as repetition; the empty reply is 0.0 rather than an error, because
     `empty_response` already reports that and a second opinion is not wanted here.
 
     Reported, not acted on. It is evidence for whoever reads the record; making it abort
     a turn is a threshold nobody has chosen yet, and a control chosen from three
     measurements would be a control nobody can defend.
     """
-    lines = [stripped for stripped in (line.strip() for line in text.splitlines()) if stripped]
+    lines = [
+        stripped for stripped in (line.strip() for line in text.splitlines())
+        # A code fence is markup, not something said twice: a report with four code blocks
+        # otherwise reads as a fifth repeated.
+        if stripped and not stripped.startswith(("```", "~~~"))
+    ]
     if not lines:
         return 0.0
     return (len(lines) - len(set(lines))) / len(lines)
