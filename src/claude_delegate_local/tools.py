@@ -883,7 +883,10 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
             # transcript records, so what was offered is answerable from the record.
             # Absent when nothing *current* is provisioned -- `provision.interpreter_for`
             # withholds a stale one rather than offering an exit code that lies.
-            env={**sandbox.resolve_env(cfg), **provision.sandbox_env(cfg, policy.workdir)},
+            env=sandbox.scratch_cache_env({
+                **sandbox.resolve_env(cfg),
+                **provision.sandbox_env(cfg, policy.workdir),
+            }),
         ))
     except (sandbox.SandboxUnavailable, sandbox.SecretShadowIncomplete) as e:
         return BashResult(str(e), BashOutcome(exit_code=None), is_error=True)

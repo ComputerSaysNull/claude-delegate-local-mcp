@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #352 — 2026-09-25 — fix: the sandbox's tool caches write to scratch
+
+### Fixed
+
+- **`ruff check` exited 2 in the sandbox, and pytest warned on every run.** A workdir's
+  `.ruff_cache`, `.pytest_cache` and `__pycache__` are covered by a read-only empty mount,
+  so neither tool could write its cache. Delegations worked around it with `--no-cache`,
+  and this session's own first draft did so twice. The caches now go to `/tmp` through the
+  environment: `RUFF_CACHE_DIR` and `PYTHONPYCACHEPREFIX` unless already set, and pytest's
+  `cache_dir` *appended* to `PYTEST_ADDOPTS`, because that variable already carries the
+  nested-deselect list and overwriting it would bring the deselected tests back. The mounts
+  stay, since they keep the host's caches out. Red first: the new tests failed on the
+  missing function, and a live `ruff check` in the unfixed sandbox failed on a read-only
+  `.ruff_cache`. A real-sandbox test now runs a command there.
+
 ## #351 — 2026-09-25 — fix: run_bash says that .git is hidden
 
 ### Fixed
