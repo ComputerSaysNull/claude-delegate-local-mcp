@@ -1035,8 +1035,8 @@ produces the file a person watches during it — `start`, one `turn` per complet
 that exists only once the work is finished cannot say whether the work is stuck, and a
 stream has to survive a dispatch that never reaches an end. (ADR-0043)
 
-**A stream says where a run is, not only where it has got to.** `start` carries the
-resolved turn budget beside the effort, every `turn` and `priced` row repeats it — a
+**A stream says where a run is, not only where it has got to.** `start` carries the turn
+budget, resolved from the same toolset the loop uses, beside the effort; each row repeats it — a
 reader scrolling a long transcript is past the header — and `end` reports the count
 against it, because six turns and six of six are the same run and different news. A turn
 names its three durations rather than implying one from another: total, tools where it

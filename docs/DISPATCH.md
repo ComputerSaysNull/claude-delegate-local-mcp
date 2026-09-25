@@ -528,8 +528,9 @@ chosen. The turn's stream event and the summary carry them.
 
 A delegation is a loop, and one turn is one model reply plus any tools it called. The loop
 ends on the first reply that carries no tool calls — that reply *is* the answer — or when
-the turn budget runs out. [`max_turns_default`](CONFIGURATION.md) sets the budget and
-[`max_turns_hard_cap`](CONFIGURATION.md) bounds what a caller may ask for; the cap is
+the turn budget runs out. [`max_turns_default`](CONFIGURATION.md) sets the budget, and
+[`max_turns_default_writing`](CONFIGURATION.md) the larger one a toolset that can write gets,
+since writing work iterates. [`max_turns_hard_cap`](CONFIGURATION.md) bounds both; the cap is
 applied silently rather than refused, because the work is legitimate and only the number is
 not. The resolved figure is written to the stream, so a reader sees "turn 3 of 25" rather
 than a count with nothing to measure it against.

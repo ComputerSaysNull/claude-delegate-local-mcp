@@ -1895,15 +1895,22 @@ async def _no_progress(turn: int, of: int) -> None:
     """The default when nobody is listening. Tests inject a recorder, `server.py` the real one."""
 
 
-def resolve_max_turns(cfg: Config, explicit: int | None = None) -> int:
+def resolve_max_turns(
+    cfg: Config, explicit: int | None = None, allowed: frozenset[str] = frozenset()
+) -> int:
     """The turn budget: the caller's number, else the configured default, capped either way.
 
     The hard cap is applied to both, silently, because it exists to stop a caller -- or an
     agent file in M6 -- occupying the cluster for hours, and a limit that can be argued out
     of is not one. Refusing the call instead would be worse: the work is legitimate, only
     the number is not.
+
+    The default depends on `allowed`: a toolset that can write gets the writing default,
+    because writing work iterates, and a reading pass keeps the smaller one that bounds it.
     """
     if explicit is None:
+        if any(REGISTRY[name].writes for name in allowed if name in REGISTRY):
+            return min(cfg.max_turns_default_writing, cfg.max_turns_hard_cap)
         # Not clamped: config.py already refuses to load a default above the cap, so a
         # min() here could never bind. A guard that cannot fire is worse than none,
         # because the next reader trusts it.
@@ -3147,7 +3154,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     what keeps one bad turn from silently downgrading the rest of the delegation.
     """
     resolved_effort = resolve_effort(cfg, entry, effort)
-    turns = resolve_max_turns(cfg, max_turns)
+    turns = resolve_max_turns(cfg, max_turns, allowed)
     specs = declared_tools(cfg, allowed)
     deadline = clock() + cfg.dispatch_timeout
     chunks = 0

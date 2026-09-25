@@ -890,7 +890,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     # disagree about the budget -- and it has to be resolved here as well because the
     # head of the stream is written before the loop starts. None for an empty toolset:
     # that takes the one-shot path, which runs no turns and has no budget to report.
-    resolved_turns = resolve_max_turns(cfg, max_turns) if allowed else None
+    resolved_turns = resolve_max_turns(cfg, max_turns, allowed) if allowed else None
 
     if stream is not None:
         stream.start(
@@ -1580,7 +1580,8 @@ MaxTokens = Annotated[
 MaxTurns = Annotated[
     int | None,
     Field(description=(
-        "Cap on round trips. Raise it for work that genuinely iterates, and read "
+        "Cap on round trips. Omitted, a toolset that can write gets a larger default than "
+        "one that only reads. Raise it for work that genuinely iterates, and read "
         "`hit_turn_limit` as the sign you should have. Clamped to an operator ceiling, so "
         "asking for more than that is not an error."
     )),
@@ -2180,7 +2181,8 @@ Bound a pass with `max_turns`, not with prose. "Verify once, then report" in a t
 not hold; the turn cap does, because the last turn is sent with tools withdrawn and the
 model has to write. Set it to what the work needs plus one -- turns are cheap -- and read
 `hit_turn_limit` as a partial answer. It cannot stop a loop inside one turn, because that
-turn never ends.
+turn never ends. A writing delegation needs no number as often: with none given it gets a
+larger default than a reading pass, because writing work iterates.
 
 ## History is `read_git`'s, and only `read_git`'s
 

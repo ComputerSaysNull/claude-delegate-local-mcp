@@ -38,6 +38,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #357 — 2026-09-25 — feat: a delegation that can write gets more turns by default
+
+### Changed
+
+- **Writing delegations ran out of turns while still working.** Across every recorded
+  stream, 26 writing delegations used a median of 27 turns and a 90th percentile of 60, and
+  seven stopped at their limit mid-work. None was looping. Each handed its unfinished half
+  back to the caller, which is the cloud spend this server exists to avoid, while the
+  delegation deadline already bounds a run that goes wrong. A toolset that can write
+  (`write_file`, `edit_file` or `run_bash`) now gets `max_turns_default_writing` when no
+  number is given. A reading pass keeps `max_turns_default`, because its turn cap is how it
+  is bounded. The new default is clamped to `max_turns_hard_cap` rather than refused above
+  it, so an operator who lowered the cap still starts. A caller's or agent file's number
+  still wins. The `max_turns` description and the orchestration guide say so. Red first:
+  the old resolver took no toolset, so it gave every delegation the same default and all
+  four new tests failed on it.
+
 ## #356 — 2026-09-25 — fix: a run_bash beside another no longer fails on a vanished placeholder
 
 ### Fixed

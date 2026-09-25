@@ -68,7 +68,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                             "rate_sample_seconds", "resend_reasoning",
                             "temperature", "top_p",
                             "tool_call_temperature", "one_shot_temperature")),
-    ("Agentic loop", ("max_turns_default", "max_turns_hard_cap",
+    ("Agentic loop", ("max_turns_default", "max_turns_default_writing", "max_turns_hard_cap",
                       "keep_tool_results", "retained_tool_result_tokens")),
     ("Context overflow", ("context_overflow_enabled", "overflow_plateau_slop_tokens",
                           "overflow_min_growth_tokens", "overflow_reserve_fraction",

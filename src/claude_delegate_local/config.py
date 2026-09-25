@@ -392,6 +392,13 @@ class Config:
         "Round trips a delegation gets before the server stops it. One turn is one model "
         "reply plus any tool it ran.",
     )
+    max_turns_default_writing: int = _f(
+        100,
+        "The same for a delegation whose toolset can write -- write_file, edit_file or "
+        "run_bash. Writing work iterates, and a run stopped at its turns hands the rest "
+        "back to the caller, while dispatch_timeout still bounds one that goes wrong. "
+        "Clamped to max_turns_hard_cap, so lowering the cap lowers this too.",
+    )
     max_turns_hard_cap: int = _f(
         100,
         "Ceiling no agent file or caller may exceed. Stops an agent definition asking for "

@@ -34,7 +34,8 @@ def _events(directory: Path) -> list[dict]:
 
 
 def _run(tmp_path: Path, handler, tool: str, args: dict, **over) -> list[dict]:
-    config = cfg(transcript_dir=str(tmp_path), max_turns_default=4, **over)
+    config = cfg(transcript_dir=str(tmp_path), max_turns_default=4,
+                 max_turns_default_writing=4, **over)
     mcp = server.build(config, registry(entry()), DoubleCache(config, handler))
 
     # `effort` is required on every delegation tool, and "inherit" is the value that
