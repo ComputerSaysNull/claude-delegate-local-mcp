@@ -160,7 +160,7 @@ Item 2 was Unscheduled.62, moved unchanged on 2026-09-23.
   with no answer
 4. ✅ **Price from the bucket median, not the mean** (review §9): a few prefill-window
   samples pull a bucket 4 to 9% low. Agreed with the operator; the widening rule stays
-5. ⬜ **The priced label is frozen at admission, and the real cap is not recorded** (R24).
+5. ✅ **The priced label is frozen at admission, and the real cap is not recorded** (R24).
   Re-read concurrency from the shared totals at every turn, and carry the `max_tokens` sent
 6. ⬜ **Speculative decoding is on, and its gain when six-wide is unmeasured** (P3,
   corrected: the endpoint already drafts six tokens). Measure acceptance at one and six

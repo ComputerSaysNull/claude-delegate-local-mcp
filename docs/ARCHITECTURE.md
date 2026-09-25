@@ -1105,9 +1105,10 @@ JSON — passing over a line that is not an event, and surviving a pipe. It is o
 it renders are one decision — split across two documents, a renderer ends up describing a
 shape the writer no longer produces.
 
-**It states what it knows and no more.** A `priced` row's `requests_running` is the lease's
-grant-time concurrency echoed back, not a cluster reading, so it is rendered as what priced
-the turn rather than as what is running — only a `cluster_since_boot` row carries a real one.
+**It states what it knows and no more.** A `priced` row's `requests_running` is the
+concurrency the turn was priced for — the lease's grant-time figure on turn one, the shared
+totals re-read before each later turn — not the endpoint's count, so it is rendered as what
+priced the turn rather than as what is running; only a `cluster_since_boot` row carries that.
 A budget line names the turn it priced, because a turn boundary can fall inside one displayed
 second. The state column is sized from the widest state that can occur, and a queued
 delegation repaints once a minute plus once when the wait breaks, rather than once a second.
@@ -1228,8 +1229,8 @@ rather than inferred later from silence: a reader has nothing to go on, and a pi
 stream would only mean something on the machine that wrote it. (ADR-0072)
 
 A fifth, `priced`, is written *before* each turn, carrying the ceiling that turn was given,
-the rate it came from, the load that rate was read against, and the sampling it was drawn
-at. Ordering is the whole of it: a `turn` event lands only when a turn completes, so a turn
+the budget its first attempt sent, the rate it came from, the load that rate was read
+against, and the sampling it was drawn at. Ordering is the whole of it: a `turn` event lands only when a turn completes, so a turn
 killed at a deadline recorded nothing. An absent ceiling is written as null rather than
 omitted, because "no cap applied" is the most incriminating thing the record can say.
 

@@ -1456,6 +1456,11 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     on_token: Callable[[], None] | None = None,
     max_tokens: int | None = None,
     budget_ceiling: int | None = None,
+    # The first attempt's resolved budget, computed by the caller so the priced row and
+    # the send are the same number rather than two computations that can drift. When not
+    # supplied -- the direct callers in the tests -- this falls back to the same
+    # `resolve_max_tokens` below, so the behaviour is unchanged.
+    asked_budget: int | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -1494,7 +1499,8 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     token counts: those come from the attempt that answered. ADR-0014 says the retry must
     not charge the turn budget, so a turn is charged for the answer it got.
     """
-    asked_budget = resolve_max_tokens(cfg, entry, effort, max_tokens, ceiling=budget_ceiling)
+    if asked_budget is None:
+        asked_budget = resolve_max_tokens(cfg, entry, effort, max_tokens, ceiling=budget_ceiling)
     attempts = 0
     # The wall clock this dispatch spent, split the way the engine spends it, and summed
     # over the stages because each stage is a fresh prompt and so a fresh prefill. The
@@ -1675,9 +1681,17 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         ))
         # The one-shot completes no turns, so without this it can only ever be explained
         # by what it was *asked*, never by what it was allowed.
+        # Resolved once, here, so the priced row and the send are the same number. The
+        # budget is computed before the row because the row has to say what the turn was
+        # *allowed*; passing it down keeps `dispatch_with_recovery` from recomputing it a
+        # second way.
+        asked_budget = resolve_max_tokens(
+            cfg, entry, resolved, max_tokens, ceiling=ceiling
+        )
         if on_priced is not None:
             await on_priced({
                 "turn": 1, "effort": resolved, "max_tokens": max_tokens,
+                "max_tokens_sent": asked_budget,
                 "budget_ceiling": ceiling, "decode_rate": rate.rate,
                 "rate_source": rate.source,
                 "expected_concurrency": expected_concurrency,
@@ -1687,7 +1701,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         return await dispatch_with_recovery(
             cfg, entry, backend, request_at,
             effort=resolved, max_tokens=max_tokens,
-            budget_ceiling=ceiling,
+            budget_ceiling=ceiling, asked_budget=asked_budget,
             sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=token_arrived,
             tick_sleep=tick_sleep, clock=clock,
         )
@@ -2956,6 +2970,31 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     return results, tuple(records)
 
 
+async def _reread_concurrency(
+    concurrency_now: Callable[[], Awaitable[int]],
+    current: int,
+    decode_rate: DecodeRate,
+    rate_history: RateHistory | None,
+) -> tuple[int, DecodeRate]:
+    """The concurrency this turn meets, and the rate to price it from.
+
+    A read that fails keeps the last good figure. Until a turn of this delegation's own has
+    been measured the rate is still the seed, so it is re-seeded at the new figure;
+    otherwise the priced row would name one concurrency beside another one's rate.
+    """
+    before = current
+    try:
+        current = await concurrency_now()
+    except Exception:  # a monitoring read must never fail a delegation
+        return before, decode_rate
+    if current == before or rate_history is None or decode_rate.source == DecodeRate.OWN_TURNS:
+        return current, decode_rate
+    remembered = rate_history.expect(current)
+    if remembered is None:
+        return current, decode_rate
+    return current, DecodeRate(remembered, float(current), source="observed_at_concurrency")
+
+
 async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are test
     # seams, and the statement count is the turn lifecycle: dispatch, observe, decide,
     # run tools, report. Splitting it would move steps out of the order they happen in.
@@ -2976,6 +3015,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
+    concurrency_now: Callable[[], Awaitable[int]] | None = None,
     on_turn_done: Callable[[TurnDiagnostic, str, float], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     on_token: Callable[[], None] | None = None,
@@ -3132,12 +3172,17 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         lambda: max(min(stall_left(), deadline - clock()), 0.0),
         streamed,
     )) if on_alive else None
+    current = expected_concurrency
     try:
         while turn < turns:
             turn += 1
             watch.turn = turn
             await report_progress(turn, turns)
             final = turn == turns
+            if turn > 1 and concurrency_now is not None:
+                current, decode_rate = await _reread_concurrency(
+                    concurrency_now, current, decode_rate, rate_history
+                )
 
             guard.begin_turn(turn=turn, turns=turns, ledger=watch.calls)
             before = tuple(history)
@@ -3186,21 +3231,28 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # Recorded before the call, not after it. A turn killed at a deadline having
             # finished nothing writes no `turn` event, so pricing reported afterwards is
             # reported only for the turns that never needed explaining.
+            # Resolved once, per turn, so the priced row and the send are the same number:
+            # the row is emitted before the dispatch, and passing the budget down stops
+            # `dispatch_with_recovery` from resolving it a second way.
+            asked_budget = resolve_max_tokens(
+                cfg, entry, resolved_effort, max_tokens, ceiling=ceiling
+            )
             if on_priced is not None:
                 await on_priced({
                     "turn": turn, "effort": resolved_effort,
-                    "max_tokens": max_tokens, "budget_ceiling": ceiling,
+                    "max_tokens": max_tokens, "max_tokens_sent": asked_budget,
+                    "budget_ceiling": ceiling,
                     "decode_rate": decode_rate.rate,
                     "rate_source": decode_rate.source,
-                    "expected_concurrency": expected_concurrency,
-                    "requests_running": decode_rate.seen_running,
+                    "expected_concurrency": current,
+                    "requests_running": current if turn > 1 else decode_rate.seen_running,
                     "temperature": cfg.temperature, "top_p": cfg.top_p,
                     "of_turns": turns,
                 })
             dispatch = await dispatch_with_recovery(
                 cfg, entry, backend, build,
                 effort=resolved_effort, max_tokens=max_tokens,
-                budget_ceiling=ceiling,
+                budget_ceiling=ceiling, asked_budget=asked_budget,
                 sleep=sleep, deadline=deadline, stall_left=stall_left,
                 on_token=token_arrived, tick_sleep=tick_sleep, clock=clock,
             )
@@ -3242,7 +3294,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
                 rate_history.observe(
                     dispatch.response.output_tokens,
                     interval,
-                    concurrency=expected_concurrency,
+                    concurrency=current,
                 )
             watch.turn_cost(dispatch, evicted=dropped)
             guard.observe(
