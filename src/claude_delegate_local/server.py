@@ -672,7 +672,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     # can transpose silently.
     rates: RateHistory,
     task: str,
-    files: list[str] | None = None,
+    files: list[str | FileRange] | None = None,
     model: str | None = None,
     effort: str | None = None,
     allowed_tools: list[str] | None = None,
