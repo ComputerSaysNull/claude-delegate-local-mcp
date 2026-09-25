@@ -377,7 +377,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 82. ✅ **A stale provisioned venv is invisible to everyone who could fix it**: `$DELEGATE_PYTHON` is
   withheld silently, so a delegation hunted for four turns, found the stale venv with `find /` and
   tested with it. Only `--doctor` says so: check at start-up, report it to the caller, tell the model why
-83. ⬜ **`run_bash` does not say that `.git` is hidden**; only `read_git`'s description does, so a model
+83. ✅ **`run_bash` does not say that `.git` is hidden**; only `read_git`'s description does, so a model
   reaching for a shell never reads it, and one ran `git show` there and failed. The sandbox covers
   `.git` with an empty mount. Saying it in `run_bash` too is a contract change, not a wording fix
 84. ⬜ **The workdir's tool caches are read-only in the sandbox**: `.pytest_cache` and `.ruff_cache`
