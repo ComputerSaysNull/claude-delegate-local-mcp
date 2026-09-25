@@ -38,6 +38,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #359 — 2026-09-25 — fix: prefetch no longer stops every other delegation in the process
+
+### Fixed
+
+- **Prefetch ran on the event loop.** `run_delegation` called `expand_globs`,
+  `resolve_files` and `prefetch` inline: 0.54 to 0.62s measured over 23 to 44 files on
+  `/mnt/c`, longer when the gitignore layer fans out into git. For that long nothing else in
+  the process was scheduled, no heartbeat, no admission tick and no other delegation's
+  stream, and handles make several runs in one process the normal case. All three now run
+  through `asyncio.to_thread`, as tool calls already do. They share no mutable state with
+  the loop: `Config` is frozen and each call builds its own gitignore cache. Red first: a
+  prefetch that blocks for 0.3s held the loop still for 0.32s.
+
 ## #358 — 2026-09-25 — fix: a long collect keeps the client from dropping it
 
 ### Fixed

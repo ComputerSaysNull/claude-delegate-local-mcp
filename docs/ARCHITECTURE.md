@@ -361,9 +361,9 @@ nothing about what the policy allows. Shorthand rather than search: `search_file
 tool that looks, and it requires a `path` for reasons a recursive default here would undo.
 The part before the first wildcard is checked against the workspace roots *before* the
 walk, which is what bounds it; matching nothing, or more than `max_glob_matches`, is a
-refusal rather than a quiet shortfall. The whole expansion goes into **one** `prefetch`
-call, because the token budget is per call and expanding batch by batch would hand each
-batch a full budget and enforce no total. (ADR-0097)
+refusal rather than a quiet shortfall. The whole expansion goes into **one** `prefetch` call,
+on a thread so other delegations run meanwhile, because the token budget is per call and
+expanding batch by batch would hand each batch a full budget and enforce no total. (ADR-0097)
 
 Which path runs is decided by the resolved toolset and nothing else. `allowed_tools`
 narrows what the model may call, and resolving it to an empty set takes the one-shot path,
