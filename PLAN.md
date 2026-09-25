@@ -155,7 +155,7 @@ Item 2 was Unscheduled.62, moved unchanged on 2026-09-23.
   spend the budget reasoning. Our four map onto the encoder's three plus off, so none is missing
     - a. ⬜ The review's per-level figures are not controlled (P1). Run the same tasks at `off`,
     `low` and `high`; `off` was twelve times cheaper at the median.
-3. ⬜ **A reasoning-token budget at the server** (P2). ADR-0017 found it refused on the build
+3. ✅ **A reasoning-token budget at the server** (P2). ADR-0017 found it refused on the build
   then deployed. Re-check the current one: a cap would cut the tail and most runs that end
   with no answer
 4. ⬜ **Price from the bucket median, not the mean** (review §9): a few prefill-window

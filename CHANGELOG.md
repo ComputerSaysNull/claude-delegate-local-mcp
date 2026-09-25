@@ -38,6 +38,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #328 — 2026-09-24 — docs: the server-side reasoning budget is re-checked and still refused
+
+### Added
+
+- **A JOURNAL entry closing the review's reasoning-budget lever as re-checked.** The review
+  named a server-side cap on reasoning tokens as the way to cut the tail and most no-answer
+  runs, on a build newer than the one ADR-0017 probed. Probed again with a control: the
+  control request spent its whole 6,000-token ceiling reasoning and answered nothing, and
+  the same request with `thinking_token_budget` was refused at once, word for word as
+  ADR-0017 recorded, because the endpoint runs vLLM's V2 model runner. Nothing changes in
+  the code; the only route is a cluster boot setting, which the entry names and leaves
+  unmeasured.
+
 ## #327 — 2026-09-24 — feat: a script proves a comment pass changed no code
 
 ### Added
