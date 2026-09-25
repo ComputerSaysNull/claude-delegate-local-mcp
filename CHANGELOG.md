@@ -38,6 +38,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #349 — 2026-09-25 — feat: a retried turn records why it retried
+
+### Added
+
+- **Each retried attempt is recorded.** `attempts` counted a dropped connection or a
+  429/5xx, but the error was caught, slept on and discarded, so a turn with two attempts
+  could not be diagnosed from the stream, the summary or the log. `complete_with_retry` now
+  hands each retried failure to an `on_retry` hook as a record: the error's kind, its HTTP
+  status, how long the attempt ran and the wait chosen. The recovery ladder collects them
+  across all three stages, and a turn that retried carries them as `retries` in its stream
+  event and in the summary's per-turn entries. A turn that did not retry has no such key.
+  Red first: the new fields did not exist, so all six tests failed.
+
 ## #348 — 2026-09-25 — docs: the effort levels measured on fixed tasks
 
 ### Added
