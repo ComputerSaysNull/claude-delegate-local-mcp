@@ -406,6 +406,23 @@ def _span(seconds: float) -> str:
     return _duration(seconds) if seconds >= 1 else "<1s"
 
 
+def _turn_tool_ms(event: dict) -> int | None:
+    """How long a turn spent in tools, in ms, or None when it cannot be said.
+
+    The sum of the calls' own `ms`, which never includes the dispatch's bookkeeping. A
+    transcript older than that field falls back to the turn less its backend call, gated
+    on the calls and clamped at zero so clock skew reads as "none", not a negative.
+    """
+    calls = event.get("tool_calls") or []
+    measured = [c.get("ms") for c in calls if isinstance(c.get("ms"), int)]
+    if measured:
+        return sum(measured)
+    ms, gen = event.get("ms"), event.get("backend_ms")
+    if calls and isinstance(ms, (int, float)) and isinstance(gen, (int, float)):
+        return int(max(ms - gen, 0))
+    return None
+
+
 def _turn_timings(event: dict) -> str:
     """Where a turn's wall clock went: all of it, the tools' share, the cluster's.
 
@@ -423,14 +440,9 @@ def _turn_timings(event: dict) -> str:
     parts = []
     if isinstance(ms, (int, float)):
         parts.append(f"{_duration(ms / 1000)} total")
-    if (event.get("tool_calls")
-            and isinstance(ms, (int, float)) and isinstance(gen, (int, float))):
-        # Server-side tool time is the turn minus the backend call, the same difference
-        # `ms - backend_ms` means everywhere else in this project. Clamped at zero: the
-        # two are measured by different clocks and a few milliseconds of skew should
-        # read as "none" rather than as a negative duration.
-        spent = max(ms - gen, 0) / 1000
-        parts.append(f"{_span(spent)} tools")
+    tool_ms = _turn_tool_ms(event)
+    if tool_ms is not None:
+        parts.append(f"{_span(tool_ms / 1000)} tools")
     if isinstance(gen, (int, float)):
         parts.append(f"{_duration(gen / 1000)} generating")
     return f"  {DIM}{' · '.join(parts)}{R}" if parts else ""

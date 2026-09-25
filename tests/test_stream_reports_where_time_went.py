@@ -227,17 +227,19 @@ def _two_tool_turns(request):
 def _timed_tools(monkeypatch, clock: FakeClock) -> None:
     """Make the two tool-running turns take a known length of time each.
 
-    Patched at `_run_calls`, the one place a turn's tools are executed, so the time lands
-    inside the interval being measured rather than beside it.
+    Patched at `execute_tool`, inside the interval each call is timed over, and that timer
+    reads the same fake clock -- time spent outside a call is not the tools' and must not
+    land in their figure.
     """
-    real = loop._run_calls
+    real = loop.execute_tool
     waits = iter((TOOL_ONE, TOOL_TWO))
 
     def timed(*args, **kwargs):
         clock.advance(next(waits, 0.0))
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(loop, "_run_calls", timed)
+    monkeypatch.setattr(loop, "execute_tool", timed)
+    monkeypatch.setattr(loop, "_tool_clock", clock)
 
 
 def _queue_for(monkeypatch, clock: FakeClock, seconds: float) -> None:

@@ -9,6 +9,10 @@ holds only for a turn that ran tools; for one that ran none the bucket collects 
 dispatch's own bookkeeping -- budget pricing, request assembly, transcript writes -- and
 reports it under a name that says the model did something it did not.
 
+The fix moves the measurement to where each tool executes: a call carries its own `ms`
+and the accumulator sums those, so a turn that ran nothing contributes nothing whatever
+the dispatch spent around it.
+
 The viewer then printed that figure whatever it was, while the per-turn renderer beside
 it gates on the calls and documents why: "one that ran none says nothing rather than
 `0s tools`". Gating the display alone would hide the symptom and leave the number wrong,
@@ -20,73 +24,57 @@ from __future__ import annotations
 import pytest
 
 
+class _Call:
+    """The subset of a tool-call record the accumulator reads."""
+
+    def __init__(self, *, ms):
+        self.ms = ms
+
+
 class _Diagnostic:
     """The subset of a turn diagnostic the accumulator reads."""
 
-    def __init__(self, *, tool_calls=(), output_tokens=0):
+    def __init__(self, *, tool_calls=()):
         self.tool_calls = tuple(tool_calls)
-        self.output_tokens = output_tokens
-        self.cached_tokens = None
-        self.prefill_seconds = None
-        self.decode_seconds = None
 
 
-def _accumulate(turns, *, clock):
+def _accumulate(turns):
     """Replay the server's tool-time accumulation over a sequence of turns.
 
-    Mirrors `streamed_turn` in `server.py`: one monotonic clock started when the slot is
-    granted, each turn adding what it spent outside its own backend call. Driven here
-    rather than through `run_delegation`, which has no seam for a clock.
+    Mirrors `streamed_turn` in `server.py`: each turn adds the sum of its calls' own
+    measured `ms`. Driven here rather than through `run_delegation`, which has no seam for
+    the per-call clock.
     """
     from claude_delegate_local.server import tool_ms_for_turn
 
-    total = 0
-    tool_clock = clock()
-    for diagnostic, backend_seconds in turns:
-        now = clock()
-        total += tool_ms_for_turn(
-            tool_clock, now, int(backend_seconds * 1000), diagnostic
-        )
-        tool_clock = now
-    return total
+    return sum(tool_ms_for_turn(diagnostic) for diagnostic in turns)
 
 
 def test_a_turn_that_ran_no_tools_adds_no_tool_time():
-    """The defect, at its smallest: one turn, no tools, a second of server overhead."""
-    ticks = iter([100.0, 101.0])  # granted, then a turn landing a second later
-    total = _accumulate(
-        [(_Diagnostic(tool_calls=()), 0.5)], clock=lambda: next(ticks)
-    )
+    """The defect, at its smallest: one turn, no tools."""
+    total = _accumulate([_Diagnostic(tool_calls=())])
 
     assert total == 0, (
-        "a turn that called no tools reported tool time; the half-second between the "
-        f"backend call and the turn landing was charged to tools as {total}ms"
+        "a turn that called no tools reported tool time; the dispatch's own bookkeeping "
+        "was charged to the tools"
     )
 
 
 def test_a_turn_that_ran_tools_still_reports_them():
-    """The positive control. Gating on the calls must not silence a real measurement."""
-    ticks = iter([100.0, 103.0])
-    total = _accumulate(
-        [(_Diagnostic(tool_calls=({"name": "read_file"},)), 1.0)],
-        clock=lambda: next(ticks),
-    )
+    """The positive control. Summing the calls must not silence a real measurement."""
+    total = _accumulate([_Diagnostic(tool_calls=(_Call(ms=2000),))])
 
-    assert total == 2000, f"three seconds less a one-second call is 2000ms, got {total}"
+    assert total == 2000, f"one call measured at 2000ms should sum to 2000, got {total}"
 
 
 def test_only_the_turns_that_ran_tools_contribute():
     """The mixed run, which is the shape a real dispatch takes: the toolless turns in
     between must not quietly inflate the total the summary line reports."""
-    ticks = iter([0.0, 2.0, 5.0, 9.0])
-    total = _accumulate(
-        [
-            (_Diagnostic(tool_calls=({"name": "read_file"},)), 1.0),  # 2s - 1s = 1000
-            (_Diagnostic(tool_calls=()), 1.0),                        # excluded
-            (_Diagnostic(tool_calls=({"name": "search_files"},)), 1.0),  # 4s - 1s = 3000
-        ],
-        clock=lambda: next(ticks),
-    )
+    total = _accumulate([
+        _Diagnostic(tool_calls=(_Call(ms=1000),)),
+        _Diagnostic(tool_calls=()),
+        _Diagnostic(tool_calls=(_Call(ms=3000),)),
+    ])
 
     assert total == 4000, (
         f"expected 1000ms + 3000ms from the two turns that ran tools, got {total}"

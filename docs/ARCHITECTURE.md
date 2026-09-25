@@ -1243,11 +1243,11 @@ omitted, because "no cap applied" is the most incriminating thing the record can
 The `end` event also carries what a whole run cost, because a reader following the stream
 never sees the per-dispatch record: `tool_calls`, `tool_errors`, `bash_calls`, `bash_failures`
 and `failed_calls` (what the viewer shows), from the same ledger the record uses rather than counted a second
-way, beside `prefill_seconds`, `decode_seconds` and `tool_seconds`. Tool time gets its own
-clock rather than `ms` minus `backend_ms`, which on turn 1 would charge the admission wait
-to the tools — and it accrues only on turns that called one, the rest of that window being
-the dispatch's own bookkeeping. The accrual and the viewer's line both gate on the calls;
-either alone reports "tools" on a run that called none. All of it reads `server._clock`.
+way, beside `prefill_seconds`, `decode_seconds` and `tool_seconds`. Tool time is the sum of
+each call's own `ms`, timed where the tool executes, never a window less `backend_ms`: any
+window also holds the dispatch's pricing, request assembly and transcript writes, and on
+turn 1 counted them as tools. The viewer sums the same `ms`, and falls back to `ms` less
+`backend_ms` only for a transcript older than the field.
 
 The `end` event carries `finish_reason` verbatim, and the viewer names the truncating ones
 with what to do about each. A cut-off reply is a *successful* dispatch — nothing raised, so

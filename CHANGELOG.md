@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #350 — 2026-09-25 — fix: tool time counts only the tools
+
+### Fixed
+
+- **A turn's tool time included the server's own bookkeeping.** It was the turn's wall
+  clock less its backend call, measured from the previous turn or, for turn 1, from the
+  slot grant. So every window also held budget pricing, request assembly and transcript
+  writes, and turn 1 was charged all of its setup. Each tool call is now timed where it
+  runs and carries its own `ms`; a turn's tool time is their sum, the viewer shows the same
+  sum, and `tool_clock` is gone. Calls overlapped in the thread pool are timed on their own
+  thread. A first draft read that clock *before* the call and would have reported 0 for
+  every one of them, so a test with calls of known length now pins it. Red first: the
+  pre-fix formula, driven by path with the old shapes, reported 2000 ms for a turn whose
+  one tool took 1000 ms. The pool test failed on the draft ordering with `[0, 0]`.
+
 ## #349 — 2026-09-25 — feat: a retried turn records why it retried
 
 ### Added
