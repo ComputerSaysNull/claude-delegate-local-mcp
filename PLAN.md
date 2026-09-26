@@ -399,7 +399,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 90. ✅ **Two `run_bash` calls in one workdir race on a protected placeholder**: bwrap refused to
   start with `Can't find source path .../.idea` while a second delegation ran beside it, and passed
   alone. Read, not reproduced: the first run's settle removes the empty dir the second one bound
-91. ⬜ **The 140k prefetch cap rests on nothing measured** (JOURNAL 2026-09-25): set it, or say why
+91. ✅ 2026-09-26 **The 140k prefetch cap rests on nothing measured** (JOURNAL 2026-09-25): set it, or say why
 
 ## Deferred
 
