@@ -3264,14 +3264,18 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     # Created as `None` rather than early-returning the way the one-shot does, because
     # there the guarded part is one `await` and here it is the whole loop: duplicating it
     # to avoid a nullable task would be two copies of the turn lifecycle.
+    tools_running = False
     beat = asyncio.create_task(_keepalive(
         cfg, on_alive, clock,
         # Deliberately not `budget_seconds`, though the shapes are close. That one sizes
         # one reply and counts the delegation deadline only, because a stream that is
         # producing is not silent and must not be charged the stall clock. A countdown
         # shown to a reader has the opposite job: name whichever deadline will actually
-        # end the run, and since ADR-0099 that is usually the stall one.
-        lambda: max(min(stall_left(), deadline - clock()), 0.0),
+        # end the run, and since ADR-0099 that is usually the stall one -- except while
+        # tools run, when nothing reads the stall clock and only the deadline can fire.
+        lambda: (max(deadline - clock(), 0.0)
+                 if tools_running
+                 else max(min(stall_left(), deadline - clock()), 0.0)),
         streamed,
     )) if on_alive else None
     current = expected_concurrency
@@ -3424,9 +3428,11 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # One thread for the whole batch, not one per call: `_run_calls` runs them in
             # order and that order is what the model sees. The only thing now running beside
             # it is the timer, which touches neither `cached` nor `watch`.
+            tools_running = True
             results, outcomes = await asyncio.to_thread(
                 _run_calls, cfg, calls, allowed, cached, watch, policy=bash_policy
             )
+            tools_running = False
             watch.turn_tools(outcomes)
             await turn_done(dispatch.response.text, backend_seconds)
             results.append(TextBlock(countdown_line(turns - turn)))
