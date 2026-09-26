@@ -174,6 +174,9 @@ class BashOutcome:
     # command in the same line succeeded -- the `; echo $?` shape ADR-0007 names as the
     # reason a zero is not proof. False when the status already reports the failure.
     masked_failure: bool = False
+    # Pipelines (2+ stages) in which a stage exited non-zero, recorded for the operator
+    # transcript only; the model-facing text carries none of it.
+    stages: tuple[tuple[tuple[str, int], ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

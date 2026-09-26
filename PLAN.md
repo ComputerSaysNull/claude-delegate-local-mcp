@@ -327,17 +327,17 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 25. ⬜ **A captured exit code of zero is not proof of success, and only the server can close
   that.** `last_bash_exit` is the status of the whole shell line the model composed, so a
   trailing `; echo $?` or a `| tail` replaces the work's status with the echo's.
-    - a. ⬜ Measured 2026-09-08 over four trials each: the `run_bash` description now says the code
+    - a. ✅ 2026-09-26 Measured 2026-09-08 over four trials each: the `run_bash` description now says the code
     is recorded for you, taking a real non-zero from 0/4 to 3/4 — an improvement, and a
     wording change can never be a guarantee.
-    - b. ⬜ A non-zero is still trustworthy because nothing invents one; a zero is ambiguous, which
+    - b. ✅ 2026-09-26 A non-zero is still trustworthy because nothing invents one; a zero is ambiguous, which
     is the half ADR-0007 needs.
     - c. ✅ 2026-09-19 The server-side answer is a signal for *any* command in the line exiting non-zero
     beside the last one's. `/bin/sh` is dash here, so measure first whether that can be had
     without changing what a compound command means.
-    - d. ⬜ **The `| tail` half is still open**, and `pipefail` is not the way: measured
-    2026-09-19 it marks `grep <absent> | head` and `yes | head -1` as failures. The `ERR`
-    trap covers the sequence shape only, so the count undercounts by design (ADR-0095).
+    - d. ⬜ **The `| tail` half is still open**, and `pipefail` is not the way: it marks
+    `grep <absent> | head` failing. Failed stages are recorded as `stages` since 2026-09-26;
+    classifying them is what is left, once the records say how often masking happens.
 
 70. ✅ 2026-09-25 **`files[]` takes whole files, so a large one is refused rather than sampled.**
   `CHANGELOG.md` is 182,236 tokens against the 140,000 cap and comes back in

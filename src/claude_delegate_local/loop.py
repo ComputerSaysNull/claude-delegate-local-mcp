@@ -2085,6 +2085,9 @@ class ToolCallRecord:
     # How long the call took, timed where it executed. `None` where nothing ran: a call
     # served from the dedup cache.
     ms: int | None = None
+    # Pipelines (2+ stages) in which a stage exited non-zero, for the operator transcript
+    # only. Empty when none failed this way; the model never sees these.
+    stages: tuple[tuple[tuple[str, int], ...], ...] = ()
 
     def as_json(self) -> dict[str, Any]:
         """The record as one JSON object, with absent fields absent rather than null.
@@ -2107,6 +2110,15 @@ class ToolCallRecord:
             row["exit_code"] = self.exit_code
         if self.ms is not None:
             row["ms"] = self.ms
+        if self.stages:
+            # Capped like an argument, because a stage can be a whole heredoc.
+            row["stages"] = [
+                [
+                    {"command": _elide(command, TOOL_ARG_VALUE_CAP), "status": status}
+                    for command, status in stage
+                ]
+                for stage in self.stages
+            ]
         return row
 
 
@@ -2140,6 +2152,7 @@ def tool_call_record(
         result_lines=None if result is None else _line_count(result.content),
         exit_code=exit_code,
         ms=ms,
+        stages=() if result is None or result.bash is None else result.bash.stages,
     )
 
 

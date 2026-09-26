@@ -30,6 +30,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #376 — 2026-09-26 — fix: a pipeline whose stage failed is recorded for the operator
+
+### Added
+
+- **A failure hidden by `| tail` now leaves a record.** `last_bash_exit` is the whole
+  line's status, so `pytest | tail` reads 0 when the tests failed, and the `ERR` trap
+  (ADR-0095) sees sequences, not pipelines. Classifying a masked pipeline needs to know
+  how often one happens, and nothing recorded it. A `DEBUG` and an `EXIT` trap now log
+  each command with the previous pipeline's statuses to a second marker, and a pipeline
+  of two or more stages with a non-zero stage reaches the call's transcript record as
+  `stages`, each stage's command and status, commands capped like arguments. Nothing
+  counts it, and the model's tool result does not change. Red first: all seven new tests
+  failed, including `false | tail -5` through a real sandbox with no record.
+  Cost measured: about 27µs per shell command, invisible beside a fork but about 30x on a
+  loop of builtins, and the "cost is nil" figure measured on 2026-09-19 did not reproduce.
+  PLAN U.25.a and .b close as records, U.25.d stays open for the classifier.
+- **The host reads that marker as the command's, not its own.** It sits on the read-write
+  HOME bind and is named in the command's environment, so the command can replace it. A
+  plain read would follow a symlink to a file outside every bind into the transcript, or
+  read `/dev/zero` whole before any cap. It is opened `O_NOFOLLOW | O_NONBLOCK`, refused
+  unless it is a regular file, and read no further than 1 MiB. Red first: a first draft
+  that used `read_bytes` read a record through a symlink.
+
 ## #375 — 2026-09-26 — feat: a test checks that agent and skill bodies name real tool arguments
 
 ### Added

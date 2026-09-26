@@ -983,7 +983,7 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
         return BashResult(
             f"Timed out after {cfg.run_bash_timeout}s and was killed.{moved} Output up to "
             f"that point:\n\n{_capped(cfg, result)}",
-            BashOutcome(exit_code=None, timed_out=True, ran=True),
+            BashOutcome(exit_code=None, timed_out=True, ran=True, stages=result.stages),
             is_error=True,
         )
 
@@ -1003,7 +1003,8 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
     return BashResult(
         f"exit {result.exit_code}{masked}{moved}\n\n{body}{note_part}",
         BashOutcome(
-            exit_code=result.exit_code, ran=True, masked_failure=result.masked_failure
+            exit_code=result.exit_code, ran=True, masked_failure=result.masked_failure,
+            stages=result.stages,
         ),
         is_error=result.exit_code != 0,
     )

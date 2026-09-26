@@ -29,6 +29,7 @@ import os
 import posixpath
 import re
 import shutil
+import stat
 import subprocess
 import uuid
 from collections.abc import Mapping, Sequence
@@ -79,9 +80,26 @@ PLAIN_SHELL = "/bin/sh"
 # the process exits -- it is on the read-write home bind, which is how it gets out.
 STATUS_FILE_ENV = "DELEGATE_BASH_STATUS_FILE"
 
+# Where the DEBUG and EXIT traps append the pipeline stage record, named through the
+# environment for the same reason `STATUS_FILE_ENV` is: the trap body then carries no path.
+STAGES_FILE_ENV = "DELEGATE_BASH_STAGES_FILE"
+
 # One line per `ERR` firing, and the line is the status. Single-quoted, so `$?` is expanded
 # when the trap fires rather than when it is defined.
 _ERR_TRAP = "trap 'printf \"%s\\n\" \"$?\" >> \"$" + STATUS_FILE_ENV + "\"' ERR\n"
+
+# The two traps that record every pipeline of 2+ stages for the operator transcript. Both
+# capture PIPESTATUS first, because any statement before it -- even `$?` -- clobbers the
+# array. The DEBUG body flattens `$BASH_COMMAND` -- a newline or tab in a command would
+# otherwise split the record across lines -- and the EXIT body writes an empty command,
+# which is how the last pipeline is recorded when no command follows it.
+_STAGES_TRAP = (
+    "trap 'p=(\"${PIPESTATUS[@]}\"); printf \"%s\\t\\n\" \"${p[*]}\" >> \"$"
+    + STAGES_FILE_ENV + "\"' EXIT\n"
+    "trap 'p=(\"${PIPESTATUS[@]}\"); c=\"${BASH_COMMAND//$'\\n'/ }\"; "
+    "c=\"${c//$'\\t'/ }\"; printf \"%s\\t%s\\n\" \"${p[*]}\" \"$c\" >> \"$"
+    + STAGES_FILE_ENV + "\"' DEBUG\n"
+)
 
 # The one subdirectory of the sandbox HOME that a command may read but not write, and the
 # only tree under a bound root that the secret scan deliberately does not cover (ADR-0062).
@@ -294,6 +312,10 @@ class SandboxResult:
     # Protected files the command created at the workdir root, which a bind could not
     # cover because they did not exist yet. Each was moved aside rather than left in effect.
     protected_moved: tuple[str, ...] = ()
+    # Pipelines (2+ stages) in which a stage exited non-zero, recorded for the operator
+    # transcript only. Empty when none failed this way; a record that could not be read
+    # reads the same, which is an accounting aid and not a security property.
+    stages: tuple[tuple[tuple[str, int], ...], ...] = ()
 
 
 def probe_toolchain_binds(cfg: Config) -> tuple[str, ...]:
@@ -841,6 +863,7 @@ def build_argv(
     shadows: Sequence[ShadowTarget] = (),
     *,
     status_file: str | None = None,
+    stages_file: str | None = None,
 ) -> list[str]:
     """Config plus a request in, the exact bwrap argv out. Pure.
 
@@ -850,8 +873,11 @@ def build_argv(
     deriving it means probing the filesystem for bash, and this function is pure so that
     the bind rules below stay assertable on a machine with no bwrap at all. `run` probes.
 
-    The prelude occupies a line, so a shell error reports one line lower than the model
-    wrote. That is the whole cost, and it is why the trap is a single line.
+    `stages_file` is the second marker, named to the DEBUG and EXIT traps the same way; it
+    travels with `status_file`, because the two traps are prepended on the same bash path.
+
+    The prelude occupies a line per trap, so a shell error reports that many lines lower
+    than the model wrote. That is the whole cost, and it is why each trap is a single line.
 
     **Bind order carries meaning.** bwrap applies binds in argv order and a later bind
     shadows an earlier one at or below the same path, so the sequence below is a set of
@@ -950,7 +976,10 @@ def build_argv(
         argv += ["--", PLAIN_SHELL, "-c", req.command]
     else:
         argv += ["--setenv", STATUS_FILE_ENV, status_file]
-        argv += ["--", MASKED_STATUS_SHELL, "-c", _ERR_TRAP + req.command]
+        if stages_file is not None:
+            argv += ["--setenv", STAGES_FILE_ENV, stages_file]
+        prelude = _ERR_TRAP + (_STAGES_TRAP if stages_file is not None else "")
+        argv += ["--", MASKED_STATUS_SHELL, "-c", prelude + req.command]
     return argv
 
 
@@ -1017,11 +1046,19 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
     # *next* call would then have to distinguish from its own.
     marker = Path(req.home) / f".delegate-bash-status-{uuid.uuid4().hex}"
     status_file = str(marker) if status_shell_available() else None
+    # The second marker, for the pipeline stage record. Created beside the status marker and
+    # unlinked in the same `finally`, so the two never outlive each other's call.
+    stages_marker = Path(req.home) / f".delegate-bash-stages-{uuid.uuid4().hex}"
+    stages_file = str(stages_marker) if status_shell_available() else None
     # Before the walk, so a directory created here is found and bound read-only by it.
     made, absent = _prepare_protected(cfg, req)
     moved: tuple[str, ...] = ()
+    stages: tuple[tuple[tuple[str, int], ...], ...] = ()
     try:
-        argv = build_argv(cfg, req, discover_secret_shadows(cfg, req), status_file=status_file)
+        argv = build_argv(
+            cfg, req, discover_secret_shadows(cfg, req),
+            status_file=status_file, stages_file=stages_file,
+        )
         result = _execute(cfg, argv, marker)
         if _lost_a_placeholder(cfg, req, result):
             # Another run in this workdir removed a placeholder it owned between our walk
@@ -1030,14 +1067,21 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
             again, _ = _prepare_protected(cfg, req)
             made = [*made, *again]
             argv = build_argv(
-                cfg, req, discover_secret_shadows(cfg, req), status_file=status_file
+                cfg, req, discover_secret_shadows(cfg, req),
+                status_file=status_file, stages_file=stages_file,
             )
             result = _execute(cfg, argv, marker)
+        if stages_file is not None:
+            stages = _read_stages(stages_marker)
     finally:
         with suppress(OSError):
             marker.unlink(missing_ok=True)
+        with suppress(OSError):
+            stages_marker.unlink(missing_ok=True)
         moved = _settle_protected(made, absent)
-    return replace(result, protected_moved=moved) if moved else result
+    if stages or moved:
+        return replace(result, stages=stages, protected_moved=moved)
+    return result
 
 
 def _execute(cfg: Config, argv: list[str], marker: Path) -> SandboxResult:
@@ -1101,6 +1145,80 @@ def _trap_fired(marker: Path) -> bool:
         return marker.stat().st_size > 0
     except OSError:
         return False
+
+
+# At most this much of the stage record is read back. The record is an accounting aid, so a
+# command that wrote a huge file must not exhaust memory for it; a truncated record is a
+# loss the caller can accept rather than a security property.
+_STAGES_FILE_CAP = 1024 * 1024
+
+
+def parse_stage_records(text: str) -> tuple[tuple[tuple[str, int], ...], ...]:
+    """Pipelines of 2+ stages with a non-zero stage, parsed from the DEBUG-trap record.
+
+    The trap writes one line per command: `<statuses of the previous pipeline>\\t<next
+    command>`. A line whose status list has 2+ entries records a completed pipeline, and the
+    commands of its stages are the commands on the preceding lines, in order. A pipeline
+    whose every stage exited 0 is not a finding and is dropped, and a single failing
+    command -- one status -- stays the ERR trap's case.
+    """
+    commands: list[str] = []
+    found: list[tuple[tuple[str, int], ...]] = []
+    for line in text.splitlines():
+        if "\t" not in line:
+            continue
+        statuses_part, command = line.split("\t", 1)
+        statuses = _parse_statuses(statuses_part)
+        n = len(statuses)
+        if n >= 2 and any(status != 0 for status in statuses) and len(commands) >= n:
+            start = len(commands) - n
+            found.append(tuple(
+                (commands[start + i], statuses[i]) for i in range(n)
+            ))
+        if command:
+            commands.append(command)
+    return tuple(found)
+
+
+def _parse_statuses(text: str) -> list[int]:
+    """The status list on one record line, or [] when it is not a list of ints.
+
+    Never raises. A malformed or truncated status -- a file cut at 1 MiB can end mid-number
+    -- is treated as not a record, which loses the pipeline rather than the command.
+    """
+    out: list[int] = []
+    for token in text.split():
+        try:
+            out.append(int(token))
+        except ValueError:
+            return []
+    return out
+
+
+def _read_stages(path: Path) -> tuple[tuple[tuple[str, int], ...], ...]:
+    """The stage records the trap wrote, or () when none were.
+
+    Never raises: a missing file is the ordinary case, and an unreadable one must cost the
+    record rather than the command. The path is on the read-write HOME bind and named in
+    the command's environment, so the command can replace it: opened `O_NOFOLLOW` so a
+    symlink cannot make the host read a file outside every bind, `O_NONBLOCK` so a FIFO
+    cannot hang the call, refused unless it is a regular file, and read no further than
+    `_STAGES_FILE_CAP`.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return ()
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return ()
+        data = os.pread(fd, _STAGES_FILE_CAP, 0)
+    except OSError:
+        return ()
+    finally:
+        os.close(fd)
+    return parse_stage_records(data.decode("utf-8", "replace"))
 
 
 def _as_text(raw: str | bytes | None) -> str:

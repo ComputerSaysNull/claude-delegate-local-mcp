@@ -618,13 +618,9 @@ self-verification design rests on it. (ADR-0007)
 **The captured code is the shell line's, and that makes it asymmetric.** A model composes
 the whole command, so a trailing `; echo $?` or a `| tail` replaces the status of the work
 with the status of the last thing in the line — and both are idioms a model reaches for
-precisely when it wants to report an exit code carefully. Measured 2026-09-08 over four
-trials of one failing test each: with the `run_bash` description saying the code is recorded
-for you, a real non-zero reached `last_bash_exit` three times out of four; without that
-sentence, none of four. So a captured **non-zero is trustworthy** — nothing invents one —
-while a captured **zero is not proof of success**, because a masked failure looks identical
-to a clean run. Read `bash_failures` beside it, and do not phrase a task as "report the exit
-code": asking for the number is what produces the echo that destroys it.
+precisely when it wants to report an exit code carefully. So a captured **non-zero is
+trustworthy** — nothing invents one — while a captured **zero is not proof of success**,
+because a masked failure looks identical to a clean run; read `bash_failures` beside it.
 
 **Half of that is now closed by the server rather than by wording.** The line runs under
 bash with an `ERR` trap prepended — it fires on a sequence member exiting non-zero without
@@ -632,7 +628,10 @@ aborting the line — so a failure before the last command reaches `bash_masked_
 where the status reads 0. Dash, which `/bin/sh` is here, can express neither half, so the
 shell is chosen and a host without bash loses the accounting rather than the command.
 `pipefail` would cover pipelines and is refused: measured, it marks `grep <absent> | head`
-and `yes | head -1` as failures. So the count **undercounts, never over**. (ADR-0095)
+and `yes | head -1` as failures. So the count **undercounts, never over**. (ADR-0095) The
+pipeline half is recorded instead: a `DEBUG` trap logs each stage to a marker the host reads
+as a regular file only, never through a link or FIFO, and a failed stage reaches the call's
+transcript record as `stages`, never the model. About 27µs a command; 30x on a builtin loop.
 
 ### Prompt order is load-bearing
 
