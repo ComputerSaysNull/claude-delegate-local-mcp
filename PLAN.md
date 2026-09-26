@@ -213,7 +213,7 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
 3. ✅ **An AST check makes a comment pass provably behaviour-free**: each module's `ast.dump`
   with docstrings stripped is identical before and after. Negative-tested on one literal
 4. ⬜ **One comment pass per module, largest first** (review §4)
-    - a. ⬜ `loop.py`, which has more prose than code.
+    - a. ✅ 2026-09-26 `loop.py`, which has more prose than code.
     - b. ⬜ `server.py`.
     - c. ⬜ `sandbox.py`, cutting history but keeping its security reasoning.
     - d. ⬜ `paths.py`, likewise.
