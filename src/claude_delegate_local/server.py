@@ -2212,6 +2212,8 @@ contradict the model's own account of a command it ran, and the server's numbers
 ones to believe. `last_bash_exit` is the status of the whole shell line, so a trailing
 `; echo $?` or a `| tail` replaces the status of the work with the status of the echo -- a
 non-zero is trustworthy because nothing invents one, a zero is not proof of success.
+Ask for the outcome, never the exit code: a task that asks for the number is what gets a
+model to append the `; echo $?` that replaces it.
 `bash_masked_failures` closes the first of those two: the server prepends an `ERR` trap, so
 a command that failed before the last one is counted even when the status reads 0. A
 pipeline whose last stage succeeds is not covered, so it can undercount but never overcount.
