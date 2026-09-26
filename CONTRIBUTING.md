@@ -1,53 +1,4 @@
-<!-- BUDGET: 420      Raised from 378 on 2026-09-12: a runbook is revised on evidence, and a measurement taken under a defect since fixed is not evidence for it. -->
-<!-- Raised from 411 (+1 for this line) on 2026-09-22: when a pass is added the rule that earned it belongs here, or the next audit re-derives which code no pass reads. -->
-<!-- Raised from 404 (+1 for this line) on 2026-09-20: a pass that never terminates was read as a wording fault four times before anyone looked at the sampling, and the agents section is where that is looked up. -->
-<!-- Raised from 398 (+1 for this line) on 2026-09-18: publishing a stack is a procedure with a script now, and which half is the hook's belongs beside the merge rule. -->
-<!-- Raised from 396 (+1 for this line) on 2026-09-18: the body-history rule is enforced now, and which half the gate takes belongs beside the rule itself. -->
-<!-- Raised from 393 (+1 for this line) on 2026-09-18: the two session skills are separate, and which one reads the other is the half that was never stated. -->
-<!-- Raised from 390 (+1 for this line) on 2026-09-18: a body re-read every invocation pays for its own history, so the rule that keeps narrative out of one belongs where both directories are owned. -->
-<!-- Raised from 369 on 2026-09-12: a check class names every place its evidence can live, and CLAIMS named two of three. -->
-<!--
-     Raised from 365 on 2026-09-10: an agent's runbook is a third kind of file this
-     document owns, and both readers of one must accept it -- which needs saying once.
-     Raised from 357 on 2026-09-10: there are two skill directories now and only one of
-     them ships, so which is which is this document's to state (M10).
-     Raised from 348 on 2026-09-10: `.claude/skills/` is a second directory of build-time recipes this document now owns.
-     Raised from 337 on 2026-09-07: a seventh sighting, and the first about a program other
-     than the agent itself -- a body credited the gate with a check it had never had.
-     Raised from 330 on 2026-09-06: granting an agent a tool and telling it how to use the
-     tool are two edits, and only the first one has a check.
-     Raised from 321 on 2026-09-06: a sixth sighting, and this one was in this document
-     rather than an agent body -- the paragraph about stale claims carried a stale claim.
-     Raised from 313 on 2026-09-06: a fifth sighting, and the first in frontmatter rather
-     than a body — which is why grepping bodies could never have found it.
-     Raised from 307 on 2026-09-06: the two-concurrent-pass limit is enforced by
-     admission rather than by convention, and a reader who does not know which of the
-     two numbers bites loses five delegations finding out.
-     Raised from 298 on 2026-09-06: the rule added that morning was falsified by lunchtime
-     and the correction is the evidence for it -- prefer a measurement taken on purpose.
-     Raised from 287 on 2026-09-06: a fourth sighting of the pattern, and the first
-     where what expired was a measurement rather than a capability.
-     Raised from 280 on 2026-09-05: the workaround-outlives-the-limitation pattern got its third sighting, and the rule that would have caught it -- grep the agent bodies when you add a tool -- is the part worth keeping.
-     Raised from 272 on 2026-09-03: the agent-capability check, which automates the narrow half of the
-     rule directly above it and needs its limit stated.
-     Raised from 262 on 2026-09-03: the commit hook's interpreter search, a fact about install_hooks.py
-     and the reason committing from WSL never ran the gate at all.
-     Raised from 249 on 2026-09-03: an agent body requiring what the
-     sandbox cannot do is the inverse of the trap recorded directly above it, costs a turn
-     on every invocation rather than merely going stale, and is the second sighting of the
-     class. Recorded next to its twin so the pair is read together.
-     Raised from 230 on 2026-09-01: a second agent format now lives
-     in .claude/agents/ while the delegated audit route is proven, and a directory whose
-     two readers each skip what they cannot parse needs that written down where someone
-     editing an agent file will meet it. The note goes when the duplication does. Raised to the size it had already reached on 2026-09-01: the check that should have held this
-     line was disabled from 2026-08-28, when reasons moved inside this comment and the pattern
-     stopped matching, so the document grew unenforced. This records where it actually is rather than
-     endorsing it; the 2026-09-01 audit tracks the trim. Raised from 210 to 220 on 2026-08-29: CI
-     installs bubblewrap and cannot run it, which a contributor would otherwise learn by trusting a
-     green tick over an unrun sandbox. -->
-<!-- Raised from 190 on 2026-08-27: the audit-due section stopped restating two gate
-     constants and had to say why, and the archive procedure the gate warns about was
-     documented nowhere. -->
+<!-- BUDGET: 387 -->
 # Contributing
 
 ## Setup
@@ -131,9 +82,25 @@ python scripts/docs_gate.py --owner src/claude_delegate_local/paths.py
 [CLAUDE.md](CLAUDE.md) states the rules it enforces. Do not keep a second copy of either
 here or in your head.
 
-Documents also declare a size budget. Exceeding it blocks, and the block **never means
-delete**: trim redundancy, split for a valid reason, or raise the budget with a one-line
-reason in the same commit. ADR-0022 for what makes a split valid.
+## Prose
+
+What each kind of text may hold. These rules live here; everything else links to them.
+
+- **A comment, a docstring and a product document describe what is.** How it got here goes
+  to `CHANGELOG.md` or `JOURNAL.md`; why a design was chosen goes to an ADR, which the
+  comment links in one line. A `Config` description says what the setting does and links
+  its ADR. `CHANGELOG.md`, `JOURNAL.md`, `DECISIONS.md`, `PLAN.md`, `archive/`,
+  `docs/audits/` and `docs/reviews/` own history and are exempt. Tool descriptions and
+  schema text are contract, not comments: editing them is a behaviour change.
+- **A TODO is a `PLAN.md` item**, never a comment.
+- **A new ADR needs a structural decision.** A tuned value's reason is a JOURNAL measurement.
+- **A BUDGET header holds only its number.** Exceeding it blocks and **never means
+  delete**: trim your own additions first, split for a valid reason (ADR-0022), or, last,
+  raise it to the next multiple of ten with the reason in the commit message.
+  `git log -L1,1:<file>` is the header's history.
+
+The gate warns on a date, a TODO or future-work phrasing added to a `src/` comment, and on
+a module's prose ratio rising.
 
 ## Tests
 

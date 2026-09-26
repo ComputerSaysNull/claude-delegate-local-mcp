@@ -1,20 +1,4 @@
-<!-- BUDGET: 336
-     Raised from 315 on 2026-09-08: three symptoms provisioning introduces -- a missing
-     interpreter, a stale one, and a refused write inside one. Links only, no facts.
-     Raised from 305 on 2026-09-07: the preflight, which identifies several symptoms below
-     faster than matching them by hand. A pointer rather than an answer, as this document
-     requires.
-     Raised from 293 on 2026-09-06: one symptom entry for a delegation that dies at
-     the stall deadline while decoding, which read as a hung backend three times.
-     Raised from 290 on 2026-09-03: one symptom entry for a commit hook that could not run the gate.
-     -->
-<!-- Raised from 240 on 2026-08-27: M1 shipped the first server that can fail at
-     startup and the first tool that can report a backend, so two symptom classes
-     exist that had nowhere to be indexed before.
-     Raised again from 265 on 2026-08-27: M3 split the empty answer into two symptoms
-     with opposite fixes, and one stale entry was deleted to help pay for it.
-     Raised from 270 to 290 on 2026-08-27: the second audit found nine entries describing
-     unbuilt subsystems with nothing saying so, and marking them costs lines. -->
+<!-- BUDGET: 317 -->
 # Troubleshooting
 
 Symptom, cause, fix.

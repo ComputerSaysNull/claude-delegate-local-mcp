@@ -1,8 +1,4 @@
-<!-- BUDGET: 162 -->
-<!-- Raised from 158 on 2026-09-10: the negative-test rule needed its ordering, which is the half a blind test satisfies. -->
-<!-- Raised from 152 on 2026-09-09: the contract has four homes rather than one, and two more
-     checks that could not fail were found (ADR-0066, ADR-0065). -->
-<!-- Raised from 144 on 2026-09-03: one invariant, for the trap ADR-0049 closed. -->
+<!-- BUDGET: 158 -->
 # CLAUDE.md
 
 Traps and invariants for anyone — human or agent — editing this repository. Terse on
@@ -155,8 +151,8 @@ Rules a machine cannot check, so they land here:
 - Conventional Commits. Branches `feat/`, `fix/`, `docs/`.
 - Regression tests are named after the bug and live in `tests/regression/`.
 - CHANGELOG entries carry the **why** — the symptom, the cause, the fix.
-- A blocking `BUDGET:` means trim your own additions first. Raise it only as a last resort, to
-  the next multiple of ten with a one-line reason; cutting others' prose is audit work.
+- A blocking `BUDGET:` means trim your own additions first; cutting others' prose is audit
+  work. What a comment, an ADR or a budget raise may hold is CONTRIBUTING's "Prose" section.
 - ADR bodies are never edited. A superseded decision changes only its heading.
 - Upstream fixes are read and reimplemented, not cherry-picked. This is a rewrite.
   (ADR-0001)

@@ -1,10 +1,4 @@
-<!-- BUDGET: 182
-     Raised from 172 on 2026-09-08: a third entry point, `provision`, and the one-paragraph
-     answer to "do I need it" -- which is no, for every delegation that only reads.
-     Raised from 165 on 2026-09-08: `--init` replaces the two `cp` lines in the quickstart
-     and needs three saying what it does and does not decide for you. Cut from four first.
-     Raised from 160 on 2026-09-07: a new entry point, `--doctor`, and the reason to run
-     it. The prose was cut to two lines first. -->
+<!-- BUDGET: 170 -->
 
 # claude-delegate-local-mcp
 

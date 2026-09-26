@@ -104,7 +104,7 @@ Constraints that shape the split, not afterthoughts:
   what *lands* in a session, never what is *built* in one, so it is not a reason to plan
   fewer items.
 - Every document carries a `BUDGET:` header. Trim the lines *you* are adding first; propose
-  a raise only as a last resort, with a one-line reason.
+  a raise only as a last resort, as CONTRIBUTING's "Prose" section says.
 - A fact belongs to one document and one plane — the repository root or `docs/`, and
   [CLAUDE.md](../../../CLAUDE.md) says which holds what. If the plan says "and document X in
   two places", the plan is wrong.

@@ -1,11 +1,4 @@
-<!-- BUDGET: 190
-     Raised from 180 (+1 for this line) on 2026-09-24: two settings for handles, and a section of their own for them.
-     Raised from 178 (+1 for this line) on 2026-09-23: one more setting, DELEGATE_PROTECTED_GLOBS_FILE.
-     Raised from 175 (+1 for this line) on 2026-09-22: one more setting, DELEGATE_RATE_SAMPLE_SECONDS, and this file is one row per setting.
-          Raised from 150 on 2026-08-30: this file is generated, one row per
-     setting, so its length is the number of settings and trimming it means deleting a
-     setting or its description. The cap is here to catch a table growing prose, which a
-     row cannot do -- `_cell` flattens each description to one line. -->
+<!-- BUDGET: 183 -->
 
 # Configuration
 
