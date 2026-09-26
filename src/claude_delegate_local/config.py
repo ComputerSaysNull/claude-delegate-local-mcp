@@ -284,15 +284,12 @@ class Config:
     )
     run_bash_timeout: int = _f(
         600,
-        "Per-command timeout for run_bash. Sized to tell a hung command from a slow one, "
-        "which means it has to sit above the slowest legitimate command rather than near "
-        "it. Running a project's test suite is the first thing a delegated model is asked "
-        "to do once it has a workdir, and this repository's own suite takes 281s serially "
-        "in WSL -- so 120s, the previous value, was below the median legitimate command and "
-        "killed real work. A kill is reported as a non-zero exit, and the model then "
-        "reasons about it as a test failure and 'fixes' passing code, which corrupts the "
-        "ground truth the whole self-verification design rests on (ADR-0007). The opposite "
-        "error only wastes wall clock, and dispatch_timeout bounds it anyway.",
+        "Per-command timeout for run_bash, in seconds. Sized to tell a hung command from a "
+        "slow one, so it must sit above the slowest legitimate command rather than near it: "
+        "a timeout that kills real work reports a non-zero exit the model then reasons about "
+        "as a test failure, corrupting the ground truth self-verification rests on "
+        "(ADR-0007). The opposite error only wastes wall clock, and dispatch_timeout bounds "
+        "it anyway.",
         unit="seconds",
     )
     max_bash_output_chars: int = _f(
@@ -324,23 +321,12 @@ class Config:
     )
     reply_budget_margin: float = _f(
         0.6,
-        "Share of the delegation's remaining time that a single reply may spend "
-        "generating, multiplied by the decode rate measured at runtime, so the model is "
-        "never handed more tokens than the clock can pay for -- ADR-0055. One deadline "
-        "and not the tightest of several: stall_timeout measures silence and a reply "
-        "being generated is not silent (ADR-0099), and turn_timeout is retired. Below "
-        "1.0 to absorb error "
-        "in the rate, not the cost of prefilling, which measured about 2% of a turn here: "
-        "a cold start falls through to a since-boot mean blended over every concurrency "
-        "the engine has served, and that reads about 1.75x optimistic against a six-way "
-        "rate. This value does not cover that, and is not meant to. Re-derived 2026-09-18 "
-        "over 230 single-attempt turns: the share whose ceiling outruns what they decode "
-        "tracks the rate's SOURCE rather than this value -- 37.0% from the since-boot "
-        "seed, 16.4% once the rate memory answers, 5.0% once the turn has measured itself, "
-        "where the fifth percentile needs only 0.749. So 0.6 stays and the rate was the "
-        "thing to fix. Lowering it would bill every well-priced turn for a tail belonging "
-        "to the cold start, and fitting a constant to a wrong rate is the mistake PLAN.md "
-        "records against kv_token_budget (JOURNAL 2026-09-18).",
+        "Share of the delegation's remaining time a single reply may spend generating, "
+        "multiplied by the decode rate measured at runtime, so the model is never handed "
+        "more tokens than the clock can pay for (ADR-0055). stall_timeout measures silence "
+        "and a reply being generated is not silent (ADR-0099). Below 1.0 to absorb error "
+        "in the rate, not the cost of prefilling. The rate was the thing to fix, not this "
+        "value: failure tracks the rate's source (JOURNAL 2026-09-18).",
     )
     reply_budget_floor: int = _f(
         4096,
@@ -408,23 +394,20 @@ class Config:
     keep_tool_results: int = _f(
         16,
         "Floor on how many recent tool results stay intact, and the quantity the eviction "
-        "boundary steps by. No longer what decides that eviction happens -- "
-        "retained_tool_result_tokens does that, because a count prices a one-line refusal "
-        "and a 50KB file identically and those are both real results from one run "
-        "(ADR-0079). It survives as the floor because the newest results are the ones the "
-        "model is working from, and as the step because a boundary that moves every turn "
-        "costs the prefix cache everything after it (ADR-0056).",
+        "boundary steps by. Eviction is decided by retained_tool_result_tokens, because a "
+        "count prices a one-line refusal and a 50KB file identically (ADR-0079). It is "
+        "the floor because the newest results are the ones the model works "
+        "from, and as the step because a boundary that moves every turn costs the prefix "
+        "cache everything after it (ADR-0056).",
     )
     retained_tool_result_tokens: int = _f(
         55_000,
         "How much of the history's tool output stays intact, in the unit that actually "
         "fills a context window. The oldest results are stubbed, newest-last, until what "
-        "remains fits this. Sized to retain about what a count of 16 retained on the run "
-        "that produced the measurement: 36 results holding roughly 104,730 estimated "
-        "tokens, of which 16 was 5.25% of a 1,048,576-token window. Deliberately an "
-        "absolute number rather than a share of the window, because the window is "
-        "ModelEntry.context_window and that is a silent default whenever models.toml omits "
-        "it -- a fraction of a number nobody chose is not a measurement.",
+        "remains fits this. Deliberately an absolute number rather than a share of the "
+        "window, because the window is ModelEntry.context_window, a silent default "
+        "whenever models.toml omits it -- a fraction of a number nobody chose is not a "
+        "measurement (ADR-0079).",
         unit="est. tokens",
     )
 
@@ -511,46 +494,29 @@ class Config:
         14400,
         "Whole-delegation ceiling, spanning every retry and every empty-answer recovery "
         "stage. An absolute bound on work that is still producing, and nothing more: a "
-        "delegation that has STOPPED producing is bounded by stall_timeout instead, far "
-        "below this. Raised from 3600 once that existed (ADR-0047). The old value was "
-        "sized against Claude Code's 30-minute stdio idle timeout, which ADR-0018's "
-        "per-turn notification stopped letting bind, and nothing re-derived it when that "
-        "changed -- so an hour was the price of a wedged run. This bounds the wait, not "
-        "the client's patience.",
+        "delegation that has stopped producing is bounded by stall_timeout instead, far "
+        "below this (ADR-0047). Bounds the wait, not the client's patience.",
         unit="seconds",
     )
     stall_timeout: int = _f(
         900,
         "No-progress deadline: how long a delegation may run without a frame arriving "
         "from the endpoint. Distinct from dispatch_timeout, which bounds total time and "
-        "cannot tell a delegation that is merely long from one that is wedged -- the case "
-        "that needs killing from the case that must not be. Fifteen minutes because the "
-        "silence it measures is the endpoint having stopped, not the model thinking: the "
-        "longest gap between frames measured here is 0.3s at every effort level, and a "
-        "running tool cannot trip it either. One silence is NOT decode, and it is what "
-        "sizes this setting: prefill produces no frame at all and is linear in prompt "
-        "size, and a prompt queued behind other cold prefills waits silent too. So the "
-        "budget must cover the largest first turns arriving together; "
-        "max_total_prefetch_tokens says how the two relate. Refused only above "
-        "dispatch_timeout, where "
-        "it could never fire; the old lower bound against turn_timeout belonged to "
-        "ADR-0047's turn-completion signal and went with it (ADR-0072, ADR-0099). It is "
-        "also the httpx read budget, so it bounds silence at the socket as well as "
-        "across the turn.",
+        "cannot tell a merely long delegation from a wedged one (ADR-0047). Silence is "
+        "the endpoint having stopped, not the model thinking: a running tool cannot trip "
+        "it, and prefill produces no frame. Refused only above dispatch_timeout, where it "
+        "could never fire (ADR-0099). Also the httpx read budget, so it bounds silence at "
+        "the socket too.",
         unit="seconds",
     )
     keepalive_interval: int = _f(
         60,
-        "How often a one-shot delegation reports that it is still running, to the client "
-        "as a progress notification and to the transcript as an `alive` event, and how "
-        "often a `collect` still waiting reports to the client. The loop "
-        "reports once per turn (ADR-0018) and a one-shot has no turns, so without this it "
-        "is silent for its whole duration -- which is the one call shape that can still "
-        "reach the client's stdio idle timeout and be abandoned while working. That "
-        "abandonment was measured on 2026-09-01: nothing reaches the server, so it keeps "
-        "the admission slot until the work ends on its own. Refused at startup above half "
-        "the idle timeout for that reason. It is not a deadline, and nothing is cancelled "
-        "when the interval passes.",
+        "How often a one-shot delegation reports it is still running, to the client as a "
+        "progress notification and to the transcript as an `alive` event, and how often a "
+        "`collect` still waiting reports to the client. The loop reports once per turn "
+        "(ADR-0018), and a one-shot has no turns, so without this it can be abandoned at "
+        "the client's stdio idle timeout while still holding its admission slot. Refused "
+        "at startup above half the idle timeout. Not a deadline.",
         unit="seconds",
     )
     retry_max_attempts: int = _f(3, "Attempts on a retryable backend status.")
@@ -588,30 +554,21 @@ class Config:
     admission_starvation_grace: float = _f(
         30.0,
         "How long a waiter may be passed over before it starts counting as ahead of "
-        "later arrivals even while it cannot yet run. Queue position normally ignores a "
-        "waiter no rule would currently admit, so that one request blocked on capacity "
-        "does not block everything behind it -- but a waiter needing more of a shared "
-        "budget than its successors is then never feasible at the moment they ask, and "
-        "is passed over for as long as they keep arriving. Past this, it becomes a "
-        "barrier: arrivals queue behind it, the in-flight work drains, and the budget "
-        "falls to it. Zero disables the barrier and restores indefinite overtaking.",
+        "later arrivals even while it cannot yet run. A waiter needing more of a shared "
+        "budget than its successors is otherwise never feasible when they ask, and is "
+        "passed over as long as they keep arriving. Past this it becomes a barrier: "
+        "arrivals queue behind it, in-flight work drains, and the budget falls to it. "
+        "Zero disables the barrier and restores indefinite overtaking (ADR-0068).",
         unit="seconds",
     )
     admission_idle_hold: float = _f(
         10.0,
         "Length of the quiet window a delegation waits out after taking its slot, but only "
         "when it found the gate idle, so that a burst arriving behind it is counted before "
-        "its concurrency is recorded. A burst's first member otherwise sees nothing in "
-        "flight and labels itself solo microseconds before five siblings arrive, and that "
-        "label is what the rate memory is keyed by. The wait is a debounce rather than a "
-        "fixed hold, because a client staggers a fan-out across more than one window: it "
-        "repeats while siblings keep arriving, and ends at the first window none does. A "
-        "full gate ends it immediately, having already reported the burst's size, which is "
-        "what bounds the wait without a second setting. Costs nothing when concurrency is "
-        "already known, because a non-idle gate skips it, and a call with no burst behind "
-        "it pays exactly one window. 0 disables the hold AND the bucketing it pays for: "
-        "without it the label cannot be trusted and the rate memory falls back to the "
-        "worst sample at that concurrency or busier.",
+        "its concurrency is recorded. The wait is a debounce, repeating while siblings "
+        "keep arriving and ending at the first window none does; a full gate ends it "
+        "immediately. 0 disables the hold and the bucketing it pays for, leaving the label "
+        "untrusted (ADR-0085, ADR-0088).",
         unit="seconds",
     )
     admission_wait_timeout: int = _f(
@@ -619,41 +576,31 @@ class Config:
         "Bound on time spent waiting for a slot, or 0 to wait for as long as the work "
         "ahead takes. 0 is the default because a bail-out here can only turn slow into "
         "failed: the wait runs before dispatch_timeout starts its own clock, so the two "
-        "stack rather than divide one budget, and a waiter that reaches the head still "
-        "gets its whole allowance. Refusing it produces nothing, where waiting produces "
-        "the answer late. This setting was already carrying that lesson at a smaller "
-        "scale -- it was raised from 600 because 600s refused requests that would have "
-        "run -- and 1800 did the same to eight of a fourteen-wide fan-out on 2026-09-17, "
-        "every one of them at the full timeout with nothing to show. What bounds the "
-        "wait instead is the queue: admission is first-come-first-served, "
-        "admission_starvation_grace ages a passed-over waiter into the barrier, and "
-        "dispatch_timeout bounds how long each slot ahead can be held. Set a positive "
-        "value to cap it anyway, which is an operator's call about latency rather than "
-        "about safety. backend_status reports the longest wait seen, how many hit this "
-        "limit, and how deep the queue is (ADR-0093).",
+        "stack rather than divide one budget. What bounds the wait instead is the queue. "
+        "Set a positive value to cap it anyway, an operator's call about latency rather "
+        "than safety (ADR-0093).",
         unit="seconds",
     )
 
     cross_process_slots: bool = _f(
         True,
         "Count the four admission rules against every server process on this machine "
-        "rather than against this one alone. On by default because the default transport "
-        "is stdio, which gives each connected client its own server process: with this "
-        "off, every rule above bounds one editor window, and the cluster sees the "
-        "configured limit multiplied by however many windows are open. Turning it off is "
-        "only correct where this really is the sole process against the endpoint. Needs a "
-        "POSIX filesystem lock, so it is inert on Windows -- backend_status reports "
-        "whether it is actually active, and never assumes it is. See ADR-0040.",
+        "rather than against this one alone. On by default because stdio gives each "
+        "connected client its own server process: with this off, every rule bounds one "
+        "editor window, and the cluster sees the configured limit multiplied by however "
+        "many windows are open. Off is only correct where this is the sole process against "
+        "the endpoint. Needs a POSIX filesystem lock, so it is inert on Windows "
+        "(ADR-0040).",
     )
     slots_dir: str = _f(
         "",
         "Directory holding the shared admission counters. Empty means XDG_RUNTIME_DIR, "
         "falling back to /dev/shm -- both tmpfs, which is what makes losing the file on "
         "reboot correct rather than lossy. Set it only to separate installations that "
-        "must not share a budget, such as two checkouts pointed at genuinely different "
-        "clusters; two projects sharing one cluster must share one directory, which is "
-        "the default and needs no configuration. Never put this on /mnt/c: locking "
-        "across the Windows drive boundary is not dependable (ADR-0020).",
+        "must not share a budget, such as two checkouts pointed at different clusters; two "
+        "projects sharing one cluster must share one directory. Never put this on /mnt/c, "
+        "where locking across the Windows drive boundary is not dependable (ADR-0040, "
+        "ADR-0020).",
     )
 
     rate_history_dir: str = _f(
@@ -668,16 +615,12 @@ class Config:
     rate_fallback_tok_s: float = _f(
         10.0,
         "Decode rate assumed when the rate memory has nothing at this concurrency or "
-        "busier. Only the empty case: a bucket with samples always answers from them. "
-        "It replaces the endpoint's since-boot figure, which is a blend over every "
-        "regime the engine has served and was measured 41.7% over (ADR-0094) and 1.745x "
-        "over. Optimistic is the dangerous direction -- it authorises a reply the clock "
-        "cannot deliver, so the turn dies with nothing, where under-pricing truncates "
-        "and something comes back. Ten because the operator benchmark's worst measured "
-        "figure is just under 20 tok/s at six-wide, so this sits below every rate this "
-        "deployment has been seen to achieve rather than being invented. It is a floor "
-        "to start from, not an estimate to keep: the sampler files a real one within a "
-        "scrape or two of any load. Zero restores the since-boot fallthrough.",
+        "busier. Only the empty case: a bucket with samples always answers from them. It "
+        "replaces the endpoint's since-boot figure, a blend over every regime the engine "
+        "has served, and optimistic is the dangerous direction -- it authorises a reply "
+        "the clock cannot deliver, where under-pricing truncates. It is a floor to start "
+        "from, not an estimate to keep. Zero restores the since-boot fallthrough "
+        "(ADR-0101, ADR-0094).",
         unit="tokens/second",
     )
     rate_sample_seconds: float = _f(
@@ -685,17 +628,9 @@ class Config:
         "How often the decode rate is sampled from the cluster while anything is in "
         "flight. On a ticker rather than once per completed turn, because a per-turn "
         "sample files one reading per stream: six streams put six samples on one moment, "
-        "so a six-wide bucket remembers a sixth as long in wall-clock terms as a narrow "
-        "one and the buckets stop being comparable. One sample per scrape makes every "
-        "bucket span the same number of moments whatever the fan-out. Ten seconds because "
-        "four things have to hold at once: at the six-way rate a ten-second window "
-        "differences on the order of a thousand generated tokens, so the counter's "
-        "granularity cannot dominate the quotient; frames arrive far more often than this, "
-        "so no producing stream is missed; it is admission_idle_hold's scale, so a burst "
-        "has settled into its real width before its first sample is filed; and a "
-        "minute-long turn contributes six samples rather than one, which is what gives a "
-        "full bucket roughly ten minutes of memory at every width. 0 disables sampling and "
-        "leaves the memory fed by completed turns alone.",
+        "so a six-wide bucket would remember a sixth as long in wall-clock terms as a "
+        "narrow one and the buckets stop being comparable. 0 disables sampling and leaves "
+        "the memory fed by completed turns alone.",
         unit="seconds",
     )
 
@@ -716,8 +651,7 @@ class Config:
         "path, so a key renamed config.json passes all of them. Narrow by design -- PEM "
         "headers and the PuTTY one, never a general secret scanner, which would fire on "
         "the sources a review delegation exists to read. 0 disables both the read check "
-        "and the sandbox's content shadowing. Raising it costs one read per file the "
-        "sandbox walk reaches (ADR-0096).",
+        "and the sandbox's content shadowing (ADR-0096).",
     )
 
     opaque_globs_file: str = _f(
@@ -733,20 +667,12 @@ class Config:
     # ---- operator transcript (ADR-0024) ------------------------------------------
     transcript_dir: str = _f(
         "",
-        "Directory to write one record per dispatch into. Empty disables it, and empty "
-        "is the default. Given in either form -- a Windows path is translated like every "
-        "other path setting, which until 2026-09-07 it was not, and an untranslated one "
-        "is a relative filename rather than an error. "
-        "Independent of the caller's `diagnostics` argument by design: "
-        "what an operator can audit should not depend on what the calling session "
-        "thought to ask for. Setting it must not change a single byte of any response. "
-        "Records carry the task, the files and their accounting, real token usage and "
-        "the server-captured ledger -- but never file contents, which are recoverable "
-        "from the repository by path and are the only bulky part. Where they land is a "
-        "trade rather than a rule, and both directions cost something: a synchronised or "
-        "backed-up directory sends the task text off this machine on someone else's "
-        "schedule, while a directory inside the WSL distribution dies with it and /mnt/c "
-        "survives -- so the durable choice and the leaky one can be the same choice.",
+        "Directory to write one record per dispatch into. Empty disables it. Independent "
+        "of the caller's `diagnostics` argument, and setting it must not change a single "
+        "byte of any response. Records carry the task, files, accounting, token usage and "
+        "the ledger, but never file contents, which are recoverable by path (ADR-0039). "
+        "Where they land is a trade: a synchronised directory sends the task text off this "
+        "machine, while one inside the WSL distribution dies with it (ADR-0024, ADR-0086).",
     )
 
     ledger_path: str = _f(
@@ -853,10 +779,9 @@ class Config:
         "Roots an agent file's extra_binds may resolve inside, separated by os.pathsep. "
         "Empty means no agent-supplied bind is ever permitted. Deliberately does not fall "
         "back to workspace_roots the way workdir_roots does: those roots are sized for "
-        "showing a file's contents, not for granting a mount, and the two of them being "
-        "the same list is how one widened for a reading tool would silently widen this. "
-        "Written as sandbox-side POSIX paths, because that is what a bind is. An "
-        "operator's own toolchain_binds are not checked against this.",
+        "showing a file's contents, not for granting a mount, and the two being the same "
+        "list is how one widened for a reading tool would silently widen this. An "
+        "operator's own toolchain_binds are not checked against this (ADR-0053).",
     )
     agent_network_allowed: tuple[str, ...] = _f(
         (),
@@ -873,10 +798,8 @@ class Config:
         f"One of {TRANSPORTS}, and anything else is refused at load rather than starting "
         "a server. Adding the HTTP transport is a real integration task, not a flag flip: "
         "session handling and content serialisation differ, and nothing here issues or "
-        "checks a token, so it would serve unauthenticated. Kept as a setting, unlike "
-        "ADR-0034's sandbox_enabled, because naming another transport should be an error "
-        "rather than silence -- load() reads only variables matching a field, so deleting "
-        "this one would make a stale value do nothing without saying so.",
+        "checks a token, so it would serve unauthenticated. Kept as a setting because "
+        "naming another transport should be an error rather than silence (ADR-0034).",
     )
 
     # ---------------------------------------------------------------------------
@@ -981,8 +904,9 @@ class Config:
         if not 0.0 < self.reply_budget_margin <= 1.0:
             raise ConfigError(
                 f"DELEGATE_REPLY_BUDGET_MARGIN ({self.reply_budget_margin}) must be "
-                "greater than 0 and at most 1. It is the share of the stall deadline a "
-                "reply may spend decoding: at 0 no budget survives the cap, and above 1 "
+                "greater than 0 and at most 1. It is the share of the delegation's "
+                "remaining time a reply may spend decoding: at 0 no budget survives the "
+                "cap, and above 1 "
                 "the cap would permit a reply the deadline cannot deliver, which is the "
                 "defect it exists to prevent (ADR-0055)."
             )

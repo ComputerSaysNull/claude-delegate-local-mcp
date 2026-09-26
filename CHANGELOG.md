@@ -30,6 +30,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #374 — 2026-09-26 — docs: every Config description says what the setting does
+
+### Changed
+
+- **Eighteen `Config` descriptions ran past 80 words, some past 200.** People read them
+  twice, in CONFIGURATION.md and in `--init`'s prompts, and they had grown into
+  measurement narratives, which CONTRIBUTING's "Prose" rules send to JOURNAL, with the
+  reason linked from an ADR. Each now says what the setting controls, what too high or too
+  low does, any limit it is refused at, and the ADR or JOURNAL entry that holds why. A new
+  test keeps every description at 80 words or fewer; red first, 18 failed. No default,
+  unit or code moved.
+- **`.env.example` says its values are examples.** Two had drifted from the defaults
+  (`MAX_INFLIGHT_SEQS=5` against 6, `DISPATCH_TIMEOUT=3600` against 14400) and read as
+  though they were the defaults.
+
+### Fixed
+
+- **The error for a bad `reply_budget_margin` described the budget as "the share of the
+  stall deadline".** It has been the share of the delegation's remaining time since
+  ADR-0099, which the setting's own description now says. The refusal now says the same.
+
 ## #373 — 2026-09-26 — feat: the prefetch budget is 200k, with a warning on raising it
 
 ### Changed
