@@ -214,7 +214,7 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
   with docstrings stripped is identical before and after. Negative-tested on one literal
 4. ⬜ **One comment pass per module, largest first** (review §4)
     - a. ✅ 2026-09-26 `loop.py`, which has more prose than code.
-    - b. ⬜ `server.py`.
+    - b. ✅ 2026-09-26 `server.py`.
     - c. ⬜ `sandbox.py`, cutting history but keeping its security reasoning.
     - d. ⬜ `paths.py`, likewise.
     - e. ⬜ `tools.py`.
