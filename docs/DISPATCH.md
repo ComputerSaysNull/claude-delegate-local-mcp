@@ -700,9 +700,9 @@ result block, never parsed back out of the text the model also reads: a trailer 
 prose stops firing the day the wording changes, and nothing reports that it stopped.
 
 `bash_masked_failures` counts calls where a command failed before the last one and the
-status does not say so, and is added to `bash_failures` too: that field accumulates across
-the delegation, and until ADR-0095 its `exit_code != 0` term missed the case entirely — a
-delegation whose third command failed inside a compound line reported `bash_failures: 0`.
+status does not say so, and is added to `bash_failures` too, since that field accumulates
+across the delegation (ADR-0095). A masked pipeline is not counted: one with a failed stage
+is recorded as `stages` on the call's transcript record, each stage's command and status.
 Never applied to `last_bash_exit`, which every call that ran overwrites. `failed_calls` counts
 each failing call once: a command that exits non-zero is in both `tool_errors` and
 `bash_failures`, and a masked one only in the second, so no sum of the two is a count.
