@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #373 — 2026-09-26 — feat: the prefetch budget is 200k, with a warning on raising it
+
+### Changed
+
+- **`max_total_prefetch_tokens` and `max_file_tokens` go from 140k to 200k.** The 140k
+  figure rested on nothing measured (PLAN U.91), and it refused files a call could easily
+  hold: `DECISIONS.md` plus three source modules, about 178k tokens, lost `loop.py` and
+  `server.py` to the budget. JOURNAL 2026-09-25 showed a long prompt costs prefill and
+  never decode speed, and 2026-09-26 showed what the real cost is: a cold prefill, and
+  time queued behind others, is silence `stall_timeout` counts. So the descriptions now
+  say it: `max_inflight_seqs` calls prefetching a full budget at once can wait about
+  seats × budget ÷ 1,300 tok/s, and six full 200k budgets together would just pass the
+  900s default. That case is unlikely, so the default rises and the warning says to lower
+  it when raising concurrency. `.env.example` now names both settings, and
+  `stall_timeout`'s description drops a stale 1,060 tok/s figure. Checked live through
+  the `run` CLI: the 178k set skipped two files at 140k and was served whole at 200k.
+
 ## #372 — 2026-09-26 — docs: tools.py's comments describe what is
 
 ### Changed

@@ -233,27 +233,24 @@ class Config:
 
     # ---- files[] prefetch (ADR-0015, revised by ADR-0019) ------------------------
     max_file_tokens: int = _f(
-        140000,
-        "Per-file prefetch cap, in ESTIMATED TOKENS rather than bytes. Bytes were the "
-        "wrong unit: the same byte limit is worth 2x more tokens for JSON than for "
-        "Python. A file over the cap is skipped whole, never truncated -- source cut "
-        "mid-function is worse than absent, because the model will confidently repair "
-        "code it never saw. Equal to max_total_prefetch_tokens by default, so no file is "
-        "dropped for being large while the budget it would have fitted in sits unused "
-        "(ADR-0046): the largest documents are the ones most likely to have drifted, and "
-        "a cap that removes them is a cap that removes what an audit came for. Lower it "
-        "to refuse one huge file while still allowing a large total; that is the only "
-        "job it has left, because fairness between concurrent requests belongs to "
-        "admission control, which counts it across every process on the machine.",
+        200000,
+        "Per-file prefetch cap, in estimated tokens. A file over it is skipped whole, "
+        "never truncated: source cut mid-function is worse than absent. Equal to "
+        "max_total_prefetch_tokens by default, so no file is dropped while the budget it "
+        "would fit in sits unused (ADR-0046). Lower it only to refuse one huge file while "
+        "still allowing a large total. Raising it past max_total_prefetch_tokens is "
+        "refused, and the warning on that setting applies to this one too.",
         unit="est. tokens",
     )
     max_total_prefetch_tokens: int = _f(
-        140000,
-        "Total files[] budget per call, in estimated tokens. Measured prefill runs "
-        "1900-2600 tok/s, so this is about 55s before the model says a word -- paid once "
-        "per distinct prefix, since the cluster caches prefixes and the prompt is "
-        "ordered to keep them stable. Well inside a 1M window, and small enough that one "
-        "request cannot monopolise a shared KV pool.",
+        200000,
+        "Total files[] budget per call, in estimated tokens. Too high has a cost: a cold "
+        "prompt's prefill is silence that stall_timeout counts, including time queued "
+        "behind other cold prefills, so max_inflight_seqs calls prefetching this much at "
+        "once can wait about seats x this / 1,300 tok/s before the last one's first token "
+        "-- six full budgets at the defaults would just pass stall_timeout. Keep that "
+        "under stall_timeout, and lower this when you raise max_inflight_seqs. Measured "
+        "in JOURNAL 2026-09-26.",
         unit="est. tokens",
     )
     max_file_read_bytes: int = _f(
@@ -532,10 +529,10 @@ class Config:
         "longest gap between frames measured here is 0.3s at every effort level, and a "
         "running tool cannot trip it either. One silence is NOT decode, and it is what "
         "sizes this setting: prefill produces no frame at all and is linear in prompt "
-        "size, measured at about 1,060 tok/s. So the budget must cover the largest first "
-        "turn -- roughly 130s at the 140k default prefetch budget, and 900s is only "
-        "reached by a prompt near 950k, which is most of the context window. Raise this "
-        "alongside max_total_prefetch_tokens. Refused only above dispatch_timeout, where "
+        "size, and a prompt queued behind other cold prefills waits silent too. So the "
+        "budget must cover the largest first turns arriving together; "
+        "max_total_prefetch_tokens says how the two relate. Refused only above "
+        "dispatch_timeout, where "
         "it could never fire; the old lower bound against turn_timeout belonged to "
         "ADR-0047's turn-completion signal and went with it (ADR-0072, ADR-0099). It is "
         "also the httpx read budget, so it bounds silence at the socket as well as "
