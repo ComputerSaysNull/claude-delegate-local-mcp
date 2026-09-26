@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #370 — 2026-09-26 — docs: loop.py's comments describe what is
+
+### Changed
+
+- **`loop.py`'s comments and docstrings no longer narrate how the code got here.** The
+  module held more prose than code, much of it dated incidents, measurement figures,
+  PR numbers and "used to" histories, which CONTRIBUTING's "Prose" rules send to
+  CHANGELOG and JOURNAL. Each reason survives in the present tense with its ADR linked.
+  Checked: `scripts/ast_unchanged.py` reads the module as unchanged, so no code moved.
+  Drafted by the local model in four passes, then reviewed. Review turned a handful of
+  "without this, X would happen" sentences back from the "X happens" the rewrite had made
+  of them, which would have described fixed bugs as live.
+
 ## #369 — 2026-09-26 — fix: the countdown names the deadline that can fire while a tool runs
 
 ### Fixed

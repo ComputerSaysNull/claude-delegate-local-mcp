@@ -11,12 +11,10 @@ This is the only place in the project that *interprets* what a backend handed ba
 is why the adapter below goes on passing `finish_reason`, the token counts and the raw
 `Retry-After` string through untouched. One layer decides; the other translates.
 
-What this module already owned, and still does, is resolution -- which model, which
-effort, which budget -- because that has to happen exactly once and be sent explicitly,
-and assembly: the order of the parts of the prompt, which is load-bearing for the
-cluster's prefix cache and so is decided here rather than wherever a part happens to be
-produced. M2 grew this file with the files block; M4 grows it again rather than
-replacing it.
+This module owns resolution -- which model, which effort, which budget -- because that
+has to happen exactly once and be sent explicitly, and assembly: the order of the parts
+of the prompt, which is load-bearing for the cluster's prefix cache and so is decided
+here rather than wherever a part happens to be produced.
 """
 
 from __future__ import annotations
@@ -178,10 +176,9 @@ class DispatchTimedOut(Exception):
                  last_tool: str | None = None) -> None:
         self.elapsed = elapsed
         self.limit = limit
-        # `stage` carries its own preposition. It used to be interpolated after a literal
-        # "while", which read correctly for the three waiting stages and produced "while
-        # with no turn completed" for the stall -- the one message a reader is most likely
-        # to be staring at.
+        # `stage` carries its own preposition, so it reads correctly for the three
+        # waiting stages and does not produce "while with no turn completed" for the
+        # stall -- the one message a reader is most likely to be staring at.
         self.stage = stage
         self.setting = setting
         # The remedy is a parameter because it stopped being one sentence. "Raise that
@@ -252,11 +249,10 @@ class Delegation:
 
     A value object rather than three parameters, because these are the parts of one prompt
     and the order they go in is load-bearing (ADR-0011). `render` is what keeps that rule in
-    one place. It has to be a method rather than a convention: the parked version of this
-    docstring claimed the ordering lived in exactly one place while two call sites -- the
-    one-shot builder and the turn loop -- each concatenated the parts themselves, and the
-    agent body would have been a third segment to add to both. Two sites that must agree and
-    are not made to are a drift waiting to happen.
+    one place. It has to be a method rather than a convention, because two call sites that
+    must agree and are not made to are a drift waiting to happen: the one-shot builder and
+    the turn loop each concatenate the parts themselves, and the agent body would be a third
+    segment to add to both.
     """
 
     task: str
@@ -299,17 +295,12 @@ def resolve_effort(cfg: Config, entry: ModelEntry, explicit: str | None = None) 
 # quantity: `decode_seconds`, last token minus first, with prefill and queueing outside it.
 # Whether a sample describes the decoder is therefore a property of the sample, not of who
 # is asking -- average-versus-minimum decides how a bad one propagates, never whether it is
-# one. ADR-0071 held the two apart at 64 and 512 on the opposite reasoning, correctly, while
-# the denominator still contained prefill and a short turn read *slow*.
+# one (ADR-0071).
 #
 # Sized from the deployment's own decode benchmark rather than from an incident. That
 # benchmark measures stable per-stream rates with a 400-token cap, so a few hundred tokens
-# is enough to describe the decoder; this sits just above it. Either side of that line,
-# measured 2026-09-13 by recovering each turn's own sample from the next turn's `priced`
-# event: turns of 105-119 tokens read 91-106 tok/s against a benchmarked 44.1 alone, while
-# turns of 438-1478 tokens read 45-52. The short ones are not noisy, they are wrong in one
-# direction, so an average that decays does not survive them -- across 24 such turns the
-# estimate climbed 19.57 to 88.53 and never fell back.
+# is enough to describe the decoder; this sits just above it. A short turn is wrong in one
+# direction rather than noisy, so an average that decays does not survive it.
 MIN_MEASURABLE_TOKENS = 512
 MIN_MEASURABLE_SECONDS = 1.0
 
@@ -319,9 +310,7 @@ class DecodeRate:
 
     ADR-0055. The reply budget has to be denominated in seconds before it can be compared
     with a deadline, and the exchange rate is a property of the deployment rather than of
-    the code: it moved twice in the week this was written, once because the served model
-    was swapped and once because the cluster's configuration was pulled. So it is measured
-    and never configured.
+    the code, so it is measured and never configured.
 
     Two sources, in this order, because neither alone covers the case that kills a
     delegation:
@@ -410,15 +399,13 @@ class DecodeRate:
 def budget_seconds(cfg: Config, *, dispatch_left: float) -> float:
     """Seconds the reply about to be asked for can actually be delivered in.
 
-    One bound, the delegation deadline. `turn_timeout` was the second and is retired
-    (ADR-0100): it was never paying for its place. Doubling it from 1800 to 3600 moved
-    the ceiling from 18,905 to 31,793 and bought 347 more seconds and 111 more tokens,
-    because nothing bounds reasoning except the token cap the answer shares -- so the
-    extra room enlarged the wasted attempt rather than the reply (JOURNAL 2026-09-20).
+    One bound, the delegation deadline. `turn_timeout` is not one (ADR-0100): nothing
+    bounds reasoning except the token cap the answer shares, so a longer call-length
+    ceiling would enlarge the wasted attempt rather than the reply.
 
     What a call-length ceiling was believed to guard is a wedged call, and the stall clock
     already guards it, better: a stream that is producing emits frames 0.4s apart or
-    better, so a wedged call is *silent*, and silence is the thing stall was built to
+    better, so a wedged call is *silent*, and silence is the thing stall is built to
     measure. A ceiling can only ask how long the call has run, which a slow but healthy
     call answers the same way a dead one does.
 
@@ -442,25 +429,16 @@ class RateHistory:
     fitted to rate-against-concurrency would be a constant baked to one deployment's
     hardware, which is the mistake PLAN.md already records against `kv_token_budget`.
 
-    Keyed by how contended the turn was, because the rate is not one number. Measured on
-    this cluster: prose decodes at 44.1 tok/s alone and 19.4 at six concurrent. Asking for
+    Keyed by how contended the turn was, because the rate is not one number. Asking for
     "the rate" without saying at what concurrency is asking a question with six answers.
 
     `expect` returns a bucket's **median**, and then the worst of those medians across the
     buckets at that concurrency or above. The pessimism therefore lives between buckets,
     where it is the sound part -- contention only slows a stream -- and not inside one,
-    where it was a sampling artefact. Measured 2026-09-20: at every well-populated
-    concurrency the bucket mean matched the operator benchmark to within 1-3% while the
-    bucket minimum sat 24-71% below it, and the minimum gets *worse* as a bucket fills,
-    because the more moments are kept the likelier one of them is the slowest minute the
-    cluster had. A mean is pulled down the same way, by its slow outliers rather than its
-    worst: samples down to 0.75 tok/s in a bucket whose median was 29 dragged the mean
-    2-14% below it, so every turn was priced a smaller budget than the cluster delivered.
-    A median ignores those outliers and does not move with the sample count the way a
-    minimum does. An under-priced rate is not free: 31 of 953 recorded turns ended with
-    `output_tokens` exactly equal to `budget_ceiling`, every one of them a large answer,
-    so the budget genuinely binds and pricing it low truncates the biggest replies the
-    server produces.
+    where it was a sampling artefact. A median ignores the slow outliers that drag a mean
+    down and does not move with the sample count the way a minimum does. An under-priced
+    rate is not free: the budget genuinely binds on the largest answers, so pricing it low
+    truncates the biggest replies the server produces.
     """
 
     # Enough to outlast one fan-out and forget a cluster that has since been reconfigured.
@@ -469,13 +447,13 @@ class RateHistory:
     #
     # Counted in *moments* since the sampler files one reading per scrape rather than one
     # per stream, so this is the same span of wall-clock memory at every fan-out width.
-    # Per completed turn it was not: six streams filed six samples on one moment, so a
-    # six-wide bucket held a sixth of the history a solo bucket did and the two were not
+    # Per completed turn it was not: six streams file six samples on one moment, so a
+    # six-wide bucket holds a sixth of the history a solo bucket does and the two are not
     # comparable numbers.
     DEFAULT_KEEP = 64
 
-    # The same test `DecodeRate` applies, and shared rather than restated so the two
-    # cannot drift apart again. Why one constant now serves both is above the definition.
+    # The same test `DecodeRate` applies, shared rather than restated so the two cannot
+    # drift apart. Why one constant serves both is above the definition.
     MIN_TOKENS = MIN_MEASURABLE_TOKENS
     MIN_SECONDS = MIN_MEASURABLE_SECONDS
 
@@ -494,25 +472,20 @@ class RateHistory:
     ) -> None:
         """`path` makes the memory outlive this process; without one it is unchanged.
 
-        The file is durable, and `slots.rate_history_path` decides where. tmpfs was the
-        home until 2026-09-19 on the argument that discarding on a reboot is correct,
-        because a rate describes hardware that may have changed. ADR-0094 reverses that:
-        a stale rate is diluted by the samples that follow it and the buckets are capped,
-        so being wrong about the hardware costs a bucket's worth of samples, where the
-        cold start it left behind costs every dispatch until the memory refills. `stamp`
-        still covers a model swap.
+        The file is durable, and `slots.rate_history_path` decides where. A stale rate is
+        diluted by the samples that follow it and the buckets are capped, so being wrong
+        about the hardware costs a bucket's worth of samples, where a cold start costs every
+        dispatch until the memory refills (ADR-0094). `stamp` still covers a model swap.
 
         Never a hard dependency. Every failure below leaves an empty memory rather than
         raising, because the worst this can cost is the pricing it was already missing.
         """
         self._keep = max(1, keep)
-        # One bucket per concurrency, each capped on its own. A single shared deque
-        # evicted by recency spent its whole capacity on whichever regime was busiest
-        # *lately*, so thirteen five-wide dispatches walked out the six-way reading that
-        # was the only thing pricing a six-way call honestly -- the memory got worse the
-        # more it was used. The cap moves here rather than going: unbounded would be a
-        # slow leak in a process that runs for days, and would let one ancient sample keep
-        # a vote in a bucket for the life of the server.
+        # One bucket per concurrency, each capped on its own. A single shared deque evicted
+        # by recency would spend its whole capacity on whichever regime was busiest *lately*,
+        # walking out the reading that prices a quieter regime honestly. The cap moves here
+        # rather than going: unbounded would be a slow leak in a process that runs for days,
+        # and would let one ancient sample keep a vote in a bucket for the life of the server.
         self._seen: dict[int, deque[float]] = {}
         self._path = path
         self._stamp = stamp
@@ -532,9 +505,8 @@ class RateHistory:
 
         `expect` answers with a statistic, and a statistic cannot say how many moments it
         was taken over -- which is the quantity this whole mechanism is about, since a
-        bucket filled one reading per stream covered a sixth of the wall clock a solo
-        bucket did. A reader that needs the count should not have to reach into `_seen`
-        for it.
+        bucket filled one reading per stream spans a sixth of the wall clock a solo bucket
+        spans. A reader that needs the count should not have to reach into `_seen` for it.
         """
         return tuple(self._seen.get(max(int(concurrency), 1)) or ())
 
@@ -573,7 +545,7 @@ class RateHistory:
                 continue
             kept.append((seen_at, float(rate)))
         # Not truncated here. The caller files each pair into its own bucket, which is
-        # where the cap now lives -- trimming the tail globally would reinstate exactly
+        # where the cap lives -- trimming the tail globally would reinstate exactly
         # the cross-concurrency eviction the buckets exist to stop, at load time.
         return kept
 
@@ -583,11 +555,10 @@ class RateHistory:
         stdio gives every connected client a process of its own (ADR-0040), so two can
         share this file. Writing only what this process has seen would drop the other's
         samples, and a bucket priced at its median is only as good as how many moments it
-        holds. Merged as a set, and that stays right now the statistic counts duplicates:
-        two byte-identical float rates at one concurrency are a sample this process
-        already read back from the file far more often than they are two separate
-        measurements that happened to agree, so counting the copy would weight one moment
-        twice on every write.
+        holds. Merged as a set, and that stays right: two byte-identical float rates at one
+        concurrency are a sample this process read back from the file far more often than
+        they are two separate measurements that happened to agree, so counting the copy
+        would weight one moment twice on every write.
 
         Written to a sibling and renamed, so a reader never sees a half-written file.
         """
@@ -687,13 +658,11 @@ class RateHistory:
 
         `trusted` says whether the label can be believed, and defaults to no. Untrusted, a
         question is answered from every sample at that concurrency *or busier* -- which is
-        pessimistic on purpose and is what protects a burst's first member, the call that
-        finds the gate empty, labels itself solo, and then decodes at six-way. Measured
-        2026-09-15 that protection costs 4.0x: 10.95 tok/s returned at concurrency 1, 2 and
-        3 alike against a 44.1 solo benchmark.
+        pessimistic on purpose and protects a burst's first member, the call that finds
+        the gate empty, labels itself solo, and then decodes at six-way.
 
-        Trusted, the bucket is preferred and the widening becomes the fallback it was always
-        sound as. Only `admission_idle_hold` can make it true, by waiting long enough for a
+        Trusted, the bucket is preferred and the widening becomes the fallback it is sound
+        as. Only `admission_idle_hold` can make it true, by waiting long enough for a
         burst to arrive before the label is recorded -- which is why that setting disables
         both halves at once and why this one cannot be turned on by itself (ADR-0085).
 
@@ -704,16 +673,14 @@ class RateHistory:
         past anything six-way was ever measured at. Taking the minimum *of the medians*
         keeps the one direction that is sound -- a busier bucket bounds a quieter question
         from below -- while pricing each bucket at what that bucket actually did. A median
-        is what the bucket actually did: a slow outlier that drags the mean down (samples
-        down to 0.75 tok/s in a bucket whose median was 29, pulling it 2-14% below) is a
+        is what the bucket actually did: a slow outlier that drags the mean down is a
         minute the cluster had, not the rate it decodes at, and the median ignores it.
 
-        The asymmetry the old within-bucket minimum was defending is real: over-estimating
+        The asymmetry a within-bucket minimum would defend is real: over-estimating
         authorises a reply that cannot be decoded inside the delegation deadline and the turn
-        dies
-        with nothing, where under-estimating truncates and something comes back. It is
+        dies with nothing, where under-estimating truncates and something comes back. It is
         paid for between buckets, above, and by `reply_budget_margin`. Paying it a third
-        time inside the bucket bought no safety and cost the large answers -- see the class
+        time inside the bucket buys no safety and costs the large answers -- see the class
         docstring for the measurement.
         """
         want = max(int(concurrency), 1)
@@ -822,10 +789,9 @@ class RateSampler:
             return False
         # The prefill guard. A window lying entirely inside a prefill differences to zero
         # generated tokens while `requests_running` is nonzero, and filing that would put
-        # a rate of zero in a busy bucket. Not a rare shape: prefill runs about 1,060
-        # tok/s on this deployment, so a 175k-token prompt spends over two minutes
-        # generating nothing at all. Counted rather than silently skipped -- a guard whose
-        # firing rate nobody can see is a guard nobody can tell has started firing on
+        # a rate of zero in a busy bucket. Not a rare shape: prefill generates nothing for
+        # a long stretch on a large prompt. Counted rather than silently skipped -- a guard
+        # whose firing rate nobody can see is a guard nobody can tell has started firing on
         # everything.
         if generated == 0:
             self._prefill_windows += 1
@@ -862,7 +828,7 @@ class RateSampler:
         The drop counts are the point of reporting this at all. Both guards are silent by
         construction -- a dropped window leaves no trace in the memory it declined to
         write -- so without these an operator cannot tell a sampler that is working from
-        one that has been refusing every window since the last deployment change.
+        one that is refusing every window.
         """
         return {
             "sample_interval_seconds": round(self._every, 1),
@@ -887,14 +853,14 @@ async def seed_decode_rate(  # noqa: PLR0913 -- one argument per thing the seed 
     Never raises. This is one scrape of a monitoring surface, and a delegation that
     refused to start because `/metrics` was briefly unavailable would trade a latency
     protection for an outage -- the same inversion `slots.py` warns about. An endpoint
-    that publishes nothing simply leaves the first turn uncapped, which is the behaviour
-    that existed before ADR-0055 and is stated in the ledger rather than hidden.
+    that publishes nothing leaves the first turn uncapped, which ADR-0055 states in the
+    ledger rather than hides.
     """
     # What this deployment has actually managed at this much contention beats what the
     # cluster averaged since boot, because the since-boot figure is a blend over every
     # concurrency regime the engine has served and the first turn is about to meet a
     # specific one. Consulted first, and only falls through when nothing has been seen
-    # this busy -- the cold start, where the old behaviour is merely optimistic.
+    # this busy -- the cold start, where no measurement exists.
     remembered = (
         history.expect(expected_concurrency, trusted=label_trusted)
         if history is not None else None
@@ -902,11 +868,8 @@ async def seed_decode_rate(  # noqa: PLR0913 -- one argument per thing the seed 
 
     # `on_pool` is why this is not simply `if remembered is not None: return`. The scrape
     # below is the only place on the dispatch path that sees `kv_cache_size_tokens`, and
-    # returning here skips it -- harmless while the rate memory was per-process and cold on
-    # every reconnect, and not harmless once ADR-0075 made it warm. The pool was then never
-    # read at all and the token budget silently went back to the configured number:
-    # 2,400,000 against a reported 1,467,988, the exact 1.63x drift the reporting was added
-    # to stop. Measured 2026-09-14 (ADR-0081).
+    # returning here skips it -- which would leave the pool unread and let the token budget
+    # silently go back to the configured number (ADR-0081).
     #
     # So the caller passes `on_pool` only while it still wants the figure, and its presence
     # is the request. Deliberately not a separate `pool_known` flag threaded through
@@ -915,8 +878,7 @@ async def seed_decode_rate(  # noqa: PLR0913 -- one argument per thing the seed 
     # restores this bug silently and every test still passes.
     #
     # The pool is a hardware fact, so this costs one extra metrics read per process rather
-    # than per delegation: once it is known the caller stops asking and this returns early
-    # exactly as before.
+    # than per delegation: once it is known the caller stops asking and this returns early.
     if remembered is not None and on_pool is None:
         return DecodeRate(remembered, float(expected_concurrency),
                           source="observed_at_concurrency")
@@ -933,9 +895,9 @@ async def seed_decode_rate(  # noqa: PLR0913 -- one argument per thing the seed 
         # measured at this concurrency"; this is "the scrape that would have told us
         # failed", and the established answer is no ceiling rather than a guessed one.
         return DecodeRate(source="unknown")
-    # The same payload carries the size of the KV pool, and it used to be dropped here.
-    # Reporting it costs nothing -- this scrape already happened to price the turn -- and it
-    # is the only place on the dispatch path that sees the figure at all.
+    # The same payload carries the size of the KV pool. Reporting it costs nothing -- this
+    # scrape already happened to price the turn -- and it is the only place on the dispatch
+    # path that sees the figure at all.
     if on_pool is not None:
         pool = (cluster or {}).get("kv_cache_size_tokens")
         on_pool(pool if isinstance(pool, int) else None)
@@ -945,13 +907,12 @@ async def seed_decode_rate(  # noqa: PLR0913 -- one argument per thing the seed 
         return DecodeRate(remembered, float(expected_concurrency),
                           source="observed_at_concurrency")
     running = (cluster or {}).get("requests_running")
-    # Nothing remembered at this concurrency or busier. The endpoint's since-boot figure
-    # is what used to answer here and it is the wrong shape for the question: a blend over
-    # every regime the engine has served, measured 41.7% over (ADR-0094) and 1.745x over.
-    # Its error runs optimistic, which is the direction that kills a turn rather than
-    # truncating it -- a budget above what the clock can pay for authorises a reply that
-    # never arrives. A configured floor errs the other way and costs a first turn some of
-    # its ceiling until the sampler files a real sample, which under load is a scrape or
+    # Nothing remembered at this concurrency or busier. The endpoint's since-boot figure is
+    # the wrong shape for the question: a blend over every regime the engine has served
+    # (ADR-0094). Its error runs optimistic, which is the direction that kills a turn rather
+    # than truncating it -- a budget above what the clock can pay for authorises a reply
+    # that never arrives. A configured floor errs the other way and costs a first turn some
+    # of its ceiling until the sampler files a real sample, which under load is a scrape or
     # two. Narrows ADR-0055 knowingly: the rate is still measured everywhere a measurement
     # exists, and this is only what to do when none does (ADR-0101).
     if fallback > 0:
@@ -1001,7 +962,7 @@ def resolve_max_tokens(
     preference is rude, while the ceiling is a statement about what the clock can deliver
     and overriding physics is not on offer. A budget above it is not a larger answer, it
     is the same answer killed at `stall_timeout` with everything generated discarded --
-    which is how a productive turn came to be reported as a stall.
+    which is how a productive turn gets reported as a stall.
     """
     if explicit is not None:
         if explicit < 1:
@@ -1102,11 +1063,10 @@ def _retry_is_plausible(
     nothing and can succeed in a moment, so applying the rule to it would refuse the retry
     that most deserves one. A read timeout has already consumed the whole allowance
     without answering, so a retry that gets less time than that cannot do the same work --
-    it can only spend the rest of the delegation proving it. Nine did.
+    it can only spend the rest of the delegation proving it.
 
-    `None` is not zero. An absent deadline means nothing bounds the attempt, which is the
-    behaviour that preceded ADR-0055; reading it as no-time-left would turn a missing
-    bound into the strictest one there is.
+    `None` is not zero. An absent deadline means nothing bounds the attempt (ADR-0055);
+    reading it as no-time-left would turn a missing bound into the strictest one there is.
 
     Inclusive at the boundary: exactly as much time as the failed attempt used is enough
     to try again, because that attempt is the only evidence of what the work costs.
@@ -1266,7 +1226,7 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
     and a test of the cap cannot pin the random factor.
 
     `deadline` is an absolute reading of `clock`, set by the caller that owns the whole
-    delegation, and it bounds the sum this function used to leave unbounded: attempts, and
+    delegation, and it bounds the sum that would otherwise be unbounded: attempts, and
     the waits between them. It is checked before each attempt, applied *to* each attempt as
     a ceiling, and checked against the wait before sleeping -- a backoff that would sleep
     past the deadline ends the delegation instead of waking up to find it already gone.
@@ -1300,9 +1260,8 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
 
         On the loop path this function is entered fresh per turn (`run_agentic_loop`
         calls it once per turn) against a deadline taken once for the whole delegation.
-        Measuring from `started` therefore reported one turn's elapsed time beside the
-        whole delegation's limit: "abandoned after 1372.8s, past the ... of 3600s" --
-        a number that is not past it, under a remedy ("raise that setting") the number
+        Measuring from `started` would therefore report one turn's elapsed time beside the
+        whole delegation's limit -- a number that is not past it, under a remedy the number
         does not support.
 
         Derived from the deadline itself, so there is no second origin to disagree with
@@ -1356,10 +1315,10 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
                 # attempt's seconds otherwise -- and the backoff between them is not
                 # generation either, so it is outside this interval by construction.
                 return answer, attempts, clock() - attempt_started
-            # The per-attempt ceiling, and since `turn_timeout` was retired the only one:
-            # the adapter's client bounds silence between frames, not the length of a call
-            # that keeps producing. Without this an attempt could overshoot whichever of
-            # the two delegation-level deadlines is tighter.
+            # The per-attempt ceiling, and the only one: the adapter's client bounds silence
+            # between frames, not the length of a call that keeps producing. Without this an
+            # attempt could overshoot whichever of the two delegation-level deadlines is
+            # tighter.
             answer = await _until_deadline(
                 backend.complete(request, on_token=on_token), ceiling,
                 tick=_DEADLINE_TICK, tick_sleep=tick_sleep,
@@ -1374,11 +1333,11 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
             if deadline is None:
                 # The delegation deadline was not in play, so it is not what expired;
                 # naming it would send an operator to raise a setting that had no part in
-                # this. What is left is the stall clock -- since `turn_timeout` retired,
-                # the only bound this function applies to one attempt -- so that is what
-                # the message names, and the remedy is the stall one for the same reason
-                # `stalled()` uses it: a run that stopped producing is not helped by being
-                # given longer to stop producing in.
+                # this. What is left is the stall clock -- the only bound this function
+                # applies to one attempt -- so that is what the message names, and the
+                # remedy is the stall one for the same reason `stalled()` uses it: a run
+                # that stopped producing is not helped by being given longer to stop
+                # producing in.
                 timed_out = DispatchTimedOut(
                     spent(), cfg.stall_timeout, "while waiting on one turn",
                     setting="DELEGATE_STALL_TIMEOUT",
@@ -1398,8 +1357,7 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
         except (BackendUnavailable, BackendRefused) as e:
             # Time-tested, not just kind-tested. An attempt that consumed its whole
             # allowance without answering cannot do the same work in less, so retrying it
-            # only spends the rest of the delegation discovering that (ADR-0055's clock,
-            # nine deaths' worth of evidence).
+            # only spends the rest of the delegation discovering that (ADR-0055).
             if attempts >= cfg.retry_max_attempts or not _retry_is_plausible(
                 e, attempt_seconds=clock() - attempt_started, seconds_left=ceiling()
             ):
@@ -1409,8 +1367,8 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
             if left is not None and wait >= left:
                 # Which deadline made the wait impossible decides the diagnosis, exactly
                 # as it does for a timed-out attempt above. `ceiling()` is the tighter of
-                # the two, so reaching here says nothing about which one it was -- and
-                # this branch used to answer "the ceiling" unconditionally.
+                # the two, so reaching here says nothing about which one it was, and the
+                # stall check names it.
                 stalled()
                 # Sleeping first would burn the rest of the budget and then report the
                 # deadline, naming a wait this function chose rather than the work.
@@ -1431,15 +1389,16 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
 class Dispatch:
     """What one delegation actually did, as opposed to what it was asked to do.
 
-    A value object rather than a widening tuple. `effort` was already not always the level
-    the caller asked for, `attempts` is not always one, and `reasoning_exhausted` is a
+    A value object rather than a widening tuple. `effort` is not always the level the
+    caller asked for, `attempts` is not always one, and `reasoning_exhausted` is a
     verdict only this module is in a position to reach. Returning a shape lets each of
     those be named at the call site instead of positioned.
 
-    `reasoning_exhausted` is deliberately narrow. It is true only when the answer was still
-    empty at a length stop *after* a larger budget and a lower effort had both been tried --
-    ADR-0014's `reasoning_exhausted_budget`, and the only case where the phrase is earned.
-    An empty answer that nothing was tried on is a mechanical fact, not this verdict.
+    `reasoning_exhausted` is deliberately narrow. It is true only when the answer is still
+    empty at a length stop *after* a larger budget and a lower effort have both been tried
+    -- ADR-0014's `reasoning_exhausted_budget`, and the only case where the phrase is
+    earned. An empty answer that nothing was tried on is a mechanical fact, not this
+    verdict.
     """
 
     response: CanonicalResponse
@@ -1451,8 +1410,7 @@ class Dispatch:
     # How long the attempt that *answered* took, which is not how long the turn took.
     # The token counts come from that attempt alone (ADR-0014), so a rate derived from
     # them must divide by the same event -- a turn that failed once and answered on the
-    # second try otherwise reports one attempt tokens over every attempt seconds, and
-    # across 46 recorded turns that halved the apparent rate.
+    # second try otherwise reports one attempt's tokens over every attempt's seconds.
     answered_seconds: float = 0.0
     # Summed over every stage, unlike the two above and unlike the token counts. A turn
     # that answered empty and was sent again paid a *second* prefill, and a run summary
@@ -1509,10 +1467,10 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     answer is worth while the caller waits.
 
     Stepping effort down is not the cheap fallback it looks like. The level is part of the
-    rendered prompt, so `prompt_tokens` moves with it (measured, JOURNAL 2026-08-26): a
-    stepped-down dispatch misses the cluster's prefix cache entirely and pays a fresh
-    prefill on top of the generation. That is why it is the last resort rather than the
-    first, and why the budget retry -- which keeps the level, and the prefix -- comes first.
+    rendered prompt, so `prompt_tokens` moves with it: a stepped-down dispatch misses the
+    cluster's prefix cache entirely and pays a fresh prefill on top of the generation.
+    That is why it is the last resort rather than the first, and why the budget retry --
+    which keeps the level, and the prefix -- comes first.
 
     `build` takes the effort level and the budget and returns the request to send at them,
     which is what lets one-shot and one turn of the agentic loop share this. Everything
@@ -1558,8 +1516,8 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     def done(reply: CanonicalResponse, level: str, exhausted: bool = False) -> Dispatch:
         """The one place a `Dispatch` is built, so no exit can forget a field.
 
-        Four returns below and each used to spell the constructor out; the fifth field
-        added would have been carried by three of them.
+        Four returns below each spell the constructor out, so a field added here would have
+        to be carried by three of them.
         """
         return Dispatch(
             response=reply, effort=level, attempts=attempts,
@@ -1656,7 +1614,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     while this is perfectly happy. ADR-0018's per-turn progress notification is what answers
     that on the loop path, and there are no turns here to report -- so `on_alive` reports on
     a timer instead. Without one supplied this path is silent for its whole duration, which
-    is the one call shape measured as still able to reach that idle timeout.
+    is the one call shape able to reach that idle timeout.
     """
     resolved = resolve_effort(cfg, entry, effort)
     origin = clock()
@@ -1664,17 +1622,18 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
 
     # Separate from `origin`, which anchors `deadline` and must not move. Since ADR-0072
     # token arrival is progress, and this is the path with the most to gain from that: a
-    # one-shot completes no turns, so before streaming it had no progress signal at all and
-    # its stall clock ran from entry no matter how well the call was going.
+    # one-shot completes no turns, so without streaming it has no progress signal and its
+    # stall clock would run from entry no matter how well the call is going.
     last_progress = origin
 
     def stall_left() -> float:
         """The no-progress deadline, counting from the last token this call produced.
 
         A one-shot has exactly one unit of *turn* progress to make and makes it at the end,
-        so until ADR-0072 there was nothing to reset this and it counted from entry: the
-        effective bound was the tighter of `stall_timeout` and `dispatch_timeout` rather
-        than the ceiling alone (ADR-0047). Token arrival is the signal that was missing.
+        so without token arrival there is nothing to reset this and it counts from entry:
+        the effective bound would be the tighter of `stall_timeout` and `dispatch_timeout`
+        rather than the ceiling alone (ADR-0047). Token arrival supplies that signal
+        (ADR-0072).
         """
         return cfg.stall_timeout - (clock() - last_progress)
 
@@ -1765,7 +1724,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     # heartbeat cannot be another `await` inside it -- it has to run beside the chain and be
     # torn down with it. The `finally` is what makes that safe: cancel, then await the
     # cancellation, so no task outlives the dispatch it was reporting on. `run_agentic_loop`
-    # now does the same around its turn loop; this was once the only concurrency here.
+    # does the same around its turn loop.
     beat = asyncio.create_task(_keepalive(
         cfg, on_alive, clock,
         # Deliberately not `budget_seconds`, though the shapes are close. That one sizes
@@ -1814,10 +1773,9 @@ async def _keepalive(
         try:
             # Four figures, because they answer different questions. `dispatch_timeout` is
             # what the delegation is allowed; `ends_in` is how long until the tightest
-            # deadline actually fires, which is the one a reader needs -- reporting only
-            # the first showed nine delegations as 0.4% elapsed while minutes from being
-            # killed. The last two are what streaming made knowable: how much has arrived,
-            # and how long since any of it did (ADR-0072).
+            # deadline actually fires, which is the one a reader needs. The last two are
+            # what streaming made knowable: how much has arrived, and how long since any
+            # of it did (ADR-0072).
             chunks, reasoning_chunks, since = streamed()
             await on_alive(
                 clock() - started, cfg.dispatch_timeout, ends_in(),
@@ -1838,9 +1796,9 @@ async def _keepalive(
 def _tool_result_sizes(cfg: Config, messages: tuple[Message, ...]) -> list[int]:
     """Estimated tokens of each tool result, oldest first.
 
-    A list rather than a count, because what fills a context window is bytes and the
-    results in one real run spanned 200 of them to 50,068. Order is history order and the
-    eviction boundary walks it from the front, so this must not be sorted.
+    A list rather than a count, because what fills a context window is bytes. Order is
+    history order and the eviction boundary walks it from the front, so this must not be
+    sorted.
 
     Extension-less, so `estimate_tokens` costs every result at the densest ratio it knows
     and over-counts rather than under-counts -- the same bias `estimate_message_tokens`
@@ -1862,14 +1820,14 @@ EVICTED_STUB = "[dropped from the history to keep it bounded. Call the tool agai
 REPEAT_PREFIX = "[repeat of an identical earlier call; nothing was run again]\n"
 
 # Served instead of the cached bytes once eviction has dropped that result from the
-# history. Handing the content back in full is what made the two mechanisms cancel out:
-# eviction stubbed 34KB to stay inside the window and the next identical call put all 34KB
-# straight back, so the trim bought nothing and cost the turn that asked (ADR-0080).
+# history. Handing the content back in full would make the two mechanisms cancel out:
+# eviction stubs content to stay inside the window and the next identical call would put
+# it straight back, so the trim would buy nothing and cost the turn that asked (ADR-0080).
 #
-# Not simply dropping the cache entry instead. That re-runs the tool, and one of the reads
-# this happened to took 657 seconds -- paying it again to recover bytes we deliberately
-# discarded is worse than either mechanism alone. Saying what happened lets the model ask
-# for a narrower part, which is the only outcome that actually fits.
+# Not simply dropping the cache entry instead. That re-runs the tool, and paying it again
+# to recover bytes we deliberately discarded is worse than either mechanism alone. Saying
+# what happened lets the model ask for a narrower part, which is the only outcome that
+# actually fits.
 EVICTED_REPEAT = (
     "[identical to an earlier call whose result was dropped from the history to stay "
     "inside the context window. Nothing was run again and the content is not being "
@@ -1933,13 +1891,10 @@ def stub_oldest_tool_results(
     with the square of its length -- the tenth turn pays for the first nine results again.
 
     **`upto` is a boundary the caller carries, not a window recomputed from `keep`**, and
-    that is the whole correction of ADR-0056. The previous form collapsed everything older
-    than the newest `keep`, so the rewrite point advanced by one every single turn. The
-    serving stack caches *prefixes*: moving the first difference toward the front discards
-    the cache for everything after it, every turn. Measured 2026-09-05 on an idle cluster,
-    the hit rate climbed 75.0%, 80.0%, 83.3% while the history was appended to, then hit
-    0.0% on the turn the first result was evicted and never recovered. `_OverflowGuard`
-    owns the boundary and only ever advances it, in steps, so one rewrite amortises.
+    that is the whole point of ADR-0056. The serving stack caches *prefixes*: moving the
+    first difference toward the front discards the cache for everything after it, every
+    turn. `_OverflowGuard` owns the boundary and only ever advances it, in steps, so one
+    rewrite amortises.
 
     Only the *content* goes. The block and its `tool_use_id` stay (see `EVICTED_STUB`), and
     an already-evicted result is not counted twice -- the count is what this call did, not
@@ -2039,8 +1994,7 @@ def overflow_reserve(cfg: Config, entry: ModelEntry) -> int:
 
     A fraction and never a flat count. A flat reserve big enough to be worth holding on a
     1M-token window is larger than 95% of an 8K one, so the same constant that is prudent
-    for one model reports the other as full while its history is still empty. Upstream
-    shipped the flat version and this is the bug it produced.
+    for one model reports the other as full while its history is still empty.
     """
     return round(entry.context_window * cfg.overflow_reserve_fraction)
 
@@ -2053,13 +2007,13 @@ def projected_fraction(
     **This is the only place the denominator is chosen, and it is `entry.context_window`.**
     Not `thinking_max_tokens_floor`, which is a reply budget and a different number for a
     different purpose; not a count of what this server evicted, which measures our own
-    housekeeping rather than the model's room. Four of the five bugs this cost upstream
-    were one shape -- a threshold over the wrong denominator -- so the denominator is read
-    once, here, and every threshold is expressed against what this returns.
+    housekeeping rather than the model's room. A threshold over the wrong denominator is
+    the usual shape of that bug, so the denominator is read once, here, and every
+    threshold is expressed against what this returns.
 
     Note that a registry entry omitting `context_window` inherits a default silently
-    (`registry.py`), which is the local form of upstream's "architecture maximum" bug. That
-    is why `context_overflow_enabled` is off by default rather than on.
+    (`registry.py`), which is why `context_overflow_enabled` is off by default rather than
+    on.
     """
     reserve = overflow_reserve(cfg, entry)
     return (last_input_tokens + pending_tokens + reserve) / entry.context_window
@@ -2173,12 +2127,12 @@ def record_arguments(call: ToolUseBlock) -> tuple[tuple[str, str], ...]:
 class ToolCallRecord:
     """One tool call as the record keeps it: what was asked, and what came back.
 
-    A dataclass rather than a wider tuple, deliberately. The pair this replaces was
-    unpacked at three separate call sites, and widening a tuple that other code unpacks is
-    the change that compiles everywhere and breaks one caller quietly -- the same reasoning
+    A dataclass rather than a wider tuple, deliberately. The pair it replaces is unpacked
+    at three separate call sites, and widening a tuple that other code unpacks is the
+    change that compiles everywhere and breaks one caller quietly -- the same reasoning
     `newly_evicted_ids` gives for not widening `stub_oldest_tool_results`. `as_json` exists
-    for the same reason: those three sites each rendered the pair themselves, so a fourth
-    field would have had to be added in three places or drift in one.
+    for the same reason: those three sites each render the pair themselves, so a fourth
+    field would have to be added in three places or drift in one.
 
     `message` is the refusal text and is present only on an error outcome. On success the
     record carries accounting instead -- size, line count, exit code -- and never content:
@@ -2237,8 +2191,8 @@ def tool_call_record(
 ) -> ToolCallRecord:
     """Build one call's record from what the server saw, never from the model's account.
 
-    The refusal text is taken from the result block `tools.py` built, which is the same
-    string the model was handed -- so the record and the model agree about what was said,
+    The refusal text is taken from the result block `tools.py` builds, which is the same
+    string the model is handed -- so the record and the model agree about what was said,
     and ADR-0007's rule that the server reports what it watched is preserved.
 
     `ms` is the call's own measured duration, supplied by `_run_calls` and `None` when
@@ -2269,8 +2223,8 @@ def tool_call_record(
 class TurnDiagnostic:
     """What one turn cost and what it did, kept only when the caller asked for it.
 
-    ADR-0007 extended from exit codes to context economics: every field here is something
-    the server watched, never something the model reported about itself. The aggregate
+    Every field here is something the server watched, never something the model reported
+    about itself (ADR-0007). The aggregate
     ledger on `AgenticDispatch` says a delegation ran nine turns and evicted twelve results;
     this says which turn the eviction happened on and what the prompt cost either side of
     it, which is the difference between knowing a delegation was expensive and knowing why.
@@ -2333,8 +2287,8 @@ def _mark_evicted_in_cache(
     """Tell the dedup cache that the history no longer holds what it copied.
 
     Marked rather than deleted, because deleting means the next identical call re-runs the
-    tool -- and the read that prompted this took 657 seconds. A marked entry still answers
-    instantly and still runs nothing; it just stops undoing the eviction it was ignoring.
+    tool. A marked entry still answers instantly and still runs nothing; it just stops
+    undoing the eviction it was ignoring.
 
     Monotonic, like the boundary that drives it: an entry never becomes un-evicted, because
     the history it copied is not restored either.
@@ -2377,14 +2331,13 @@ def newly_evicted_ids(
 class _Watch:
     """Everything the server observed about one delegation, in one place.
 
-    Four structures that were separate locals in the turn loop and are one concern: what was
-    called, which file each call named, what the loop evicted, and what it cost. Together
-    they are ADR-0007's ledger for context economics -- server-captured facts, never the
-    model's account of itself.
+    Four structures, one concern: what was called, which file each call named, what the
+    loop evicted, and what it cost. Together they are ADR-0007's ledger for context
+    economics -- server-captured facts, never the model's account of itself.
 
     `calls` is maintained always, because an overflow abort needs it to produce a report and
     an abort is not something the caller opted into. The per-turn detail is kept only when
-    `diagnostics` was asked for; the two path dictionaries are maintained regardless, since
+    `diagnostics` is requested; the two path dictionaries are maintained regardless, since
     they cost one small entry per tool call and the correlation they feed cannot be
     reconstructed after the fact.
     """
@@ -2472,7 +2425,7 @@ class _Watch:
 
         `masked_failure` reaches `bash_failures` because that field accumulates across
         every call in the delegation, so call 1's hidden failure survives to call 10 -- and
-        until now the `exit_code != 0` term missed it entirely, leaving a delegation whose
+        the `exit_code != 0` term alone misses it entirely, leaving a delegation whose
         third command failed inside a compound line reporting `bash_failures: 0`.
         `last_bash_exit` is not touched by it and must not be: it is overwritten by every
         call that ran, so it only ever means *the last*, and per ADR-0007 a non-zero there
@@ -2507,9 +2460,7 @@ class _Watch:
 
         Here rather than at the end of the turn body, and that is not a stylistic choice:
         the turn that produces the answer calls no tools and breaks out of the loop before
-        reaching the end of it. Accumulating from down there silently lost the answering
-        turn's attempts from the ledger -- a delegation that retried twice and then answered
-        reported `attempts: 0`, which is exactly the kind of counter that reads as fine.
+        reaching the end of it, so a count taken there would miss that turn's attempts.
         """
         self.attempts += dispatch.attempts
         self.total_input_tokens += dispatch.response.input_tokens or 0
@@ -2550,7 +2501,7 @@ class _OverflowGuard:
     serving a single concern with a name, and the turn loop reads better delegating to it
     than interleaving it. The side benefit is that the thresholds become testable without
     running a delegation at all, which matters here -- a check on this path that could not
-    fire would be trusted, and this project has already found four of those.
+    fire would be trusted.
 
     Entirely inert unless `context_overflow_enabled`. Every method returns the do-nothing
     answer when it is off, so the loop needs no second branch around each call.
@@ -2588,10 +2539,9 @@ class _OverflowGuard:
         Only `evict_upto` reads this, deliberately. The flag still governs the preventive
         half -- tighten, nudge, abort, and the plateau check -- because those act on a
         delegation, and turning them on for every deployment that names a window is a much
-        larger claim than the one measured. What was measured is narrower: unarmed,
-        `evict_upto` skips the pressure check and stubs on count alone, so the threshold the
-        design is built around never applied to the shipped configuration. 2026-09-13: 30
-        results evicted at 3.9% of a 1,048,576-token window against a 50% threshold.
+        larger claim than the one measured. Unarmed, `evict_upto` skips the pressure check
+        and stubs on count alone, so the threshold the design is built around never applies
+        to the shipped configuration.
         """
         return not self.entry.context_window_defaulted
 
@@ -2604,20 +2554,17 @@ class _OverflowGuard:
         """How many of the oldest tool results should be stubbed, now. Never retreats.
 
         Takes the results' estimated sizes, oldest first, and not a count of them. A count
-        prices a one-line refusal and a 50KB file identically, and one real run held both:
-        36 results spanning 200 bytes to 50,068 (ADR-0079). What fills a context window is
-        bytes, so bytes are what the boundary is driven by.
+        prices a one-line refusal and a 50KB file identically (ADR-0079). What fills a
+        context window is bytes, so bytes are what the boundary is driven by.
 
-        `keep` survives as two things it was already doing and one it was not. It is the
-        floor -- the newest results are what the model is working from, so they stay intact
-        whatever they cost -- and it is the step. What it is no longer is the trigger.
+        `keep` serves two purposes. It is the floor -- the newest results are what the model
+        is working from, so they stay intact whatever they cost -- and it is the step. It is
+        not the trigger.
 
-        Two conditions, and measurement says both are needed. Gating on pressure alone left
-        the reuse share at 5.1% once pressure arrived, barely above the 2.9% it replaced,
-        because the boundary still moved every turn. Stepping alone would trim a history
-        that has nothing to relieve -- the old policy fired at 7% of a 1M window. Together
-        they measure 79.2% against an unbounded history's 93.0%, which is the price of
-        bounding it at all.
+        Two conditions, and both are needed. Gating on pressure alone leaves the boundary
+        moving every turn, which costs the prefix reuse. Stepping alone would trim a history
+        that has nothing to relieve. Together they bound the history, at the price of some
+        reuse.
 
         The step is `keep`, so the boundary jumps by the same quantity the setting is
         denominated in and one rewrite buys `keep` turns of stability. Below the pressure
@@ -2630,10 +2577,8 @@ class _OverflowGuard:
         by default, and deliberately: every threshold here is measured against
         `context_window`, which a registry entry may have inherited rather than had set.
         Gating the whole method on it would mean the default configuration never bounded a
-        history at all -- the old policy at least did that, badly. So an unarmed guard
-        still steps, which bounds the history and measures 79.2% reusable against the 2.9%
-        it replaces; arming it additionally holds the boundary while there is room, which
-        measures 93.0%. Better than today in either configuration, and never worse.
+        history at all. So an unarmed guard still steps, which bounds the history; arming
+        it additionally holds the boundary while there is room.
         """
         step = max(self.keep, 1)
         # The floor, applied first: whatever the sizes say, `keep` results survive intact.
@@ -2651,8 +2596,7 @@ class _OverflowGuard:
         # Floored to a whole step, so the boundary jumps by `keep` and one rewrite buys
         # `keep` turns of stability. Rounding *up* instead looks more eager and is the bug:
         # capped by `evictable` it advances by one every turn, which is precisely the
-        # per-turn boundary ADR-0056 exists to stop -- measured here at a 4.9% mean shared
-        # prefix against the 50% this holds.
+        # per-turn boundary ADR-0056 exists to stop.
         want = (min(need, evictable) // step) * step
         if (self.armed or self.pressure_known) and self.share() < OVERFLOW_EVICT_AT:
             return self.evicted_upto
@@ -2740,7 +2684,7 @@ def _preserve_across_nudge(
     The loop ends on any reply carrying no tool calls, and that reply's text becomes the
     whole answer. A model answering a wrap-up nudge often replies with an acknowledgement
     -- "understood, finishing now" -- which under that rule silently replaces the substance
-    it had already written. Upstream shipped exactly this and lost real answers to it.
+    it had already written.
 
     So a nudge reply **concatenates and never overwrites**. Only on the nudge path: an
     ordinary multi-turn delegation still answers with its final turn, because its earlier
@@ -2823,7 +2767,7 @@ class AgenticDispatch:
     # The whole run, where `response` describes only the turn that answered. Both are kept
     # and neither is derivable from the other: a caller asking "was this answer truncated"
     # wants the answering turn, and one asking "what did this delegation cost" wants these.
-    # ADR-0058, and the reason a twelve-turn delegation used to report one turn's usage.
+    # ADR-0058; with only `response`, a twelve-turn delegation would report one turn's usage.
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_cached_tokens: int | None = None
@@ -2935,7 +2879,7 @@ def _pooled_groups(calls: tuple[ToolUseBlock, ...]) -> Iterator[tuple[ToolUseBlo
 
     `run_bash` and the write tools are never cacheable. `read_git` is read-only and not
     cacheable either, since it reads a tree `run_bash` may just have committed to, so it
-    runs alone as well. Conservative, and it costs nothing that was measured: the batches
+    runs alone as well. Conservative, and it costs nothing: the batches
     that cost are `search_files`, which is cacheable. A tool absent from the registry also
     lands alone, which keeps the unknown-tool path exactly where it was.
     """
@@ -3045,7 +2989,7 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     records: list[ToolCallRecord] = []
     for group in _pooled_groups(calls):
         # A group of one keeps the original path, cache clear and all. Only a genuine batch
-        # of independent reads takes the other branch, which is the case that was measured.
+        # of independent reads takes the other branch, which is the case the pool is for.
         outcomes = (
             [_run_one_call(cfg, group[0], allowed, cached, policy)]
             if len(group) == 1
@@ -3121,12 +3065,12 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     run. `hit_turn_limit` says which of the two happened, because an answer written under a
     withdrawn toolset is worth reading differently from one the model chose to give.
 
-    It is `turn == turns` and nothing else. It once also required a tool call on that final
-    reply, which a backend offered no tools does not produce -- so the flag was false in
-    exactly the case it exists to report, and true only when a backend ignored the
-    withdrawal. A delegation that finishes on its last turn now reports the limit even if it
-    would have stopped there anyway; that direction costs a reader one look at `max_turns`,
-    where the other cost them a truncated answer read as a complete one.
+    It is `turn == turns` and nothing else. It does not require a tool call on that final
+    reply, which a backend offered no tools does not produce -- requiring one would leave
+    the flag false in exactly the case it exists to report, and true only when a backend
+    ignores the withdrawal. A delegation that finishes on its last turn reports the limit
+    even if it would have stopped there anyway; that direction costs a reader one look at
+    `max_turns`, where the other costs a truncated answer read as a complete one.
 
     Recovery from an answer that came back empty is `dispatch_with_recovery`'s, per turn,
     unchanged from the one-shot path. The loop does not reimplement retry, backoff or
@@ -3143,7 +3087,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     injected rather than imported for the reason `sleep` and `clock` are -- `loop.py` holds
     no MCP imports, and a test needs to see the calls without a client.
 
-    `on_alive` is the same protection *within* a turn, and one per turn was not enough: a
+    `on_alive` is the same protection *within* a turn, and one per turn is not enough: a
     turn's own duration is bounded only by the delegation deadline, so a single slow one
     outlasts the idle timer on its own. It runs on a timer beside the loop rather than at a
     point inside it, because there is no point inside a turn that is guaranteed to be
@@ -3166,12 +3110,12 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         return cfg.stall_timeout - (clock() - last_progress)
 
     def token_arrived(kind: str = "answer") -> None:
-        """The second progress signal, and since ADR-0072 the finer of the two.
+        """The second progress signal, and the finer of the two (ADR-0072).
 
         Turn completion still counts -- nothing here replaces it -- but it cannot see
-        inside a turn, which is why a pass that had completed twenty-nine of them was
-        killed in its thirtieth. Token arrival can, and unlike the notification and the
-        keepalive it is real: it happens because the model produced something.
+        inside a turn, so on its own it would kill a pass that had completed many turns in
+        one long one. Token arrival can, and unlike the notification and the keepalive it is
+        real: it happens because the model produced something.
 
         `kind` names which half of the reply a frame carried, so the reasoner can tally
         thinking separately from answering. The default keeps a backend that still calls
@@ -3254,12 +3198,12 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     # before turn 1 began -- and the comment above the seed asserted the opposite.
     last_progress = clock()
 
-    # The heartbeat, beside the loop rather than inside it. `run_one_shot` has had one
-    # since ADR-0018; this path reported only at the top of each turn, so a single long
-    # turn was silent for its whole duration -- and a turn that keeps producing is bounded
-    # by nothing tighter than the delegation deadline, far past the client's stdio idle
-    # timeout. At that point the client abandons the call, nothing reaches the server, and
-    # the slot is held to the end (#58).
+    # The heartbeat, beside the loop rather than inside it. `run_one_shot` has one too
+    # (ADR-0018); this path reports only at the top of each turn, so a single long turn is
+    # silent for its whole duration -- and a turn that keeps producing is bounded by nothing
+    # tighter than the delegation deadline, far past the client's stdio idle timeout. At
+    # that point the client abandons the call, nothing reaches the server, and the slot is
+    # held to the end.
     #
     # Created as `None` rather than early-returning the way the one-shot does, because
     # there the guarded part is one `await` and here it is the whole loop: duplicating it
@@ -3317,11 +3261,10 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
                     # Always offered, and forbidden rather than withdrawn on the final turn
                     # (ADR-0057). The intent is unchanged -- a model that ends on a tool call
                     # nobody will run has spent the whole delegation and returned nothing
-                    # readable -- but withdrawing them changed the front of the prompt, and
-                    # the stack caches prefixes. Measured: dropping the tool block to save
-                    # 321 tokens re-prefilled all 36,018 of them, a 99.3% cache hit falling
-                    # to 0.0%, on the one turn that must also fit a whole answer in one
-                    # deadline.
+                    # readable -- but withdrawing them changes the front of the prompt, and
+                    # the stack caches prefixes, so dropping the tool block would re-prefill
+                    # the whole prompt on the one turn that must also fit a whole answer in
+                    # one deadline.
                     tools=specs,
                     tool_choice="none" if _final else "auto",
                 )
@@ -3372,14 +3315,14 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # for every turn after it. Measured over the *answering attempt* rather than
             # `backend_seconds`, which spans every recovery stage and every transport retry
             # inside them: the token count comes from one attempt (ADR-0014), so dividing
-            # it by all of them is arithmetic over two different events. Across 46 recorded
-            # turns that halved the apparent rate, and the halved number then seeded the
-            # next delegation's first turn -- the one with no observation of its own and
-            # the only one that can die before making any.
+            # it by all of them is arithmetic over two different events. That would halve
+            # the apparent rate, and the halved number would then seed the next
+            # delegation's first turn -- the one with no observation of its own and the
+            # only one that can die before making any.
             # The tokens' own interval where the adapter could time it, the whole attempt
             # where it could not. `decode_seconds` is last token minus first and so
             # excludes prefill; `answered_seconds` includes it, and on a short answer over
-            # a large prompt prefill is most of the interval -- which made the rate
+            # a large prompt prefill is most of the interval -- which makes the rate
             # describe the queue rather than the decoder (ADR-0070). `None` means the
             # adapter does not stream, not that the interval was zero.
             measured = dispatch.response.decode_seconds
@@ -3388,13 +3331,13 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # And remembered past this delegation, tagged with how contended it was --
             # but only where nothing else is filling that memory. `RateSampler` files one
             # sample per scrape, and a completed turn files one per *stream*, so leaving
-            # both on would put six readings on one moment at six-wide and one at solo:
-            # the bucket widths stop being comparable, which is precisely the defect the
-            # sampler exists to remove. Off by default, therefore, and back the moment an
-            # operator turns sampling off, because a memory with no feeder at all is the
-            # cold start that costs every first turn.
+            # both on would put several readings on one moment at one concurrency and one
+            # at another: the bucket widths stop being comparable, which is precisely the
+            # defect the sampler exists to remove. Off by default, therefore, and back the
+            # moment an operator turns sampling off, because a memory with no feeder at all
+            # is the cold start that costs every first turn.
             if rate_history is not None and cfg.rate_sample_seconds <= 0:
-                # Tokens and the interval, not the quotient. Dividing here is what left the
+                # Tokens and the interval, not the quotient. Dividing here is what leaves the
                 # memory unable to tell a throughput measurement from a turn too short to
                 # be one, and its own floor is stricter than `DecodeRate`'s above.
                 rate_history.observe(
@@ -3419,14 +3362,14 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
 
             # Off the event loop, which is what lets the heartbeat above fire at all during
             # a tool call. `_run_calls` is synchronous and `run_bash` reaches `subprocess.run`
-            # in `sandbox.py`, so a command bounded by `run_bash_timeout` blocked the loop
+            # in `sandbox.py`, so on the loop a command bounded by `run_bash_timeout` would block it
             # for its whole duration -- no timer task, no `report_progress`, and no stdio
             # traffic for any other delegation admitted alongside it. A heartbeat that goes
             # quiet during the longest blocking operation in the system is the check that
             # cannot fail, in its heartbeat form.
             #
             # One thread for the whole batch, not one per call: `_run_calls` runs them in
-            # order and that order is what the model sees. The only thing now running beside
+            # order and that order is what the model sees. The only thing running beside
             # it is the timer, which touches neither `cached` nor `watch`.
             tools_running = True
             results, outcomes = await asyncio.to_thread(
@@ -3482,10 +3425,10 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         # The only place these numbers exist on a failure. `watch` is a local of this
         # function and is discarded as the exception propagates, and the `AgenticDispatch`
         # above -- which does carry `turns` and `tool_calls` -- is only ever built when the
-        # loop finishes. So a delegation that ran out of time reported which setting fired
-        # and nothing about what it had achieved, which at the call site is indistinguishable
-        # from an endpoint that never answered: the honest response to that is to stop using
-        # the server, and twice on 2026-09-04 that was the wrong call.
+        # loop finishes. Without this, a delegation that runs out of time would report which
+        # setting fired and nothing about what it had achieved, which at the call site is
+        # indistinguishable from an endpoint that never answered -- and the honest response
+        # to that, to stop using the server, is the wrong call.
         #
         # Wrapped here rather than at the five raise sites inside `complete_with_retry`,
         # which is one handler instead of five and keeps those signatures free of a counter
