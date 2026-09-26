@@ -81,15 +81,11 @@ _STEP_DOWN = dict(zip(EFFORT_LEVELS[1:], EFFORT_LEVELS[:-1], strict=True))
 # and sending the same request again cannot change the answer.
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 
-# The system prompt is a constant, and must stay one. The cluster caches prefixes, so a
+# The system prompt is a constant, and must stay one: the cluster caches prefixes, and a
 # single dynamic byte -- a timestamp, a session id, a turn counter -- silently disables
 # that with no error and no symptom beyond slower prefill. Dynamic content goes in the
-# tail, inside the message. ADR-0011.
-#
-# One constant, covering both the files and no-files shapes rather than one for each. Two
-# prompts would be two prefixes, and a caller that alternates between the shapes would
-# miss the cache on every other call -- for wording that has nothing to do with the
-# difference. "Any files" is simply vacuous when there are none.
+# tail, inside the message. One constant covers both the files and no-files shapes, so a
+# caller that alternates between them still hits the cache. Why: ADR-0011.
 SYSTEM_PROMPT_ONE_SHOT = (
     "You are answering a single delegated task for another engineer, who will read your "
     "reply directly and act on it.\n\n"
@@ -105,14 +101,12 @@ SYSTEM_PROMPT_ONE_SHOT = (
 )
 
 
-# The second static prompt, and deliberately not a variant of the first. The one-shot
-# prompt tells the model it has no tools and no second turn, which would be a lie here --
-# and the two shapes are never alternated by one caller the way the files and no-files
-# shapes are, so they cost nothing by being separate prefixes.
-#
-# Static, byte for byte, exactly as ADR-0011 requires: no turn number, no counter, no
-# budget. The countdown the model needs lives in the tail, on the message carrying tool
-# results, where a changed byte costs nothing that was not already changing.
+# The second static prompt, and deliberately not a variant of the first: the one-shot
+# prompt tells the model it has no tools and no second turn, which would be a lie here.
+# The two shapes are never alternated by one caller, so they cost nothing as separate
+# prefixes. Static, byte for byte, as ADR-0011 requires -- no turn number, no counter, no
+# budget -- and the countdown lives in the tail, on the message carrying tool results.
+# Why: ADR-0011.
 SYSTEM_PROMPT_AGENTIC = (
     "You are carrying out a delegated task for another engineer, who will read your final "
     "reply directly and act on it.\n\n"
@@ -262,10 +256,9 @@ class Delegation:
     def render(self) -> str:
         """The user message: agent body, then files, then task. Never the system prompt.
 
-        The system prompt is a byte-for-byte constant that the cluster caches, so nothing
-        that varies per delegation may enter it -- the agent body included, however much it
-        reads like one (ADR-0011). Task last because it varies most between calls, so a
-        changed byte invalidates the least.
+        The system prompt is a byte-for-byte constant the cluster caches, so nothing that
+        varies per delegation may enter it -- the agent body included. Task last, because
+        it varies most between calls. Why: ADR-0011.
         """
         if not self.task or not self.task.strip():
             raise InvalidDelegation("task is empty. There is nothing to delegate.")
@@ -290,17 +283,11 @@ def resolve_effort(cfg: Config, entry: ModelEntry, explicit: str | None = None) 
     return entry.effective_effort(cfg)
 
 
-# Below these an observation is arithmetic on noise rather than a measurement, and the
-# test is the same for both estimators because since ADR-0070 both divide by the same
-# quantity: `decode_seconds`, last token minus first, with prefill and queueing outside it.
-# Whether a sample describes the decoder is therefore a property of the sample, not of who
-# is asking -- average-versus-minimum decides how a bad one propagates, never whether it is
-# one (ADR-0071).
-#
-# Sized from the deployment's own decode benchmark rather than from an incident. That
-# benchmark measures stable per-stream rates with a 400-token cap, so a few hundred tokens
-# is enough to describe the decoder; this sits just above it. A short turn is wrong in one
-# direction rather than noisy, so an average that decays does not survive it.
+# Below these an observation is arithmetic on noise rather than a measurement. The test is
+# the same for both estimators because since ADR-0070 both divide by `decode_seconds`,
+# last token minus first, with prefill and queueing outside it. Sized from the
+# deployment's own decode benchmark (a 400-token cap), so a few hundred tokens is enough
+# to describe the decoder. Why: ADR-0071.
 MIN_MEASURABLE_TOKENS = 512
 MIN_MEASURABLE_SECONDS = 1.0
 
@@ -308,25 +295,12 @@ MIN_MEASURABLE_SECONDS = 1.0
 class DecodeRate:
     """Tokens per second this deployment actually decodes, kept across turns.
 
-    ADR-0055. The reply budget has to be denominated in seconds before it can be compared
-    with a deadline, and the exchange rate is a property of the deployment rather than of
-    the code, so it is measured and never configured.
-
-    Two sources, in this order, because neither alone covers the case that kills a
-    delegation:
-
-      * the cluster's own since-boot mean, read once when the delegation starts. This is
-        what makes the very first turn bounded -- and the first turn is where a one-shot
-        and a tools-withdrawn final turn both live, so an estimator that only learns from
-        experience would leave exactly the fatal shapes uncapped.
-      * this delegation's own turns, which replace the seed as soon as there is one. Our
-        sequence's rate is the one the deadline is actually paid in; the cluster's mean is
-        a blend over every tenant and every concurrency regime it has ever served.
-
-    An exponential average rather than the last value, so one anomalous turn cannot halve
-    the next turn's budget, and implausible observations are refused outright rather than
-    smoothed -- a turn that decoded four tokens in a tenth of a second says nothing about
-    throughput and would say it very loudly.
+    The reply budget is denominated in seconds before it is compared with a deadline, so
+    the rate is measured and never configured (ADR-0055). Two sources, in this order: the
+    cluster's own since-boot mean read once at dispatch, then this delegation's own turns,
+    which replace the seed as soon as there is one. An exponential average rather than the
+    last value, so one anomalous turn cannot halve the next turn's budget, and an
+    implausible observation is refused outright rather than smoothed. Why: ADR-0055.
     """
 
     # One test for both estimators, because since ADR-0070 they divide by the same thing.
@@ -399,22 +373,11 @@ class DecodeRate:
 def budget_seconds(cfg: Config, *, dispatch_left: float) -> float:
     """Seconds the reply about to be asked for can actually be delivered in.
 
-    One bound, the delegation deadline. `turn_timeout` is not one (ADR-0100): nothing
-    bounds reasoning except the token cap the answer shares, so a longer call-length
-    ceiling would enlarge the wasted attempt rather than the reply.
-
-    What a call-length ceiling was believed to guard is a wedged call, and the stall clock
-    already guards it, better: a stream that is producing emits frames 0.4s apart or
-    better, so a wedged call is *silent*, and silence is the thing stall is built to
-    measure. A ceiling can only ask how long the call has run, which a slow but healthy
-    call answers the same way a dead one does.
-
-    **`stall_left` is deliberately not a second term either** (ADR-0099). A reply being
-    generated is not silence, so putting it here cuts every reply to the stall budget --
-    the opposite of what it measures.
-
-    Never negative. A negative would multiply through `ceiling` into `reply_budget_floor`
-    and read as a small budget rather than as no time remaining.
+    One bound, the delegation deadline. `turn_timeout` is not one (ADR-0100), and
+    `stall_left` is deliberately not a term either (ADR-0099): a reply being generated is
+    not silence, so putting it here cuts every reply to the stall budget -- the opposite
+    of what it measures. Never negative: a negative would multiply through `ceiling` into
+    `reply_budget_floor` and read as a small budget rather than as no time remaining.
     """
     return max(dispatch_left, 0.0)
 
@@ -472,13 +435,11 @@ class RateHistory:
     ) -> None:
         """`path` makes the memory outlive this process; without one it is unchanged.
 
-        The file is durable, and `slots.rate_history_path` decides where. A stale rate is
-        diluted by the samples that follow it and the buckets are capped, so being wrong
-        about the hardware costs a bucket's worth of samples, where a cold start costs every
-        dispatch until the memory refills (ADR-0094). `stamp` still covers a model swap.
-
-        Never a hard dependency. Every failure below leaves an empty memory rather than
-        raising, because the worst this can cost is the pricing it was already missing.
+        The file is durable, and `slots.rate_history_path` decides where. A stale rate
+        self-corrects as samples follow, where a cold start costs every dispatch until the
+        memory refills, so durability is the better of two wrong answers (ADR-0094).
+        `stamp` still covers a model swap. Never a hard dependency: every failure below
+        leaves an empty memory rather than raising. Why: ADR-0094.
         """
         self._keep = max(1, keep)
         # One bucket per concurrency, each capped on its own. A single shared deque evicted
@@ -850,11 +811,9 @@ async def seed_decode_rate(  # noqa: PLR0913 -- one argument per thing the seed 
 ) -> DecodeRate:
     """The estimator, seeded from the cluster if it will say and empty if it will not.
 
-    Never raises. This is one scrape of a monitoring surface, and a delegation that
-    refused to start because `/metrics` was briefly unavailable would trade a latency
-    protection for an outage -- the same inversion `slots.py` warns about. An endpoint
-    that publishes nothing leaves the first turn uncapped, which ADR-0055 states in the
-    ledger rather than hides.
+    Never raises: this is one scrape of a monitoring surface, and a delegation must not
+    refuse to start because `/metrics` was briefly unavailable. An endpoint that publishes
+    nothing leaves the first turn uncapped. Why: ADR-0055.
     """
     # What this deployment has actually managed at this much contention beats what the
     # cluster averaged since boot, because the since-boot figure is a blend over every
@@ -867,18 +826,12 @@ async def seed_decode_rate(  # noqa: PLR0913 -- one argument per thing the seed 
     )
 
     # `on_pool` is why this is not simply `if remembered is not None: return`. The scrape
-    # below is the only place on the dispatch path that sees `kv_cache_size_tokens`, and
-    # returning here skips it -- which would leave the pool unread and let the token budget
-    # silently go back to the configured number (ADR-0081).
-    #
-    # So the caller passes `on_pool` only while it still wants the figure, and its presence
-    # is the request. Deliberately not a separate `pool_known` flag threaded through
-    # `run_one_shot` and `run_agentic_loop`: both already forward `on_pool` untouched, and a
-    # second parameter is a second thing an intermediate can forget -- where forgetting
-    # restores this bug silently and every test still passes.
-    #
-    # The pool is a hardware fact, so this costs one extra metrics read per process rather
-    # than per delegation: once it is known the caller stops asking and this returns early.
+    # below is the only place on the dispatch path that sees `kv_cache_size_tokens`, so
+    # returning early would leave the pool unread and the token budget back on the
+    # configured number. The caller passes `on_pool` only while it still wants the figure;
+    # once known it passes None and this returns early, so the cost is one extra metrics
+    # read per process rather than per delegation. Not a separate `pool_known` flag, which
+    # an intermediate could forget to forward. Why: ADR-0081.
     if remembered is not None and on_pool is None:
         return DecodeRate(remembered, float(expected_concurrency),
                           source="observed_at_concurrency")
@@ -907,14 +860,11 @@ async def seed_decode_rate(  # noqa: PLR0913 -- one argument per thing the seed 
         return DecodeRate(remembered, float(expected_concurrency),
                           source="observed_at_concurrency")
     running = (cluster or {}).get("requests_running")
-    # Nothing remembered at this concurrency or busier. The endpoint's since-boot figure is
-    # the wrong shape for the question: a blend over every regime the engine has served
-    # (ADR-0094). Its error runs optimistic, which is the direction that kills a turn rather
-    # than truncating it -- a budget above what the clock can pay for authorises a reply
-    # that never arrives. A configured floor errs the other way and costs a first turn some
-    # of its ceiling until the sampler files a real sample, which under load is a scrape or
-    # two. Narrows ADR-0055 knowingly: the rate is still measured everywhere a measurement
-    # exists, and this is only what to do when none does (ADR-0101).
+    # Nothing remembered at this concurrency or busier. A configured floor prices the first
+    # turn instead of the since-boot figure, which is a blend over every regime (ADR-0094)
+    # and errs optimistic -- the direction that kills a turn rather than truncating one.
+    # The floor is used only in this empty case, and `running` is the concurrency it is
+    # priced at. Narrows ADR-0055 to what to do when no measurement exists. Why: ADR-0101.
     if fallback > 0:
         return DecodeRate(
             float(fallback),
@@ -939,30 +889,23 @@ def resolve_max_tokens(
 ) -> int:
     """The reply budget: the caller's number, else the configured one raised at high effort.
 
-    Reasoning is generated against this same budget, so a high effort with a low cap
-    produces an answer that is empty because it thought until it ran out. ADR-0014.
+    Reasoning is spent from this same budget, so a high effort with a low cap returns an
+    empty answer; that is what the floor is for.
 
     Precedence, most specific first: the call argument, then the agent's frontmatter (M6,
     which resolves into `explicit` when it exists), then the configured default -- which
-    comes **last** rather than first. ADR-0024: an operator lowering the ceiling must not
-    suppress the floor that stops heavy-reasoning models returning nothing, so the floor is
-    applied as a `max()` over the configured value and not as an alternative to it.
+    comes **last** rather than first. The floor is applied as a `max()` over the configured
+    value, never as an alternative to it.
 
-    An explicit number is *not* raised to that floor. It is the most specific instruction
-    there is, and silently multiplying it by thirty would make the argument advisory. The
-    caller who asks for a small budget at max effort still gets ADR-0014's recovery, which
-    retries at the floor -- so the cost of being wrong here is one extra dispatch, and the
-    cost of overriding them is an argument that does not mean what it says.
+    An explicit number is *not* raised to that floor, and the caller who asks for a small
+    budget at max effort still gets the recovery, which retries at the floor.
 
     The per-model cap applies to every path, last, because it is what the wire will accept.
 
     `ceiling` is the deadline expressed in tokens, and unlike the floor it applies to the
-    explicit argument too (ADR-0055). The asymmetry is deliberate: the floor is a
-    preference about how much room reasoning should get, and overriding a caller's
-    preference is rude, while the ceiling is a statement about what the clock can deliver
-    and overriding physics is not on offer. A budget above it is not a larger answer, it
-    is the same answer killed at `stall_timeout` with everything generated discarded --
-    which is how a productive turn gets reported as a stall.
+    explicit argument too. A budget above it is not a larger answer, it is the same answer
+    killed at `stall_timeout` with everything generated discarded -- which is how a
+    productive turn gets reported as a stall. Why: ADR-0014, ADR-0024, ADR-0055.
     """
     if explicit is not None:
         if explicit < 1:
@@ -986,9 +929,8 @@ def build_one_shot_request(
 ) -> CanonicalRequest:
     """One user message, no tools, and a system prompt that does not vary.
 
-    The static system prompt ahead of `Delegation.render` gives the sequence ADR-0011
-    fixes: system, agent body, files block, task last. The ordering itself lives on
-    `Delegation`, so this function and the turn loop cannot disagree about it.
+    The ordering -- system, agent body, files block, task last -- lives on `Delegation`, so
+    this function and the turn loop cannot disagree about it. Why: ADR-0011.
     """
     body = delegation.render()
     return CanonicalRequest(
@@ -1118,9 +1060,9 @@ async def _until_deadline(
     """Run `coro`, cancelling it once `left()` has actually run out.
 
     Deliberately not `asyncio.wait_for`, which takes one budget at call time and cannot see
-    it move. Since ADR-0072 token arrival resets the stall deadline, so the budget grows
-    while the call runs -- and a fixed timeout would kill a turn that had been producing
-    tokens the whole way, which is the failure this exists to stop.
+    it move: token arrival resets the stall deadline (ADR-0072), so the budget grows while
+    the call runs and a fixed timeout would kill a turn that had been producing all along.
+    Why: ADR-0072.
 
     `tick_sleep` is a test seam, for the reason `clock` and `sleep` already are: this is the
     one place that waits on the wall rather than on the injected clock, so a test of a
@@ -1820,14 +1762,9 @@ EVICTED_STUB = "[dropped from the history to keep it bounded. Call the tool agai
 REPEAT_PREFIX = "[repeat of an identical earlier call; nothing was run again]\n"
 
 # Served instead of the cached bytes once eviction has dropped that result from the
-# history. Handing the content back in full would make the two mechanisms cancel out:
-# eviction stubs content to stay inside the window and the next identical call would put
-# it straight back, so the trim would buy nothing and cost the turn that asked (ADR-0080).
-#
-# Not simply dropping the cache entry instead. That re-runs the tool, and paying it again
-# to recover bytes we deliberately discarded is worse than either mechanism alone. Saying
-# what happened lets the model ask for a narrower part, which is the only outcome that
-# actually fits.
+# history, so the next identical call answers instantly instead of re-running the tool
+# (ADR-0080). Saying what happened lets the model ask for a narrower part, the only
+# outcome that actually fits the window.
 EVICTED_REPEAT = (
     "[identical to an earlier call whose result was dropped from the history to stay "
     "inside the context window. Nothing was run again and the content is not being "
@@ -1888,17 +1825,12 @@ def stub_oldest_tool_results(
     """Collapse the oldest `upto` tool results. Returns the history and a count.
 
     Every turn resends the whole history, so without this the cost of a delegation grows
-    with the square of its length -- the tenth turn pays for the first nine results again.
+    with the square of its length.
 
-    **`upto` is a boundary the caller carries, not a window recomputed from `keep`**, and
-    that is the whole point of ADR-0056. The serving stack caches *prefixes*: moving the
-    first difference toward the front discards the cache for everything after it, every
-    turn. `_OverflowGuard` owns the boundary and only ever advances it, in steps, so one
-    rewrite amortises.
-
-    Only the *content* goes. The block and its `tool_use_id` stay (see `EVICTED_STUB`), and
-    an already-evicted result is not counted twice -- the count is what this call did, not
-    how much of the history is stubbed, because the caller reports it as work performed.
+    **`upto` is a boundary the caller carries, not a window recomputed from `keep`**, so one
+    rewrite buys `keep` turns of prefix stability (ADR-0056). Only the *content* goes: the
+    block and its `tool_use_id` stay, and an already-evicted result is not counted twice --
+    the count is what this call did, not how much of the history is stubbed.
     """
     positions = [
         (mi, bi)
@@ -1940,10 +1872,9 @@ def stub_oldest_tool_results(
 def countdown_line(turns_left: int) -> str:
     """What the model is told about its remaining budget, on the message carrying results.
 
-    Here rather than in the system prompt, and that is not a stylistic choice: a turn
-    counter in the prefix would change one byte of it per turn and silently cost a full
-    prefill every time (ADR-0011). The tail is where dynamic content is free, because the
-    tool results next to it were never going to be cached anyway.
+    Here rather than in the system prompt: a turn counter in the prefix would change one
+    byte of it per turn and cost a full prefill (ADR-0011). The tail is where dynamic
+    content is free, because the tool results next to it were never cached anyway.
     """
     if turns_left <= 1:
         return (
@@ -2127,18 +2058,12 @@ def record_arguments(call: ToolUseBlock) -> tuple[tuple[str, str], ...]:
 class ToolCallRecord:
     """One tool call as the record keeps it: what was asked, and what came back.
 
-    A dataclass rather than a wider tuple, deliberately. The pair it replaces is unpacked
-    at three separate call sites, and widening a tuple that other code unpacks is the
-    change that compiles everywhere and breaks one caller quietly -- the same reasoning
-    `newly_evicted_ids` gives for not widening `stub_oldest_tool_results`. `as_json` exists
-    for the same reason: those three sites each render the pair themselves, so a fourth
-    field would have to be added in three places or drift in one.
+    A dataclass rather than a wider tuple, deliberately: the pair it replaces is unpacked at
+    three call sites, and widening a tuple other code unpacks breaks one caller quietly.
 
     `message` is the refusal text and is present only on an error outcome. On success the
-    record carries accounting instead -- size, line count, exit code -- and never content:
-    a successful `read_file`'s result *is* the file body, which is precisely what ADR-0039
-    keeps out of the record. Accounting still answers what an operator asks of a successful
-    call, which is whether it found anything and how much.
+    record carries accounting instead -- size, line count, exit code -- and never content,
+    which ADR-0039 keeps out of the record.
     """
 
     name: str
@@ -2191,9 +2116,8 @@ def tool_call_record(
 ) -> ToolCallRecord:
     """Build one call's record from what the server saw, never from the model's account.
 
-    The refusal text is taken from the result block `tools.py` builds, which is the same
-    string the model is handed -- so the record and the model agree about what was said,
-    and ADR-0007's rule that the server reports what it watched is preserved.
+    The refusal text is taken from the result block `tools.py` builds, the same string the
+    model is handed, so the record and the model agree about what was said (ADR-0007).
 
     `ms` is the call's own measured duration, supplied by `_run_calls` and `None` when
     nothing ran.
@@ -2224,18 +2148,12 @@ class TurnDiagnostic:
     """What one turn cost and what it did, kept only when the caller asked for it.
 
     Every field here is something the server watched, never something the model reported
-    about itself (ADR-0007). The aggregate
-    ledger on `AgenticDispatch` says a delegation ran nine turns and evicted twelve results;
-    this says which turn the eviction happened on and what the prompt cost either side of
-    it, which is the difference between knowing a delegation was expensive and knowing why.
+    about itself (ADR-0007). The aggregate ledger on `AgenticDispatch` says a delegation ran
+    nine turns and evicted twelve results; this says which turn and what the prompt cost
+    either side of it.
 
-    Metadata only, deliberately. Result *content* is not carried: a diagnostic that
-    embedded what it was measuring would become the expensive payload it exists to explain.
-    What each call carries instead is in `ToolCallRecord` -- arguments capped per field, a
-    refusal message when there was one, and accounting when there was not. A refusal is not
-    an exception to the rule: it is small, it exists nowhere else once the delegation ends,
-    and a record that cannot say why a call failed does not answer the question a record is
-    opened to answer.
+    Metadata only: result *content* is not carried, and each call carries `ToolCallRecord` --
+    arguments capped per field, a refusal message when there was one, accounting otherwise.
     """
 
     turn: int
@@ -2332,14 +2250,12 @@ class _Watch:
     """Everything the server observed about one delegation, in one place.
 
     Four structures, one concern: what was called, which file each call named, what the
-    loop evicted, and what it cost. Together they are ADR-0007's ledger for context
-    economics -- server-captured facts, never the model's account of itself.
+    loop evicted, and what it cost -- server-captured facts, never the model's account of
+    itself (ADR-0007).
 
-    `calls` is maintained always, because an overflow abort needs it to produce a report and
-    an abort is not something the caller opted into. The per-turn detail is kept only when
-    `diagnostics` is requested; the two path dictionaries are maintained regardless, since
-    they cost one small entry per tool call and the correlation they feed cannot be
-    reconstructed after the fact.
+    `calls` is maintained always, because an overflow abort needs it to produce a report. The
+    per-turn detail is kept only when `diagnostics` is requested; the two path dictionaries
+    are maintained regardless, since the correlation they feed cannot be reconstructed.
     """
 
     def __init__(self, *, diagnostics: bool) -> None:
@@ -2416,20 +2332,15 @@ class _Watch:
         Attempts, not completions: a call refused before a process started still happened,
         and `tool_calls` beside it counts the same way.
 
-        `last_bash_exit` moves only when something actually ran, and `ran` is the whole
-        line. A command killed on timeout *did* run, so it becomes the last one and reports
-        no exit code -- leaving the previous 0 standing would let a kill read as a success,
-        which is the exact misreport ADR-0007 exists to catch. A refusal never started a
-        process, so the last command that ran is still the previous one and its exit code is
-        still the true answer.
+        `last_bash_exit` moves only when something actually ran. A command killed on timeout
+        *did* run, so it becomes the last one and reports no exit code, where leaving the
+        previous 0 standing would let a kill read as a success. A refusal never started a
+        process, so the previous exit code still stands (ADR-0007).
 
-        `masked_failure` reaches `bash_failures` because that field accumulates across
-        every call in the delegation, so call 1's hidden failure survives to call 10 -- and
-        the `exit_code != 0` term alone misses it entirely, leaving a delegation whose
-        third command failed inside a compound line reporting `bash_failures: 0`.
-        `last_bash_exit` is not touched by it and must not be: it is overwritten by every
-        call that ran, so it only ever means *the last*, and per ADR-0007 a non-zero there
-        stays trustworthy while a zero stays ambiguous. The trap does not change that.
+        `masked_failure` reaches `bash_failures` because that field accumulates across the
+        delegation, so call 1's hidden failure survives to call 10. `last_bash_exit` is not
+        touched by it: it only ever means *the last*, and per ADR-0007 a non-zero there stays
+        trustworthy while a zero stays ambiguous.
         """
         self.bash_calls += 1
         masked = bash.ran and bash.masked_failure
@@ -2553,32 +2464,16 @@ class _OverflowGuard:
     def evict_upto(self, sizes: Sequence[int]) -> int:
         """How many of the oldest tool results should be stubbed, now. Never retreats.
 
-        Takes the results' estimated sizes, oldest first, and not a count of them. A count
-        prices a one-line refusal and a 50KB file identically (ADR-0079). What fills a
-        context window is bytes, so bytes are what the boundary is driven by.
+        Takes the results' estimated sizes, oldest first, and not a count of them: a count
+        prices a one-line refusal and a 50KB file identically (ADR-0079).
 
-        `keep` serves two purposes. It is the floor -- the newest results are what the model
-        is working from, so they stay intact whatever they cost -- and it is the step. It is
-        not the trigger.
-
-        Two conditions, and both are needed. Gating on pressure alone leaves the boundary
-        moving every turn, which costs the prefix reuse. Stepping alone would trim a history
-        that has nothing to relieve. Together they bound the history, at the price of some
-        reuse.
-
-        The step is `keep`, so the boundary jumps by the same quantity the setting is
-        denominated in and one rewrite buys `keep` turns of stability. Below the pressure
-        threshold the boundary is returned unchanged rather than zeroed: un-stubbing
-        content would rewrite the history too, in the other direction, and cost the same
-        cache.
-
-        **The stepping is unconditional and only the holding is gated**, which is not the
-        obvious arrangement and is the one that is safe. `context_overflow_enabled` is off
-        by default, and deliberately: every threshold here is measured against
-        `context_window`, which a registry entry may have inherited rather than had set.
-        Gating the whole method on it would mean the default configuration never bounded a
-        history at all. So an unarmed guard still steps, which bounds the history; arming
-        it additionally holds the boundary while there is room.
+        `keep` is both the floor (the newest results stay intact) and the step, so one
+        rewrite buys `keep` turns of prefix stability; below the pressure threshold the
+        boundary is returned unchanged rather than zeroed, since un-stubbing would cost the
+        same cache (ADR-0056). The stepping is unconditional and only the holding is gated,
+        because `context_overflow_enabled` is off by default and gating everything on it
+        would leave the default configuration's history unbounded. An unarmed guard still
+        steps; arming it additionally holds the boundary while there is room.
         """
         step = max(self.keep, 1)
         # The floor, applied first: whatever the sizes say, `keep` results survive intact.
@@ -2709,12 +2604,10 @@ def _overflow_report(
 ) -> dict[str, object]:
     """What the server watched, beside what the working tree says. ADR-0007.
 
-    Two accounts of the same events, deliberately not merged into one. The ledger is every
-    tool call this server ran and whether it failed; `git status` is what is actually on
-    disk. Where they disagree the disagreement is the finding, and a report that reconciled
-    them for the reader would hide it.
-
-    Scoped to the directories the delegation wrote into, never the whole workspace.
+    The ledger and `git status` are deliberately not merged: where they disagree the
+    disagreement is the finding, and a report that reconciled them would hide it. `git
+    status` is scoped to the directories the delegation wrote into, never the whole
+    workspace. Why: ADR-0007.
     """
     writes = [path for name, path, is_error in ledger if name == "write_file" and path]
     failed = [path for name, path, is_error in ledger if name == "write_file" and is_error]
@@ -2744,10 +2637,9 @@ def _dedup_key(call: ToolUseBlock) -> str:
 class AgenticDispatch:
     """What one agentic delegation did, counted by the server rather than told by the model.
 
-    The first four fields match `Dispatch` so a caller reads both the same way. The rest is
+    The first four fields match `Dispatch` so a caller reads both the same way; the rest is
     the ledger ADR-0007 asks for, extended from exit codes to the economics of the loop:
-    turns actually taken, tools actually run, results actually evicted. A model's own
-    account of how many files it read is not evidence, and this is.
+    turns actually taken, tools actually run, results actually evicted. Why: ADR-0007.
     """
 
     response: CanonicalResponse
@@ -3081,17 +2973,11 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     budget would make the real bound the timeout times `max_turns`, which at the defaults
     is a day and a half.
 
-    `report_progress` is called once per turn and is not cosmetic (ADR-0018): it resets the
-    client's stdio idle timer, which is 1800s against a 3600s `dispatch_timeout`, so without
-    it a long delegation is abandoned by the client while the server is still working. It is
-    injected rather than imported for the reason `sleep` and `clock` are -- `loop.py` holds
-    no MCP imports, and a test needs to see the calls without a client.
-
-    `on_alive` is the same protection *within* a turn, and one per turn is not enough: a
-    turn's own duration is bounded only by the delegation deadline, so a single slow one
-    outlasts the idle timer on its own. It runs on a timer beside the loop rather than at a
-    point inside it, because there is no point inside a turn that is guaranteed to be
-    reached.
+    `report_progress` is called once per turn and `on_alive` runs on a timer beside the
+    loop, and both reset the client's stdio idle timer (ADR-0018): without them a
+    delegation that outlasts it is abandoned by the client while the server is still
+    working. Both are injected rather than imported -- `loop.py` holds no MCP imports, and
+    a test needs to see the calls without a client. Why: ADR-0018.
 
     Effort reported is the level of the *last* turn, which is the one that produced the
     answer. A step-down on turn three does not persist into turn four: the next turn is a
@@ -3112,14 +2998,12 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     def token_arrived(kind: str = "answer") -> None:
         """The second progress signal, and the finer of the two (ADR-0072).
 
-        Turn completion still counts -- nothing here replaces it -- but it cannot see
-        inside a turn, so on its own it would kill a pass that had completed many turns in
-        one long one. Token arrival can, and unlike the notification and the keepalive it is
-        real: it happens because the model produced something.
-
+        Turn completion still counts -- nothing here replaces it -- but it cannot see inside
+        a turn, so on its own it would kill a pass that had completed many turns in one long
+        one; token arrival can, and unlike the notification and the keepalive it is real.
         `kind` names which half of the reply a frame carried, so the reasoner can tally
-        thinking separately from answering. The default keeps a backend that still calls
-        `on_token()` with no argument working.
+        thinking separately from answering, and the default keeps a backend that still calls
+        `on_token()` with no argument working. Why: ADR-0072.
         """
         nonlocal last_progress, chunks, reasoning_chunks
         last_progress = clock()
@@ -3187,27 +3071,24 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
         fallback=cfg.rate_fallback_tok_s,
     )
 
-    # When a turn last *finished*. Deliberately not when one last started, which is what
-    # `report_progress` reports: that fires at the top of a turn, so it would reset the
-    # clock on entry to the very turn that then wedges. The keepalive is no use either --
-    # it proves liveness on a timer regardless of progress, which is precisely the signal
-    # a no-progress deadline must not count as progress (ADR-0047).
-    #
-    # Below the seed, not above it. Started above, the clock was already running while the
-    # scrape was awaited, so a slow endpoint spent turn 1's silence budget on metrics
-    # before turn 1 began -- and the comment above the seed asserted the opposite.
+    # When a turn last *finished*, deliberately not when one last started (ADR-0047): the
+    # notification fires at the top of a turn, so it would reset the clock on entry to the
+    # very turn that then wedges, and the keepalive proves liveness on a timer regardless
+    # of progress, which a no-progress deadline must not count as progress. Set below the
+    # seed, not above it: started above, the clock was already running while the scrape was
+    # awaited, so a slow endpoint spent turn 1's silence budget on metrics before turn 1
+    # began. Why: ADR-0047.
     last_progress = clock()
 
     # The heartbeat, beside the loop rather than inside it. `run_one_shot` has one too
     # (ADR-0018); this path reports only at the top of each turn, so a single long turn is
-    # silent for its whole duration -- and a turn that keeps producing is bounded by nothing
-    # tighter than the delegation deadline, far past the client's stdio idle timeout. At
-    # that point the client abandons the call, nothing reaches the server, and the slot is
-    # held to the end.
+    # silent for its whole duration and is bounded by nothing tighter than the delegation
+    # deadline -- far past the client's stdio idle timeout, at which point the client
+    # abandons the call, nothing reaches the server, and the slot is held to the end.
     #
     # Created as `None` rather than early-returning the way the one-shot does, because
     # there the guarded part is one `await` and here it is the whole loop: duplicating it
-    # to avoid a nullable task would be two copies of the turn lifecycle.
+    # to avoid a nullable task would be two copies of the turn lifecycle. Why: ADR-0018.
     tools_running = False
     beat = asyncio.create_task(_keepalive(
         cfg, on_alive, clock,
@@ -3261,10 +3142,10 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
                     # Always offered, and forbidden rather than withdrawn on the final turn
                     # (ADR-0057). The intent is unchanged -- a model that ends on a tool call
                     # nobody will run has spent the whole delegation and returned nothing
-                    # readable -- but withdrawing them changes the front of the prompt, and
-                    # the stack caches prefixes, so dropping the tool block would re-prefill
-                    # the whole prompt on the one turn that must also fit a whole answer in
-                    # one deadline.
+                    # readable -- but withdrawing changes the front of the prompt, and the
+                    # stack caches prefixes, so dropping the tool block would re-prefill the
+                    # whole prompt on the one turn that must fit a whole answer in one
+                    # deadline. Why: ADR-0057.
                     tools=specs,
                     tool_choice="none" if _final else "auto",
                 )
@@ -3312,19 +3193,17 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # gets believed.
             backend_seconds = max(clock() - backend_started, 0.0)
             # What this turn actually achieved, which replaces the cluster's lifetime mean
-            # for every turn after it. Measured over the *answering attempt* rather than
-            # `backend_seconds`, which spans every recovery stage and every transport retry
-            # inside them: the token count comes from one attempt (ADR-0014), so dividing
-            # it by all of them is arithmetic over two different events. That would halve
-            # the apparent rate, and the halved number would then seed the next
-            # delegation's first turn -- the one with no observation of its own and the
-            # only one that can die before making any.
-            # The tokens' own interval where the adapter could time it, the whole attempt
-            # where it could not. `decode_seconds` is last token minus first and so
-            # excludes prefill; `answered_seconds` includes it, and on a short answer over
-            # a large prompt prefill is most of the interval -- which makes the rate
-            # describe the queue rather than the decoder (ADR-0070). `None` means the
-            # adapter does not stream, not that the interval was zero.
+            # for every turn after it. The token count comes from one attempt (ADR-0014), so
+            # it is divided by the answering attempt, not `backend_seconds`, which spans
+            # every recovery stage and transport retry inside them: the halved rate would
+            # seed the next delegation's first turn -- the one with no observation of its own
+            # and the only one that can die before making any. The interval is the tokens'
+            # own where the adapter could time it and the whole attempt where it could not:
+            # `decode_seconds` is last token minus first and excludes prefill, while
+            # `answered_seconds` includes it, so on a short answer over a large prompt the
+            # rate describes the queue rather than the decoder (ADR-0070). `None` means the
+            # adapter does not stream, not that the interval was zero. Why: ADR-0014,
+            # ADR-0070.
             measured = dispatch.response.decode_seconds
             interval = measured or dispatch.answered_seconds or backend_seconds
             decode_rate.observe(dispatch.response.output_tokens, interval)
