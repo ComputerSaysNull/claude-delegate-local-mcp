@@ -230,6 +230,8 @@ class Admission:
         """
         return "kv_token_budget" if tokens > self.effective_token_budget else None
 
+    _pool_tokens: int | None  # declared here because a method above assigns it first
+
     def __init__(self, cfg: Config, slots: SharedSlots | None = None) -> None:
         self._slots = slots
         self._max_seqs = cfg.max_inflight_seqs
@@ -237,7 +239,7 @@ class Admission:
         # The pool the endpoint says it has, once anything has looked. `None` until then,
         # which is different from zero: an endpoint publishing no metrics must leave the
         # configured value standing rather than tighten this gate to nothing.
-        self._pool_tokens: int | None = None
+        self._pool_tokens = None
         self._grace = cfg.admission_starvation_grace
         self._idle_hold = max(0.0, float(cfg.admission_idle_hold))
         self._cond = asyncio.Condition()
@@ -653,11 +655,11 @@ class Admission:
             counted = await self._count_the_burst()
         except BaseException as exc:
             await self._announce_burst(open_wait=False)
-            self._settle_waiters(exc=exc)
+            self._settle_waiters(exc)
             await self.release(lease)
             raise
         await self._announce_burst(open_wait=False)
-        self._settle_waiters(counted=counted)
+        self._settle_waiters(counted)
         return counted
 
     async def _burst_open_elsewhere(self) -> bool:
@@ -710,22 +712,17 @@ class Admission:
                 "announce" if open_wait else "withdraw",
             )
 
-    def _settle_waiters(
-        self,
-        *,
-        counted: tuple[int, int] | None = None,
-        exc: BaseException | None = None,
-    ) -> None:
+    def _settle_waiters(self, outcome: tuple[int, int] | BaseException) -> None:
         """Hand the open wait's outcome to whoever joined it, and close it."""
         pending, self._holding = self._holding, None
         if pending is None or pending.done():
             return
-        if exc is not None:
-            pending.set_exception(exc)
+        if isinstance(outcome, BaseException):
+            pending.set_exception(outcome)
             # Retrieved here so a wait nobody joined does not log a stray exception.
             pending.exception()
         else:
-            pending.set_result(counted)
+            pending.set_result(outcome)
 
     async def _count_the_burst(self) -> tuple[int, int]:
         """Wait out the burst behind an idle gate, and report what arrived.

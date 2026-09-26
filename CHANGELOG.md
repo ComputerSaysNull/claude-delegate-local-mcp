@@ -38,6 +38,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #363 — 2026-09-25 — fix: a type checker runs in CI, and what it found is fixed
+
+### Added
+
+- **`mypy` runs over `src/` in the lint job.** Nothing checked types, and the review found
+  `complete_with_retry` declaring two return values where it returns three, which every
+  caller had quietly relied on. It is a step of the existing job rather than a job of its
+  own, because the branch ruleset names required checks by job name. Bounded to 2.3 for
+  ruff's reason, and set to check as Linux so a Windows run matches CI. Checked: a planted
+  `x: int = "…"` fails it with exit 1.
+
+### Fixed
+
+- **34 type errors in 8 modules.** Most were annotations that had drifted from the code:
+  `complete_with_retry`'s return, two callbacks `dispatch_delegation` declared with the
+  wrong arguments, `subprocess.run` keywords typed too loosely, and a `nonlocal` mypy could
+  not see bound because the binding sits after the functions that use it, on purpose. One
+  was worth more than its annotation: `dispatch_delegation` typed `on_token` as taking the
+  frame's kind while the loop calls it with nothing. No caller passes one yet, so it was
+  latent rather than live. `_settle_waiters` now takes its outcome as one argument, which
+  removes a state neither caller could reach. `paths.py`'s two, in a policy layer, are a
+  commit of their own.
+
 ## #362 — 2026-09-25 — fix: the orchestration guide no longer credits the toolset with a short audit
 
 ### Fixed

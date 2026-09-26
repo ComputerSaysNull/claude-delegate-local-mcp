@@ -349,7 +349,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 72. ✅ **A first turn that runs tools still charges the dispatch's setup to them.**
   `tool_clock` starts at the grant, so turn 1's window holds budget pricing and request
   assembly as well as the tools. Needs the loop to time each call, where the number is
-73. ⬜ **No type checker runs in CI** (R13), and one would have caught `complete_with_retry`
+73. ✅ 2026-09-25 **No type checker runs in CI** (R13), and one would have caught `complete_with_retry`
   declaring two return values where it returns three. Pyright or mypy in basic mode, `src/`
 74. ✅ 2026-09-25 **Synchronous file work blocks the event loop** (R14): `expand_globs`, `resolve_files`
   and `prefetch` run inline in `run_delegation`, 0.54 to 0.62s measured. Tolerable today

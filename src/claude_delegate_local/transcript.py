@@ -49,7 +49,7 @@ from collections.abc import Iterable
 from datetime import datetime, UTC
 from hashlib import blake2s
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .backends.base import answer_of as _answer_of
 from .backends.base import duplicate_line_share
@@ -587,6 +587,8 @@ def _ledger(dispatched: Dispatch | AgenticDispatch | None) -> dict[str, Any]:
     """The loop's counters. ADR-0007: what the server watched, not what was claimed."""
     if dispatched is None or not hasattr(dispatched, "turns"):
         return {}
+    # Narrowed for the checker only; `hasattr` is the test so a double with `turns` passes.
+    dispatched = cast("AgenticDispatch", dispatched)
     return {
         "turns": dispatched.turns,
         "tool_calls": dispatched.tool_calls,

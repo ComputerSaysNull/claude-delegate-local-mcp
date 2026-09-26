@@ -43,7 +43,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO, cast
 
 from .config import Config
 from .wsl import UntranslatablePath, to_posix
@@ -543,7 +543,7 @@ def hardened(argv: Sequence[str]) -> list[str]:
 def _git(args: list[str], stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
     """Run git, turning an absent git into a policy error rather than a silent pass."""
     # Fed or closed, never inherited: the server's own stdin is the MCP stream.
-    feed: dict[str, object] = (
+    feed: dict[str, Any] = (
         {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
     )
     try:
@@ -1417,7 +1417,8 @@ def open_resolved(entry: ResolvedPath, mode: str, *, scan_bytes: int = 0) -> Ope
         os.close(fd)
         raise
 
-    return OpenedFile(entry=entry, handle=os.fdopen(fd, mode), created=created)
+    # Every mode `_MODE_FLAGS` admits is binary, which `fdopen` cannot know from a str.
+    return OpenedFile(entry=entry, handle=cast(BinaryIO, os.fdopen(fd, mode)), created=created)
 
 
 def _refuse_key_material(entry: ResolvedPath, fd: int, scan_bytes: int) -> None:
