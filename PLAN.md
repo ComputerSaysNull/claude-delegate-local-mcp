@@ -1,5 +1,5 @@
-<!-- BUDGET: 450
-     Raised from 440 on 2026-09-24: bugs found reading delegation transcripts, filed with their fixes. -->
+<!-- BUDGET: 460
+     Raised from 450 on 2026-09-25: the prefetch cap filed once a measurement left it without a reason. -->
 # Plan
 
 Open work, status first so the file scans.
@@ -162,10 +162,10 @@ Item 2 was Unscheduled.62, moved unchanged on 2026-09-23.
   samples pull a bucket 4 to 9% low. Agreed with the operator; the widening rule stays
 5. ✅ **The priced label is frozen at admission, and the real cap is not recorded** (R24).
   Re-read concurrency from the shared totals at every turn, and carry the `max_tokens` sent
-6. ⬜ **Speculative decoding is on, and its gain when six-wide is unmeasured** (P3,
+6. ✅ 2026-09-25 **Speculative decoding is on, and its gain when six-wide is unmeasured** (P3,
   corrected: the endpoint already drafts six tokens). Measure acceptance at one and six
   streams before changing the draft length
-7. ⬜ **Long prompts may decode slower** (P5): 29 against 44 tok/s at one stream, from five
+7. ✅ 2026-09-25 **Long prompts may decode slower** (P5): 29 against 44 tok/s at one stream, from five
   and six samples. Benchmark it before prefetching less
 8. ⬜ **Width past six is unmeasured** (P7), and aggregate still rises at six. Measure
   eight-wide with real prompt sizes before raising `max_inflight_seqs` and the endpoint's
@@ -400,6 +400,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 90. ✅ **Two `run_bash` calls in one workdir race on a protected placeholder**: bwrap refused to
   start with `Can't find source path .../.idea` while a second delegation ran beside it, and passed
   alone. Read, not reproduced: the first run's settle removes the empty dir the second one bound
+91. ⬜ **The 140k prefetch cap rests on nothing measured** (JOURNAL 2026-09-25): set it, or say why
 
 ## Deferred
 
