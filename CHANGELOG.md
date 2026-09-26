@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #369 — 2026-09-26 — fix: the countdown names the deadline that can fire while a tool runs
+
+### Fixed
+
+- **A watcher saw a delegation's countdown fall towards zero during a long tool.** The
+  `alive` event's `ends_in_seconds` is the nearer of the stall and delegation deadlines. But
+  the stall clock is read only while the loop waits on the endpoint, and it resets once the
+  tools finish, so during a tool it named a deadline that cannot fire. Observed live on
+  2026-09-26: 843s fell to 423s across one `sleep 500`, then jumped back to 864s at the next
+  turn (the fall-and-jump PLAN U.19.a recorded). While tools run, the countdown now shows
+  the delegation deadline alone. Red first: with a tool running past a 100s stall budget,
+  the countdown read 0.0s against 9,700s of delegation left. Also mends a sentence in
+  DISPATCH.md that had lost its ending.
+
 ## #368 — 2026-09-26 — fix: the AST check sees a reworded tool description
 
 ### Fixed

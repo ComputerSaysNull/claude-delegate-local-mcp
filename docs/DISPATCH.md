@@ -655,10 +655,10 @@ being one problem from two sides. It carries elapsed, the delegation ceiling it 
 against, and — since it was found reporting "60s of 14400s", the ceiling at the time, while
 minutes from death — **how long until the tightest deadline fires**. Two figures, because
 they answer two questions, and the ceiling is the deadline least likely to end a run. The
-countdown is the stall and delegation clocks, now the only two: a per-attempt deadline
-restarts each attempt, so reported here it would sit unchanged while time ran out beneath it —
-which is why sizing an attempt and counting down a delegation use different functions. It
-Since ADR-0072 it also carries what the model is *doing*: how many frames carrying output
+countdown is the stall and delegation clocks, and while tools run the delegation clock alone,
+since nothing reads the stall clock then. A per-attempt deadline restarts each attempt, so here
+it would sit unchanged while time ran out beneath it — why sizing an attempt and counting down
+a delegation use different functions. Since ADR-0072 it also carries what the model is *doing*: how many frames carrying output
 have arrived, and how long since the last — the gap being what separates a delegation
 producing from one gone quiet. **Chunks, and named so**: a frame usually carries one token
 here and is not promised to, and the real count lands in the final usage frame, after a
