@@ -2655,3 +2655,58 @@ for what they are sure to buy, a pass that cannot write, and no longer cites the
 What it does not settle: two runs an arm, one task, one check class, and everything the
 task needed already prefetched. A pass that has to go looking may still verify at length,
 which is the case a turn cap bounds.
+
+## 2026-09-26 — A collect that outlasts the client's idle limit returns
+
+#358 made `collect` report progress every `keepalive_interval` while it waits (PLAN U.89).
+Its test drove an in-process client, which has no idle timer, so whether Claude Code's
+stdio client stops dropping the call at 1800s was unmeasured. Run live: `delegate` with
+only `run_bash`, told to run `sleep 500; echo done-N` five times, one call a turn, so each
+gap stays under `run_bash_timeout` and the delegation genuinely runs past 30 minutes. Then
+`collect(wait_seconds=3500)`, the value that was dropped before the fix.
+
+The run went from 13:03:08 to 13:45:09, `elapsed_seconds` 2520.9, six turns. The client
+backgrounded the `collect` after 120s, and it returned `status: done` with all five lines,
+about 700s past the point where the pre-fix call was abandoned with "no response or
+progress for 1800s". So the fix holds against the real client, not just the test double.
+
+What it does not settle: one client, one run, a delegation that was idle rather than
+decoding while `collect` waited. The keepalive does not depend on what the run is doing,
+so that last one should not matter, but it was not varied.
+
+## 2026-09-26 — Prefill counts toward stall_timeout; a running tool does not
+
+The question was which silences `stall_timeout` charges. By the code, a tool's run and the
+next turn's prefill both fall between two resets of the stall clock. Measured with the
+`run` CLI, one process per run, the stall timeout set by environment variable so the MCP
+server was untouched:
+
+| run | setup | result |
+|---|---|---|
+| override control | connect 10 > stall 5 | refused at load, so the override is read |
+| tool | stall 45s, one `sleep 90` | completed in 96s |
+| prefill | stall 20s, cold ~60k-token prompt | abandoned at 20.0s, "no turn completed" |
+| control | stall 20s, no files | completed in 4s |
+| control | stall 900s, 61,735 tokens, 2,816 cached | completed in 45s |
+| two at once | stall 900s, cold ~50k each, 0.3s apart | 39.7s and 72.3s |
+| two at once | the same, other files | 47.1s and 82.7s |
+
+A tool cannot trip the stall: it is checked only while waiting on the endpoint, and the
+clock resets when the tool's outcome is attached. The watcher's countdown still falls
+while the tool runs (843 to 423 across a `sleep 500`, then back to 864), naming a deadline
+that cannot fire then. A prefill does trip it, and so does time spent queued behind
+another cold prefill: the engine takes them one at a time, at about 1,100 to 1,400 tok/s.
+
+Nor can the server see a prefill happening. The engine's `/metrics`, sampled every 2s
+through one, stayed flat on `prompt_tokens_total`, `iteration_tokens_total_sum` and
+`generation_tokens_total`, then jumped at once (+53,633, +50,819, +2) when it finished.
+Only `num_requests_running` and `num_requests_waiting` show state, and they read the same
+for a wedged engine. A server that wanted to spare a prefill would have to predict its
+length rather than observe it.
+
+What that settles for the prefetch budget: the silence before a call's first token is about
+its uncached prompt over the prefill rate, plus every cold prefill queued ahead of it. At
+`max_inflight_seqs` 6, six full 140k budgets queue for about 620s, and six of 200k about
+920s, past a 900s `stall_timeout`. Waiting for admission does not count, since the clock
+starts inside it. What it does not settle: one endpoint, prompts of 50k to 60k, and never
+more than two at once.

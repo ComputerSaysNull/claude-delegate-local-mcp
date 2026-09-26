@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #367 — 2026-09-26 — docs: record that collect outlasts the idle limit, and what the stall clock charges
+
+### Added
+
+- **U.89's live check, run.** #358's test drove an in-process client, which has no idle
+  timer, so nothing had shown that the real client stops dropping a long `collect`. A
+  delegation built to run 2520s was collected with `wait_seconds` 3500 and came back
+  `done`, about 700s past the point where the call used to be abandoned. JOURNAL has the
+  run.
+- **Which silences `stall_timeout` charges, measured.** A running tool never trips it. A
+  prefill does, and so does time queued behind another cold prefill: a 20s stall abandoned
+  a cold 60k-token prompt that took 45s at 900s, and the second of two cold prompts sent
+  together took 72s. The engine exposes nothing that moves during a prefill, so the server
+  cannot tell one from a wedge. JOURNAL has the table. The prefetch budget's review (U.91)
+  rests on it.
+
 ## #366 — 2026-09-25 — docs: each writing rule has one home, and budget headers hold only a number
 
 ### Changed
