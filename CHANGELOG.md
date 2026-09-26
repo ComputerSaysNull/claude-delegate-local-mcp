@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #368 — 2026-09-26 — fix: the AST check sees a reworded tool description
+
+### Fixed
+
+- **A comment pass could rewrite an MCP tool's contract and still be told "unchanged".**
+  `scripts/ast_unchanged.py` removes every docstring before comparing, and in `server.py`
+  the docstring of an `@mcp.tool` or `@mcp.resource` function is the description the model
+  reads. Nothing else caught it either, since `gen_tools_docs.py` renders only the
+  delegated model's ToolSpecs. A function decorated `@mcp.<anything>`, bare or called, now
+  keeps its docstring in the comparison. Every other docstring stays invisible, so an
+  ordinary comment pass still passes. Red first: two `@mcp.tool` functions differing only
+  in their docstring normalised equal (3 failed, 3 passed). Found while planning the
+  `server.py` comment pass (PLAN M18.4.b), which this check has to guard.
+
 ## #367 — 2026-09-26 — docs: record that collect outlasts the idle limit, and what the stall clock charges
 
 ### Added

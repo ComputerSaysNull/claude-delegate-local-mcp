@@ -7,7 +7,8 @@ worth checking. This turns it into a measurement: for each module it reads the o
 from a git revision and the new text from the working tree, removes every docstring, and
 compares the two `ast.dump` outputs. Comments never reach the AST, so a pass that touched
 only comments and docstrings produces identical dumps; anything else -- a literal
-changed, a variable renamed -- makes them differ.
+changed, a variable renamed -- makes them differ. The one docstring kept is an
+`@mcp.*`-decorated function's, because that is the tool's description the model reads.
 
 It parses source *text* only. It never imports a module or compiles it to bytecode: a
 cached `.pyc` is validated on (mtime, size) and can be stale, so trusting one would
@@ -32,10 +33,11 @@ from pathlib import Path
 
 
 def normalised(source: str) -> str:
-    """`ast.dump` of `source` with every docstring removed.
+    """`ast.dump` of `source` with every docstring removed except a contract's.
 
     Removes the first statement of the module and of every class, function and async
-    function when it is an `ast.Expr` whose value is an `ast.Constant` holding a `str`;
+    function when it is an `ast.Expr` whose value is an `ast.Constant` holding a `str`,
+    unless the function is decorated `@mcp.<anything>` (see `_is_contract`);
     if removing it empties that body, an `ast.Pass()` is put in its place so the node is
     still well formed. Returns `ast.dump` with default arguments, so no line numbers or
     positions -- those are exactly what a comment pass shifts, and they are not
@@ -46,9 +48,26 @@ def normalised(source: str) -> str:
     return ast.dump(tree)
 
 
+def _is_contract(node: ast.AST) -> bool:
+    """Whether `node` is decorated `@mcp.<anything>`, bare or called.
+
+    Such a function's docstring is the MCP tool's or resource's description, which the
+    model reads, so a pass that rewords it has changed behaviour.
+    """
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return False
+    for d in node.decorator_list:
+        target = d.func if isinstance(d, ast.Call) else d
+        if (isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name)
+                and target.value.id == "mcp"):
+            return True
+    return False
+
+
 def _strip_docstrings(node: ast.AST) -> None:
-    """Remove the docstring from `node`, then recurse into its children."""
-    if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+    """Remove the docstring from `node` unless it is contract text, then recurse."""
+    if (isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and not _is_contract(node)):
         body = node.body
         if body and isinstance(body[0], ast.Expr) and isinstance(
             body[0].value, ast.Constant
