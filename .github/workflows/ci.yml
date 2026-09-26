@@ -69,11 +69,13 @@ jobs:
       # ruff is pinned in pyproject.toml, and the rule set is written out there rather
       # than inherited. Both matter: with an unbounded version and no `select`, this
       # repository went from 3 findings to 45 across ruff releases without a line of it
-      # changing. A lint job on a moving rule set fails builds nobody broke.
+      # changing. A lint job on a moving rule set fails builds nobody broke. The same holds
+      # for every other dependency, so both install steps resolve through one pins file,
+      # the build backend included; CONTRIBUTING says how it is refreshed.
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -c .github/ci-constraints.txt --build-constraint .github/ci-constraints.txt -e ".[dev]"
 
       - name: Ruff
         run: ruff check src scripts tests
@@ -118,7 +120,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -c .github/ci-constraints.txt --build-constraint .github/ci-constraints.txt -e ".[dev]"
 
       # Integration tests need the private cluster, which CI cannot reach. Excluded by
       # marker so the exclusion is explicit rather than a silently absent test.
