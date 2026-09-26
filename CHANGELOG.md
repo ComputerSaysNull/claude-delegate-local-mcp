@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #377 — 2026-09-26 — fix: the orchestration guide tells a caller to ask for the outcome
+
+### Fixed
+
+- **Nothing told whoever writes a task not to ask for the exit code.** A task saying
+  "report the exit code" gets the model to run `cmd; echo $?`, and `last_bash_exit` then
+  holds the echo's 0 instead of the command's status. The `run_bash` description tells the
+  delegated model the code is recorded, but the matching advice for the caller left
+  ARCHITECTURE.md in #376 to keep it under its budget and had no other home.
+  `delegate://orchestration`, the guide a caller reads when shaping a delegation, now
+  says it in the section on recognising a failure. Red first: the guide did not contain
+  the sentence.
+
 ## #376 — 2026-09-26 — fix: a pipeline whose stage failed is recorded for the operator
 
 ### Added
