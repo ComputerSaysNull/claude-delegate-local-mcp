@@ -217,7 +217,7 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
     - b. ✅ 2026-09-26 `server.py`.
     - c. ⬜ `sandbox.py`, cutting history but keeping its security reasoning.
     - d. ⬜ `paths.py`, likewise.
-    - e. ⬜ `tools.py`.
+    - e. ✅ 2026-09-26 `tools.py`.
 5. ⬜ **Product docs describe the current state**: `docs/` without its history, and each
   `Config` description cut to what the setting does plus a link. Some run to 250 words
 6. ✅ **Stop it regrowing**: the gate warns on a date, a `TODO` or future-work phrasing in a
