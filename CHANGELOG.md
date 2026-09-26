@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #378 — 2026-09-26 — docs: loop.py's comments are tightened, and the rule says to
+
+### Changed
+
+- **The "Prose" rule now asks for brevity, not only for the history to go.** The
+  2026-09-22 review measured history at about a quarter of `src/` prose and called length
+  the larger lever: most rationale paragraphs lose nothing at half the length. It asked
+  for history cut everywhere and the remaining reasoning tightened, except in `paths.py`
+  and `sandbox.py`, where the security reasoning is what stops regressions and is trimmed
+  only conservatively. CONTRIBUTING's rule carried the first half alone, so the passes on
+  `loop.py`, `server.py` and `tools.py` followed it and prose fell only 10%, 6% and 5%.
+  The rule now carries both halves, and those three passes are reopened in PLAN.md.
+
 ## #377 — 2026-09-26 — fix: the orchestration guide tells a caller to ask for the outcome
 
 ### Fixed
