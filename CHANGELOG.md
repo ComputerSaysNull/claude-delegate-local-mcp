@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #371 — 2026-09-26 — docs: server.py's comments describe what is
+
+### Changed
+
+- **`server.py`'s comments stop narrating, and long ones link their ADR.** The same pass
+  as `loop.py`'s: dated incidents, figures and "used to" histories go, and where a block
+  restated an ADR the ADR checked holds, it keeps what the code does and what an editor
+  must not break, plus the link. The `@mcp.tool` and `@mcp.resource` docstrings are the
+  descriptions the model reads, so they are untouched. Since #368, the AST check that
+  proves the pass behaviour-free also covers them. Review caught one inversion: a comment
+  that said an agent file's `max_turns` cannot be overruled per call, the reverse of what
+  the code does. Prose fell from 733 lines to 687.
+
 ## #370 — 2026-09-26 — docs: loop.py's comments describe what is
 
 ### Changed
