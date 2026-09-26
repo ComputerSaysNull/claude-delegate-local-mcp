@@ -19,6 +19,28 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0105 — 2026-09-25 — A `files[]` entry may name a line range, and is judged by the range — Accepted
+
+**Context.** The per-file prefetch cap drops a file over it whole (ADR-0046), and
+`CHANGELOG.md`, about 182k tokens against 140k, always came back in `files_skipped` when a
+few hundred lines were all anyone wanted. The only way in was a turn spent on `read_file`.
+
+**Decision.** An entry is a path string as before, or an object `{path, start_line,
+end_line}` with `read_file`'s names and rules: 1-based, inclusive, and an `end_line` past
+the end is the end. The file is read and decoded whole, since a slice needs the text, and is
+then cut before the per-file and total budget checks, so the range's size decides, not the
+file's. The block keeps the file's own line numbers and its header says `lines A-B of N`,
+inside the markers, where the escaper recognises it. A glob in a ranged path, a
+`start_line` below 1 or past the end, an `end_line` before `start_line` and a second entry
+for the same file are each refused for that entry alone, never clamped (ADR-0061, ADR-0097).
+
+**Why this is not the truncation ADR-0046 refuses.** That rule stops the *server* choosing
+where a file ends and passing the rest off as the whole. Here the caller chose the cut and
+the header says the file is not all there. A range still over the cap is skipped whole.
+
+**Not in the path string.** `name:10-20` is the shape this repository's host-and-port
+scanner refuses, Windows paths already hold a colon, and `[...]` is glob syntax.
+
 ## ADR-0104 — 2026-09-25 — Running token totals go in an append-only ledger on the Linux filesystem — Accepted
 
 **Context.** What the cluster has spent is the sum over every dispatch, and the only record
