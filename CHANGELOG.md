@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #372 — 2026-09-26 — docs: tools.py's comments describe what is
+
+### Changed
+
+- **`tools.py`'s comments stop narrating, and long ones link their ADR.** The same two
+  rules as `loop.py` and `server.py`. The ToolSpec descriptions, schema text and refusal
+  messages are what the delegated model reads, so they are untouched, and
+  `gen_tools_docs.py --check` confirms `docs/TOOLS.md` did not move. The security
+  reasoning behind the git allowlist, the path-policy order and the two `allowed_tools`
+  sites stays, minus the dated measurements. Prose fell from 597 lines to 567, and
+  `ast_unchanged.py` reads the module as unchanged.
+
 ## #371 — 2026-09-26 — docs: server.py's comments describe what is
 
 ### Changed
