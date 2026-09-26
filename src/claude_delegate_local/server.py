@@ -2192,8 +2192,9 @@ run a command, and pass `workdir` only then.
 
 A pass that verifies -- a review, an audit -- should read and report, not check itself: give
 it the read-only tools, tell it not to verify its own quotations, and check them yourself
-afterwards. Measured on one audit pass, the full toolset took 26 turns and 29 calls, most
-of them re-verification, where reading alone took one turn for as many findings.
+afterwards. With its files prefetched, one audit pass took one turn in seven runs of eight,
+and two in the eighth, whether or not it had a shell or was told not to verify: the
+read-only tools buy a pass that cannot write, not a shorter one.
 
 Bound a pass with `max_turns`, not with prose. "Verify once, then report" in a task does
 not hold; the turn cap does, because the last turn is sent with tools withdrawn and the

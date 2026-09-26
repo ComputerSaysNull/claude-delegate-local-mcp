@@ -38,6 +38,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #362 — 2026-09-25 — fix: the orchestration guide no longer credits the toolset with a short audit
+
+### Fixed
+
+- **The guide told callers to withhold tools for a saving that no longer happens.** It cited
+  one audit pass that took 26 turns with the full toolset and one without. PLAN U.1 asked
+  what the shell was standing in for, so the same STALE pass ran four ways, twice each, with
+  its files prefetched: the read-only set, `read_file` alone, the read-only set plus a
+  shell, and a bare delegation with a shell and no "do not verify" anywhere. Seven runs of
+  eight took one turn and the eighth two, and all eight found the known discrepancy. So
+  neither the shell nor the instruction was the lever, and narrowing a read-only pass
+  further would buy nothing, which cancels PLAN M15.8. The "Shaping a pass" section now
+  says what the read-only tools do buy, a pass that cannot write, and cites the new runs.
+  JOURNAL 2026-09-25 has the table.
+
 ## #361 — 2026-09-25 — docs: speculative decoding and prompt size measured on the cluster
 
 ### Added
