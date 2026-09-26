@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #375 — 2026-09-26 — feat: a test checks that agent and skill bodies name real tool arguments
+
+### Added
+
+- **A renamed tool argument can no longer strand the agent and skill bodies that name
+  it.** R8 found bodies citing tool facts that were no longer true, and nothing checked
+  them, because nothing at load time reads a Markdown body. The new test builds the real
+  surface from the code: every MCP tool and argument, the result keys, the delegated
+  model's tools, the `Config` fields, the frontmatter keys and the names defined in
+  `src/`. It then reports any inline-code name in a body that is none of those and not on
+  a short allowlist of eight words. It also checks a written-out call's keywords and
+  required arguments against the tool's schema, and an `allowed_tools:` list against the
+  registry. Red first: on today's bodies it named two words, `why` and `assumed`, both
+  literal values a body tells its reader to write, now allowed. Planted violations (a
+  `wait_secs`, a call missing `task`, a `grep_files` tool) are each caught.
+
 ## #374 — 2026-09-26 — docs: every Config description says what the setting does
 
 ### Changed

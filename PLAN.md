@@ -118,7 +118,7 @@ test fails when an agent or skill body names one.
 2. ✅ 2026-09-23 **Tool descriptions name what does not exist** (R8): an `ok: true` in the `task`
   argument and the orchestration resource, and "a workspace root is refused" for
   `search_files`
-3. ⬜ **Nothing checks that agent and skill bodies name real tool arguments** (R8). Test the
+3. ✅ 2026-09-26 **Nothing checks that agent and skill bodies name real tool arguments** (R8). Test the
   names and their required-ness against the declared schemas, so a rename cannot strand one
 4. ✅ 2026-09-23 **The turn-limit banner fires on a run that finished** (R9): `hit_turn_limit` is
   `turn == turns`, and the banner claims more than that flag knows
