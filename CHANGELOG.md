@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #388 — 2026-09-27 — docs: admission.py describes what is
+
+### Changed
+
+- **`admission.py`'s comments describe the gate as it is, from 384 prose lines to 305.**
+  M18.7 carries the review's prose finding past the five modules M18.4 covered; this is
+  the largest of the twelve left. The history goes -- when the ticket queue arrived, the
+  large-prefill cap that was removed, the pool figures that exposed the budget drift --
+  and so do two statements that had stopped being true. The module docstring still
+  explained a prompt-only prefill size that decided whether a request was a "large cold
+  prefill", a rule ADR-0077 removed. And `QUEUED_RULE` called itself the fifth reason
+  a request can be refused, where it is now the fourth. The concurrency reasoning is
+  kept whole, only reworded: one predicate rather than semaphores, the ticket order,
+  the starvation barrier (now linked to ADR-0068), the burst wait held outside the
+  condition, and every guard against a slot or a future left with no owner.
+  `ast_unchanged.py` reads the module as unchanged.
+
 ## #387 — 2026-09-27 — docs: six plan items and a one-shot delegation measurement
 
 ### Added

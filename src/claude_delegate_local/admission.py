@@ -1,60 +1,38 @@
 """The gate every delegation passes before it reaches a backend. ADR-0012.
 
-The per-request context ceiling and the concurrent-sequence ceiling are ceilings, not
-reservations. What actually constrains the cluster is that summed live tokens stay under
-the KV pool, so six full-context requests are impossible where six fifth-size ones fit
-comfortably. Oversubscription queues rather than fails, which makes this a latency
-protection rather than a correctness one -- and the queueing can be severe, because large
-cold prefills serialise.
+The per-request context and the sequence count are ceilings, not reservations. What
+constrains the cluster is summed live tokens staying under the KV pool: six full-context
+requests cannot fit where six fifth-size ones do. Oversubscription queues rather than
+fails, so this protects latency, not correctness -- and the queueing can be severe,
+because large cold prefills serialise. The engine serialises them itself, so there is no
+cap on them here (ADR-0077).
 
-**"Queues" now means a place in line, which it did not until 2026-09-04.** The sentence
-above was true about waiting and false about ordering: `acquire` was a re-test loop, so a
-waiter that had queued for nine minutes had no claim ahead of a request arriving that
-instant. Across processes it was worse than unordered -- a release elsewhere notifies
-nothing, so waiting is polling, and the winner was whoever polled at the right moment.
-Every waiter now takes a ticket and the predicate refuses anyone who is not at the head,
-so the wait is bounded by the work ahead of it rather than by luck. Waiting is still
-polling: fairness decides *who* goes next, not how promptly anyone finds out.
+**Queueing is a place in line.** Every waiter takes a ticket and the predicate refuses
+anyone not at the head, so a wait is bounded by the work ahead of it, not by who polls at
+the right moment. Waiting is still polling, because a release in another process notifies
+nothing here: fairness decides *who* goes next, not how promptly anyone finds out.
 
-**Three capacity rules, checked as one predicate.** Total in-flight sequences, summed
-token estimate against the budget, and the endpoint's own declared limit. Queue position
-is a fourth reason `_binding` can refuse on, which is why the class below calls it a
-four-rule gate: capacity says whether a request *fits*, the queue says whether it is
-*next*, and both must hold. One predicate rather
-than three semaphores acquired in turn: a request that takes a sequence slot and then
-blocks on another rule holds capacity it is not using for the whole wait, starving smaller
-requests that would have fit every rule. Nothing here is ever partially acquired. A waiter
-that does not fit holds nothing.
+**Four rules, one predicate.** Three are capacity -- in-flight sequences, the summed token
+estimate against the budget, and the endpoint's own limit -- and say whether a request
+*fits*; queue position says whether it is *next*. One predicate rather than semaphores
+taken in turn, because a request holding one slot while it blocks on another rule holds
+capacity it is not using and starves smaller requests that would fit. Nothing is ever
+partially acquired: a waiter that does not fit holds nothing.
 
-There were four until 2026-09-13. A cap on concurrent large cold prefills measured as pure
-overhead -- 286.3s of aggregate waiting for a batch 12.1s slower end to end -- and fired
-`admission_wait_timeout` four times on a cluster at 3% KV use with zero preemptions. The
-engine serialises cold prefills itself, which is the cap's own justification arriving from
-somewhere that does not need configuring (ADR-0077).
+**Undersubscription is invisible where oversubscription announces itself**, so this counts
+as well as gates. `status()`'s peaks and wait totals, surfaced by `backend_status`, are how
+the limits stop being guesses: a peak that never nears its ceiling says the ceiling is low.
 
-**Undersubscription is invisible where oversubscription announces itself**, which is why
-this counts as well as gates. The high-water marks and wait totals `status()` returns are
-how the four constants stop being guesses -- `backend_status` surfaces them, and a peak
-that never approaches its ceiling is evidence the ceiling is too low.
+A request's size is its **KV footprint**, the prompt plus the reply it may generate. A
+lease's estimate is fixed at grant and never grows, so a long agentic delegation can
+outgrow it late in the loop. Growing it per turn would couple this module to the turn
+loop and add a reconciliation path on every abort; `peak_inflight_tokens` shows whether
+that trade is wrong.
 
-Two different numbers size a request, and conflating them is a trap. Its **KV footprint**
-is the prompt plus the reply it is permitted to generate, and that is what the token
-budget counts. Its **prefill** is the prompt alone, and that is what decides whether it is
-a large cold prefill -- decode is not prefill, and a reply allowance above the threshold
-would otherwise make every request "large" and quietly bound the whole server at
-`max_inflight_large_prefills`.
-
-The estimate a lease holds is fixed when it is granted and never grows. A long agentic
-delegation's true footprint can exceed it late in the loop, so the token rule is a
-floor-time approximation rather than a running total. Growing it per turn would couple
-this module to the turn loop's internals and add a reconciliation path on every abort;
-`peak_inflight_tokens` is the cheaper way to find out whether that trade was wrong.
-
-One instance per process, and -- since ADR-0040 -- one shared counter file across every
-process on the machine. Sharing the object within a process was never sufficient: the
-transport is stdio, so two editor windows are two servers, and four rules that each
-bound a session bound the cluster at the configured limit times the number of windows
-open. `slots.py` owns that file; this module owns what the numbers in it mean.
+One instance per process, over one counter file shared by every process on the machine
+(ADR-0040). The transport is stdio, so two editor windows are two servers, and limits
+counted per process would multiply by the windows open. `slots.py` owns the file; this
+module owns what its numbers mean.
 """
 
 from __future__ import annotations
@@ -74,22 +52,21 @@ if TYPE_CHECKING:
 
     from .config import Config
 
-# Well under the client's 1800s stdio idle timeout, because a wait is time in which no
-# turn happens and so nothing else pings (ADR-0018). Not a config field: it is tied to
-# the client's timer rather than to anything an operator tunes.
+# Well under the client's 1800s stdio idle timeout: no turn runs during a wait, so
+# nothing else pings (ADR-0018). Not a config field, because it follows the client's
+# timer, not anything an operator tunes.
 _WAIT_TICK_SECONDS = 30.0
 
 # How often a waiter re-tests the shared file. Another process's release cannot notify
-# this one's condition, so cross-process waiting is polling and there is no way around
-# that short of a broker. Cheap: the critical section is a small document on tmpfs.
+# this one, so cross-process waiting is polling short of a broker. Cheap: the critical
+# section is a small document on tmpfs.
 _POLL_SECONDS = 0.25
 
 
 log = logging.getLogger(__name__)
 
-# The fifth thing that can refuse a request, and the only one that is not about capacity.
-# Named rather than inlined because `AdmissionTimedOut` phrases it differently: "limit 3"
-# is meaningless for a queue position, where the number is how many are ahead.
+# The one rule not about capacity. Named because `AdmissionTimedOut` phrases it
+# differently: for a queue position the number is how many are ahead, not a limit.
 QUEUED_RULE = "queued_behind_earlier_waiters"
 
 
@@ -105,9 +82,8 @@ class AdmissionTimedOut(AdmissionError):
         self.rule = rule
         self.limit = limit
         if rule == QUEUED_RULE:
-            # Capacity was never the problem for this one: it was still behind other
-            # waiters when the clock ran out, so the answer is a longer wait or less
-            # concurrent work, not a bigger limit.
+            # Capacity was never the problem: it was still behind other waiters, so the
+            # remedy is a longer wait or less concurrent work, not a bigger limit.
             super().__init__(
                 f"admission_timed_out: waited {waited:.1f}s for a slot and gave up with "
                 f"{limit} request(s) still ahead of it in the queue. Admission is "
@@ -128,10 +104,9 @@ class AdmissionTimedOut(AdmissionError):
 class AdmissionImpossible(AdmissionError):
     """Refused at once: no amount of waiting could ever admit this request.
 
-    Distinct from a timeout on purpose. A request estimated larger than the whole token
-    budget does not fit an empty gate, so queueing it spends the entire wait to reach a
-    failure that was knowable immediately -- and reports it as congestion, which is the
-    one thing it is not.
+    Not a timeout: a request larger than the whole token budget does not fit an empty
+    gate, so queueing it would spend the whole wait on a failure knowable at once, and
+    report it as congestion, which is the one thing it is not.
     """
 
     def __init__(self, tokens: int, budget: int) -> None:
@@ -145,32 +120,22 @@ class AdmissionImpossible(AdmissionError):
 
 @dataclass(frozen=True, slots=True)
 class AdmissionLease:
-    """What was counted, so releasing subtracts exactly what acquiring added.
-
-    Until 2026-09-13 it also carried whether the request was a large cold prefill, and
-    whether that half of the lease was still held. Both existed only to enforce
-    `max_inflight_large_prefills`, which measured as pure overhead and was removed
-    (ADR-0077).
-    """
+    """What was counted, so releasing subtracts exactly what acquiring added."""
 
     tokens: int
     entry_key: str
-    # What the gate saw at the instant it granted this slot: sequences already in flight,
-    # and everyone still queued behind. Neither is a rule -- they are carried so the
-    # delegation can price its reply for the concurrency it is about to *meet* rather than
-    # the one the cluster happens to be showing. The cluster's own gauge cannot answer
-    # that: a lease is taken before the request is issued, so a sibling admitted moments
-    # ago is invisible to `num_requests_running` while it prefills. Measured 2026-09-11:
-    # six delegations fanned out in one message each read that gauge at 0 or 1.
+    # What the gate saw at grant: sequences in flight, and waiters still queued. Not
+    # rules: they let the delegation price its reply for the concurrency it is about to
+    # meet. The cluster's gauge cannot say that, because a sibling admitted moments ago is
+    # invisible to `num_requests_running` while it prefills.
     seqs_at_grant: int = 0
     waiting_at_grant: int = 0
-    # This request's own wait, not the running total. The gate's counters answer "is the
-    # cluster saturated"; this answers "was *this* delegation slow because it queued",
-    # which is the question asked of one dispatch after the fact.
+    # This request's own wait, not the gate's total: "was *this* delegation slow because
+    # it queued", asked of one dispatch after the fact.
     waited: float = 0.0
-    # False when the shared file could not be reached as the slot was taken, so it exists
-    # only in this process's counters. Releasing it to the file would give back one of this
-    # process's *other* slots there.
+    # False when the shared file was unreachable at grant, so the slot exists only in this
+    # process's counters. Releasing it to the file would give back one of this process's
+    # *other* slots there.
     shared: bool = True
 
 
@@ -181,19 +146,16 @@ class Admission:
     def effective_token_budget(self) -> int:
         """The lower of what the operator allowed and what the machine actually has.
 
-        `kv_token_budget` describes itself as sitting just under the measured KV pool, and
-        by 2026-09-13 it did not: 2,400,000 configured against a `kv_cache_size_tokens` of
-        1,467,988, about 1.64x. Nothing had failed, which is why it went unnoticed --
-        over-admitting queues and preempts rather than erroring, so this protects latency
-        and cannot announce that it has stopped. A new constant would drift the same way
-        the next time the pool moves, as it did on the 2026-09-04 model swap.
+        A configured budget above the real pool fails silently: over-admitting queues and
+        preempts rather than erroring, so nothing announces it, and a constant drifts
+        whenever the pool moves.
 
         **Not the silent override `WindowCheck` refuses.** That validates and never derives,
-        because `context_window` is the operator's claim about a *model* and adopting the
-        server's figure would overrule them. These two are ceilings on the same physical
-        thing, so taking the lower overrules neither: the operator's number still caps, and
-        so does the hardware. Both are reported in `status()`, because a ceiling nobody can
-        see would be the silent override after all.
+        because `context_window` is the operator's claim about a *model*, and adopting the
+        server's figure would overrule them. These two are
+        ceilings on the same physical thing, so the lower overrules neither: the operator's
+        number still caps, and so does the hardware. `status()` reports both, because a
+        ceiling nobody can see would be the silent override after all.
         """
         if self._pool_tokens is None:
             return self._token_budget
@@ -203,21 +165,19 @@ class Admission:
     def pool_known(self) -> bool:
         """Whether the endpoint's KV pool has ever been reported to this gate.
 
-        Read by the dispatch path to decide whether the cluster still needs scraping when
-        the rate memory already has an answer. Without it the scrape is skipped whenever the
-        memory is warm -- which, since the memory started surviving reconnects, is almost
-        always -- and the pool is never learned at all (ADR-0081).
+        The dispatch path reads it to scrape the cluster even when the rate memory already
+        has an answer. The memory survives reconnects and is almost always warm, so without
+        this the pool would never be learned (ADR-0081).
         """
         return self._pool_tokens is not None
 
     def observe_pool(self, tokens: int | None) -> None:
         """Record what the endpoint says its KV pool is. Ignores anything unusable.
 
-        Called from the dispatch path, where `seed_decode_rate` already scrapes the cluster
-        to price the first turn and `kv_cache_size_tokens` arrives in the same payload. That
-        read swallows every failure by design, so `None` is the ordinary case on an endpoint
-        publishing no metrics -- and a zero or a negative would tighten this gate to nothing
-        and refuse every delegation, which is a worse failure than the drift it fixes.
+        Fed by the scrape `seed_decode_rate` already makes, which swallows every failure,
+        so `None` is ordinary on an endpoint with no metrics. A zero or a negative would
+        tighten this gate to nothing and refuse every delegation, which is worse than the
+        drift it fixes.
         """
         if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens > 0:
             self._pool_tokens = tokens
@@ -225,8 +185,8 @@ class Admission:
     def would_bind_on_tokens(self, tokens: int) -> str | None:
         """Which rule an estimate of this size would hit on an idle gate, or None.
 
-        Exists for the tests and for a reader: `_binding` needs a `Totals` and a registry
-        key, and neither says anything about the token rule on its own.
+        For tests and readers: `_binding` needs a `Totals` and a registry key, neither of
+        which bears on the token rule.
         """
         return "kv_token_budget" if tokens > self.effective_token_budget else None
 
@@ -236,27 +196,24 @@ class Admission:
         self._slots = slots
         self._max_seqs = cfg.max_inflight_seqs
         self._token_budget = cfg.kv_token_budget
-        # The pool the endpoint says it has, once anything has looked. `None` until then,
-        # which is different from zero: an endpoint publishing no metrics must leave the
-        # configured value standing rather than tighten this gate to nothing.
+        # The pool the endpoint reports, `None` until it does -- not zero, which would
+        # tighten this gate to nothing on an endpoint that publishes no metrics.
         self._pool_tokens = None
         self._grace = cfg.admission_starvation_grace
         self._idle_hold = max(0.0, float(cfg.admission_idle_hold))
         self._cond = asyncio.Condition()
 
         self._inflight_seqs = 0
-        # The burst wait currently open, as a future carrying its answer, or None. A member
-        # admitted while one is open takes that answer instead of pricing itself on the
-        # position it happened to arrive in -- the half ADR-0085 left undone. A future
-        # rather than a counter, so a burst waits one window between them and a joiner
-        # never waits inside the wait it is joining.
+        # The open burst wait, as a future carrying its answer, or None. A member admitted
+        # while one is open takes that answer rather than pricing itself on its arrival
+        # position (ADR-0085). A future, not a counter, so a burst waits one window in all
+        # and a joiner never waits inside the wait it is joining.
         self._holding: asyncio.Future[tuple[int, int]] | None = None
         self._inflight_tokens = 0
         self._per_entry: dict[str, int] = {}
 
-        # The queue, for the no-shared-file case only. With a shared file the tickets live
-        # in it, because ordering has to hold across processes to mean anything -- these
-        # two are then unused, and `_local_totals` is what reads them.
+        # The queue when there is no shared file; with one, the tickets live in the file,
+        # since order must hold across processes. `_local_totals` reads these.
         self._next_ticket = 0
         self._waiting: dict[int, dict[str, Any]] = {}
 
@@ -276,11 +233,9 @@ class Admission:
         """The first rule that does not admit this request, or None if all four do.
 
         Returns the rule rather than a bool so a timeout can say which limit it waited
-        on. "Waited 600s" tells an operator nothing about what to change.
+        on: "waited 600s" tells an operator nothing about what to change.
 
-        `live` is every process's usage summed, not this one's. The rules themselves are
-        unchanged from when they read local attributes: that was a bug about scope, not
-        a bug about policy.
+        `live` is every process's usage summed, not this one's.
         """
         if live.seqs >= self._max_seqs:
             return ("max_inflight_seqs", self._max_seqs)
@@ -288,9 +243,9 @@ class Admission:
             return ("kv_token_budget", self.effective_token_budget)
         if live.per_entry.get(key, 0) >= limit:
             return (f"concurrency for {key}", limit)
-        # Last, and the order is deliberate. A capacity rule is what an operator can act
-        # on, so it must be the one a timeout reports whenever it applies; queue position
-        # speaks only for a request the four rules would otherwise have admitted.
+        # Last, deliberately. A capacity rule is what an operator can act on, so a timeout
+        # must report it whenever it applies; queue position speaks only for a request the
+        # capacity rules would have admitted.
         if live.ahead:
             return (QUEUED_RULE, live.ahead)
         return None
@@ -298,10 +253,10 @@ class Admission:
     def _local_totals(self) -> Totals:
         """This process's own usage, in the shape the predicate reads.
 
-        Used when there is no shared file, which reproduces the pre-ADR-0040 behaviour
-        exactly rather than approximating it -- one code path, two scopes. `ahead` is left
-        at zero here and filled in by the caller, so this is also what a rival waiter's
-        feasibility is judged against.
+        Used when there is no shared file, where it is the single-process gate exactly,
+        not an approximation of it: one code path, two scopes. `ahead` is left at
+        zero for the caller to fill, so this is also what a rival waiter's feasibility is
+        judged against.
         """
         return Totals(
             seqs=self._inflight_seqs,
@@ -331,22 +286,21 @@ class Admission:
     ) -> tuple[tuple[str, int] | None, int | None, dict[str, int]]:
         """Test the rules and, if they admit, take the slot. One atomic step.
 
-        Atomic in both scopes, for the same reason. Within the process the caller holds
-        the condition; across processes `SharedSlots.admit` holds the file lock while it
-        evaluates this predicate, so no other process can decide against totals we have
-        already read. Handing back totals and deciding afterwards is the time-of-check
-        race this shape exists to make unrepresentable.
+        Atomic in both scopes. In the process the caller holds the condition; across
+        processes `SharedSlots.admit` holds the file lock while it evaluates the
+        predicate, so no process decides against totals another has already read.
+        Returning totals to decide on afterwards is the time-of-check race this shape
+        makes unrepresentable.
 
-        Returns `(binding, ticket)`. The ticket is assigned on the first refusal and
-        returned on every attempt after it, so the caller carries one place in line for
-        the whole wait; admitting gives it back inside the same atomic step, which is what
-        stops a slot and a queue position ever being held at once.
+        Returns `(binding, ticket, seen)`. The ticket is assigned on the first refusal and
+        passed back on every attempt after, so the caller keeps one place in line for the
+        whole wait; admitting gives it back in the same atomic step, so a slot and a queue
+        position are never held at once.
         """
 
-        # `since` is the caller's own first attempt, passed in rather than stamped here:
-        # this runs once per retry, and a timestamp refreshed on every attempt would
-        # measure the gap between polls instead of the wait, so nothing could ever age.
-        # Wall clock, not monotonic, because the shared file compares across processes.
+        # `since` is the caller's first attempt, not stamped here: this runs once per
+        # retry, and a per-attempt stamp would measure the gap between polls, so nothing
+        # could age. Wall clock, because the shared file compares across processes.
         spec: dict[str, Any] = {
             "tokens": tokens, "key": key, "limit": limit,
             "since": since,
@@ -356,10 +310,9 @@ class Admission:
         def decide(live: Totals) -> tuple[str, int] | None:
             binding = self._binding(live, tokens, key, limit)
             if binding is None:
-                # Captured from the predicate's own read, under the same lock that grants
-                # the slot, so the numbers are exactly what admission decided against and
-                # cost no second look at the file. Only the admitting call is recorded:
-                # a refusal describes a cluster this request did not join.
+                # The predicate's own read, under the lock that grants the slot: exactly
+                # what admission decided against, at no second look at the file. Only an
+                # admission records, since a refusal describes a cluster not joined.
                 seen["seqs"] = live.seqs
                 seen["waiting"] = live.waiting
             return binding
@@ -367,19 +320,16 @@ class Admission:
         def rival_fits(live: Totals, other: dict[str, Any]) -> bool:
             """Could the waiter described by `other` be admitted against these totals?
 
-            The capacity rules only, with `ahead` left at zero: asking whether a rival is
-            itself at the front would recurse, and the question here is narrower -- is it
-            spending its turn, or holding one it cannot spend.
+            Capacity rules only, `ahead` at zero: asking whether a rival is itself at the
+            front would recurse, and the question is narrower -- can it spend its turn.
 
-            One exception, and it is the whole anti-starvation mechanism. A waiter that
-            has been passed over for `admission_starvation_grace` counts as ahead whether
-            or not it currently fits. Without it a waiter needing more of a shared budget
-            than its successors is never feasible at the instant they ask -- they hold
-            the very budget it is short of -- so it is never counted, and they overtake
-            it for as long as they keep arriving. Aging makes it a barrier instead: the
-            arrivals queue, the in-flight work drains, and the budget falls to it. The
-            grace is what keeps this from becoming the head-of-line blocking the queue
-            check was written to avoid; inside it, overtaking is still the intent.
+            One exception, the whole anti-starvation mechanism (ADR-0068). A waiter passed
+            over for `admission_starvation_grace` counts as ahead whether or not it fits.
+            Otherwise a waiter needing more budget than its successors is never feasible
+            when they ask -- they hold the budget it lacks -- so they overtake it for as
+            long as they arrive. Aged, it is a barrier: arrivals queue, in-flight work
+            drains, and the budget falls to it. Inside the grace overtaking is intended,
+            which keeps this from becoming head-of-line blocking.
             """
             if self._grace > 0:
                 since = other.get("since")
@@ -408,9 +358,9 @@ class Admission:
                     ticket=ticket,
                 )
             except SlotsUnavailable:
-                # Degrade as every other shared-file call here does: this process's own
-                # counting, with queue order lost for this attempt. The ticket is kept, so
-                # a refusal still waits in its place and an admission still gives it back.
+                # Degrade like every shared-file call here: this process's own counts,
+                # queue order lost for this attempt. The ticket is kept, so a refusal still
+                # waits in its place and an admission still gives it back.
                 log.warning(
                     "the shared slot file was unreachable; admitting on this process's "
                     "own counts"
@@ -441,18 +391,17 @@ class Admission:
     async def _drop_ticket(self, ticket: int) -> None:
         """Give up a place in line without having taken a slot.
 
-        Notifies, because the queue shrinking is exactly what lets the next waiter in this
-        process proceed, and nothing else would wake it until its own tick expires. A
-        release elsewhere on the machine still cannot notify us; that is what the poll is
-        for and this does not change it.
+        Notifies, because a shorter queue is what lets the next waiter in this process
+        proceed, and nothing else would wake it before its tick expires. Waiters in other
+        processes still find out by polling.
         """
         if self._slots is not None:
             try:
                 await self._slots.drop_ticket(ticket)
             except SlotsUnavailable:
-                # Bounded by `_TICKET_STALE_AFTER_SECONDS` in `slots.py` rather than
-                # permanent, and logged there when it fires. Refusing to continue here
-                # would turn an unreachable file into a failed delegation.
+                # Bounded by `_TICKET_STALE_AFTER_SECONDS` in `slots.py`, which logs when
+                # it fires. Refusing to go on would make an unreachable file a failed
+                # delegation.
                 log.warning(
                     "could not give up admission ticket %d; it will expire", ticket
                 )
@@ -463,8 +412,8 @@ class Admission:
     def _take_locally(self, tokens: int, key: str) -> None:
         """Mirror the slot into this process's own counters and peaks.
 
-        The shared file is what the rules are tested against; these are what `status()`
-        reports as this process's share, and what the peaks are measured over.
+        The rules test the shared file; these are this process's share in `status()`, and
+        what the peaks are measured over.
         """
         self._inflight_seqs += 1
         self._inflight_tokens += tokens
@@ -490,17 +439,16 @@ class Admission:
             raise AdmissionImpossible(tokens, self._token_budget)
 
         started = time.monotonic()
-        # Beside `started`, not instead of it: `started` measures this wait and must not
-        # jump if the clock is set, while the age a rival judges us by has to be
-        # comparable across processes, which only wall clock is.
+        # Beside `started`: that measures this wait and must not jump if the clock is set,
+        # while the age a rival judges us by must compare across processes, which only
+        # wall clock does.
         queued_at = time.time()
         waited = False
         ticket: int | None = None
 
-        # `finally` and not a handler per exit: the ticket must be given back on a
-        # timeout, on cancellation and on anything else raised out of the wait alike. A
-        # ticket left at the head of the queue starves every later waiter for as long as
-        # this process lives, so the release cannot be something a code path opts into.
+        # `finally`, not a handler per exit: a ticket left at the head of the queue starves
+        # every later waiter for the life of this process, so giving it back on a timeout,
+        # a cancellation or anything else cannot be something a path opts into.
         try:
             async with self._cond:
                 while True:
@@ -509,13 +457,10 @@ class Admission:
                     )
                     if binding is None:
                         break
-                    # Checked after the predicate, never before: a request that fits is
-                    # admitted even if its deadline has just passed. Failing one that
-                    # could have run would be the gate causing the outage it exists to
-                    # prevent. Since 2026-09-04 "fits" includes being at the front of the
-                    # queue, so that grace no longer reaches a request the rules would
-                    # admit but whose turn it is not -- deliberately, because the
-                    # alternative is letting a late arrival overtake on the way out.
+                    # After the predicate, never before: a request that fits is admitted
+                    # even past its deadline, since failing one that could run would be the
+                    # gate causing the outage it exists to prevent. "Fits" includes being
+                    # at the front, so this grace never lets a late arrival overtake.
                     now = time.monotonic()
                     if deadline is not None and now >= deadline:
                         self._timeouts += 1
@@ -523,10 +468,9 @@ class Admission:
                         raise AdmissionTimedOut(now - started, *binding)
                     waited = True
 
-                    # A release in *another* process notifies nothing here, so waiting is
-                    # also polling. Short enough that a freed slot is taken promptly, long
-                    # enough that an idle machine is not re-reading a file forever. A local
-                    # release still wakes the condition at once and does not wait this out.
+                    # Another process's release notifies nothing, so this also polls:
+                    # short enough to take a freed slot promptly, long enough not to
+                    # re-read a file forever. A local release still wakes at once.
                     slice_ = _WAIT_TICK_SECONDS if self._slots is None else _POLL_SECONDS
                     if deadline is not None:
                         slice_ = min(slice_, max(deadline - now, 0.001))
@@ -538,9 +482,9 @@ class Admission:
                     if on_wait is not None:
                         await on_wait()
         finally:
-            # None once admitted: `_try_take` gives the ticket back inside the same step
-            # that takes the slot, so this only fires on a path that never got one -- or
-            # on one admitted locally because the file was unreachable, which still holds it.
+            # None once admitted, since `_try_take` gives the ticket back as it takes the
+            # slot. So this fires only on a path that never got one, or on a local
+            # admission made while the file was unreachable, which still holds it.
             if ticket is not None:
                 await self._drop_ticket(ticket)
 
@@ -570,36 +514,31 @@ class Admission:
     ) -> tuple[int, int]:
         """What this request should say it met, once the burst around it has settled.
 
-        A request that finds the gate empty waits, because its own snapshot says "solo" and
-        would go on saying so however many siblings are a millisecond behind it -- and that
-        label is what the rate memory is keyed by (ADR-0085).
+        A request that finds the gate empty waits, because its snapshot says "solo" however
+        many siblings are a millisecond behind it, and that label keys the rate memory
+        (ADR-0085).
 
-        A request that finds a wait already open takes its answer, which is the half
-        ADR-0085 left undone. Its reasoning was that a later member already sees this one,
-        so concurrency is known; it is not. That member sees the siblings *ahead* of it and
-        none of those still arriving behind, so `seqs + waiting + 1` is its own position in
-        the burst rather than the burst's size, and a simultaneous three priced 1, 2 and 3.
+        A request that finds a wait open takes its answer. Its own snapshot sees the
+        siblings *ahead* of it and none still arriving, so `seqs + waiting + 1` is its
+        position in the burst, not the burst's size: a simultaneous three would price 1, 2
+        and 3.
 
-        A wait open in *another* process is joined too, by counting rather than by
-        awaiting: there is no future to share across a process boundary, so the flag in
-        the shared record says a wait is open and the member runs its own window against
-        the same shared totals. Without that, a burst spread over three processes prices
-        every arm at its arrival position, which is the shape `run` fans out in.
+        A wait open in *another* process is joined by counting, since no future crosses a
+        process boundary: the shared record's flag says a wait is open, and the member runs
+        its own window against the same shared totals. Otherwise a burst spread over
+        processes, the shape `run` fans out in, prices each arm at its arrival position.
 
-        One wait serves the whole burst rather than one each. A second would re-count the
-        same arrivals and bill every member for its own window, where what is wanted is one
-        window and one answer -- and a joiner must not wait *inside* the wait it is joining,
-        which is what makes this a shared result rather than a second debounce.
+        One wait serves the whole burst. A second would re-count the same arrivals and bill
+        each member its own window, and a joiner must not wait *inside* the wait it joins.
 
-        The wait is deliberately *outside* the condition. Holding it would block the very
-        siblings this is counting, so it would guarantee the answer it was trying to
-        measure. The slot is already taken, which is what makes that safe: nothing can
-        overtake, and a sibling can still be admitted beside us.
+        The wait is *outside* the condition, because holding it would block the siblings
+        being counted and so guarantee the answer it measures. The slot is already taken,
+        which makes that safe: nothing can overtake, and a sibling can still be admitted.
 
-        "Already taken" is also what makes it dangerous, hence the guards. `admit` releases
-        a lease from the `finally` of its own `try` and cannot reach it until `acquire`
-        returns, so anything raised in here -- a cancellation, in practice -- would leave a
-        slot with no owner, and `slots.py` reclaims a record only once its process stops.
+        "Already taken" is also the danger, hence the guards. `admit` releases in the
+        `finally` of a `try` it enters only once `acquire` returns, so anything raised in
+        here -- a cancellation, in practice -- would leave a slot with no owner, and
+        `slots.py` reclaims a record only once its process stops.
         """
         if self._idle_hold <= 0:
             return seqs, waiting
@@ -612,45 +551,43 @@ class Admission:
             try:
                 elsewhere = await self._burst_open_elsewhere()
             except BaseException:
-                # An await on a file lock, after the slot was taken: nobody else can give
-                # it back, which is the hazard the docstring names.
+                # An await on a file lock after the slot was taken: nobody else can give
+                # it back.
                 await self.release(lease)
                 raise
             if not elsewhere:
                 return seqs, waiting
-            # That await let a sibling in this process open a wait of its own. Join it
-            # rather than replace it: `_settle_waiters` settles whichever future is current,
-            # so a replaced one is never settled and whoever joined it waits for ever.
+            # That await may have let a sibling here open a wait. Join it, never replace
+            # it: `_settle_waiters` settles only the current future, so whoever joined a
+            # replaced one would wait for ever.
             open_wait = self._holding
         if open_wait is not None:
             try:
                 return await asyncio.shield(open_wait)
             except asyncio.CancelledError:
-                # Either this call was cancelled or the opener was, and the opener's
-                # `CancelledError` arrives here through the shared future looking exactly
-                # like our own. Only `cancelling()` tells them apart; without it, cancelling
-                # one call of a fan-out failed every sibling that had joined its wait.
+                # This call was cancelled, or the opener was: the opener's `CancelledError`
+                # arrives through the shared future looking exactly like our own. Only
+                # `cancelling()` tells them apart, so cancelling one call of a fan-out
+                # does not fail every sibling that joined its wait.
                 task = asyncio.current_task()
                 if task is not None and task.cancelling():
                     await self.release(lease)
                     raise
                 return seqs, waiting
             except Exception:
-                # Whoever opened it failed. Its siblings are not implicated, and their own
-                # snapshot is what they would have been given anyway.
+                # The opener failed. Its siblings are not implicated, and keep their own
+                # snapshot.
                 return seqs, waiting
 
         self._holding = asyncio.get_running_loop().create_future()
         try:
-            # Published before the first window, so a sibling arriving during it sees the
-            # wait and joins rather than reading its own arrival position.
+            # Published before the first window, so a sibling arriving during it joins
+            # rather than reading its own arrival position.
             #
-            # Inside the `try`, and that placement is load-bearing: this is an await, and
-            # nothing may be awaited between creating `_holding` and entering the block
-            # that settles it. Outside, a cancellation delivered here would leave the
-            # future unsettled for ever -- every later burst in this process would join a
-            # wait nobody finishes -- and would leak the slot, the release below being
-            # skipped with it.
+            # Inside the `try`, and that is load-bearing: nothing may be awaited between
+            # creating `_holding` and entering the block that settles it. A cancellation
+            # there would leave the future unsettled for ever -- every later burst here
+            # would join a wait nobody finishes -- and would leak the slot.
             await self._announce_burst(open_wait=True)
             counted = await self._count_the_burst()
         except BaseException as exc:
@@ -665,38 +602,31 @@ class Admission:
     async def _burst_open_elsewhere(self) -> bool:
         """Whether another process on this machine is already counting a burst.
 
-        The cross-process half of the same defect. Within one process a member joins the
-        open wait as a future; across processes there is no future to await, so the wait
-        is announced in the shared file and a member that finds one counts the burst
-        itself. Both windows run at the same time and read the same totals, so every arm
-        settles on the whole burst rather than on the siblings ahead of it -- and the
-        joiner pays one window it would otherwise have skipped, which is exactly what an
-        in-process joiner already pays for the same answer.
+        Across processes there is no future to await, so the wait is announced in the
+        shared file and a member that finds one counts the burst itself. Both windows run
+        at once over the same totals, so every arm settles on the whole burst, and the
+        joiner pays one window, as an in-process joiner does for the same answer.
 
-        Asked only once the local snapshot is not idle, and only while the hold is
-        enabled, so an idle gate and a gate with the hold off both cost nothing extra.
+        Asked only when the local snapshot is not idle and the hold is on, so an idle gate
+        and a gate with the hold off cost nothing extra.
         """
         if self._slots is None or self._idle_hold <= 0:
-            # The hold is the debounce this flag exists to widen. With it off there is no
-            # window to join, so reading another process's flag could only add work and
-            # tie two gates together that were configured not to wait for each other.
-            # The docstring above promised this guard before the guard existed.
+            # With the hold off there is no window to join: reading another process's flag
+            # would add work and tie together gates configured not to wait for each other.
             return False
         try:
             return await self._slots.burst_wait_elsewhere()
         except SlotsUnavailable:
-            # The same call that took the slot read this file a moment ago, so this is
-            # a file that has just become unreachable. Not joining is the old behaviour,
-            # and it prices low rather than failing a delegation that was admitted.
+            # The file became unreachable since the slot was taken. Not joining prices low
+            # rather than failing a delegation already admitted.
             return False
 
     async def _announce_burst(self, *, open_wait: bool) -> None:
         """Say in the shared file that this process is, or is no longer, counting.
 
-        Best effort for the reason `release` is: the slot is already taken and the lease
-        is about to be handed back, so an unreachable file must cost a label rather than
-        a delegation. A flag stranded by a failed close expires two windows after it was
-        last renewed, and `_count_the_burst` renews it every window it goes on counting.
+        Best effort, like `release`: the slot is already taken, so an unreachable file
+        must cost a label, not a delegation. A flag stranded by a failed close expires two
+        windows after its last renewal, and `_count_the_burst` renews it every window.
         """
         if self._slots is None:
             return
@@ -727,43 +657,39 @@ class Admission:
     async def _count_the_burst(self) -> tuple[int, int]:
         """Wait out the burst behind an idle gate, and report what arrived.
 
-        A debounce, not a flat wait. A client staggers a fan-out -- measured 2026-09-17, six
-        calls from one message arrived 5.5s apart over 28.4s -- so a single window closes
-        with two or three of six counted and files the sample under a contention it never
-        met. Each window therefore ends the hold only if nothing arrived during it.
+        A debounce, not a flat wait (ADR-0088). A client staggers a fan-out over tens of
+        seconds, so one window would close with a few of the burst counted and file the
+        sample under a contention it never met. A window ends the hold only if nothing
+        arrived during it.
 
-        A full gate ends it at once: the burst has already reported its size, and waiting for
-        a quiet window it has earned is pure latency. That rule is also the ceiling, so no
-        separate cap is needed -- the only way to run longer is arrivals that keep coming
-        while earlier ones complete, where the cost is one call's dispatch latency rather
-        than a stuck gate.
+        A full gate ends it at once: the burst has reported its size, and waiting for a
+        quiet window is pure latency. That is also the ceiling, so no separate cap: it runs
+        longer only while arrivals keep coming as earlier ones complete, which costs one
+        call's dispatch latency, not a stuck gate.
 
-        Raising the flat hold instead would not do: it fires only on an idle gate, which is
-        the single interactive delegation, so a longer fixed wait bills that call for a burst
-        that never comes. One quiet window leaves it exactly where the flat hold already put
-        it.
+        A longer flat hold would not do: it fires only on an idle gate, the single
+        interactive delegation, and would bill that call for a burst that never comes. One
+        quiet window costs it no more than the flat hold did.
         """
         while True:
             before, _, _ = await self._burst_view()
             await asyncio.sleep(self._idle_hold)
-            # Read after the wait rather than reporting what was read before it.
+            # Read after the wait, not reported from before it.
             arrived, seqs, waiting = await self._burst_view()
             if arrived >= self._max_seqs or arrived == before:
                 return seqs, waiting
-            # Still counting, so the flag other processes join by must not expire under it.
+            # Still counting, so the flag other processes join by must not expire.
             await self._announce_burst(open_wait=True)
 
     async def _burst_view(self) -> tuple[int, int, int]:
         """Everything in or waiting for the gate, then the two numbers a lease carries.
 
-        Shared totals wherever there is a file, so a burst spread across processes counts
-        as one burst. That is now an ordinary shape rather than an exotic one, since `run`
-        fans out as separate processes. The local counters answer for this process alone,
-        which is the whole gate only when there is no file to read.
+        Shared totals wherever there is a file, so a burst across processes -- the shape
+        `run` fans out in -- counts as one. The local counters are the whole gate only when
+        there is no file.
 
-        The second number is minus one for this request, whose slot is already taken and so
-        is counted here where it was not in the pre-grant numbers the caller's formula was
-        written against.
+        The second number excludes this request: its slot is already taken, and the
+        caller's formula was written against pre-grant numbers.
         """
         if self._slots is not None:
             totals, _, waiting = await self._slots.snapshot()
@@ -780,12 +706,10 @@ class Admission:
     async def release(self, lease: AdmissionLease) -> None:
         async with self._cond:
             if self._slots is not None and lease.shared:
-                # Best effort on purpose. A slot this process cannot give back is
-                # reclaimed by the next acquirer as soon as this process exits, since
-                # a record is keyed by a PID that will no longer be live -- so the
-                # leak is bounded by the life of the process rather than permanent.
-                # Refusing to release locally because the file was unreachable would
-                # wedge this process for good, which is strictly worse.
+                # Best effort. A slot not given back is reclaimed once this process
+                # exits, since its record is keyed by a PID that is then dead, so the
+                # leak lasts the process, not for ever. Refusing the local release as
+                # well would wedge this process for good.
                 try:
                     await self._slots.release(
                         tokens=lease.tokens,
@@ -803,9 +727,8 @@ class Admission:
                 self._per_entry[lease.entry_key] = remaining
             else:
                 self._per_entry.pop(lease.entry_key, None)
-            # Every waiter tests a different predicate -- a different token size, a
-            # different endpoint. Waking one could wake the one this release does not
-            # help while the one it does stays parked.
+            # Each waiter tests its own predicate -- its size, its endpoint -- so waking
+            # one could wake one this release does not help while the right one sleeps.
             self._cond.notify_all()
 
     @asynccontextmanager
@@ -836,9 +759,8 @@ class Admission:
     def inflight_seqs(self) -> int:
         """Requests this process currently holds slots for.
 
-        Named rather than read out of `status()`, which builds a dict of a dozen keys and
-        locks a caller to their spelling. The rate sampler asks this on every tick to
-        decide whether there is anything to sample, which is the only hot reader.
+        A property rather than a `status()` key, because the rate sampler, the one hot
+        reader, asks it every tick, and `status()` builds a dozen-key dict.
         """
         return self._inflight_seqs
 
@@ -849,8 +771,8 @@ class Admission:
             "inflight_tokens": self._inflight_tokens,
             "peak_inflight_seqs": self._peak_seqs,
             "peak_inflight_tokens": self._peak_tokens,
-            # Three numbers rather than one, because the lowered ceiling is only honest if
-            # a reader can see both halves of it and which one is binding.
+            # Three numbers, because the lowered ceiling is honest only if a reader can see
+            # both halves and which one binds.
             "kv_token_budget": self._token_budget,
             "kv_token_budget_effective": self.effective_token_budget,
             "kv_cache_size_tokens_seen": self._pool_tokens,
@@ -862,8 +784,7 @@ class Admission:
             "admission_wait_seconds_max": round(self._wait_seconds_max, 3),
             "admission_wait_count": self._wait_count,
             "admission_timeouts": self._timeouts,
-            # This process's own queue depth. Zero with a shared file, where the queue is
-            # machine-wide and `cross_process` reports it -- the same split the gauges
-            # above already have, for the same reason.
+            # This process's own queue depth. Zero with a shared file, whose machine-wide
+            # queue `cross_process` reports -- the same split as the gauges above.
             "queued_waiters": len(self._waiting),
         }
