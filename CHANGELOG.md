@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #390 — 2026-09-27 — docs: transcript.py describes what is
+
+### Changed
+
+- **`transcript.py`'s comments describe the records as they are, from 334 prose lines to
+  263.** The third of M18.7's modules. The upstream bugs the module docstring retold
+  become the two properties they established: a failure path keeps the agent name, and
+  nothing this module returns can leak into a response. The incidents behind individual
+  stream fields -- the looping audit passes, the dispatches that read as empty, the
+  retried turn recorded at a fraction of its rate -- go, and each field keeps the reason
+  it is there. `directory()`'s docstring named `to_posix` for the translation the code
+  does with `to_local`, and is corrected. `ast_unchanged.py` reads the module as
+  unchanged.
+
 ## #389 — 2026-09-27 — docs: openai_compat.py describes what is
 
 ### Changed
