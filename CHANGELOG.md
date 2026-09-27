@@ -30,6 +30,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #385 — 2026-09-27 — docs: ARCHITECTURE.md describes the current state
+
+### Changed
+
+- **ARCHITECTURE.md stops telling its own history.** Outside the sandbox sections (done
+  with `sandbox.py`), 29 passages narrated what changed and when: "until 2026-09-13",
+  "no longer the one-shot path", "for a while that was one process", the ancestor's name
+  routing, a twelve-turn token miscount. Each story goes and the reason it illustrated
+  stays in the present tense; a verification pass restored the one sentence the edit had
+  left without its subject ("waiting is polling"). History markers fell from 36 to 19,
+  and what remains is "once" meaning one time and JOURNAL pointers.
+
+### Fixed
+
+- **"Non-goals" was not the last section.** The review's R15 found the overflow-handling
+  section after it; it now sits before, unchanged. Headings are otherwise unchanged, so
+  every link into the document still lands. 1,249 lines to 1,212, and the budget follows.
+  This closes M18.5, the last open item of M18.
+
 ## #384 — 2026-09-27 — docs: AGENTS, MODELS and TROUBLESHOOTING describe the current state
 
 ### Changed

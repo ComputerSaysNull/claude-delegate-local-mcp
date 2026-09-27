@@ -218,7 +218,7 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
     - c. ✅ 2026-09-27 `sandbox.py`, cutting history but keeping its security reasoning.
     - d. ✅ 2026-09-27 `paths.py`, likewise.
     - e. ✅ 2026-09-27 `tools.py`.
-5. ⬜ **Product docs describe the current state**: `docs/` without its history. The other
+5. ✅ 2026-09-27 **Product docs describe the current state**: `docs/` without its history. The other
   half, each `Config` description cut to what it does plus a link, is ✅ 2026-09-26
 6. ✅ **Stop it regrowing**: the gate warns on a date, a `TODO` or future-work phrasing in a
   `src/` comment, and reports each module's prose ratio without blocking
