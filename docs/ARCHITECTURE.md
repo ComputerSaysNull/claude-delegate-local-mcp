@@ -1,4 +1,4 @@
-<!-- BUDGET: 1212 -->
+<!-- BUDGET: 1215 -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -100,7 +100,7 @@ rather than line count, two of them — path translation and sandboxing — bein
 `delegate_readonly` is on the turn loop like every other delegation, having been given the
 read-only tools. The one-shot remains reachable, by `delegate` with an explicitly empty
 toolset, and is still the honest shape when there is genuinely nothing to look up. What
-makes this safe rather than a weakening is that ADR-0042's promise is never "this delegation
+makes this safe rather than a weakening is that ADR-0042's promise is not "this delegation
 has no tools" but "nothing it can do will write" (ADR-0048), and the prerequisite is the
 loop's heartbeat: without that, moving a delegation onto the loop would move it onto the
 silent path.
@@ -211,8 +211,8 @@ load — a failure with no symptom anywhere near its cause.
 `run_bash` exists so a model can check its own work, and ADR-0007 rests everything on the
 server capturing a real exit code. For a Python project none of it works without
 provisioning: no `python` on `PATH` inside the sandbox, `import pytest` raising, and no
-network to install either. [`sandbox_home`](CONFIGURATION.md) can hold one: bound
-read-write, persistent, and outside the workspace.
+network to install either. [`sandbox_home`](CONFIGURATION.md) can hold an interpreter:
+bound read-write, persistent, and outside the workspace.
 
 `provision <project>` builds a virtualenv under it from the project's own declaration, every
 one of `pyproject.toml`, `setup.cfg` and `setup.py` present, and records what it built from
@@ -267,8 +267,9 @@ It answered a limit on the *client*: a conversation speaking MCP keeps one write
 in flight and releases the next at whichever of completion or 120s comes first. The
 write-capable tools answer at once with a handle instead (ADR-0103), so the run carries on
 in a task the server owns, admission wait included, and `collect` reads it back, reporting
-progress every `keepalive_interval` it waits so the idle timeout (ADR-0018) cannot drop it. What `run` still buys is context — a tool result lands in the caller's window
-whole, where this one is redirected to a file and read back in part.
+progress every `keepalive_interval` it waits so the idle timeout (ADR-0018) cannot drop
+it. What `run` still buys is context — a tool result lands in the caller's window whole,
+where this one is redirected to a file and read back in part.
 
 stdout carries that JSON, which is why `main.run` dispatches here *before* building a
 server, exactly as it does for `--doctor`: a server started underneath would interleave MCP
@@ -695,7 +696,8 @@ ceilings overrules neither. Both, and which is binding, are in `backend_status` 
 `kv_cache_size_tokens_seen` reading null means the second ceiling is not yet in force
 (ADR-0081).
 
-**Queueing is ordered.** Every waiter takes a ticket in the same shared file the counters
+**Queueing is ordered**, or a request that has waited nine minutes has no claim over one
+arriving that instant. Every waiter takes a ticket in the same shared file the counters
 use, and the predicate refuses anyone who is not at the front. A release elsewhere notifies
 nothing, so waiting is polling: fairness decides *who* goes next, not how quickly anyone
 finds out, and a broker is what it would take to change that.
@@ -747,7 +749,8 @@ route — below, under what a record carries.
 The slot is taken *before* that wait, so the wait gives it back on any exit from it. Nothing
 else can: a lease is released by `admit`, which has not been handed one until the wait
 returns, and a record is reclaimed only once its process stops — which for a server that
-outlives the delegation is never.
+outlives the delegation is never. So a cancellation in that window would otherwise cost a
+slot for the life of the process, and `max_inflight_seqs` of them would close the gate.
 
 A ticket is given up on every exit from the wait — admitted, timed out, cancelled, raised
 — from a `finally` rather than from the timeout path, because one abandoned at the front

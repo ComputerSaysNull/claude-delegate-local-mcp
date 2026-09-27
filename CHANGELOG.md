@@ -39,14 +39,16 @@ Older entries, in the previous flat format, are in
   "no longer the one-shot path", "for a while that was one process", the ancestor's name
   routing, a twelve-turn token miscount. Each story goes and the reason it illustrated
   stays in the present tense; a verification pass restored the one sentence the edit had
-  left without its subject ("waiting is polling"). History markers fell from 36 to 19,
+  left without its subject ("waiting is polling"), and a hand read of the whole diff
+  restored three more: why queueing must be ordered, the slot a cancellation would leak,
+  and the word "interpreter" a sentence still pointed at. History markers fell from 36 to 19,
   and what remains is "once" meaning one time and JOURNAL pointers.
 
 ### Fixed
 
 - **"Non-goals" was not the last section.** The review's R15 found the overflow-handling
   section after it; it now sits before, unchanged. Headings are otherwise unchanged, so
-  every link into the document still lands. 1,249 lines to 1,212, and the budget follows.
+  every link into the document still lands. 1,249 lines to 1,215, and the budget follows.
   This closes M18.5, the last open item of M18.
 
 ## #384 — 2026-09-27 — docs: AGENTS, MODELS and TROUBLESHOOTING describe the current state
