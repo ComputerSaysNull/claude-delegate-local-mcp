@@ -1,26 +1,19 @@
 """The only adapter that ships: canonical blocks in, OpenAI chat-completions on the wire.
 
 This is the one file that knows the wire format (ADR-0008). Everything above it speaks the
-canonical, block-structured shape from `base.py`, which is why adding an Anthropic adapter
-later is a new file rather than a refactor.
-
-Flattening happens here, and only here. That is not a violation of ADR-0008 condition (a)
--- it is the point of the seam. The rule is that the *canonical* side stays
-block-structured; translating it to OpenAI's flatter shape at the wire edge is this file's
-whole job.
+canonical, block-structured shape from `base.py`, so an Anthropic adapter would be a new
+file rather than a refactor. Flattening to OpenAI's shape happens here and only here: that
+is the seam's point, not a breach of ADR-0008's rule that the *canonical* side stays
+block-structured.
 
 What this file does not do: retry, back off, step down on reasoning exhaustion, or decide
-what an empty answer means. `Config.retry_max_attempts` and `retry_base_delay` exist, but
-the response state machine that consumes them is M3. Here a failed call raises, a refused
-call raises with its status and body intact, and a reply with no content comes back as a
-response with no content. Every one of those is a fact the M3 machine needs; none is a
-decision this layer is entitled to make.
+what an empty answer means -- `loop.complete_with_retry` does. Here a failed call raises, a
+refused call raises with its status and body intact, and a reply with no content comes back
+with no content: facts the caller decides on, not decisions this layer may make.
 
-Two things are deliberately never sent: `thinking_token_budget`, because the live server
-rejects it and its documented boot flag is the wrong one (ADR-0017); and anything derived
-from a model *name*, because selection is a registry lookup (ADR-0009).
-
-Not a port. This file is new.
+Never sent: `thinking_token_budget`, because the live server rejects it and its documented
+boot flag is the wrong one (ADR-0017); and anything derived from a model *name*, because
+selection is a registry lookup (ADR-0009).
 """
 
 from __future__ import annotations
@@ -52,21 +45,19 @@ from .base import (
 )
 
 # The paths appear in error messages; the base URL never does. A host in an exception is a
-# host in a log, and from there in a paste into an issue -- and the head node is
-# configuration, not a literal (see security/forbidden_strings.txt).
+# host in a log, and from there in a pasted issue -- and the head node is configuration,
+# not a literal (see security/forbidden_strings.txt).
 _CHAT_PATH = "/v1/chat/completions"
 _MODELS_PATH = "/v1/models"
 _METRICS_PATH = "/metrics"
 
-# What is read out of the endpoint's Prometheus text, and nothing else. An allowlist
-# rather than a filter, because the risk here is labels: `http_request_*` carry handler
-# paths and `cache_config_info` carries deployment configuration, and `backend_status`
-# promises never to name an endpoint. Only the metrics below are read, and of their
-# labels only `reason`, which is a scheduler word.
+# What is read out of the endpoint's Prometheus text, and nothing else. An allowlist, not
+# a filter, because the risk is labels: `http_request_*` carry handler paths,
+# `cache_config_info` carries deployment configuration, and `backend_status` promises
+# never to name an endpoint. Of the labels only `reason` is read, a scheduler word.
 #
-# The counters are denominated in TOKENS, not requests -- measured 2026-09-05, where six
-# distinct 45k calls moved `prefix_cache_queries_total` by 269,417 against 6 x 44,903.
-# Reading them as request counts would understate the denominator by four orders.
+# The counters are denominated in TOKENS, not requests; read as request counts they would
+# understate the denominator by four orders.
 _GAUGES = {
     "vllm:num_requests_running": "requests_running",
     "vllm:num_requests_waiting": "requests_waiting",
@@ -77,17 +68,15 @@ _COUNTERS = {
     "vllm:prefix_cache_queries_total": "prefix_cache_query_tokens",
     "vllm:num_preemptions_total": "preemptions",
     "vllm:external_prefix_cache_hits_total": "external_prefix_cache_hit_tokens",
-    # Differenced across two scrapes by `_DecodeWindow`, which is the only way to get a
-    # rate that describes *now*. The histogram above observes on completion, so it is
-    # blind for the whole of the stall it is supposed to help detect: a turn producing
-    # nothing moves neither its sum nor its count, and the since-boot mean it feeds sits
-    # unchanged while the thing goes quiet.
+    # Differenced across two scrapes by `_DecodeWindow`, the only rate that describes
+    # *now*. The histogram below observes on completion, so it is blind for the whole
+    # stall it should help detect: a turn producing nothing moves neither its sum nor its
+    # count.
     "vllm:generation_tokens_total": "generation_tokens",
 }
-# The one histogram read, and only its `_sum`/`_count` pair. Each observation is one
-# request's mean seconds per output token, so `count / sum` is tokens per second since the
-# engine booted. That is a lifetime mean and is named as one -- see the note in
-# `read_metrics` for why that is reported here and nowhere else.
+# The one histogram read, only its `_sum`/`_count` pair. Each observation is one request's
+# mean seconds per output token, so `count / sum` is tokens per second since the engine
+# booted: a lifetime mean, named as one (see `read_metrics`).
 _HISTOGRAM_PAIRS = {
     "vllm:request_time_per_output_token_seconds_sum": "_decode_seconds_sum",
     "vllm:request_time_per_output_token_seconds_count": "_decode_requests",
@@ -101,36 +90,30 @@ _CACHE_CONFIG = {
     "enable_prefix_caching": "prefix_caching_enabled",
 }
 
-# Where the server puts reasoning on the way back. This stack uses "reasoning" -- measured,
-# not assumed (JOURNAL 2026-08-26). "reasoning_content" is accepted second because it is
-# the spelling other OpenAI-compatible servers use and costs nothing to tolerate. Either
-# may be absent, and the adapter behaves the same when both are.
+# Where the server puts reasoning on the way back. This stack uses "reasoning" (JOURNAL
+# 2026-08-26); "reasoning_content", other OpenAI-compatible servers' spelling, costs
+# nothing to tolerate. Either may be absent, and the adapter behaves the same when both are.
 _REASONING_KEYS = ("reasoning", "reasoning_content")
 
-# The values this server's own validator accepts, quoted from the 400 it returns for
-# anything else (measured -- JOURNAL 2026-08-26). Exported so a test can assert that every
-# level in config.EFFORT_LEVELS maps into this set: the failure mode otherwise is a 400
-# discovered only after a prefill has been paid for.
+# The values this server's validator accepts, quoted from the 400 it returns for anything
+# else (JOURNAL 2026-08-26). Exported so a test can assert every `config.EFFORT_LEVELS`
+# level maps into it: otherwise the failure is a 400 found after a prefill was paid for.
 SERVER_EFFORT_VALUES = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
-# Our vocabulary is deliberately smaller than the server's (ADR-0013), and differs in
-# exactly one word: we say "off" where it says "none". Everything else is the server's own
-# term, so the table has one row and the rest pass through verbatim.
+# Our vocabulary is smaller than the server's (ADR-0013) and differs in one word: "off"
+# for its "none". The rest pass through verbatim.
 _EFFORT_TRANSLATION = {"off": "none"}
 
 
 class OpenAICompatBackend:
     """One endpoint, one model. Satisfies `base.Backend`.
 
-    `client` is injectable so the tests can drive a transport double instead of a socket.
-    A backend that can only be tested against a live cluster is a backend that is tested
-    rarely.
+    `client` is injectable so tests drive a transport double, not a socket: a backend
+    testable only against a live cluster is tested rarely.
 
-    `clock` is injectable for the reason `loop.py` already gives for its own: a test of a
-    duration must not spend the duration. It times the gap between the first streamed
-    token and the last, which is the whole point of streaming here, and a transport double
-    delivers every frame at once -- so without a fake clock the decode interval a test
-    measures is zero whether the code is right or wrong, and the test cannot fail.
+    `clock` is injectable because it times the first streamed token to the last, and a
+    transport double delivers every frame at once. With a real clock the decode interval
+    a test measures is zero whether the code is right or wrong, so the test cannot fail.
     """
 
     def __init__(
@@ -151,26 +134,20 @@ class OpenAICompatBackend:
         self._api_key = _resolve_api_key(entry)
         self._owns_client = client is None
         self._clock = clock
-        # Per backend, never shared and never global: the window differences this
-        # endpoint's own counter, and two endpoints' counters have nothing to say about
-        # each other. Driven by `clock` rather than by `time.monotonic` directly, so a
-        # test can advance it the way every other deadline here is tested.
+        # Per backend, never shared: the window differences this endpoint's own counter,
+        # and two endpoints' counters say nothing about each other. Fed `clock`, not
+        # `time.monotonic`, so a test advances it as every other deadline here is tested.
         self._decode_window = _DecodeWindow()
-        # `stall_timeout` and not a per-call budget. Since ADR-0070 the chat call streams
-        # and httpx applies `read` per chunk rather than to the whole body, so this
-        # timeout already means "no chunk for this long" -- which is the same question
-        # `stall_timeout` answers, measured one layer down. The whole-call bound that used
-        # to sit beside it was `turn_timeout`, retired because length is not the signal: a
-        # stream that is producing emits frames 0.4s apart or better, so a wedged call is
-        # silent and silence is what this catches.
+        # `stall_timeout`, not a per-call budget. The chat call streams (ADR-0070) and
+        # httpx applies `read` per chunk, so this already means "no chunk for this long",
+        # the question `stall_timeout` answers. There is no whole-call bound, because
+        # length is not the signal: a producing stream emits frames 0.4s apart or better,
+        # so a wedged call is silent, and silence is what this catches (ADR-0100).
         # dispatch_timeout spans a whole delegation and belongs to the caller above.
         #
-        # connect_timeout bounds the connect phase separately, and much shorter. An earlier
-        # comment here argued no such bound was needed because "a refused connection already
-        # fails immediately" -- true, and irrelevant. A REFUSED connection sends RST and
-        # fails in milliseconds; a DROPPED or blackholed route sends nothing at all, so
-        # without a connect bound it stalled for the whole read budget. Measured on the
-        # unfixed code: refused 0.02s, dropped still pending after 40s.
+        # connect_timeout bounds the connect phase separately, and much shorter. A REFUSED
+        # connection sends RST and fails in milliseconds; a DROPPED or blackholed route
+        # sends nothing, so without a connect bound it would stall the whole read budget.
         self._client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(cfg.stall_timeout, connect=cfg.connect_timeout)
         )
@@ -186,10 +163,9 @@ class OpenAICompatBackend:
             "temperature": request.temperature,
             "top_p": request.top_p,
             "stream": True,
-            # Without this the final chunk carries no `usage` and every token count in the
-            # ledger, the budget and the cost record silently becomes zero. It is not an
-            # optimisation: streaming without it trades the decode interval for the token
-            # counts, which is a worse instrument than the one being replaced.
+            # Without this the final chunk carries no `usage`, and every token count in the
+            # ledger, the budget and the cost record silently becomes zero. Not optional:
+            # streaming without it would trade the token counts for the decode interval.
             "stream_options": {"include_usage": True},
         }
         if request.tools:
@@ -204,9 +180,9 @@ class OpenAICompatBackend:
                 }
                 for t in request.tools
             ]
-            # Only alongside `tools`, because it is a statement *about* them. Sent as the
-            # wire's own word, which happens to match ours here; an adapter whose server
-            # spells it differently translates, exactly as it does for effort.
+            # Only alongside `tools`, being a statement *about* them. Our word matches the
+            # wire's here; an adapter whose server spells it differently translates, as
+            # for effort.
             if request.tool_choice != "auto":
                 body["tool_choice"] = request.tool_choice
         body.update(_effort_fields(request.effort))
@@ -235,24 +211,18 @@ class OpenAICompatBackend:
     ) -> tuple[dict[str, Any], float | None, float | None]:
         """Stream the chat call and hand back one payload plus both halves of its clock.
 
-        Two intervals, not one: request sent to first token, and first token to last.
-        The second was already taken here; the first is the same two readings subtracted
-        the other way round, and was being thrown away. Together they account for the
-        backend call, which is what lets a run summary say where the time went instead of
-        reporting one span and a remainder.
+        Two intervals: request sent to first token (prefill), and first token to last
+        (decode). Together they account for the backend call, so a run summary can say
+        where the time went rather than report one span and a remainder. Knowing *when*
+        tokens arrived is what streaming buys: the only way to time decoding without
+        also timing prefill.
 
-        This still returns only once the stream has ended, so a *successful* call is whole
-        exactly as before. What changed (ADR-0078) is the failing one: what the turn had
-        decoded rides out on the exception instead of dying with the accumulator, which is
-        a local here and was reachable from one `return`.
-
-        What streaming buys beyond that is knowing *when the tokens arrived*, which is the
-        only way to time decoding without also timing prefill.
+        It returns only once the stream has ended, so a successful call is whole. On a
+        failing one, what the turn had decoded rides out on the exception rather than
+        dying with the accumulator (ADR-0078).
         """
         acc = _StreamAccumulator()
-        # When the request went out. Retiring `turn_timeout` removed the whole-call bound
-        # that used to read this, but prefill is first-token minus request-sent, so the
-        # reading is still needed -- now with nothing enforced against it.
+        # When the request went out: prefill is first token minus this.
         started = self._clock()
         first: float | None = None
         last: float | None = None
@@ -260,18 +230,17 @@ class OpenAICompatBackend:
         def decoded() -> CanonicalResponse | None:
             """What the stream had produced, or `None` if it never produced anything.
 
-            Built through `_from_wire` rather than handed up as a string, so a partial and
-            a completed reply are the same shape to every reader above -- including the
-            reasoning-only case, which `answer_of` already knows how to report and a bare
-            string would silently drop.
+            Built through `_from_wire`, not handed up as a string, so a partial and a whole
+            reply are one shape to every reader above -- including the reasoning-only case,
+            which `answer_of` reports and a bare string would drop.
             """
             if first is None:
                 return None
             span = None if last is None or last <= first else last - first
             return self._from_wire(
                 acc.payload(), decode_seconds=span,
-                # Known on a partial exactly as on a whole reply: the first token has
-                # arrived by definition of being here, so prefill is over and measured.
+                # Known on a partial as on a whole reply: the first token has arrived, so
+                # prefill is over and measured.
                 prefill_seconds=max(first - started, 0.0),
             )
 
@@ -280,20 +249,16 @@ class OpenAICompatBackend:
                 "POST", url, json=body, headers=self._headers
             ) as r:
                 if r.status_code < 200 or r.status_code >= 300:
-                    # The body has not been read yet on a streamed response, and
-                    # `BackendRefused` carries it verbatim -- so read it before raising or
-                    # the refusal arrives with an empty explanation.
+                    # A streamed body is unread until asked for, and `BackendRefused` carries
+                    # it verbatim: read it first, or the refusal has no explanation.
                     await r.aread()
                     raise BackendRefused(
                         r.status_code, r.text, path, r.headers.get("Retry-After")
                     )
-                # No whole-call bound here any more. `turn_timeout` used to be enforced
-                # in this loop, because httpx's `read` timeout is per chunk once the body
-                # streams and a trickling stream never trips it -- but a trickle is the
-                # endpoint working slowly, and killing it is the one outcome that
-                # guarantees nothing comes back. Silence is the failure worth catching and
-                # the per-chunk timeout above catches it; length is the caller's, through
-                # the stall and delegation clocks it can actually see.
+                # No whole-call bound. A trickling stream never trips the per-chunk
+                # timeout, but a trickle is the endpoint working slowly, and killing it
+                # guarantees nothing comes back. Length is the caller's, through the
+                # stall and delegation clocks.
                 async for line in r.aiter_lines():
                     frame = _sse_frame(line, path)
                     if frame is _SSE_DONE:
@@ -306,25 +271,21 @@ class OpenAICompatBackend:
                         if first is None:
                             first = now
                         last = now
-                        # Same predicate `decode_seconds` is measured from, so the caller
-                        # is told about exactly the frames the interval counts. A frame
-                        # carrying only the role preamble or a finish reason is not the
-                        # decoder producing anything, and reporting it would tell the
-                        # admission lease a prefill still running had finished.
+                        # The predicate `decode_seconds` is measured from, so the caller
+                        # hears of exactly the frames the interval counts. A role preamble
+                        # or finish reason is not the decoder producing, and reporting it
+                        # would tell the admission lease a running prefill had finished.
                         if on_token is not None:
                             on_token(kind)
         except httpx.HTTPError as e:
-            # A read timeout is the one shape here that spent the whole allowance: the
-            # request was delivered and the endpoint never answered in time. `ConnectTimeout`
-            # is deliberately not included -- it is a subclass of the same
-            # `TimeoutException` and spent nothing, which is the distinction the caller
+            # A read timeout is the one shape that spent the whole allowance: delivered,
+            # and never answered in time. `ConnectTimeout` is excluded -- a subclass of the
+            # same `TimeoutException` that spent nothing, the distinction the caller
             # retries on.
             #
-            # And streaming says which allowance it spent. A read timeout before the first
-            # token spent queueing and prefill; one mid-stream spent decode. They are the
-            # two shapes `while_generating` exists to keep apart, and `first` is the same
-            # predicate the turn bound above already reports them with (ADR-0078) -- the
-            # retry rule itself is untouched, only the fact it decides on.
+            # Streaming says which allowance it spent: a read timeout before the first
+            # token spent queueing and prefill, one mid-stream spent decode. Those are the
+            # two shapes `while_generating` keeps apart (ADR-0078).
             unavailable = BackendUnavailable(
                 f"{type(e).__name__} posting to {path} on model {self._entry.key!r}.",
                 while_generating=isinstance(e, httpx.ReadTimeout) and first is not None,
@@ -332,19 +293,16 @@ class OpenAICompatBackend:
             _attach(unavailable, decoded)
             raise unavailable from e
         except BaseException as e:
-            # Every other way a stream ends early, and the reason this is `BaseException`
-            # rather than `Exception`: the caller's deadline cancels the task, and
-            # `CancelledError` descends from `BaseException`. It was the one path the
-            # roadmap's slice 4 was actually about, and an `except Exception` here would
-            # have looked right and covered everything except it.
+            # Every other early end. `BaseException`, not `Exception`: the caller's deadline
+            # cancels the task, and `CancelledError` descends from `BaseException`, so
+            # `except Exception` would look right and miss the one path that matters most.
             _attach(e, decoded)
             raise
-        # `None` rather than 0.0 when one frame carried every token: the interval is
-        # unknown, not instantaneous, and a zero would be divided by downstream.
+        # `None`, not 0.0, when one frame carried every token: the interval is unknown,
+        # not instantaneous, and a zero would be divided by downstream.
         span = None if first is None or last is None or last <= first else last - first
-        # `None` when no frame ever carried output, for the reason `span` is: the request
-        # went out and nothing came back, so the boundary between prefill and decode was
-        # never observed. Zero would claim it was observed and found instantaneous.
+        # `None` when no frame carried output, for the same reason: the prefill/decode
+        # boundary was never observed, and zero would claim it was, and instantaneous.
         prefill = None if first is None else max(first - started, 0.0)
         return acc.payload(), span, prefill
 
@@ -361,11 +319,10 @@ class OpenAICompatBackend:
     async def probe_window(self) -> int | None:
         """The served model's window, as this endpoint reports it. Measured, not assumed.
 
-        vLLM names it `max_model_len` on each entry of /v1/models (JOURNAL 2026-08-29).
-        The field is not in the OpenAI schema, so an endpoint that omits it is answering
-        correctly and simply has nothing to say -- hence `None` rather than an error. Only
-        the entry matching `served_model_id` is consulted: a host serving several models
-        would otherwise have its first one speak for the one we are actually using.
+        vLLM names it `max_model_len` on each /v1/models entry (JOURNAL 2026-08-29). It is
+        not in the OpenAI schema, so an endpoint omitting it is answering correctly, hence
+        `None` rather than an error. Only the entry matching `served_model_id` counts, or a
+        host serving several models would have its first speak for ours.
         """
         payload = await self._get(self._entry.models_url, _MODELS_PATH)
         data = payload.get("data")
@@ -398,10 +355,9 @@ class OpenAICompatBackend:
     async def probe_cluster(self) -> dict[str, float | int | str | None] | None:
         """The serving stack's own load figures, or `None` if it publishes none.
 
-        A 404 is an answer: this endpoint has no metrics surface, which is a fact about
-        the endpoint and not a failure to ask. Only a transport failure raises, so a
-        caller can tell "nothing to say" from "could not reach it" -- the distinction
-        `probe_window` established and the reason neither is cached across a blip.
+        A 404 is an answer: this endpoint has no metrics surface. Only a transport failure
+        raises, so a caller can tell "nothing to say" from "could not reach it", as with
+        `probe_window`, and neither is cached across a blip.
         """
         try:
             r = await self._client.get(self._entry.metrics_url, headers=self._headers)
@@ -411,14 +367,13 @@ class OpenAICompatBackend:
                 f"{self._entry.key!r}."
             ) from e
         if r.status_code >= 400:
-            # A 404 is the common case and means no metrics surface. Any other error is
-            # reported the same way on purpose: this is a monitoring extra, and a caller
-            # deciding whether the endpoint is healthy has already been told by `probe`.
+            # A 404, the common case, means no metrics surface. Any other error is reported
+            # the same way: this is a monitoring extra, and `probe` already says whether
+            # the endpoint is healthy.
             return None
-        # An empty result and no result are one answer, not two. A 200 carrying something
-        # that is not Prometheus text yields nothing parseable, and reporting `{}` for it
-        # would read as "the cluster says it is doing nothing" rather than "the cluster
-        # did not say".
+        # An empty result is no result. A 200 that is not Prometheus text parses to
+        # nothing, and `{}` would read as "the cluster is doing nothing", not "it did not
+        # say".
         scraped = read_metrics(r.text)
         if not scraped:
             return None
@@ -479,9 +434,9 @@ class OpenAICompatBackend:
 
         usage = payload.get("usage") or {}
         details = usage.get("prompt_tokens_details") or {}
-        # `.get(...) or 0` would fold a real zero into "absent", and for cached_tokens
-        # those are opposite answers: 0 is a measured cache miss. So these four ask
-        # whether the key was there, and coerce only what was.
+        # `.get(...) or 0` would fold a real zero into "absent", opposite answers for
+        # cached_tokens, where 0 is a measured cache miss. So these four coerce only a
+        # key that was there.
         cached = details.get("cached_tokens")
         total = usage.get("total_tokens")
         stop = choice.get("stop_reason")
@@ -503,19 +458,18 @@ class OpenAICompatBackend:
 
 # --- helpers, module level so the tests can reach them without a client -----------------
 
-# The terminator is a sentinel rather than `None` because a blank line and the end of the
-# stream are different facts, and one loop has to tell them apart.
+# A sentinel, not `None`: a blank line and the end of the stream are different facts that
+# one loop must tell apart.
 _SSE_DONE = object()
 
 
 def _sse_frame(line: str, path: str) -> Any:
     """One SSE line to a frame, to `_SSE_DONE`, or to `None` when it carries neither.
 
-    Blank lines separate events and a line opening with a colon is a comment; both belong
-    to the protocol rather than to the model. Anything else that is not a `data:` line
-    means the endpoint is not speaking SSE at all, which is a protocol error and not
-    something to skip quietly -- skipping it would turn a wrong endpoint into an empty
-    answer, and an empty answer is a diagnosis this layer is not entitled to make.
+    Blank lines separate events and a line opening with a colon is a comment; both are
+    protocol, not model. Any other non-`data:` line means the endpoint is not speaking
+    SSE, a protocol error: skipping it would turn a wrong endpoint into an empty answer,
+    a diagnosis this layer may not make.
     """
     line = line.strip()
     if not line or line.startswith(":"):
@@ -543,13 +497,11 @@ def _sse_frame(line: str, path: str) -> Any:
 def _attach(error: BaseException, build: Callable[[], Any]) -> None:
     """Hang what the turn decoded on the failure, and never let that hide the failure.
 
-    Three things here are deliberate. It never overwrites a partial already attached, so
-    the innermost frame wins and a re-raise higher up cannot blank it. It swallows
-    whatever `build` raises: rebuilding a reply from however many frames arrived can hit a
-    half-delivered tool call, and a partial is a courtesy where the exception underneath
-    it is the fact. And it tolerates an exception that refuses the attribute rather than
-    assuming every type allows one -- `CancelledError` does, but this runs on the failure
-    path, which is the worst place to learn that something does not.
+    It never overwrites a partial already attached, so the innermost frame wins and a
+    re-raise higher up cannot blank it. It swallows whatever `build` raises: rebuilding
+    from however many frames arrived can hit a half-delivered tool call, and the partial
+    is a courtesy where the exception is the fact. And it tolerates an exception that
+    refuses the attribute, because the failure path is the worst place to learn one does.
     """
     try:
         if getattr(error, "partial", None) is None:
@@ -561,10 +513,9 @@ def _attach(error: BaseException, build: Callable[[], Any]) -> None:
 class _StreamAccumulator:
     """Rebuilds one chat-completions payload from a sequence of SSE deltas.
 
-    Reconstructs the *non-streaming* shape rather than emitting blocks as they arrive, so
-    `_from_wire` stays the single place that reads the wire and `complete()` keeps its
-    promise never to return a partial. Streaming is a transport change here, not a
-    contract change (ADR-0070).
+    Rebuilds the *non-streaming* shape rather than emitting blocks as they arrive, so
+    `_from_wire` stays the one reader of the wire and `complete()` never returns a
+    partial. Streaming is a transport change, not a contract change (ADR-0070).
     """
 
     __slots__ = (
@@ -593,12 +544,11 @@ class _StreamAccumulator:
     def feed(self, frame: dict[str, Any]) -> str | None:
         """Absorb one frame. What it carried: `"reasoning"`, `"answer"`, or None.
 
-        The return value is what the clock times, so it has to mean *tokens* and not
-        *frames* -- and now it also names which half of the reply those tokens are, which
-        is the fact a watcher wants. The opening frame announcing `role` and the closing
-        one carrying only `usage` are bookkeeping: counting either would put prefill back
-        inside the interval this whole mechanism exists to keep it out of, and reporting
-        either as a kind would claim a thought or an answer that never arrived.
+        The return value is what the clock times, so it means *tokens*, not *frames*, and
+        names which half of the reply they are, the fact a watcher wants. The opening
+        `role` frame and a closing `usage`-only one are bookkeeping: counting either would
+        put prefill back inside the decode interval, and naming either would claim a
+        thought or an answer that never arrived.
         """
         if self._model is None and isinstance(frame.get("model"), str):
             self._model = frame["model"]
@@ -626,10 +576,8 @@ class _StreamAccumulator:
         """The generated half of a frame, as its kind.
 
         `reasoning` when only reasoning arrived, `answer` once content or a tool-call
-        fragment does -- a frame carrying both is the answer, because the answer is the
-        half a caller will read. `None` when the frame carried no generated output at all,
-        which is the difference between counting an arrival and counting a bookkeeping
-        frame.
+        fragment does -- a frame carrying both is the answer, the half a caller reads.
+        `None` when it carried no generated output, so a bookkeeping frame is not counted.
         """
         kind: str | None = None
         for key in _REASONING_KEYS:
@@ -651,9 +599,8 @@ class _StreamAccumulator:
     def _feed_tool_call(self, call: dict[str, Any]) -> bool:
         """One tool-call delta. Arguments arrive split across frames and are concatenated.
 
-        Keyed by the wire's own `index`, because a model emitting two calls interleaves
-        their fragments and joining them in arrival order would splice one call's
-        arguments into the other's.
+        Keyed by the wire's `index`: a model emitting two calls interleaves their
+        fragments, and arrival order would splice one call's arguments into the other's.
         """
         index = call.get("index")
         index = index if isinstance(index, int) else len(self._tools)
@@ -704,9 +651,8 @@ class _StreamAccumulator:
 def _resolve_api_key(entry: ModelEntry) -> str:
     """Empty `api_key_env` means an unauthenticated endpoint, which is a normal case.
 
-    A *named* variable that is unset is refused here, at construction -- the same rule
-    config.py and registry.py follow. Discovering it on the first delegation instead
-    would waste the whole prefill.
+    A *named* variable that is unset is refused at construction, as config.py and
+    registry.py do: found on the first delegation, it would waste the whole prefill.
     """
     if not entry.api_key_env:
         return ""
@@ -724,15 +670,9 @@ def _effort_fields(effort: str) -> dict[str, Any]:
     """Reasoning effort, in the shape the live server accepts.
 
     One row of translation: our "off" is the server's "none". The other three levels are
-    the server's own words and go out verbatim, so the top level is never remapped down and
-    a caller asking for maximum effort gets it (ADR-0013).
-
-    `chat_template_kwargs.enable_thinking` is not sent. It was the other plausible
-    candidate and changed nothing measurable.
-
-    How any of this is known, and why validating our own enum is not redundant:
-    docs/ARCHITECTURE.md owns that explanation, and JOURNAL 2026-08-26 has the
-    measurements. Not restated here -- one copy of a reason is the whole point.
+    the server's own words and go out verbatim, so a caller asking for maximum effort gets
+    it (ADR-0013). `chat_template_kwargs.enable_thinking` is not sent: it changed nothing
+    measurable. Why validating our own enum is not redundant is docs/ARCHITECTURE.md's.
     """
     return {"reasoning_effort": _EFFORT_TRANSLATION.get(effort, effort)}
 
@@ -774,10 +714,9 @@ def _wire_message(message: Message, *, resend_reasoning: bool) -> list[dict[str,
                 }
             )
         elif isinstance(block, ToolResultBlock):
-            # OpenAI carries a tool result as its own message, and has nowhere to put
-            # `is_error`. That flag is the server's own bookkeeping (ADR-0007) and stays
-            # on the canonical side; the model sees the error text itself, which is the
-            # part it can act on.
+            # OpenAI carries a tool result as its own message, with nowhere for
+            # `is_error`. That flag is the server's bookkeeping (ADR-0007) and stays
+            # canonical; the model sees the error text, the part it can act on.
             results.append(
                 {
                     "role": "tool",
@@ -832,8 +771,8 @@ def _labels(series: str) -> dict[str, str]:
     """The label set of one sample line, as written. No unescaping beyond the obvious.
 
     Prometheus text quotes label values and escapes `\\`, `\"` and `\n` inside them.
-    Nothing here needs more than that, and a parser that tried to be complete would be a
-    second, worse implementation of a format we only read four metrics out of.
+    Nothing here needs more; a complete parser would be a second, worse implementation of
+    a format we read a handful of metrics out of.
     """
     inner = series.partition("{")[2].rpartition("}")[0]
     out: dict[str, str] = {}
@@ -845,24 +784,20 @@ def _labels(series: str) -> dict[str, str]:
 def read_metrics(text: str) -> dict[str, float | int | str | None]:
     """Prometheus exposition text -> the handful of figures worth reporting.
 
-    Deliberately not a general parser. Histograms are skipped, with one exception, and
-    the reason for the rule is also the shape of the exception: their `_sum` and `_count`
-    are cumulative over the process, so a mean derived from them is the mean since boot.
-    Reporting one as a *current* figure would be worse than reporting nothing.
+    Not a general parser. Histograms are skipped, with one exception: their `_sum` and
+    `_count` are cumulative over the process, so a mean from them is the mean since boot,
+    and reporting one as a *current* figure would be worse than nothing.
 
-    `decode_tokens_per_second_since_boot` is read because a since-boot mean is the right
-    answer to the question it is asked -- what to seed a decode-rate estimate with before
-    this delegation has decoded anything (ADR-0055). It is *not* conservative, which this
-    said until 2026-09-18: it is a lifetime per-request mean, so over regimes averaging
-    below the one being priced it must overprice, and it is flattering exactly when load
-    makes that expensive. What that cost, with the numbers, is DISPATCH.md's. It carries
-    `_since_boot` for the same reason `prefix_cache_hit_rate_since_boot` does: the name is
-    what stops it being read as current. Nothing else here may follow it without that
-    question being asked again.
+    The exception, `decode_tokens_per_second_since_boot`, answers the question a
+    since-boot mean fits: what to seed a decode-rate estimate with before this delegation
+    has decoded anything (ADR-0055). It is *not* conservative: a lifetime per-request mean
+    overprices whenever load is heavier than its average, which is when that is expensive
+    (DISPATCH.md has the cost). Like `prefix_cache_hit_rate_since_boot`, its name is what
+    stops it being read as current; nothing else may follow it without that question
+    asked again.
 
-    Unknown names are ignored rather than collected, so a metric appearing upstream
-    cannot silently widen what this returns -- `scripts/diff_endpoint_captures.py` is
-    where a new name is meant to be noticed.
+    Unknown names are ignored, not collected, so a new upstream metric cannot silently
+    widen what this returns -- `scripts/diff_endpoint_captures.py` is where one is noticed.
     """
     out: dict[str, float | int | str | None] = {}
     for raw_line in text.splitlines():
@@ -900,31 +835,28 @@ def read_metrics(text: str) -> dict[str, float | int | str | None]:
 
 
 class _DecodeWindow:
-    """Two scrapes and a clock, which is what a rate describing *now* actually needs.
+    """Two scrapes and a clock, which is what a rate describing *now* needs.
 
-    `read_metrics` stays pure and is right to: one scrape of a cumulative counter cannot
-    be a rate, and the note above `decode_tokens_per_second_since_boot` says so. This is
-    the state that makes the difference possible, held per backend and never shared.
+    `read_metrics` stays pure, since one scrape of a cumulative counter cannot be a rate;
+    this is the state that makes the difference, held per backend and never shared.
 
-    What it buys is the gap the histogram leaves. `request_time_per_output_token_seconds`
-    observes once per request, on completion, so a turn that has gone quiet moves nothing
-    and the since-boot mean reads exactly as it did before the stall began. A counter
-    differenced over a window falls to zero while it happens, which is the whole point.
+    It fills the gap the histogram leaves. `request_time_per_output_token_seconds` observes
+    once per request, on completion, so a quiet turn moves nothing and the since-boot mean
+    reads as it did before the stall. A counter differenced over a window falls to zero
+    while the stall happens.
 
     Three things it refuses to report, each because the wrong answer is worse than none:
 
-    - **The first observation.** Nothing to difference against, and a rate over an assumed
+    - **The first observation.** Nothing to difference against; a rate over an assumed
       window is a guess wearing a measurement's name.
-    - **A counter that went backwards.** The engine restarted, so the delta is meaningless.
-      A negative rate here would be multiplied by a deadline and authorise a negative reply
-      budget.
-    - **Two scrapes in one clock tick.** `monotonic` has finite resolution and a zero
-      denominator is not a special case worth a special value.
+    - **A counter that went backwards.** The engine restarted, so the delta is meaningless,
+      and a negative rate multiplied by a deadline would authorise a negative reply budget.
+    - **Two scrapes in one clock tick.** `monotonic` has finite resolution, and a zero
+      denominator is not worth a special value.
 
-    `decode_window_seconds` ships beside the rate because the number cannot say how old it
-    is. Scrapes are driven by whoever calls `backend_status`, so the window is however long
-    since someone last asked -- possibly hours. That does the job `_since_boot` does by
-    naming: it stops a stale figure being read as a live one.
+    `decode_window_seconds` ships beside the rate because the rate cannot say how old it
+    is: the window is however long since someone last scraped, possibly hours. It does what
+    `_since_boot` does by naming, stopping a stale figure being read as live.
     """
 
     __slots__ = ("_last",)
@@ -951,16 +883,13 @@ class _DecodeWindow:
         out = {
             "decode_tokens_per_second_window": round(rate, 2),
             "decode_window_seconds": round(elapsed, 1),
-            # The numerator, reported rather than left to be reconstructed. The rate above
-            # is rounded, so a caller that has to tell "this window generated nothing" from
-            # "this window generated a little" would be reading that decision off two
-            # decimal places -- and the caller that asks is the rate sampler, for which a
-            # window lying inside a prefill is exactly the case it must refuse.
+            # The numerator, reported because the rate is rounded: the rate sampler must
+            # tell "generated nothing" (a window inside a prefill, which it refuses) from
+            # "generated a little", and should not read that off two decimal places.
             "decode_tokens_window": generated,
         }
-        # Only with a divisor. `running` is sampled at the end of the window rather than
-        # averaged across it, so this is an approximation and is the reason the aggregate
-        # is reported beside it rather than replaced by it.
+        # Only with a divisor. `running` is sampled at the window's end, not averaged over
+        # it, so this is approximate, which is why the aggregate is reported beside it.
         if running:
             out["decode_tokens_per_second_per_request_window"] = round(rate / running, 2)
         return out
@@ -969,18 +898,16 @@ class _DecodeWindow:
 def _derive_since_boot(out: dict[str, float | int | str | None]) -> None:
     """The two figures computed from scraped ones, in place.
 
-    Both are cumulative since the engine booted, so both say so in their names. A rate
-    over a window would need two scrapes and a clock, which is a different feature and not
-    one `backend_status` should grow quietly.
+    Both are cumulative since the engine booted, so both say so in their names. The rate
+    over a window is `_DecodeWindow`'s.
     """
     hits = out.get("prefix_cache_hit_tokens")
     queries = out.get("prefix_cache_query_tokens")
     if isinstance(hits, int) and isinstance(queries, int) and queries > 0:
         out["prefix_cache_hit_rate_since_boot"] = round(hits / queries, 4)
 
-    # Inverted here rather than reported as seconds-per-token, because every caller wants
-    # tokens per second and one of them multiplies it by a deadline. The intermediate keys
-    # are removed: they are parser state, not a figure anyone should read.
+    # Inverted here, because every caller wants tokens per second and one multiplies it by
+    # a deadline. The intermediate keys are parser state, so they are removed.
     seconds = out.pop("_decode_seconds_sum", None)
     requests = out.pop("_decode_requests", None)
     if isinstance(seconds, float) and isinstance(requests, float) and seconds > 0:
@@ -989,9 +916,8 @@ def _derive_since_boot(out: dict[str, float | int | str | None]) -> None:
 
 def _decode(r: httpx.Response, path: str) -> dict[str, Any]:
     if r.status_code < 200 or r.status_code >= 300:
-        # The header goes up verbatim. Both RFC 7231 forms are legal and either may
-        # arrive; deciding what the string means -- and what to do if it means nothing --
-        # is loop.py's, for the same reason finish_reason is not mapped here.
+        # The header goes up verbatim. Either RFC 7231 form may arrive, and what it means
+        # -- or what to do if it means nothing -- is loop.py's, as finish_reason is.
         raise BackendRefused(r.status_code, r.text, path, r.headers.get("Retry-After"))
     try:
         payload = r.json()

@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #389 — 2026-09-27 — docs: openai_compat.py describes what is
+
+### Changed
+
+- **`backends/openai_compat.py`'s comments describe the adapter as it is, from 348 prose
+  lines to 274.** The second of M18.7's modules. The module docstring still said retry
+  and empty-answer handling were future work for "the M3 machine"; they live in
+  `loop.complete_with_retry`, and the docstring now says so. Two comments explained the
+  absence of a whole-call bound through the retired `turn_timeout`, and now state the
+  rule directly -- silence is the failure, length is the caller's -- with ADR-0100
+  linked. The measurements behind the token-denominated counters, the connect timeout
+  and the effort vocabulary go, and their conclusions stay. `ast_unchanged.py` reads the
+  module as unchanged.
+
 ## #388 — 2026-09-27 — docs: admission.py describes what is
 
 ### Changed
