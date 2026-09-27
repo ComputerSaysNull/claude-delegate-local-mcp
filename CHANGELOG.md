@@ -49,7 +49,7 @@ Older entries, in the previous flat format, are in
 - **"Non-goals" was not the last section.** The review's R15 found the overflow-handling
   section after it; it now sits before, unchanged. Headings are otherwise unchanged, so
   every link into the document still lands. 1,249 lines to 1,215, and the budget follows.
-  This closes M18.5, the last open item of M18.
+  This closes M18.5.
 
 ## #384 — 2026-09-27 — docs: AGENTS, MODELS and TROUBLESHOOTING describe the current state
 
