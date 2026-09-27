@@ -224,7 +224,7 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
   `src/` comment, and reports each module's prose ratio without blocking
 7. ⬜ **The rest of `src/`, by hand, largest first** (review §4: 42% to about 28%; 37% after the five): `admission.py` onward
     - a. ✅ 2026-09-27 `admission.py`, `backends/openai_compat.py`, `transcript.py`, `slots.py`, one branch each.
-    - b. ⬜ `backends/base.py`, `config.py` (comments only), `provision.py`, `context.py`.
+    - b. ✅ 2026-09-27 `backends/base.py`, `config.py` (comments only), `provision.py`, `context.py`.
     - c. ⬜ `agents.py`, `init.py`, `doctor.py`, then the seven small modules on one branch.
 
 ### M19 — A browser viewer, and the ledger it reads

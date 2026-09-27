@@ -1,29 +1,27 @@
 """Prefetch: read the files the caller named, and assemble them into the prompt.
 
-This is the point of the whole project. Claude names a file; the server reads it and hands
-the bytes to a model running on the user's own hardware. The bytes never enter Claude's
-context, which is what makes delegating a review of a large file cheaper than reading it.
+This is the point of the project. Claude names a file; the server reads it and hands the
+bytes to a model on the user's own hardware. The bytes never enter Claude's context, which
+is what makes delegating a review of a large file cheaper than reading it.
 
-`paths.py` has already decided *whether* a file may be read. This module decides whether
-it is worth reading and what it costs, which is a different question with a different
-answer shape: a refusal fails the call, while everything here is a **skip** -- the call
-proceeds, the file is left out, and the accounting says which and why. A caller that asked
-for six files and got five must be told, in the result and in the prompt, or five reads
-like six.
+`paths.py` decides *whether* a file may be read. This module decides whether it is worth
+reading and what it costs, with a different answer shape: a refusal fails the call, while
+everything here is a **skip** -- the call proceeds, the file is left out, and the
+accounting says which and why. A caller that asked for six files and got five must be
+told, in the result and in the prompt, or five reads like six.
 
 Three things are load-bearing:
 
 **Never read a file only to discover it was unusable.** Size is checked by `stat`, and the
-token estimate is computed from the stat size, so an over-budget file costs one syscall
-rather than a multi-megabyte read.
+token estimate computed from it, so an over-budget file costs one syscall rather than a
+multi-megabyte read.
 
 **Skip whole, never truncate.** A source file cut mid-function is worse than an absent
 one, because the model will confidently repair code it never saw.
 
 **Order is fixed and caller-independent.** The cluster caches prompt prefixes, so the file
-list is sorted by resolved path before anything is accumulated -- including before the
-total-budget cutoff, or the same six files in a different order would produce a different
-five. (ADR-0011)
+list is sorted by resolved path before anything is accumulated -- before the total-budget
+cutoff too, or six files in a different order would produce a different five (ADR-0011).
 """
 
 from __future__ import annotations
@@ -44,9 +42,8 @@ SKIP_OVER_FILE_BUDGET = "over_file_budget"
 SKIP_BINARY = "binary"
 SKIP_OVER_TOTAL_BUDGET = "over_total_budget"
 SKIP_UNREADABLE = "unreadable"
-# A path the policy would not allow. Unlike the five above it never became a file at all,
-# so `path` below is the caller's spelling -- there is no resolved one, and the refusal is
-# why. ADR-0061.
+# A path the policy would not allow. Unlike the five above it never became a file, so
+# `path` is the caller's spelling: there is no resolved one (ADR-0061).
 SKIP_REFUSED = "refused"
 
 # The markers wrapping each file. Not a markdown fence: an inlined `.md` file carries
@@ -55,10 +52,10 @@ BEGIN = "--- BEGIN FILE {path} ---"
 END = "--- END FILE {path} ---"
 
 # A line in a file's own body that would read as one of the boundaries above. Matched by
-# SHAPE and for ANY path, never against the entry's own formatted marker: a forged line
-# naming a *different* file is the worse case, because it attributes what follows to
-# something the server never read. Generous about surrounding whitespace and dash count,
-# because the model reading this is not a parser and will not insist on the exact form.
+# SHAPE and for ANY path, never against the entry's own marker: a forged line naming a
+# *different* file is the worse case, attributing what follows to something the server
+# never read. Generous about whitespace and dash count, because the model reading this is
+# not a parser and will not insist on the exact form.
 MARKER_LINE = re.compile(r"^[ \t]*-{3,}[ \t]*(?:BEGIN|END)[ \t]+FILE\b.*?-{3,}[ \t]*$")
 
 # What a neutralised line is prefixed with. The usual "this is literal" convention, one
@@ -74,11 +71,11 @@ def line_number_width(total: int) -> int:
 def numbered_line(index: int, text: str, width: int) -> str:
     """One numbered line, in the single format both delivery paths use.
 
-    A primitive rather than a whole renderer, because `read_file` numbers inside a loop
-    that also spends a character budget and cannot hand the job over wholesale. What has
-    to be shared is the *format*: prefetch and `read_file` both deliver file content, and
-    when they numbered it differently -- one of them not at all -- a line cited from one
-    could not be checked against the other, and the cheaper path was the unciteable one.
+    A primitive, not a whole renderer, because `read_file` numbers inside a loop that also
+    spends a character budget. What must be shared is the *format*: prefetch and
+    `read_file` both deliver file content, and numbered differently, a line cited from one
+    could not be checked against the other -- and the cheaper path would be the one that
+    cannot be cited.
     """
     return f"{index:>{width}}  {text}"
 
@@ -86,19 +83,19 @@ def numbered_line(index: int, text: str, width: int) -> str:
 def escape_markers(text: str) -> str:
     """Neutralise any line in `text` that would parse as a file boundary.
 
-    Prefixed rather than dropped, because a review delegation exists to read source and
-    source legitimately quotes things -- this module's own constants among them. The model
-    can still see what the file said; what it cannot do is mistake the line for the end of
-    the file and read the bytes after it as prompt.
+    Prefixed, not dropped, because a review delegation reads source, and source quotes
+    things -- this module's own constants among them. The model still sees what the file
+    said; it cannot mistake the line for the end of the file and read what follows as
+    prompt.
 
-    Deliberately not announced in `FILES_HEADER`. Explaining the escape would add tokens
-    to the cached prefix of every delegation forever to describe a case that is close to
-    absent in real source, and a backslash before a line of dashes needs no gloss.
+    Not announced in `FILES_HEADER`: explaining it would add tokens to every delegation's
+    cached prefix for a case close to absent in real source, and a backslash before a line
+    of dashes needs no gloss.
     """
     if "FILE" not in text:  # cheap reject; the pattern cannot match without it
         return text
-    # `split` and not `splitlines`: the latter drops the distinction between a body that
-    # ends in a newline and one that does not, which `block` depends on just below.
+    # `split`, not `splitlines`, which loses whether the body ends in a newline, a
+    # distinction `block` depends on.
     return "\n".join(
         MARKER_ESCAPE + line if MARKER_LINE.match(line) else line
         for line in text.split("\n")
@@ -123,10 +120,10 @@ class FileEntry:
     text: str
     nbytes: int
     est_tokens: int
-    # A ranged entry. `start_line` is the file's own first line number (1-based) of the
-    # range that was inlined; `total_lines` is the file's whole line count, so the BEGIN
-    # header can say it is part of the file. Both None for a whole-file entry, which is
-    # what keeps the unranged rendering byte-identical to before (ADR-0011).
+    # A ranged entry. `start_line` is the file's own (1-based) number for the range's first
+    # line; `total_lines` is the file's whole line count, so the BEGIN header can say it is
+    # part of the file. Both None for a whole file, which keeps that rendering stable for
+    # the prefix cache (ADR-0011).
     start_line: int | None = None
     total_lines: int | None = None
 
@@ -167,28 +164,25 @@ class Prefetch:
     def block(self) -> str:
         """The files section of the prompt. Empty string when there is nothing to say.
 
-        Deliberately built from the *resolved* path rather than the one the caller wrote.
-        Two spellings of one file -- a symlink and its target, a forward-slash and a
-        backslash form -- would otherwise render as two different prompts for identical
-        content, which is exactly the prefix-cache miss the ordering rule exists to avoid.
+        Built from the *resolved* path, not the caller's: two spellings of one file -- a
+        symlink and its target, forward and back slashes -- would otherwise render two
+        prompts for identical content, the prefix-cache miss the ordering rule avoids.
         """
         parts: list[str] = []
         if self.files:
             parts.append(FILES_HEADER)
             for entry in self.files:
                 # Numbered, in `read_file`'s format, so a pass can cite what it was given
-                # and re-read a range of it without asking for the file again. Whole-file
-                # delivery already costs no turn; addressability is what it lacked.
+                # and re-read a range of it without asking for the file again.
                 #
-                # `escape_markers` still runs first even though a numbered body line can
-                # no longer begin at column 0, so `MARKER_LINE` could not match it anyway.
-                # Numbering is a rendering choice and the escape is a boundary control;
-                # letting the first quietly become the second is how a control ends up
-                # resting on something nobody knew it rested on.
+                # `escape_markers` runs first although a numbered line cannot begin at
+                # column 0, so `MARKER_LINE` could not match it anyway. Numbering is a
+                # rendering choice and the escape a boundary control; letting the first
+                # become the second would rest a control on something nobody knew it
+                # rested on.
                 lines = escape_markers(entry.text).splitlines()
                 if entry.start_line is None:
-                    # Whole file. Rendered byte-for-byte as it always was, so the cached
-                    # prefix is stable (ADR-0011).
+                    # Whole file, rendered stably for the cached prefix (ADR-0011).
                     width = line_number_width(len(lines))
                     begin = BEGIN.format(path=entry.path)
                     body = "".join(
@@ -196,15 +190,13 @@ class Prefetch:
                         for n, line in enumerate(lines, 1)
                     )
                 else:
-                    # A ranged entry keeps the file's own line numbers: the first rendered
-                    # line of a 10-20 range is numbered 10, and the width fits the largest
-                    # number actually shown. The BEGIN header says the file is not there
-                    # whole, so the model does not take the block for the file.
+                    # A range keeps the file's own line numbers -- a 10-20 range starts at
+                    # 10 -- and the width fits the largest shown. The BEGIN header says the
+                    # file is not there whole, so the model does not take the block for it.
                     last = entry.start_line + len(lines) - 1
                     width = line_number_width(last)
-                    # Inside the markers, not after them: `MARKER_LINE` escapes a file line
-                    # only if it ends in dashes, so a suffix would be a shape a file could
-                    # forge unescaped.
+                    # Inside the markers, not after them: `MARKER_LINE` escapes a line only
+                    # if it ends in dashes, so a suffix would be forgeable unescaped.
                     begin = BEGIN.format(
                         path=f"{entry.path} (lines {entry.start_line}-{last} of "
                         f"{entry.total_lines})"
@@ -224,14 +216,13 @@ class Prefetch:
     def accounting(self) -> dict[str, object]:
         """The same facts as data, returned beside the answer.
 
-        The prompt tells the model what it did not get; this tells the caller. They are
-        different audiences: the model needs to not hallucinate the file, and the caller
-        needs to decide whether to re-ask with fewer of them.
+        The prompt tells the model what it did not get; this tells the caller. The model
+        must not hallucinate the file; the caller must decide whether to re-ask with fewer.
         """
         return {
-            # Both spellings: `path` is what the server read and what the model was
-            # shown, `given` is what the caller wrote. Reporting only the resolved one
-            # makes the caller match `/mnt/c/...` against the Windows path they sent.
+            # Both spellings: `path` is what the server read and the model was shown,
+            # `given` what the caller wrote, so the caller need not match `/mnt/c/...`
+            # against the Windows path it sent.
             "files_read": [
                 {
                     "path": e.path,
@@ -253,11 +244,10 @@ class Prefetch:
 def skip_from_refusal(refusal: Refusal) -> Skip:
     """A refused path as a skip, so the call keeps the files that did resolve.
 
-    The reason carries the remedy as well as the cause, because both audiences need it and
-    `Skip` has one field for them. The model reads it in the prompt's skipped list and so
-    does not spend a turn trying to `read_file` the same path; the caller reads it in
-    `files_skipped` and learns which root the path missed, which `_check_roots` has already
-    written into the remedy.
+    The reason carries the remedy as well as the cause, since both audiences need it and
+    `Skip` has one field. The model reads it in the skipped list and does not spend a turn
+    on `read_file` of the same path; the caller reads it in `files_skipped` and learns
+    which root the path missed, which `_check_roots` wrote into the remedy.
     """
     return Skip(
         path=refusal.given,
@@ -270,13 +260,11 @@ def skip_from_refusal(refusal: Refusal) -> Skip:
 def decode_text(data: bytes) -> tuple[str | None, str]:
     """Decode as text, or say why it is binary. ADR-0030.
 
-    Two tests, because neither alone is enough. The NUL byte catches UTF-16 and most
-    executables cheaply. The strict UTF-8 decode catches the rest -- a latin-1 file, a
-    truncated multi-byte sequence -- and it has to be strict: decoding with `errors=
-    "replace"` would hand the model a page of U+FFFD and call it source.
-
-    Extension is not a third test, because it cannot be one. The allowlist admits `.json`
-    and `.md`, and nothing stops either from being UTF-16.
+    Two tests, since neither alone is enough. The NUL byte catches UTF-16 and most
+    executables cheaply. The strict UTF-8 decode catches the rest -- latin-1, a truncated
+    multi-byte sequence -- and must be strict: `errors="replace"` would hand the model a
+    page of U+FFFD and call it source. Extension cannot be a third test: nothing stops an
+    allowed `.json` or `.md` from being UTF-16.
     """
     if b"\x00" in data[:NUL_SNIFF_BYTES]:
         return None, "it is not text: a NUL byte appears in the first 8 KiB"
@@ -310,20 +298,16 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
     """One file: open it once, and account for whatever stops it being included.
 
     The descriptor is held from the open through the read, so nothing in between can
-    change which file this is. That is the point of doing it here rather than in the loop:
-    the size the budgets are computed from and the bytes that get inlined come from the
-    same descriptor, which was proven to be the path the policy approved (ADR-0049).
+    change which file this is: the size the budgets use and the bytes inlined come from
+    one descriptor, proven to be the path the policy approved (ADR-0049).
 
     Returns the entry, or the `Skip` explaining why there is none. A returned
-    `SKIP_OVER_TOTAL_BUDGET` also means the list is finished, which the caller reads off
-    the reason rather than being told twice.
+    `SKIP_OVER_TOTAL_BUDGET` also means the list is finished, read off the reason.
 
-    A ranged request is read whole -- the byte ceiling still applies to the file, and a
-    file has to be decoded before a slice of it can be taken -- but is then sliced *before*
-    the per-file token check and the total budget check, so a file over the per-file cap
-    can still be prefetched in part. The whole-file path keeps the opposite ordering, so a
-    file too big for the budget is never read at all (the "never read a file only to find
-    out it was unusable" rule).
+    A ranged request is read whole -- the byte ceiling applies to the file, and a file is
+    decoded before it is sliced -- but sliced *before* the per-file and total budget
+    checks, so a file over the per-file cap can be prefetched in part. The whole-file path
+    checks first, so a file too big for the budget is never read at all.
     """
     entry, start, end = _request_split(item)
 
@@ -337,8 +321,8 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
             "it stopped being the file the path policy approved before it could be read",
         )
     except OSError as e:
-        # It passed the path policy moments ago, so this is a race or a permission
-        # problem rather than a caller error -- a skip, not a refusal.
+        # It passed the path policy moments ago, so this is a race or a permission problem,
+        # not a caller error: a skip, not a refusal.
         return Skip(
             entry.posix, entry.given, SKIP_UNREADABLE,
             f"it could not be read ({e.strerror or e})",
@@ -364,7 +348,7 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
 
         if start is None:
             # Whole file: token checks before reading, so an over-budget file is never
-            # loaded just to discover it did not fit.
+            # loaded.
             est = cfg.estimate_tokens(nbytes, entry.ext)
             if est > cfg.max_file_tokens:
                 return Skip(
@@ -407,24 +391,22 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
             est_tokens=est,
         )
 
-    # Ranged. `splitlines` and not `split("\n")`: the latter invents a trailing empty line
-    # for a file that ends in a newline, and the model would be told the file is one line
-    # longer than it is -- the same rule `read_file` applies. Line endings are dropped and
-    # re-joined with "\n", so a CRLF file reads the same on either side of the boundary.
+    # Ranged. `splitlines`, not `split("\n")`, which invents a trailing empty line for a
+    # file ending in a newline and would make it one line longer -- as `read_file` rules.
+    # Rejoined with "\n", so a CRLF file reads the same on either side of the boundary.
     lines = text.splitlines()
     total_lines = len(lines)
     if total_lines and start > total_lines:
-        # Past the end is refused, not clamped, exactly as `read_file` refuses it: a range
-        # that starts after the file is a request for nothing, not a request for the file.
+        # Past the end is refused, not clamped, as in `read_file`: a range starting after
+        # the file asks for nothing.
         return Skip(
             entry.posix,
             entry.given,
             SKIP_REFUSED,
             f"start_line {start} is past the end; the file has {total_lines} lines.",
         )
-    # `end_line` past the end is the end of the file, deliberately unlike `start_line`:
-    # reading *to* a line beyond the file is a well-formed request with an obvious answer,
-    # while starting there asks for nothing.
+    # `end_line` past the end means the end, unlike `start_line`: reading *to* a line
+    # beyond the file is well-formed with an obvious answer.
     last = min(end, total_lines) if end is not None else total_lines
     slice_text = "\n".join(lines[start - 1:last])
     slice_bytes = len(slice_text.encode("utf-8"))
@@ -462,38 +444,32 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
 def prefetch(cfg: Config, resolved: tuple[ResolvedPath | FileRequest, ...]) -> Prefetch:
     """Read what fits, skip what does not, and account for both.
 
-    Per file, in this order, because the point is never to read a file only to find out
-    it was unusable:
+    Per file, in this order, so a file is never read only to find it unusable:
 
     1. Open it, prove the descriptor, and `fstat` that against `max_file_read_bytes`.
-       Opening loads none of the file, so a multi-gigabyte one is still never read,
-       and the size now describes the file being held rather than whatever the path
-       named a moment earlier (ADR-0049).
+       Opening loads none of the file, and the size describes the file being held, not
+       whatever the path named a moment earlier (ADR-0049).
     2. Estimate tokens from that size and the extension (ADR-0019), before reading.
     3. Over `max_file_tokens`: skip whole. Never truncate.
     4. Against `max_total_prefetch_tokens`: the first file that does not fit ends the
        list, and every file after it is skipped too.
     5. Only now read it, and decide whether it is text at all.
 
-    A ranged `FileRequest` is the one exception to the ordering, and only because it has
-    to be: the whole file is read (bounded by the byte ceiling), decoded, and then sliced
-    *before* the per-file token check and the total budget check, so the estimate and both
-    checks use the slice's bytes, not the file's -- which is how a file over the per-file
-    cap can be prefetched in part.
+    A ranged `FileRequest` is the one exception, because it must be: the whole file is
+    read (within the byte ceiling), decoded, then sliced *before* the token checks, so the
+    estimate and both checks use the slice's bytes.
 
-    Step 4 stopping rather than continuing is a decision, not an oversight. Carrying on to
-    fit whatever happens to be small enough makes the result depend on the size mix in a
-    way nobody can predict from the request, and it is worse for the caller: a coherent
-    prefix of the files they asked for beats an arbitrary subset of them.
+    Step 4 stops rather than continuing on purpose. Fitting whatever happens to be small
+    enough would make the result depend on the size mix unpredictably, and a coherent
+    prefix of the files asked for beats an arbitrary subset.
     """
     entries: list[FileEntry] = []
     skips: list[Skip] = []
     total = 0
     exhausted = False
 
-    # Sorted here, once, before anything is accumulated. Doing it later -- or leaving it
-    # to the caller -- would make the total-budget cutoff depend on the order the files
-    # were named in, so the same request could return a different five of six.
+    # Sorted here, once, before anything accumulates; later, or left to the caller, the
+    # budget cutoff would depend on naming order.
     for item in sorted(resolved, key=_request_posix):
         if exhausted:
             skips.append(
@@ -528,10 +504,8 @@ def prefetch(cfg: Config, resolved: tuple[ResolvedPath | FileRequest, ...]) -> P
 def estimate_text_tokens(cfg: Config, text: str) -> int:
     """Estimate the token cost of a string with no file behind it.
 
-    The same job `prefetch` does per file, minus the extension -- so it falls back to the
-    densest measured ratio and over-counts, which is the bias ADR-0019 chose deliberately.
-    Here that is what the caller wants: admission uses this to size a request before it
-    runs, and guessing high costs a little idle capacity where guessing low oversubscribes
-    the pool it is meant to protect.
+    `prefetch`'s per-file job minus the extension, so it uses the densest measured ratio
+    and over-counts, ADR-0019's bias. Admission sizes a request with it, and guessing high
+    costs a little idle capacity where guessing low oversubscribes the pool.
     """
     return cfg.estimate_tokens(len(text.encode("utf-8")))
