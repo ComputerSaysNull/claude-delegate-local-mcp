@@ -15,11 +15,11 @@ This module and `paths.py` are **independent layers, not redundant ones** (ADR-0
 `read_file` and `write_file` are governed by the path policy and run in the server process;
 they never come here. Only `run_bash` is confined. A bug in one is not covered by the other.
 
-The argv was corrected against a running kernel rather than against documentation, and both
-corrections are load-bearing (ADR-0021). See `_BASE_ARGV` for what that means in practice.
+The argv corrections are load-bearing (ADR-0021); see `_BASE_ARGV` for what that means in
+practice.
 
-Not a port. The ancestor logs a warning and runs the command unconfined when bwrap is
-missing; here that is the one thing that never happens.
+Not a port: when bwrap is missing, running the command unconfined is the one thing that
+never happens here.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ SANDBOX_PATH = "/usr/bin:/usr/sbin"
 # The shell that can report a failure the final exit code hides, and the plain one that
 # cannot. `/bin/sh` is dash here, and dash has neither `set -o pipefail` -- it calls that an
 # illegal option and aborts the whole line -- nor an `ERR` trap, which it rejects as a bad
-# trap. Measured 2026-09-19 inside a sandbox built exactly as `build_argv` builds one.
+# trap, measured inside a sandbox built as `build_argv` builds one.
 # bash is used when it is present and `/bin/sh` when it is not, because a missing shell must
 # cost the accounting rather than the command. (ADR-0095)
 MASKED_STATUS_SHELL = "/usr/bin/bash"
@@ -120,8 +120,7 @@ SCRATCH_PYCACHE_PREFIX = "/tmp/.cache/pycache"
 # readable. Anyone debugging that message will look at the wrong file.
 #
 # `--unshare-all` drops every namespace including the network; `--share-net` later opts the
-# network back in when, and only when, an agent asked for it. That combination was verified
-# by running it, not read off a manual page.
+# network back in when, and only when, an agent asked for it (ADR-0021).
 _BASE_FLAGS: tuple[str, ...] = (
     "--unshare-all",
     "--die-with-parent",
@@ -178,7 +177,7 @@ def resource_argv(cfg: Config) -> list[str]:
     core file per overrun. This one's is zero, so setting it changes nothing measurable
     here: the "(core dumped)" a shell prints alongside SIGXFSZ comes from the kernel
     reporting WCOREDUMP, which it does anyway because `core_pattern` is a pipe, and no file
-    lands anywhere. Measured 2026-09-05, after a test asserting the opposite could not fail.
+    lands anywhere (measured).
 
     What none of this bounds is a fork bomb's *memory*: RLIMIT_AS is per process, so sixty
     small children pass a cap that one large child would fail. The process cap is what
@@ -254,8 +253,7 @@ class ShadowTarget:
     """One denylist match, and the mount that covers it up.
 
     `kind` decides the primitive, and the two are not interchangeable -- a tmpfs needs a
-    directory to mount on and a regular file needs something file-shaped over it. Both were
-    checked against a running bwrap rather than read off documentation (ADR-0021).
+    directory to mount on and a regular file needs something file-shaped over it (ADR-0021).
     """
 
     path: str
@@ -271,10 +269,9 @@ class SandboxRequest:
     """Everything one `run_bash` call needs, already resolved to POSIX absolute paths.
 
     Built by the caller rather than here: this module does not re-derive workspace roots,
-    and does not import the tool layer's concerns. `workdir` is `None` for every caller that
-    exists today -- `agents.py` (M6) is the first that will pass a real one -- but the bind
-    ordering it participates in is specified and tested now, because discovering the rule
-    later means discovering it from a bug.
+    and does not import the tool layer's concerns. `workdir` arrives already resolved and
+    root-checked by `paths.resolve_workdir`; its place in the bind order is specified and
+    tested, because discovering that rule from a bug is the alternative.
 
     No timeout field: that is `cfg.run_bash_timeout`, and a default here would be a config
     default living outside `config.py`, which is the one thing that file exists to prevent.
@@ -547,31 +544,20 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
     bound whole. So it is covered up afterwards instead, which needs a concrete path -- and
     the denylist holds patterns. Hence a walk.
 
-    **`home`, `workdir` and `extra_binds` are all scanned.** The first two always were. The
-    third was excluded, deliberately, on two grounds that were written down and have since
-    stopped holding: that `extra_binds` are paths "an operator chose, typically somewhere
-    under `/usr`", and that covering a file inside a read-only bind protects nothing the
-    bind did not already protect.
-
-    The first premise died when M6 let an agent *file* supply `extra_binds`. A markdown file
-    that anyone can add to a repository is not an operator decision, and the argument for
-    trusting the value was entirely that an operator had typed it. The second was never
-    quite right for credentials specifically: read-only still means readable, and reading is
-    the whole of the threat for a secret -- a read-only bind stops it being edited, which
-    nobody was worried about.
-
-    Recorded rather than deleted, because the reasoning outliving the code it justified is a
-    failure this repository has now seen twice: the same thing happened to the comment
-    explaining `WITHHELD_TOOL_NAMES` when that set was emptied. (ADR-0035)
+    **`home`, `workdir` and `extra_binds` are all scanned.** `extra_binds` can look exempt,
+    as paths an operator chose inside a read-only bind, and are not: an agent file can
+    supply them, and a markdown file anyone can add to a repository is not an operator
+    decision. Read-only still means readable, which is the whole of the threat for a
+    secret. (ADR-0035)
 
     **Symlinks are skipped, and that is not laziness.** Emitting a shadow op on a symlink
     node does not follow it and does not create it -- it aborts the entire bwrap invocation
-    with `Can't mount tmpfs on ...: No such file or directory`, measured against a running
-    bwrap 0.9.0. Fail-closed, so nothing leaks, but a `~/.ssh` symlinked into a dotfiles
-    repository is common enough that every `run_bash` call would die naming neither the
-    denylist nor the link. Skipping loses less than it looks: a link's target is either
-    inside a bound root, where this walk reaches it by its real path anyway, or outside
-    every bound root, where the sandbox never bound it and the link simply dangles.
+    with `Can't mount tmpfs on ...: No such file or directory`. Fail-closed, so nothing
+    leaks, but a `~/.ssh` symlinked into a dotfiles repository is common enough that every
+    `run_bash` call would die naming neither the denylist nor the link. Skipping loses less
+    than it looks: a link's target is either inside a bound root, where this walk reaches it
+    by its real path anyway, or outside every bound root, where the sandbox never bound it
+    and the link simply dangles.
 
     What this leaves uncovered, stated rather than discovered later: a link whose *name*
     matches the denylist but whose *target* does not -- `.ssh` pointing at `realssh`. That
@@ -595,8 +581,8 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
     found: list[ShadowTarget] = []
     seen: set[str] = set()
     # Protected paths ride the same walk rather than a second one, which would cost what
-    # this one does again: measured 1.5s over this repository and 5.8s over a project with
-    # a `node_modules`. Only inside the workdir, the one read-write bind of a real project.
+    # this one does again. Only inside the workdir, the one read-write bind of a real
+    # project.
     protect = _Protect.for_request(cfg, req)
     budget = cfg.secret_shadow_max_entries
     scan_bytes = cfg.secret_content_scan_bytes
@@ -612,13 +598,10 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
                 full = posixpath.join(dirpath, name)
                 if full == provisioned:
                     # Pruned and NOT covered -- the one place this walk does that, and the
-                    # one tree a command must be able to read (ADR-0062). Measured on this
-                    # repository's own venv: walked, it is 8,981 entries and the denylist
-                    # fires 13 times, covering `certifi/cacert.pem`, `keyring/credentials.py`
-                    # and the whole of `secretstorage/` with /dev/null -- breaking the
-                    # environment it just read, exactly as ADR-0041 predicted for a workspace
-                    # virtualenv. Covering it instead hides it. `build_argv` binds it
-                    # read-only, which is what makes skipping it safe here.
+                    # one tree a command must be able to read (ADR-0062). Covering it would
+                    # hide it, exactly as ADR-0041 predicted for a workspace virtualenv.
+                    # `build_argv` binds it read-only, which is what makes skipping it safe
+                    # here.
                     continue
                 if os.path.islink(full):
                     continue  # never descended, never shadowed; see the docstring
@@ -711,8 +694,8 @@ def _prepare_protected(cfg: Config, req: SandboxRequest) -> tuple[list[str], lis
     A missing directory is created so the walk binds it read-only, and `run` removes it
     again if it is still empty. The placeholder is invisible to git, which never shows an
     empty directory. A file cannot be treated that way -- bwrap would leave an empty 0444
-    placeholder in the project, measured -- so a missing one is only noted, and checked
-    for after the command.
+    placeholder in the project -- so a missing one is only noted, and checked for after
+    the command.
     """
     if req.workdir is None:
         return [], []
@@ -841,11 +824,10 @@ def _shadow_argv(shadows: Sequence[ShadowTarget]) -> list[str]:
         if shadow.kind == "dir":
             # `--remount-ro` immediately after the tmpfs, and it is a correctness fix rather
             # than hardening. ADR-0041 recorded the writable cover as discarding a write;
-            # measured 2026-09-08, it is worse -- the mount is 64 KiB, a larger write is
-            # truncated at exactly 65536 bytes with no error, and the corrupt remainder is
-            # still there to be read. A nested `pytest` writing bytecode into a covered
-            # `__pycache__` then dies on `EOFError: marshal data too short` in the same run.
-            # Read-only turns that into a refusal Python already handles. (ADR-0064)
+            # it is worse than that (measured): a larger write into the 64 KiB cover is
+            # truncated with no error and the corrupt remainder is still there to be read.
+            # Read-only turns that into a refusal Python already handles.
+            # (ADR-0064)
             out += [
                 "--size", str(_SHADOW_TMPFS_BYTES), "--tmpfs", shadow.path,
                 "--remount-ro", shadow.path,
@@ -903,9 +885,9 @@ def build_argv(
        base target shadows it, an agent file replacing the sandbox's own /usr with a host
        tree of its choosing. Read-only either way, so trust substitution rather than write
        access. That case is refused in `agents.py` rather than reordered away, because the
-       reordering that fixes it breaks the far commoner bind inside /tmp -- tried on
-       2026-09-05, and an existing integration test said so. `base_mount_targets` is what
-       the refusal derives from, so a mount added here reaches it without a second edit.
+       reordering that fixes it breaks the far commoner bind inside /tmp, which an
+       integration test pins. `base_mount_targets` is what the refusal derives from, so a
+       mount added here reaches it without a second edit.
 
     3. Secret shadows come after every bind, because a shadow covers up a path *inside* a
        tree that a bind created, and bwrap would have nothing to mount on if it ran first.
@@ -937,8 +919,6 @@ def build_argv(
     # Read-only is load-bearing rather than tidy. The secret scan deliberately does not
     # cover this tree (ADR-0062), so this bind is the only thing standing between a
     # delegation and a planted file in an interpreter that later runs a test suite.
-    # Measured: `touch` inside it is refused at exit 1 while the same write into the workdir
-    # succeeds, and the whole suite still passes read-only at 1309 passed, 4 skipped.
     provisioned = provisioned_root(req.home)
     argv += ["--ro-bind", provisioned, provisioned]
 

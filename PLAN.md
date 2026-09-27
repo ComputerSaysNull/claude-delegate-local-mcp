@@ -215,7 +215,7 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
 4. ⬜ **One comment pass per module, largest first** (review §4)
     - a. ✅ 2026-09-27 `loop.py`, which has more prose than code.
     - b. ✅ 2026-09-27 `server.py`.
-    - c. ⬜ `sandbox.py`, cutting history but keeping its security reasoning.
+    - c. ✅ 2026-09-27 `sandbox.py`, cutting history but keeping its security reasoning.
     - d. ⬜ `paths.py`, likewise.
     - e. ⬜ `tools.py`.
 5. ⬜ **Product docs describe the current state**: `docs/` without its history. The other
