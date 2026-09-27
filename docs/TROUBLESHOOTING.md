@@ -1,17 +1,16 @@
-<!-- BUDGET: 317 -->
+<!-- BUDGET: 316 -->
 # Troubleshooting
 
 Symptom, cause, fix.
 
 **This document owns no facts.** It links to whichever document owns the answer and never
-restates a default, a schema or a value. That is not fussiness: restating defaults inside
-symptom explanations is how the project this descends from ended up documenting one setting
-as three different values in three places. Add the link instead.
+restates a default, a schema or a value. That is not fussiness: restating a default inside a
+symptom explanation is how a project ends up documenting one setting as three different
+values in three places. Add the link instead.
 
 **Everything below is reachable.** An entry written ahead of its subsystem is marked
 *(not built)* — there are none right now — and such a marker outlasting its milestone is a
-defect in itself: the 2026-08-28 audit found four, all of them M4's. [PLAN.md](../PLAN.md)
-has the roadmap.
+defect in itself. [PLAN.md](../PLAN.md) has the roadmap.
 
 ---
 
@@ -128,8 +127,8 @@ paste into a bug report.
 
 Reasoning consumed the entire reply budget. Seeing this means the server already tried to
 recover and failed too ([the stages](DISPATCH.md#an-empty-answer-is-recovered-from-before-it-is-reported)),
-so do not retry the call yourself. Measured: at the top effort level this deployment never
-answered at any budget, so set `default_effort` low ([MODELS.md](MODELS.md#choosing-default_effort)).
+so do not retry the call yourself. At the top effort level this deployment never answers at
+any budget, so set `default_effort` low ([MODELS.md](MODELS.md#choosing-default_effort)).
 
 ### `reasoning_exhausted: true`
 
