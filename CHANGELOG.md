@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #387 — 2026-09-27 — docs: three edit_file items are on the plan
+
+### Added
+
+- **Three `edit_file` items, filed from one day's misses.** Of 54 misses in 493 calls,
+  about 40 were quotes with extra leading spaces: `read_file` puts two spaces between a
+  line number and its text, and a model that strips one keeps the other as indentation
+  (Unscheduled 93). Two more gaps came up comparing it with a client's own edit tool:
+  there is no deliberate way to replace a repeated string, where an `expected_count`
+  keeps the ambiguity check a plain flag would drop (94), and nothing notices a file
+  changed by another writer since it was read (95). Filed, not built: each changes a
+  tool's behaviour and needs its own red.
+
 ## #386 — 2026-09-27 — docs: the first pipeline-stage records are counted
 
 ### Added
