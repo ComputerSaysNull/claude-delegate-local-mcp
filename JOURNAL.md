@@ -2710,3 +2710,23 @@ its uncached prompt over the prefill rate, plus every cold prefill queued ahead 
 920s, past a 900s `stall_timeout`. Waiting for admission does not count, since the clock
 starts inside it. What it does not settle: one endpoint, prompts of 50k to 60k, and never
 more than two at once.
+
+## 2026-09-27 — The first `stages` records: 3 masked pipelines in 71 bash calls
+
+Unscheduled.25d waits on the records saying how often a failed pipeline stage hides behind
+a zero. The first day of them: 31 transcript records written since `stages` shipped (#376),
+from a session of writing delegations over comment and doc passes. They made 71 `run_bash`
+calls; 3 carried `stages`, and all 3 read 0 with an earlier stage non-zero:
+
+| pipeline | statuses | what the non-zero meant |
+|---|---|---|
+| `diff <missing file> <file> \| head -400` | `[2, 0]` | an error: the file was not there |
+| `diff <file> <file> \| head -60` | `[1, 0]` | not a failure: the files differ |
+| `ls <four paths> \| head` | `[2, 0]` | some paths absent, which was the question |
+
+The rules the hand-off notes drafted (drop status 128 and above where a later stage
+succeeded; drop exit 1 from an allowlist of "no result" commands such as `diff` and
+`grep`) keep two of the three. One of those two is a real masked error, and the `ls` one
+is an answer that looks like an error, so exit 2 from `ls` is a second allowlist question,
+not a failure. What this does not settle: three rows from one kind of work. A classifier
+designed from them would be designed from `diff` and `ls` alone, so 25d stays open.

@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #386 — 2026-09-27 — docs: the first pipeline-stage records are counted
+
+### Added
+
+- **A JOURNAL entry with the first count of masked pipeline stages.** Unscheduled.25d
+  waits on the `stages` records saying how often a failed stage hides behind a zero before
+  a classifier is designed. The first day's records hold 3 such pipelines in 71 `run_bash`
+  calls: one real error (`diff` exit 2), one non-failure (`diff` exit 1), and one answer
+  that looks like an error (`ls` exit 2 on absent paths). Three rows from one kind of work
+  cannot shape a classifier, so 25d stays open with the count recorded.
+
 ## #385 — 2026-09-27 — docs: ARCHITECTURE.md describes the current state
 
 ### Changed
