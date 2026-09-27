@@ -2,23 +2,21 @@ r"""`--install-skills`: put the skills this package ships where a caller's tools
 
 The package carries the agent-file format as a skill rather than as documentation, because
 documentation does not travel: the wheel holds this directory and nothing outside it. That
-solves *reaching* the host. It does not solve reaching the tools, which look in
-`.claude/skills/` under a project, so a file sitting in `site-packages` is still invisible.
-This copies it across, and is the whole of what it does.
+reaches the host but not the tools, which look in `.claude/skills/` under a project, so a
+file in `site-packages` is invisible. This copies it across, and that is all it does.
 
-**No interview, unlike `--init`.** There is nothing to ask: the destination is the project
-you run it in, and the content is fixed. So this one works with stdin closed, which matters
-because the caller most likely to want it is an agent in a shell rather than a person.
+**No interview, unlike `--init`.** The destination is the project you run it in and the
+content is fixed, so it works with stdin closed -- which matters, because the caller most
+likely to want it is an agent in a shell.
 
-**An existing file is moved aside, never overwritten and never left in place** -- `--init`'s
-rule, reusing `--init`'s `back_up`, for the same reason. Refusing outright would leave a
-half-installed tree whose only route forward is hand-editing, and overwriting would destroy
-an edit someone made on purpose. The backup name is printed, because a backup nobody is
-told about is a file nobody deletes.
+**An existing file is moved aside, never overwritten and never left in place**, by
+`--init`'s `back_up`, for `--init`'s reason: refusing would leave a half-installed tree
+fixable only by hand, and overwriting would destroy a deliberate edit. The backup name is
+printed, because a backup nobody is told about is a file nobody deletes.
 
-The name is validated on the way out rather than trusted. `survey_agents` refuses a
-directory name that could not be an agent name, so a skill shipped under one would install
-silently and never load -- a failure with no symptom at the point it was caused.
+The name is validated on the way out, not trusted. `survey_agents` refuses a directory
+name that could not be an agent name, so a skill shipped under one would install silently
+and never load -- a failure with no symptom where it was caused.
 """
 
 from __future__ import annotations
@@ -37,9 +35,8 @@ SKILLS_ROOT = Path(__file__).resolve().parent / "skills"
 def shipped_skills() -> list[Path]:
     """Every directory under `skills/` holding a `SKILL.md`, sorted.
 
-    Sorted so the printed output and the returned list are stable between runs on
-    different filesystems -- a directory walk is not ordered, and a test comparing lists
-    would otherwise pass or fail by luck.
+    Sorted so output and the returned list are stable across filesystems: a directory
+    walk is not ordered, and a test comparing lists would pass or fail by luck.
     """
     if not SKILLS_ROOT.is_dir():
         return []
@@ -49,8 +46,8 @@ def shipped_skills() -> list[Path]:
 def install(project: Path | str, *, out=None, stamp: str | None = None) -> list[Path]:
     """Copy every shipped skill into `<project>/.claude/skills/`, returning what was written.
 
-    Returns the written `SKILL.md` paths rather than the directories, because that is the
-    file whose presence the discovery code actually turns on.
+    Returns the written `SKILL.md` paths, not the directories: that file's presence is
+    what discovery turns on.
     """
     root = Path(project)
     stamp = stamp or datetime.now().strftime("%Y%m%d-%H%M%S")
