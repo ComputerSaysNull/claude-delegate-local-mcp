@@ -1,4 +1,4 @@
-<!-- BUDGET: 795 -->
+<!-- BUDGET: 770 -->
 # Dispatch and the response state machine
 
 What the server sends to a model, and what it does with what comes back. Everything here
@@ -38,10 +38,10 @@ canonical shape stays block-structured and is never flattened to strings; SSE ac
 lives per adapter behind one contract; model selection is a registry lookup and never a
 reintroduced prefix function. (ADR-0008; the last of the three is ADR-0009)
 
-The second of those is no longer hypothetical. The chat call streams (ADR-0070) and a
+The second of those is in force. The chat call streams (ADR-0070) and a
 *succeeding* `complete()` is unchanged by it: frames accumulate inside the adapter into the
 payload the non-streaming parser already reads, and the whole response returns once the
-stream ends, so no tool result changes shape. A **failing** one no longer discards what it
+stream ends, so no tool result changes shape. A **failing** one does not discard what it
 decoded (ADR-0078) — the tokens ride out on the exception as a whole `CanonicalResponse`,
 cancellation included, and no token still means no partial.
 The call runs as a task that `_until_deadline` cancels and awaits on any exit, not only its
@@ -51,9 +51,9 @@ is required, or the final chunk carries no `usage` and every token count reads z
 httpx applies its read timeout per chunk once a body streams, so that timeout is
 `stall_timeout` -- the same question one layer down, and since ADR-0100 the only bound.
 
-Streaming also made token arrival observable, and until ADR-0072 `decode_seconds` was its
-only consumer. `complete()` now takes an optional `on_token`, fired on each frame carrying
-generated output — the same predicate the interval is measured from, so a role preamble or
+Streaming also made token arrival observable. `complete()` takes an optional `on_token`,
+fired on each frame carrying generated output — the same predicate the interval is measured
+from, so a role preamble or
 a finish reason is not an arrival. It is synchronous because it runs on the read loop, and
 its one argument names what the frame carried, `reasoning` or `answer`, so a heartbeat can
 tell thinking from answering. A consumer that must act once guards its own once-ness.
@@ -75,8 +75,7 @@ distinct from `finish_reason` and absent on backends that do not speak it — an
 measured miss, `None` an endpoint that reports nothing, and a sum folding the two claims
 every call missed. The `or 0` idiom used for the required counts is wrong here, and a test
 asserts it. Without the cached count nothing about prefix reuse is observable from inside
-this server, which is how a tool came to be argued for on an effect nobody here could see
-(ADR-0051).
+this server (ADR-0051).
 
 ## What the cluster says about itself
 
@@ -94,9 +93,8 @@ as *the cluster says it is doing nothing* rather than *the cluster did not say*.
 — so the four are named one by one. A metric appearing upstream therefore cannot widen what
 is reported: noticing a new name is what `diff_endpoint_captures.py` is for.
 
-**The counters are denominated in tokens, not requests.** Measured 2026-09-05: six
-distinct 45k-token calls moved `prefix_cache_queries_total` by 269,417, against
-6 × 44,903. Reading them as request counts understates the denominator by four orders and
+**The counters are denominated in tokens, not requests.** Reading them as request counts
+understates the denominator by four orders and
 makes the derived hit rate meaningless rather than merely wrong. The rate is cumulative
 since the engine booted and its name says so; a rate over a window needs two scrapes and a
 clock, which `_DecodeWindow` keeps per backend — see below.
@@ -106,12 +104,10 @@ and `_count` are cumulative, so a mean derived from them is the mean since boot 
 looking like a current figure — worse than reporting nothing.
 `decode_tokens_per_second_since_boot` is read because a since-boot mean is the right answer
 to the only question asked of it: what to seed a decode-rate estimate with before a
-delegation has decoded anything (ADR-0055). Blending every concurrency regime since boot was
-recorded here as making it *conservative*; it does the opposite under load, and that error
-cost four of six passes — the blend read 34.96 tok/s where six concurrent delivers just under
-20, authorising 1.75x what the clock can pay. It is a floor only when the cluster is quiet,
-which is exactly when nothing needed one. Since ADR-0075 the remembered rate outlives the
-process, so this is the seed of last resort — and the suffix stops it reading as current.
+delegation has decoded anything (ADR-0055). It blends every concurrency regime since boot,
+so it is optimistic under load, and a floor only when the cluster is quiet, which is
+exactly when nothing needed one. The remembered rate outlives the process (ADR-0075), so
+this is the seed of last resort — and the suffix stops it reading as current.
 
 **`generation_tokens_total`, differenced, is the live half.** The histogram observes once per
 request *on completion*, so a turn gone quiet moves nothing and the since-boot mean reads as
@@ -200,17 +196,17 @@ is a ceiling, and a second deadline does the killing:
 [`stall_timeout`](CONFIGURATION.md) is how long a delegation may run without *a frame
 arriving*. Both bound every attempt and the tighter one wins; without that, the ceiling
 would let a single wedged call sit for its whole duration, which is the failure the pair
-exists to split apart. `turn_timeout` was a third and is retired, because a wedged call is
-a silent one and silence is what these measure. (ADR-0047, ADR-0099, ADR-0100)
+exists to split apart. No third deadline: a wedged call is a silent one and silence is what
+these measure. (ADR-0047, ADR-0099, ADR-0100)
 
 The progress signal is turn **completion** or **token arrival**, and which signals count is
 a real design constraint. The per-turn notification fires at the *top* of a turn, so it
 would reset the clock on entry to the very turn that then wedges; the keepalive proves
 liveness on a timer regardless of progress. Token arrival is neither — it happens only when
-the model produced something — and it is the one signal that sees *inside* a turn:
-completion alone killed a pass in its thirtieth, having completed twenty-nine, and gave a
-one-shot no progress signal at all. A moving deadline cannot be enforced by a fixed timeout,
-so the attempt runs beside a watchdog re-reading the budget while the call is in flight,
+the model produced something — and it is the one signal that sees *inside* a turn, which
+completion alone cannot, and gives a one-shot no progress signal at all. A moving deadline
+cannot be enforced by a fixed timeout, so the attempt runs beside a watchdog re-reading the
+budget while the call is in flight,
 rather than inside `asyncio.wait_for`. (ADR-0072) The clock starts *below* the one-off
 rate seed rather than above it, so a slow metrics scrape is not charged to turn 1.
 
@@ -244,9 +240,9 @@ diagnosis. The message names the stage, the setting, and the elapsed time, which
 
 **It also names what the delegation had managed** — turns completed, tool calls, the last
 tool — because that is the distinction a reader must be able to make: a wedged task shows
-work behind it where a dead endpoint shows zero of both. Without it a stall read exactly
-like an unreachable endpoint, whose honest remedy is to stop using the server, and twice on
-2026-09-04 that was the wrong call. The turn loop attaches the counts on the way out, in one
+work behind it where a dead endpoint shows zero of both. Without it a stall reads exactly
+like an unreachable endpoint, whose honest remedy is to stop using the server. The turn loop
+attaches the counts on the way out, in one
 handler, because the raise sites cannot see its ledger and the dispatch record that also
 carries them exists only on success. A one-shot supplies none and reads as it always did:
 **absent and zero are different facts**, and the one path that cannot stall must not report
@@ -256,7 +252,7 @@ itself as having done so.
 delegation waits up to [`admission_wait_timeout`](CONFIGURATION.md) for a slot, and only
 then is a deadline taken inside the loop that slot admitted — so the caller-visible worst
 case is that setting plus the ceiling, added (ADR-0038). Recorded here because this is
-where a reader looks for what bounds a delegation, and it was previously stated only in the
+where a reader looks for what bounds a delegation, and it appears elsewhere only in the
 ADR and in a generated config cell.
 
 **What this does not do** is keep a delegation inside the client's idle timeout -- the
@@ -280,15 +276,14 @@ dispatch. The per-model cap applies last everywhere: it is what the wire accepts
 asymmetry with the floor is deliberate: a floor is a preference about how much room
 reasoning gets, and overriding a preference is rude, while the ceiling states what the
 deadline can deliver and no version of the request beats it. A budget above it buys the
-same answer discarded at `stall_timeout` — which is how productive turns came to be
-reported as stalls.
+same answer discarded at `stall_timeout` — productive turns read as stalls.
 
 It is what the delegation has left, times `rate × reply_budget_margin`, floored at
-`reply_budget_floor`. It was once the tightest of three: the stall clock left with ADR-0099,
-`turn_timeout` with ADR-0100, which retired the per-call deadline rather than merely
-dropping it: keeping the deadline while dropping the term is what let a budget authorise
-a reply the attempt could not deliver. The rate is **measured wherever a measurement
-exists**: it belongs to the deployment and moved twice in one week. `DecodeRate` is seeded so the first turn is
+`reply_budget_floor`. It is the tightest bound on a reply: the stall clock bounds silence
+rather than size (ADR-0099), and there is no per-call deadline such as `turn_timeout`
+(ADR-0100): a deadline kept without its term in this bound would let a budget authorise a
+reply the attempt could not deliver. The rate is **measured wherever a measurement
+exists**: it belongs to the deployment. `DecodeRate` is seeded so the first turn is
 bounded — a one-shot and a tool-forbidden final turn both live there — and every later turn
 replaces the seed with what this delegation achieved, which is the rate its own deadline is
 paid in. `rate_source` moves with it — a taken sample relabels the estimate as the
@@ -307,13 +302,11 @@ errs optimistic -- the direction that kills a turn instead of truncating it (ADR
 bucket with samples never reaches that path.
 
 **A bucket answers with its median, and samples arrive on a ticker rather than per turn.**
-Both halves are one change. The minimum priced 24-71% below the operator benchmark where
-the means matched it to 1-3%, and it got worse as a bucket filled -- the more a regime was
-measured, the worse its worst sample. A mean is dragged down the same way, by its slow
-outliers (samples down to 0.75 tok/s in a bucket whose median was 29 pulled it 2-14%
-below); a median ignores them. And a sample per *completed turn* meant six streams
-filed six readings on one moment, so a six-wide bucket's 64 slots held about eleven moments
-where a solo bucket's held sixty-four: the wider the fan-out, the shorter the memory.
+A median is chosen because the alternatives are dragged down by the wrong samples: a
+minimum is dragged down by the worst sample in a filled bucket, a mean by its slow outliers,
+and a median ignores both. And a sample per *completed turn* would let six concurrent streams
+file six readings on one moment, so a wide bucket would hold only a few distinct moments
+where a solo one held many: the wider the fan-out, the shorter the memory.
 `DELEGATE_RATE_SAMPLE_SECONDS` scrapes while the gate is busy and files one sample per
 scrape, the aggregate over the concurrency read in the same scrape, so every bucket spans
 the same wall clock and the buckets are comparable. A window that generated nothing is
@@ -323,26 +316,19 @@ bucket *median*; pooling every busier sample into one mean would mix regimes and
 six-way answer above anything six-way ever did. That observation is
 timed over the attempt that **answered**, not over the turn:
 the token count comes from one attempt (ADR-0014), so dividing it by every recovery stage
-and transport retry measures two different events — across 46 recorded turns it halved the
-apparent rate, and the halved figure then seeded the next delegation's first turn. The
+and transport retry would measure two different events. The
 backoff between attempts is outside the interval by construction, and since ADR-0070 so is
 prefill: the chat call streams, so the adapter reports `decode_seconds` — last token minus
-first — and the estimators divide by that. Prefill is now reported beside it rather than
+first — and the estimators divide by that. Prefill is reported beside it rather than
 subtracted and discarded, and a `Dispatch` carries both summed over a turn's attempts: a
 rate divides by one attempt, but a wall-clock total is owed all of them.
 An adapter that cannot time the tokens reports
 `None`, the whole attempt is used instead, and the result is pessimistic, which is the safe
-direction for a budget. Until streaming it always was the whole attempt, and that mattered:
-a remembered 13.4 tok/s, learned from two answers under 1,200 tokens, priced a 14,475-token
-ceiling on a cluster that had just delivered 17,779 in one turn. `MIN_TOKENS` cannot catch
-that — it guards the size of the answer, and the problem is the size of the prompt.
-Taking prefill out of the interval inverted the defect a floor must catch. With prefill
-inside, a short turn read slow — 237 tokens at 16.64 tok/s against a benchmarked 44.1 alone.
-With it outside, a short turn reads fast: measured 2026-09-13, turns near a hundred tokens
-read 91–106 tok/s where turns above four hundred read 45–52, and one estimate climbed 19.57
-to 88.53 across 24 turns without once falling back. Both estimators apply the same floor
-now — a sample either describes the decoder or it does not, and average-versus-minimum
-decides only how a bad one propagates.
+direction for a budget. `MIN_TOKENS` cannot catch that defect — it guards the size of the
+answer, and there the problem is the size of the prompt. Both estimators apply the same
+floor, so a short turn reads neither slow nor fast: prefill outside the interval keeps it
+from reading slow, and the floor stops it reading fast. A sample either describes the decoder
+or it does not, and average-versus-minimum decides only how a bad one propagates.
 
 What a turn achieved is also **remembered past its delegation**, in `RateHistory`, tagged
 with how contended it was. `DecodeRate` learns within one delegation and dies with it, so
@@ -354,19 +340,17 @@ reverse is never true. The concurrency comes from the lease, not the cluster
 ([ARCHITECTURE.md](ARCHITECTURE.md)), and is remembered rather than modelled — a curve
 fitted to rate-against-concurrency would be a constant baked to one deployment's hardware.
 Samples sit in a bucket per concurrency, each capped on its own. One shared cap evicted by
-recency spends itself on whichever regime ran most recently, so thirteen five-wide dispatches
-walk the six-way reading out and leave every question answered from the flood — a memory that
-gets worse the more it is used.
-An empty memory used to fall through to the since-boot figure, and that was **not** the benign
-cold start it read as: `expect` searches every sample at the asked concurrency *or busier*, so a
-low expectation searched widely and kept the worst, while a high one searched an empty set and
-took the optimistic blend — which is why it now meets the configured floor instead. Measured 2026-09-12 — in one six-way fan-out the two passes
-expecting the most contention got the most generous ceilings, and one then died at the stall
-deadline having completed no turn. A reconnect used to reach that state every time, because
-the memory died with the process; it now loads and saves under `rate_history_dir`, durable
-so a reboot does not reach it either, stamped with the served model so a swap discards it
-rather than pricing a new model at the old one's speed (ADR-0075, ADR-0094). An endpoint publishing no rate caps nothing: the behaviour that preceded ADR-0055, not a
-guess — and the `priced` event says so per turn, so an uncapped turn is visible not inferred.
+recency would spend itself on whichever regime ran most recently and leave every question
+answered from the flood — a memory that gets worse the more it is used.
+An empty memory meets the configured floor, not the since-boot figure, because falling
+through to that figure is **not** the benign cold start it looks like: `expect` searches every
+sample at the asked concurrency *or busier*, so a low expectation searches widely and keeps
+the worst, while a high one finds nothing and would take the optimistic blend. The memory
+loads and saves under `rate_history_dir`, durable so a reconnect or reboot does not reach the
+empty-memory path, stamped with the served model so a swap discards it rather than pricing
+a new model at the old one's speed (ADR-0075, ADR-0094). An endpoint publishing no rate caps
+nothing — nothing substitutes a guess — and the `priced` event says so per turn, so an
+uncapped turn is visible not inferred.
 It records the first attempt's budget as sent, `max_tokens_sent`, beside the caller's `max_tokens`, which is often empty. Every recovery stage is bounded, the enlarged retry included, or that retry
 would be the way back to a budget no deadline can pay.
 
@@ -392,8 +376,9 @@ null content and a length stop. What the server does about it is below. (ADR-001
 
 `temperature` and `top_p` go on the wire together, on both paths, at the pair this model
 was evaluated at, and the turn's `priced` row records which. One setting each, not one per
-path: the split that held the loop at 0.2 existed only to protect tool-call syntax, and 96
-calls from 0.2 to 1.5 produced no malformed one. A retired name is refused. (ADR-0098)
+path: a lower loop temperature would only protect tool-call syntax, and no malformed tool
+call appeared at any temperature from 0.2 to 1.5, so one pair covers both paths.
+A retired name is refused. (ADR-0098)
 
 A reply also reports **how much of itself it repeats**, as a share of its non-blank lines.
 That is the only field separating a loop from a long answer, which are identical
@@ -441,8 +426,7 @@ exhaustion would tell the caller to lower an effort that is already lowest.
 
 Whatever the diagnosis, the reasoning is handed back rather than binned: `answer_of` returns it
 under a banner and sets `answer_is_reasoning`, narrowing `empty_response` to mean nothing came
-back at all. Nine dispatches on one machine reported empty while holding 265,092 output tokens —
-every one at a length stop, so no partial returned at a deadline would have rescued them.
+back at all.
 
 `attempts` counts every real call across all three stages and every transport retry inside
 them, and across every turn when this runs inside the loop. ADR-0014 requires the retry not
@@ -481,10 +465,10 @@ delegation can end on a tool call nobody will run, having spent its whole budget
 nothing readable. The result reports `hit_turn_limit`, **and the answer carries a banner
 saying so** — the flag is for whoever branches on it and the banner for whoever does
 not, as reasoning already is. It is exactly "the loop reached its last
-turn". It once also required a tool call on that final reply, which a model forbidden to make
-one does not, so it was false in precisely the case it names. A delegation that would have
-finished on its last turn anyway now reports the limit too; that costs a reader one look at
-`max_turns`, where the old reading cost them a truncated answer read as a whole one. So the
+turn". It does not require a tool call on that final reply — a model forbidden to make one
+does not — so it is never false in the case it names. A delegation that would have finished
+on its last turn anyway reports the limit too; that costs a reader one look at `max_turns`,
+where the alternative cost them a truncated answer read as a whole one. So the
 banner says only that: the last turn, tools forbidden, and possibly partial.
 
 Recovery from an empty answer is per turn and is the same code as the one-shot path — the
@@ -502,9 +486,9 @@ square of its length — the tenth turn paying again for the first nine tool res
 model's reasoning goes back too ([`resend_reasoning`](CONFIGURATION.md), JOURNAL 2026-09-23).
 [`retained_tool_result_tokens`](CONFIGURATION.md) decides how much survives and the oldest
 results collapse to a one-line stub until what remains fits it.
-[`keep_tool_results`](CONFIGURATION.md) is the floor and the step, no longer the trigger: a
-count priced a one-line refusal and a 50KB file identically, and one run held both — twelve
-of each produced the same boundary and 250x the retention (ADR-0079). What size does *not*
+[`keep_tool_results`](CONFIGURATION.md) is the floor and the step, not the trigger: a count
+priced a one-line refusal and a 50KB file identically, so the bound is a size. (ADR-0079)
+What size does *not*
 decide is which results go. Selection stays oldest-first, because lifting a large one out of
 the middle would invalidate every cached prefix after it; only where the cut falls follows
 size, and it lands on a whole step.
@@ -516,11 +500,10 @@ something. The stub says plainly that the result was dropped and can be fetched 
 
 **The boundary is carried by the guard and only ever advances, in steps of `keep`**
 (ADR-0056). Recomputing it each turn as "everything older than the newest `keep`" reads as a
-stable window and is not one: as the history grows, that boundary moves forward by one every
-turn, and with it the first difference between consecutive prompts. Since the stack caches
-prefixes, moving the first difference forward discards everything after it — measured as a
-hit rate climbing to 83.3% and then dropping to 0.0% on the turn of the first eviction,
-never recovering. Stepping means one rewrite buys `keep` turns instead of one.
+stable window and is not one: as the history grows, that boundary would move forward by one
+every turn, and with it the first difference between consecutive prompts. Since the stack
+caches prefixes, moving the first difference forward discards everything after it. Stepping
+means one rewrite buys `keep` turns instead of one.
 
 **Stepping is unconditional; only *holding off* is gated.** With
 [`context_overflow_enabled`](CONFIGURATION.md) armed, `OVERFLOW_EVICT_AT` holds the boundary
@@ -531,10 +514,9 @@ by default would leave the common configuration bounding nothing. Below
 the threshold the boundary is held rather than reset: un-stubbing rewrites the history in the
 other direction at the same cost.
 
-So the loop's prefix is stable further than it used to be, and the earlier claim that only
-the leading prefix could ever be cache-stable was wrong. An append-only history reuses about
-93% of each prompt; stepped eviction reuses about 79%; the per-turn boundary reused 2.9%. The
-gap between 93% and 79% is the price of bounding the history at all.
+The loop's prefix is stable beyond the leading prefix alone: an append-only history reuses
+about 93% of each prompt, stepped eviction about 79%. The gap between them is the price of
+bounding the history at all.
 
 The loop asks for its tool set with the config, because one description is built per
 deployment rather than fixed: `search_files` carries the workspace layout, which is the only
@@ -547,28 +529,24 @@ The pressure gate applies wherever pressure can be *read*, rather than only wher
 `context_overflow_enabled` is set. That setting ships off for a stated reason — every
 threshold is measured against the model's `context_window`, and an entry omitting that field
 inherits a silent default — and the reason simply does not cover an entry whose window was
-declared. Unarmed, `evict_upto` skipped the check and stubbed on count alone, so the
-threshold this design is built around never applied to the shipped configuration: measured,
-30 results evicted at 3.9% of a 1M window against a 50% gate, on a run whose entire history
-would have cost about 10%. The preventive half — tighten, nudge, abort and the plateau check
+declared. Unarmed, `evict_upto` would skip the check and stub on count alone, so the
+threshold this design is built around would never apply to the shipped configuration. The
+preventive half — tighten, nudge, abort and the plateau check
 — still waits for the flag, because those act on a delegation and arming them everywhere is a
 larger claim than the one measured.
 
-The scrape that prices the first turn also carries the size of the KV pool, and it used
-to be dropped. It is reported
-to admission instead, which is the only sighting of the figure on the dispatch path. That
-scrape is skipped when the rate memory already has an answer, which stopped the pool being
-read at all once the memory began surviving reconnects (ADR-0081) — so the caller passes
-`on_pool` only until the figure is in, and its presence is what asks for the scrape. The pool
+The scrape that prices the first turn also carries the size of the KV pool, and it is
+reported to admission — the only sighting of the figure on the dispatch path. The scrape is
+skipped when the rate memory already has an answer, so the caller passes `on_pool` only until
+the figure is in, and its presence is what asks for the scrape. (ADR-0081) The pool
 is a hardware fact, so that settles at one extra read per process. What admission does with
 it is [ARCHITECTURE.md](ARCHITECTURE.md)'s.
 
 **The final turn keeps its tools and is forbidden to call them** (ADR-0057). The loop
 breaks on the last turn whether or not the model asked for anything, so the intent — leave it
-nothing to produce but an answer — is unchanged. Withdrawing `tools` achieved that by
-changing the front of the prompt, which is the one edit the prefix cache cannot absorb:
-measured, dropping the tool block to save 321 tokens re-prefilled all 36,018 of them, a 99.3%
-hit falling to 0.0%. `tool_choice` is our own two-word vocabulary, `auto` and `none`,
+nothing to produce but an answer — is unchanged. Withdrawing `tools` would achieve that by
+changing the front of the prompt, which is the one edit the prefix cache cannot absorb.
+`tool_choice` is our own two-word vocabulary, `auto` and `none`,
 translated per adapter as `effort` is; `auto` is omitted from the body so an ordinary turn's
 bytes do not move.
 
@@ -594,12 +572,11 @@ before its own overwrite. Refusals are never cached either, since several are tr
 nature — a file that does not exist yet is the obvious one — and caching one would make it
 permanent for the rest of the delegation.
 
-A third limit is what eviction dropped. The two mechanisms shared no state, so a repeat
-after an eviction handed the whole result back into the window the trim had just made room
-in — 34,131 bytes freed, 34,269 returned, nothing re-run (ADR-0080). The entry now carries
-its `tool_use_id`, eviction marks it through the same diff the ledger reads, and a marked
-entry serves a line saying the result was dropped and to ask for the part needed. Marked and
-not deleted: deleting re-runs the tool, and one of these reads took 657 seconds.
+A third limit is what eviction dropped. The two mechanisms share no state, so a repeat
+after an eviction would hand the whole result back into the window the trim had just made
+room in (ADR-0080). The entry carries its `tool_use_id`, eviction marks it through the same
+diff the ledger reads, and a marked entry serves a line saying the result was dropped and to
+ask for the part needed. Marked and not deleted: deleting re-runs the tool.
 
 Known gap, recorded rather than papered over: a re-read of the same file from a different
 `start_line` is a different argument set and is not caught. Closing it needs range tracking,
@@ -623,8 +600,8 @@ The cache never reaches a worker: read before dispatch, written after, so a dupl
 one batch is dispatched once and its second occurrence is assembled from what the first
 stored. A lock would keep the dict intact and still let both miss and both run, the guarantee
 being a compound read-then-write. The ledger is written on that thread for the same reason —
-the abort report reads it in the order the model asked. Measured before it was built, unlike
-the read pool it follows: 1.16x on two calls and 1.51x on three, short of the ceiling because
+the abort report reads it in the order the model asked. Measured, unlike the read pool it
+follows: 1.16x on two calls and 1.51x on three, short of the ceiling because
 the path policy mixes syscalls that release the GIL with matching that does not.
 
 ## The countdown is in the tail, and the progress notification is not decoration
@@ -642,18 +619,16 @@ well inside [`dispatch_timeout`](CONFIGURATION.md). (ADR-0018)
 
 One per turn is not enough, and the one-shot path has no turns to hang it on at all, so
 both report on a timer as well, every [`keepalive_interval`](CONFIGURATION.md). A turn's own
-duration is bounded by the per-attempt ceiling above and by silence -- so a one-shot was
-measured running 1645s with nothing sent between its start and its answer.
+duration is bounded by the per-attempt ceiling above and by silence, so a one-shot could
+otherwise send nothing between its start and its answer.
 
-**Measured on 2026-09-01**, against a deliberately silenced two-item batch: at 1800s the
-client aborts and **nothing reaches the server** -- no cancellation, no EOF. It held both
-admission slots for 300s longer, until the work finished on its own, then carried on serving
-the same session. So `keepalive_interval` is a correctness setting rather than a convenience:
-the server cannot discover that nobody is listening, and sending something is the only guard.
+So `keepalive_interval` is a correctness setting rather than a convenience: the client aborts
+a call that sends nothing for 1800s, and **nothing reaches the server** — no cancellation, no
+EOF — and the server cannot discover that nobody is listening, so sending something is the
+only guard.
 The same heartbeat writes an `alive` event to the stream, a silent stream and a silent wire
 being one problem from two sides. It carries elapsed, the delegation ceiling it is measured
-against, and — since it was found reporting "60s of 14400s", the ceiling at the time, while
-minutes from death — **how long until the tightest deadline fires**. Two figures, because
+against, and **how long until the tightest deadline fires**. Two figures, because
 they answer two questions, and the ceiling is the deadline least likely to end a run. The
 countdown is the stall and delegation clocks, and while tools run the delegation clock alone,
 since nothing reads the stall clock then. A per-attempt deadline restarts each attempt, so here
@@ -725,9 +700,9 @@ backend has quietly begun dropping, and the answer looks exactly like one writte
 everything in view. `context_overflow_enabled` turns on two checks that notice, and it is
 off by default for a reason given below.
 
-Every threshold is a share of `ModelEntry.context_window` and of nothing else. Two of the
-five bugs this cost the ancestor project were one shape — a threshold computed against the
-wrong denominator — so the window is read in exactly one function,
+Every threshold is a share of `ModelEntry.context_window` and of nothing else. A threshold
+computed against the wrong denominator is the bug this guards against, so the window is read
+in exactly one function,
 `loop.projected_fraction`, and the reserve held back for the reply is a **fraction** of it
 rather than a token count. That is not tidiness: a flat reserve large enough to matter on a
 million-token window is more than 95% of an 8K one, so the same constant that is prudent for
@@ -757,8 +732,8 @@ disagreement is the finding. The git call is server-side, exactly as the path po
 
 `context_window` is whatever the operator wrote in `models.toml`, and `docs/MODELS.md` is
 explicit that nothing enforces it against the server. Arming a graduated abort against an
-unverified denominator is how the ancestor came to compute every threshold against a ceiling
-its backend would never reach. So the first agentic delegation to a model asks the endpoint
+unverified denominator would compute every threshold against a ceiling the backend would
+never reach. So the first agentic delegation to a model asks the endpoint
 what window it is serving and compares.
 
 The check **validates and never derives**. On a disagreement overflow handling stays off and
@@ -767,10 +742,10 @@ operator's file is authoritative for everything else about that model. An endpoi
 reports no window at all is answering correctly and does not block anything.
 
 The verdict is cached per model, and the cache expires — that expiry is the whole point of
-it. The ancestor's equivalent never expired and was written on any failure, so one transient
-outage disabled overflow handling until someone restarted the server. Here a **confirmed
-refusal** is cached and a **transport failure** is not: an endpoint that answered has told us
-something about itself, and one we could not reach has not.
+it. A cache that never expired, written on any failure, would let one transient outage disable
+overflow handling until someone restarted the server. So a **confirmed refusal** is cached
+and a **transport failure** is not: an endpoint that answered has told us something about
+itself, and one we could not reach has not.
 
 ### Diagnostics, per call
 
