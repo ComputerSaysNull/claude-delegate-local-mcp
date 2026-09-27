@@ -30,6 +30,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #378 — 2026-09-26 — docs: loop.py's comments are tightened, and the rule says to
+
+### Changed
+
+- **The "Prose" rule now asks for brevity, not only for the history to go.** The
+  2026-09-22 review measured history at about a quarter of `src/` prose and called length
+  the larger lever: most rationale paragraphs lose nothing at half the length. It asked
+  for history cut everywhere and the remaining reasoning tightened, except in `paths.py`
+  and `sandbox.py`, where the security reasoning is what stops regressions and is trimmed
+  only conservatively. CONTRIBUTING's rule carried the first half alone, so the passes on
+  `loop.py`, `server.py` and `tools.py` followed it and prose fell only 10%, 6% and 5%.
+  The rule now carries both halves, and those three passes are reopened in PLAN.md.
+- **`loop.py`'s remaining prose is tightened.** Blocks that argued an ADR's case again
+  shrink to what the code does, what must not break, and the link; the rest lose
+  restatement and lead-ins. A delegated first draft cut only 11% and dropped 18 reasons
+  on the way, so the pass was redone by hand, block by block, and a verification pass
+  compared every changed block with the old text (two more reasons restored). The "known
+  gap" note on re-reads at another offset was a TODO in a docstring and is PLAN.md item
+  92 now. Prose fell from 1,521 lines to 853 (52% to 37% of the module), and
+  `ast_unchanged.py` reads the module as unchanged.
+
 ## #377 — 2026-09-26 — fix: the orchestration guide tells a caller to ask for the outcome
 
 ### Fixed
