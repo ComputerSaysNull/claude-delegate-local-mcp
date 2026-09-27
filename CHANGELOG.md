@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #394 — 2026-09-27 — docs: provision.py describes what is
+
+### Changed
+
+- **`provision.py`'s comments describe provisioning as it is, from 218 prose lines to
+  190.** The third of M18.7's second group. What goes is the story of the issue that
+  first called the missing interpreter an architectural limit, the line-ending incident
+  and the repository's own match counts. What stays: why the build runs server-side, why
+  the tree lives under `venvs/`, why a false "fresh" is worse than a false "stale", why
+  stale environments are withheld rather than offered, and why pip's configuration is cut
+  out at build time. `ast_unchanged.py` reads the module as unchanged.
+
 ## #393 — 2026-09-27 — docs: config.py describes what is
 
 ### Changed
