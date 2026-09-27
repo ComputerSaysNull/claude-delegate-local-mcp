@@ -1,20 +1,19 @@
 """The tools the delegated model may call, and the two places `allowed_tools` is enforced.
 
-Not to be confused with `server.py`'s `@mcp.tool` functions. Those are the surface *Claude*
-calls; these are the surface the local model calls, inside a delegation. The two never meet.
+Not `server.py`'s `@mcp.tool` functions, which *Claude* calls; these are what the local
+model calls inside a delegation.
 
-The registry is a fixed table rather than a decorator that mutates module state on import.
-A tool schema sits in the prompt prefix the cluster caches, so the declared set has to be a
-function of its inputs and nothing else -- import order included. Why: ADR-0011.
+A fixed table, not a decorator mutating module state on import: tool schemas sit in the
+cached prompt prefix, so the declared set must depend on its inputs alone, import order
+included. Why: ADR-0011.
 
 `allowed_tools` is checked twice, and the second time is the one that matters. Filtering the
 declared list is advisory: a model can name a tool it was never offered, and some do. So
-`declared_tools` decides what is *offered* and `execute_tool` decides what is *run*, from the
-same set, and neither trusts the other. They sit next to each other here so that adding a
-tool cannot quietly add it to only one.
+`declared_tools` decides what is *offered* and `execute_tool` what is *run*, from the same
+set, and neither trusts the other. They sit together so a new tool cannot reach only one.
 
-The resolved set is a parameter, never a config field. It is per-agent frontmatter or
-per-call; a server-wide default would be a config default living outside `config.py`.
+The resolved set is a parameter, never a config field: it is per agent or per call, and a
+server-wide default would be a config default outside `config.py`.
 """
 
 from __future__ import annotations
@@ -63,34 +62,26 @@ class ToolRefused(Exception):
 class RegisteredTool:
     """One tool: what the model is told, and what actually runs.
 
-    `cacheable` says whether repeating this call with identical arguments, inside one
-    delegation, must give the same answer -- which is what lets the turn loop serve a
-    repeat from what it already has. A property of the tool, declared with it; a loop
-    deciding it by name would keep a second copy of a fact about `tools.py`.
-
-    False is the safe default. A tool with side effects is never cacheable, and it also
-    invalidates what was cached, because a file read before a write and read again after
-    it has two different correct answers; serving the first twice hands the model a stale
-    file it has every reason to believe is current.
+    `cacheable`: identical arguments must give the same answer within a delegation, which
+    lets the loop serve a repeat. Declared here, since a loop deciding by name would keep a
+    second copy of the fact. False is the safe default: a side-effecting tool is never
+    cacheable and also invalidates the cache, since a file read before and after a write
+    has two correct answers and serving the first hands the model a stale file.
     """
 
     spec: ToolSpec
     handler: Callable[..., str | BashResult]
     cacheable: bool = False
-    # Whether this tool's handler takes the delegation's `BashPolicy` as a third argument.
-    # Declared with the tool for the same reason `cacheable` is: it is a fact about the
-    # tool, and an executor deciding it by name would keep a second copy of that fact
-    # somewhere else. Only `run_bash` enters the sandbox, so only `run_bash` sets it, and
-    # widening one tool's signature beats adding an ignored parameter to the other two.
+    # Whether the handler takes the `BashPolicy` as a third argument; declared here like
+    # `cacheable`. Only `run_bash` enters the sandbox, and widening its signature beats an
+    # ignored parameter on the others.
     wants_policy: bool = False
-    # Whether this tool can change anything outside the server's own memory. Declared with
-    # the tool, and for a sharper reason than the two above: `READ_ONLY_TOOL_NAMES` is
-    # derived from it, and that set is what makes `delegate_readonly`'s readOnlyHint a
-    # property of the tool rather than a claim about how it is usually called. A hand-kept
-    # list would go stale the first time a writing tool was added, silently, and the
-    # annotation would still be advertised. False is NOT the safe default here -- a new
-    # tool that writes must say so -- so every writing tool sets it explicitly and the
-    # negative-test in tests/test_tools.py asserts the derived set against the registry.
+    # Whether the tool can change anything outside the server's memory.
+    # `READ_ONLY_TOOL_NAMES` derives from it, which makes `delegate_readonly`'s readOnlyHint
+    # a property of the tool rather than a claim; a hand-kept list would go stale silently
+    # while the annotation was still advertised. False is NOT the safe default: every
+    # writing tool sets it, and tests/test_tools.py asserts the derived set against the
+    # registry.
     writes: bool = False
 
 
@@ -98,13 +89,9 @@ class RegisteredTool:
 class BashPolicy:
     """What one delegation may do inside the sandbox: where, with what, and on whose network.
 
-    Per delegation, never a config field -- for the same reason `allowed_tools` is not one.
-    These come from an agent file or a call argument, and a server-wide default for them
-    would be a config default living outside `config.py`.
-
-    The default is no workspace bound, no network, and only the toolchain binds the
-    server probes for itself. A caller that says nothing gets a sandbox that can reach
-    nothing of theirs, which is the right way round.
+    Per delegation, never a config field, as with `allowed_tools`. The default is no
+    workspace, no network, and only the toolchain binds the server probes itself: a caller
+    who says nothing gets a sandbox that reaches nothing of theirs.
     """
 
     workdir: str | None = None
@@ -116,8 +103,7 @@ class BashPolicy:
 class BashResult:
     """A handler's text plus what the server measured, on the way to the result block.
 
-    Only `run_bash` returns one; every other handler returns a bare string, so this widens
-    one tool's contract rather than all of them.
+    Only `run_bash` returns one, so one tool's contract widens, not all of them.
     """
 
     text: str
@@ -127,8 +113,7 @@ class BashResult:
 
 # --- argument helpers -------------------------------------------------------------------
 #
-# The model supplies these, so they are checked rather than trusted. A wrong type is a
-# refusal the model can correct on its next turn, not a traceback that ends the delegation.
+# Checked, not trusted: a wrong type is a refusal the model can correct, not a traceback.
 
 
 def _text_arg(args: dict[str, object], name: str, *, required: bool = True) -> str:
@@ -186,9 +171,7 @@ def _one_path(
 
 def _read_file(cfg: Config, args: dict[str, object]) -> str:
     entry = _one_path(cfg, _text_arg(args, "path"), must_exist=True)
-    # 1-based, like an editor or a traceback. Lines are numbered so the model can cite what
-    # it read; `start_line`/`end_line` name a range directly, rather than counting
-    # characters.
+    # 1-based, like an editor. Numbered so the model can cite what it read.
     start = _int_arg(args, "start_line", 1)
     if start < 1:
         raise ToolRefused(
@@ -202,9 +185,8 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
             "the request."
         )
 
-    # Sized from the descriptor, not the path. Opening loads none of the file, so the
-    # `max_file_read_bytes` ceiling refuses a multi-gigabyte file without reading it, and
-    # measures the file actually held. One setting, one meaning, all three consumers.
+    # Sized from the descriptor: the ceiling refuses a huge file without reading it, and
+    # measures the file actually held.
     try:
         opened = open_resolved(entry, "rb", scan_bytes=cfg.secret_content_scan_bytes)
     except OSError as e:
@@ -214,9 +196,7 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
         with opened.handle as fh:
             nbytes = os.fstat(fh.fileno()).st_size
             if nbytes > cfg.max_file_read_bytes:
-                # Refused rather than paged: at `max_read_chars` a file this size needs
-                # more calls than the turn budget allows, so pagination would get the
-                # delegation nowhere. A shell that cuts out the part wanted is the answer.
+                # Refused, not paged: paging it would outlast the turn budget.
                 raise ToolRefused(
                     f"it is {nbytes} bytes, over the {cfg.max_file_read_bytes}-byte "
                     f"ceiling, so it was not read at all. Use run_bash with sed, head "
@@ -230,22 +210,16 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
     if text is None:
         raise ToolRefused(why)
 
-    # `splitlines()`, not `split("\n")`: the latter invents a trailing empty line for a
-    # file ending in a newline, so the model would be told the file is one line longer than
-    # it is. Line endings are dropped and re-joined with "\n" below, so a CRLF file reads
-    # the same either side of the boundary -- the numbering is what was asked, not a byte
-    # echo.
+    # `splitlines()`: `split("\n")` invents a trailing empty line. Endings re-join as "\n",
+    # so a CRLF file reads the same.
     lines = text.splitlines()
     total = len(lines)
     if start > total and total:
         raise ToolRefused(
             f"start_line {start} is past the end; the file has {total} lines.")
 
-    # Still bounded in characters by `max_read_chars`, which is what bounds a *reply*; a
-    # file of very long lines would otherwise blow past it. Stops on a line boundary: half
-    # a numbered line is worse than no numbering, because the number would lie about what
-    # follows. `end_line` past the end is the end, unlike `start_line` past the end, which
-    # is refused: reading *to* line 999 of a ten-line file has an obvious answer, while
+    # Bounded by `max_read_chars` too, on a line boundary, since a half line's number would
+    # lie. `end_line` past the end means the end; `start_line` past it was refused, since
     # starting there asks for nothing.
     last = min(end, total) if end else total
 
@@ -260,56 +234,44 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
         out.append(rendered)
         used += len(rendered) + 1
     else:
-        # Ran to the end of the range without breaking, so `index` is its last line
-        # rather than the next one.
+        # No break, so `index` is the last line, not the next.
         index = last + 1
 
     body = "\n".join(out)
-    # Against `last`, not `total`: a range ending where the caller asked is complete, and
-    # calling it "truncated" would send them back for a rest they did not want.
+    # Against `last`: a range ending where asked is complete, not "truncated".
     if index > last:
         return body
-    # The true total and the next `start_line`, so a continuation is a second range rather
-    # than a second whole read. Appended to the result, never the prompt: the prefix must
-    # stay byte-identical across calls (ADR-0011).
+    # The next `start_line`, so a continuation is a range, not a whole re-read. In the
+    # result, never the prompt, which must stay byte-identical (ADR-0011).
     return (
         f"{body}\n\n[truncated: lines {start} to {index - 1} of {total}. "
         f"Call read_file again with start_line={index} for the rest.]"
     )
 
 
-# The one `path` value meaning "every workspace root". A sentinel rather than an omitted
-# argument: an omission is indistinguishable from a model that decided nothing, and the
-# sentinel makes a deliberate full walk one greppable string in a transcript. It cannot
-# collide with a real `path`, because layer 1 refuses anything not absolute.
+# The `path` meaning "every workspace root". A sentinel, since an omission looks like a
+# model that decided nothing, and a deliberate full walk becomes one greppable string. It
+# cannot collide with a real `path`, because layer 1 refuses anything not absolute.
 UNSCOPED = "_unscoped_"
 
-# Entries listed per root before the rest are summarised. A map is read in one glance and
-# sits in a cached prefix; an unbounded listing of a dense directory is neither.
+# Entries listed per root before the rest are summarised, so the map stays glanceable in a
+# cached prefix.
 LAYOUT_MAX_ENTRIES = 40
 
 
 def _top_level(root: str, globs: Sequence[str]) -> tuple[str, ...]:
     """What is directly inside `root`: directories marked with a trailing slash, then files.
 
-    One level, never recursive. This runs at declaration time, so a recursive listing would
-    reintroduce the very walk the map exists to avoid, before a token is spent.
-
-    **Files as well as directories**, because a directory holding only files would otherwise
-    be advertised as empty and the model would rule it out -- the repository root, with
-    `PLAN.md` and `CHANGELOG.md` and no subdirectory of their own, is exactly that shape.
-
-    Filtered the way the walk prunes, with the same denylist. Symlinks are skipped so one
-    tree is not offered under two names, and a denylisted entry is not named at all:
-    advertising one is worse than silence, since the model scopes a search to it, the walk
-    declines to enter, and an empty result reads as proof of absence rather than policy.
+    One level: at declaration time a recursive listing would be the very walk the map
+    avoids. **Files too**, or a directory of only files (the repository root) would look
+    empty and be ruled out. Filtered as the walk prunes: symlinks skipped so no tree has two
+    names, and denylisted entries not named, since the model would scope a search there and
+    read the walk's empty result as absence rather than policy.
     """
     try:
         entries = sorted(os.listdir(root))
     except OSError:
-        # A missing root is the operator's problem, not this call's. The name is still
-        # correct and useful, so the listing degrades to nothing rather than taking a
-        # delegation down at declaration time.
+        # The operator's problem: the listing degrades rather than failing declaration.
         return ()
     dirs: list[str] = []
     files: list[str] = []
@@ -321,17 +283,15 @@ def _top_level(root: str, globs: Sequence[str]) -> tuple[str, ...]:
             dirs.append(name + "/")
         elif os.path.isfile(full):
             files.append(name)
-    # Directories first because a search is usually scoped to one; files second because they
-    # tell the model the directory is not empty.
+    # Directories first, being what a search scopes to; files show it is not empty.
     return tuple(dirs + files)
 
 
 def _render_entries(inside: Sequence[str]) -> str:
     """One root's listing, capped, saying how many it did not name.
 
-    The count matters more than the names it replaces: "+312 more" tells the model the
-    directory is dense and worth scoping *into*, where a silent truncation would suggest
-    it had been shown everything.
+    "+312 more" says the directory is dense and worth scoping into; silent truncation
+    would suggest it had been shown everything.
     """
     if not inside:
         return "(empty)"
@@ -344,15 +304,10 @@ def _render_entries(inside: Sequence[str]) -> str:
 def _workspace_layout(cfg: Config) -> str:
     """Every workspace root and what is directly inside it, as one block of text.
 
-    The model must be told the layout, not just urged to narrow: scoping is useless when
-    the only directory names it has ever been given are the roots. Why: ADR-0076.
-
-    The denylist is read once here rather than once per root, which is why `_top_level`
-    takes the globs instead of the `Config`.
-
-    Deterministic for a given config -- sorted names, no counts or timestamps -- because a
-    tool schema sits in the cached prompt prefix (ADR-0011). It does change when a top-level
-    entry appears or disappears, costing one cold prefill, rarer than a delegation.
+    Told, not urged: a model given only root names cannot scope (ADR-0076). The denylist is
+    read once, hence `_top_level` takes globs. Deterministic for a config, since tool
+    schemas sit in the cached prefix (ADR-0011); a new top-level entry costs one cold
+    prefill.
     """
     globs = load_secret_globs(cfg)
     roots = resolved_roots(cfg)
@@ -365,10 +320,8 @@ def _workspace_layout(cfg: Config) -> str:
 def _scope_help(cfg: Config) -> str:
     """The map plus what to do with it. One string, used in two homes.
 
-    The description and the refusal say the same thing deliberately: two copies of a map is
-    two copies that drift, and this is the one fact both homes need. The refusal is the
-    backstop, firing when the model has just shown it does not know the layout -- the
-    moment to hand over the whole map, not only the root names.
+    One string so the two homes cannot drift. The refusal fires when the model has just
+    shown it does not know the layout: the moment for the whole map.
     """
     return (
         _workspace_layout(cfg)
@@ -382,14 +335,9 @@ def _scope_help(cfg: Config) -> str:
 def _root_scope_note(cfg: Config, root: str) -> str:
     """What to say when a search scopes itself to a whole workspace root.
 
-    A note rather than a refusal. Why: ADR-0087.
-
-    The children of the root *just* named are named, not the workspace map, because the call
-    has proved the model knows the root's name and not what is under it; listing the roots
-    again is the one thing shown not to be the missing fact.
-
-    No multiple is quoted; the ratio is this hardware's, where the shape is everyone's.
-    Why: ADR-0074.
+    A note, not a refusal (ADR-0087), naming the root's children: the model has shown it
+    knows the root and not what is under it. No speed multiple is quoted, being this
+    hardware's (ADR-0074).
     """
     inside = _render_entries(_top_level(root, load_secret_globs(cfg)))
     return (
@@ -402,20 +350,14 @@ def _root_scope_note(cfg: Config, root: str) -> str:
 def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[str], bool]:
     """Enumerate files under `scope` that are worth asking the policy about.
 
-    Enumeration only. Nothing here decides whether a file may be *read* -- that is
-    `resolve_permitted`'s, over the same four layers the file tools use. What this does is
-    avoid handing the policy a hundred thousand candidates: the extension allowlist and the
-    caller's glob are cheap string tests, and pruning a denylisted directory keeps the walk
-    out of `.git` rather than discovering it a loose object at a time.
+    Enumeration only: whether a file may be *read* is `resolve_permitted`'s, over the four
+    layers. This keeps the policy from a hundred thousand candidates with cheap string
+    tests, and pruning denylisted directories keeps the walk out of `.git`.
 
-    Gitignored directories are pruned here too, and the reason is the scan cap rather than
-    speed: charged against files the project already said it does not care about, the cap is
-    reached inside them and the walk stops before the source. A directory is asked once, per
-    level and in one batch, and `tops` carries the work-tree lookup across levels so
-    descending never re-pays it.
-
-    Pruning directories does not make `resolve_permitted`'s own `gitignored` call redundant:
-    an ignored *file* in a directory that is not ignored is only caught there.
+    Gitignored directories are pruned for the scan cap's sake: spent inside them, it stops
+    the walk before the source. One batch per level, with `tops` carrying the work-tree
+    lookup down. This does not make `resolve_permitted`'s own `gitignored` call redundant:
+    an ignored file in a directory that is not is only caught there.
 
     Returns the candidates and whether the scan cap was reached.
     """
@@ -426,9 +368,7 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
     tops: dict[str, str | None] = {}
 
     for dirpath, dirnames, filenames in os.walk(scope):
-        # Prune in place, and skip symlinks rather than following them. `os.walk` does not
-        # follow them by default; the explicit skip stops the same tree being enumerated
-        # twice through two names.
+        # Pruned in place; symlinks skipped so no tree is enumerated under two names.
         kept = []
         for name in sorted(dirnames):
             full = posixpath.join(dirpath, name)
@@ -437,8 +377,7 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
             kept.append(name)
 
         if cfg.respect_gitignore and kept:
-            # One `check-ignore` for this level, never one per directory: the walk is about
-            # to descend into every name still standing, so all are asked at once.
+            # One `check-ignore` for the level, since the walk descends into every survivor.
             ignored = gitignored([posixpath.join(dirpath, n) for n in kept], tops=tops)
             kept = [n for n in kept if posixpath.join(dirpath, n) not in ignored]
 
@@ -451,8 +390,7 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
             full = posixpath.join(dirpath, name)
             if os.path.islink(full):
                 continue
-            # Layer 2's own predicate, not a copy of half of it: a suffix-less name such as
-            # `Makefile` is allowlisted by the whole name, which `splitext` cannot see.
+            # Layer 2's own predicate, since `Makefile` is allowlisted by whole name.
             if extension_refusal(cfg, name) is not None:
                 continue
             if name_glob and not fnmatch.fnmatchcase(name, name_glob):
@@ -475,9 +413,8 @@ class _Hits:
 def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
     """Read each permitted file and collect matching lines, bounded twice.
 
-    Bounded by `max_results` because a caller asked, and by `max_read_chars` because that
-    bounds any tool reply -- a pattern matching every line of a large file would otherwise
-    return the file.
+    By `max_results`, as asked, and `max_read_chars`, or a pattern matching every line
+    would return the file.
     """
     lines: list[str] = []
     files = 0
@@ -493,9 +430,7 @@ def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
             ).handle as fh:
                 blob = fh.read(cfg.max_file_read_bytes)
         except (OSError, PathRefused):
-            # Vanished, unreadable, or different from the file the policy approved, between
-            # the walk and here. Dropped rather than refused, matching `resolve_permitted`:
-            # nobody named this path, so it is not a result rather than an error.
+            # Changed since the walk: dropped, not refused, since nobody named this path.
             continue
         text, _ = decode_text(blob)
         if text is None:
@@ -505,9 +440,8 @@ def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
         for number, line in enumerate(text.splitlines(), start=1):
             if not needle.search(line):
                 continue
-            # "<file> line <n>: <text>", never "<file>:<n>" -- with a four-digit number
-            # that second shape reads as a host and a port, which this project refuses
-            # wherever text can reach a commit message or a pull request body.
+            # Never "<file>:<n>": with four digits it reads as a host and port, which this
+            # project refuses wherever text can reach a commit or pull request.
             rendered = f"{item.posix} line {number}: {line.strip()}"
             if used + len(rendered) + 1 > cfg.max_read_chars or len(lines) >= max_results:
                 truncated = True
@@ -526,12 +460,9 @@ def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
 def _unscoped_note(cfg: Config) -> str:
     """What an omitted `path` actually cost, said where the model will read it.
 
-    The result rather than the schema, because a schema is read once and a result every
-    time -- and because the alternative, refusing a `glob` with no `path`, would break a
-    legitimate search: finding every `conftest.py` anywhere is exactly that shape.
-
-    The note names the roots rather than the multiple, because the multiple is this
-    hardware's and the roots are the caller's. Why: ADR-0074.
+    In the result, read every time, not the schema, read once; refusing instead would break
+    a legitimate search such as every `conftest.py`. Names the roots, not a speed multiple,
+    which is this hardware's (ADR-0074).
     """
     return (
         "Scanned every workspace root, because `path` was omitted: "
@@ -546,12 +477,8 @@ def _search_report(
 ) -> str:
     """The result, with every reason it might be incomplete stated in it.
 
-    A truncated search that reads like an exhaustive one is the failure worth avoiding:
-    the model will conclude a symbol does not exist, and say so confidently.
-
-    `root_scope` is the other half: a call that walks a whole root gets an answer it can
-    use, and the note saying a narrower one would have been faster rides along rather than
-    replacing it.
+    A truncated search that reads as exhaustive makes the model confidently deny a symbol
+    exists. A whole-root walk gets its answer, with the faster-scope note alongside.
     """
     tail: list[str] = [f"{len(hits.lines)} matching line(s) in {hits.files} file(s)."]
     if unscoped:
@@ -590,9 +517,8 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
     if max_results < 1:
         raise ToolRefused("max_results must be at least 1; a search for no results is not one.")
 
-    # Required, and refused with the map rather than another instruction: the model omits it
-    # because it has never been told a directory name, so the remedy travels with the
-    # refusal. Why: ADR-0076.
+    # Required, and refused with the map: a model omits it for lack of any directory name.
+    # Why: ADR-0076.
     given = _text_arg(args, "path", required=False)
     if not given:
         raise ToolRefused(
@@ -601,20 +527,15 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
 
     root_scope: str | None = None
     if given == UNSCOPED:
-        # The escape, taken deliberately and spelled so a transcript can be grepped for it.
-        # Checked before layer 1, which would refuse the sentinel for not being absolute --
-        # which is exactly why no real path can collide with it.
+        # The deliberate escape. Checked before layer 1, which refuses it for not being
+        # absolute, which is why no real path collides with it.
         scopes = resolved_roots(cfg)
     else:
-        # `resolve_search_root`, not `_one_path`: the latter refuses a directory at layer 1
-        # because a directory is not a thing to read, and a search scope is exactly that.
-        # A file is accepted too, so pointing this at one narrows to it.
+        # Not `_one_path`, which refuses a directory as unreadable; a file also works.
         scope = resolve_search_root(
             cfg, given, surface="`path` argument", before_dispatch=False,
         )
-        # Compared after resolving, never as the string that arrived: a trailing slash, a
-        # `.` segment or a symlinked spelling all name the same root, and a string compare
-        # would miss three of the four. Recognising it earns the note rather than a refusal.
+        # Compared resolved: a trailing slash, `.` or a symlink all name the same root.
         # Why: ADR-0087.
         if scope in resolved_roots(cfg):
             root_scope = scope
@@ -630,10 +551,8 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
         candidates += more
         capped = capped or hit
 
-    # One policy call for the whole batch, which is also what keeps `gitignored` to one
-    # `check-ignore` per repository rather than one per file. Candidates the policy declines
-    # are dropped rather than reported: nobody named them, so they are not results -- see
-    # `resolve_permitted` on why that is a separate function.
+    # One policy call for the batch, so one `check-ignore` per repository. Declined
+    # candidates are dropped, not reported: nobody named them (see `resolve_permitted`).
     permitted = resolve_permitted(cfg, candidates, must_exist=True)
     hits = _search_hits(cfg, permitted, needle, max_results)
 
@@ -662,9 +581,7 @@ def _write_file(cfg: Config, args: dict[str, object]) -> str:
     content = _text_arg(args, "content")
     encoded = content.encode("utf-8")
     if len(encoded) > cfg.max_write_bytes:
-        # Refused, not truncated: a silently shortened file is a corrupted one, and the
-        # model would have no way to know -- the same reasoning as context.py's whole-file
-        # skip on prefetch.
+        # Refused, not truncated: a silently shortened file is a corrupt one.
         raise ToolRefused(
             f"{len(encoded)} bytes exceeds the {cfg.max_write_bytes}-byte limit for one "
             f"write. Write it in parts.")
@@ -676,8 +593,7 @@ def _write_file(cfg: Config, args: dict[str, object]) -> str:
             fh.write(encoded)
     except OSError as e:
         raise ToolRefused(f"could not write it: {e.strerror or e}") from e
-    # Which verb comes from the open that made the file, not a second `stat` on the same
-    # string -- which would be a second use of a path checked once.
+    # From the open itself, since a second `stat` would reuse a path checked once.
     verb = "Created" if opened.created else "Overwrote"
     return f"{verb} {entry.posix} ({len(encoded)} bytes)."
 
@@ -710,10 +626,9 @@ def _line_col(starts: Sequence[int], index: int) -> tuple[int, int]:
 def _nearest_miss(text: str, old: str) -> str | None:
     """Where `old` almost is, as a line/column hint, or None when it is not close.
 
-    "Read it again" alone gets the same edit sent back unchanged, so this names the nearest
-    region and the first differing character. Never file text: the refusal lands in the
-    operator transcript, which must stay free of file contents, so the hint is line numbers,
-    a column and code points. Why: ADR-0039.
+    "Read it again" alone gets the same edit resent, so this names the region and first
+    differing character. Never file text, since the refusal lands in the operator
+    transcript: only lines, a column and code points. Why: ADR-0039.
     """
     old_lines = old.splitlines()
     head_index = next((i for i, line in enumerate(old_lines) if line.strip()), None)
@@ -740,8 +655,7 @@ def _nearest_miss(text: str, old: str) -> str | None:
     best_cand = candidates[0]
     best_i = -1
     for cand in candidates:
-        # Compared in place: a first line as common as `}` can name hundreds of candidates,
-        # and slicing the rest of the file for each would copy it that often.
+        # In place: a line like `}` has hundreds of candidates, each a whole-file slice.
         origin = starts[cand]
         limit = min(len(a), len(text) - origin)
         i = 0
@@ -754,8 +668,7 @@ def _nearest_miss(text: str, old: str) -> str | None:
     start = best_cand + 1
     b = text[starts[best_cand]:]
     if best_i >= len(b):
-        # The file runs out before the difference, so there is no file character to name --
-        # only the character the caller wrote where the file has none.
+        # The file ends first, so only the caller's character can be named.
         return (
             f"The closest match starts at line {start}; it first differs where the file "
             f"ends, and you have {_code_point(a[best_i])}. Read from line {start} and "
@@ -779,19 +692,16 @@ def _nearest_miss(text: str, old: str) -> str | None:
 def _edit_file(cfg: Config, args: dict[str, object]) -> str:
     """Replace one exact occurrence of `old_string`, or refuse and change nothing.
 
-    `write_file` replaces a file whole, so changing three lines of a long module means
-    reading it back and rewriting every line, with any hallucinated character landing
-    silently in a part nobody was looking at.
+    Not `write_file`, where rewriting a long module whole lands any hallucinated character
+    silently where nobody looks.
 
-    **Refusing an ambiguous or absent match is the feature, not a limitation.** A stale
-    quotation matches nothing and a common one matches twice, and both mean the model is
-    not editing what it thinks it is; saying so costs a turn, while guessing costs a
-    corrupted file nobody notices. That self-check is why this addresses text rather than
-    line numbers: line 151 is whatever line 151 now is, and a stale number overwrites the
-    wrong region with no way to tell.
+    **Refusing an ambiguous or absent match is the feature.** A stale quote matches nothing
+    and a common one matches twice; both mean the model is not editing what it thinks, and
+    saying so costs a turn where guessing costs an unnoticed corrupt file. Hence text, not
+    line numbers: a stale number overwrites the wrong region with no way to tell.
 
     One descriptor for the whole read-modify-write, held by `open_resolved`; two opens
-    against one check is the gap ADR-0049 closes. Why: ADR-0049.
+    against one check is the gap ADR-0049 closes.
     """
     entry = _one_path(cfg, _text_arg(args, "path"), must_exist=True, writing=True)
     old = _text_arg(args, "old_string")
@@ -849,8 +759,7 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
 
         edited = text.replace(old, new, 1).encode("utf-8")
         if len(edited) > cfg.max_write_bytes:
-            # The same limit `write_file` uses, refused for the same reason: a silently
-            # shortened file is a corrupted one, and the model would have no way to know.
+            # `write_file`'s limit, refused for the same reason.
             raise ToolRefused(
                 f"the result would be {len(edited)} bytes, over the "
                 f"{cfg.max_write_bytes}-byte limit for one write. Nothing was written."
@@ -859,9 +768,8 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
         try:
             fh.seek(0)
             fh.write(edited)
-            # Truncate to what was written, not to zero beforehand: every refusal above
-            # leaves the file as it was, which is what lets the model retry with a better
-            # quotation instead of a repair.
+            # Truncated after writing, not before, so every refusal above leaves the file
+            # intact and the model retries rather than repairs.
             fh.truncate()
         except OSError as e:
             raise ToolRefused(f"could not write it: {e.strerror or e}") from e
@@ -872,11 +780,9 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
 def _capped(cfg: Config, result: sandbox.SandboxResult) -> str:
     """stdout and stderr, labelled, cut to the cap with the true length stated.
 
-    Labelled because a command that printed nothing and one that printed to stderr are
-    different facts, and a model reading them merged cannot tell which it has. Cut rather
-    than refused -- unlike `write_file`, where a short file is a corrupt one -- because a
-    truncated log is still evidence, and the tail is the part worth keeping: a build says
-    what went wrong on its last line, not its first.
+    Labelled, since printing nothing and printing to stderr are different facts. Cut, not
+    refused like a write, because a truncated log is still evidence; the tail is kept, as a
+    build says what went wrong last.
     """
     parts = []
     if result.stdout:
@@ -907,8 +813,7 @@ def _protected_note(moved: Sequence[str]) -> str:
 def stale_env_note(cfg: Config, workdir: str | None) -> str | None:
     """One sentence saying `$DELEGATE_PYTHON` is unset because the environment is stale.
 
-    `sandbox_env` returns nothing for a stale environment, so a delegation sees "never
-    provisioned" and cannot tell a stale build from an absent one. This says it out loud.
+    A stale environment otherwise looks exactly like one never provisioned.
     """
     if provision.stale_for(cfg, workdir) is None:
         return None
@@ -922,14 +827,12 @@ def stale_env_note(cfg: Config, workdir: str | None) -> str | None:
 def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashResult:
     """Run one command in the sandbox, and report what the server saw it do.
 
-    Every path out of this function that did not reach a real process exit reports
-    `exit_code=None`, and `ran` separates "nothing ran" from "it ran and returned nothing
-    to say" -- the model's account of the command is not evidence, and 0 is a real exit
-    code that must not be inventable by a refusal. Why: ADR-0007, ADR-0010.
+    Every path that did not reach a real process exit reports `exit_code=None`, and `ran`
+    separates "nothing ran" from "it ran and said nothing": the model's account is not
+    evidence, and a refusal must not be able to invent a 0. Why: ADR-0007, ADR-0010.
 
-    Refusals return rather than raise, so the ledger can count an attempted call. A model
-    that tried ten commands and was refused ten times has not run zero commands, and
-    `tool_calls` beside it in the same ledger already counts attempts.
+    Refusals return rather than raise, so the ledger counts the attempt, as `tool_calls`
+    beside it already does.
     """
     try:
         command = _text_arg(args, "command")
@@ -940,21 +843,17 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
         result = sandbox.run(cfg, sandbox.SandboxRequest(
             command=command,
             home=sandbox.resolve_home(cfg),
-            # The workdir arrives already resolved and root-checked by
-            # `paths.resolve_workdir`. It is not re-derived here: a second resolution is a
-            # second chance to disagree with the first, and the check that matters happened
-            # where the caller's argument was still a caller's argument.
+            # Already resolved and root-checked by `paths.resolve_workdir`, and not
+            # re-derived: a second resolution is a second chance to disagree with the check
+            # that ran on the caller's own argument.
             workdir=policy.workdir,
             network=policy.network,
             extra_binds=sandbox.probe_toolchain_binds(cfg) + policy.extra_binds,
-            # The provisioned interpreter is handed over as an environment name, not by
-            # widening `SANDBOX_PATH` and not by rewriting the model's command. `run_bash`
-            # takes an opaque shell string, so appending arguments to it would mean parsing
-            # shell; and putting one project's tools on every command's PATH is how a
-            # command silently gets the wrong python. The `--setenv` lands in the argv the
-            # transcript records, so what was offered is answerable from the record.
-            # Absent when nothing *current* is provisioned -- `provision.interpreter_for`
-            # withholds a stale one rather than offering an exit code that lies.
+            # The provisioned interpreter goes as an environment name, not a wider
+            # `SANDBOX_PATH` or a rewritten command: rewriting means parsing shell, and one
+            # project's tools on every PATH is how a command silently gets the wrong python.
+            # The `--setenv` lands in the recorded argv. Absent unless something *current*
+            # is provisioned, since a stale one would give exit codes that lie.
             env=sandbox.scratch_cache_env({
                 **sandbox.resolve_env(cfg),
                 **provision.sandbox_env(cfg, policy.workdir),
@@ -975,10 +874,8 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
         )
 
     body = _capped(cfg, result)
-    # Said to the model as well as counted for the caller. It is the model that can act on
-    # it within the delegation -- re-running the step that actually failed -- and a server
-    # that counted this silently would be withholding the one fact that makes the exit
-    # code it just printed misleading. Not an error: the line did what it was asked.
+    # Told to the model too, which can re-run the failed step; counting it silently would
+    # hide what makes the printed exit code misleading. Not an error: the line did as asked.
     masked = (
         "\n\nA command in this line exited non-zero before the last one. The exit status "
         "above is the last command's, so it does not report that."
@@ -998,23 +895,18 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
 
 
 # The git subcommands this server will run, each with the flags it accepts. Denied by
-# default in both directions: a subcommand absent here, and a flag absent from its own set,
-# are refused. A module constant rather than a config field -- which subcommands cannot
-# write is a fact about git, not an operator preference, and an operator who could widen it
-# could turn a read-only tool into `git push`.
+# default in both directions: a subcommand absent here, and a flag absent from its set, are
+# refused. A constant, not config: which subcommands cannot write is a fact about git, and
+# an operator who could widen it could turn a read-only tool into `git push`.
 #
-# Every flag is checked for whether it can write a file or run a program, and the
-# ones deliberately absent are the reason this is an allowlist rather than a filter.
-# `--output` is the one to verify rather than reason about: `git log --output=<path>`
-# really does create that file, so the allowlist is preventing a write and not merely
-# tidying an argument list. `--ext-diff` hands the diff to a configured external command.
+# Every flag was checked for whether it can write a file or run a program; the ones
+# deliberately absent are why this is an allowlist, not a filter. `git log --output=<path>`
+# really creates that file, and `--ext-diff` hands the diff to an external command.
 #
-# What is NOT reachable here, and the reason is the argv shape rather than this table:
-# every model-supplied argument lands *after* the subcommand, so git-level options -- `-c`,
-# `--exec-path`, `--upload-pack` -- cannot be injected at all. `git log -c` is parsed as
-# the log option `--cc`, not as config. They stay refused anyway, because a table that
-# only lists what is currently exploitable has to be re-audited every time the argv
-# changes.
+# Git-level options (`-c`, `--exec-path`, `--upload-pack`) are unreachable by the argv
+# shape: every model argument lands *after* the subcommand, and `git log -c` parses as
+# `--cc`. They stay refused anyway, since a table listing only what is exploitable now
+# must be re-audited whenever the argv changes.
 GIT_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "log": frozenset({
         "--oneline", "--stat", "--shortstat", "--numstat", "--name-only", "--name-status",
@@ -1051,20 +943,17 @@ GIT_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "status": frozenset({"--short", "--porcelain", "--branch", "--untracked-files"}),
 }
 
-# Subcommands where a bare `-5` means "five commits". `git log -1` is the idiomatic way
-# to ask for the most recent commit, so a refusal there costs a turn to teach the model a
-# synonym it already knew. Not every subcommand: `git shortlog -n` means `--numbered`, so
-# a digit there would be a different thing entirely.
+# Where a bare `-5` means "five commits": `git log -1` is idiomatic, and refusing it costs
+# a turn. Not everywhere, since `git shortlog -n` means `--numbered`.
 GIT_COUNT_SHORTHAND = frozenset({"log", "rev-list"})
 
-# Bounded because a `git log` over a large history can run for a while and this holds the
-# server process, not a sandbox. Generous enough that a real repository's whole log is
-# reachable; a module constant because it bounds this tool, not anything an operator tunes.
+# A long `git log` holds the server process, not a sandbox; generous enough for a real
+# repository's whole log, and a constant because it bounds this tool, not a deployment.
 GIT_TIMEOUT_SECONDS = 60.0
 
 # Subcommands that render a diff, and so would run a textconv or external diff driver.
-# Belt and braces: `untrusted_git_config` already refuses a repository whose own config
-# names one, and these keep the operator's global drivers out of what the model reads.
+# Belt and braces: `untrusted_git_config` refuses a repository whose own config names one,
+# and these keep the operator's global drivers out of what the model reads.
 GIT_NO_TEXTCONV = frozenset({"log", "show", "diff", "blame"})
 GIT_NO_EXT_DIFF = frozenset({"log", "show", "diff"})
 
@@ -1084,10 +973,8 @@ def _run_git(argv: list[str]) -> tuple[int, str, str]:
             hardened(argv),
             env=git_env(),
             capture_output=True,
-            # Closed rather than inherited. Several git subcommands read from stdin when it
-            # is not a terminal -- `shortlog` takes its commits that way -- so an inherited
-            # stdin means either a wrong answer or a wait for input nobody will send, and
-            # inside a server the second is a 60-second hang.
+            # Closed: some subcommands (`shortlog`) read a non-terminal stdin, giving a
+            # wrong answer or a 60-second hang inside the server.
             stdin=subprocess.DEVNULL,
             timeout=GIT_TIMEOUT_SECONDS,
             check=False,
@@ -1104,9 +991,8 @@ def _run_git(argv: list[str]) -> tuple[int, str, str]:
     return done.returncode, out or "", err or ""
 
 
-# Short flags that take a value, which git also accepts attached: `-U1`, `-M50%`, `-n5`,
-# `-L1,5`. For `-U` and `-M` attached is the only spelling -- `diff -U 1` reads the `1` as
-# a revision -- so without this those two would be allowlisted and unusable.
+# Short flags whose value may be attached (`-U1`, `-M50%`, `-n5`, `-L1,5`); for `-U` and
+# `-M` it is the only spelling, since `diff -U 1` reads `1` as a revision.
 GIT_SHORT_VALUE_FLAGS = frozenset({"-U", "-M", "-n", "-L"})
 
 
@@ -1155,10 +1041,8 @@ def _checked_args(command: str, raw: object) -> list[str]:
 def _split_separator(args: object, paths: object) -> tuple[object, object]:
     """`args` up to a `--`, and `paths` with whatever followed it added.
 
-    Git's own convention, and what a model reaches for first, so a refusal here costs a turn
-    to re-issue the same call. What follows the separator is unambiguous, so it joins `paths`
-    and is checked as they are. Anything that is not a list is passed through for the checks
-    below to refuse.
+    Git's own convention and a model's first reach; what follows `--` joins `paths` and is
+    checked as they are. A non-list passes through for the checks below to refuse.
     """
     if not isinstance(args, list) or "--" not in args:
         return args, paths
@@ -1171,11 +1055,9 @@ def _split_separator(args: object, paths: object) -> tuple[object, object]:
 def _checked_paths(raw: object) -> list[str]:
     """Repo-relative path arguments, or a refusal.
 
-    **Not** through `paths.py`, and the reason is worth stating rather than hiding: that
-    policy validates a path that exists *now*, and the whole point of reading history is
-    files that have been deleted or renamed. So these are checked for the property that
-    actually matters here -- that they cannot address anything outside the repository --
-    and git's own "outside repository" refusal is the second net.
+    **Not** through `paths.py`, which validates a path that exists *now*, where history is
+    about deleted and renamed files. So these are checked for what matters here, that they
+    cannot address anything outside the repository, with git's own refusal as second net.
     """
     if raw is None:
         return []
@@ -1198,10 +1080,9 @@ def _checked_paths(raw: object) -> list[str]:
         out.append(given)
     return out
 
-# Subcommands whose output can carry file *contents*, not just names and metadata. `log`
-# cannot: its patch flags are not on the allowlist. These three can, so the path policy's
-# layers 2 and 3 are applied to them here -- `read_file` would refuse the same bytes, and
-# history is strictly more than the worktree, so it must not be the way round.
+# Subcommands whose output can carry file *contents* (`log` cannot: its patch flags are not
+# allowed), so layers 2 and 3 apply here. `read_file` would refuse the same bytes, and
+# history, strictly more than the worktree, must not be the way round.
 GIT_CONTENT_COMMANDS = frozenset({"show", "diff", "blame"})
 
 # Flags whose value may arrive as the next token, which is then a value rather than a
@@ -1298,11 +1179,10 @@ def _withhold_refused_sections(cfg: Config, out: str) -> str:
 def _git_toplevel(cfg: Config, given: str) -> str:
     """The repository root for `given`, proven to still be inside a workspace root.
 
-    Two resolutions, and the second is the one that closes a real hole. `-C <dir>` makes
-    git *discover* a repository by walking up, so a validated directory that is not itself
-    a repository can resolve to one above the workspace root -- and its history is
-    strictly more than the worktree exposes. So the discovered top level goes through the
-    same check the caller's path did.
+    Two resolutions; the second closes a real hole. `-C <dir>` makes git *discover* a
+    repository by walking up, so a validated directory can resolve to a repository above the
+    workspace root, whose history exposes strictly more. So the discovered top level faces
+    the same check the caller's path did.
     """
     scope = resolve_search_root(cfg, given)
     if not os.path.isdir(scope):
@@ -1341,17 +1221,14 @@ def _require_trusted_config(scope: str) -> None:
 def _read_git(cfg: Config, args: dict[str, object]) -> str:
     """Read git history, in the server process and outside the sandbox.
 
-    `.git/**` is on the secret denylist, so a tmpfs covers it inside the sandbox and every
-    git command under `run_bash` exits 128. That entry is right and stays -- `.git` holds
-    everything ever committed, including what was later removed from the worktree, so a
-    read-write bind would expose strictly more than the worktree does. This is the other
-    way in: a fixed subcommand allowlist, no shell, and a repository proven to sit inside a
-    workspace root. Why: ADR-0010.
+    `.git/**` is on the secret denylist, so inside the sandbox every git command exits 128.
+    That stays: `.git` holds everything ever committed, including what left the worktree, so
+    a bind would expose strictly more. This is the other way in: a fixed allowlist, no
+    shell, and a repository proven inside a workspace root. Why: ADR-0010.
 
-    One guarantee `read_file` has that this cannot: `open_resolved` returns a descriptor,
-    and `git -C` takes a string, so the check-then-use closure of ADR-0049 is unavailable
-    here by construction. What is validated is the repository, twice -- as written and as
-    git resolved it. Why: ADR-0049.
+    One guarantee `read_file` has that this cannot: `git -C` takes a string, not a
+    descriptor, so ADR-0049's check-then-use closure is unavailable by construction. The
+    repository is validated twice instead, as written and as git resolved it.
     """
     command = _text_arg(args, "command")
     if command not in GIT_SUBCOMMANDS:
@@ -1360,10 +1237,8 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
             f"{', '.join(sorted(GIT_SUBCOMMANDS))}. Anything that writes, fetches or "
             f"pushes is refused by design, not missing by oversight."
         )
-    # Arguments before the repository, deliberately. These checks are pure and cheap and
-    # they are the security-relevant ones; resolving the repository runs git. Doing it the
-    # other way round reports a bad flag as a path problem when both are wrong, which is
-    # the less specific of the two answers.
+    # Arguments first: those checks are pure, cheap and the security-relevant ones, while
+    # resolving the repository runs git; and a bad flag should not report as a path problem.
     raw_args, raw_paths = _split_separator(args.get("args"), args.get("paths"))
     checked = _checked_args(command, raw_args)
     paths = _checked_paths(raw_paths)
@@ -1385,9 +1260,8 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
     ]
     argv = ["git", "--no-pager", "-C", scope, command, *fixed, *checked]
     if command == "shortlog" and not any(not a.startswith("-") for a in checked):
-        # `git shortlog` defaults to reading commits from stdin, not to HEAD, so with stdin
-        # closed it succeeds and prints nothing -- an empty answer that reads like "no
-        # commits by anyone". Supplying the revision git would not is the whole fix.
+        # `shortlog` reads stdin, not HEAD, by default; closed, it prints nothing, which
+        # reads as "no commits by anyone". Supplying the revision fixes that.
         argv.append("HEAD")
     if paths:
         argv += ["--", *paths]
@@ -1414,10 +1288,8 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
                 f"files you need."
             )
 
-    # Bounded by `max_read_chars`, which is what bounds a reply, rather than by a third
-    # setting for the same idea (the reasoning `edit_file` used for `max_write_bytes`).
-    # Truncated on a line boundary and told, because a cut-off history that reads like a
-    # complete one is how a model concludes a commit does not exist.
+    # Bounded by `max_read_chars`, not a third setting; cut on a line boundary and said,
+    # since a cut history read as complete makes a model deny a commit exists.
     lines = out.splitlines()
     kept: list[str] = []
     used = 0
@@ -1679,9 +1551,8 @@ READ_GIT = RegisteredTool(
         },
     ),
     handler=_read_git,
-    # Not cacheable, unlike the other read tools. `run_bash` can commit inside the same
-    # delegation, so two identical calls may legitimately differ -- and a stale answer
-    # about history is exactly the kind a model would not think to re-check.
+    # Not cacheable: `run_bash` can commit mid-delegation, and a model would not think to
+    # re-check a stale answer about history.
     cacheable=False,
 )
 
@@ -1692,51 +1563,37 @@ REGISTRY: dict[str, RegisteredTool] = {
 }
 ALL_TOOL_NAMES: frozenset[str] = frozenset(REGISTRY)
 
-# Derived, never written out. This is the set `delegate_readonly` offers, and it is the
-# whole content of ADR-0042's promise: not that the delegation has no tools, but that
-# nothing it can do will write. A tool added without declaring `writes` lands in here,
-# which is why the guard in tests/test_tools.py checks this against the registry rather
-# than against a list somebody has to remember to edit.
+# Derived, never written out: `delegate_readonly`'s set, and the whole of ADR-0042's
+# promise that nothing it can do will write. A tool added without `writes` lands here,
+# which is why tests/test_tools.py checks this against the registry, not a hand list.
 READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
     name for name, tool in REGISTRY.items() if not tool.writes
 )
 
-# Empty. `run_bash` is withheld on a host without bubblewrap, but that is a fact about the
-# host and is asked for in `available_tool_names` rather than recorded here: a constant
-# cannot answer a question whose answer differs per machine. This set is for a tool this
-# server withholds *everywhere*, which is a narrower thing than it looks and is why it is
-# empty.
+# Empty. `run_bash` without bubblewrap is a fact about the host, asked in
+# `available_tool_names`, since a constant cannot vary per machine; this set is for a tool
+# withheld *everywhere*.
 #
-# Kept rather than deleted, and deliberately. Withholding is how this server says "this
-# tool exists and cannot work today", which is a different statement from a caller's
-# `allowed_tools` narrowing one delegation -- a fact about the server, not a preference.
-# Deleting the mechanism would mean rebuilding it under pressure the next time something is
-# implemented before it is safe. Note what it never was: withholding narrows only what is
-# *declared*, and `execute_tool` checks its own allowed set regardless, because a model can
-# call a tool it was never offered. Emptying this set does not weaken that second check,
-# because that check never consulted this set.
+# Kept deliberately: withholding says "this tool exists and cannot work today", a fact
+# about the server, unlike a caller's `allowed_tools`, and deleting it means rebuilding it
+# under pressure when something is next implemented before it is safe. It narrows only what
+# is *declared*; `execute_tool` checks its own set regardless, since a model can call a tool
+# it was never offered, and never consulted this one, so emptying it weakens nothing.
 WITHHELD_TOOL_NAMES: frozenset[str] = frozenset()
 
 
 def available_tool_names(cfg: Config) -> frozenset[str]:
     """What this server can offer today, as opposed to what it implements.
 
-    Asks rather than remembers. `run_bash` needs bubblewrap, and whether it is present is a
-    fact about the host this process is running on -- not something a constant written at
-    import time can know. Declaring a tool the host cannot run then refusing every call
-    costs a whole turn learning what the server already knew.
-
-    The same condition `sandbox.run` refuses on, checked where the set is resolved instead
-    of after a turn has been paid for. One condition, two places it can be observed, and
-    this is the cheaper one.
+    Asks, since whether bubblewrap is here is a fact about this host, not import time.
+    Declaring a tool the host cannot run costs a turn learning what the server knew; this
+    is `sandbox.run`'s own refusal condition, checked before a turn is paid for.
     """
     names = ALL_TOOL_NAMES - WITHHELD_TOOL_NAMES
     if not sandbox.available(cfg):
         names -= {"run_bash"}
     if not git_available():
-        # Same reasoning as `run_bash` above, and the same cost if it is skipped: declaring
-        # a tool the host cannot run spends a whole turn teaching the model what this
-        # function already knows.
+        # As `run_bash` above: an unrunnable tool costs a turn to discover.
         names -= {"read_git"}
     return names
 
@@ -1744,10 +1601,9 @@ def available_tool_names(cfg: Config) -> frozenset[str]:
 def resolve_allowed(requested: Iterable[str] | None, cfg: Config) -> frozenset[str]:
     """The resolved set for one delegation: what was asked for, minus what cannot work.
 
-    `None` means "whatever is available", which is the default a caller gets by not
-    choosing. An explicit set is narrowed, never widened -- intersecting rather than
-    unioning is what stops a caller naming a tool this server withholds, one the host
-    cannot run, or one it does not implement at all, and getting it.
+    `None` means "whatever is available". An explicit set is narrowed, never widened:
+    intersecting, not unioning, stops a caller getting a tool this server withholds, one the
+    host cannot run, or one it does not implement.
     """
     available = available_tool_names(cfg)
     if requested is None:
@@ -1761,12 +1617,10 @@ def resolve_allowed(requested: Iterable[str] | None, cfg: Config) -> frozenset[s
 def _with_layout(spec: ToolSpec, cfg: Config) -> ToolSpec:
     """`search_files` with this deployment's workspace map appended to its description.
 
-    Appended here rather than stored in `REGISTRY`, and that is load-bearing, not tidiness:
-    `scripts/gen_tools_docs.py` renders the registry into the committed `docs/TOOLS.md`, and
-    a workspace root is an absolute path on the operator's machine, home included. A map in
-    the registry would publish a local filesystem layout -- and a personal identifier inside
-    it -- into a public artefact. The generator has no `Config`, so it renders the static
-    contract and nothing else.
+    Not stored in `REGISTRY`, which `gen_tools_docs.py` renders into the committed
+    `docs/TOOLS.md`: a workspace root is an absolute path on the operator's machine, home
+    included, so a map there would publish a local layout, and a personal identifier in it,
+    into a public artefact. The generator has no `Config`, so renders only the contract.
     """
     if spec.name != SEARCH_FILES.spec.name:
         return spec
@@ -1776,13 +1630,9 @@ def _with_layout(spec: ToolSpec, cfg: Config) -> ToolSpec:
 def declared_tools(cfg: Config, allowed: Iterable[str]) -> tuple[ToolSpec, ...]:
     """Site one: what the model is offered.
 
-    Registry order, not the caller's and not sorted, so the same resolved set always renders
-    the same bytes. Tool schemas sit in the cached prefix, so an order that varied per call
-    would cost a fresh prefill for nothing.
-
-    Editing a description below is a prefill bill as well as a contract change: the
-    description sits in the cached prefix, and rewording it moves the first difference
-    toward the front (measured, JOURNAL 2026-09-02).
+    Registry order, so a resolved set always renders the same bytes in the cached prefix.
+    Editing a description below is a prefill bill as well as a contract change: it moves
+    the prefix's first difference toward the front (measured, JOURNAL 2026-09-02).
     """
     permitted = set(allowed)
     return tuple(
@@ -1790,14 +1640,10 @@ def declared_tools(cfg: Config, allowed: Iterable[str]) -> tuple[ToolSpec, ...]:
     )
 
 
-# A shell command that rewrites file text, which `write_file` does better. The note is
-# appended to the offending call's own result, next to the evidence, in the turn that has to
-# decide what to do next. Why: ADR-0024.
-#
-# In-place editors are named explicitly rather than caught by a general "looks like editing"
-# rule, because a false positive is a note the model can ignore and a false negative costs
-# nothing. Redirection is the one general case, and excludes the device targets and fd
-# duplications that are not file edits at all.
+# A shell command that rewrites file text, which `write_file` does better; the note lands
+# in that call's own result, where the next decision is made. Why: ADR-0024. In-place
+# editors are named explicitly, since a miss costs nothing and a false positive only a
+# note; redirection is the one general case, minus device targets and fd duplications.
 _IN_PLACE = re.compile(
     r"(?:^|[\s;&|(])(?:sed|perl|ruby|gawk|awk)\s+(?:-\w*\s+)*-[a-z]*i\b"
     r"|(?:^|[\s;&|(])patch\b"
@@ -1816,8 +1662,7 @@ STEER = (
 def _rewrites_text(command: str) -> bool:
     """Whether a shell command looks like it patches file text.
 
-    Advisory, so this errs toward quiet: a missed case costs nothing, and a false positive
-    costs one line the model may ignore. Never a reason to block.
+    Advisory, erring quiet, and never a reason to block.
     """
     if _IN_PLACE.search(command):
         return True
@@ -1835,14 +1680,12 @@ def execute_tool(
 ) -> ToolResultBlock:
     """Site two: what actually runs.
 
-    Checked against `allowed` independently of what was declared, because the declared list
-    is a suggestion the model can ignore -- and one that names a tool it was never offered
-    is exactly the case worth catching.
+    Checked against `allowed` independently of what was declared: the declared list is a
+    suggestion the model can ignore, and naming a tool it was never offered is exactly the
+    case worth catching.
 
-    A refusal comes back as an error result rather than an exception. `PathRefused` aborting
-    the whole delegation is right for prefetch, where nothing has been spent yet; mid-loop it
-    would throw away every turn already paid for because the model made one bad call. Telling
-    it no and letting it try again is cheaper than starting over.
+    A refusal is an error result, not an exception: aborting is right for prefetch, where
+    nothing is spent yet, but mid-loop it would discard every paid turn over one bad call.
     """
     permitted = set(allowed)
     if call.name not in permitted:
@@ -1871,9 +1714,8 @@ def execute_tool(
         return ToolResultBlock(tool_use_id=call.id, content=str(e), is_error=True)
     if isinstance(produced, BashResult):
         text = produced.text
-        # Gated on the resolved set this function enforces, never on what was declared: the
-        # declared list is a suggestion, and steering toward a tool the executor would refuse
-        # would be worse than staying quiet. `permitted` is that set (ADR-0024).
+        # Gated on `permitted`, the set enforced here, never what was declared: steering to
+        # a tool the executor would refuse is worse than quiet (ADR-0024).
         if "write_file" in permitted and _rewrites_text(str(call.input.get("command") or "")):
             text = text + "\n\n" + STEER
         return ToolResultBlock(
