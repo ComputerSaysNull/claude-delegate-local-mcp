@@ -184,11 +184,9 @@ A refusal names the surface it came from, and says what it cost. `workdir` is re
 before anything is dispatched, so its refusal ends the call and says so. A `path` given to
 `read_file` or `search_files` is refused *inside* a tool call and comes back as a tool error
 the delegation continues from — so it names the `path` argument and makes no claim about a
-dispatch. Until 2026-09-06 every one of those reported "path(s) in `files[]` were refused,
-so nothing was sent to the model", which named an argument the model had not written and a
-consequence that had not happened. A remedy names the configured roots rather than offering
-to drop the argument — a refusal fires when the caller has just shown it does not know the
-layout, and for a search that fallback was the slowest call available (ADR-0074).
+dispatch. A remedy names the configured roots rather than offering to drop the argument —
+a refusal fires when the caller has just shown it does not know the layout, and for a search
+that fallback was the slowest call available (ADR-0074).
 
 All three run the same four layers through the same function, so a pattern cannot deny
 `read_file` while leaving the same file findable by search. Separate functions rather than a
@@ -256,10 +254,8 @@ notice. (ADR-0062)
 
 Not the workspace roots, on two counts. The field exists to reach a toolchain living
 outside one, and a list shared with a reading tool would let a root widened for `files[]`
-widen a mount. The reasoning this replaces — that the denylist made a root list unnecessary,
-so *"no agent file can bind a directory in order to read credentials out of it"* — was
-wrong when it was written: that scan matches names, so a credential in a file it does not
-recognise was never covered. (ADR-0036, ADR-0053)
+widen a mount. Nor does the denylist make a root list unnecessary: it matches names, so a
+credential in a file it does not recognise is not covered. (ADR-0036, ADR-0053)
 
 ## The path policy
 
@@ -307,10 +303,7 @@ where an exemption stays closed by default and opens exactly one name. (ADR-0067
 Allowlist first, deliberately. A *pure* allowlist cannot work for file contents — you
 cannot enumerate every source file you might ever delegate — so extension is the axis that
 *can* be allowlisted, and layers 3 and 4 are second and third nets for what passes it: an
-extensionless key, a `.env.local`, a committed config full of tokens.
-
-The reference implementation of server-side prefetch had **no validation whatsoever** and
-would read a private SSH key on request. (ADR-0006)
+extensionless key, a `.env.local`, a committed config full of tokens. (ADR-0006)
 
 The list is read from `secret_globs_file`, a relative setting resolving against the server's
 working directory via `resolve_configured_path` — shared with the opaque list and with the

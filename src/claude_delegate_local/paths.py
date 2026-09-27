@@ -24,9 +24,6 @@ two things that are only the same while nothing changes in between. `open_resolv
 way to open anything this module approved; it opens and then proves the descriptor refers
 to the path that was approved. Reaching for `open()` on a `.posix` reopens the gap, which
 is why no code in this repository does (ADR-0049).
-
-The reference implementation of server-side prefetch had no validation whatsoever and
-would read a private SSH key on request.
 """
 
 from __future__ import annotations
@@ -127,8 +124,7 @@ class PathRefused(Exception):
         while resolving `files[]` or a `workdir` happens before anything is sent, so the
         call is over. A refusal raised *inside* a tool call is returned to the model as an
         error result and the delegation continues -- saying "nothing was sent to the model"
-        there is false, and it was, for every `read_file` and `search_files` refusal until
-        2026-09-06.
+        there is false.
         """
         self.refusals = tuple(refusals)
         self.total = total
@@ -286,7 +282,7 @@ def resolve_configured_path(raw: str) -> Path:
     One copy, three callers -- `load_secret_globs`, `load_opaque_globs`, and the shadow
     scan that has to recognise both files to avoid covering them. The third is why this is
     a function at all: comparing a walked path against a setting resolved a different way
-    is how the scan came to cover the very list it had just read.
+    would let the scan cover the very list it had just read.
     """
     path = Path(raw)
     if not path.is_absolute():
@@ -657,9 +653,9 @@ def gitignored(
     committed file is not ignored in any sense the caller cares about.
 
     **`check-ignore` is not the only subprocess here, and the other one is per directory.**
-    Finding the work tree costs a `rev-parse` for each distinct parent, so 2,000 candidates
-    over 389 directories is 389 subprocesses before a single `check-ignore` runs -- 20.5s of
-    a 140.9s policy pass, profiled 2026-09-15 and mis-attributed to `check-ignore` itself.
+    Finding the work tree costs a `rev-parse` for each distinct parent, so a batch pays a
+    subprocess per directory before a single `check-ignore` runs (measured, JOURNAL
+    2026-09-15).
     `tops` is how a caller that asks repeatedly pays that once: hand the same dict to every
     call and a second question about a directory already seen costs nothing. Omitted, the
     behaviour is what it always was.
@@ -709,10 +705,8 @@ def _realpath(posix: str, prefixes: dict[str, str]) -> str:
     """`os.path.realpath`, with the directory above `posix` remembered across a batch.
 
     A batch is candidates from one walk, so they share deep prefixes and the kernel re-walks
-    the same directories once per candidate: 13.5 `lstat` each over 2,000 of them, 57% of the
-    policy (JOURNAL 2026-09-15). Remembering the parent collapses that to one walk per
-    distinct directory -- measured 30.40s to 4.47s over 2,000 candidates, 0.858s to 0.019s
-    over the 147 a pruned walk now produces.
+    the same directories once per candidate. Remembering the parent collapses that to one
+    walk per distinct directory (measured, JOURNAL 2026-09-15).
 
     **The final component is resolved every time and is never cached.** That is the whole
     safety argument, not a detail: `realpath` resolves a symlink in the last segment too, so
@@ -811,8 +805,8 @@ def _check_exists(given: str, real: str, must_exist: bool = True) -> Refusal | N
     run, because writing to a secret path is worse than reading one, not better.
 
     One `stat`, not two. `exists` then `isfile` asks the filesystem the same question twice
-    and throws the first answer away -- 37.1s over 4,000 calls for 2,000 candidates, profiled
-    2026-09-15. A single `stat` carries both facts, and the mode says which.
+    and throws the first answer away (measured, JOURNAL 2026-09-15). A single `stat`
+    carries both facts, and the mode says which.
     """
     try:
         st: os.stat_result | None = os.stat(real)
@@ -872,11 +866,10 @@ def resolve_search_root(
     **Resolved before it is compared.** A symlink inside a root pointing out of it is a
     real escape and is invisible to any check that compares the path as written.
     """
-    # Both remedies below name the roots rather than offering to drop `path`. Measured
-    # 2026-09-13: a delegation guessed a root, was refused, took the old advice to "omit it
-    # to search everywhere", and spent 239s on the retry. A refusal fires exactly when the
-    # model has shown it does not know the layout, which is the worst moment to recommend
-    # walking every root -- and the roots are the one thing it was missing. (ADR-0074)
+    # Both remedies below name the roots rather than offering to drop `path`. A refusal
+    # fires exactly when the model has shown it does not know the layout, which is the
+    # worst moment to recommend walking every root -- and the roots are the one thing it
+    # was missing (ADR-0074).
     roots = ", ".join(resolved_roots(cfg)) or "(none configured)"
 
     posix = to_posix(given)

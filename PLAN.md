@@ -216,7 +216,7 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
     - a. ✅ 2026-09-27 `loop.py`, which has more prose than code.
     - b. ✅ 2026-09-27 `server.py`.
     - c. ✅ 2026-09-27 `sandbox.py`, cutting history but keeping its security reasoning.
-    - d. ⬜ `paths.py`, likewise.
+    - d. ✅ 2026-09-27 `paths.py`, likewise.
     - e. ⬜ `tools.py`.
 5. ⬜ **Product docs describe the current state**: `docs/` without its history. The other
   half, each `Config` description cut to what it does plus a link, is ✅ 2026-09-26
