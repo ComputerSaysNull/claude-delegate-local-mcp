@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #391 — 2026-09-27 — docs: slots.py describes what is
+
+### Changed
+
+- **`slots.py`'s comments describe the shared counters as they are, from 282 prose lines
+  to 242.** The fourth of M18.7's modules, and like `admission.py` one whose concurrency
+  reasoning is kept whole and only reworded: the decision made inside the lock, records
+  keyed by `(pid, start_time)` rather than reclaimed on a timer, the burst flag living in
+  the record so it dies with its process, the non-blocking lock, and why a ticket counts
+  ahead only for a waiter that could run now. What goes is the story of how the rules came
+  to count machine-wide, the failure counts and the measured penalty behind the tmpfs
+  location. `ast_unchanged.py` reads the module as unchanged, and M18.7's first group of
+  four is ticked.
+
 ## #390 — 2026-09-27 — docs: transcript.py describes what is
 
 ### Changed
