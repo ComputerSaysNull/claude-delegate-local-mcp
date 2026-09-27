@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #397 — 2026-09-27 — docs: init.py describes what is
+
+### Changed
+
+- **`init.py`'s comments describe `--init` as it is, from 161 prose lines to 145.** The
+  second of M18.7's last group. The command's rules keep their reasons: a default is
+  shown but never written, because a copied default freezes; nothing holds a rule of its
+  own; roots are asked one per line, because a separated list splits a drive letter
+  before it can be translated; existing files are moved aside under names the secret
+  globs cover. The history of the install instructions goes. `ast_unchanged.py` reads the
+  module as unchanged.
+
 ## #396 — 2026-09-27 — docs: agents.py describes what is
 
 ### Changed
