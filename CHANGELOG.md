@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #395 — 2026-09-27 — docs: context.py describes what is
+
+### Changed
+
+- **`context.py`'s comments describe prefetch as it is, from 203 prose lines to 177.** The
+  last of M18.7's second group. This module was already mostly present tense, so the pass
+  is a tightening: the marker-escaping boundary, the fixed sort order the prefix cache
+  depends on, "skip whole, never truncate", and the ordering that means a file is never
+  read only to be found unusable all keep their reasons. `ast_unchanged.py` reads the
+  module as unchanged, and M18.7's second group is ticked.
+
 ## #394 — 2026-09-27 — docs: provision.py describes what is
 
 ### Changed
