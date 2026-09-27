@@ -2,10 +2,9 @@
 
 Why this file exists (ADR-0008): only the OpenAI-compatible adapter ships, but the shape
 kept *inside* the server is the Anthropic one -- content blocks, tool-use, tool-result.
-Nothing above the backend layer then knows which wire protocol is in play, so adding an
-Anthropic adapter later is one new file rather than a refactor. `registry.py` already
-promises this seam by name when it refuses `api_format = "anthropic"`; this is the file
-that makes the promise real.
+Nothing above the backend layer knows which wire protocol is in play, so an Anthropic
+adapter would be one new file rather than a refactor. `registry.py` names this seam when it
+refuses `api_format = "anthropic"`.
 
 Three conditions keep it cheap, and breaking any one turns the next adapter back into a
 refactor:
@@ -13,23 +12,18 @@ refactor:
   a. The canonical shape stays block-structured and is never flattened to strings.
      Flattening is what an adapter is *for*, and it happens only at the wire edge.
   b. SSE accumulation lives per adapter, behind one contract. The transport streams and
-     the contract does not (ADR-0070): `complete()` still takes one request and returns
-     one whole `CanonicalResponse`, because accumulation happens inside the adapter. That
-     it was always a method on the protocol rather than a shape baked into the caller is
-     what made streaming a new branch in one file instead of a refactor.
-  c. Model selection is a registry lookup, never a reintroduced prefix function
-     (ADR-0009). Nothing in this layer inspects a model name to decide anything.
+     the contract does not (ADR-0070): `complete()` takes one request and returns one
+     whole `CanonicalResponse`, accumulating inside the adapter. Being a method on the
+     protocol, not a shape baked into the caller, is what keeps that a one-file change.
+  c. Model selection is a registry lookup, never a prefix function (ADR-0009). Nothing
+     in this layer inspects a model name to decide anything.
 
-What this file deliberately does NOT do: retry, step-down on reasoning exhaustion,
-empty-answer handling, context-overflow recovery. That is the response state machine, M3.
-What it does instead is make that machine buildable on top -- `finish_reason` and the
-token counts come back raw and *uninterpreted*, and the error kinds below are
-distinguishable. In particular a reply with `content: null` and `finish_reason: "length"`
-is a valid response carrying no text blocks, not an error (ADR-0014). Deciding what to do
-about that is M3's job, and mapping `finish_reason` onto some tidier vocabulary here
-would be exactly the interpretation this layer must not perform.
-
-Not a port. This file is new.
+What this file does NOT do: retry, step-down on reasoning exhaustion, empty-answer
+handling, context-overflow recovery. Those are `loop.py`'s, built on this layer's raw
+facts: `finish_reason` and the token counts come back *uninterpreted*, and the error kinds
+below are distinguishable. A reply with `content: null` and `finish_reason: "length"` is a
+valid response carrying no text blocks, not an error (ADR-0014); mapping `finish_reason`
+onto a tidier vocabulary here would be the interpretation this layer must not perform.
 """
 
 from __future__ import annotations
@@ -46,23 +40,23 @@ ROLES = ("user", "assistant")
 # --- errors ----------------------------------------------------------------------------
 #
 # Four kinds, because the caller acts differently on each and a single BackendError would
-# force it to parse a message to find out which happened. M3 builds retry on this
-# distinction: Unavailable is worth retrying, Refused usually is not, ProtocolError never
-# is, and CanonicalShapeError is our own bug and must never be retried at all.
+# make it parse a message to find out which. Retry rests on this: Unavailable is worth
+# retrying, Refused usually is not, ProtocolError never is, and CanonicalShapeError is our
+# own bug and must never be retried at all.
 
 
 class BackendError(Exception):
     """Base for everything this layer raises.
 
-    `partial` is what the turn had already decoded when it failed, when it had decoded
-    anything: a whole `CanonicalResponse` rather than a string, so everything above reads
-    it with `answer_of` exactly as it reads a completed one. `None` means no token ever
-    arrived, which is a different fact from an empty answer and the two must not merge --
-    a turn that produced nothing is what a stall already reports.
+    `partial` is what the turn had decoded when it failed, if anything: a whole
+    `CanonicalResponse`, not a string, so everything above reads it with `answer_of` as it
+    reads a completed one. `None` means no token arrived, a different fact from an empty
+    answer that must not merge with it -- a turn that produced nothing is what a stall
+    reports.
 
-    It lives on the base rather than on `BackendUnavailable` because the accumulator dies
-    the same way whatever ends the stream, `CancelledError` included; that one is a
-    `BaseException` and carries the attribute by assignment rather than by inheritance.
+    On the base, not `BackendUnavailable`, because the accumulator dies the same way
+    whatever ends the stream, `CancelledError` included; that one is a `BaseException` and
+    carries the attribute by assignment.
     """
 
     partial: CanonicalResponse | None = None
@@ -71,21 +65,18 @@ class BackendError(Exception):
 class CanonicalShapeError(BackendError):
     """A malformed canonical request or message. Our bug, not the server's.
 
-    Raised at construction, never at first use -- the rule config.py and registry.py
-    already follow, for the same reason: a shape error discovered thirty minutes into a
-    delegation is far worse than one that refuses to build.
+    Raised at construction, never at first use, as in config.py and registry.py: a shape
+    error found thirty minutes into a delegation is far worse than one that will not build.
     """
 
 
 class BackendUnavailable(BackendError):
     """The endpoint could not be reached: connect failure, DNS, or timeout.
 
-    `while_generating` separates the two shapes the adapter otherwise flattens. A connect
-    failure means nothing was delivered and nothing was spent; a read timeout means the
-    request arrived, the endpoint took its whole allowance and never answered. Both are
-    "unavailable" to a caller deciding whether the endpoint works, and they are not the
-    same thing at all to one deciding whether to try again -- the second has already
-    consumed the time a retry would need.
+    `while_generating` separates two shapes. A connect failure delivered and spent nothing;
+    a read timeout means the request arrived and the endpoint took its whole allowance.
+    Both are "unavailable" to a caller asking whether the endpoint works, but not to one
+    deciding whether to retry: the second has already spent the time a retry would need.
     """
 
     def __init__(self, *args: object, while_generating: bool = False) -> None:
@@ -96,17 +87,13 @@ class BackendUnavailable(BackendError):
 class BackendRefused(BackendError):
     """The endpoint answered with a non-2xx status.
 
-    Carries `status` and `body` rather than only a message, because ADR-0017 requires a
-    specific 400 to stay feature-detectable: the serving stack's own docs named the wrong
-    boot flag for `thinking_token_budget`, and only the live response body says which
-    switch actually gates it. A caller that cannot read the body cannot feature-detect.
+    Carries `status` and `body`, not only a message, because ADR-0017 needs a specific 400
+    to stay feature-detectable: only the live body says which switch gates
+    `thinking_token_budget`, since the serving stack's docs name the wrong boot flag.
 
-    `retry_after` is the header verbatim and unparsed -- the string the endpoint sent, or
-    None. Parsing it is interpretation, and this layer does not interpret: the same rule
-    that keeps `finish_reason` raw keeps this raw, and `loop.py` owns both. It is carried
-    here rather than re-read from the response because the response object does not
-    survive the exception, and a retry that ignores what the server asked for is not
-    honouring it.
+    `retry_after` is the header verbatim, or None. Parsing it is interpretation, which
+    `loop.py` owns, as for `finish_reason`. Carried here because the response object does
+    not survive the exception, and a retry must honour what the server asked for.
     """
 
     def __init__(
@@ -136,9 +123,8 @@ class TextBlock:
 class ThinkingBlock:
     """Reasoning the model emitted, kept as its own block rather than folded into text.
 
-    `Config.resend_reasoning` decides whether it goes back on the next turn, and that
-    choice is only expressible if the reasoning survives as something distinguishable
-    this far up.
+    `Config.resend_reasoning` decides whether it goes back on the next turn, a choice
+    expressible only if the reasoning stays distinguishable this far up.
     """
 
     text: str
@@ -155,16 +141,16 @@ class ToolUseBlock:
 class BashOutcome:
     """What the server saw a shell command do, apart from what the model says about it.
 
-    Carried on the result block rather than parsed back out of `content`, because a trailer
-    regex over text the model also reads is a check that stops firing the day the wording
-    changes, and nothing reports that it stopped. ADR-0007 rests on these being measured.
+    Carried on the result block, not parsed back out of `content`: a regex over text the
+    model also reads stops firing the day the wording changes, and nothing reports it.
+    ADR-0007 rests on these being measured.
 
     `exit_code` is None when nothing exited: killed on timeout, or refused before a process
-    ever started. Those are distinguished by `timed_out`, and neither is 0 -- which is a
-    real exit code a command can return and must not collide with either.
+    started, told apart by `timed_out`. Neither is 0, a real exit code that must not
+    collide with them.
 
-    Lives here rather than in `tools.py` because `tools.py` imports this module, and the
-    block has to be able to name the type it carries.
+    Here, not in `tools.py`, because `tools.py` imports this module and the block must
+    name the type it carries.
     """
 
     exit_code: int | None
@@ -201,9 +187,8 @@ BLOCK_TYPES = (TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock)
 class Message:
     """One turn. `content` is always a tuple of blocks -- never a bare string.
 
-    The string case is rejected rather than coerced, and rejected loudly, because a
-    coerced string is ADR-0008 condition (a) failing silently: the canonical shape would
-    still typecheck while having quietly become the OpenAI one.
+    A string is rejected loudly, not coerced: coercion would be ADR-0008 condition (a)
+    failing silently, the canonical shape still typechecking while it became the OpenAI one.
     """
 
     role: str
@@ -245,9 +230,8 @@ class ToolSpec:
     input_schema: dict[str, object]
 
 
-# Deliberately two values, not the wire's full set. "required" and naming a specific tool
-# are real options in both formats and neither has a caller here; adding them without one
-# would be inventing a contract nobody has tested.
+# Two values, not the wire's full set. "required" and naming a tool are real options in
+# both formats with no caller here, and adding them would invent an untested contract.
 TOOL_CHOICES = ("auto", "none")
 
 
@@ -255,15 +239,14 @@ TOOL_CHOICES = ("auto", "none")
 class CanonicalRequest:
     """One backend call, fully specified.
 
-    `max_tokens`, `effort`, `temperature` and `top_p` carry no defaults, deliberately. Config
-    defaults live only in config.py and per-model overrides only in the registry; a
-    default here would be a second copy of a fact, and the docs gate exists because
-    second copies drift. The caller resolves them -- `ModelEntry.effective_effort(cfg)`
-    and `ModelEntry.cap_tokens()` are already there for it -- and passes what it decided.
+    `max_tokens`, `effort`, `temperature` and `top_p` carry no defaults. Config defaults
+    live only in config.py and per-model overrides only in the registry; a default here
+    would be a second copy of a fact, and second copies drift. The caller resolves them
+    with `ModelEntry.effective_effort(cfg)` and `ModelEntry.cap_tokens()`.
 
-    Message order is the caller's and is never rearranged downstream: system prompt,
-    agent body, files block, task last, so the cached prefix stays bit-identical
-    (ADR-0011). The adapter translates; it does not schedule.
+    Message order is the caller's and never rearranged downstream: system prompt, agent
+    body, files block, task last, so the cached prefix stays bit-identical (ADR-0011). The
+    adapter translates; it does not schedule.
     """
 
     system: str
@@ -273,10 +256,10 @@ class CanonicalRequest:
     temperature: float
     top_p: float
     tools: tuple[ToolSpec, ...] = ()
-    # "auto" lets the model call; "none" offers the tools and forbids calling them. Our own
-    # vocabulary, translated per adapter exactly as `effort` is (ADR-0013), because the two
-    # wire formats spell this differently and neither spelling belongs in the canonical
-    # shape. Withdrawing `tools` instead is what ADR-0057 stopped doing.
+    # "auto" lets the model call; "none" offers the tools and forbids calling them, rather
+    # than withdrawing `tools` (ADR-0057). Our own vocabulary, translated per adapter as
+    # `effort` is (ADR-0013): the wire formats spell it differently, and neither spelling
+    # belongs in the canonical shape.
     tool_choice: str = "auto"
 
     def __post_init__(self) -> None:
@@ -309,8 +292,8 @@ class CanonicalRequest:
             raise CanonicalShapeError(
                 f"temperature={self.temperature} is outside the accepted range 0.0-2.0."
             )
-        # Narrower than temperature, and not by oversight: the endpoint answers 400 to a
-        # top_p above 1.0 while accepting temperature to 2.0. Measured 2026-09-21.
+        # Narrower than temperature on purpose: the endpoint answers 400 to a top_p above
+        # 1.0 while accepting temperature to 2.0.
         if not 0.0 <= self.top_p <= 1.0:
             raise CanonicalShapeError(
                 f"top_p={self.top_p} is outside the accepted range 0.0-1.0."
@@ -321,17 +304,15 @@ class CanonicalRequest:
 class CanonicalResponse:
     """One backend reply, translated but not interpreted.
 
-    `finish_reason` is the wire value verbatim. It is not mapped onto a tidier
-    vocabulary, because every such mapping is a decision about what the reply *means* --
-    and those decisions belong to the response state machine in M3, which needs the raw
-    value to make them. The token counts are here for the same reason: reasoning
-    exhaustion is diagnosed by comparing spend against the budget (ADR-0014), so the
-    layer that spots it needs the numbers rather than a verdict.
+    `finish_reason` is the wire value verbatim. Mapping it onto a tidier vocabulary would
+    decide what the reply *means*, which is `loop.py`'s, and it needs the raw value. The
+    token counts are here for the same reason: reasoning exhaustion is diagnosed by
+    comparing spend against the budget (ADR-0014), which needs numbers, not a verdict.
 
-    The four optional fields follow that rule rather than bending it. `stop_reason` is
-    vLLM's own answer to "which stop condition fired", distinct from `finish_reason` and
-    absent on backends that do not speak it; `system_fingerprint` identifies the engine
-    build and its configuration. Both are carried and neither is interpreted here.
+    The optional fields follow that rule. `stop_reason` is vLLM's answer to "which stop
+    condition fired", distinct from `finish_reason` and absent on backends that do not
+    speak it; `system_fingerprint` identifies the engine build and its configuration. Both
+    are carried and neither is interpreted.
     """
 
     content: tuple[ContentBlock, ...]
@@ -339,29 +320,23 @@ class CanonicalResponse:
     input_tokens: int
     output_tokens: int
     model: str
-    # Four the endpoint already returns and this server used to discard. All optional,
-    # and `None` means the endpoint did not report the field at all -- which is a
-    # different fact from reporting a zero, and the distinction is the point. A
-    # `cached_tokens` of 0 says the prefix missed; absent says nothing can be said about
-    # caching on this backend, and collapsing the two would recreate exactly the
-    # blindness that made the batch tools arguable for a fortnight (ADR-0051).
+    # All optional, and `None` means the endpoint did not report the field, a different
+    # fact from a zero. A `cached_tokens` of 0 says the prefix missed; absent says nothing
+    # can be said about caching on this backend, and collapsing the two would make cache
+    # behaviour unmeasurable (ADR-0051).
     cached_tokens: int | None = None
     total_tokens: int | None = None
     stop_reason: str | None = None
     system_fingerprint: str | None = None
-    # How long the tokens took to arrive: last token minus first, and nothing else. The
-    # quantity the rate estimators want and the one no non-streaming adapter can supply,
-    # so `None` means "time the attempt instead" rather than "zero". Dividing output by
-    # the whole attempt charges prefill to the decoder, and on a short answer over a large
-    # prompt prefill is most of the interval -- measured 2026-09-12 as a remembered rate
-    # of 13.4 tok/s taken from 855- and 1,170-token answers, on a cluster that delivered
-    # 17,779 tokens at 45.2 tok/s in the same regime (ADR-0070).
+    # How long the tokens took to arrive: last token minus first, nothing else. What the
+    # rate estimators want and no non-streaming adapter can supply, so `None` means "time
+    # the attempt instead", not "zero". Dividing output by the whole attempt charges
+    # prefill to the decoder, and on a short answer over a large prompt prefill is most of
+    # the interval (ADR-0070).
     decode_seconds: float | None = None
-    # The other half of the same clock: request sent to *first* token. Queueing and
-    # prefill, and nothing the decoder did. Recorded nowhere until now, so a turn's wall
-    # time was one measured span and one unexplained remainder -- and prefill is the part
-    # that grows with the prompt rather than with the answer, which is the half a run
-    # summary is trying to see. `None` on an adapter that cannot stream, never zero.
+    # The other half of the clock: request sent to *first* token -- queueing and prefill,
+    # nothing the decoder did. Prefill grows with the prompt rather than the answer, the
+    # half a run summary is trying to see. `None` on an adapter that cannot stream.
     prefill_seconds: float | None = None
 
     @property
@@ -395,28 +370,23 @@ TURN_LIMIT_BANNER = (
 def duplicate_line_share(text: str) -> float:
     """How much of a reply is lines it has already said. 0.0 to 1.0.
 
-    The one number that separates a loop from work. Nothing else does: a turn looping
-    inside itself and a healthy long answer both end `finish_reason: length` with
-    `reasoning_exhausted` false, and both fill their ceiling exactly -- which reads as
-    "needs a bigger budget" and is not. Five documentation-audit passes were given
-    18,905, then 31,793, then 131,072 tokens on that reading before the shape was
-    noticed. Measured across three of those ceilings: 93.0%, 20.5% and 58.8% duplicate,
-    against under 1% on every pass that reported.
+    The one number that separates a loop from work. A turn looping inside itself and a
+    healthy long answer both end `finish_reason: length` with `reasoning_exhausted`
+    false, both filling their ceiling exactly -- which reads as "needs a bigger budget"
+    and is not.
 
-    Lines rather than tokens or n-grams, because the observed failure repeats whole
-    sentences -- one run produced "Already checked." 385 times -- and a line is the unit
-    a reader would point at. Stripped, with blank lines and code fences dropped, so prose
-    that breathes is not counted as repetition; the empty reply is 0.0 rather than an error, because
-    `empty_response` already reports that and a second opinion is not wanted here.
+    Lines, not tokens or n-grams, because the failure repeats whole sentences and a line
+    is the unit a reader points at. Stripped, with blank lines and code fences dropped, so
+    prose that breathes is not repetition. An empty reply is 0.0, not an error:
+    `empty_response` already reports it.
 
-    Reported, not acted on. It is evidence for whoever reads the record; making it abort
-    a turn is a threshold nobody has chosen yet, and a control chosen from three
-    measurements would be a control nobody can defend.
+    Reported, not acted on: aborting a turn on it needs a threshold nobody has chosen, and
+    one chosen from a few measurements could not be defended.
     """
     lines = [
         stripped for stripped in (line.strip() for line in text.splitlines())
-        # A code fence is markup, not something said twice: a report with four code blocks
-        # otherwise reads as a fifth repeated.
+        # A code fence is markup, not something said twice: four code blocks would
+        # otherwise read as repeats.
         if stripped and not stripped.startswith(("```", "~~~"))
     ]
     if not lines:
@@ -428,34 +398,30 @@ def answer_of(response: CanonicalResponse) -> tuple[str, bool]:
     """The text a caller is handed, and whether it is reasoning rather than an answer.
 
     A reply that spent its whole budget thinking parses into a `ThinkingBlock` and no
-    `TextBlock`, and `text` above joins text blocks only -- so the answer was the empty
-    string while every token the cluster produced sat in the response, already parsed, and
-    was dropped. Measured over one machine's 446 transcript summaries: nine dispatches at
-    `finish_reason` `'length'` and `ok` true, carrying 14,475 to 44,854 output tokens
-    apiece, 265,092 in total. A length stop is neither a timeout nor a cancellation, so
-    returning a partial at a deadline would not have rescued any of them.
+    `TextBlock`, and `text` joins text blocks only, so the answer would be the empty string
+    while every token produced sat in the response, dropped. A length stop is neither a
+    timeout nor a cancellation, so a partial returned at a deadline would not rescue it.
 
-    Returned under a banner rather than bare, because reasoning is working notes and a
-    caller that cannot tell it from a conclusion would be worse off than with the empty
-    string. The flag is what a caller branches on; the banner is what a reader sees.
+    Under a banner, not bare: reasoning is working notes, and a caller that cannot tell it
+    from a conclusion is worse off than with the empty string. The flag is what a caller
+    branches on; the banner is what a reader sees.
 
     Only when there is no text at all. Appending reasoning to a reply that *has* an answer
-    would change every successful dispatch on the way to fixing the empty ones, and
-    `resend_reasoning` already governs whether thinking travels onward -- that is a
-    question about history, and this is a question about what the caller is handed.
+    would change every successful dispatch, and whether thinking travels onward is
+    `resend_reasoning`'s question, about history, not about what the caller is handed.
 
-    Here rather than in `server.py` because `transcript.py` needs the same answer and must
-    not import the server: a record disagreeing with the reply it records is how nine
-    dispatches came to read as empty while holding everything they had produced.
+    Here, not in `server.py`, because `transcript.py` needs the same answer and must not
+    import the server: a record disagreeing with the reply it records would call these
+    replies empty.
     """
     text = response.text
     if text:
         return text, False
     thinking = response.thinking
     if not thinking.strip():
-        # Whitespace is what an emptied reasoning stream leaves behind. A banner with
-        # nothing under it would make `empty_response` unreachable, which is the one
-        # signal a caller has that the dispatch produced nothing at all.
+        # Whitespace is what an emptied reasoning stream leaves. A banner over nothing
+        # would make `empty_response` unreachable, the one signal a caller has that the
+        # dispatch produced nothing.
         return "", False
     return REASONING_ONLY_BANNER + thinking, True
 
@@ -467,9 +433,8 @@ def answer_of(response: CanonicalResponse) -> tuple[str, bool]:
 class Backend(Protocol):
     """What an adapter must provide. One file per wire format, nothing else changes.
 
-    Async because httpx is, because fastmcp is, and because `asyncio_mode = "auto"` is
-    already set for the test suite -- a sync seam here would have to be unpicked the
-    moment the agentic loop needs two calls in flight.
+    Async because httpx and fastmcp are: a sync seam would have to be unpicked the moment
+    the agentic loop needs two calls in flight.
     """
 
     async def complete(
@@ -480,17 +445,14 @@ class Backend(Protocol):
     ) -> CanonicalResponse:
         """Send one request. Raises a BackendError subclass; never returns a partial.
 
-        `on_token` fires each time the wire carries generated output, and is how anything
-        above this layer learns that decoding has begun -- ADR-0070 made that moment
-        observable inside an adapter and stopped there, so `decode_seconds` was the only
-        thing that ever saw it. It is added *alongside* the return value: the contract
-        above still holds, and an adapter that cannot stream simply never calls it.
+        `on_token` fires each time the wire carries generated output: how anything above
+        this layer learns that decoding has begun. It is *alongside* the return value, so
+        the contract above holds, and an adapter that cannot stream never calls it.
 
-        Synchronous, and it receives the frame's kind -- `"reasoning"` or `"answer"` -- so
-        a consumer can tell thinking from answering as it happens. It runs on the read loop
-        once per frame, so awaiting here would put network latency between two tokens; and a
-        consumer that must act once -- the admission lease does -- guards its own
-        once-ness rather than having the adapter decide how often "arrival" means.
+        Synchronous, and given the frame's kind -- `"reasoning"` or `"answer"` -- so a
+        consumer can tell thinking from answering as it happens. It runs on the read loop
+        once per frame, so awaiting would put latency between two tokens; a consumer that
+        must act once, like the admission lease, guards that itself.
         """
         ...
 
@@ -501,30 +463,27 @@ class Backend(Protocol):
     async def probe_window(self) -> int | None:
         """The context window this endpoint reports for its served model, if it says.
 
-        `None` means the endpoint answered and did not mention one -- a confirmed absence,
-        not a failure to ask. A transport failure raises `BackendUnavailable` instead, and
-        the difference matters: a caller caching "this backend cannot tell me" must never
-        cache it because the network was down for a moment.
+        `None` means the endpoint answered without one -- a confirmed absence, not a
+        failure to ask. A transport failure raises `BackendUnavailable` instead, so a
+        caller never caches "this backend cannot tell me" because the network blinked.
 
-        This exists to CHECK the operator's `context_window`, never to supply it. An
-        auto-derived window is how upstream came to compute every threshold against a
-        model file's architecture maximum rather than the window actually served.
+        This CHECKS the operator's `context_window`, never supplies it: an auto-derived
+        window would put every threshold against a model file's architecture maximum
+        rather than the window actually served.
         """
         ...
 
     async def probe_cluster(self) -> dict[str, float | int | str | None] | None:
         """What the serving stack says about its own load, if it publishes anything.
 
-        `None` is a confirmed absence -- the endpoint answered and offers no such surface
-        -- exactly as in `probe_window`, and for the same reason: a caller must not cache
-        "this backend cannot tell me" because the network blinked. A transport failure
-        raises `BackendUnavailable` instead.
+        `None` is a confirmed absence, as in `probe_window` and for the same reason; a
+        transport failure raises `BackendUnavailable` instead.
 
-        These are the cluster's numbers, not ours. `admission` estimates queue depth from
-        what this process has dispatched, which is a guess that cannot see other clients;
-        this is the real thing. Values are reported, never interpreted -- the same rule
-        `finish_reason` follows, because deciding that a hit rate is "bad" is a policy
-        question and this layer has no policy.
+        These are the cluster's numbers, not ours. `admission`'s figures are estimates
+        from what this machine has admitted, blind to other clients; this is the real
+        thing. Values are
+        reported, never interpreted, as `finish_reason` is: deciding that a hit rate is
+        "bad" is policy, and this layer has none.
         """
         ...
 
