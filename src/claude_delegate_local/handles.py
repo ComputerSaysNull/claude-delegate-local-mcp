@@ -1,15 +1,14 @@
 """A delegation's handle: the name a second call collects its answer by.
 
-The client stops *waiting* on a call after 120s, and it will not issue the next
-write-capable call until the current one returns or is backgrounded, so a fan-out of six
-`delegate` calls started 120s apart (PLAN M20.1). A call that returns a handle at once
-lets the next one start; the work carries on in a task this process owns, and `collect`
-hands back what it produced.
+The client stops *waiting* on a call after 120s and will not issue the next write-capable
+call until the current one returns or is backgrounded, so a fan-out of `delegate` calls
+starts 120s apart. A call that returns a handle at once lets the next one start; the work
+carries on in a task this process owns, and `collect` hands back what it produced.
 
-In-process on purpose. Every caller of this server is one client talking to one process,
-and the run itself lives in that process -- a handle that outlived a restart would name
-work that no longer exists. What a restart does leave is the transcript, and an unknown
-handle is refused with a pointer to it.
+In-process on purpose. Every caller is one client talking to one process, and the run
+lives in that process, so a handle that outlived a restart would name work that no longer
+exists. A restart leaves the transcript, and an unknown handle is refused with a pointer
+to it.
 """
 
 from __future__ import annotations

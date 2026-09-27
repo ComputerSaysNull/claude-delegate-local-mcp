@@ -5,21 +5,10 @@ instance. A second model means a second container on a second port, with its own
 URL. Matching a model *name* against a prefix table cannot express that -- the URL is
 not derivable from the name.
 
-The ancestor project kept five prefix-keyed tables that had to stay mutually consistent
-by hand, resolved longest-prefix-wins:
-
-    _OPENAI_FORMAT_PREFIXES   -> api_format
-    HIGH_REASONING_PREFIXES   -> default_effort
-    PROVIDER_MAX_TOKENS_CAP   -> max_tokens_cap
-    MODEL_BUDGET_POLICY       -> default_max_tokens
-    PROVIDER_CONCURRENCY      -> concurrency
-
-All five collapse into the fields below. That is strictly less state, and it removes an
-entire bug class its own comments record -- one provider deliberately excluded from the
-format table to stop it breaking reasoning, another silently getting the wrong budget
-because its name lacked an expected suffix.
-
-Not a port. This file is new.
+Every per-model fact -- wire format, effort, token cap, concurrency -- lives in one row
+below, rather than in prefix-keyed tables that must agree with each other by hand. That is
+less state, and it removes a bug class: a model silently getting the wrong setting because
+its name did or did not match a prefix.
 """
 
 from __future__ import annotations
@@ -32,23 +21,20 @@ from .config import EFFORT_LEVELS, Config, ConfigError
 
 API_FORMATS = ("openai", "anthropic")
 
-# Only the OpenAI adapter ships (ADR-0008). "anthropic" is accepted as a *declared*
-# value so a registry file written today stays valid when the adapter lands, but
-# resolving one raises rather than silently doing something else.
+# Only the OpenAI adapter ships (ADR-0008). "anthropic" is accepted as a *declared* value
+# so a registry file stays valid if that adapter lands, but resolving one raises rather
+# than silently doing something else.
 IMPLEMENTED_FORMATS = ("openai",)
 
 _REQUIRED = ("base_url", "served_model_id")
 
-# One definition, referenced twice below. It was written out at both the dataclass
-# default and the parser's fallback, which is the duplicated-literal shape this project
-# derives BYTES_PER_TOKEN_DEFAULT to avoid: two copies of a default drift, and the one
-# that drifts is whichever the reader did not check.
+# One definition for the dataclass default and the parser's fallback: two copies of a
+# default drift, and the one that drifts is whichever the reader did not check.
 DEFAULT_CONTEXT_WINDOW = 131072
 
-# Same rule, and this one was written out three times: the dataclass default, the
-# zero-check's fallback and the parser's. It tracks `Config.max_inflight_seqs` rather than
-# being an independent number -- an entry that says nothing must not cap itself below what
-# the server will admit, which is the bind raising the global cap to 6 already removed once.
+# Same rule, for the dataclass default, the zero-check's fallback and the parser's. It
+# tracks `Config.max_inflight_seqs` rather than being an independent number: an entry that
+# says nothing must not cap itself below what the server will admit.
 DEFAULT_CONCURRENCY = 6
 
 
@@ -65,11 +51,10 @@ class ModelEntry:
     default_effort: str = ""          # "" means fall back to Config.thinking_default
     max_tokens_cap: int = 0           # 0 means no per-model cap
     concurrency: int = DEFAULT_CONCURRENCY  # this endpoint's own limit, checked with the global one
-    # True when models.toml said nothing and the default above was assumed. Recorded
-    # because the two cases need different advice: a window the operator set and got
-    # wrong is corrected, while one they never set was never a claim at all. Without
-    # this, the mismatch report told an operator their file gave a number it does not
-    # mention anywhere.
+    # True when models.toml said nothing and the default above was assumed. The two cases
+    # need different advice: a window the operator set wrong is corrected, while one never
+    # set was never a claim, and a mismatch report must not say the file gave a number it
+    # does not mention.
     context_window_defaulted: bool = False
     is_default: bool = False
 
@@ -79,16 +64,15 @@ class ModelEntry:
 
     @property
     def models_url(self) -> str:
-        # Bare vLLM exposes /v1/models but NOT the /health/liveliness the ancestor
-        # probed -- that endpoint belongs to a proxy it used to sit behind. Probing the
-        # wrong path made a healthy server look unreachable.
+        # Bare vLLM exposes /v1/models, not a proxy's /health/liveliness; probing a path
+        # the server lacks would make a healthy server look unreachable.
         return f"{self.base_url.rstrip('/')}/v1/models"
 
     @property
     def metrics_url(self) -> str:
-        # Not under /v1: the serving stack publishes Prometheus text at the root, which
-        # is where the metrics were found on 2026-09-05. An endpoint without it answers
-        # 404 and is reported as having nothing to say rather than as unhealthy.
+        # Not under /v1: the serving stack publishes Prometheus text at the root. An
+        # endpoint without it answers 404 and is reported as having nothing to say, not
+        # as unhealthy.
         return f"{self.base_url.rstrip('/')}/metrics"
 
     def effective_effort(self, cfg: Config) -> str:

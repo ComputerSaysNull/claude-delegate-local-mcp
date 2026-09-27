@@ -1,18 +1,14 @@
 r"""The one place a Windows path becomes a POSIX one.
 
-Claude Code runs on Windows; this server runs inside WSL2. `files[]` therefore arrives as
-`C:\Users\me\proj\src\foo.py`, while everything downstream of it -- `realpath`, the
-workspace roots, `git check-ignore` -- is POSIX. Translation happens here and nowhere
-else, so a path that came out wrong has exactly one place to be wrong in. Everything
-below this line is POSIX-only, per CLAUDE.md.
+Claude Code runs on Windows; this server runs inside WSL2. `files[]` arrives as
+`C:\Users\me\proj\src\foo.py`, while everything downstream -- `realpath`, the workspace
+roots, `git check-ignore` -- is POSIX. Translation happens here and nowhere else, so a
+wrong path has exactly one place to be wrong in. Everything below this is POSIX-only, per
+CLAUDE.md.
 
-The alternative was to require callers to send POSIX paths. That pushes the translation
-onto the model, which is the kind of thing that fails quietly: a model that guesses
-`/c/Users/...` produces a path that does not exist rather than an error saying so, and
-the refusal it eventually gets names the wrong layer. Rejected.
-
-Not a port. The ancestor project ran wholly on one operating system and had no boundary
-to cross.
+Callers are not asked to send POSIX paths, because that pushes the translation onto the
+model, where it fails quietly: a guessed `/c/Users/...` is a path that does not exist, and
+the eventual refusal names the wrong layer.
 """
 
 from __future__ import annotations
@@ -21,13 +17,13 @@ import os
 import re
 from pathlib import Path
 
-# `C:\rest`, `C:/rest`, or a bare `C:` -- Claude Code emits all three separator styles and
-# has no reason to be consistent about them within one call.
+# `C:\rest`, `C:/rest`, or a bare `C:` -- Claude Code emits all three, not necessarily
+# consistently within one call.
 _DRIVE = re.compile(r"^([A-Za-z]):([\\/].*)?$", re.DOTALL)
 
-# `\\wsl$\Ubuntu-24.04\home\dev\x` and its newer `\\wsl.localhost\...` spelling: what
-# Explorer hands out for a file that already lives in the distribution. It is a Windows
-# path naming a POSIX file, so it translates by deletion rather than by prefixing.
+# `\\wsl$\Ubuntu-24.04\home\dev\x` and its `\\wsl.localhost\...` spelling: what Explorer
+# hands out for a file already in the distribution. A Windows path naming a POSIX file, so
+# it translates by deletion rather than by prefixing.
 _WSL_UNC = re.compile(
     r"^[\\/]{2}wsl(?:\$|\.localhost)[\\/]+[^\\/]+(?:[\\/]+(.*))?$",
     re.IGNORECASE | re.DOTALL,
@@ -45,15 +41,13 @@ class UntranslatablePath(ValueError):
 def is_wsl() -> bool:
     """True when this POSIX process is running inside a WSL distribution.
 
-    Lives here rather than beside either caller because it answers the question this
-    module is about -- which side of the boundary this process is on. `--doctor` reports
-    it in the platform row, and `--init` needs it to decide whether an MCP registration
-    goes through `wsl.exe`; a four-line probe copied into both is how the two answers
-    start disagreeing.
+    Here, not beside either caller, because it answers this module's question -- which
+    side of the boundary this process is on. `--doctor` reports it and `--init` uses it to
+    decide whether a registration goes through `wsl.exe`; a probe copied into both is how
+    two answers start disagreeing.
 
-    Read from procfs rather than from an environment variable: `WSL_DISTRO_NAME` is unset
-    for a process launched by systemd inside the distribution, which would report a WSL
-    host as a native one.
+    From procfs, not an environment variable: `WSL_DISTRO_NAME` is unset for a process
+    systemd launches inside the distribution, which would report a WSL host as native.
     """
     try:
         return "microsoft" in Path("/proc/version").read_text(encoding="utf-8").lower()
@@ -70,15 +64,14 @@ def is_windows_form(given: str) -> bool:
 def to_posix(given: str) -> str:
     """Return `given` as a POSIX path, translating only if it is in Windows form.
 
-    A path with no drive letter and no UNC prefix is passed through untouched -- it is
-    already POSIX, and a backslash is a legal character in a POSIX filename, so rewriting
-    separators unconditionally would corrupt paths that were correct.
+    A path with no drive letter and no UNC prefix passes through untouched: it is already
+    POSIX, and a backslash is legal in a POSIX filename, so rewriting separators
+    unconditionally would corrupt correct paths.
     """
-    # A path arriving from a model routinely carries a stray newline or trailing space
-    # from whatever produced it. Windows filenames cannot end in a space or a dot, and a
-    # POSIX one that does is vanishingly rarer than the paste artefact, so stripping is
-    # the reading that is right far more often -- and the failure it avoids is a refusal
-    # naming a path that looks, printed, exactly like the one the caller meant.
+    # A model's path routinely carries a stray newline or trailing space. Windows names
+    # cannot end in a space or a dot, and a POSIX one that does is far rarer than the paste
+    # artefact, so stripping is right far more often -- and avoids a refusal naming a path
+    # that looks, printed, exactly like the one meant.
     s = given.strip()
     if not s:
         raise UntranslatablePath("An empty string is not a path.")
@@ -89,9 +82,8 @@ def to_posix(given: str) -> str:
         return "/" + rest
 
     if s.startswith("\\\\") or s.startswith("//"):
-        # A network share. There is no mount point for it inside the distribution, and
-        # inventing one would produce a path that resolves to nothing while looking
-        # plausible. Say so instead.
+        # A network share has no mount point inside the distribution, and inventing one
+        # would give a plausible path that resolves to nothing. Say so instead.
         raise UntranslatablePath(
             f"{given!r} is a UNC network path. The server runs inside WSL and cannot "
             "reach a Windows network share; copy the file into a workspace root, or "
@@ -109,46 +101,37 @@ def to_posix(given: str) -> str:
 def to_local(given: str) -> str:
     """`to_posix` where a boundary was really crossed; a pass-through where it was not.
 
-    `to_posix` translates unconditionally, and every caller it was written for can afford
-    that because none of them uses the result as a *location*. `workspace_roots`,
-    `effective_workdir_roots` and the requested paths checked against them all go through
-    it and then through `realpath`, so on a Windows host the mangling applies to both sides
-    of every comparison and cancels. Containment is answered correctly either way.
+    `to_posix` translates unconditionally, which its comparing callers can afford: roots
+    and the paths checked against them all go through it and then `realpath`, so on a
+    Windows host the mangling applies to both sides of every comparison and cancels.
 
-    A directory the server opens or writes into has no other side to cancel against. There,
-    translating on a Windows host is not a no-op but a mistake: `C:\\Users\\me\\t` is
-    already absolute there, and `/mnt/c/Users/me/t` names something under the current drive
-    that nobody asked for. The boundary this module exists to cross only exists when this
-    process is on the POSIX side of it -- which in production it always is, so this differs
-    from `to_posix` only under the Windows test suite.
+    A directory the server opens or writes into has no other side to cancel against, and
+    translating it on a Windows host is a mistake: `C:\\Users\\me\\t` is already absolute
+    there, and `/mnt/c/Users/me/t` names something under the current drive. The boundary
+    exists only when this process is on its POSIX side -- always, in production -- so this
+    differs from `to_posix` only under the Windows test suite.
 
     Use `to_posix` to compare a path. Use this to open one.
     """
     return to_posix(given) if os.name == "posix" else given.strip()
 
 
-# `/mnt/c/rest`, the form `to_posix` produces from a drive letter. Only a single-letter
-# mount is matched: `/mnt/wsl` and `/mnt/some-share` are real directories inside the
-# distribution that no Windows drive corresponds to.
+# `/mnt/c/rest`, the form `to_posix` makes from a drive letter. Only a single-letter mount
+# matches: `/mnt/wsl` and `/mnt/some-share` are real directories with no Windows drive.
 _MNT = re.compile(r"^/mnt/([a-zA-Z])(/.*)?$", re.DOTALL)
 
 
 def to_windows(given: str) -> str:
     r"""The inverse of `to_posix`, for a path that has to be *printed* to Windows.
 
-    Kept here rather than at its one call site, because a translation split across two
-    modules is how the two directions stop agreeing. Nothing in the server uses it: the
-    policy layers only ever translate toward POSIX, and a path this process opens is
-    handled by `to_local`. What needs it is `--init`, which prints an MCP registration
-    whose `--cd` is read by `wsl.exe` on the Windows side -- README says that argument
-    takes the Windows form and that `/mnt/c/...` is rejected there, so printing the POSIX
-    path would hand out a block that cannot work.
+    Here, not at its one call site, because a translation split across two modules is how
+    the two directions stop agreeing. The server never uses it; `--init` does, printing an
+    MCP registration whose `--cd` is read by `wsl.exe` on the Windows side, which takes
+    the Windows form and rejects `/mnt/c/...` (README).
 
-    Raises rather than guessing for a path with no Windows equivalent. `/home/you/x` lives
-    inside the distribution and the `\\wsl$\...` spelling that reaches it needs the
-    distribution name, which this function is not given -- and inventing one produces a
-    path that looks plausible and resolves to nothing, the failure this module's own
-    header rejects.
+    Raises rather than guessing for a path with no Windows equivalent: `/home/you/x` is
+    reached from Windows only by a `\\wsl$\...` spelling that needs the distribution
+    name, which this is not given, and an invented one resolves to nothing.
     """
     s = given.strip()
     m = _MNT.match(s)

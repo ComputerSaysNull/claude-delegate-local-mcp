@@ -222,10 +222,10 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
   half, each `Config` description cut to what it does plus a link, is ✅ 2026-09-26
 6. ✅ **Stop it regrowing**: the gate warns on a date, a `TODO` or future-work phrasing in a
   `src/` comment, and reports each module's prose ratio without blocking
-7. ⬜ **The rest of `src/`, by hand, largest first** (review §4: 42% to about 28%; 37% after the five): `admission.py` onward
+7. ✅ 2026-09-27 **The rest of `src/`, by hand, largest first** (review §4: 42% to about 28%; 37% after the five): `admission.py` onward
     - a. ✅ 2026-09-27 `admission.py`, `backends/openai_compat.py`, `transcript.py`, `slots.py`, one branch each.
     - b. ✅ 2026-09-27 `backends/base.py`, `config.py` (comments only), `provision.py`, `context.py`.
-    - c. ⬜ `agents.py`, `init.py`, `doctor.py`, then the seven small modules on one branch.
+    - c. ✅ 2026-09-27 `agents.py`, `init.py`, `doctor.py`, then the seven small modules on one branch.
 
 ### M19 — A browser viewer, and the ledger it reads
 

@@ -30,6 +30,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #399 — 2026-09-27 — docs: the small modules describe what is
+
+### Changed
+
+- **`wsl.py`, `main.py`, `registry.py`, `run_task.py`, `install_skills.py` and
+  `handles.py` describe what is, from 309 prose lines to 262; `ledger.py` needed
+  nothing.** The last of M18.7's modules, done on one branch because together they are
+  the size of one mid-sized module. `main.py`'s docstring named three commands that
+  bypass the MCP server where there are five, and now names all five. `registry.py`'s
+  table of the ancestor's five prefix tables becomes the rule it motivated: every
+  per-model fact in one row. What else goes is the "not a port" notes, a plan id and the
+  measured fan-out figures.
+- **M18.7 is done, and `src/` stands at 35% prose, not the review's 28%.** Twelve passes
+  took `src/` from 5,799 comment and docstring lines to 5,294. The review estimated
+  halving each paragraph. By hand, under a rule that keeps every reason, the cut came to
+  about 15% per module, and the read-only old-against-new check still found reasons to
+  put back in seven of the twelve. M18's exit criteria name no ratio, so the milestone closes on
+  them; the 28% stays in M18.7's text as the review's estimate it always was.
+
 ## #398 — 2026-09-27 — docs: doctor.py describes what is
 
 ### Changed
