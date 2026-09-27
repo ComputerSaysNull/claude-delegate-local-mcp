@@ -44,10 +44,11 @@ Older entries, in the previous flat format, are in
   The rule now carries both halves, and those three passes are reopened in PLAN.md.
 - **`loop.py`'s remaining prose is tightened.** Blocks that argued an ADR's case again
   shrink to what the code does, what must not break, and the link; the rest lose
-  restatement and lead-ins. A verification pass compared every changed block with the old
-  text and 18 dropped reasons were put back, so what went is length, not reasoning. The
-  "known gap" note on re-reads at another offset was a TODO in a docstring and is PLAN.md
-  item 92 now. Prose fell from 1,521 lines to 1,357 (52% to 48% of the module), and
+  restatement and lead-ins. A delegated first draft cut only 11% and dropped 18 reasons
+  on the way, so the pass was redone by hand, block by block, and a verification pass
+  compared every changed block with the old text (two more reasons restored). The "known
+  gap" note on re-reads at another offset was a TODO in a docstring and is PLAN.md item
+  92 now. Prose fell from 1,521 lines to 853 (52% to 37% of the module), and
   `ast_unchanged.py` reads the module as unchanged.
 
 ## #377 — 2026-09-26 — fix: the orchestration guide tells a caller to ask for the outcome
