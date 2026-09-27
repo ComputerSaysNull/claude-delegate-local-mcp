@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #382 — 2026-09-27 — docs: tools.py's remaining prose is tightened
+
+### Changed
+
+- **`tools.py`'s non-security comments are tightened, and its security reasoning is
+  trimmed conservatively.** The git allowlist, the two `allowed_tools` sites,
+  `WITHHELD_TOOL_NAMES`, the path-policy order and `run_bash` keep their reasoning whole;
+  the search, edit and layout helpers lose restatement, and two origin stories go. A
+  verification pass found three blocks that dropped a reason or inverted one ("which
+  layer 1 refuses" had come to attach to the real path), all restored. ToolSpec
+  descriptions and schema text are untouched, and `gen_tools_docs.py --check` confirms
+  `docs/TOOLS.md` did not move. Prose fell from 567 lines to 554. This closes the
+  per-module comment passes.
+
 ## #381 — 2026-09-27 — docs: paths.py and its path-policy sections describe what is
 
 ### Changed

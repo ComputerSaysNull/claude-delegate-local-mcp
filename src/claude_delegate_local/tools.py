@@ -64,15 +64,14 @@ class RegisteredTool:
     """One tool: what the model is told, and what actually runs.
 
     `cacheable` says whether repeating this call with identical arguments, inside one
-    delegation, must produce the same answer -- which is what lets the turn loop serve a
-    repeat from what it already has instead of paying for it twice. It is a property of
-    the tool, so it is declared with the tool; a loop that decided this by name would be
-    keeping a second copy of a fact about `tools.py` somewhere else.
+    delegation, must give the same answer -- which is what lets the turn loop serve a
+    repeat from what it already has. A property of the tool, declared with it; a loop
+    deciding it by name would keep a second copy of a fact about `tools.py`.
 
-    False is the safe answer and the default. A tool with side effects is never cacheable,
-    and it also invalidates what was cached: a file read before a write and read again
-    after it has two different correct answers, and serving the first one twice would hand
-    the model a stale file it has every reason to believe is current.
+    False is the safe default. A tool with side effects is never cacheable, and it also
+    invalidates what was cached, because a file read before a write and read again after
+    it has two different correct answers; serving the first twice hands the model a stale
+    file it has every reason to believe is current.
     """
 
     spec: ToolSpec
@@ -117,8 +116,8 @@ class BashPolicy:
 class BashResult:
     """A handler's text plus what the server measured, on the way to the result block.
 
-    Only `run_bash` returns one. Every other handler still returns a bare string, so this
-    widens one tool's contract rather than all of them.
+    Only `run_bash` returns one; every other handler returns a bare string, so this widens
+    one tool's contract rather than all of them.
     """
 
     text: str
@@ -128,9 +127,8 @@ class BashResult:
 
 # --- argument helpers -------------------------------------------------------------------
 #
-# The model supplies these, so they are checked rather than trusted. A wrong type here is a
-# refusal the model can read and correct on its next turn, not a traceback that ends the
-# delegation.
+# The model supplies these, so they are checked rather than trusted. A wrong type is a
+# refusal the model can correct on its next turn, not a traceback that ends the delegation.
 
 
 def _text_arg(args: dict[str, object], name: str, *, required: bool = True) -> str:
@@ -172,7 +170,7 @@ def _one_path(
     """
     # A tool argument, never `files[]`: this runs inside a tool call, so the refusal goes
     # back to the model as an error result and the delegation carries on. Naming the
-    # prefetch argument here sent the model to correct something it had not written.
+    # prefetch argument would send the model to correct something it did not write.
     resolved = resolve_all(
         cfg, [given], must_exist=must_exist, writing=writing, surface=surface,
         before_dispatch=False,
@@ -188,15 +186,14 @@ def _one_path(
 
 def _read_file(cfg: Config, args: dict[str, object]) -> str:
     entry = _one_path(cfg, _text_arg(args, "path"), must_exist=True)
-    # 1-based, because every other thing that cites a line is: an editor, a traceback, a
-    # reviewer. Lines are numbered so the model can be pointed at a range and cite what it
-    # read; `start_line`/`end_line` name a range directly rather than counting characters.
+    # 1-based, like an editor or a traceback. Lines are numbered so the model can cite what
+    # it read; `start_line`/`end_line` name a range directly, rather than counting
+    # characters.
     start = _int_arg(args, "start_line", 1)
     if start < 1:
         raise ToolRefused(
             f"start_line {start} is not a line number; lines are counted from 1.")
-    # 0 is "no end given" and cannot collide with a real one, since line numbers start at
-    # 1 and a negative is refused below alongside it.
+    # 0 means "no end given"; it cannot collide with a real line, which starts at 1.
     end = _int_arg(args, "end_line", 0)
     if end and end < start:
         raise ToolRefused(
@@ -205,10 +202,9 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
             "the request."
         )
 
-    # Sized from the descriptor rather than from the path, which is still what
-    # `max_file_read_bytes` means by checking "BEFORE reading": opening a file loads none
-    # of it, so the ceiling refuses a multi-gigabyte file without reading it, and it
-    # measures the file actually being held. One setting, one meaning, all three consumers.
+    # Sized from the descriptor, not the path. Opening loads none of the file, so the
+    # `max_file_read_bytes` ceiling refuses a multi-gigabyte file without reading it, and
+    # measures the file actually held. One setting, one meaning, all three consumers.
     try:
         opened = open_resolved(entry, "rb", scan_bytes=cfg.secret_content_scan_bytes)
     except OSError as e:
@@ -218,10 +214,9 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
         with opened.handle as fh:
             nbytes = os.fstat(fh.fileno()).st_size
             if nbytes > cfg.max_file_read_bytes:
-                # Refused rather than paged. At `max_read_chars` a file this size needs
-                # more calls than the turn budget allows, so offering pagination would
-                # spend the delegation getting nowhere; a shell that can cut out the
-                # part actually wanted is the real answer.
+                # Refused rather than paged: at `max_read_chars` a file this size needs
+                # more calls than the turn budget allows, so pagination would get the
+                # delegation nowhere. A shell that cuts out the part wanted is the answer.
                 raise ToolRefused(
                     f"it is {nbytes} bytes, over the {cfg.max_file_read_bytes}-byte "
                     f"ceiling, so it was not read at all. Use run_bash with sed, head "
@@ -235,24 +230,23 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
     if text is None:
         raise ToolRefused(why)
 
-    # `splitlines()` and not `split("\n")`: the latter invents a trailing empty line for
-    # every file that ends in a newline, which is most of them, and the model would be told
-    # the file is one line longer than it is. Line endings are dropped here and re-joined
-    # with "\n" below, so a CRLF file reads the same on either side of the boundary -- the
-    # numbering is what the caller asked for, not a byte-exact echo.
+    # `splitlines()`, not `split("\n")`: the latter invents a trailing empty line for a
+    # file ending in a newline, so the model would be told the file is one line longer than
+    # it is. Line endings are dropped and re-joined with "\n" below, so a CRLF file reads
+    # the same either side of the boundary -- the numbering is what was asked, not a byte
+    # echo.
     lines = text.splitlines()
     total = len(lines)
     if start > total and total:
         raise ToolRefused(
             f"start_line {start} is past the end; the file has {total} lines.")
 
-    # The window is still bounded in characters by `max_read_chars`, because that is what
-    # bounds a *reply*, and a file of very long lines would otherwise blow past it. It
-    # stops on a line boundary: half a line, numbered, would be worse than no numbering at
-    # all, because the number would be a lie about what follows. `end_line` past the end is
-    # the end of the file, deliberately unlike `start_line` past the end, which is refused:
-    # reading *to* line 999 of a ten-line file is a well-formed request with an obvious
-    # answer, while starting there asks for nothing.
+    # Still bounded in characters by `max_read_chars`, which is what bounds a *reply*; a
+    # file of very long lines would otherwise blow past it. Stops on a line boundary: half
+    # a numbered line is worse than no numbering, because the number would lie about what
+    # follows. `end_line` past the end is the end, unlike `start_line` past the end, which
+    # is refused: reading *to* line 999 of a ten-line file has an obvious answer, while
+    # starting there asks for nothing.
     last = min(end, total) if end else total
 
     out: list[str] = []
@@ -271,29 +265,27 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
         index = last + 1
 
     body = "\n".join(out)
-    # Against `last`, not `total`: a range that ended where the caller asked it to is
-    # complete, and telling them it was "truncated" would send them back for a rest they
-    # deliberately did not want.
+    # Against `last`, not `total`: a range ending where the caller asked is complete, and
+    # calling it "truncated" would send them back for a rest they did not want.
     if index > last:
         return body
     # The true total and the next `start_line`, so a continuation is a second range rather
-    # than a second whole read. Appended to the result, never to the system prompt: the
-    # prefix must stay byte-identical across calls (ADR-0011).
+    # than a second whole read. Appended to the result, never the prompt: the prefix must
+    # stay byte-identical across calls (ADR-0011).
     return (
         f"{body}\n\n[truncated: lines {start} to {index - 1} of {total}. "
         f"Call read_file again with start_line={index} for the rest.]"
     )
 
 
-# The one `path` value that means "every workspace root". A sentinel rather than an omitted
-# argument: an omission is indistinguishable from a model that decided nothing, so the
+# The one `path` value meaning "every workspace root". A sentinel rather than an omitted
+# argument: an omission is indistinguishable from a model that decided nothing, and the
 # sentinel makes a deliberate full walk one greppable string in a transcript. It cannot
-# collide with a real `path` because layer 1 refuses anything not absolute.
+# collide with a real `path`, because layer 1 refuses anything not absolute.
 UNSCOPED = "_unscoped_"
 
-# Entries listed per root before the rest are summarised. A map exists to be read in one
-# glance and to sit in a cached prefix; an unbounded listing of a directory holding nine
-# hundred files is neither.
+# Entries listed per root before the rest are summarised. A map is read in one glance and
+# sits in a cached prefix; an unbounded listing of a dense directory is neither.
 LAYOUT_MAX_ENTRIES = 40
 
 
@@ -301,25 +293,23 @@ def _top_level(root: str, globs: Sequence[str]) -> tuple[str, ...]:
     """What is directly inside `root`: directories marked with a trailing slash, then files.
 
     One level, never recursive. This runs at declaration time, so a recursive listing would
-    reintroduce the very walk the map exists to avoid paying for, before a token had been
-    spent.
+    reintroduce the very walk the map exists to avoid, before a token is spent.
 
     **Files as well as directories**, because a directory holding only files would otherwise
-    be advertised as empty and the model would rule it out. The repository root is exactly
-    that shape: `PLAN.md`, `CHANGELOG.md` and `DECISIONS.md` live there with no subdirectory
-    of their own, and a directories-only map would hide them.
+    be advertised as empty and the model would rule it out -- the repository root, with
+    `PLAN.md` and `CHANGELOG.md` and no subdirectory of their own, is exactly that shape.
 
     Filtered the way the walk prunes, with the same denylist. Symlinks are skipped so one
-    tree is not offered under two names, and a denylisted entry is not named at all --
-    advertising one is worse than silence, because the model scopes a search to it, the walk
-    declines to enter, and an empty result reads as proof of absence rather than as policy.
+    tree is not offered under two names, and a denylisted entry is not named at all:
+    advertising one is worse than silence, since the model scopes a search to it, the walk
+    declines to enter, and an empty result reads as proof of absence rather than policy.
     """
     try:
         entries = sorted(os.listdir(root))
     except OSError:
-        # A root that has gone missing is the operator's problem, not this call's. The
-        # root's name is still correct and still useful, so the listing degrades to nothing
-        # rather than taking a delegation down at declaration time.
+        # A missing root is the operator's problem, not this call's. The name is still
+        # correct and useful, so the listing degrades to nothing rather than taking a
+        # delegation down at declaration time.
         return ()
     dirs: list[str] = []
     files: list[str] = []
@@ -331,8 +321,8 @@ def _top_level(root: str, globs: Sequence[str]) -> tuple[str, ...]:
             dirs.append(name + "/")
         elif os.path.isfile(full):
             files.append(name)
-    # Directories first because they are where a search is usually scoped to; files second
-    # because they are what tells the model the directory is not empty.
+    # Directories first because a search is usually scoped to one; files second because they
+    # tell the model the directory is not empty.
     return tuple(dirs + files)
 
 
@@ -340,8 +330,8 @@ def _render_entries(inside: Sequence[str]) -> str:
     """One root's listing, capped, saying how many it did not name.
 
     The count matters more than the names it replaces: "+312 more" tells the model the
-    directory is dense and worth scoping *into*, where a silent truncation would suggest it
-    had been shown everything.
+    directory is dense and worth scoping *into*, where a silent truncation would suggest
+    it had been shown everything.
     """
     if not inside:
         return "(empty)"
@@ -354,17 +344,15 @@ def _render_entries(inside: Sequence[str]) -> str:
 def _workspace_layout(cfg: Config) -> str:
     """Every workspace root and what is directly inside it, as one block of text.
 
-    The map exists because the model had to be told the layout, not just urged to narrow:
-    telling it to scope is useless when the only directory names it has ever been given are
-    the roots. Why: ADR-0076.
+    The model must be told the layout, not just urged to narrow: scoping is useless when
+    the only directory names it has ever been given are the roots. Why: ADR-0076.
 
-    The denylist is read once here rather than once per root, which is why `_top_level` takes
-    the globs instead of the `Config`.
+    The denylist is read once here rather than once per root, which is why `_top_level`
+    takes the globs instead of the `Config`.
 
-    Deterministic for a given config -- sorted names, no counts of anything that moves, no
-    timestamps -- because a tool schema sits in the cached prompt prefix (ADR-0011). It does
-    change when a top-level entry appears or disappears, and that costs one cold prefill,
-    rarer than a delegation.
+    Deterministic for a given config -- sorted names, no counts or timestamps -- because a
+    tool schema sits in the cached prompt prefix (ADR-0011). It does change when a top-level
+    entry appears or disappears, costing one cold prefill, rarer than a delegation.
     """
     globs = load_secret_globs(cfg)
     roots = resolved_roots(cfg)
@@ -379,8 +367,8 @@ def _scope_help(cfg: Config) -> str:
 
     The description and the refusal say the same thing deliberately: two copies of a map is
     two copies that drift, and this is the one fact both homes need. The refusal is the
-    backstop -- it fires when the model has just shown it does not know the layout, which is
-    the moment to hand over the whole map rather than only the root names.
+    backstop, firing when the model has just shown it does not know the layout -- the
+    moment to hand over the whole map, not only the root names.
     """
     return (
         _workspace_layout(cfg)
@@ -396,9 +384,9 @@ def _root_scope_note(cfg: Config, root: str) -> str:
 
     A note rather than a refusal. Why: ADR-0087.
 
-    The children of the root *just* named are named, rather than the workspace map, because
-    the call has proved the model knows the root's name and not what is under it. Listing
-    the roots again is the one thing shown not to be the missing fact.
+    The children of the root *just* named are named, not the workspace map, because the call
+    has proved the model knows the root's name and not what is under it; listing the roots
+    again is the one thing shown not to be the missing fact.
 
     No multiple is quoted; the ratio is this hardware's, where the shape is everyone's.
     Why: ADR-0074.
@@ -418,13 +406,13 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
     `resolve_permitted`'s, over the same four layers the file tools use. What this does is
     avoid handing the policy a hundred thousand candidates: the extension allowlist and the
     caller's glob are cheap string tests, and pruning a denylisted directory keeps the walk
-    out of `.git` entirely rather than discovering it a loose object at a time.
+    out of `.git` rather than discovering it a loose object at a time.
 
     Gitignored directories are pruned here too, and the reason is the scan cap rather than
-    speed alone: charged against files the project already said it does not care about, the
-    cap is reached inside them and the walk stops before it reaches the source. A directory
-    is asked about once, per level and in one batch, and `tops` carries the work-tree lookup
-    across levels so descending never re-pays it.
+    speed: charged against files the project already said it does not care about, the cap is
+    reached inside them and the walk stops before the source. A directory is asked once, per
+    level and in one batch, and `tops` carries the work-tree lookup across levels so
+    descending never re-pays it.
 
     Pruning directories does not make `resolve_permitted`'s own `gitignored` call redundant:
     an ignored *file* in a directory that is not ignored is only caught there.
@@ -439,8 +427,8 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
 
     for dirpath, dirnames, filenames in os.walk(scope):
         # Prune in place, and skip symlinks rather than following them. `os.walk` does not
-        # follow them by default; the explicit skip is what stops the same tree being
-        # enumerated twice through two names.
+        # follow them by default; the explicit skip stops the same tree being enumerated
+        # twice through two names.
         kept = []
         for name in sorted(dirnames):
             full = posixpath.join(dirpath, name)
@@ -450,7 +438,7 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
 
         if cfg.respect_gitignore and kept:
             # One `check-ignore` for this level, never one per directory: the walk is about
-            # to descend into every name still standing, so they are all asked at once.
+            # to descend into every name still standing, so all are asked at once.
             ignored = gitignored([posixpath.join(dirpath, n) for n in kept], tops=tops)
             kept = [n for n in kept if posixpath.join(dirpath, n) not in ignored]
 
@@ -488,8 +476,8 @@ def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
     """Read each permitted file and collect matching lines, bounded twice.
 
     Bounded by `max_results` because a caller asked, and by `max_read_chars` because that
-    is what bounds any tool reply -- a pattern matching every line of a large file would
-    otherwise return the file.
+    bounds any tool reply -- a pattern matching every line of a large file would otherwise
+    return the file.
     """
     lines: list[str] = []
     files = 0
@@ -506,9 +494,8 @@ def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
                 blob = fh.read(cfg.max_file_read_bytes)
         except (OSError, PathRefused):
             # Vanished, unreadable, or different from the file the policy approved, between
-            # the walk and here. Dropped rather than refused, matching
-            # `resolve_permitted`: nobody named this path, so it is not a result rather
-            # than an error.
+            # the walk and here. Dropped rather than refused, matching `resolve_permitted`:
+            # nobody named this path, so it is not a result rather than an error.
             continue
         text, _ = decode_text(blob)
         if text is None:
@@ -539,9 +526,9 @@ def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
 def _unscoped_note(cfg: Config) -> str:
     """What an omitted `path` actually cost, said where the model will read it.
 
-    The result rather than the schema, because a schema is read once and a result is read
-    every time -- and because the alternative, refusing a `glob` with no `path`, would
-    break a legitimate search: finding every `conftest.py` anywhere is exactly that shape.
+    The result rather than the schema, because a schema is read once and a result every
+    time -- and because the alternative, refusing a `glob` with no `path`, would break a
+    legitimate search: finding every `conftest.py` anywhere is exactly that shape.
 
     The note names the roots rather than the multiple, because the multiple is this
     hardware's and the roots are the caller's. Why: ADR-0074.
@@ -563,8 +550,8 @@ def _search_report(
     the model will conclude a symbol does not exist, and say so confidently.
 
     `root_scope` is the other half: a call that walks a whole root gets an answer it can
-    use, and the note saying a narrower one would have been faster rides along with it
-    rather than replacing it.
+    use, and the note saying a narrower one would have been faster rides along rather than
+    replacing it.
     """
     tail: list[str] = [f"{len(hits.lines)} matching line(s) in {hits.files} file(s)."]
     if unscoped:
@@ -603,9 +590,9 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
     if max_results < 1:
         raise ToolRefused("max_results must be at least 1; a search for no results is not one.")
 
-    # Required, and refused with the map rather than with another instruction: the model
-    # omits it because it has never been told a directory name, so the remedy travels with
-    # the refusal. Why: ADR-0076.
+    # Required, and refused with the map rather than another instruction: the model omits it
+    # because it has never been told a directory name, so the remedy travels with the
+    # refusal. Why: ADR-0076.
     given = _text_arg(args, "path", required=False)
     if not given:
         raise ToolRefused(
@@ -616,7 +603,7 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
     if given == UNSCOPED:
         # The escape, taken deliberately and spelled so a transcript can be grepped for it.
         # Checked before layer 1, which would refuse the sentinel for not being absolute --
-        # and that refusal is exactly why no real path can collide with it.
+        # which is exactly why no real path can collide with it.
         scopes = resolved_roots(cfg)
     else:
         # `resolve_search_root`, not `_one_path`: the latter refuses a directory at layer 1
@@ -627,8 +614,8 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
         )
         # Compared after resolving, never as the string that arrived: a trailing slash, a
         # `.` segment or a symlinked spelling all name the same root, and a string compare
-        # would let three of the four shapes go unrecognised. Recognising it is what earns
-        # the note, which replaced the refusal. Why: ADR-0087.
+        # would miss three of the four. Recognising it earns the note rather than a refusal.
+        # Why: ADR-0087.
         if scope in resolved_roots(cfg):
             root_scope = scope
         scopes = (scope,)
@@ -644,9 +631,9 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
         capped = capped or hit
 
     # One policy call for the whole batch, which is also what keeps `gitignored` to one
-    # `check-ignore` per repository rather than one per file. Candidates the policy
-    # declines are dropped rather than reported: nobody named them, so they are not
-    # results -- see `resolve_permitted` on why that is a separate function.
+    # `check-ignore` per repository rather than one per file. Candidates the policy declines
+    # are dropped rather than reported: nobody named them, so they are not results -- see
+    # `resolve_permitted` on why that is a separate function.
     permitted = resolve_permitted(cfg, candidates, must_exist=True)
     hits = _search_hits(cfg, permitted, needle, max_results)
 
@@ -675,7 +662,7 @@ def _write_file(cfg: Config, args: dict[str, object]) -> str:
     content = _text_arg(args, "content")
     encoded = content.encode("utf-8")
     if len(encoded) > cfg.max_write_bytes:
-        # Refused, not truncated. A silently shortened file is a corrupted one, and the
+        # Refused, not truncated: a silently shortened file is a corrupted one, and the
         # model would have no way to know -- the same reasoning as context.py's whole-file
         # skip on prefetch.
         raise ToolRefused(
@@ -689,8 +676,8 @@ def _write_file(cfg: Config, args: dict[str, object]) -> str:
             fh.write(encoded)
     except OSError as e:
         raise ToolRefused(f"could not write it: {e.strerror or e}") from e
-    # Which verb comes from the open that made the file, not from a second `stat` on
-    # the same string -- which would be a second use of a path checked once.
+    # Which verb comes from the open that made the file, not a second `stat` on the same
+    # string -- which would be a second use of a path checked once.
     verb = "Created" if opened.created else "Overwrote"
     return f"{verb} {entry.posix} ({len(encoded)} bytes)."
 
@@ -723,10 +710,10 @@ def _line_col(starts: Sequence[int], index: int) -> tuple[int, int]:
 def _nearest_miss(text: str, old: str) -> str | None:
     """Where `old` almost is, as a line/column hint, or None when it is not close.
 
-    "Read it again" alone gets the same edit sent back unchanged, so this names the
-    nearest region and the first character that differs. Never file text: the refusal
-    lands in the operator transcript, which must stay free of file contents, so the hint
-    is line numbers, a column and code points. Why: ADR-0039.
+    "Read it again" alone gets the same edit sent back unchanged, so this names the nearest
+    region and the first differing character. Never file text: the refusal lands in the
+    operator transcript, which must stay free of file contents, so the hint is line numbers,
+    a column and code points. Why: ADR-0039.
     """
     old_lines = old.splitlines()
     head_index = next((i for i, line in enumerate(old_lines) if line.strip()), None)
@@ -753,8 +740,8 @@ def _nearest_miss(text: str, old: str) -> str | None:
     best_cand = candidates[0]
     best_i = -1
     for cand in candidates:
-        # Compared in place: a first line as common as `}` can name hundreds of
-        # candidates, and slicing the rest of the file for each would copy it that often.
+        # Compared in place: a first line as common as `}` can name hundreds of candidates,
+        # and slicing the rest of the file for each would copy it that often.
         origin = starts[cand]
         limit = min(len(a), len(text) - origin)
         i = 0
@@ -767,8 +754,8 @@ def _nearest_miss(text: str, old: str) -> str | None:
     start = best_cand + 1
     b = text[starts[best_cand]:]
     if best_i >= len(b):
-        # The file runs out before the difference, so there is no file character to
-        # name -- only the character the caller wrote where the file has none.
+        # The file runs out before the difference, so there is no file character to name --
+        # only the character the caller wrote where the file has none.
         return (
             f"The closest match starts at line {start}; it first differs where the file "
             f"ends, and you have {_code_point(a[best_i])}. Read from line {start} and "
@@ -794,11 +781,11 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
 
     `write_file` replaces a file whole, so changing three lines of a long module means
     reading it back and rewriting every line, with any hallucinated character landing
-    silently in a part of the file nobody was looking at.
+    silently in a part nobody was looking at.
 
-    **Refusing an ambiguous or absent match is the feature, not a limitation of it.** A
-    stale quotation matches nothing and a common one matches twice, and both mean the model
-    is not editing what it thinks it is; saying so costs a turn, while guessing costs a
+    **Refusing an ambiguous or absent match is the feature, not a limitation.** A stale
+    quotation matches nothing and a common one matches twice, and both mean the model is
+    not editing what it thinks it is; saying so costs a turn, while guessing costs a
     corrupted file nobody notices. That self-check is why this addresses text rather than
     line numbers: line 151 is whatever line 151 now is, and a stale number overwrites the
     wrong region with no way to tell.
@@ -862,7 +849,7 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
 
         edited = text.replace(old, new, 1).encode("utf-8")
         if len(edited) > cfg.max_write_bytes:
-            # The same limit `write_file` uses, and refused for the same reason: a silently
+            # The same limit `write_file` uses, refused for the same reason: a silently
             # shortened file is a corrupted one, and the model would have no way to know.
             raise ToolRefused(
                 f"the result would be {len(edited)} bytes, over the "
@@ -873,8 +860,8 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
             fh.seek(0)
             fh.write(edited)
             # Truncate to what was written, not to zero beforehand: every refusal above
-            # leaves the file exactly as it was, which is what lets the model retry with a
-            # better quotation instead of a repair.
+            # leaves the file as it was, which is what lets the model retry with a better
+            # quotation instead of a repair.
             fh.truncate()
         except OSError as e:
             raise ToolRefused(f"could not write it: {e.strerror or e}") from e
@@ -1054,8 +1041,8 @@ GIT_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "--cached", "--others", "--modified", "--deleted", "--exclude-standard", "--stage",
     }),
     "shortlog": frozenset({"-s", "-n", "-e", "--no-merges", "--summary", "--numbered"}),
-    # Added after a live delegation reached for it twice: `rev-list --count` is how you
-    # count commits, and `log` piped to nothing cannot. Read-only like the rest.
+    # `rev-list --count` is how you count commits, and `log` piped to nothing cannot.
+    # Read-only like the rest.
     "rev-list": frozenset({
         "--count", "--all", "--max-count", "-n", "--skip", "--no-merges", "--merges",
         "--first-parent", "--reverse", "--since", "--until", "--after", "--before",
@@ -1734,10 +1721,10 @@ WITHHELD_TOOL_NAMES: frozenset[str] = frozenset()
 def available_tool_names(cfg: Config) -> frozenset[str]:
     """What this server can offer today, as opposed to what it implements.
 
-    Asks rather than remembers. `run_bash` needs bubblewrap, and whether bubblewrap is
-    present is a fact about the host this process is running on -- not something a constant
-    written at import time can know. Declaring a tool the host cannot run then refusing
-    every call costs a whole turn learning what the server already knew.
+    Asks rather than remembers. `run_bash` needs bubblewrap, and whether it is present is a
+    fact about the host this process is running on -- not something a constant written at
+    import time can know. Declaring a tool the host cannot run then refusing every call
+    costs a whole turn learning what the server already knew.
 
     The same condition `sandbox.run` refuses on, checked where the set is resolved instead
     of after a turn has been paid for. One condition, two places it can be observed, and
@@ -1774,12 +1761,12 @@ def resolve_allowed(requested: Iterable[str] | None, cfg: Config) -> frozenset[s
 def _with_layout(spec: ToolSpec, cfg: Config) -> ToolSpec:
     """`search_files` with this deployment's workspace map appended to its description.
 
-    Appended here rather than stored in `REGISTRY`, and that is load-bearing rather than
-    tidiness: `scripts/gen_tools_docs.py` renders the registry into the committed
-    `docs/TOOLS.md`, and a workspace root is an absolute path on the operator's machine,
-    home directory included. A map in the registry would publish a local filesystem layout
-    -- and a personal identifier inside it -- into a public artefact. The generator has no
-    `Config`, so it renders the static contract and nothing else.
+    Appended here rather than stored in `REGISTRY`, and that is load-bearing, not tidiness:
+    `scripts/gen_tools_docs.py` renders the registry into the committed `docs/TOOLS.md`, and
+    a workspace root is an absolute path on the operator's machine, home included. A map in
+    the registry would publish a local filesystem layout -- and a personal identifier inside
+    it -- into a public artefact. The generator has no `Config`, so it renders the static
+    contract and nothing else.
     """
     if spec.name != SEARCH_FILES.spec.name:
         return spec
@@ -1808,9 +1795,9 @@ def declared_tools(cfg: Config, allowed: Iterable[str]) -> tuple[ToolSpec, ...]:
 # decide what to do next. Why: ADR-0024.
 #
 # In-place editors are named explicitly rather than caught by a general "looks like editing"
-# rule, because the cost of a false positive is a note the model can ignore and the cost of a
-# false negative is nothing at all. Redirection is the one general case, and it excludes the
-# device targets and fd duplications that are not file edits at all.
+# rule, because a false positive is a note the model can ignore and a false negative costs
+# nothing. Redirection is the one general case, and excludes the device targets and fd
+# duplications that are not file edits at all.
 _IN_PLACE = re.compile(
     r"(?:^|[\s;&|(])(?:sed|perl|ruby|gawk|awk)\s+(?:-\w*\s+)*-[a-z]*i\b"
     r"|(?:^|[\s;&|(])patch\b"
@@ -1830,7 +1817,7 @@ def _rewrites_text(command: str) -> bool:
     """Whether a shell command looks like it patches file text.
 
     Advisory, so this errs toward quiet: a missed case costs nothing, and a false positive
-    costs one line the model may ignore. It must never be read as a reason to block.
+    costs one line the model may ignore. Never a reason to block.
     """
     if _IN_PLACE.search(command):
         return True
