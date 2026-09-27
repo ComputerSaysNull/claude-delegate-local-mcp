@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #380 — 2026-09-27 — docs: sandbox.py and its architecture section describe what is
+
+### Changed
+
+- **The sandbox's comments and its ARCHITECTURE sections drop their history and keep
+  their security reasoning.** The 2026-09-22 review asked for history to go from
+  `sandbox.py` but for its reasoning to be trimmed only conservatively, because that
+  reasoning is what stops regressions there. So dated measurements, the ancestor's
+  behaviour and the retelling of how `extra_binds` came to be scanned go; every mount,
+  cover and cap keeps what it guards against. A stale claim went with them, that no caller
+  passes a real `workdir`; and the delegated draft wrote four "measured, JOURNAL" pointers,
+  across three dates, to entries JOURNAL does not have, which were caught and replaced
+  before this commit. ARCHITECTURE's "Why bubblewrap", "caps" and "route" sections get
+  the same treatment in the same commit, where three reasons a first draft dropped were
+  restored. Prose fell from 563 lines to 543, and `ast_unchanged.py` reads the module as
+  unchanged.
+
 ## #379 — 2026-09-27 — docs: server.py's remaining prose is tightened
 
 ### Changed

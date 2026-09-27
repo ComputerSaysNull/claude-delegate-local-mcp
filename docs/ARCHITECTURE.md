@@ -461,22 +461,16 @@ primitive but has no CLI, so using it means hand-written Win32 security code —
 where a subtle hole hides. Docker Desktop uses the WSL2 backend anyway. Hence: the server
 runs in WSL2 even though Claude Code does not. (ADR-0002)
 
-**If bubblewrap is missing, `run_bash` refuses.** The ancestor logs a warning and runs the
-command unconfined. A security control that silently degrades to nothing is worse than an
-absent one, because it is believed. (ADR-0010)
+**If bubblewrap is missing, `run_bash` refuses.** A security control that silently degrades
+to nothing is worse than an absent one, because it is believed. (ADR-0010)
 
-There is also no setting that runs a shell unconfined. `DELEGATE_SANDBOX_ENABLED` once
-promised exactly that as "an explicit, logged choice", and was deleted rather than
-implemented: a control an operator can switch off is still a control that can silently be
-off, and nothing downstream — not the caller, not the model — can tell from the outside.
-(ADR-0034)
+There is also no setting that runs a shell unconfined: a control an operator can switch off
+is still a control that can silently be off, and nothing downstream — not the caller, not the
+model — can tell from the outside. (ADR-0034)
 
 What is bound is now the delegation's to choose — a workdir, a network namespace, extra
-toolchain directories — so the secret scan covers all three roots rather than the two it
-began with. Skipping `extra_binds` had been justified by the value being an operator's, and
-an agent file supplying it ended that. The reasoning is worth keeping even where it stopped
-applying: this is the second time here that a comment has outlived the code it justified,
-the first being the one explaining `WITHHELD_TOOL_NAMES`. (ADR-0036)
+toolchain directories — so the secret scan covers all three roots. `extra_binds` is not an
+operator's choice once an agent file can supply it. (ADR-0036)
 
 Covering a bind afterwards is not the same as choosing what may be bound, and only the
 second is a decision. So an agent's binds are now resolved and checked against operator-set
@@ -484,26 +478,23 @@ roots before they reach here at all. A bind at or above one of the sandbox's own
 refused separately: `extra_binds` are emitted after them, so naming one replaces it, and
 reordering to prevent that would wipe every bind inside the tmpfs on `/tmp`. (ADR-0053)
 
-**A covering mount is read-only**, and that is a correctness fix rather than hardening.
-ADR-0041 recorded a writable cover as discarding a write; measured 2026-09-08 it is worse.
-The mount is 64 KiB, a larger write is truncated at exactly 65536 bytes with nothing
-reported to the writer, and the truncated remainder stays there to be read — so a nested
-`pytest` writing bytecode into a covered `__pycache__` dies on `EOFError: marshal data too
-short` later in the same run. `--remount-ro` follows each covering tmpfs, in that position
-because a remount applies to whichever mount is current. File shadows keep `--ro-bind
-/dev/null`, which is read-only already. (ADR-0064)
+**A covering mount is read-only**, and that is a correctness fix rather than hardening. A
+writable cover is 64 KiB: a larger write is truncated with nothing reported, and the
+remainder stays to be read, so a nested `pytest` writing bytecode into a covered
+`__pycache__` fails later in the same run. `--remount-ro` follows each covering tmpfs, in that position because a remount applies to
+whichever mount is current. File shadows keep `--ro-bind /dev/null`, which is read-only
+already. (ADR-0064)
 
 **One tree is pruned from that scan and not covered**, which is the shape ADR-0041 calls
 the hole — and it is forced rather than chosen. A provisioned virtualenv is the first tree
-a command must be able to *read*: walked, this repository's own is 8,981 entries and the
-denylist fires 13 times, covering `certifi/cacert.pem` and `keyring/credentials.py` with
-`/dev/null` and breaking the environment it just read. Covering the tree instead hides it.
-So it is skipped and bound **read-only**, which replaces the cover rather than second-
-guessing it: the contents become unchangeable instead of unreadable, and the guarantee
-moves to build time, where `provision` keeps an operator's index configuration out. An
-agent file cannot substitute it — the tree is reserved beside the base mounts, since taking
-it would supply an interpreter the sandbox did not build. `--doctor` re-scans and *reports*
-what matches. (ADR-0062)
+a command must be able to *read*: the denylist matches files inside one, such as a
+certificate bundle, and covering them breaks the environment the command runs. So it is
+skipped and bound **read-only**, which replaces the cover rather than second-guessing it:
+the contents become unchangeable instead of unreadable, and the guarantee moves to build
+time, where `provision` keeps an operator's index configuration out. An agent file cannot
+substitute it — the tree is reserved beside the base mounts, since taking it would supply
+an interpreter the sandbox did not build. `--doctor` re-scans and *reports* what matches.
+(ADR-0062)
 
 **The two list files are exempt too: the scan reads them to build itself.**
 `secret_globs.txt` matches its own `*secret*` entry, and a `/dev/null` cover reads as
@@ -540,13 +531,13 @@ delegations share one budget and a fork bomb in one starves the others — still
 the alternative, which on a machine with a capped page file is an OOM. Below roughly 64,
 bwrap cannot create its namespaces at all and every command fails at startup. And when the
 cap does bind, the shell cannot fork to say so: the call dies with no output and a bare
-exit code. A bounded fork storm against a 256-process cap produced exactly that. (ADR-0054)
+exit code. (ADR-0054)
 
 ### The route, now open
 
-`run_bash` is declared and it runs commands. It was withheld from M4 until two things
-existed: a sandbox that could confine it, and a denylist enforced at the mount level for
-secrets inside what that sandbox binds. Both do, so `WITHHELD_TOOL_NAMES` is empty.
+`run_bash` is declared and it runs commands. A sandbox confines it and a denylist is
+enforced at the mount level for secrets inside what that sandbox binds, so
+`WITHHELD_TOOL_NAMES` is empty.
 
 The set is kept rather than deleted. Withholding is how this server says "this tool exists
 and cannot work today" — a fact about the server, distinct from a caller narrowing one
@@ -582,9 +573,8 @@ it removed it first; a root-level protected file is moved aside and named ([why]
 
 **Bulk directories are covered and not walked.** The walk is per `run_bash` call, on a
 workspace that lives on `/mnt/c`, and the budget above is what a project's own installed
-dependencies exhaust: this repository walked 10,586 entries in 66 seconds once it carried a
-virtualenv, against 248 in 0.7 with one covered. So a second list, `opaque_globs_file`,
-names machine-generated directories, and a match is covered with the same tmpfs a matched
+dependencies exhaust (ADR-0041). So a second list, `opaque_globs_file`, names
+machine-generated directories, and a match is covered with the same tmpfs a matched
 secret directory gets and pruned from the walk for the same reason. The covers are read-only,
 so the caches that list names are pointed at `/tmp` through the environment instead
 (`RUFF_CACHE_DIR`, `PYTHONPYCACHEPREFIX`, and pytest's `cache_dir` appended to
