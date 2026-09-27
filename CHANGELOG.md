@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #396 — 2026-09-27 — docs: agents.py describes what is
+
+### Changed
+
+- **`agents.py`'s comments describe agent files as they are, from 200 prose lines to
+  175.** The first of M18.7's last group. The ancestor's ignored-frontmatter bug becomes
+  the failure the format is shaped against, stated in the present tense. The docstrings
+  counted "three tiers" and "three locations" where the lookup searches more, and now
+  just say tiered. The security reasoning -- an agent name checked before any `stat`,
+  binds that could shadow the sandbox's own mounts, a network grant that needs the
+  operator's own file and not only a matching name -- is trimmed conservatively and keeps
+  every attack it names. `ast_unchanged.py` reads the module as unchanged.
+
 ## #395 — 2026-09-27 — docs: context.py describes what is
 
 ### Changed
