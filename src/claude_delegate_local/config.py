@@ -2,20 +2,14 @@
 
 This module is the **single source of truth** for configuration. `docs/CONFIGURATION.md`
 is generated from the field metadata below by `scripts/gen_config_docs.py`, and the docs
-gate fails if the generated file drifts from this code. That is deliberate: the ancestor
-project documents one setting as three different values in three places (README, config
-reference, and the code itself), and this is the mechanism that makes that impossible
-here. See ADR-0004.
+gate fails if the generated file drifts from this code, so one setting cannot be
+documented as different values in different places (ADR-0004).
 
 So: never state a default anywhere else. Not in a docstring, not in a README, not in a
 comment in another module. Add the field here with a `description`, run the generator.
 
-Environment prefix is `DELEGATE_`. It was `DEEPSEEK_DELEGATE_` while this server spoke to
-exactly one model; ADR-0009 made the model registry explicit and multi-model, so a
-model-specific prefix became wrong.
-
-Not a port -- this file is new. The ancestor kept its configuration as ~40 loose module
-constants with two inconsistent prefixes.
+Environment prefix is `DELEGATE_`, naming no model, because the registry is multi-model
+(ADR-0009).
 """
 
 from __future__ import annotations
@@ -25,26 +19,25 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-# Values accepted by *this project* for reasoning effort -- deliberately not the server's
-# set, which has its own vocabulary. `backends/openai_compat.py` owns the translation, and
-# docs/ARCHITECTURE.md says why validating here is not redundant. See ADR-0013.
+# Values accepted by *this project* for reasoning effort -- not the server's set, which
+# has its own vocabulary. `backends/openai_compat.py` owns the translation, and
+# docs/ARCHITECTURE.md says why validating here is not redundant (ADR-0013).
 EFFORT_LEVELS = ("off", "low", "high", "max")
 
-# A retired numeric setting keeps its field so that setting it is an error rather than
-# silence -- the same reasoning `transport` is kept for. No operator would choose this
-# value, so any other value means the variable was set. See ADR-0098.
+# A retired numeric setting keeps its field so that setting it is an error, not silence,
+# as `transport` is kept. No operator would choose this value, so any other means the
+# variable was set (ADR-0098).
 RETIRED_SENTINEL = -1.0
 
-# Retired settings, named once. `__post_init__` refuses them and gen_config_docs.py marks
-# them, so the two cannot disagree about which they are. A retired field is *not* inert:
-# inert means "the subsystem is unbuilt, setting this does nothing", and here setting it
-# stops the server. Telling an operator the first when the second is true is the failure
-# `_reached_through_accessors` was written for.
+# Retired settings, named once: `__post_init__` refuses them and gen_config_docs.py marks
+# them, so the two cannot disagree. A retired field is *not* inert: inert means "setting
+# this does nothing", and setting this stops the server. Telling an operator the first
+# when the second is true is what `_reached_through_accessors` guards against.
 RETIRED_FIELDS = ("tool_call_temperature", "one_shot_temperature", "turn_timeout")
 
-# What to do instead, per retired field. A dict rather than one shared sentence: the
-# refusal has to name the replacement, and there is no longer one replacement. A field
-# listed above and missing here fails the roster test rather than raising a blank remedy.
+# What to do instead, per retired field: the refusal must name the replacement, and there
+# is more than one. A field listed above and missing here fails the roster test rather
+# than raising a blank remedy.
 RETIRED_REMEDY = {
     "tool_call_temperature":
         "the agentic and one-shot paths now share one temperature, because the split "
@@ -64,59 +57,47 @@ RETIRED_REMEDY = {
         "DELEGATE_DISPATCH_TIMEOUT still bounds total time. Delete this line.",
 }
 
-# The fifth thing a *caller* may say, and deliberately not a fifth level. The tool argument
-# is required, so there is no longer an absent value for the precedence chain to fall
-# through on; this is how a caller states that it is deferring to the agent file, then the
-# registry row, then `thinking_default`. Normalised to `None` at the tool boundary, so
-# nothing inside the server ever sees it -- internally "no explicit effort" is still spelled
-# `None`, and `resolve_effort` still refuses this string, correctly: reaching it means the
-# boundary was bypassed. Never valid for `default_effort` or `thinking_default`, which are
-# the ends of that chain and have nothing left to defer to. See ADR-0045.
+# The fifth thing a *caller* may say, and not a fifth level. The tool argument is
+# required, so this is how a caller defers to the agent file, then the registry row, then
+# `thinking_default`. Normalised to `None` at the tool boundary, so nothing inside ever
+# sees it, and `resolve_effort` refuses this string: reaching it means the boundary was
+# bypassed. Never valid for `default_effort` or `thinking_default`, the ends of that
+# chain, which have nothing to defer to (ADR-0045).
 EFFORT_INHERIT = "inherit"
 
-# The transports this server implements. One, and the tuple stays a tuple so the
-# refusal below has something to name and a second entry is one line to add.
+# The transports this server implements. One, kept a tuple so the refusal below has
+# something to name and a second entry is one line.
 TRANSPORTS = ("stdio",)
 
-# The client's stdio idle timeout, in seconds. Not ours to set and not a setting: it is a
-# property of Claude Code, measured on 2026-09-01 rather than read off a document. At this
-# many seconds of silence the client abandons the tool call and **nothing reaches the
-# server** -- no cancellation, no EOF -- so the dispatch runs on holding its admission slot
-# until it finishes on its own. The server cannot detect the condition; only sending
-# something prevents it, which is what makes the interval below a correctness setting.
-# (JOURNAL 2026-09-01, docs/DISPATCH.md)
+# The client's stdio idle timeout, in seconds: a measured property of Claude Code, not a
+# setting (JOURNAL 2026-09-01). At this much silence the client abandons the tool call and
+# **nothing reaches the server** -- no cancellation, no EOF -- so the dispatch runs on
+# holding its admission slot. The server cannot detect it; only sending something
+# prevents it, which makes the interval below a correctness setting (docs/DISPATCH.md).
 CLIENT_STDIO_IDLE_TIMEOUT = 1800
 
-# Fractions of the model's context window at which the agentic loop changes behaviour:
-# tighten retention, nudge the model to wrap up, then abort. Constants rather than
-# settings, for the same reason EFFORT_LEVELS is one -- they name three points on a single
-# escalation, and an operator free to move them independently can invert the order so the
-# loop aborts before it has ever nudged. The reserve beside them IS a setting, because it
-# is a size rather than a stage.
+# Fractions of the context window at which the agentic loop tightens retention, nudges
+# the model to wrap up, then aborts. Constants, like EFFORT_LEVELS, because they are
+# points on one escalation, and an operator moving them independently could make the loop
+# abort before it ever nudged. The reserve beside them IS a setting: a size, not a stage.
 OVERFLOW_EVICT_AT = 0.50
 OVERFLOW_TIGHTEN_AT = 0.70
 OVERFLOW_NUDGE_AT = 0.85
 OVERFLOW_ABORT_AT = 0.95
 
 # Bytes per token, MEASURED (ADR-0019). These vary by more than 2x across file types,
-# which is why the prefetch budget is denominated in tokens rather than bytes -- 128 KiB
-# is 33K tokens of Python but 72K tokens of JSON.
+# which is why the prefetch budget is in tokens rather than bytes -- 128 KiB is 33K tokens
+# of Python but 72K of JSON.
 #
-# A ratio here belongs to a file type AND a tokenizer, which the first version of this
-# comment did not say. Re-measured against a second tokenizer on 2026-09-04, JSON moved
-# 47% while Python source did not move at all, so the model matters as much as the
-# extension. The measurements live in JOURNAL 2026-08-25 and 2026-09-04 and are not
-# repeated here; the values below are those numbers rounded down, which is a different
-# thing.
+# A ratio belongs to a file type AND a tokenizer: the model matters as much as the
+# extension (JOURNAL 2026-08-25 and 2026-09-04 hold the measurements).
 #
-# Each entry is rounded DOWN from the measurement, so an estimate errs toward
-# over-counting: over-counting wastes a little admission capacity, under-counting queues
-# a request until it times out. The unknown-extension default is the worst case observed.
-#
-# That convention is also the only reason the table survived the second tokenizer, and it
-# would not survive one denser than the densest entry: nothing compares this table against
-# the model actually being served. `.toml` and `.lock` share an entry sized for the
-# lockfile, so TOML source is over-costed by about 45% -- safe direction, real cost.
+# Each entry is rounded DOWN from its measurement, so an estimate over-counts:
+# over-counting wastes a little admission capacity, under-counting queues a request until
+# it times out. The unknown-extension default is the worst case observed. Nothing compares
+# this table against the model served, so a tokenizer denser than the densest entry would
+# break that margin. `.toml` and `.lock` share an entry sized for the lockfile, so TOML
+# source is over-costed by about 45% -- safe direction, real cost.
 BYTES_PER_TOKEN: dict[str, float] = {
     # structured / punctuation-dense: many tokens per byte
     ".json": 1.7, ".lock": 2.0, ".toml": 2.0, ".yaml": 2.2, ".yml": 2.2,
@@ -131,8 +112,7 @@ BYTES_PER_TOKEN: dict[str, float] = {
 }
 
 # An unknown extension is costed at the densest ratio in the table, DERIVED rather than
-# written down again. A hardcoded fallback drifted the moment a denser entry was added:
-# the default said 1.8 while .json was already 1.7, so "worst case" was not the worst.
+# written down again, so adding a denser entry cannot leave "worst case" behind.
 BYTES_PER_TOKEN_DEFAULT = min(BYTES_PER_TOKEN.values())
 
 _TRUE = {"1", "true", "yes", "on"}
@@ -147,8 +127,8 @@ def _f(default: Any, description: str, *, unit: str = "") -> Any:
 class ConfigError(ValueError):
     """Raised at startup for a malformed or missing setting.
 
-    Always fails at load time rather than at first use: a bad timeout discovered
-    thirty minutes into a delegation is a much worse experience than a refusal to boot.
+    At load time, never first use: a bad timeout found thirty minutes into a delegation
+    is much worse than a refusal to boot.
     """
 
 
@@ -411,7 +391,7 @@ class Config:
         unit="est. tokens",
     )
 
-    # ---- context overflow (M4) ---------------------------------------------------
+    # ---- context overflow --------------------------------------------------------
     context_overflow_enabled: bool = _f(
         False,
         "Master switch for both halves of overflow handling: the retroactive check that "
@@ -806,9 +786,8 @@ class Config:
     def _check_retired(self) -> None:
         """Every retired setting, refused with the remedy that replaced it.
 
-        One loop over the roster rather than a check beside each subsystem: the settings
-        retired here have nothing to do with each other any more, and a reader asking
-        "why will the server not start" is looking for one place, not three.
+        One loop over the roster, not a check beside each subsystem: the retired settings
+        are unrelated, and "why will the server not start" wants one place, not three.
         """
         for name in RETIRED_FIELDS:
             if getattr(self, name) != RETIRED_SENTINEL:
@@ -819,9 +798,8 @@ class Config:
     def _check_sampling(self) -> None:
         """What temperature and top_p may be set to.
 
-        Together rather than scattered through `__post_init__`, for the reason
-        `_check_deadlines_nest` is: a reader asking "what may I set temperature to"
-        should find the whole answer in one place. See ADR-0098.
+        Together, not scattered through `__post_init__`, so "what may I set temperature
+        to" has its whole answer in one place (ADR-0098).
         """
         if not 0.0 <= self.temperature <= 2.0:
             raise ConfigError(
@@ -839,16 +817,11 @@ class Config:
     def _check_deadlines_nest(self) -> None:
         """The deadlines have to nest: connect <= stall <= dispatch.
 
-        Together rather than scattered through `__post_init__`, because the chain is the
-        point. Each check reads as arbitrary alone; in sequence they say that every
-        deadline is bounded by the one containing it, and that a reader can see where a
-        new one would have to fit.
-
-        `turn_timeout` was the middle link and is retired (ADR-0100), so the chain is two
-        links rather than three. Its lower bound on `stall_timeout` had already gone with
-        ADR-0099: ADR-0047's stall signal was turn *completion*, under which a stall
-        shorter than one call would cut short a call that was merely slow, and ADR-0072
-        replaced that signal with token arrival.
+        Together, because the chain is the point. Each check reads as arbitrary alone; in
+        sequence they say every deadline is bounded by the one containing it, and show
+        where a new one would fit. There is no per-call deadline between stall and
+        dispatch (ADR-0100), and no lower bound on `stall_timeout`, because stall is
+        measured from token arrival, not turn completion (ADR-0072, ADR-0099).
         """
         if self.connect_timeout > self.stall_timeout:
             raise ConfigError(
@@ -882,12 +855,10 @@ class Config:
                 "unlisted one has no translation."
             )
         if self.transport not in TRANSPORTS:
-            # Refused, not degraded to stdio with a warning. A knob advertised as
-            # unfinished that still starts a server is the shape ADR-0034 deleted
-            # `sandbox_enabled` for, and an HTTP listener here would be unauthenticated:
-            # measured, FastMCP defaults its host to loopback and only a port was ever
-            # passed, so the reachable surface was other local processes rather than the
-            # network -- but no token is the true half of that finding.
+            # Refused, not degraded to stdio with a warning: a knob advertised as unfinished
+            # that still starts a server is what ADR-0034 deleted `sandbox_enabled` for, and
+            # an HTTP listener here would be unauthenticated, reachable by other local
+            # processes with no token.
             raise ConfigError(
                 f"DELEGATE_TRANSPORT={self.transport!r} is refused; this server "
                 f"implements {TRANSPORTS}. The HTTP transport is a real integration task "
@@ -930,10 +901,9 @@ class Config:
             "run_bash_timeout",
             "status_probe_timeout",
             "keepalive_interval",
-            # admission_wait_timeout is deliberately absent: 0 is how an operator says the
-            # wait has no bound, which is its default. Requiring it positive made every
-            # configuration carry a bail-out, and there was no value meaning "as long as
-            # the work ahead takes" (ADR-0093).
+            # admission_wait_timeout is absent: 0 says the wait has no bound, its default.
+            # Requiring it positive would leave no value meaning "as long as the work ahead
+            # takes" (ADR-0093).
             "max_inflight_seqs",
             "kv_token_budget",
         ):
@@ -943,11 +913,10 @@ class Config:
         self._check_deadlines_nest()
         self._check_sampling()
         if self.keepalive_interval * 2 > CLIENT_STDIO_IDLE_TIMEOUT:
-            # Refused at startup rather than warned about, because the symptom it causes
-            # is invisible from here: the caller is told the call failed, the server keeps
-            # working, and the slot stays held until the work ends on its own. Half the
-            # timeout rather than all of it, so a beat lands twice inside every window and
-            # a late one is still early.
+            # Refused at startup, not warned about, because its symptom is invisible here:
+            # the caller is told the call failed, the server keeps working, and the slot
+            # stays held until the work ends. Half the timeout, so a beat lands twice in
+            # every window and a late one is still early.
             raise ConfigError(
                 f"DELEGATE_KEEPALIVE_INTERVAL ({self.keepalive_interval}) leaves no margin "
                 f"under the client's {CLIENT_STDIO_IDLE_TIMEOUT}s stdio idle timeout. A "
@@ -961,11 +930,9 @@ class Config:
     def _validate_retry(self) -> None:
         """The retry settings, checked here rather than inline above.
 
-        Split out because `__post_init__` was one branch over the lint threshold, and of
-        the two ways past that this is the honest one: these three checks are a single
-        concern with a name, so moving them reads better than suppressing a count. The
-        remaining checks stay where they are -- scattering the rest to chase a number
-        would spread one policy across several functions for no reader's benefit.
+        Split out to keep `__post_init__` under the lint's branch limit, honestly: these
+        three checks are one concern with a name. The rest stay put -- scattering them to
+        chase a number would spread one policy over several functions.
         """
         if self.retry_max_attempts < 1:
             raise ConfigError(
@@ -987,10 +954,9 @@ class Config:
     def _validate_overflow(self) -> None:
         """The context-overflow settings, checked together because they constrain each other.
 
-        Split out for the reason `_validate_retry` was: one concern with a name reads
-        better than four more branches in `__post_init__`. Checked even when the feature is
-        disabled -- a setting that only fails once someone arms it fails at the worst
-        possible moment, and this file's whole convention is to refuse at load.
+        Split out as `_validate_retry` is. Checked even when the feature is disabled: a
+        setting that fails only once someone arms it fails at the worst moment, and this
+        file refuses at load.
         """
         if not 0.0 < self.overflow_reserve_fraction < OVERFLOW_ABORT_AT:
             raise ConfigError(
@@ -1032,9 +998,9 @@ class Config:
     def estimate_tokens(self, nbytes: int, ext: str = "") -> int:
         """Estimate tokens for a payload, biased to over-count. ADR-0019.
 
-        Uses the measured per-extension ratio; an unknown extension falls back to the
-        worst case observed, because guessing high costs a little idle capacity while
-        guessing low queues a request until it times out.
+        The measured per-extension ratio; an unknown extension gets the worst case
+        observed, since guessing high costs a little idle capacity and guessing low queues
+        a request until it times out.
         """
         ratio = BYTES_PER_TOKEN.get(ext.lower(), BYTES_PER_TOKEN_DEFAULT)
         return int(nbytes / ratio)
@@ -1076,19 +1042,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def parse_env_file(text: str) -> dict[str, str]:
     """`KEY=VALUE` lines. Blank lines and `#` comments are skipped.
 
-    Deliberately not dotenv, and the differences matter more than the similarities: no
-    variable interpolation, no multi-line values, and **no escape processing at all**. A
-    value is taken literally, because `DELEGATE_WORKSPACE_ROOTS` on Windows is a path full
-    of backslashes and unescaping it would corrupt it silently.
+    Not dotenv: no variable interpolation, no multi-line values, and **no escape
+    processing at all**. A value is taken literally, because `DELEGATE_WORKSPACE_ROOTS` on
+    Windows is a path full of backslashes that unescaping would silently corrupt.
 
-    One pair of matching surrounding quotes is stripped: someone who quotes a value
-    containing spaces means the spaces, not the quotes.
+    One pair of matching surrounding quotes is stripped: quoting a value with spaces means
+    the spaces, not the quotes.
 
-    A leading `export ` is stripped rather than rejected. Not for shell compatibility --
-    without it the line parses to a key named `export FOO`, which no setting matches, so
-    the value is dropped while the file still looks like it was read. A name that cannot be
-    an environment variable raises instead, for the same reason: a typo that silently
-    changes nothing is the worst of the three outcomes.
+    A leading `export ` is stripped, not for shell compatibility, but because the line
+    would otherwise parse to a key named `export FOO`, match no setting, and drop the
+    value while the file looks read. A name that cannot be an environment variable raises,
+    for the same reason: a typo that silently changes nothing is the worst outcome.
     """
     out: dict[str, str] = {}
     for raw_line in text.splitlines():
@@ -1115,10 +1079,9 @@ def parse_env_file(text: str) -> dict[str, str]:
 def _env_file_values(explicit: str | Path | None) -> dict[str, str]:
     """Values from a .env file, or an empty mapping if there is none to read.
 
-    An explicitly requested file that does not exist is an error rather than an empty
-    result. Asking for a specific file and silently getting the defaults is the failure
-    mode this project keeps finding: no error, no symptom, wrong behaviour.
-    A discovered `<repo>/.env` is optional, because not having one is normal.
+    An explicitly requested file that does not exist is an error, not an empty result:
+    asking for a file and silently getting the defaults is no error, no symptom, wrong
+    behaviour. A discovered `<repo>/.env` is optional, because not having one is normal.
     """
     if explicit is not None:
         path = Path(explicit)
@@ -1139,13 +1102,12 @@ def load(environ: dict[str, str] | None = None,
     Tuple-valued settings split on os.pathsep, so they read naturally on either host:
     semicolons on Windows, colons elsewhere.
 
-    A `.env` file beside the repository root is read as a **fallback**: a value already
-    present in the real environment wins, so an explicit override still works. The file is
-    read at all because the README has always told you to create one, and until now nothing
-    did -- the launch path is `wsl.exe -e claude-delegate-local-mcp`, and an `env` key in an
-    MCP client's config sets variables for `wsl.exe` on the Windows side, one hop short of
-    the Linux process that reads them. Crossing that boundary needs WSLENV as well, which
-    fails silently when forgotten. (ADR-0027)
+    A `.env` file beside the repository root is read as a **fallback**: a value already in
+    the real environment wins, so an explicit override still works. It is read because
+    the launch path is `wsl.exe -e claude-delegate-local-mcp`, and an `env` key in an MCP
+    client's config sets variables for `wsl.exe` on the Windows side, one hop short of the
+    Linux process that reads them; crossing needs WSLENV too, which fails silently when
+    forgotten (ADR-0027).
 
     Passing `environ` explicitly suppresses discovery, so a test never picks up whatever
     .env happens to sit in the working tree. `env_file` overrides both.
@@ -1185,11 +1147,9 @@ def describe() -> list[dict[str, Any]]:
                 "env": env_name(f.name),
                 "field": f.name,
                 "type": type(default).__name__,
-                # Rendered with a FIXED separator, never os.pathsep. The doc generator
-                # runs on Windows locally and Linux in CI, and os.pathsep differs between
-                # them -- so embedding it here made the generated file impossible to match
-                # across platforms, and the freshness check unsatisfiable. The real
-                # separator is documented once in the generated header instead.
+                # A FIXED separator, never os.pathsep: the generator runs on Windows locally
+                # and Linux in CI, and a platform's separator here would make the freshness
+                # check unsatisfiable on the other. The generated header names the real one.
                 "default": ", ".join(default) if isinstance(default, tuple) else default,
                 "unit": f.metadata.get("unit", ""),
                 "description": " ".join(f.metadata.get("description", "").split()),

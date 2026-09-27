@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #393 — 2026-09-27 — docs: config.py describes what is
+
+### Changed
+
+- **`config.py`'s comments describe the settings module as it is, from 220 prose lines to
+  180.** The second of M18.7's second group, and comments and docstrings only: each
+  setting's `description` renders `docs/CONFIGURATION.md`, so it is contract, and
+  `gen_config_docs.py --check` confirms the reference is unchanged. What goes is the
+  ancestor project's history, the old environment prefix, the tokenizer re-measurement
+  story and the `turn_timeout` chain that no longer exists. The deadline-nesting docstring
+  now states the current two-link chain directly. `ast_unchanged.py` reads the module as
+  unchanged.
+
 ## #392 — 2026-09-27 — docs: backends/base.py describes what is
 
 ### Changed
