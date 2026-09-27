@@ -42,7 +42,7 @@ Older entries, in the previous flat format, are in
   redone by hand and every changed block checked against the old text. ToolSpec
   descriptions and schema text are untouched, and `gen_tools_docs.py --check` confirms
   `docs/TOOLS.md` did not move. Prose fell from 567 lines to 396 (34% to 26%). This
-  closes the per-module comment passes.
+  closes the five modules M18.4 names; the rest of `src/` is M18.7.
 
 ## #381 — 2026-09-27 — docs: paths.py and its path-policy sections describe what is
 
