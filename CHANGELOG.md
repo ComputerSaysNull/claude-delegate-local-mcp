@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #384 — 2026-09-27 — docs: AGENTS, MODELS and TROUBLESHOOTING describe the current state
+
+### Changed
+
+- **Three smaller product documents lose their history.** What the ancestor did (picking
+  a backend by name prefix, probing a proxy's health path, ignoring `model:`), which
+  milestone landed what, and "until 2026-09-02/03" stories go. The reason each carried
+  stays in the present tense: a model name cannot say where it is served, bare vLLM does
+  not serve `/health/liveliness`, an unparseable agent file is named because the advice
+  for a missing agent needs its name. TROUBLESHOOTING still owns no facts; its intro
+  loses a dated audit count and an ancestor reference. Headings are unchanged, and each
+  budget follows its file down.
+
 ## #383 — 2026-09-27 — docs: DISPATCH.md describes the current state
 
 ### Changed

@@ -1,4 +1,4 @@
-<!-- BUDGET: 180 -->
+<!-- BUDGET: 158 -->
 # Models
 
 The registry file, and what adding a model involves.
@@ -8,10 +8,9 @@ per-model file and its fields.
 
 ## Why a file, and not clever naming
 
-The ancestor picked a backend by prefix-matching the model name across five tables. Beyond
-being fragile, it cannot express the situation here: **the serving stack runs one model per
+A model name cannot express where a model is served: **the serving stack runs one model per
 inference instance**, so a second model lives at a second base URL — and a URL is not
-derivable from a name. One explicit row per model replaces all five tables. (ADR-0009)
+derivable from a name. One explicit row per model. (ADR-0009)
 
 There is no name-pattern fallback. A model that merely resembles a registered one is not
 quietly routed somewhere plausible; it is refused, and the refusal lists what *is*
@@ -60,10 +59,9 @@ you the setting in silence, which is the class of bug this file exists to remove
 `low` is right for the work this tool exists for. Bulk, mechanical, read-heavy tasks do not
 benefit from extended reasoning, and the high settings spend the reply budget on it.
 
-Reproduced against a live cluster: at `max` with a small reply budget, a hard prompt
-returned **null content** and a length stop, having spent its whole allowance reasoning.
-Even `low` truncated at a small budget — the hazard is not exclusive to the top setting.
-ADR-0014 records the measurement.
+At `max` with a small reply budget, a hard prompt returns **null content** and a length
+stop, having spent its whole allowance reasoning. Even `low` truncates at a small budget —
+the hazard is not exclusive to the top setting. ADR-0014 records the measurement.
 
 The server guards this — one retry at a larger budget, then a step down, then an explicit
 failure rather than an empty answer — but the guard costs time. Set `low` and raise it per
@@ -102,9 +100,8 @@ curl -s http://YOUR-HEAD-NODE:8888/v1/models | python3 -m json.tool
 ```
 
 `served_model_id` must match the `id` field exactly. The server probes this same path for
-health — deliberately, because bare vLLM does **not** serve the `/health/liveliness` the
-ancestor probed, which belongs to a proxy it used to sit behind. Probing the wrong path
-made a healthy cluster look unreachable.
+health — deliberately, because bare vLLM does **not** serve `/health/liveliness`, which
+belongs to a proxy; probing it would make a healthy cluster look unreachable.
 
 If the endpoint is behind an overlay VPN or similar, check that it resolves from **inside**
 the environment running the server, *and to the same address the host resolves it to*.
@@ -129,29 +126,25 @@ compares the two — because every overflow threshold is a share of this number,
 threshold over a wrong denominator is the bug that feature exists to avoid.
 
 A disagreement disarms overflow handling for that model and reports both numbers. The
-endpoint's figure is never adopted: an auto-derived window is how the ancestor project came
-to compute every threshold against a model file's architecture maximum rather than the
-window being served. An endpoint that reports no window is fine and blocks nothing; vLLM
-reports one as `max_model_len` (JOURNAL 2026-08-29).
+endpoint's figure is never adopted: an auto-derived window would compute every threshold
+against a model file's architecture maximum rather than the window being served. An
+endpoint that reports no window is fine and blocks nothing; vLLM reports one as
+`max_model_len` (JOURNAL 2026-08-29).
 
-An entry that omits `context_window` gets the default, and the server now records that it
-did. It was silent until 2026-09-02 — the local form of the same bug — and the cost was a
-mismatch report that told an operator their file *gives* a number it does not mention
-anywhere, advice to correct a line that was never there. The report now says the window was
-assumed and names the one the endpoint served, and `backend_status` carries
-`context_window_defaulted` beside the number, so the two cases are distinguishable before
-anything disagrees. Overflow handling stays off by default regardless: arming it against a
-number nobody chose is worse than not arming it.
+An entry that omits `context_window` gets the default, and the server records that it did.
+The report says the window was assumed and names the one the endpoint served, and
+`backend_status` carries `context_window_defaulted` beside the number, so the two cases are
+distinguishable before anything disagrees. Overflow handling stays off by default
+regardless: arming it against a number nobody chose is worse than not arming it.
 
 ## The token estimator is measured against a tokenizer, not against file types
 
 The prefetch and admission budgets are denominated in estimated tokens, from a
 per-extension bytes-per-token table in `config.py`. Those ratios are a property of the
 **tokenizer**, not only of the file type, and the spread between two models is as wide as
-the spread between JSON and prose: measured against one tokenizer and then another, JSON
-moved by 47% while Python source did not move at all. The numbers themselves live in
-JOURNAL 2026-08-25 and 2026-09-04 and are deliberately not repeated here or in
-`config.py`; ADR-0019 has the reasoning.
+the spread between JSON and prose. The numbers themselves live in JOURNAL 2026-08-25 and
+2026-09-04 and are deliberately not repeated here or in `config.py`; ADR-0019 has the
+reasoning.
 
 What this means when you add a model: the table is **not** re-derived per registry entry,
 and there is no per-model field for it. It survives a change of tokenizer only because

@@ -1,4 +1,4 @@
-<!-- BUDGET: 489 -->
+<!-- BUDGET: 478 -->
 # Agents and the path policy
 
 Two things a user actually touches: the agent files that shape a delegation, and the rules
@@ -8,8 +8,7 @@ Tool internals are in [TOOLS.md](TOOLS.md), generated from `tools.py`; sandbox
 mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md). Settings are in
 [CONFIGURATION.md](CONFIGURATION.md).
 
-**Status: built and enforced.** `paths.py` landed in M2, `agents.py` and the three tools
-that reach it in M6. Everything below describes behaviour. The roadmap is
+**Status: built and enforced.** Everything below describes behaviour. The roadmap is
 [../PLAN.md](../PLAN.md).
 
 ## Why agents are files
@@ -28,8 +27,8 @@ tool an agent is reached through can write. (ADR-0042) `delegate_to_agent_readon
 same argument again, and what it keeps that `delegate_readonly` cannot is the agent file
 itself. (ADR-0059)
 
-Two batch tools were argued for and cancelled, once the prefix sharing that justified them
-was measured and found to need no tool of its own. (ADR-0051)
+Two batch tools were argued for and cancelled: separate calls already share the prefix,
+so a batch tool buys nothing a separate call does not. (ADR-0051)
 
 That keeps the tool list Claude sees from growing without bound, and makes adding a task
 type a file rather than a code change and a release. The format is the one Claude Code
@@ -62,13 +61,13 @@ A name must match `^[A-Za-z0-9_-]+$`: it is a name, not a path, so it cannot tra
 
 <!-- GEN:AGENT-FORMAT-LOCATIONS:END -->
 
-`list_agents` gave one answer until 2026-09-02: a file that did not parse was simply left
-out, and the standing advice for a missing agent — ask by name, read the error — needs the
-very name an omission hides. Hence three, and `other_format` (ADR-0031) rather than a
-second kind of broken: four of this repository's own five agent files are in it
-deliberately, and folding them into `skipped` would leave that list permanently non-empty,
-which is a list nobody reads. A shadowed name is listed once, as the lookup offers one — but a
-Claude Code file shadows nothing: the lookup passes over it, so its name can be in both lists.
+`list_agents` names a file that does not parse, because the standing advice for a missing
+agent — ask by name, read the error — needs the very name an omission hides. Hence three,
+and `other_format` (ADR-0031) rather than a second kind of broken: four of this repository's
+own five agent files are in it deliberately, and folding them into `skipped` would leave
+that list permanently non-empty, which is a list nobody reads. A shadowed name is listed
+once, as the lookup offers one — but a Claude Code file shadows nothing: the lookup passes
+over it, so its name can be in both lists.
 
 <!-- GEN:AGENT-FORMAT-FIELDS:START -->
 <!-- Generated from src/claude_delegate_local/skills/write-delegate-agent/SKILL.md by scripts/gen_agent_format_docs.py. That file ships inside the package; edit it, not this. -->
@@ -142,18 +141,16 @@ any of the three locations — check the filename against the name, and the `pro
 
 **Every field is overridable per call except `network` and `extra_binds`**, which no tool
 takes an argument for: a caller cannot ask for a bind or for egress, only a file can, and
-that is the surface the two checks below exist for. `max_turns` was the exception until
-2026-09-03: it read the file and ignored the argument, so the single field that truncates a
-run was the single field that needed the file edited to change.
+that is the surface the two checks below exist for. `max_turns` is overridable per call
+like the rest: the field that truncates a run is changed per call rather than only by
+editing the file.
 
 `effort: inherit` is refused in a file rather than accepted, because a file is a tier that
 word defers *to* (ADR-0045).
 
 ### `model` genuinely binds
 
-In the ancestor, frontmatter was loaded and then largely ignored — `model:` did nothing.
-That is a real bug the fork fixed, and it is worth naming because it is easy to reintroduce:
-resolution must be consistent between the code that picks a concurrency bucket and the code
+Resolution must be consistent between the code that picks a concurrency bucket and the code
 that makes the call. If those disagree, the request is counted against one endpoint's limit
 and sent to another.
 
@@ -387,10 +384,10 @@ one-shot mode, where the file is simply unavailable and the message says so.
 
 ### Budgets are in tokens, not bytes
 
-Bytes mislead by more than a factor of two: the measured ratios are in
-the 2026-08-25 entry in
-[JOURNAL.md](../JOURNAL.md), which owns them. A byte cap would allow twice the *context* for a data file as for a
-source file, which is backwards — data files are the ones worth trimming. (ADR-0019)
+Bytes mislead by more than a factor of two: the measured ratios are in the 2026-08-25
+entry in [JOURNAL.md](../JOURNAL.md), which owns them. A byte cap would allow twice the
+*context* for a data file as for a source file, which is backwards — data files are the
+ones worth trimming. (ADR-0019)
 
 ### What the policy does not cover
 
@@ -452,12 +449,11 @@ agent body and the files block are identical and come first, which is exactly th
 [ADR-0011](../DECISIONS.md) fixed the prompt in, so the cluster serves the shared part from
 its prefix cache rather than prefilling it again. **Keeping `files[]` stable across a series
 of questions is what makes this work**, and it is worth more than any other tuning available
-here. A batch tool once existed for this and bought nothing the separate calls do not
-already get. (ADR-0051)
+here. A batch tool would buy nothing the separate calls do not already get. (ADR-0051)
 
 The result reports `bash_failures` and `last_bash_exit` **captured by the server**, not
-claimed by the model. Trust those over the prose: models misreport command outcomes, and
-the ancestor ships a dedicated test because of it. (ADR-0007)
+claimed by the model. Trust those over the prose: models misreport command outcomes.
+(ADR-0007)
 
 ## The server runs git, and that is not the sandbox
 
