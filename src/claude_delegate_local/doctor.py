@@ -1,36 +1,27 @@
 """`--doctor`: check the environment the server assumes, before a delegation depends on it.
 
-The server starts regardless of every fact it needs being wrong. Measured 2026-09-07: with
-a nonexistent workspace root, a `bwrap` that is not installed and an endpoint nothing is
-listening on, it completed an MCP handshake in about a second and served its full tool
-list. `config.load` validates *values* -- that the roots tuple is non-empty, that a
-timeout nests inside its parent -- and `registry.load` validates that `models.toml` parses.
-Neither asks the filesystem or the network anything. Each fault therefore surfaces later,
-inside whichever call first reaches it, as a refusal whose cause is a layer away.
+The server starts however wrong the facts it needs are: with a nonexistent workspace root,
+no `bwrap` and no endpoint listening, it completes an MCP handshake and serves its full
+tool list. `config.load` validates *values* -- the roots tuple is non-empty, a timeout
+nests inside its parent -- and `registry.load` that `models.toml` parses. Neither asks the
+filesystem or the network anything, so each fault surfaces later, inside whichever call
+first reaches it, as a refusal whose cause is a layer away. This module closes that gap.
 
-That is what this module exists to close, and the cost of not having it is on record: `uv`
-was absent for a whole session, so `toolchain_binds` probed and bound nothing, and the
-resulting "a workdir cannot run the tests" was filed as an architectural limit rather than
-a missing package. `config.py` had already predicted that exact failure in the help text
-for the setting.
-
-**Reuse, not reimplementation.** Every check here calls the same code the server calls, so
-a check cannot drift into agreeing with a server that has changed underneath it:
+**Reuse, not reimplementation.** Every check calls the code the server calls, so a check
+cannot drift into agreeing with a server that changed underneath it:
 `paths.resolved_roots`, `sandbox.available`, `sandbox.limiter_available`,
 `sandbox.probe_toolchain_binds`, `server.probe_entry`, `slots.build_slots` and
-`transcript.enabled`. The one thing written fresh is the
-`bwrap` *execution* probe, because `sandbox.available` answers only whether the binary is
-on `PATH` -- and a `bwrap` that is present but cannot unshare a namespace passes that and
-fails everything after it.
+`transcript.enabled`. The one thing written fresh is the `bwrap` *execution* probe,
+because `sandbox.available` answers only whether the binary is on `PATH` -- and a `bwrap`
+present but unable to unshare a namespace passes that and fails everything after it.
 
 **stdout is the report here, unlike every other entry into this package.** `main.run`
-keeps stdout for the protocol because Claude Code is on the other end of it; nothing
-speaks MCP to a doctor run, so the report goes to stdout and the exit code carries the
-verdict for a script.
+keeps stdout for the protocol because Claude Code is on the other end; nothing speaks MCP
+to a doctor run, so the report goes to stdout and the exit code carries the verdict.
 
 **Endpoint identity is never printed.** ADR-0029 keeps the address out of
-`backend_status`, and a diagnostic that prints it to be helpful would be the leak that
-decision exists to prevent. Rows are named by their registry key.
+`backend_status`, and a diagnostic printing it to be helpful would be the leak that
+decision prevents. Rows are named by their registry key.
 """
 
 from __future__ import annotations
@@ -55,8 +46,8 @@ WARN = "warn"
 FAIL = "fail"
 _RANK = {OK: 0, WARN: 1, FAIL: 2}
 
-# How long the bwrap execution probe may take. Generous: it is one `true` inside a fresh
-# namespace, and a machine slow enough to miss this has a problem worth reporting anyway.
+# How long the bwrap execution probe may take. Generous for one `true` in a fresh
+# namespace: a machine slow enough to miss it has a problem worth reporting anyway.
 _BWRAP_PROBE_TIMEOUT = 20.0
 
 
@@ -82,10 +73,9 @@ def _fmt(check: Check) -> str:
 def check_platform() -> Check:
     """Refuse on Windows, where every answer below would be meaningless.
 
-    Not "must be WSL". The server runs on native Linux too, and there the checks are
-    exactly as meaningful. What cannot work is Windows: `bwrap` is Linux-only, the paths
-    are POSIX, and a report that passed there would describe a machine the server never
-    runs on.
+    Not "must be WSL": on native Linux the checks are as meaningful. Windows cannot work:
+    `bwrap` is Linux-only, the paths are POSIX, and a report passing there would describe a
+    machine the server never runs on.
     """
     if os.name == "posix":
         detail = f"posix ({sys.platform})"
@@ -103,10 +93,10 @@ def check_platform() -> Check:
 def check_workspace_roots(cfg: Config) -> Check:
     """Every configured root must exist and be a directory.
 
-    `config.__post_init__` checks only that the tuple is non-empty -- there is no safe
-    default for "which files may a model read", so an empty one is refused at load. It
-    never asks whether the paths are there, and a root that is not resolves nothing: every
-    prefetch and every `read_file` against it is refused, one call at a time.
+    `config.__post_init__` checks only that the tuple is non-empty (no safe default for
+    "which files may a model read"), never whether the paths exist. A missing root
+    resolves nothing: every prefetch and `read_file` against it is refused, one call at a
+    time.
     """
     missing: list[str] = []
     for root in paths.resolved_roots(cfg):
@@ -128,11 +118,10 @@ def check_bwrap(cfg: Config) -> Check:
     """Does `bwrap` exist, and can it actually build a namespace?
 
     Two questions, because they fail apart. `sandbox.available` asks only whether the
-    binary is on `PATH`; a kernel with user namespaces restricted, or a container without
-    the capability, answers yes to that and refuses every `run_bash` afterwards. The probe
-    uses the same mandatory symlinks `build_argv` emits -- without `usr/lib64` nothing
-    dynamically linked runs and the error blames the executable rather than the missing
-    loader (ADR-0021).
+    binary is on `PATH`; a kernel restricting user namespaces, or a container without the
+    capability, says yes and then refuses every `run_bash`. The probe uses the mandatory
+    symlinks `build_argv` emits -- without `usr/lib64` nothing dynamically linked runs and
+    the error blames the executable, not the missing loader (ADR-0021).
     """
     if not sandbox.available(cfg):
         return Check(
@@ -180,11 +169,10 @@ def check_limiter(cfg: Config) -> Check:
 def check_toolchain(cfg: Config) -> Check:
     """Is anything bound into the sandbox for a command to run?
 
-    A `WARN` rather than a `FAIL`: a delegation that only reads files needs nothing here,
-    and this server's read-heavy majority is exactly that. It is reported because the
-    absence is invisible otherwise -- the setting's own help text calls an unresolved
-    probe "the single most likely first-run sandbox failure", and it went undiagnosed for
-    a session.
+    A `WARN`, not a `FAIL`: a delegation that only reads files needs nothing here, and
+    this server's read-heavy majority is exactly that. Reported because the absence is
+    otherwise invisible -- the setting's help text calls an unresolved probe the most
+    likely first-run sandbox failure.
     """
     binds = sandbox.probe_toolchain_binds(cfg)
     if binds:
@@ -205,12 +193,11 @@ def check_toolchain(cfg: Config) -> Check:
 def check_provisioned(cfg: Config) -> list[Check]:
     """One line per provisioned environment: is its interpreter there, and is it current?
 
-    A `WARN` when nothing is provisioned, on the same reasoning as `check_toolchain`: the
-    read-heavy majority of delegations needs no interpreter at all, so an absence must not
-    block. A **`FAIL`** for a stale one, which is the opposite call and the important one --
-    stale dependencies do not error, they produce a passing test run against the wrong
-    versions and hand back the clean exit code ADR-0007 tells everything downstream to
-    trust. That is worse than no environment, because it is believed.
+    A `WARN` when nothing is provisioned, as in `check_toolchain`: most delegations need
+    no interpreter, so an absence must not block. A **`FAIL`** for a stale one, the
+    important call: stale dependencies do not error, they pass a test run against the
+    wrong versions and return the clean exit code ADR-0007 says to trust -- worse than no
+    environment, because it is believed.
     """
     home = sandbox.resolve_home(cfg)
     found = provision.discover(home)
@@ -267,14 +254,12 @@ def check_provisioned_secrets(cfg: Config) -> Check:
     """What the denylist matches inside a provisioned tree, since nothing covers it.
 
     ADR-0062 moves that guarantee from scan time to build time -- the tree is trusted
-    because the server built it -- and a guarantee nothing ever re-checks is one that stops
-    being true quietly. So it is re-checked here and *reported*, never covered: covering is
-    what breaks the environment, and the whole point of the ADR is that this tree is the one
-    a command must be able to read.
+    because the server built it -- and a guarantee never re-checked stops being true
+    quietly. So it is re-checked and *reported*, never covered: covering breaks the
+    environment, and this tree is the one a command must be able to read.
 
-    Ordinary library files match, so this is a `WARN` with a count rather than a failure.
-    Thirteen on this repository's own environment, `certifi/cacert.pem` and
-    `keyring/credentials.py` among them.
+    Ordinary library files match (`certifi/cacert.pem`, `keyring/credentials.py`), so this
+    is a `WARN` with a count, not a failure.
     """
     home = sandbox.resolve_home(cfg)
     if not provision.discover(home):
@@ -326,13 +311,11 @@ def check_transcripts(cfg: Config) -> Check:
 def check_ledger(cfg: Config) -> Check:
     """Is the running total being kept, and where?
 
-    A `WARN` when switched off, on the same reasoning as `check_transcripts`: the ledger
-    is an operator convenience, and the read-heavy majority of delegations needs nothing
-    recorded. A `FAIL` when the directory cannot be written, because the append is
-    swallowed at runtime by design -- this is the only place it is reported. A path
-    under `/mnt/` is warned about rather than failed: the ledger will work, but
-    concurrent appends on the Windows drive lose lines (measured, about 87% lost with 8
-    writers), so the running total quietly stops being one.
+    A `WARN` when switched off, as for transcripts: the ledger is an operator convenience.
+    A `FAIL` when the directory cannot be written, because the append is swallowed at
+    runtime by design, so this is the only place it is reported. A path under `/mnt/` is
+    warned about, not failed: the ledger works, but concurrent appends on the Windows drive
+    lose lines, so the running total quietly stops being one.
     """
     target = ledger.path(cfg)
     if target is None:
@@ -367,10 +350,10 @@ def check_ledger(cfg: Config) -> Check:
 def check_cross_process(cfg: Config) -> Check:
     """Are the admission rules counted per machine, or per connected client?
 
-    `active: false` is not a failure -- it is how the server behaved before ADR-0040 and it
-    still serves delegations. It is a `WARN` because the consequence is invisible from
-    inside one process: every rule then bounds one editor window, and the cluster sees the
-    configured limit multiplied by however many are open.
+    `active: false` is not a failure: the server still serves delegations. It is a `WARN`
+    because the consequence is invisible from inside one process: every rule bounds one
+    editor window, and the cluster sees the limit multiplied by however many are open
+    (ADR-0040).
     """
     slots, reason = build_slots(cfg)
     if slots is not None:
@@ -386,9 +369,9 @@ def check_cross_process(cfg: Config) -> Check:
 def check_endpoints(cfg: Config, reg: registry.Registry) -> list[Check]:
     """Probe every registry entry, reusing exactly what `backend_status` reuses.
 
-    `id_confirmed: false` beside a healthy endpoint is the case worth a separate verdict:
-    the endpoint answers, and it is not serving the model the registry names, so a
-    delegation to it would not do what it claims.
+    `id_confirmed: false` beside a healthy endpoint gets its own verdict: the endpoint
+    answers but is not serving the model the registry names, so a delegation to it would
+    not do what it claims.
     """
     async def run_probes() -> list[dict[str, Any]]:
         cache = BackendCache(cfg)
@@ -474,9 +457,8 @@ def report(checks: list[Check], *, out=None) -> int:
 
 def main() -> int:
     """Load configuration the way the server does, then check the world around it."""
-    # Platform first and alone: on Windows the rest cannot be answered, and config
-    # loading would report a POSIX-shaped complaint about a machine that cannot host
-    # the server at all.
+    # Platform first and alone: on Windows the rest cannot be answered, and config loading
+    # would complain in POSIX terms about a machine that cannot host the server at all.
     platform = check_platform()
     if platform.verdict == FAIL:
         return report([platform])
