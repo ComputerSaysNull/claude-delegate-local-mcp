@@ -1,54 +1,47 @@
 r"""`--init`: write the two files a first run has no default for, from answers.
 
-The install instructions have always been `cp .env.example .env` followed by "then set
-DELEGATE_WORKSPACE_ROOTS", and `cp models.toml.example models.toml` followed by "then set
-your endpoint". That is two edits to files the reader has not seen yet, and the failure
-when either is skipped arrives much later, as a refusal one layer away from its cause --
-the same gap `--doctor` exists to close from the other end. This closes it from the front:
-ask, validate, write.
+By hand, a first run is `cp .env.example .env` then "set DELEGATE_WORKSPACE_ROOTS", and
+`cp models.toml.example models.toml` then "set your endpoint": two edits to files the
+reader has not seen, whose omission surfaces much later as a refusal one layer from its
+cause. `--doctor` closes that gap from the other end; this closes it from the front: ask,
+validate, write.
 
 **A default is shown, not skipped, and not written.** Three tiers of question. A required
 setting has no safe default and must be answered: `workspace_roots`, because there is no
 defensible guess at which files a model may read, and a registry entry's `base_url` and
 `served_model_id`, because nothing can invent an endpoint. An *offered* setting is asked
-with its own default and its own help text displayed, and Enter accepts. Everything else
-is not asked, and the written file points at the generated reference rather than
-restating any of it.
+with its default and help text shown, and Enter accepts. Everything else is not asked,
+and the written file points at the generated reference rather than restating it.
 
-The **writing** rule is the part that matters, and the reason is drift rather than
-tidiness. An answer equal to the default emits no line. Writing today's
-`DELEGATE_DISPATCH_TIMEOUT` into `.env` would freeze a copy of it: raise the default in
-`config.py` next month and every generated file silently keeps the old value, with nothing
-to compare it against. Config defaults live in `config.py` alone (CLAUDE.md), so this
-module may read them and may print them, and must not write them down.
+The **writing** rule matters most, because of drift. An answer equal to the default emits
+no line: writing today's `DELEGATE_DISPATCH_TIMEOUT` into `.env` would freeze a copy, so a
+later default change in `config.py` would silently not reach any generated file. Config
+defaults live in `config.py` alone (CLAUDE.md): this module may read and print them, and
+must not write them down.
 
 **Nothing here holds a default, a help string or a validation rule of its own.** The
-prompts are built from `config.describe()` -- the same introspection
-`scripts/gen_config_docs.py` renders the configuration reference from -- and from
-`dataclasses.fields(registry.ModelEntry)`. What this module holds is a curated list of
-field *names*, which is what `gen_config_docs.py` holds too. Validation is performed by
-calling `registry._validate` and `config.load`, so a rule about a base URL or an effort
-level cannot drift from the one the server enforces.
+prompts are built from `config.describe()` -- the introspection `scripts/gen_config_docs.py`
+renders from -- and from `dataclasses.fields(registry.ModelEntry)`. This module holds a
+curated list of field *names*, as `gen_config_docs.py` does. Validation calls
+`registry._validate` and `config.load`, so a rule about a base URL or an effort level
+cannot drift from the one the server enforces.
 
-**Every path written into `.env` is in POSIX form**, translated as each answer is taken
-rather than left as typed. `config.load` splits a tuple setting on `os.pathsep`, which is
-`:` where the server runs, so a pasted drive letter cannot survive being stored verbatim --
-and cannot survive being *parsed* out of a separated list either, which is why the roots
-are asked one per line. `ask_roots` carries the measurement.
+**Every path written into `.env` is in POSIX form**, translated as each answer is taken.
+`config.load` splits a tuple setting on `os.pathsep`, `:` where the server runs, so a
+pasted drive letter survives neither being stored verbatim nor being *parsed* out of a
+separated list -- which is why the roots are asked one per line (`ask_roots`).
 
 **An existing file is moved aside, never overwritten and never left in place.** Refusing
-would leave a half-configured host with no route forward but hand-editing, which is the
-state this command exists to remove. The backup is named in the output. Both backup names
-are covered by `.gitignore` and by `security/secret_globs.txt`, which is load-bearing
-rather than tidy: these files name a host, and an uncovered `models.toml.bak-*` would be an
-ordinary untracked file one `git add -A` from being published.
+would leave a half-configured host with no route forward but hand-editing, the state this
+command exists to remove. The backup is named in the output, and both backup names are
+covered by `.gitignore` and `security/secret_globs.txt`: these files name a host, and an
+uncovered `models.toml.bak-*` would be one `git add -A` from being published.
 
-**stdout is the conversation here, as it is for the doctor** and unlike every other entry
-into this package: nothing speaks MCP to an `--init` run, so there is no protocol on stdout
-to corrupt.
+**stdout is the conversation here, as for the doctor** and unlike every other entry into
+this package: nothing speaks MCP to an `--init` run, so there is no protocol to corrupt.
 
-**No endpoint is probed.** `--doctor` already does that, reusing `server.probe_entry`, and
-a second copy of the probe here would be a second thing to keep true. This command ends by
+**No endpoint is probed.** `--doctor` does that, reusing `server.probe_entry`, and a
+second copy of the probe would be a second thing to keep true. This command ends by
 saying to run the doctor.
 """
 
@@ -72,10 +65,9 @@ from .registry import ModelEntry, RegistryError
 from .wsl import UntranslatablePath, is_wsl, to_posix, to_windows
 
 # The `.env` settings offered with their defaults. Names only -- every default, unit and
-# help string is read from `config.describe()` at run time. The list is `.env.example`'s
-# own "commonly adjusted" block plus `transcript_dir`, which is here because `--doctor`
-# warns when it is unset and because it is a path, so it exercises the same
-# pasted-Windows-path handling as the root list above it.
+# help string comes from `config.describe()` at run time. `.env.example`'s "commonly
+# adjusted" block, plus `transcript_dir`, which `--doctor` warns about when unset and which
+# is a path, so it gets the same pasted-Windows-path handling as the roots.
 OFFERED_SETTINGS = (
     "transcript_dir",
     "thinking_default",
@@ -102,15 +94,13 @@ OFFERED_MODEL_FIELDS = (
     "context_window", "default_effort", "max_tokens_cap", "concurrency", "api_key_env",
 )
 
-# Written for the single entry this command creates, though `registry.load` does not need
-# it -- a lone unflagged entry is taken as the default. It is here for the second entry
-# someone adds by hand later, which would otherwise turn a working registry into "N models
-# and none marked default".
+# Written for the single entry this command creates, though `registry.load` takes a lone
+# unflagged entry as the default. It is for the second entry someone adds by hand later,
+# which would otherwise turn a working registry into "N models and none marked default".
 _DEFAULT_FLAG = "default = true"
 
-# Fields whose value is written to TOML bare rather than quoted. Derived from the
-# dataclass, so a field that changes type does not need remembering here. `bool` is
-# excluded explicitly because it is a subclass of `int`.
+# Fields written to TOML bare rather than quoted. Derived from the dataclass, so a field
+# that changes type needs no remembering here. `bool` is excluded: it subclasses `int`.
 _NUMERIC_MODEL_FIELDS = frozenset(
     f.name for f in fields(ModelEntry)
     if isinstance(f.default, int) and not isinstance(f.default, bool)
@@ -137,8 +127,8 @@ class Answers:
 def _read(inp, out) -> str:
     line = inp.readline()
     if line == "":
-        # EOF, which is not an empty answer: an empty answer is a newline and means
-        # "accept the default", while this means there is nobody to accept anything.
+        # EOF, not an empty answer: an empty answer is a newline, "accept the default",
+        # while this means nobody is there to accept anything.
         print(file=out)
         raise Abandoned
     return line.strip()
@@ -148,8 +138,8 @@ def ask(label: str, *, default: str, inp, out,
         check: Callable[[str], str | None] | None = None) -> str:
     """One question. Returns the answer, or `default` when Enter was pressed.
 
-    Re-asks on a rejected answer rather than failing the run: the answers already given
-    are worth more than the one that was mistyped. The loop is bounded by EOF.
+    Re-asks on a rejected answer rather than failing the run: the answers given are worth
+    more than the one mistyped. EOF bounds the loop.
     """
     print(label, file=out)
     shown = f"[{default}] " if default != "" else ""
@@ -171,8 +161,8 @@ def _translatable(value: str) -> str | None:
     """Accept a pasted Windows path; refuse one with nowhere to land.
 
     Only the *translation* is checked. A directory that does not exist yet is reported and
-    accepted: `--doctor` fails on a missing root, and someone naming a directory they are
-    about to create is not making a mistake this command can be sure of.
+    accepted: `--doctor` fails on a missing root, and naming a directory about to be
+    created is not a mistake this command can be sure of.
     """
     if not value.strip():
         return None
@@ -216,16 +206,15 @@ def _model_label(name: str) -> str:
 def ask_roots(row: dict[str, Any], *, inp, out) -> list[str]:
     r"""One root per question, until a blank line. Returns them translated.
 
-    Asked one at a time rather than as a separated list, and the reason is measured rather
-    than stylistic. A list would have to be split on `os.pathsep`, which is `:` here -- so
-    `C:\Users\you\projects`, the form this command exists to accept, splits into `C` and
-    `\Users\you\projects` *before* anything can translate it, and each half then survives
-    `to_posix` untouched and rejoins into the original. The value round-trips and every
-    path under it is refused, with nothing in the file looking wrong. Asking one at a time
-    removes the parse instead of trying to be clever about it.
+    One at a time rather than as a separated list, for a measured reason. A list must be
+    split on `os.pathsep`, `:` here, so `C:\Users\you\projects`, the form this command
+    exists to accept, splits into `C` and `\Users\you\projects` *before* anything can
+    translate it; each half survives `to_posix` untouched and rejoins into the original.
+    The value round-trips and every path under it is refused, with nothing in the file
+    looking wrong. Asking one at a time removes the parse.
 
-    Translated on the way in, for the same reason: what is written is what the loader will
-    read, and `to_posix` is this project's one direction of travel.
+    Translated on the way in: what is written is what the loader will read, and `to_posix`
+    is this project's one direction of travel.
     """
     print(f"\n{row['env']}\n  {row['description']}", file=out)
     print("  One per line. A pasted Windows path is accepted; blank line when done.",
@@ -257,8 +246,7 @@ def interview_settings(rows: dict[str, dict[str, Any]], answers: Answers, *,
         check = _translatable if name.endswith("_dir") else (
             _integer if row["type"] == "int" else None)
         got = ask(_setting_label(row), default=shown, inp=inp, out=out, check=check)
-        # The writing rule: a line is emitted only for a departure. An accepted default is
-        # not a value this file may write down.
+        # The writing rule: a line only for a departure, never for an accepted default.
         if got != shown:
             answers.settings[name] = to_posix(got) if _is_path_setting(name) else got
 
@@ -272,8 +260,8 @@ def interview_model(answers: Answers, *, inp, out) -> None:
                             inp=inp, out=out, check=_nonempty)
     key = answers.model_key
 
-    # `registry._REQUIRED` rather than a list here: it is the single statement of which
-    # fields a registry table cannot omit, and this package is where it lives.
+    # `registry._REQUIRED`, not a list here: the single statement of which fields a
+    # registry table cannot omit.
     for name in registry._REQUIRED:
         answers.model[name] = ask(
             _model_label(name), default="", inp=inp, out=out,
@@ -294,11 +282,10 @@ def _required_field_problem(key: str, name: str, value: str) -> str | None:
 def _field_problem(key: str, name: str, value: str) -> str | None:
     """Ask the registry's own validator about one field, the rest left at default.
 
-    Reuse rather than reimplementation, for the reason `doctor.py` calls the server's own
-    helpers: the rule that a base URL carries no `/v1` suffix, and that an effort level has
-    a translation, are enforced in one place, and a copy here would be free to agree with a
-    registry that had changed underneath it. The other required field is filled with a
-    placeholder so only `name`'s own rules can fire.
+    Reuse, not reimplementation, as `doctor.py` calls the server's helpers: that a base
+    URL has no `/v1` suffix and an effort level has a translation are enforced in one
+    place, and a copy here could disagree with a registry that changed underneath it. The
+    other required field gets a placeholder so only `name`'s own rules can fire.
     """
     raw: dict[str, Any] = {"base_url": "http://placeholder", "served_model_id": "placeholder"}
     if name in _NUMERIC_MODEL_FIELDS:
@@ -334,8 +321,8 @@ def render_env(answers: Answers, rows: dict[str, dict[str, Any]], *,
         lines.append(f"{config.env_name('models_file')}={models_file}")
     kept = [rows[n]["env"] for n in OFFERED_SETTINGS if n not in answers.settings]
     if kept:
-        # Named, not valued. Which questions were asked and waved through is worth
-        # recording; what the answer was is a default and belongs only in config.py.
+        # Named, not valued: which questions were waved through is worth recording, but
+        # the answer is a default and belongs only in config.py.
         lines += ["", "# Asked and left at the default:"]
         lines += [f"#   {name}" for name in kept]
     return "\n".join(lines) + "\n"
@@ -366,9 +353,9 @@ def render_models(answers: Answers) -> str:
 def registration(repo_root: Path | str) -> str:
     """The MCP registration block, printed because nothing here can write it.
 
-    `README.md` keeps a generic version, which a reader needs before they can run anything.
-    This is the machine-specific one: the resolved console script, and under WSL the
-    `wsl.exe` wrapper around it carrying the distribution this process is running in.
+    `README.md` keeps a generic version, needed before anything can run. This is the
+    machine-specific one: the resolved console script, and under WSL the `wsl.exe` wrapper
+    carrying the distribution this process runs in.
     """
     command = shutil.which("claude-delegate-local-mcp") or "claude-delegate-local-mcp"
     note = ""
@@ -378,9 +365,8 @@ def registration(repo_root: Path | str) -> str:
         try:
             cd = to_windows(str(repo_root))
         except UntranslatablePath:
-            # The repository is inside the distribution rather than under a drive mount, so
-            # there is no Windows form to print. Name the argument the reader has to supply
-            # instead of printing one that cannot work.
+            # The repository is inside the distribution, not under a drive mount, so there
+            # is no Windows form: name the argument to supply rather than print a broken one.
             cd = "<the Windows path of this repository>"
         entry = {
             "command": "wsl.exe",
@@ -400,10 +386,9 @@ def registration(repo_root: Path | str) -> str:
 def check_answers(answers: Answers, rows: dict[str, dict[str, Any]], tmp: Path) -> Config:
     """Load what is about to be written, through the code the server loads it with.
 
-    Rendering to a temporary pair first means a rejected set of answers costs nothing: the
-    real files stay untouched until both loads have succeeded. `config.load` is handed an
-    explicit environ so it cannot pick up a `.env` that already sits beside the repository,
-    which would make this check pass on a value it is about to replace.
+    Rendered to a temporary pair first, so rejected answers cost nothing: the real files
+    stay untouched until both loads succeed. `config.load` gets an explicit environ so it
+    cannot pick up an existing `.env` and pass on a value about to be replaced.
     """
     models_path = tmp / "models.toml"
     models_path.write_text(render_models(answers), encoding="utf-8")
@@ -417,10 +402,9 @@ def check_answers(answers: Answers, rows: dict[str, dict[str, Any]], tmp: Path) 
 def back_up(path: Path, *, stamp: str) -> Path | None:
     """Move an existing file aside. Returns where it went, or None if there was nothing.
 
-    The name carries a timestamp rather than a counter so a second run cannot land on the
-    first backup, and both shapes are covered by `.gitignore` and
-    `security/secret_globs.txt` -- these files name a host, so an uncovered backup would be
-    a leak with one `git add -A` behind it.
+    A timestamp, not a counter, so a second run cannot land on the first backup. Both
+    shapes are covered by `.gitignore` and `security/secret_globs.txt`: these files name a
+    host, so an uncovered backup would be a leak one `git add -A` away.
     """
     if not path.exists():
         return None
@@ -439,20 +423,20 @@ def write_files(answers: Answers, rows: dict[str, dict[str, Any]], root: Path, *
         if (moved := back_up(path, stamp=stamp)) is not None:
             print(f"  moved aside: {moved.name}", file=out)
 
-    # `models_file` defaults to `./models.toml`, relative to the working directory. Both
-    # files are written beside the repository root, where `config.load` discovers `.env`;
-    # when the two differ the default would not find the registry, so the path is written
-    # -- a departure from the default rather than a copy of one.
+    # `models_file` defaults to `./models.toml`, relative to the working directory, while
+    # both files go beside the repository root, where `config.load` discovers `.env`. When
+    # the two differ the default would not find the registry, so the path is written -- a
+    # departure from the default, not a copy of one.
     #
-    # Translated like every other path this file carries, which matters for the one case
-    # that is easy to miss: `--init` run on Windows, writing configuration a server inside
-    # WSL will read. A native `C:\...` there would name nothing on the side that reads it.
+    # Translated like every other path here, which matters for `--init` run on Windows,
+    # writing configuration a server in WSL reads: a native `C:\...` would name nothing
+    # there.
     models_setting = "" if Path.cwd().resolve() == root else to_posix(str(models_path))
     env_path.write_text(render_env(answers, rows, models_file=models_setting),
                         encoding="utf-8")
     models_path.write_text(render_models(answers), encoding="utf-8")
     for path in (env_path, models_path):
-        # Same reasoning as the transcript directory's mode: the contents name a host.
+        # As for the transcript directory's mode: the contents name a host.
         try:
             path.chmod(0o600)
         except OSError:
