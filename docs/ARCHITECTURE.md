@@ -1,4 +1,4 @@
-<!-- BUDGET: 1250 -->
+<!-- BUDGET: 1215 -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -49,8 +49,8 @@ one model reply plus any tool it ran is a *turn*, up to a budget. It can write c
 your tests, read the real failure and try again — at no cloud token cost — before handing
 anything back.
 
-`files[]` is not an alternative to the loop. It is a **prefetch** that seeds it. Measured
-during spikes: given no prefetch, the model's first turn was a wasted directory listing.
+`files[]` is not an alternative to the loop. It is a **prefetch** that seeds it. Given no
+prefetch, the model's first turn is a wasted directory listing.
 Prefetching removes several such turns from the front of every delegation.
 
 Its files arrive **line-numbered, in `read_file`'s format**, so a pass can cite what it
@@ -97,20 +97,19 @@ which owns them, and `agents.py` in [AGENTS.md](AGENTS.md). The split follows co
 rather than line count, two of them — path translation and sandboxing — being ours alone.
 `server.py` stays thin wiring; the logic lives in `loop.py`, `backends/` and `context.py`.
 
-`delegate_readonly` is no longer the one-shot path. It was given the read-only tools in
-2026-09-03, which puts it on the turn loop like every other delegation — the one-shot
-remains reachable, by `delegate` with an explicitly empty toolset, and is still the honest
-shape when there is genuinely nothing to look up. What made the change safe rather than a
-weakening is that ADR-0042's promise was never "this delegation has no tools" but "nothing
-it can do will write" (ADR-0048), and the prerequisite was the loop's heartbeat: before
-that, moving a delegation onto the loop moved it onto the silent path.
+`delegate_readonly` is on the turn loop like every other delegation, having been given the
+read-only tools. The one-shot remains reachable, by `delegate` with an explicitly empty
+toolset, and is still the honest shape when there is genuinely nothing to look up. What
+makes this safe rather than a weakening is that ADR-0042's promise is not "this delegation
+has no tools" but "nothing it can do will write" (ADR-0048), and the prerequisite is the
+loop's heartbeat: without that, moving a delegation onto the loop would move it onto the
+silent path.
 
 One exception to thin, and it is deliberate: every delegation tool resolves its arguments
 through the single `run_delegation`, which applies the call-argument-then-agent-file
 precedence [AGENTS.md](AGENTS.md) states. Four tools with four resolution paths is how the
 two halves of one precedence rule drift apart, and precedence is exactly what an agent file
-is. `max_turns` was the standing proof: it alone read the file without consulting the
-argument, inside the function that got every other setting right.
+is.
 
 ### stdout belongs to the protocol
 
@@ -137,8 +136,7 @@ Neither asks the filesystem or the network anything, so the server starts with a
 nonexistent workspace root, no `bwrap` and a dead endpoint — measured, with a full MCP
 handshake in about a second and every tool served. Each fault then surfaces inside
 whichever call reaches it first, a layer away from its cause. The cost is on record: an
-absent `uv` left [`toolchain_binds`](CONFIGURATION.md) resolving to nothing for a session,
-and the result was filed as an architectural limit rather than a missing package.
+absent `uv` leaves [`toolchain_binds`](CONFIGURATION.md) resolving to nothing, silently.
 
 `doctor.py` asks those questions up front and **reuses the server's own code to ask them**
 — `paths.resolved_roots`, `sandbox.available`, `sandbox.limiter_available`,
@@ -173,9 +171,8 @@ from, and the rules from calling `registry._validate` and `config.load`.
 preference: `config.load` splits a tuple setting on `os.pathsep`, which is `:` here, so a
 pasted `C:\Users\you\projects` splits on the drive's colon into two roots that then
 survive `to_posix` untouched and rejoin into the original. The value round-trips, every
-path under it is refused, and nothing in the file looks wrong — measured 2026-09-08, and
-`.env.example` had shipped that exact value. Asking one root at a time removes the parse
-rather than outsmarting it, and each answer is translated as it is taken.
+path under it is refused, and nothing in the file looks wrong. Asking one root at a time
+removes the parse rather than outsmarting it, and each answer is translated as it is taken.
 
 **An existing file is moved aside, not refused** — refusing leaves a half-configured host
 with no way forward but hand-editing. Both `.bak-` names are covered by `.gitignore` *and*
@@ -212,11 +209,10 @@ load — a failure with no symptom anywhere near its cause.
 ### `provision` builds the interpreter a delegation verifies with
 
 `run_bash` exists so a model can check its own work, and ADR-0007 rests everything on the
-server capturing a real exit code. For a Python project none of it worked: no `python` on
-`PATH` inside the sandbox, `import pytest` raising, and no network to install either. That
-was filed once as an architectural limit and was not one — nothing had asked whether some
-*other* bound path could hold an interpreter. [`sandbox_home`](CONFIGURATION.md) can: bound
-read-write, persistent, and outside the workspace.
+server capturing a real exit code. For a Python project none of it works without
+provisioning: no `python` on `PATH` inside the sandbox, `import pytest` raising, and no
+network to install either. [`sandbox_home`](CONFIGURATION.md) can hold an interpreter:
+bound read-write, persistent, and outside the workspace.
 
 `provision <project>` builds a virtualenv under it from the project's own declaration, every
 one of `pyproject.toml`, `setup.cfg` and `setup.py` present, and records what it built from
@@ -256,7 +252,7 @@ sandbox, not about the installed dependencies. This repository has one entry: a 
 asserting the network is reachable, which `--unshare-all` denies. Applied by the server
 rather than left to the model because forgetting it produces a **real** non-zero exit from
 a test that cannot pass, and a false failure looks exactly as trustworthy as a true one.
-Measured before it was written down: a `--deselect` naming a node id outside the collected
+A `--deselect` naming a node id outside the collected
 subset, or one that does not exist at all, is tolerated at exit 0 — so the list costs
 nothing on a targeted run.
 
@@ -268,12 +264,12 @@ answered, 1 if it did not, and 2 on bad usage. Everything between goes through
 as they do for a tool call. This module owns argument handling and an exit code, nothing else.
 
 It answered a limit on the *client*: a conversation speaking MCP keeps one write-capable call
-in flight and releases the next at whichever of completion or 120s comes first, so a
-six-wide fan-out spent 600s staggering. The write-capable tools now answer at once with a
-handle instead (ADR-0103), so the run carries on in a task the server owns, admission wait
-included, and `collect` reads it back, reporting progress every `keepalive_interval` it
-waits so the idle timeout (ADR-0018) cannot drop it. What `run` still buys is context — a tool result lands in the caller's window
-whole, where this one is redirected to a file and read back in part.
+in flight and releases the next at whichever of completion or 120s comes first. The
+write-capable tools answer at once with a handle instead (ADR-0103), so the run carries on
+in a task the server owns, admission wait included, and `collect` reads it back, reporting
+progress every `keepalive_interval` it waits so the idle timeout (ADR-0018) cannot drop
+it. What `run` still buys is context — a tool result lands in the caller's window whole,
+where this one is redirected to a file and read back in part.
 
 stdout carries that JSON, which is why `main.run` dispatches here *before* building a
 server, exactly as it does for `--doctor`: a server started underneath would interleave MCP
@@ -334,8 +330,8 @@ What stays true is where the reading happens: `finish_reason` and the token coun
 adapter raw, and `loop.py` is the only layer that interprets them.
 
 A reply can be valid, empty and stopped on length — the budget spent on reasoning, nothing
-left to answer with (ADR-0014). That is now recovered from rather than merely reported;
-see [empty-answer recovery](DISPATCH.md#an-empty-answer-is-recovered-from-before-it-is-reported). The result still carries `empty_response` as a mechanical fact, and now
+left to answer with (ADR-0014). It is recovered from rather than merely reported;
+see [empty-answer recovery](DISPATCH.md#an-empty-answer-is-recovered-from-before-it-is-reported). The result carries `empty_response` as a mechanical fact, and
 `reasoning_exhausted` beside it as the diagnosis — which is a separate claim, and earned
 only once the mitigations have actually been spent. Reasoning returned in place of an
 answer, and an answer forced out by the turn limit, both come back under a banner: a
@@ -361,7 +357,7 @@ Each row also carries a **`cluster` block: the serving stack's own numbers**, wh
 occupancy and the prefix-cache hit rate were all guessed at from what this process had
 dispatched, which cannot see other clients or other server processes; these are measured by
 the engine. The decode rate is the one figure nothing here could estimate at all, and the
-reply budget is now derived from it (ADR-0055). What is read and why the reading is an
+reply budget is derived from it (ADR-0055). What is read and why the reading is an
 allowlist belongs to [DISPATCH.md](DISPATCH.md), which owns the adapter.
 
 **A missing `cluster` block never changes a row's status.** An endpoint that publishes no
@@ -387,9 +383,8 @@ What it never reports is the address. ADR-0029.
 
 ### An explicit registry, not name-prefix routing
 
-The ancestor chose a backend by string-prefix-matching the model name across five separate
-tables that had to be kept mutually consistent by hand. Its own comments record the
-resulting near-misses.
+Choosing a backend by prefix-matching the model name needs several tables kept mutually
+consistent by hand, and near-misses follow.
 
 That cannot work here regardless of tidiness: the serving stack runs **one model per
 inference instance**, so a second model means a second base URL — a fact no amount of
@@ -612,7 +607,7 @@ precisely when it wants to report an exit code carefully. So a captured **non-ze
 trustworthy** — nothing invents one — while a captured **zero is not proof of success**,
 because a masked failure looks identical to a clean run; read `bash_failures` beside it.
 
-**Half of that is now closed by the server rather than by wording.** The line runs under
+**Half of that is closed by the server rather than by wording.** The line runs under
 bash with an `ERR` trap prepended — it fires on a sequence member exiting non-zero without
 aborting the line — so a failure before the last command reaches `bash_masked_failures` even
 where the status reads 0. Dash, which `/bin/sh` is here, can express neither half, so the
@@ -680,8 +675,8 @@ be held, and `admission.py` counts it when it calls itself a four-rule gate. The
 every path — a limit enforced only where requests happen to run in parallel bounds a caller
 against itself and nothing else.
 
-There were four until ADR-0077 removed a cap on concurrent large cold prefills: the engine
-serialises them itself, so the floor it sets is reached without the cap and cannot be
+Large cold prefills carry no separate cap (ADR-0077): the engine
+serialises them itself, so the floor it sets is reached without one and cannot be
 beaten with it.
 
 The three are **one predicate, not three gates in series**. A request that took a sequence
@@ -691,25 +686,21 @@ acquired: a waiter that does not fit holds nothing.
 
 **The token rule binds on the lower of two ceilings.** `kv_token_budget` is what the operator
 allows; `kv_cache_size_tokens` is what the machine has, and it arrives free in the scrape that
-already prices a delegation's first turn. Until 2026-09-13 only the first was read, and it had
-drifted to about 1.64x the pool it describes itself as sitting under — invisibly, because
+already prices a delegation's first turn. Reading only the configured ceiling risks drifting
+past the pool it describes itself as sitting under, and the drift is silent because
 over-admitting queues rather than errors, so this protects latency and cannot report that it
 has stopped. This is deliberately *not* the silent override `WindowCheck` refuses: that
 validates a declared `context_window` because adopting the endpoint's figure would overrule
 the operator, whereas these two are ceilings on the same physical thing and the lower of two
 ceilings overrules neither. Both, and which is binding, are in `backend_status` — where
-`kv_cache_size_tokens_seen` reading null means the second ceiling is not yet in force, which
-is how a whole reconnect's worth of delegations was found running against the configured
-number alone (ADR-0081).
+`kv_cache_size_tokens_seen` reading null means the second ceiling is not yet in force
+(ADR-0081).
 
-**Queueing is ordered, which it was not until 2026-09-04.** "Queues" above was true about
-waiting and false about a place in line. `acquire` was a re-test loop, so a request that
-had waited nine minutes had no claim over one arriving that instant, and across processes
-it was worse than unordered: a release elsewhere notifies nothing, so waiting is polling,
-and the slot went to whoever happened to look in the gap. Every waiter now takes a ticket
-in the same shared file the counters use, and the predicate refuses anyone who is not at
-the front. Fairness decides *who* goes next, not how quickly anyone finds out — the
-polling is unchanged, and a broker is what it would take to change it.
+**Queueing is ordered**, or a request that has waited nine minutes has no claim over one
+arriving that instant. Every waiter takes a ticket in the same shared file the counters
+use, and the predicate refuses anyone who is not at the front. A release elsewhere notifies
+nothing, so waiting is polling: fairness decides *who* goes next, not how quickly anyone
+finds out, and a broker is what it would take to change that.
 
 A waiter is ahead of you only if it could be admitted **now**, and that qualification is
 load-bearing. Strict ticket order would reintroduce exactly the head-of-line blocking the
@@ -758,8 +749,8 @@ route — below, under what a record carries.
 The slot is taken *before* that wait, so the wait gives it back on any exit from it. Nothing
 else can: a lease is released by `admit`, which has not been handed one until the wait
 returns, and a record is reclaimed only once its process stops — which for a server that
-outlives the delegation is never. A cancellation in that window used to cost a slot for the
-life of the process, and `max_inflight_seqs` of them closed the gate for good.
+outlives the delegation is never. So a cancellation in that window would otherwise cost a
+slot for the life of the process, and `max_inflight_seqs` of them would close the gate.
 
 A ticket is given up on every exit from the wait — admitted, timed out, cancelled, raised
 — from a `finally` rather than from the timeout path, because one abandoned at the front
@@ -768,7 +759,7 @@ go with its record, which the liveness check already reclaims. That leaves one c
 live process that somehow failed to drop one, and it expires on a timer and says so in
 the log: a backstop that fired silently would hide the defect it is compensating for.
 
-**The wait is now unbounded by default**, because a bail-out here can only turn slow into
+**The wait is unbounded by default**, because a bail-out here can only turn slow into
 failed. It runs before `dispatch_timeout` starts its own clock — the two stack rather than
 divide one budget — so a waiter that reaches the head still has its whole allowance, and
 refusing it produces nothing where waiting produces the answer late. What bounds the wait
@@ -793,15 +784,15 @@ limit, and the constants are tunable from evidence instead of guesswork. (ADR-00
 
 ### The budget belongs to the machine, not to the process
 
-Every rule above is only as global as the thing counting it, and for a while that was one
-process. The transport is stdio, so the MCP client starts a server per registration: two
-editor windows open on two projects are two servers, each with counters starting at zero,
-against one KV pool. Each rule bounded a session, and the cluster saw the configured
-ceiling multiplied by the number of windows open.
+Every rule above is only as global as the thing counting it. The transport is stdio, so the
+MCP client starts a server per registration: two editor windows open on two projects are two
+servers, each with counters starting at zero, against one KV pool. Counted per process, each
+rule would bound a session and the cluster would see the configured ceiling multiplied by
+the number of windows open.
 
 The transcript carries the same shape. Its per-dispatch counter is module-level, so two
-processes both start at `0001`, and a same-millisecond same-agent pair built one filename
-that the record's `O_TRUNC` then erased rather than interleaved. The name now carries a
+processes both start at `0001`, and a same-millisecond same-agent pair builds one filename
+that the record's `O_TRUNC` erases rather than interleaves. The name carries a
 short hash of the `pid:start_time` identity `slots.py` already owns, placed after the
 timestamp so the directory still sorts by time.
 
@@ -858,8 +849,7 @@ itself and the caller's own flag still decides, separately, what the reply conta
 called for its effect from a `finally` and returns nothing, so there is no value for the
 response dict — assembled from conditional spreads — to pick up. The record is built from
 identity captured *before* the attempt, because the agent's name is in scope only at the
-top of a delegation; assembling it any deeper leaves a failure with nothing to name, which
-is how upstream came to log exactly the dispatches it existed to explain as unknown.
+top of a delegation; assembling it any deeper leaves a failure with nothing to name.
 
 One file per dispatch rather than an appended log, because concurrent delegations mean as
 many concurrent writers as calls in flight. Records carry the task, the files with their accounting, real token usage
@@ -907,15 +897,12 @@ nothing anywhere reports a contradiction.
 
 Those same two take a `workdir`, and no read-only tool does. The asymmetry is the
 annotation's: a workdir is a read-write bind into the sandbox, so a tool promising it changes
-nothing cannot offer one. That was prose until 2026-09-06 and had already drifted —
-`list_agents` carried the annotation and took a `workdir` that bound nothing. The lookup
-sense is `project` now, and a test walks the declared schemas so it cannot drift again. `delegate` was the odd case until 2026-09-06 -- it could write but
-had no workdir, so it could produce a file and then run nothing against it, and its own
-description had claimed the argument for long enough that a model following it earned a
-validation error. **A write never depended on the bind**: `write_file` and `edit_file` resolve
-through the path policy in the server process against `workspace_roots`, so a delegation with
-no workdir writes perfectly well. What the bind adds is the other half of a write-then-verify
-loop, which is why the two belong on the same tools rather than one implying the other. The permission layer matches on tool name and never
+nothing cannot offer one. The lookup sense is `project`, and a test walks the declared
+schemas so it cannot drift. **A write never depends on the bind**: `write_file` and
+`edit_file` resolve through the path policy in the server process against `workspace_roots`,
+so a delegation with no workdir writes perfectly well. What the bind adds is the other half
+of a write-then-verify loop, which is why the two belong on the same tools rather than one
+implying the other. The permission layer matches on tool name and never
 inspects arguments, so the claim is a property of the tool or it is worth nothing. Holding
 that asymmetry is what the guard in `tests/test_server.py` is for, and it is worth more than
 the annotations themselves.
@@ -946,8 +933,8 @@ pulled by the *model* — Claude Code exposes listing and reading — so it reac
 unprompted with no length limit at all. That is what lets a description be an index instead
 of a manual.
 
-Descriptions run 392 to 622 characters here, against 1484 to 6087 before, and the schemas
-now describe every argument *and every result key* of every tool. The result schema is
+Descriptions run 392 to 622 characters, and the schemas describe every argument *and every
+result key* of every tool. The result schema is
 deliberately permissive — nothing `required`, additions allowed — because the one-shot path
 omits the loop ledger and `diagnostics` appears only when asked, so a stricter one would
 refuse results this server legitimately produces. A test holds each description to a target well
@@ -1000,8 +987,7 @@ the endpoint reported nothing and is not a zero. Two fields rather than one, bec
 the other's question. A read-only tool is its writing twin with the tool set fixed, so the
 pair runs one path and `tools` alone cannot say which was called; and `delegate` alone
 does not say whether a loop ran, because a caller may pass `allowed_tools=[]` and get a
-one-shot. Until both were recorded, a read-only call and a plain `delegate` wrote
-byte-identical transcripts — so a directory of them could not be counted by
+one-shot. Both are recorded, so a directory of them can be counted by
 kind, which is what the records exist for. **Absent and empty are not interchangeable
 anywhere downstream:** a missing `tools` is a transcript written before the field existed and
 is reported as unknown, while an empty one is a one-shot. The files are in the stream as well
@@ -1013,29 +999,23 @@ wait for a slot; `backend_ms` is the backend call across every attempt, split by
 `prefill_seconds` and `decode_seconds`. Tokens per second divides the answering attempt's
 tokens by its own decode span: `backend_ms` spans the empty attempts too, and under-reports.
 
-**A turn's tool calls are a record, not a pair.** `(name, outcome)` is why a delegation
-reporting one tool error across twelve `read_git` calls could not be diagnosed even with
-transcripts enabled: the refusal text was built in `tools.py`, handed to the model as the
-next turn's history, and dropped at the one point it was in scope. Each entry now carries
+**A turn's tool calls are a record, not a pair.** Each entry carries
 the arguments, a refusal message on an error outcome, and accounting on a success — what is
 recorded and why is ADR-0060's. The three sites that rendered the pair by hand,
 `_diagnostics_block` here and the live stream and `_ledger` in `transcript.py`, share one
 serialiser, so the stream cannot drift out of step with the two records tests assert on.
 
 **A stream turn carries `tool_results_evicted` beside `cached_tokens`, and the pair is the
-point.** The record had the eviction count per turn and the stream did not, so a person
-watching a delegation could see the prefix cache collapse and not see the one thing that
-explains it — which is how ADR-0056's bug went unnoticed while it was happening in front of
-someone. A one-shot reports `0` rather than omitting the field: it has no history to evict
-from, and that is a measurement, where an absent field reads as *not measured*.
+point.** Without it, a person watching a delegation would see the prefix cache collapse and
+not see the one thing that explains it (ADR-0056). A one-shot reports `0` rather than omitting
+the field: it has no history to evict from, and that is a measurement, where an absent field
+reads as *not measured*.
 
 **The result reports the whole run beside the answering turn** (ADR-0058). `input_tokens`,
-`output_tokens` and `cached_tokens` have always described the attempt that answered; the
+`output_tokens` and `cached_tokens` describe the attempt that answered; the
 `total_*` fields describe every turn there was. Both are kept because neither answers the
-other's question, and the transcript record now carries the `total_*` fields as well — so
-the same words no longer mean two quantities in the two records a reader compares. A
-twelve-turn delegation reported `output_tokens: 2,002` against a real 4,404, and
-`cached_tokens: 0` on a run that reused 559,872.
+other's question, and the transcript record carries the `total_*` fields as well — so
+the same words mean the same quantities in the two records a reader compares.
 
 `scripts/watch_delegations.py` reads that stream: it lists what is in the transcript
 directory, follows the one you pick, and renders turns as a conversation rather than as
@@ -1050,9 +1030,9 @@ priced the turn rather than as what is running; only a `cluster_since_boot` row 
 A budget line names the turn it priced, because a turn boundary can fall inside one displayed
 second. The state column is sized from the widest state that can occur, and a queued
 delegation repaints once a minute plus once when the wait breaks, rather than once a second.
-The selection band ends with the row's text: it was padded to the terminal, measured with a
-character count, and an emoji occupies two cells — so a row carrying one over-padded, wrapped,
-and left a blank line under the selection.
+The selection band ends with the row's text: a pad counted in characters overshoots on a row
+carrying an emoji, which occupies two cells, so such a row over-pads, wraps, and leaves a
+blank line under the selection.
 
 **Its picker carries four token figures, and no two answer the same question.** `cached` is
 prefill the cluster skipped from its own prefix cache; `reuse` is that as a share of the
@@ -1133,20 +1113,16 @@ The listing also names the **kind** of each call in one word — `delegate`, `re
 the difference between two rows that otherwise look alike, and it decides which one is worth
 opening. Two facts share the column, since only one of them is ever a surprise: which tool was
 called is in the name, so the shape is worth naming only where a `delegate` given no tools
-quietly ran as one — `readonly` once implied that and no longer does. A transcript from before the field existed reads `?`. That is the point
-rather than a gap — every call once wrote `delegate` whether or not it was one, so defaulting
-an old row to `delegate` would reproduce exactly the confusion the column ends. Opening a
+quietly ran as one, which `readonly` does not. A transcript from before the field existed reads `?`. That is the point
+rather than a gap — defaulting an old row to `delegate` would reproduce exactly the confusion
+the column ends. Opening a
 transcript then shows the resolved tools and every file it was given, skipped ones named with
 their reason: a file the caller believes it passed and the model never saw is the one thing
 in that block worth interrupting a reader for.
 
 **A tool-call line shows what was asked, how it ended, and why if it refused.** The refusal
 wraps onto its own lines, is coloured like the outcome beside it, and is never trimmed to
-fit; on a narrow terminal the argument list drops to its own line rather than being cut. The
-line did neither before, and carried two checks that could not fire: it tested success as
-`outcome == "ok"`, which is not one of the three outcomes `_run_calls` produces, so every
-successful call was painted red — and it interpolated a `detail` key no producer has ever
-written. Both survived because nothing asserts on a colour.
+fit; on a narrow terminal the argument list drops to its own line rather than being cut.
 
 Both paths write a fourth kind of event, `alive`, and it is the only one written on a clock
 rather than on an occurrence. The other three mark something that happened; this one exists because either
@@ -1185,9 +1161,9 @@ The `end` event carries `finish_reason` verbatim, and the viewer names the trunc
 with what to do about each. A cut-off reply is a *successful* dispatch — nothing raised, so
 `ok` is true — and "done" is the word that reads most wrongly about it; a table rather than a
 truth test, because "cut off" without "by what" sends a reader to raise a budget at a content
-filter. It also reports turns even when the dispatch died on a deadline, where it used to
-carry nothing — recording a timed-out delegation as having run none, which is the same gap
-as its error text in the file read afterwards. [DISPATCH.md](DISPATCH.md) owns what such a
+filter. It also reports turns even when the dispatch died on a deadline, since recording a
+timed-out delegation as having run none would be the same gap as its error text in the file
+read afterwards. [DISPATCH.md](DISPATCH.md) owns what such a
 failure reports and why.
 
 A stream ends by writing an `end` event, so the listing has more states than two: `ok`/`fail`
@@ -1209,15 +1185,6 @@ per-dispatch records. One `os.write` per line keeps concurrent writers from tear
 the Linux filesystem, and `--doctor` warns on a path under `/mnt/`, where concurrent appends
 lose lines outright (ADR-0104). Like the transcript, it never raises into a dispatch.
 
-## Non-goals
-
-- **No standalone CLI but `run`.** The server speaks MCP; `run`, above, is the same delegation
-  from a shell. Recorded here so nobody adds an undocumented one later.
-- **No streaming in v1.** MCP tool calls are request/response, so Claude sees nothing
-  incrementally either way. Progress notifications — which are *required*, to avoid the
-  stdio idle timeout — cover the part that matters. (ADR-0018)
-- **No cloud providers.** Everything cloud-specific in the ancestor was deleted.
-
 ## The server decides whether overflow handling may act, and the loop only reads a switch
 
 `WindowCheck` lives beside `BackendCache` and for the same reason: its verdict is per model
@@ -1237,3 +1204,12 @@ directory in `old_location` with where it belongs (ADR-0102).
 `dispatch_delegation` holds the two dispatch paths and the translation of every failure they
 can raise into a `ToolError`. It is out of `build()` because it is the only part of that
 function that is not wiring: which path ran decides which failures are possible.
+
+## Non-goals
+
+- **No standalone CLI but `run`.** The server speaks MCP; `run`, above, is the same delegation
+  from a shell. Recorded here so nobody adds an undocumented one later.
+- **No streaming in v1.** MCP tool calls are request/response, so Claude sees nothing
+  incrementally either way. Progress notifications — which are *required*, to avoid the
+  stdio idle timeout — cover the part that matters. (ADR-0018)
+- **No cloud providers.** There is no cloud-specific code.
