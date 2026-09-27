@@ -1,57 +1,49 @@
 """The admission counters, shared by every server process on this machine. ADR-0040.
 
-`admission.py` owns the policy -- the four rules and what happens to a request that does
-not fit. This module owns the *storage* those rules count against, and nothing else. The
-split matters because the rules were correct all along; what was wrong was the scope they
-counted over.
+`admission.py` owns the policy -- the four rules, and what happens to a request that does
+not fit. This module owns the *storage* those rules count against, and nothing else.
 
 **Why a file at all.** The transport is stdio, so the MCP client spawns one server process
-per registration. Two editor windows on two projects are two processes, each with its own
-`Admission` and its own zeroed counters, against one KV pool. Every rule then bounds a
-session rather than the cluster, and the effective ceiling is the configured one multiplied
-by however many windows happen to be open -- which is exactly the oversubscription ADR-0012
-exists to prevent, arrived at by a route ADR-0012 never considered.
+per registration. Two editor windows are two processes, each with its own `Admission` and
+zeroed counters, against one KV pool. Every rule would then bound a session rather than the
+cluster, and the ceiling would multiply by the windows open -- the oversubscription
+ADR-0012 exists to prevent.
 
 **The decision happens inside the lock, or it is not a decision.** Reading the totals,
 testing the predicate and publishing the result are one critical section under one
-exclusive `flock`. Splitting them -- read, decide, then write -- is a time-of-check race in
-which two processes both see room and both take it, and the race widens exactly when the
-cluster is busiest and the answer matters most. `admit()` therefore takes the predicate as
-a callable and evaluates it while holding the lock, rather than returning totals for a
-caller to judge afterwards.
+exclusive `flock`. Read, decide, then write is a time-of-check race in which two processes
+both see room and both take it, and it widens when the cluster is busiest and the answer
+matters most. So `admit()` takes the predicate as a callable and evaluates it under the
+lock, rather than returning totals for a caller to judge.
 
 **A dead process must not hold slots.** A record is keyed by `(pid, start_time)`, the start
-time read from field 22 of `/proc/<pid>/stat`, and is dropped the moment either stops
-matching a live process. That is what makes a `kill -9`d editor window cost nothing: no
-heartbeat to miss, no timeout to wait out, and PID reuse cannot let an unrelated new
-process inherit the slots of the dead one whose number it got. The staleness timeout below
-it is a backstop for platforms without `/proc`, never the primary mechanism -- a design
-that reclaims on a timer is one that either leaks for the length of the timer or evicts a
-live process that was merely slow.
+time from field 22 of `/proc/<pid>/stat`, and is dropped once either stops matching a live
+process. So a `kill -9`d editor window costs nothing: no heartbeat to miss, no timeout to
+wait out, and a reused PID cannot inherit the dead process's slots. The staleness timeout
+is a backstop for platforms without `/proc`, never the primary mechanism: reclaiming on a
+timer either leaks for the timer's length or evicts a live process that was merely slow.
 
 **A record also says whether its process is counting a burst.** `admission.py` keeps one
-wait open per burst so that every member prices on the whole burst rather than on the
-position it happened to arrive in; the flag here is what lets a member in *another*
-process join that wait instead of counting only the siblings ahead of it. It lives inside
-the record rather than at the top level of the document deliberately: a record is keyed by
-`(pid, start_time)` and reaped the moment its process stops, so a process that dies
-mid-count takes its flag with it and no second staleness rule is needed for it.
+wait open per burst so every member prices on the whole burst, not on its arrival
+position, and this flag lets a member in *another* process join that wait rather than
+count only the siblings ahead of it. It lives inside the record, not at the document's top
+level, so a process that dies mid-count takes its flag with it when the record is reaped,
+and no second staleness rule is needed.
 
 **Never block the event loop.** The lock is taken `LOCK_EX | LOCK_NB` and retried around
-`await asyncio.sleep`, because a blocking `flock` inside the loop would stall every other
-delegation in this process -- including ones already running, which are not waiting for
-anything. The critical section is a small JSON document on tmpfs; it is measured in
-microseconds, and the retry exists for contention, not for duration.
+`await asyncio.sleep`, because a blocking `flock` would stall every delegation in this
+process, including running ones that are not waiting for anything. The critical section
+is a small JSON document on tmpfs, microseconds long; the retry is for contention, not
+duration.
 
-**A corrupt file must not wedge the machine.** If the document does not parse it is reset
-and the run continues. The alternative -- refusing every delegation on every process until
-someone deletes a file by hand -- turns a latency protection into an outage, which inverts
-the entire point of ADR-0012.
+**A corrupt file must not wedge the machine.** A document that does not parse is reset and
+the run continues. Refusing every delegation until someone deletes a file by hand would
+turn a latency protection into an outage, inverting ADR-0012.
 
 The file lives on tmpfs (`$XDG_RUNTIME_DIR`, else `/dev/shm`), never on `/mnt/c`: flock
-across the Windows drive boundary is not dependable, and every operation there pays the
-12x penalty ADR-0020 measured. Losing the file on reboot is correct, not a limitation --
-no process survives a reboot holding a slot.
+across the Windows drive boundary is not dependable, and every operation there is slow
+(ADR-0020). Losing the file on reboot is correct: no process survives a reboot holding a
+slot.
 """
 
 from __future__ import annotations
@@ -82,46 +74,39 @@ except ImportError:  # pragma: no cover -- exercised by the Windows leg of CI
 _SCHEMA_VERSION = 1
 _FILENAME = "admission-slots.json"
 
-# The key, inside one record, that says that process is counting a burst right now.
+# The key, inside one record, saying that process is counting a burst right now.
 #
-# The version above does *not* move for it, and the reason is the one written against
-# `next_ticket` in `_read`: this is an additive field that both directions already read
-# sanely. A reader that predates it ignores an unknown key in a record, so it goes on
-# pricing the way it did before -- which is the old behaviour, not a wrong one. A reader
-# that knows it, meeting a file with no flag anywhere, finds no wait open and does the
-# same. Neither side has anything to gate on, and nothing reads `version` at all: making
-# it a break would mean an older process on this machine resetting a file whose slots a
-# newer one is still holding, which is the outage the module docstring rules out.
+# The version above does *not* move for it, for the reason given at `next_ticket` in
+# `_read`: an additive field both directions read sanely. An older reader ignores the
+# unknown key and prices as it always did; a newer one meeting no flag finds no wait open
+# and does the same. Nothing reads `version`, and making this a break would have an older
+# process reset a file whose slots a newer one holds -- the outage the module docstring
+# rules out.
 _BURST_FIELD = "burst_wait"
 
-# Retry cadence for a contended lock. Short because the critical section is short: a
-# holder is reading and rewriting a few hundred bytes of tmpfs, not doing work.
+# Retry cadence for a contended lock. Short because the critical section is: a holder
+# rewrites a few hundred bytes of tmpfs.
 _LOCK_RETRY_SECONDS = 0.005
 _LOCK_JITTER_SECONDS = 0.004
 
-# Backstop only, and deliberately far longer than any critical section. A record this old
-# whose liveness cannot be checked is assumed dead. On Linux the (pid, start_time) check
-# settles it first and this never fires.
+# Backstop only, far longer than any critical section. A record this old whose liveness
+# cannot be checked is assumed dead. On Linux the (pid, start_time) check settles it first.
 _STALE_AFTER_SECONDS = 900.0
 
-# The same idea for one waiter's ticket, and it exists to bound a bug rather than a
-# machine state. A ticket is dropped explicitly on every exit from the wait -- admitted,
-# timed out, cancelled, raised -- and a dead process's tickets go with its record. What is
-# left is a live process that somehow failed to drop one, and a ticket stuck at the head
-# of the queue starves every later waiter permanently. So it expires, and expiring one is
-# logged: a backstop that fires silently hides the defect it is compensating for.
+# The same for one waiter's ticket, bounding a bug rather than a machine state. A ticket
+# is dropped on every exit from the wait, and a dead process's go with its record. What is
+# left is a live process that failed to drop one, and a ticket stuck at the head starves
+# every later waiter for good. So it expires, and expiry is logged: a backstop that fires
+# silently hides the defect it compensates for.
 _TICKET_STALE_AFTER_SECONDS = 900.0
 
 
 def _waiting(records: dict[str, dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
     """Every live waiter, as `(ticket, requirements)`, across all processes.
 
-    The requirements travel with the ticket because a place in line only means anything
-    against a request that could actually take the slot -- see `_ahead_of`.
-
-    Expired tickets are dropped here and logged. See `_TICKET_STALE_AFTER_SECONDS`: this
-    only ever fires for a live process that failed to drop one, which is a defect rather
-    than a state, so it must not pass quietly.
+    The requirements travel with the ticket, because a place in line means something only
+    for a request that could take the slot -- see `_ahead_of`. Expired tickets are dropped
+    and logged (`_TICKET_STALE_AFTER_SECONDS`).
     """
     now = time.time()
     out: list[tuple[int, dict[str, Any]]] = []
@@ -156,31 +141,29 @@ class SlotsUnavailable(RuntimeError):
 class Totals:
     """Summed live usage across every process holding slots, this one included.
 
-    Deliberately the same shape the four rules already read, so the predicate that used to
-    test process-local attributes tests these instead without changing what it means.
+    The shape the rules read, so the one predicate tests local and shared totals alike
+    without changing what it means.
     """
 
     seqs: int = 0
     tokens: int = 0
     per_entry: dict[str, int] = field(default_factory=dict)
-    # Waiters ahead of this request in the queue, and the reason the predicate needs it:
-    # the four rules describe the cluster, which every waiter sees identically, so nothing
-    # in them can distinguish the request whose turn it is. Zero means "go if the rules
-    # allow", which is also what an uncontended first attempt sees.
+    # Waiters ahead of this request. The capacity rules describe the cluster, which every
+    # waiter sees identically, so they cannot pick out the request whose turn it is. Zero
+    # means "go if the rules allow", as an uncontended first attempt sees.
     ahead: int = 0
-    # Everyone queued, not only those ahead. No rule reads this -- it is carried so a
-    # granted lease can say what concurrency it is about to meet. `ahead` cannot answer
-    # that: it is zero for the request being admitted, by definition, while the waiters
-    # behind it are exactly the ones that will contend with it once it runs.
+    # Everyone queued, not only those ahead. No rule reads it: it lets a granted lease say
+    # what concurrency it will meet. `ahead` is zero for the request admitted, while the
+    # waiters behind it are the ones that will contend with it.
     waiting: int = 0
 
 
 def default_dir() -> Path:
     """Where the shared file lives when the operator names no directory.
 
-    tmpfs in both branches. `XDG_RUNTIME_DIR` is the right answer and is per-user already;
-    `/dev/shm` is the fallback because a process launched by `wsl.exe -e` does not
-    necessarily get a login session, and so does not necessarily get the former.
+    tmpfs either way. `XDG_RUNTIME_DIR` is right and already per-user; `/dev/shm` is the
+    fallback because a process launched by `wsl.exe -e` may get no login session, and so
+    no `XDG_RUNTIME_DIR`.
     """
     runtime = os.environ.get("XDG_RUNTIME_DIR", "").strip()
     if runtime:
@@ -191,13 +174,11 @@ def default_dir() -> Path:
 def default_dir_if_available() -> Path | None:
     """`default_dir()` where the platform has one, else None.
 
-    The check comes *before* the call, not after: `default_dir` reads `os.getuid`, which
-    does not exist on the platform being checked for -- the same ordering trap `build_slots`
-    documents, and the one that turned a missing guard into 119 failures rather than one.
+    The check comes *before* the call: `default_dir` reads `os.getuid`, which does not
+    exist on the platform being checked for -- the ordering trap `build_slots` documents.
 
-    Probed with `fcntl` not because this caller needs a lock, but because it is what
-    distinguishes a POSIX host with a tmpfs runtime directory from one without. A caller
-    that gets None keeps whatever in-memory behaviour it had.
+    Probed with `fcntl` not for a lock, but because it tells a POSIX host with a tmpfs
+    runtime directory from one without. A caller given None keeps its in-memory behaviour.
     """
     if fcntl is None:
         return None
@@ -207,19 +188,16 @@ def default_dir_if_available() -> Path | None:
 def rate_history_path(cfg: Config) -> Path | None:
     """Where the decode-rate memory lives, which is deliberately not where the slots do.
 
-    Durable by default, which reverses what the runtime directory bought: losing this
-    file is a cold start rather than a clean slate, and the since-boot mean it falls back
-    to is the worst tail measured (ADR-0094). Nothing here needs a lock -- the file is
-    published by `os.replace` -- so the durable branch has no `fcntl` probe and works on
-    any platform.
+    Durable by default, the reverse of the slots: losing this file is a cold start, not a
+    clean slate, and the since-boot mean it falls back to is the worst tail measured
+    (ADR-0094). The file is published by `os.replace` and needs no lock, so the durable
+    branch has no `fcntl` probe and works on any platform.
 
-    Blank is still the old behaviour rather than an error, and it goes through
-    `default_dir_if_available` for the reason that helper exists: `default_dir` reads
-    `os.getuid`, so calling it unguarded off POSIX is the crash the guard was written
-    against. None flows on to `RateHistory`, which then keeps its memory per-process.
+    Blank is valid, not an error: it means the runtime directory, through
+    `default_dir_if_available`, since `default_dir` unguarded crashes off POSIX. None
+    flows on to `RateHistory`, which then keeps its memory per process.
 
-    The filename is joined here rather than at each call site, because it was written out
-    at both of them and a third would have drifted.
+    The filename is joined here, once, so call sites cannot drift.
     """
     configured = cfg.rate_history_dir.strip()
     if configured:
@@ -231,10 +209,8 @@ def rate_history_path(cfg: Config) -> Path | None:
 def _proc_start_time(pid: int) -> int | None:
     """Field 22 of `/proc/<pid>/stat`, or None where that cannot be read.
 
-    Parsed from the last `)` rather than by splitting the whole line: field 2 is the
-    executable name, it is parenthesised, and it may itself contain spaces and brackets.
-    Splitting naively works until someone runs a binary with a space in its name, which is
-    the kind of bug that is invisible until it is a mystery.
+    Parsed from the last `)` rather than by splitting the line: field 2 is the executable
+    name, parenthesised, and may itself contain spaces and brackets.
     """
     try:
         raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
@@ -271,9 +247,8 @@ def _identity(pid: int | None = None) -> str:
 def _is_live(key: str) -> bool | None:
     """True, False, or None when this platform cannot say.
 
-    Three-valued on purpose. Treating "cannot check" as "dead" would let a machine without
-    `/proc` silently reclaim slots from processes that are still using them, which is worse
-    than the leak it would be trying to prevent.
+    Three-valued: treating "cannot check" as "dead" would let a machine without `/proc`
+    silently reclaim slots still in use, which is worse than the leak it would prevent.
     """
     pid_text, _, start_text = key.partition(":")
     try:
@@ -299,8 +274,8 @@ class SharedSlots:
     def unavailable_reason() -> str:
         """Why global counting cannot work here, or an empty string when it can.
 
-        Reported rather than silently swallowed. A gate that quietly degrades to counting
-        one process is indistinguishable, from the outside, from one that is working.
+        Reported, not swallowed: a gate quietly counting one process looks, from outside,
+        exactly like one that works.
         """
         if fcntl is None:
             return "fcntl is unavailable on this platform, so no lock can be taken"
@@ -356,8 +331,8 @@ class SharedSlots:
     def _read(self, fd: int) -> tuple[dict[str, dict[str, Any]], int]:
         """Every live record, and the next ticket to hand out.
 
-        Dead records are dropped here, on the way past -- and their waiting tickets go
-        with them, which is why a crashed waiter needs no separate cleanup.
+        Dead records are dropped on the way past, their tickets with them, so a crashed
+        waiter needs no separate cleanup.
         """
         os.lseek(fd, 0, os.SEEK_SET)
         chunks: list[bytes] = []
@@ -372,19 +347,17 @@ class SharedSlots:
             if not isinstance(records, dict):
                 raise ValueError("no records object")
         except (ValueError, KeyError, TypeError):
-            # Reset rather than refuse. See the module docstring: an unparseable file must
-            # not become a machine-wide outage.
+            # Reset rather than refuse: an unparseable file must not become a machine-wide
+            # outage.
             log.warning("admission slot file %s was unreadable; resetting it", self.path)
             return {}, 0
         live = {
             k: v for k, v in records.items() if isinstance(v, dict) and self._keep(k, v)
         }
-        # Derived when absent or nonsense rather than trusted, and never allowed to go
-        # backwards past a ticket somebody is still holding: a counter that repeats a
-        # number would put two waiters at the same place in line. A file written by a
-        # version that predates the queue simply has no counter, which is why this is a
-        # default and not a schema break -- resetting the file instead would zero the
-        # slots an older server process on this machine is still holding.
+        # Derived when absent or nonsense, and never behind a ticket someone still holds:
+        # a repeated number would put two waiters at one place in line. A file from a
+        # version without the queue has no counter, so this is a default, not a schema
+        # break -- resetting the file would zero slots an older process still holds.
         raw_next = doc.get("next_ticket") if isinstance(doc, dict) else None
         outstanding = [ticket for ticket, _ in _waiting(live)]
         floor = max(outstanding) + 1 if outstanding else 0
@@ -415,8 +388,8 @@ class SharedSlots:
         os.lseek(fd, 0, os.SEEK_SET)
         os.ftruncate(fd, 0)
         os.write(fd, payload)
-        # No fsync. The file is tmpfs and describes processes that are running right now;
-        # durability across a reboot would be describing a world that no longer exists.
+        # No fsync: the file is tmpfs and describes processes running now, which a reboot
+        # ends anyway.
 
     @staticmethod
     def _totals(records: dict[str, dict[str, Any]], ahead: int = 0) -> Totals:
@@ -443,16 +416,14 @@ class SharedSlots:
         Two things make this the right count rather than a plain ticket comparison.
 
         A request holding no ticket yet is behind **every** eligible waiter, not none of
-        them. That asymmetry is the whole of the fairness fix: treating a newcomer as
-        unblocked is exactly the re-test loop this replaces, where the winner was whoever
-        happened to look at the right moment.
+        them. That asymmetry is the fairness: a newcomer treated as unblocked would win
+        whenever it happened to look at the right moment.
 
         But only a waiter that could be admitted *now* counts. Strict ticket order would
-        reintroduce head-of-line blocking -- the failure the rules are checked as one
-        predicate to avoid. A large request waiting for token budget would otherwise
-        block a small one that fits every rule, for as long as the request ahead of *it*
-        keeps running. A waiter that cannot take the slot is not spending its
-        turn, so it does not hold one.
+        bring back head-of-line blocking, which the single predicate exists to avoid: a
+        large request waiting for token budget would block a small one that fits every
+        rule, for as long as the request ahead of *it* runs. A waiter that cannot take the
+        slot is not spending its turn, so it does not hold one.
         """
         return sum(
             1
@@ -491,22 +462,20 @@ class SharedSlots:
     ) -> tuple[tuple[str, int] | None, int | None]:
         """Test `decide` against global totals and, if it admits, publish the slot.
 
-        Returns `(binding, ticket)`. A binding rule means refused, and the ticket coming
-        back is this request's place in line -- assigned on the first refusal and handed
-        back on every later attempt, so the caller holds it for the whole wait. `(None,
-        None)` means admitted, and the ticket has already been given up under the same
-        lock hold that took the slot.
+        Returns `(binding, ticket)`. A binding rule means refused, and the ticket is this
+        request's place in line -- assigned on the first refusal and passed back on every
+        later attempt, so the caller holds it for the whole wait. `(None, None)` means
+        admitted, the ticket already given up in the lock hold that took the slot.
 
-        The test, the queue position and the publication all happen under one lock hold,
-        which is the whole point: a caller that received totals and decided afterwards
-        would be racing every other process. The ticket is what makes that decision
+        Test, queue position and publication share one lock hold: a caller deciding on
+        totals afterwards would race every other process. The ticket makes the decision
         ordered as well as atomic.
         """
         async with self._locked() as fd:
             records, next_ticket = self._read(fd)
-            # Capacity first, with no queue position in it: that is what every waiter's
-            # feasibility is judged against, this request's included, so it is computed
-            # once and shared rather than recomputed per rival.
+            # Capacity with no queue position in it: every waiter's feasibility is judged
+            # against it, this request's included, so it is computed once and shared rather
+            # than recomputed per rival.
             base = self._totals(records)
             ahead = self._ahead_of(records, ticket, lambda s: rival_fits(base, s))
             binding = decide(replace(base, ahead=ahead))
@@ -514,11 +483,10 @@ class SharedSlots:
                 if ticket is None:
                     ticket = next_ticket
                     next_ticket += 1
-                # Recorded on the refusal, which already rewrote the file to persist the
-                # dead-record reclamation `_read` did -- so a place in line costs no extra
-                # lock hold and no extra write. The requirements go in beside the
-                # timestamp because another process has to judge whether this waiter could
-                # run before it can decide the waiter is ahead of anyone.
+                # Recorded in the write that persists `_read`'s reclamation anyway, so a
+                # place in line costs no extra lock hold or write. The requirements go in
+                # beside the timestamp because another process must judge whether this
+                # waiter could run before counting it ahead of anyone.
                 mine = self._mine(records)
                 mine.setdefault("waiting", {})[str(ticket)] = {**spec, "at": time.time()}
                 mine["updated_at"] = time.time()
@@ -538,9 +506,9 @@ class SharedSlots:
     async def drop_ticket(self, ticket: int) -> None:
         """Give up a place in line without taking a slot.
 
-        Called from the waiter's `finally`, so it runs on a timeout, a cancellation and
-        any other exception alike. Not calling it is the one way this change can starve
-        the machine, which is why the caller does not decide when it applies.
+        Called from the waiter's `finally`, so it runs on a timeout, a cancellation and any
+        other exception alike: not calling it is the one way the queue can starve the
+        machine, so no path opts into it.
         """
         async with self._locked() as fd:
             records, next_ticket = self._read(fd)
@@ -564,9 +532,8 @@ class SharedSlots:
             else:
                 entries.pop(entry_key, None)
             mine["updated_at"] = time.time()
-            # `_is_idle` and not the three counters directly: a record holding no slots
-            # can still hold a place in line, and dropping it would silently cancel this
-            # process's other waiters.
+            # `_is_idle`, not the counters: a record holding no slots can still hold a
+            # place in line, and dropping it would silently cancel this process's waiters.
             if self._is_idle(mine):
                 records.pop(self._me, None)
             self._write(fd, records, next_ticket)
@@ -575,14 +542,12 @@ class SharedSlots:
     def _is_idle(record: dict[str, Any]) -> bool:
         """Nothing held and nothing queued, so the record says nothing worth keeping.
 
-        **An open burst wait is deliberately not in this list**, though it is a claim
-        other processes read. It does not need to be: a process counting a burst is
-        holding the slot `_try_take` granted it a moment earlier, so `seqs` already keeps
-        the record. Adding the flag here would be redundant in every normal case and
-        harmful in one -- a close that failed against an unreachable file leaves the flag
-        set, and a record protected by its own stranded flag could never be reaped. The
-        flag's expiry already bounds how long others read it; keeping the record for it
-        would undo that.
+        **An open burst wait is deliberately not in this list**, though other processes
+        read it. A process counting a burst holds the slot it was just granted, so `seqs`
+        already keeps the record. The flag here would be redundant normally and harmful
+        once: a close that failed against an unreachable file leaves the flag set, and a
+        record protected by its own stranded flag could never be reaped, undoing the
+        expiry that bounds how long others read it.
         """
         return not (
             int(record.get("seqs", 0))
@@ -615,17 +580,15 @@ class SharedSlots:
                     # A record that held nothing but the flag is now saying nothing.
                     if self._is_idle(held):
                         records.pop(self._me, None)
-            # Written even when nothing changed, because `_read` has just dropped every
-            # dead record and that reclamation is worth persisting either way.
+            # Written even when nothing changed, to persist `_read`'s reclamation.
             self._write(fd, records, next_ticket)
 
     async def burst_wait_elsewhere(self) -> bool:
         """Whether some *other* process is counting a burst right now.
 
-        This process's own record is excluded because the caller already knows its own
-        answer -- `admission.py` holds the open wait as a future and joins that directly
-        -- and because reading one's own flag back would make a count that somehow failed
-        to clear it join itself for ever.
+        This process's record is excluded: `admission.py` joins its own open wait as a
+        future, and reading its own flag back would make a count that failed to clear it
+        join itself for ever.
         """
         async with self._locked() as fd:
             records, _ = self._read(fd)
@@ -638,10 +601,10 @@ class SharedSlots:
     async def snapshot(self) -> tuple[Totals, int, int]:
         """Global usage, the processes holding it, and the queue depth, from one hold.
 
-        One call rather than three accessors, so the numbers cannot come from different
-        moments and describe a machine state that never existed. Queue depth comes back
-        separately rather than as `Totals.ahead`, which means "ahead of one particular
-        request" and has no meaning without one.
+        One call, not three accessors, so the numbers cannot come from different moments
+        and describe a state that never existed. Queue depth is separate from
+        `Totals.ahead`, which means "ahead of one particular request" and has no meaning
+        without one.
         """
         async with self._locked() as fd:
             records, _ = self._read(fd)
@@ -651,15 +614,13 @@ class SharedSlots:
 def build_slots(cfg: Config) -> tuple[SharedSlots | None, str]:
     """The shared counters for this configuration, or None and the reason why not.
 
-    Returns the reason rather than raising. A machine that cannot lock should still serve
-    delegations -- bounded per process, as it was before ADR-0040 -- but it must say so,
-    because a gate that has silently narrowed its scope is indistinguishable from a
-    working one right up until the cluster is oversubscribed.
+    Returns the reason rather than raising. A machine that cannot lock still serves
+    delegations, bounded per process, but must say so: a gate that silently narrowed its
+    scope looks like a working one until the cluster is oversubscribed.
     """
     if not cfg.cross_process_slots:
         return None, "disabled by DELEGATE_CROSS_PROCESS_SLOTS"
-    # Before `default_dir`, not after: that reads `os.getuid`, which does not exist on the
-    # platform this check is here to catch.
+    # Before `default_dir`, which reads `os.getuid`, absent on the platform this catches.
     reason = SharedSlots.unavailable_reason()
     if reason:
         log.warning("admission is bounded per process only: %s", reason)
@@ -680,9 +641,8 @@ async def cross_process_status(
 ) -> dict[str, Any]:
     """What `backend_status` reports about the machine-wide budget.
 
-    `active` is answered by whether the file can actually be read now, not by what the
-    configuration asked for. The two differ exactly when something is wrong, which is the
-    only time anybody reads this.
+    `active` says whether the file can be read now, not what the configuration asked for:
+    the two differ exactly when something is wrong, the only time anybody reads this.
     """
     if slots is None:
         return {"active": False, "reason": reason}
@@ -693,11 +653,11 @@ async def cross_process_status(
     return {
         "active": True,
         "path": str(slots.path),
-        # More than one means the gap ADR-0040 closes is open right now, and this
-        # process's own gauges above are a fraction of what the cluster is seeing.
+        # More than one means this process's own gauges are a fraction of what the
+        # cluster sees (ADR-0040).
         "processes_holding_slots": processes,
-        # The machine-wide queue, which is where a deep one is visible: a process's own
-        # `queued_waiters` counts only its share, and a wait is caused by every waiter.
+        # The machine-wide queue: a process's own `queued_waiters` counts only its share,
+        # and a wait is caused by every waiter.
         "queued_waiters": queued,
         "inflight_seqs": totals.seqs,
         "inflight_tokens": totals.tokens,
