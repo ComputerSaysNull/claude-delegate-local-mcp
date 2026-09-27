@@ -1,17 +1,14 @@
 """MCP wiring, and nothing else.
 
 The tools declared here are the model-facing contract: Claude Code reads these
-descriptions and decides from them what to delegate. Rewording one changes runtime
-behaviour, so they are treated as behaviour and carry a CHANGELOG entry.
+descriptions and decides what to delegate, so rewording one changes runtime behaviour
+and carries a CHANGELOG entry. Wiring lives here -- registering tools, validating
+arguments, owning the backend cache, translating an exception into something a model can
+act on; the delegation itself is `loop.py`.
 
-What lives here is wiring -- registering tools, validating arguments, owning the
-backend cache, and translating an exception into something a model can act on. What
-does not live here is the delegation itself: that is `loop.py`.
-
-One rule governs the whole module. On stdio, **stdout is the wire protocol.** Anything
-printed there corrupts every subsequent MCP message, with no error and no symptom
-beyond the client reporting a dead server. Diagnostics go to stderr. `main.py` holds
-the other half of that rule.
+On stdio, **stdout is the wire protocol**: anything printed there corrupts every
+subsequent MCP message with no symptom beyond a dead server, so diagnostics go to stderr.
+`main.py` holds the other half of that rule.
 """
 
 from __future__ import annotations
@@ -83,7 +80,7 @@ from .tools import READ_ONLY_TOOL_NAMES, BashPolicy, resolve_allowed
 SERVER_NAME = "delegate-local"
 
 # The closed vocabulary backend_status() reports. `backend_unreachable` is not ours to
-# rename: docs/TROUBLESHOOTING.md already promises it to anyone diagnosing a symptom.
+# rename: docs/TROUBLESHOOTING.md promises it to anyone diagnosing a symptom.
 STATUS_OK = "ok"
 STATUS_UNREACHABLE = "backend_unreachable"
 STATUS_AUTH_FAILED = "auth_failed"
@@ -97,16 +94,12 @@ def _partial_result(
 ) -> dict[str, Any] | None:
     """What a delegation decoded before its deadline kills it, or `None` (ADR-0078).
 
-    `None` for every failure that carries nothing -- which is most of them -- so the
-    caller re-raises. The partial path is entered only when tokens actually arrived; an
-    empty partial says nothing the deadline message has not already said, and returning
-    one would convert a clean failure into a result that looks like an answer.
-
-    The result is a *reduced* dict rather than the full one: the success path builds a
-    `Dispatch`, and a partial has none, so inventing zeroes would report a delegation
-    that ran no tools rather than one whose tally was never taken. The schema is
-    `additionalProperties` with nothing required precisely so a short result is legal.
-    Why: ADR-0078.
+    `None` for every failure carrying nothing, so the caller re-raises. The partial path
+    is entered only when tokens actually arrived; an empty partial adds nothing to the
+    deadline message and would turn a clean failure into a result that looks like an
+    answer. The result is a *reduced* dict with no tally -- zeroes would report a run that
+    used no tools rather than one never counted -- and the schema requires nothing, so a
+    short result is legal. Why: ADR-0078.
     """
     partial = getattr(error, "partial", None)
     if partial is None:
@@ -140,9 +133,9 @@ def _partial_result(
 def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
     """The turn-loop counters, present only when a loop actually ran.
 
-    Absent rather than zero-filled on the one-shot path. `tool_calls: 0` alongside an
-    answer would read as a model that chose not to use its tools, when in fact it was
-    never offered any -- a distinction the caller acts on differently.
+    Absent rather than zero-filled on the one-shot path: `tool_calls: 0` beside an answer
+    would read as a model that chose not to use tools it was never offered, and the caller
+    treats those two differently.
     """
     if not isinstance(dispatched, AgenticDispatch):
         return {}
@@ -150,26 +143,25 @@ def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
         "turns": dispatched.turns,
         "tool_calls": dispatched.tool_calls,
         # The same total, split by tool. One number cannot tell a delegation that read two
-        # files from one that overwrote two, and `transcript_dir` is empty by default, so
-        # without this the only record of which is which is the model's own prose -- which
-        # is what the whole ledger exists not to trust. Empty when a loop ran and called
-        # nothing, which is a real answer and the one `tool_calls: 0` already gives here.
+        # files from one that overwrote two, and `transcript_dir` is empty by default, so the
+        # only other record is the model's own prose, which the ledger exists not to trust.
+        # Empty when a loop called nothing.
         "tool_calls_by_name": dict(dispatched.tool_calls_by_name),
         "tool_errors": dispatched.tool_errors,
         "tool_calls_deduplicated": dispatched.deduped,
         "tool_results_evicted": dispatched.evicted,
         # What the whole run cost, where the `*_tokens` fields above describe only the turn
-        # that answered (ADR-0058). Both are kept because neither answers the other's
-        # question: "was this answer truncated" is about the answering turn, and "what did
-        # this delegation cost the cluster" is about every turn there was. Why: ADR-0058.
+        # that answered. Both are kept because neither answers the other's question: "was
+        # this answer truncated" is about the answering turn, and "what did this delegation
+        # cost the cluster" is about every turn there was. Why: ADR-0058.
         "total_input_tokens": dispatched.total_input_tokens,
         "total_output_tokens": dispatched.total_output_tokens,
         # None where the endpoint reports no caching at all, which is not a measured zero.
         "total_cached_tokens": dispatched.total_cached_tokens,
         "hit_turn_limit": dispatched.hit_turn_limit,
-        # Present at zero, not absent, once a loop ran: these share the gate above rather
-        # than getting a narrower one of their own. A delegation that was offered run_bash
-        # and did not use it is a real answer, and the same one `tool_calls: 0` gives.
+        # Present at zero, not absent, once a loop ran, sharing the gate above rather than
+        # getting a narrower one: a delegation offered run_bash that did not use it is a
+        # real answer, the same one `tool_calls: 0` gives.
         "bash_calls": dispatched.bash_calls,
         "bash_failures": dispatched.bash_failures,
         "bash_masked_failures": dispatched.bash_masked_failures,
@@ -185,15 +177,12 @@ def _diagnostics_block(
 ) -> dict[str, Any]:
     """The per-turn ledger, present only when the caller asked and a loop actually ran.
 
-    Absent rather than empty, following `_loop_ledger` above and for the same reason: an
-    empty `diagnostics` alongside an answer would read as a delegation that took no turns,
-    when in fact none was recorded. The one-shot path has no turns to report at all.
-
-    `evicted_then_reread` is the field worth reading. Turn costs say a delegation was
-    expensive; this says whether it was expensive because the work was large or because it
-    kept paying again for context this server had dropped. Those have different fixes --
-    a bigger job versus a larger `keep_tool_results` -- and no other number distinguishes
-    them.
+    Absent rather than empty, for `_loop_ledger`'s reason: an empty `diagnostics` would
+    read as a delegation that took no turns, and the one-shot path has none to report.
+    `evicted_then_reread` is the field worth reading: turn costs say a delegation was
+    expensive; this says whether the work was large or the server re-paid for dropped
+    context. Different fixes -- a bigger job versus a larger `keep_tool_results` -- and no
+    other number distinguishes them.
     """
     if not requested or not isinstance(dispatched, AgenticDispatch):
         return {}
@@ -227,9 +216,8 @@ def _diagnostics_block(
 class BackendCache:
     """One backend -- and so one httpx connection pool -- per registry entry.
 
-    Built lazily and kept for the life of the server. Rebuilding per call would throw
-    away the pool and its connection warmup on every delegation, and `backend_status()`
-    would open a second pool alongside `delegate()`'s for the same endpoint.
+    Built lazily and kept for the life of the server, so a rebuild never throws away the
+    pool's warmup and `backend_status()` never opens a second pool for the same endpoint.
     """
 
     def __init__(self, cfg: Config) -> None:
@@ -244,8 +232,7 @@ class BackendCache:
         return backend
 
     async def aclose(self) -> None:
-        # aclose() is documented safe to call more than once, so teardown does not need
-        # to guard against having already run.
+        # aclose() is documented safe to call more than once, so teardown needs no guard.
         for backend in self._backends.values():
             await backend.aclose()
         self._backends.clear()
@@ -254,28 +241,20 @@ class BackendCache:
 class WindowCheck:
     """Whether overflow handling may be armed for a model, and why not when it may not.
 
-    Every context-overflow threshold is a share of `ModelEntry.context_window`, which is a
-    number the operator wrote in `models.toml` and which nothing has verified --
-    `docs/MODELS.md` says as much: "used for budgeting headroom, not enforced against the
-    server". Arming a graduated abort against an unverified denominator computes every
-    threshold against a ceiling the backend may never reach. So the window is checked once
-    per model before the feature is allowed to act.
+    Every threshold is a share of `ModelEntry.context_window`, which the operator wrote in
+    `models.toml` and nothing verified ("used for budgeting headroom, not enforced against
+    the server", `docs/MODELS.md`). Arming a graduated abort against an unverified
+    denominator computes every threshold against a ceiling the backend may never reach, so
+    the window is checked once per model first. The check **validates and never derives**: a
+    disagreement disarms overflow handling and says so rather than adopting the server's
+    number -- the operator's file is the source of truth for everything else about that
+    model, and a config silently overridden in one field is worse than one wrong in the
+    open.
 
-    The check **validates and never derives**. A disagreement disarms overflow handling and
-    says so; it does not quietly adopt the server's number, because the operator's file is
-    the source of truth for everything else about that model and a config that is silently
-    overridden in one field is worse than one that is wrong in the open.
-
-    Three verdicts, and the distinction between the last two is the point of the class:
-
-    - the endpoint agrees, or reports no window at all -> armed;
-    - the endpoint **answered** and disagrees -> disarmed, cached, and re-checked when the
-      entry expires;
-    - the endpoint could not be **reached** -> disarmed for this call and NOT cached.
-
-    The negative cache expires and is populated only by a real answer. A transport failure
-    never writes to the cache, so one transient outage does not disable overflow handling
-    until the server is restarted.
+    Three verdicts, the last two the point: agrees or no window -> armed; **answered** and
+    disagrees -> disarmed, cached, re-checked on expiry; unreachable -> disarmed for this
+    call, NOT cached. The negative cache is populated only by a real answer, so a transient
+    outage never disables overflow handling until restart.
     """
 
     def __init__(self, cfg: Config, *, clock: Callable[[], float] = time.monotonic) -> None:
@@ -305,11 +284,10 @@ class WindowCheck:
         if reported is not None and reported != entry.context_window:
             # Never adopted. The mismatch is reported and the feature stays off, because a
             # threshold computed against the wrong window is the bug this exists to avoid.
-            # Which of the two numbers came from the operator decides the advice, so
-            # the report has to distinguish them: saying "models.toml gives
-            # context_window=..." when models.toml gives no such key would send
-            # someone to correct a line that was not there. When it was defaulted the
-            # endpoint has just told us the right value, so the remedy can name it.
+            # Which of the two numbers came from the operator decides the advice: saying
+            # "models.toml gives context_window=..." when it gives no such key would send
+            # someone to correct a line that was not there. When defaulted, the endpoint
+            # has just told us the right value, so the remedy can name it.
             if entry.context_window_defaulted:
                 source = (
                     f"models.toml sets no context_window for {entry.key!r}, so the "
@@ -339,10 +317,10 @@ async def arm_overflow(
 ) -> tuple[Config, str]:
     """The config the turn loop should run under, and why it differs if it does.
 
-    Decided here rather than inside the loop so that `run_agentic_loop` has one switch to
-    read instead of a switch and a verdict. Returns a *new* config rather than mutating the
-    server's: the disarm applies to this delegation, and a model whose endpoint was briefly
-    unreachable must not stay disarmed for every other model in the registry.
+    Decided here rather than in the loop so `run_agentic_loop` reads one switch, not a
+    switch and a verdict. Returns a *new* config rather than mutating the server's: the
+    disarm applies to this delegation, so a briefly unreachable model stays disarmed only
+    for it.
     """
     if not agentic or not cfg.context_overflow_enabled:
         # The one-shot path has no turns, no history and nothing to overflow, so it must
@@ -379,8 +357,8 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     """Run the delegation on whichever path the toolset implies, and translate its failures.
 
     Both halves belong together: which path ran decides which failures are possible, and
-    every one of them has to reach the caller as a `ToolError` rather than a traceback. Out
-    of `build()` because it is the only part of that function that is not wiring.
+    each must reach the caller as a `ToolError`, never a traceback. It is the only part of
+    `build()` that is not wiring.
     """
     try:
         if allowed:
@@ -396,11 +374,11 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 on_token=on_token,
             )
         # An explicitly empty toolset. Not the loop with nothing declared: the one-shot
-        # prompt tells the model plainly that it cannot open anything and has no second
-        # turn, which is true here and is not true in the loop.
-        # `on_alive` and not `report_progress`: the loop reports a turn number out of a
-        # turn budget, and a one-shot has neither. What it can report is how long it has
-        # been waiting and what it is waiting against, which is a different shape.
+        # prompt tells the model plainly it cannot open anything and has no second turn,
+        # true here and not in the loop.
+        # `on_alive`, not `report_progress`: the loop reports a turn out of a turn budget,
+        # and a one-shot has neither. What it can report is how long it has waited and
+        # against what, which is a different shape.
         return await run_one_shot(
             cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens,
             on_alive=on_alive, on_priced=on_priced, on_pool=on_pool,
@@ -409,8 +387,8 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
         )
     except ContextOverflowAborted as e:
         # Before the plain InvalidDelegation branch, which is its base class. The report is
-        # the whole point: an abort lands mid-work, and what the caller needs is what the
-        # server watched happen beside what git says is on disk, not the message.
+        # the whole point: an abort lands mid-work, and the caller needs what the server
+        # watched happen beside what git says is on disk, not the message.
         raise ToolError(f"{e}\n\n{json.dumps(e.report, indent=2, default=str)}") from e
     except InvalidDelegation as e:
         raise ToolError(str(e)) from e
@@ -435,12 +413,10 @@ async def probe_entry(
 ) -> dict[str, Any]:
     """Probe one registry entry and describe it. Never raises.
 
-    A dead endpoint is a finding, not a failure: one unreachable model must not take
-    the report down for every other one. Each probe therefore catches its own errors
-    and returns them as data, which is also why the gather below does not need
-    `return_exceptions=True` -- that flag would swallow a genuine bug in a sibling.
-
-    Nothing returned here names the endpoint. ADR-0029.
+    A dead endpoint is a finding, not a failure: one unreachable model must not take the
+    report down for every other one. Each probe catches its own errors and returns them as
+    data, which is also why the gather needs no `return_exceptions=True` -- that flag would
+    swallow a genuine bug in a sibling. Nothing here names the endpoint. ADR-0029.
     """
     row: dict[str, Any] = {
         "key": entry.key,
@@ -448,9 +424,9 @@ async def probe_entry(
         "api_format": entry.api_format,
         "served_model_id": entry.served_model_id,
         "context_window": entry.context_window,
-        # Whether that number is the operator's claim or this server's
-        # assumption. Same class of fact as id_confirmed: the endpoint is fine,
-        # and what the registry says about it may still not be what was meant.
+        # Whether that number is the operator's claim or this server's assumption. Same
+        # class of fact as id_confirmed: the endpoint is fine, and what the registry says
+        # about it may still not be what was meant.
         "context_window_defaulted": entry.context_window_defaulted,
         "concurrency": entry.concurrency,
         "status": STATUS_OK,
@@ -505,9 +481,9 @@ async def probe_entry(
 
     # The cluster's own figures, where `admission` above reports this process's guesses.
     # Never allowed to change the row's status: a serving endpoint that publishes no
-    # metrics, or times out answering for them, is a healthy endpoint with nothing to say
-    # on the subject. Reporting it as degraded would make a monitoring surface a source
-    # of false alarms about the thing it monitors.
+    # metrics, or times out answering for them, is a healthy endpoint with nothing to say.
+    # Reporting it as degraded would make a monitoring surface a source of false alarms
+    # about the thing it monitors.
     try:
         row["cluster"] = await asyncio.wait_for(
             backend.probe_cluster(), timeout=cfg.status_probe_timeout
@@ -521,17 +497,14 @@ async def probe_entry(
 async def sampling(sampler: RateSampler) -> AsyncIterator[None]:
     """Run the rate sampler for the life of the block, and never a moment past it.
 
-    Started here rather than where the sampler is built, because a task needs a running
-    loop and `build` has none. Nested *inside* the backend cache's teardown by the caller,
-    so the ticker is gone before the connection pool it scrapes through is closed.
-
-    Cancelled and then awaited, not merely cancelled: `cancel()` only schedules the
-    interruption, so without the await the task can reach one more scrape after shutdown
-    has begun -- a traceback out of a monitoring read, which is the single thing this
-    sampler promises never to produce.
-
-    Public because it is behaviour worth testing on its own; a test can drive it with a
-    sampler whose probe counts calls and assert the task is not still running afterwards.
+    Started here rather than where the sampler is built, because a task needs a running loop
+    and `build` has none. Nested *inside* the backend cache's teardown, so the ticker is
+    gone before the pool it scrapes through is closed. Cancelled and then awaited, not
+    merely cancelled: `cancel()` only schedules the interruption, so without the await the
+    task can reach one more scrape after shutdown -- a traceback from a monitoring read,
+    the one thing this sampler promises never to produce. Public because it is worth
+    testing on its own; a test can drive it with a sampler whose probe counts calls and
+    assert the task is not still running afterwards.
     """
     ticker = asyncio.create_task(sampler.run()) if sampler.enabled else None
     try:
@@ -546,9 +519,9 @@ async def sampling(sampler: RateSampler) -> AsyncIterator[None]:
 def admission_deadline(cfg: Config) -> float | None:
     """When to stop waiting for a slot, or None to wait for as long as the work takes.
 
-    Public because it is the whole of ADR-0093's behaviour and is worth testing directly:
-    the decision is which of the two a configuration asks for, and everything downstream
-    is `acquire` already treating `None` as "no deadline". Why: ADR-0093.
+    Public because it is the whole of ADR-0093's behaviour and worth testing directly: the
+    decision is which of the two a configuration asks for, and downstream `acquire` already
+    treats `None` as "no deadline". Why: ADR-0093.
     """
     if cfg.admission_wait_timeout <= 0:
         return None
@@ -558,11 +531,11 @@ def admission_deadline(cfg: Config) -> float | None:
 def _refuse(e: Exception) -> ToolError:
     """Translate a backend failure into something the caller can act on.
 
-    A ToolError raised here reaches the model verbatim -- FastMCP re-raises its own
-    error type rather than masking it -- so these strings are part of the contract, and
-    the words are the ones docs/TROUBLESHOOTING.md indexes by. The distinctions are the
-    point: unreachable is somebody else's hardware, refused is usually a wrong path,
-    and a protocol error means the endpoint answered but is not the stack we meant.
+    A ToolError raised here reaches the model verbatim -- FastMCP re-raises its own error
+    type rather than masking it -- so these strings are part of the contract, and are the
+    words docs/TROUBLESHOOTING.md indexes by. The distinctions are the point: unreachable is
+    somebody else's hardware, refused is usually a wrong path, and a protocol error means
+    the endpoint answered but is not the stack we meant.
     """
     if isinstance(e, BackendUnavailable):
         return ToolError(f"{STATUS_UNREACHABLE}: {e}")
@@ -578,9 +551,8 @@ class _OneShotTurn:
     """A one-shot dispatch, shaped like the per-turn record the stream expects.
 
     Not a `TurnDiagnostic`: the loop builds those and a one-shot never enters the loop.
-    Rather than teach the stream about two shapes, the one shape it knows is presented
-    here -- turn one, the tokens the dispatch reported, and no tool calls, because there
-    are none to make.
+    Rather than teach the stream two shapes, the one it knows is presented -- turn one,
+    the tokens the dispatch reported, and no tool calls, because there are none.
     """
 
     __slots__ = ("answered_decode_seconds", "attempts", "cached_tokens", "decode_seconds",
@@ -590,8 +562,8 @@ class _OneShotTurn:
     def __init__(self, dispatched: Any) -> None:
         self.turn = 1
         # Zero rather than absent. A one-shot has one turn and no history to evict from,
-        # so nothing was dropped -- which is a measurement, unlike the `None` a missing
-        # attribute would put in the stream.
+        # so nothing was dropped -- a measurement, unlike the `None` a missing attribute
+        # would put in the stream.
         self.evicted = 0
         self.input_tokens = dispatched.response.input_tokens
         self.output_tokens = dispatched.response.output_tokens
@@ -600,9 +572,9 @@ class _OneShotTurn:
         self.attempts = dispatched.attempts
         self.tool_calls = ()
         # A one-shot has attempts too -- an empty answer is retried here exactly as it is
-        # inside a turn -- so these are the same sums the loop path reports, read off the
-        # same `Dispatch`. `answered_decode_seconds` is the answering attempt's alone,
-        # which is what the rate on the event divides by.
+        # inside a turn -- so these are the same sums the loop path reports, off the same
+        # `Dispatch`. `answered_decode_seconds` is the answering attempt's alone, which is
+        # what the rate on the event divides by.
         self.prefill_seconds = dispatched.prefill_seconds
         self.decode_seconds = dispatched.decode_seconds
         self.answered_decode_seconds = dispatched.response.decode_seconds
@@ -612,11 +584,10 @@ def tool_ms_for_turn(diagnostic: Any) -> int:
     """What one finished turn spent running the model's tools, per the calls' own clocks.
 
     Each call's `ms` is measured where the tool executed, so the sum is what the tools
-    actually took -- never the dispatch's own bookkeeping. Subtracting the backend call
-    from the turn's wall clock would charge the slot grant, budget pricing and request
-    assembly to the tools on the first turn, and report the server's overhead as tool time
-    on a turn that ran none. A dispatch that called nothing therefore reports no tool time
-    rather than a few seconds of it.
+    took, never the dispatch's bookkeeping. Subtracting the backend call from the turn's
+    wall clock would charge the slot grant, budget pricing and request assembly to the
+    tools on the first turn, and report server overhead as tool time. A dispatch that
+    called nothing reports no tool time.
     """
     return sum(c.ms or 0 for c in getattr(diagnostic, "tool_calls", ()) or ())
 
@@ -633,9 +604,10 @@ _WAITING_EVERY_SECONDS = 30.0
 async def _shared_concurrency_now(
     slots: SharedSlots | None, *, cap: int, fallback: int
 ) -> int:
-    """The concurrency the cluster is at right now, or the admission figure when it cannot say.
+    """The concurrency the cluster is at right now, or the admission figure when it cannot
+    say.
 
-    Reads the same shared snapshot admission itself reads. This request is already counted
+    Reads the same shared snapshot admission itself reads; this request is already counted
     in `seqs`, so there is no `+ 1` -- unlike the grant-time formula.
     """
     if slots is None:
@@ -673,21 +645,21 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     ctx: Context | None = None,
     tool_name: str = "delegate",
 ) -> dict[str, Any]:
-    """One delegation, from arguments to the result dict. Shared by every tool that runs one.
+    """One delegation, from arguments to the result dict. Shared by every tool that runs
+    one.
 
-    `delegate`, `delegate_readonly` and `delegate_to_agent` differ only in where
-    their arguments come from, so they resolve and then reuse this rather than each growing
-    a dispatch path of its own. A second path is how the two halves of a precedence rule
-    drift apart, and precedence is exactly what an agent file is.
-
-    The agent, if there is one, is already loaded and validated -- this applies it, and
-    does not go looking for it. `workdir` arrives already resolved and root-checked.
+    `delegate`, `delegate_readonly` and `delegate_to_agent` differ only in where their
+    arguments come from, so they resolve and then reuse this rather than each growing a
+    dispatch path of its own -- a second path is how the two halves of a precedence rule
+    drift apart, and precedence is exactly what an agent file is. The agent, if there is
+    one, is already loaded and validated; this applies it, and does not go looking for it.
+    `workdir` arrives already resolved and root-checked.
     """
-    # The tool boundary, and the only place `"inherit"` exists. It has to be spent *before*
-    # the agent merge below, not inside `resolve_effort`: that merge is `effort or
-    # agent.effort`, and a non-empty string is truthy, so leaving `"inherit"` in place would
-    # skip the very tier it means to defer to. Refused here rather than four calls later,
-    # where the message would name the levels without naming this one (ADR-0045).
+    # The tool boundary, and the only place `"inherit"` exists. Spent *before* the agent
+    # merge, not inside `resolve_effort`: that merge is `effort or agent.effort`, and a
+    # non-empty string is truthy, so leaving `"inherit"` skips the tier it defers to.
+    # Refused here rather than four calls later, where the message names the levels but not
+    # this one (ADR-0045).
     if effort is not None and effort != EFFORT_INHERIT and effort not in EFFORT_LEVELS:
         raise ToolError(
             f"effort={effort!r} is not one of {EFFORT_LEVELS}, and is not "
@@ -698,36 +670,33 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         )
     if effort == EFFORT_INHERIT:
         effort = None
-    # Precedence, once, here: explicit call argument, then the agent file, then the
-    # registry row, then the global default (docs/AGENTS.md). Resolved to a single
-    # `ModelEntry` that is then used for everything -- the backend cache key, the dispatch,
-    # and whatever counts concurrency against the endpoint. The ancestor bug this guards is
-    # two of those resolving separately and disagreeing, so a request is counted against one
-    # endpoint and sent to another.
+    # Precedence, once, here: explicit call argument, then agent file, then registry row,
+    # then the global default (docs/AGENTS.md). Resolved to a single `ModelEntry` used for
+    # everything -- the cache key, the dispatch, whatever counts concurrency. The bug this
+    # guards is two of those resolving separately and disagreeing, so a request is counted
+    # against one endpoint and sent to another.
     try:
         entry = registry.resolve(model or (agent.model if agent else None))
     except RegistryError as e:
         raise ToolError(str(e)) from e  # already names the registered keys
 
     if agent is not None:
-        # Every one of these is `call argument or agent file`, `max_turns` included, so a
-        # per-call number beats the agent file even for the setting that truncates a run
-        # -- the per-call override `delegate_to_agent` sells as the point. The clamp still
-        # binds either way: `resolve_max_turns` caps whatever arrives here.
+        # Each is `call argument or agent file`, `max_turns` included, so a per-call number
+        # beats the agent file even for the setting that truncates a run -- the per-call
+        # override `delegate_to_agent` sells as the point. The clamp still binds: the
+        # `resolve_max_turns` cap applies whatever arrives here.
         effort = effort or agent.effort
         max_tokens = max_tokens or agent.max_tokens
         max_turns = max_turns or agent.max_turns
         if allowed_tools is None and agent.allowed_tools is not None:
             allowed_tools = list(agent.allowed_tools)
         if agent.keep_tool_results is not None:
-            # `replace` rather than another parameter through `run_agentic_loop`, which is
-            # already at its argument limit. The same seam `arm_overflow` uses below.
-            #
-            # The tightened value moves with it. `Config` refuses to load when the overflow
-            # figure exceeds the ordinary one, and rightly -- crossing a threshold must
-            # narrow the history, never widen it. An agent asking to keep fewer results than
-            # the configured overflow value would otherwise fail validation here, mid-call,
-            # naming a setting the caller never touched.
+            # `replace` rather than another parameter through `run_agentic_loop`, already at
+            # its argument limit -- the same seam `arm_overflow` uses below. The tightened
+            # value moves with it: `Config` refuses to load when the overflow figure exceeds
+            # the ordinary one, and rightly, because crossing a threshold must narrow the
+            # history, never widen it. An agent asking to keep fewer results would otherwise
+            # fail validation here, mid-call, naming a setting the caller never touched.
             cfg = replace(
                 cfg,
                 keep_tool_results=agent.keep_tool_results,
@@ -736,15 +705,12 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 ),
             )
 
-    # Before the backend is even looked up: a refused path must cost nothing, and
-    # must not depend on whether the cluster happens to be reachable today.
-    #
-    # `files[]` entries are either plain path/glob strings or ranged objects. A ranged
-    # entry is refused (never clamped) for a bad range shape or a glob path, each for
-    # that entry alone, landing in `files_skipped` like any other per-path refusal.
-    #
-    # All of this runs on a thread: it stats, globs, spawns git and reads files, and run on
-    # the event loop it would stall every other delegation in this process meanwhile.
+    # Before the backend is even looked up: a refused path must cost nothing, and must not
+    # depend on whether the cluster happens to be reachable today. `files[]` entries are
+    # plain path/glob strings or ranged objects; a ranged entry is refused (never clamped)
+    # for a bad range shape or a glob path, each for that entry alone, landing in
+    # `files_skipped`. All of this runs on a thread -- it stats, globs, spawns git, reads
+    # files, and on the event loop it would stall every other delegation.
     plain: list[str] = []
     ranged: list[tuple[str, int, int | None]] = []  # path, start_line, end_line
     range_refusals: list[Refusal] = []
@@ -824,11 +790,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     # missing entirely, where a per-file refusal explains one that is.
     refusals = list(glob_refusals) + range_refusals + list(plain_refusals) + list(ranged_refusals)
 
-    # Every path refused is still fatal, and it is the only `files[]` case that is. There
-    # is nothing left to send, so dispatching would spend a delegation on a prompt with
-    # none of the context it asked for -- and a caller who got every path wrong has one
-    # mistake to fix, not a dozen. One refusal among many is different in kind: the other
-    # files are still the answer. ADR-0061, superseding ADR-0006 on this point.
+    # Every path refused is still fatal, the only `files[]` case that is: nothing is left
+    # to send, so dispatching would spend a delegation on a prompt with none of the context
+    # it asked for, and a caller who got every path wrong has one mistake to fix, not a
+    # dozen. One refusal among many is different: the other files are still the answer. Why:
+    # ADR-0061.
     if refusals and not requests:
         raise ToolError(str(PathRefused(list(refusals), total=len(files or []))))
 
@@ -863,15 +829,13 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     async def progress(turn: int, of: int, message: str | None = None) -> None:
         """ADR-0018: this is what stops the client abandoning a delegation still running.
 
-        The client's stdio idle timer is 1800s and `dispatch_timeout` defaults to 3600s,
-        so without a per-turn notification a long delegation is dropped by the caller
-        while the server works on. Nothing renders it and it cannot be cancelled through
-        -- resetting that timer is the whole of its job.
-
-        One counter for every notification, turns and heartbeats alike, because the MCP
-        specification requires the value to rise each time and a heartbeat would otherwise
-        send 0 between turns. No `total`: the turn cap is a ceiling, not a count of what
-        will run, and `0` read as "zero of zero". What happened goes in `message`.
+        The client's stdio idle timer is 1800s and `dispatch_timeout` defaults to 3600s, so
+        without a per-turn notification a long delegation is dropped while the server works
+        on. Nothing renders it and it cannot be cancelled through -- resetting that timer is
+        its whole job. One counter for every notification, turns and heartbeats alike,
+        because the MCP spec requires the value to rise each time and a heartbeat would
+        otherwise send 0 between turns. No `total`: the turn cap is a ceiling, not a count,
+        and `0` read as "zero of zero". What happened goes in `message`.
         """
         nonlocal notified
         if ctx is not None:
@@ -883,13 +847,12 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         windows, backend, entry, cfg, agentic=bool(allowed)
     )
 
-    # Sized here, where the cost is known and nothing has been sent yet. Two numbers,
-    # because the gate needs two: the prompt is what gets prefilled, and the prompt plus
-    # the reply the endpoint is allowed to generate is what occupies the KV pool. Fixed
-    # for the whole delegation -- see `admission` for why that is an approximation and
-    # how you would find out it was a bad one. The same resolved `entry` that will serve
-    # the request supplies the per-endpoint limit, because counting against one endpoint
-    # and dispatching to another is the exact bug the single resolution above prevents.
+    # Sized here, where the cost is known and nothing sent yet. Two numbers, because the
+    # gate needs two: the prompt is what gets prefilled, and the prompt plus the reply the
+    # endpoint may generate is what occupies the KV pool. Fixed for the whole delegation --
+    # see `admission` for why that is an approximation. The same resolved `entry` supplies
+    # the per-endpoint limit, because counting against one endpoint and dispatching to
+    # another is the bug the single resolution above prevents.
     prefill_estimate = (
         prefetched.total_tokens
         + estimate_text_tokens(cfg, task)
@@ -922,9 +885,9 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     async def streamed_turn(diagnostic: Any, text: str, backend_seconds: float) -> None:
         """Each finished turn, appended while the delegation is still running.
 
-        Timing is measured here rather than taken from the loop because what a watcher
-        wants is wall-clock between turns landing -- including the wait for a slot and the
-        tool execution -- not the backend call alone.
+        Timing is measured here rather than taken from the loop, because what a watcher
+        wants is wall-clock between turns landing -- including the slot wait and tool
+        execution -- not the backend call alone.
         """
         nonlocal turns_streamed, turn_clock, streamed_out_tokens, streamed_backend_ms
         nonlocal streamed_cached_tokens
@@ -951,9 +914,9 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         turn_clock = now
 
     # The same pure function the loop calls, on the same arguments, so the two cannot
-    # disagree about the budget -- and it has to be resolved here as well because the
-    # head of the stream is written before the loop starts. None for an empty toolset:
-    # that takes the one-shot path, which runs no turns and has no budget to report.
+    # disagree about the budget -- and it has to be resolved here too because the head of
+    # the stream is written before the loop starts. None for an empty toolset: that takes
+    # the one-shot path, which runs no turns and has no budget to report.
     resolved_turns = resolve_max_turns(cfg, max_turns, allowed) if allowed else None
 
     if stream is not None:
@@ -971,18 +934,15 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     async def ticked() -> None:
         """ADR-0018 again, one layer earlier.
 
-        A queued delegation runs no turns, so nothing else resets the client's idle
-        timer while it waits. Without this a delegation that is merely queued is
-        abandoned by the caller exactly as a slow one is.
-
-        It writes to the transcript as well as the wire, for the reason `alive` does: a
-        queued delegation and one whose server was killed leave identical files, and the
-        server is the only thing that can tell them apart (ADR-0072).
-
-        The wire hears every tick and the transcript one every `_WAITING_EVERY_SECONDS`,
-        the first at once so a viewer shows `queued` straight away. A shared slot file is
-        polled four times a second, and writing each poll would put megabytes into a synced
-        folder for a few queued calls; the viewer shows one line a minute regardless.
+        A queued delegation runs no turns, so nothing else resets the client's idle timer
+        while it waits; without this a merely queued delegation is abandoned exactly as a
+        slow one is. It writes to the transcript as well as the wire, for `alive`'s reason:
+        a queued delegation and one whose server was killed leave identical files, and only
+        the server can tell them apart (ADR-0072). The wire hears every tick and the
+        transcript one every `_WAITING_EVERY_SECONDS`, the first at once so a viewer shows
+        `queued` straight away. A shared slot file is polled four times a second, and
+        writing each poll would put megabytes into a synced folder for a few queued calls;
+        the viewer shows one line a minute regardless.
         """
         nonlocal waiting_written
         now = _clock()
@@ -999,20 +959,12 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     async def alive(elapsed_seconds: float, of_seconds: int, ends_in: float,  # noqa: PLR0913, PLR0917 -- the heartbeat's positional arity, fixed by _keepalive
                     chunks_seen: int = 0, reasoning_chunks: int = 0,
                     since_chunk: float | None = None) -> None:
-        """ADR-0018 once more, for the path that has no turns to hang it on.
+        """The one-shot's heartbeat, on the wire and in the transcript (ADR-0018).
 
-        A one-shot is a single backend call, so nothing lands between `start` and `end`
-        and the client hears nothing for however long that takes -- the only remaining
-        shape that can reach the 1800s stdio idle timeout and be abandoned while working
-        perfectly.
-
-        It writes to the transcript as well as the wire, and for the same reason in a
-        different place: a stream that is silent for forty minutes is indistinguishable
-        from one whose server was killed, and the viewer calls both of them live.
-        One heartbeat answers both, because both are the same question.
-
-        `reasoning_chunks` splits the count so a watcher can tell thinking from answering,
-        which the total alone cannot -- and which is what it is watching for.
+        A single backend call sends nothing between `start` and `end`, so without this the
+        client's 1800s idle timeout abandons a working call, and the viewer cannot tell a
+        silent stream from a dead server. `reasoning_chunks` tells thinking from answering,
+        which the total cannot.
         """
         await progress(0, 0, f"working, {elapsed_seconds:.0f}s")
         if stream is not None:
@@ -1029,8 +981,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         """What the turn about to run was allowed, and what that was calculated from.
 
         Written before the turn, because a turn killed at a deadline having completed
-        nothing produces no `turn` event -- so anything recorded afterwards is recorded
-        only for the turns that never needed explaining.
+        nothing produces no `turn` event -- so anything recorded afterwards is only for the
+        turns that never needed explaining.
         """
         if stream is not None:
             stream.priced(**row)
@@ -1047,12 +999,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             deadline=admission_deadline(cfg),
             on_wait=ticked,
         ) as lease:
-            # The concurrency this delegation is about to *meet*, not the one the cluster
-            # is showing. `seqs_at_grant` excludes this request -- the gate tested the
-            # rules before taking the slot -- so it is +1 for ourselves, plus everyone
-            # still queued, who will contend as soon as they are released. Capped at the
-            # gate's own ceiling, because a queue ten deep cannot produce eleven-way
-            # concurrency when six is all the rules permit.
+            # The concurrency this delegation is about to *meet*, not what the cluster
+            # shows. `seqs_at_grant` excludes this request -- the gate tested the rules
+            # before taking the slot -- so it is +1 for ourselves, plus everyone still
+            # queued, who contend once released. Capped at the gate's ceiling: a queue ten
+            # deep cannot produce eleven-way concurrency when six is all the rules permit.
             expected = min(
                 lease.seqs_at_grant + lease.waiting_at_grant + 1, cfg.max_inflight_seqs
             )
@@ -1095,27 +1046,25 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         raise ToolError(str(e)) from e
     except BaseException as e:
         failure = e
-        # A deadline that fired after the model had already decoded something returns what
-        # it decoded rather than only the message saying it was abandoned (ADR-0078).
-        #
-        # It is still reported as a failure: `partial` is true and `error` carries the
-        # whole deadline message, so nothing here turns a timeout into a quiet success.
-        # Absent rather than empty when no token arrived -- `_partial_result` returns None
-        # and this re-raises, because a turn that produced nothing is what the deadline
-        # message already describes on its own.
+        # A deadline that fired after the model had decoded something returns what it
+        # decoded rather than only the message saying it was abandoned (ADR-0078). Still
+        # reported as a failure: `partial` is true and `error` carries the whole deadline
+        # message, so nothing here turns a timeout into a quiet success. Absent rather than
+        # empty when no token arrived -- `_partial_result` returns None and this re-raises,
+        # because a turn that produced nothing is what the deadline message describes.
         partial = _partial_result(e, prefetched, agent)
         if partial is None:
             raise
         return partial
     finally:
-        # A side effect whose result nothing reads. The record must not reach the
-        # response through a dict merge, so there is deliberately no value here for the
-        # return below to pick up.
+        # A side effect whose result nothing reads. The record must not reach the response
+        # through a dict merge, so there is deliberately no value here for the return below
+        # to pick up.
         if stream is not None:
             # A one-shot delegation runs no turns, so nothing streamed the answer. Without
             # this the common read-only case would show a start and an end with nothing
-            # between them -- which is exactly the shape of a delegation that produced
-            # nothing, and indistinguishable from one.
+            # between them -- exactly the shape of a delegation that produced nothing, and
+            # indistinguishable from one.
             if turns_streamed == 0 and dispatched is not None:
                 stream.turn(
                     _OneShotTurn(dispatched), dispatched.response.text,
@@ -1133,10 +1082,10 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             stream.end(
                 ok=failure is None,
                 # A timed-out delegation has no `dispatched` and would otherwise record
-                # `None` here, so the transcript would say a failed run had done nothing
-                # -- the same gap as the error text, in the file an operator reads
-                # afterwards. The exception carries what the loop managed, so use it.
-                # Still `None` for every other failure, where nothing counted anything.
+                # `None` here, so the transcript would say a failed run had done nothing --
+                # the same gap as the error text. The exception carries what the loop
+                # managed, so use it. Still `None` for every other failure, where nothing
+                # counted anything.
                 turns=(
                     getattr(dispatched, "turns", 1) if dispatched
                     else failure.turns if isinstance(failure, DispatchTimedOut)
@@ -1195,14 +1144,12 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     # Computed before the banner, so the share describes what the model wrote rather than
     # what the server added to it.
     repeated = duplicate_line_share(answer)
-    # The flag is for whoever branches on it and the banner is for whoever does not --
-    # the same split `answer_of` already makes for reasoning. The reader of an answer
-    # reads the answer, not the flag, so the banner is what marks a forced answer.
-    #
-    # Only when there is one. An empty reply is already `empty_response`, and a banner
-    # explaining the absence of something the caller can see is absent would be noise.
-    # `getattr` because the one-shot path returns a `Dispatch`, which has no turns to run
-    # out of -- the same reason `_loop_ledger` is gated rather than unconditional.
+    # The flag is for whoever branches on it and the banner for whoever does not -- the
+    # same split `answer_of` makes for reasoning. The reader of an answer reads the answer,
+    # not the flag, so the banner marks a forced answer. Only when there is one: an empty
+    # reply is already `empty_response`, and a banner explaining the absence of something
+    # the caller can see absent is noise. `getattr` because the one-shot path returns a
+    # `Dispatch`, with no turns to run out of -- why `_loop_ledger` is gated too.
     if getattr(dispatched, "hit_turn_limit", False) and answer:
         answer = TURN_LIMIT_BANNER + answer
     return {
@@ -1235,24 +1182,22 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         # one-shot path would be a number the caller could compare against a budget that
         # never applied to it. ADR-0007: what the server watched, not what was claimed.
         **_loop_ledger(dispatched),
-        # Still the mechanical fact, and still reported on its own: "" must never read
-        # as a successful reply. Reaching here means the state machine already tried a
-        # larger budget and a lower effort.
-        #
-        # It stays derived from `answer` rather than from `response.text`, so it keeps
-        # meaning "nothing came back" where reasoning can come back instead. A reply
-        # that reasoned its whole budget away is not empty; it is `answer_is_reasoning`.
+        # Still the mechanical fact, and still reported on its own: "" must never read as a
+        # successful reply. Reaching here means the state machine already tried a larger
+        # budget and a lower effort. It stays derived from `answer` rather than
+        # `response.text`, so it keeps meaning "nothing came back" where reasoning can come
+        # back instead. A reply that reasoned its whole budget away is not empty; it is
+        # `answer_is_reasoning`.
         "empty_response": answer == "",
         # Whether what is in `answer` is reasoning rather than an answer. A caller that
         # branches on this is the reason the reasoning is returned at all -- the banner
         # is for whoever reads it, and a flag is for whoever does not.
         "answer_is_reasoning": answer_is_reasoning,
-        # The diagnosis, which is a different claim and only earned once the
-        # mitigations have actually been spent. True means every one was tried and the
-        # answer is still empty at a length stop -- ADR-0014's reasoning_exhausted_budget.
-        # False alongside an empty answer means the effort was already at its lowest,
-        # so nothing was left to step down and the budget, not the reasoning, is what
-        # ran out. Two different fixes, which is why they are two different fields.
+        # The diagnosis, a different claim earned only once the mitigations are actually
+        # spent. True: every one was tried and the answer is still empty at a length stop --
+        # ADR-0014's reasoning_exhausted_budget. False beside an empty answer: effort was
+        # already lowest, so nothing was left to step down and the budget, not the
+        # reasoning, ran out. Two fixes, hence two fields.
         "reasoning_exhausted": dispatched.reasoning_exhausted,
         # How much of the answer is lines it had already said. A loop and a long answer
         # are indistinguishable by every other field here -- both fill the ceiling at a
@@ -1275,8 +1220,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
 #
 # `dict[str, Any]` infers `{"type": "object"}`, which says nothing, so the return contract
 # lives in prose -- and prose is what the client cuts. A described `outputSchema` names the
-# keys where a caller reads the result. Deliberately permissive -- nothing `required`,
-# additions allowed -- so it can never refuse a real result. Why: ADR-0066.
+# keys a caller reads. Deliberately permissive -- nothing `required`, additions allowed --
+# so it can never refuse a real result. Why: ADR-0066.
 
 
 def _num(desc: str) -> dict[str, Any]:
@@ -1440,8 +1385,8 @@ _DELEGATION_RESULT: dict[str, Any] = {
     },
 }
 
-# Every hint stated rather than left to the specification's defaults, which are true for
-# both `destructiveHint` and `openWorldHint`: unset, the read-only tools claimed to be
+# Every hint stated rather than left to the spec's defaults, which are true for both
+# `destructiveHint` and `openWorldHint`: unset, the read-only tools claimed to be
 # destructive and open to the world. The writing tools overwrite files and run commands.
 # Only `delegate_to_agent` is open-world, because the sandbox has no network unless an
 # agent asks and is on `agent_network_allowed`, and it is the one that runs agents.
@@ -1549,14 +1494,13 @@ _DESCRIPTION_TARGET = 700
 # ---- the arguments, described once, in the schema that carries them ----------------
 #
 # Written here rather than in four docstrings. MCP has no include, but `inputSchema` needs
-# none: each property carries its own `description`, on its own budget, shown beside the
-# argument it describes -- which is where the contract prose belongs, because a description
-# is the index a tool is found by rather than the place that carries a contract.
-#
-# `effort`'s vocabulary is derived from `config.py` and not written out, so the enum and the
-# levels cannot disagree. It is the schema half of a check `_resolve_effort` also makes at
-# runtime, and neither trusts the other: a client may not enforce an enum, and a schema
-# cannot explain itself the way that refusal does.
+# none: each property carries its own `description`, on its own budget, beside the argument
+# it describes -- which is where contract prose belongs, because a description is the
+# index a tool is found by rather than the place that carries a contract. `effort`'s
+# vocabulary is derived from `config.py`, so the enum and the levels cannot disagree. It is
+# the schema half of a check `_resolve_effort` also makes, and neither trusts the other: a
+# client may not enforce an enum, and a schema cannot explain itself the way that refusal
+# does.
 
 Task = Annotated[
     str,
@@ -1585,9 +1529,9 @@ Effort = Annotated[
 class FileRange(BaseModel):
     """One files[] entry naming a line range of a single file.
 
-    Uses `read_file`'s argument names and rules: 1-based, inclusive, and an `end_line`
-    that is omitted, null or past the end of the file means the end of the file. No range
-    is validated here -- a bad range is refused for that entry and lands in `files_skipped`
+    Uses `read_file`'s argument names and rules: 1-based, inclusive, and an `end_line` that
+    is omitted, null or past the end of the file means the end of the file. No range is
+    validated here -- a bad range is refused for that entry and lands in `files_skipped`
     rather than failing the call, so this model only carries the shape.
     """
 
@@ -1722,13 +1666,11 @@ def _server_instructions(cfg: Config) -> str:
     """The few rules that decide a call before the caller has chosen a tool.
 
     Short on purpose. The client truncates this by the same 2048 as a description, and
-    everything that has a better home has gone to it -- so what is left is the operational
-    shape a caller cannot discover from a schema: that a delegation is cheap, that the
-    concurrency ceiling is real, and that there is a resource to read when sizing a pass
-    matters. The ceiling is interpolated from `Config`, because defaults live only there.
-
-    Everything below the `return` is the delivered text; this docstring is not. They read
-    as one block in the file and reach entirely different audiences.
+    everything with a better home has gone to it -- so what is left is the operational shape
+    a caller cannot discover from a schema: that a delegation is cheap, that the concurrency
+    ceiling is real, and that there is a resource to read when sizing a pass matters. The
+    ceiling is interpolated from `Config`, because defaults live only there. Everything
+    below the `return` is delivered text; this docstring is not.
     """
     return """
 Delegation to a local model, on hardware the user hosts: it costs no cloud tokens, so
@@ -1751,8 +1693,8 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
     """Construct the server. Pure wiring; no I/O beyond what the tools do when called.
 
     `cache` is injectable for the same reason `OpenAICompatBackend` takes a `client`:
-    without it a test of the tool surface opens a real socket and waits out a real
-    timeout, which is slow, flaky, and not what the test is about.
+    without it a test of the tool surface opens a real socket and waits out a real timeout,
+    which is slow, flaky, and not what the test is about.
     """
     cache = cache or BackendCache(cfg)
     # One per server, beside the backend cache and for the same reason: the verdict is
@@ -1761,18 +1703,17 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
     windows = WindowCheck(cfg)
     # One per process, beside the cache and the window check so every tool closure below
     # shares the same object rather than each counting against a gate of its own. `slots`
-    # is what makes the budget global across the processes stdio gives each connected
-    # client. `build_slots` returns None when the platform cannot lock, and the reason is
-    # reported rather than swallowed -- a gate that has quietly narrowed its scope looks
-    # exactly like one that is working. Why: ADR-0040.
+    # makes the budget global across the processes stdio gives each client. `build_slots`
+    # returns None when the platform cannot lock, and the reason is reported rather than
+    # swallowed -- a gate that quietly narrowed its scope looks exactly like one working.
+    # Why: ADR-0040.
     slots, slots_reason = build_slots(cfg)
     admission = Admission(cfg, slots)
-    # One per server process, deliberately outliving every delegation in it and the process
-    # itself: it loads its history at construction and writes each accepted observation
-    # back, so a reconnect is not a cold start. Stamped with the served model, so a swap
-    # discards the memory rather than pricing the new model at the old one's speed.
-    # `rate_history_path`, never the runtime directory, because this memory is durable.
-    # Why: ADR-0075, ADR-0094.
+    # One per server process, outliving every delegation in it and the process itself: it
+    # loads its history at construction and writes each accepted observation back, so a
+    # reconnect is not a cold start. Stamped with the served model, so a swap discards the
+    # memory rather than pricing the new model at the old one's speed. `rate_history_path`,
+    # never the runtime directory, because this memory is durable. Why: ADR-0075, ADR-0094.
     rates = RateHistory(
         path=rate_history_path(cfg),
         stamp=registry.resolve(None).served_model_id,
@@ -1780,9 +1721,9 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
 
     # What fills that memory. A completed turn files one sample per stream, so six of them
     # land on one moment and a six-wide bucket remembers a sixth as long as a narrow one;
-    # this files one sample per scrape, which is what makes the buckets comparable. It
-    # scrapes the default entry's endpoint because that is the model `rates` is stamped
-    # with -- a memory keyed to one model must not be fed by another's counter.
+    # this files one sample per scrape, which makes the buckets comparable. It scrapes the
+    # default entry's endpoint because that is the model `rates` is stamped with -- a memory
+    # keyed to one model must not be fed by another's counter.
     sampler = RateSampler(
         rates,
         probe=lambda: cache.get(registry.resolve(None)).probe_cluster(),
@@ -1795,10 +1736,10 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
     async def _answered(run: Awaitable[dict[str, Any]], tool: str) -> dict[str, Any]:
         """Start a write-capable delegation and answer with its handle at once (ADR-0103).
 
-        Answering at once is what lets several write-capable calls start together, since
-        the client releases the next only when the current one returns. The run --
-        admission wait included -- carries on in a task this process owns; `collect`
-        answers it and `cancel_delegation` stops it.
+        Answering at once lets several write-capable calls start together, since the client
+        releases the next only when the current one returns. The run -- admission wait
+        included -- carries on in a task this process owns; `collect` answers it,
+        `cancel_delegation` stops it.
         """
         handle = handles.start(run, tool=tool)
         return {"handle": handle, "status": "running", "tool": tool}
@@ -1905,10 +1846,10 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         """Resolved and root-checked against `workdir_roots` once, here.
 
         Two different arguments come through it and both are directories of the caller's:
-        `workdir`, which is bound into the sandbox writable, and `project`, which only says
-        where to look for agent files. They are named apart because they mean different
-        things -- see `delegate_to_agent` -- but neither may name a path outside the roots,
-        and a check that ran in two places would be a check that drifted in one.
+        `workdir`, bound into the sandbox writable, and `project`, which only says where to
+        look for agent files. They are named apart because they mean different things -- see
+        `delegate_to_agent` -- but neither may name a path outside the roots, and a check
+        that ran in two places would drift in one.
         """
         if given is None:
             return None
@@ -1949,9 +1890,9 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         Answers at once with a `handle`: `collect` it for the result.
         """
         # Both are checked *before* either is used to look anything up. The agent lookup
-        # reads `<project>/.claude/delegate-agents/`, so passing the caller's argument to it
-        # unchecked would let an unvalidated path drive a filesystem read -- the root check
-        # would then be a thing that happened afterwards, which is not a check at all.
+        # reads `<project>/.claude/delegate-agents/`, so passing the caller's argument
+        # unchecked would let an unvalidated path drive a filesystem read -- the root
+        # check would then be a thing that happened afterwards, which is not a check at all.
         resolved_workdir = _rooted(workdir)
         resolved_project = _rooted(project) if project is not None else resolved_workdir
         agent = _load(agent_name, resolved_project)
@@ -2001,8 +1942,8 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             allowed_tools=sorted(READ_ONLY_TOOL_NAMES),
             max_tokens=max_tokens, max_turns=max_turns,
             # No `workdir`, so `policy.workdir` stays None and the sandbox binds nothing of
-            # the caller's. `resolved_project` is a lookup path and must not be passed here:
-            # doing so would bind it read-write and the readOnlyHint would be a lie.
+            # the caller's. `resolved_project` is a lookup path and must not be passed
+            # here: doing so would bind it read-write and the readOnlyHint would be a lie.
             agent=agent,
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent_readonly",
         )
@@ -2143,7 +2084,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
     # list and read it (Claude Code exposes both), so it pays nothing until asked and then
     # has no length limit at all -- where a prompt is user-controlled and would never reach
     # the model unprompted. What belongs here is what a caller needs when sizing a pass;
-    # what a schema or a refusal can state goes there instead. Why: ADR-0066.
+    # what a schema or refusal can state goes there instead. Why: ADR-0066.
     @mcp.resource(
         "delegate://orchestration",
         name="Orchestrating delegations",

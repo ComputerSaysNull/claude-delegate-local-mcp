@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #379 — 2026-09-27 — docs: server.py's remaining prose is tightened
+
+### Changed
+
+- **`server.py`'s comments say what they need to and stop.** The first pass cut its
+  history; this one applies the other half of the "Prose" rule, so heartbeat callbacks,
+  result-field notes and the schema comments keep each reason and lose the retelling. The
+  `@mcp` docstrings, the orchestration resource and every `Field` description are
+  contract and untouched. A verification pass compared every changed block with the old
+  text, and seven dropped reasons were restored. Prose fell from 687 lines to 628 (34% to
+  31%), and `ast_unchanged.py` reads the module as unchanged.
+
 ## #378 — 2026-09-26 — docs: loop.py's comments are tightened, and the rule says to
 
 ### Changed
