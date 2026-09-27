@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #398 — 2026-09-27 — docs: doctor.py describes what is
+
+### Changed
+
+- **`doctor.py`'s comments describe `--doctor` as it is, from 121 prose lines to 103.** The
+  third of M18.7's last group. The measured start-up with every fact wrong, the missing
+  `uv` that went undiagnosed and the repository's own match and line-loss counts go. Each
+  check keeps why it is a `WARN` or a `FAIL` -- a stale environment fails because its
+  clean exit is believed -- and the reuse-not-reimplementation rule stays. The counts
+  inside the remedy text an operator reads are output, not comments, and are unchanged.
+  `ast_unchanged.py` reads the module as unchanged.
+
 ## #397 — 2026-09-27 — docs: init.py describes what is
 
 ### Changed
