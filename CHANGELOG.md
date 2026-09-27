@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #381 — 2026-09-27 — docs: paths.py and its path-policy sections describe what is
+
+### Changed
+
+- **The path policy's comments and AGENTS.md's path-policy passages drop their history
+  and keep their security reasoning.** Like `sandbox.py`, `paths.py` is trimmed only
+  conservatively, because its reasoning is what stops regressions. Profiling figures give
+  way to their JOURNAL pointers, and the ancestor's unvalidated prefetch and a dated
+  correction go. In AGENTS.md the "until 2026-09-06" refusal story and "the reasoning
+  this replaces" go, and the reason that survives them is restated: the denylist matches
+  names, so it cannot stand in for a root list. Prose fell from 510 lines to 503, and
+  `ast_unchanged.py` reads the module as unchanged.
+
 ## #380 — 2026-09-27 — docs: sandbox.py and its architecture section describe what is
 
 ### Changed
