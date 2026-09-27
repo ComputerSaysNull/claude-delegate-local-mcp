@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #392 — 2026-09-27 — docs: backends/base.py describes what is
+
+### Changed
+
+- **`backends/base.py`'s comments describe the backend seam as it is, from 265 prose lines
+  to 224.** The first of M18.7's second group. Three docstrings still assigned retry,
+  empty-answer handling and the meaning of `finish_reason` to "the response state machine,
+  M3"; that machine is `loop.py`, and they now say so. `probe_cluster` said admission
+  estimates from what *this process* dispatched, which stopped being true when the counters
+  became machine-wide. The measured incidents behind `duplicate_line_share`, `answer_of`
+  and `decode_seconds` go, and the reason each exists stays. `ast_unchanged.py` reads the
+  module as unchanged. `REASONING_ONLY_BANNER` still says what the text "used to be", but
+  it is a string a caller receives, so changing it is a behaviour change and out of scope
+  here.
+
 ## #391 — 2026-09-27 — docs: slots.py describes what is
 
 ### Changed
