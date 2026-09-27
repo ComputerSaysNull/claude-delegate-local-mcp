@@ -222,6 +222,7 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
   half, each `Config` description cut to what it does plus a link, is ✅ 2026-09-26
 6. ✅ **Stop it regrowing**: the gate warns on a date, a `TODO` or future-work phrasing in a
   `src/` comment, and reports each module's prose ratio without blocking
+7. ⬜ **The rest of `src/`, by hand, largest first** (review §4: 42% to about 28%; 37% after the five): `admission.py` onward
 
 ### M19 — A browser viewer, and the ledger it reads
 
@@ -401,6 +402,11 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
   alone. Read, not reproduced: the first run's settle removes the empty dir the second one bound
 91. ✅ 2026-09-26 **The 140k prefetch cap rests on nothing measured** (JOURNAL 2026-09-25): set it, or say why
 92. ⬜ **The read dedup misses a re-read at another offset**: it keys on the arguments; closing it needs range tracking
+93. ⬜ **`read_file`'s two-space line-number separator reads as indentation**: ~40 of 54 `edit_file` misses on 2026-09-27
+94. ⬜ **`edit_file` cannot replace a repeated string on purpose**: add `expected_count`, not a `replace_all` flag
+95. ⬜ **`edit_file` cannot tell another writer changed its file**: hash on read, updated by the server's own writes
+96. ⬜ **`ast_unchanged.py` cannot see a pydantic model's docstring**, which is tool-schema text
+97. ⬜ **"`max` never answers" is stale**: 8 of 8 answered on 2026-09-27; MODELS.md and TROUBLESHOOTING.md say otherwise
 
 ## Deferred
 

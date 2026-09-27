@@ -30,6 +30,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #387 — 2026-09-27 — docs: six plan items and a one-shot delegation measurement
+
+### Added
+
+- **Three `edit_file` items, filed from one day's misses.** Of 54 misses in 493 calls,
+  about 40 were quotes with extra leading spaces: `read_file` puts two spaces between a
+  line number and its text, and a model that strips one keeps the other as indentation
+  (Unscheduled 93). Two more gaps came up comparing it with a client's own edit tool:
+  there is no deliberate way to replace a repeated string, where an `expected_count`
+  keeps the ambiguity check a plain flag would drop (94), and nothing notices a file
+  changed by another writer since it was read (95).
+- **Two more from this session's passes.** `ast_unchanged.py` keeps only `@mcp`
+  docstrings, so a re-wrapped pydantic model docstring, which is tool-schema text, passed
+  it (96). And "`max` never answers" is stale: all 8 one-shot calls at `max` answered
+  (97). Each is filed, not built, since each needs its own red.
+- **M18.7: the rest of `src/`.** The review's prose finding set a target for all of
+  `src/`, 42% to about 28%, and M18.4 named only its five largest modules. With those done
+  `src/` stands at 37% (6,918 prose lines to 5,799), and about 2,800 more sit in twelve
+  modules no pass has reached, so M18 stays open.
+- **A JOURNAL entry measuring one-shot, block-by-block tightening** at `high` and `max`
+  against a hand pass: neither effort matched it, both changed the meaning of two or
+  three blocks in eight, and each answer took 12k to 44k tokens of reasoning.
+
 ## #386 — 2026-09-27 — docs: the first pipeline-stage records are counted
 
 ### Added
