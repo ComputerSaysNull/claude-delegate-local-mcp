@@ -2730,3 +2730,27 @@ succeeded; drop exit 1 from an allowlist of "no result" commands such as `diff` 
 is an answer that looks like an error, so exit 2 from `ls` is a second allowlist question,
 not a failure. What this does not settle: three rows from one kind of work. A classifier
 designed from them would be designed from `diff` and `ls` alone, so 25d stays open.
+
+## 2026-09-27 — Tightening prose one block at a time: max answers, and neither effort matches a hand pass
+
+The comment passes on `loop.py` and `server.py` were delegated whole-file first: 42 turns
+and 6.1M input tokens for `server.py`, 11% of `edit_file` calls missing, and prose cut
+only 6-13% with 25 reasons dropped on the way. So 8 `server.py` blocks (74 lines) were sent
+one-shot, no tools, with the rule and two worked examples, once at `high` and once at
+`max`, against a hand baseline written before any output was read:
+
+| | lines left | blocks with a dropped reason or changed meaning | output tokens, all 8 |
+|---|---|---|---|
+| hand | 46 (-38%) | 0 | about 4k |
+| `high` | 53 (-28%) | 2 | 230k |
+| `max` | 50 (-32%) | 3 | 196k |
+
+`max` answered all 8, none empty, which retires "never answers at any budget" (Unscheduled
+97). It was no better than `high`. Both dropped a docstring's summary line on three blocks,
+and the errors were real ones: a subject swapped, a "check that cannot fail" turned into
+"must not fail", the wire and the transcript confused. Each answer took 12k to 44k tokens of
+reasoning for four to eleven lines, 10 to 30 minutes under load, and the 16 calls queued
+23,445s in total at a six-slot gate.
+
+What it does not settle: `low` or `off`, and the task without its 92-column rule, which a
+model without a tool can only meet by counting characters.
