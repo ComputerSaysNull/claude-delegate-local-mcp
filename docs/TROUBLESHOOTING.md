@@ -127,8 +127,8 @@ paste into a bug report.
 
 Reasoning consumed the entire reply budget. Seeing this means the server already tried to
 recover and failed too ([the stages](DISPATCH.md#an-empty-answer-is-recovered-from-before-it-is-reported)),
-so do not retry the call yourself. At the top effort level this deployment never answers at
-any budget, so set `default_effort` low ([MODELS.md](MODELS.md#choosing-default_effort)).
+so do not retry the call yourself. Which effort level to run at is
+[MODELS.md](MODELS.md#choosing-default_effort)'s to say.
 
 ### `reasoning_exhausted: true`
 

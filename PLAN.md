@@ -409,7 +409,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 94. ⬜ **`edit_file` cannot replace a repeated string on purpose**: add `expected_count`, not a `replace_all` flag
 95. ⬜ **`edit_file` cannot tell another writer changed its file**: hash on read, updated by the server's own writes
 96. ⬜ **`ast_unchanged.py` cannot see a pydantic model's docstring**, which is tool-schema text
-97. ⬜ **"`max` never answers" is stale**: 8 of 8 answered on 2026-09-27; MODELS.md and TROUBLESHOOTING.md say otherwise
+97. ✅ 2026-09-27 **"`max` never answers" is stale**: 8 of 8 answered on 2026-09-27; MODELS.md and TROUBLESHOOTING.md say otherwise
 
 ## Deferred
 

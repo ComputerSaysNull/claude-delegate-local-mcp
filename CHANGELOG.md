@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #400 — 2026-09-27 — docs: TROUBLESHOOTING no longer says max never answers
+
+### Fixed
+
+- **TROUBLESHOOTING.md said that at the top effort level this deployment "never answers
+  at any budget".** All eight one-shot calls at `max` answered on 2026-09-27 (JOURNAL), so
+  the sentence was false. It was also a restated fact in a file that owns none, which is
+  how it outlived the measurement that retired it. The symptom now links to MODELS.md's
+  "Choosing `default_effort`" instead of restating it. MODELS.md needed no change, and
+  Unscheduled.97 was wrong to say it did: its claim is scoped to a *small* reply budget,
+  where ADR-0014's measurement still holds, and the eight answers ran at the raised
+  default budget. That also removes the re-measure at a small budget that the item was
+  waiting on.
+
 ## #399 — 2026-09-27 — docs: the small modules describe what is
 
 ### Changed
