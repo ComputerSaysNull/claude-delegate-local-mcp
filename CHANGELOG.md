@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #379 — 2026-09-27 — docs: server.py's remaining prose is tightened
+
+### Changed
+
+- **`server.py`'s comments say what they need to and stop.** The first pass cut its
+  history; this one applies the other half of the "Prose" rule, so heartbeat callbacks,
+  result-field notes and the schema comments keep each reason and lose the retelling. A
+  delegated draft cut 9%, so the pass was redone by hand, and a verification pass over
+  every changed block restored the reasons both rounds had dropped. The `@mcp`
+  docstrings, the orchestration resource, every `Field` description and `FileRange`'s
+  docstring are contract and untouched; the draft had re-wrapped `FileRange`'s, which is
+  tool-schema text `ast_unchanged.py` cannot see (Unscheduled 96), and it is restored to
+  the byte. Prose fell from 687 lines to 434 (34% to 24%).
+
 ## #378 — 2026-09-26 — docs: loop.py's comments are tightened, and the rule says to
 
 ### Changed
