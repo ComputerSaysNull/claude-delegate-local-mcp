@@ -41,7 +41,10 @@ Older entries, in the previous flat format, are in
   story goes and the reason it illustrated stays, restated in the present tense ("the
   client aborts a call that sends nothing for 1800s"). A verification pass compared every
   changed paragraph with the old text and one dropped reason was restored: the since-boot
-  rate blends every concurrency regime, so it is optimistic under load. History markers
+  rate blends every concurrency regime, so it is optimistic under load. A full read of the
+  diff by hand then corrected three sentences the check had passed: a defect called the
+  opposite of what it was, an empty-memory paragraph that contradicted itself, and a
+  temperature range referred to but no longer named. History markers
   fell from 35 to 17, and what remains is "once" meaning one time, JOURNAL pointers and
   present-tense "no longer". Headings are unchanged, so every link into the document still
   lands. 795 lines to 770, and the budget follows.

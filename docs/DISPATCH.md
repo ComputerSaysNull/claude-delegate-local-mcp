@@ -52,8 +52,8 @@ httpx applies its read timeout per chunk once a body streams, so that timeout is
 `stall_timeout` -- the same question one layer down, and since ADR-0100 the only bound.
 
 Streaming also made token arrival observable. `complete()` takes an optional `on_token`,
-fired on each frame carrying
-generated output — the same predicate the interval is measured from, so a role preamble or
+fired on each frame carrying generated output — the same predicate the interval is measured
+from, so a role preamble or
 a finish reason is not an arrival. It is synchronous because it runs on the read loop, and
 its one argument names what the frame carried, `reasoning` or `answer`, so a heartbeat can
 tell thinking from answering. A consumer that must act once guards its own once-ness.
@@ -204,9 +204,9 @@ a real design constraint. The per-turn notification fires at the *top* of a turn
 would reset the clock on entry to the very turn that then wedges; the keepalive proves
 liveness on a timer regardless of progress. Token arrival is neither — it happens only when
 the model produced something — and it is the one signal that sees *inside* a turn, which
-completion alone cannot: it gives a one-shot no progress signal at all. A moving deadline
-cannot be enforced by a fixed timeout,
-so the attempt runs beside a watchdog re-reading the budget while the call is in flight,
+completion alone cannot, and gives a one-shot no progress signal at all. A moving deadline
+cannot be enforced by a fixed timeout, so the attempt runs beside a watchdog re-reading the
+budget while the call is in flight,
 rather than inside `asyncio.wait_for`. (ADR-0072) The clock starts *below* the one-off
 rate seed rather than above it, so a slow metrics scrape is not charged to turn 1.
 
@@ -282,8 +282,8 @@ It is what the delegation has left, times `rate × reply_budget_margin`, floored
 `reply_budget_floor`. It is the tightest bound on a reply: the stall clock bounds silence
 rather than size (ADR-0099), and there is no per-call deadline such as `turn_timeout`
 (ADR-0100): a deadline kept without its term in this bound would let a budget authorise a
-reply the attempt could not deliver. The rate is **measured wherever a measurement exists**: it belongs to the
-deployment. `DecodeRate` is seeded so the first turn is
+reply the attempt could not deliver. The rate is **measured wherever a measurement
+exists**: it belongs to the deployment. `DecodeRate` is seeded so the first turn is
 bounded — a one-shot and a tool-forbidden final turn both live there — and every later turn
 replaces the seed with what this delegation achieved, which is the rate its own deadline is
 paid in. `rate_source` moves with it — a taken sample relabels the estimate as the
@@ -324,8 +324,8 @@ subtracted and discarded, and a `Dispatch` carries both summed over a turn's att
 rate divides by one attempt, but a wall-clock total is owed all of them.
 An adapter that cannot time the tokens reports
 `None`, the whole attempt is used instead, and the result is pessimistic, which is the safe
-direction for a budget. `MIN_TOKENS` cannot catch the opposite defect — it guards the size
-of the answer, and the problem can be the size of the prompt. Both estimators apply the same
+direction for a budget. `MIN_TOKENS` cannot catch that defect — it guards the size of the
+answer, and there the problem is the size of the prompt. Both estimators apply the same
 floor, so a short turn reads neither slow nor fast: prefill outside the interval keeps it
 from reading slow, and the floor stops it reading fast. A sample either describes the decoder
 or it does not, and average-versus-minimum decides only how a bad one propagates.
@@ -342,10 +342,10 @@ fitted to rate-against-concurrency would be a constant baked to one deployment's
 Samples sit in a bucket per concurrency, each capped on its own. One shared cap evicted by
 recency would spend itself on whichever regime ran most recently and leave every question
 answered from the flood — a memory that gets worse the more it is used.
-An empty memory does not fall through to the since-boot figure, which is **not** the benign
-cold start it reads as: `expect` searches every sample at the asked concurrency *or busier*, so a
-low expectation searches widely and keeps the worst, while a high one searches an empty set and
-takes the optimistic blend — which is why it meets the configured floor instead. The memory
+An empty memory meets the configured floor, not the since-boot figure, because falling
+through to that figure is **not** the benign cold start it looks like: `expect` searches every
+sample at the asked concurrency *or busier*, so a low expectation searches widely and keeps
+the worst, while a high one finds nothing and would take the optimistic blend. The memory
 loads and saves under `rate_history_dir`, durable so a reconnect or reboot does not reach the
 empty-memory path, stamped with the served model so a swap discards it rather than pricing
 a new model at the old one's speed (ADR-0075, ADR-0094). An endpoint publishing no rate caps
@@ -377,7 +377,7 @@ null content and a length stop. What the server does about it is below. (ADR-001
 `temperature` and `top_p` go on the wire together, on both paths, at the pair this model
 was evaluated at, and the turn's `priced` row records which. One setting each, not one per
 path: a lower loop temperature would only protect tool-call syntax, and no malformed tool
-call appears across that range — so one pair covers both paths.
+call appeared at any temperature from 0.2 to 1.5, so one pair covers both paths.
 A retired name is refused. (ADR-0098)
 
 A reply also reports **how much of itself it repeats**, as a share of its non-blank lines.
