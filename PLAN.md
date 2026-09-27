@@ -222,6 +222,7 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
   half, each `Config` description cut to what it does plus a link, is ✅ 2026-09-26
 6. ✅ **Stop it regrowing**: the gate warns on a date, a `TODO` or future-work phrasing in a
   `src/` comment, and reports each module's prose ratio without blocking
+7. ⬜ **The rest of `src/`, by hand, largest first** (review §4: 42% to about 28%; 37% after the five): `admission.py` onward
 
 ### M19 — A browser viewer, and the ledger it reads
 

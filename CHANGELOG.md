@@ -30,7 +30,7 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #387 — 2026-09-27 — docs: five plan items and a one-shot delegation measurement
+## #387 — 2026-09-27 — docs: six plan items and a one-shot delegation measurement
 
 ### Added
 
@@ -45,6 +45,10 @@ Older entries, in the previous flat format, are in
   docstrings, so a re-wrapped pydantic model docstring, which is tool-schema text, passed
   it (96). And "`max` never answers" is stale: all 8 one-shot calls at `max` answered
   (97). Each is filed, not built, since each needs its own red.
+- **M18.7: the rest of `src/`.** The review's prose finding set a target for all of
+  `src/`, 42% to about 28%, and M18.4 named only its five largest modules. With those done
+  `src/` stands at 37% (6,918 prose lines to 5,799), and about 2,800 more sit in twelve
+  modules no pass has reached, so M18 stays open.
 - **A JOURNAL entry measuring one-shot, block-by-block tightening** at `high` and `max`
   against a hand pass: neither effort matched it, both changed the meaning of two or
   three blocks in eight, and each answer took 12k to 44k tokens of reasoning.
