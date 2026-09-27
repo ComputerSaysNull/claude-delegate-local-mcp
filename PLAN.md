@@ -1,4 +1,4 @@
-<!-- BUDGET: 450 -->
+<!-- BUDGET: 460 -->
 # Plan
 
 Open work, status first so the file scans.
@@ -213,7 +213,7 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
 3. ✅ **An AST check makes a comment pass provably behaviour-free**: each module's `ast.dump`
   with docstrings stripped is identical before and after. Negative-tested on one literal
 4. ⬜ **One comment pass per module, largest first** (review §4)
-    - a. ⬜ `loop.py`, which has more prose than code.
+    - a. ✅ 2026-09-27 `loop.py`, which has more prose than code.
     - b. ⬜ `server.py`.
     - c. ⬜ `sandbox.py`, cutting history but keeping its security reasoning.
     - d. ⬜ `paths.py`, likewise.
@@ -400,6 +400,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
   start with `Can't find source path .../.idea` while a second delegation ran beside it, and passed
   alone. Read, not reproduced: the first run's settle removes the empty dir the second one bound
 91. ✅ 2026-09-26 **The 140k prefetch cap rests on nothing measured** (JOURNAL 2026-09-25): set it, or say why
+92. ⬜ **The read dedup misses a re-read at another offset**: it keys on the arguments; closing it needs range tracking
 
 ## Deferred
 
