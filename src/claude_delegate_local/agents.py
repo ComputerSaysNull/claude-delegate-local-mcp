@@ -1,31 +1,27 @@
 """Agent files: where they are found, what their frontmatter means, and what it binds.
 
-An agent is a markdown file, not a tool. That is the whole point of the design: the tool
-count is fixed and small, so a new *kind* of delegated task -- review,
-test-writing, migration -- is a file someone writes rather than a code change and a
-release. (ADR-0005)
+An agent is a markdown file, not a tool: the tool count is fixed and small, so a new
+*kind* of delegated task -- review, test-writing, migration -- is a file someone writes
+rather than a code change and a release (ADR-0005).
 
 This module does two things and deliberately not a third. It **finds** a definition, by a
-three-tier lookup that lets a project override a personal default, and it **validates**
-one, refusing anything it does not understand rather than ignoring it. It does not
-*resolve* precedence: an `AgentSpec` carries `model` as a string and never touches the
-registry, because precedence is the caller's to apply and doing it here would put the
-resolution in a second place. See `docs/AGENTS.md`.
+tiered lookup that lets a project override a personal default, and it **validates** one,
+refusing anything it does not understand rather than ignoring it. It does not *resolve*
+precedence: an `AgentSpec` carries `model` as a string and never touches the registry,
+because precedence is the caller's, and doing it here would put it in a second place. See
+`docs/AGENTS.md`.
 
-The bug this format exists to avoid is worth naming, because it is easy to reintroduce and
-it is invisible when it happens. In the ancestor, frontmatter was loaded and then largely
-ignored -- `model:` did nothing. Everything here is shaped to make that failure loud: an
-unknown key is refused rather than dropped, a misspelt `effort` is refused rather than
-defaulted, and the resolved `ModelEntry` must be the same object for the concurrency bucket
-and for the call, or a request is counted against one endpoint and sent to another.
-(ADR-0031)
+The failure this format is shaped against is frontmatter loaded and then ignored, which is
+easy to reintroduce and invisible when it happens. So it is made loud: an unknown key is
+refused rather than dropped, a misspelt `effort` refused rather than defaulted, and the
+resolved `ModelEntry` must be the same object for the concurrency bucket and the call, or
+a request is counted against one endpoint and sent to another (ADR-0031).
 
-A note on the file format, since it looks like YAML and is not. This is a fixed, known set
-of scalar, boolean, integer and short-list fields, so it is parsed by hand rather than by
-adding a YAML dependency to a server whose entire runtime is `fastmcp` and `httpx`. What
-that costs is real and is paid deliberately: nested maps, block scalars, anchors and
-multi-line strings are refused, not guessed at. What it buys is that no file can mean
-something subtly different from what it looks like.
+It looks like YAML and is not. A fixed set of scalar, boolean, integer and short-list
+fields is parsed by hand rather than by adding a YAML dependency to a server whose runtime
+is `fastmcp` and `httpx`. The cost is paid deliberately: nested maps, block scalars,
+anchors and multi-line strings are refused, not guessed at. What it buys is that no file
+can mean something subtly different from what it looks like.
 """
 
 from __future__ import annotations
@@ -45,20 +41,18 @@ from .tools import ALL_TOOL_NAMES
 class AgentError(InvalidDelegation):
     """A bad agent name, a missing definition, or frontmatter that will not validate.
 
-    Subclasses `InvalidDelegation` so `server.py` translates it to a `ToolError` through the
-    branch it already has. A bad agent file is a caller's argument being wrong, in the same
-    sense a bad `effort` is: it is settled before anything reaches a backend.
+    Subclasses `InvalidDelegation` so `server.py` turns it into a `ToolError` through its
+    existing branch: a bad agent file is a caller's argument being wrong, like a bad
+    `effort`, settled before anything reaches a backend.
     """
 
 
-# An agent name is not a path. Allowing it to look like one would make it a traversal, so
-# the check runs before any filesystem access -- that is the property the test pins down,
-# and it is the one that matters: an unvalidated name must never reach a `stat`.
+# An agent name is not a path; one that looked like a path would be a traversal. So the
+# check runs before any filesystem access: an unvalidated name must never reach a `stat`.
 _NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
-# Everything a frontmatter block may contain. The set is closed on purpose: an unknown key
-# is refused, because the alternative is a typo costing a setting in silence, which is the
-# ancestor bug wearing a different hat.
+# Everything a frontmatter block may contain. Closed on purpose: an unknown key is refused,
+# because otherwise a typo costs a setting in silence.
 _SCALAR_FIELDS = frozenset({"name", "description", "model", "effort"})
 _INT_FIELDS = frozenset({"max_turns", "max_tokens", "keep_tool_results"})
 _BOOL_FIELDS = frozenset({"network"})
@@ -72,11 +66,10 @@ _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n?", re.DO
 class AgentSpec:
     """One validated agent definition: the frontmatter, plus the body that becomes a prompt.
 
-    `None` and empty are different everywhere they can be. `allowed_tools=None` means the
-    file did not say, so the caller's own default applies; `allowed_tools=()` means the file
-    said *no tools*, which routes a delegation to the one-shot path instead of the turn
-    loop. Collapsing the two would silently turn an agent that asked for nothing into an
-    agent that gets everything.
+    `None` and empty differ everywhere they can. `allowed_tools=None` means the file did
+    not say, so the caller's default applies; `allowed_tools=()` means *no tools*, routing
+    to the one-shot path instead of the turn loop. Collapsing them would silently give an
+    agent that asked for nothing everything.
     """
 
     name: str
@@ -94,12 +87,11 @@ class AgentSpec:
 
 
 def _candidates(cfg: Config, name: str, workdir: str | None) -> list[Path]:
-    """The three locations, in the order they are searched. Pure -- no I/O.
+    """The locations, in the order they are searched. Pure -- no I/O.
 
-    Project-local beats personal, which is usually what someone wants: a repository can ship
-    a `test-writer` that knows its own conventions without anyone editing their home
-    directory. Split out from `find_agent_file` so the not-found message and the search use
-    one list rather than two that can disagree.
+    Project-local beats personal: a repository can ship a `test-writer` that knows its own
+    conventions without anyone editing their home directory. Split out from
+    `find_agent_file` so the not-found message and the search share one list.
     """
     found: list[Path] = []
     if workdir:
@@ -112,8 +104,8 @@ def _candidates(cfg: Config, name: str, workdir: str | None) -> list[Path]:
 
 
 # Where this server's agent files live. Not `.claude/agents/`: Claude Code reads that
-# directory as its own subagents, so a file written for this server was loaded there too,
-# with every tool and a body written for a different executor (ADR-0102).
+# directory as its own subagents, so a file there would load in Claude Code too, with
+# every tool and a body written for a different executor (ADR-0102).
 PROJECT_AGENTS_DIR = Path(".claude") / "delegate-agents"
 OLD_AGENTS_DIR = Path(".claude") / "agents"
 
@@ -121,17 +113,17 @@ OLD_AGENTS_DIR = Path(".claude") / "agents"
 def old_directories(cfg: Config, workdir: str | None) -> list[Path]:
     """The directory project agent files lived in before ADR-0102, read for one release.
 
-    Searched after every current tier, so a file that has been moved wins over one left
-    behind, and `list_agents` names each agent found here with where it should go. The
-    project's only: the old personal default, `~/.claude/agents`, is where Claude Code keeps
-    its own agents, so reading it would list every one of them as `other_format` for good.
+    Searched after every current tier, so a moved file wins over one left behind, and
+    `list_agents` names each agent found here with where it should go. The project's only:
+    `~/.claude/agents` is where Claude Code keeps its own agents, so reading it would list
+    every one of them as `other_format` for good.
     """
-    del cfg  # the signature says what the answer may depend on; today only the workdir
+    del cfg  # the signature says what the answer may depend on; only the workdir does
     return [Path(workdir) / OLD_AGENTS_DIR] if workdir else []
 
 
 def find_agent_file(cfg: Config, name: str, workdir: str | None = None) -> Path:
-    """Three tiers, first match wins. Validates `name` before touching the filesystem."""
+    """Tiered, first match wins. Validates `name` before touching the filesystem."""
     if not _NAME_RE.match(name):
         raise AgentError(
             f"agent_name={name!r} is not a valid agent name: it must match "
@@ -165,8 +157,8 @@ def _scalar(raw: str) -> str:
 def parse_frontmatter(text: str, *, where: str) -> tuple[dict[str, str], str]:
     """Split the leading `---` block from the body. Returns raw string values and the body.
 
-    Values stay strings here; typing them is `_coerce`'s job, so a type error can name the
-    field and the file rather than surfacing as a `ValueError` from somewhere in the middle.
+    Values stay strings; typing them is `_coerce`'s job, so a type error names the field
+    and the file rather than surfacing as a bare `ValueError`.
     """
     match = _FRONTMATTER_RE.match(text)
     if match is None:
@@ -237,20 +229,19 @@ def _coerce_bool(value: str, *, field: str, where: str) -> bool:
 def _check_binds(cfg: Config, binds: tuple[str, ...], *, where: str) -> tuple[str, ...]:
     """Every `extra_binds` rule, returning the resolved paths the sandbox will mount.
 
-    Separate from `validate` because it is the only field with four rules rather than
-    one, and folding them inline pushed that function past what anyone can read at once.
+    Separate from `validate`: the only field with four rules rather than one, which inline
+    would make that function too long to read at once.
     """
     roots = resolved_agent_bind_roots(cfg)
-    # HOME joins the base mounts here because it is bound before `extra_binds` too, and so
-    # is shadowable in exactly the same way -- but it is a config value rather than part of
-    # the static table, so `base_mount_targets` cannot know about it.
+    # HOME joins the base mounts because it is bound before `extra_binds` too, and so is
+    # shadowable the same way -- but it is a config value, not part of the static table, so
+    # `base_mount_targets` cannot know it.
     #
-    # The provisioned root is listed separately rather than covered by HOME: it sits
-    # *inside* it, and a bind inside a reserved target is explicitly fine (that is how a
-    # toolchain under /tmp works), so HOME's entry does not reach it. It has to be reserved
-    # in its own right because substituting it is the strongest form of the trust this check
-    # exists to protect -- an interpreter the sandbox did not build, whose exit code
-    # ADR-0007 then tells everything downstream to believe.
+    # The provisioned root is listed in its own right, not covered by HOME: it sits
+    # *inside* HOME, and a bind inside a reserved target is fine (that is how a toolchain
+    # under /tmp works), so HOME's entry does not reach it. Substituting it is the strongest
+    # form of the trust this check protects -- an interpreter the sandbox did not build,
+    # whose exit code ADR-0007 tells everything downstream to believe.
     reserved = base_mount_targets() | {resolve_home(cfg), provisioned_root(resolve_home(cfg))}
     resolved: list[str] = []
     for bind in binds:
@@ -260,12 +251,11 @@ def _check_binds(cfg: Config, binds: tuple[str, ...], *, where: str) -> tuple[st
                 "is resolved by the server, not by the delegated model's shell, so a "
                 "relative path has nothing to be relative to."
             )
-        # Resolved once, here, and it is the resolved value that is carried forward -- the
-        # same shape as `resolve_workdir`. Checking one path and mounting another is what
-        # makes a containment check decorative, since bwrap resolves the name it is given
-        # at mount time and a link inside a root can point anywhere. Redirection is what
-        # this closes; substitution -- a different directory later moved to an approved
-        # path -- is a function of the path either way and no layer here can see it.
+        # Resolved once, here, and the resolved value is what is carried forward, as in
+        # `resolve_workdir`. Checking one path and mounting another would make containment
+        # decorative, since bwrap resolves the name at mount time and a link inside a root
+        # can point anywhere. This closes redirection; substitution -- a different
+        # directory later moved to an approved path -- no layer here can see.
         real = os.path.realpath(bind)
         shadowed = sorted(t for t in reserved if path_within_roots(t, (real,)))
         if shadowed:
@@ -295,15 +285,14 @@ def _check_network_grant(cfg: Config, *, name: str, where: str) -> None:
     """Refuse `network: true` unless the operator named this agent *and* wrote the file.
 
     Two conditions, and the second is not decoration. `--share-net` has no destination
-    list, no proxy and no filter: granting it hands the delegated model everything this
-    workstation can reach, so unlike a bind there is no root to pin it to and the grant is
-    unbounded once given. That asymmetry is why the two fields are gated differently, and
-    why copying one rule onto the other would be a downgrade in one direction and pointless
-    in the other.
+    list, proxy or filter: it hands the delegated model everything this workstation can
+    reach, so unlike a bind there is no root to pin it to. That asymmetry is why the two
+    fields are gated differently; copying one rule onto the other would be a downgrade one
+    way and pointless the other.
 
     A name alone is not enough because `_candidates` searches the workspace tiers *first*:
-    a repository shipping `.claude/delegate-agents/<an-allowlisted-name>.md` would shadow the
-    operator's own file and inherit its grant by matching a string an attacker picked. The
+    a repository shipping `.claude/delegate-agents/<an-allowlisted-name>.md` would shadow
+    the operator's file and inherit its grant by matching a string an attacker picked. The
     provenance test is what that string cannot forge.
     """
     if name not in cfg.agent_network_allowed:
@@ -314,10 +303,9 @@ def _check_network_grant(cfg: Config, *, name: str, where: str) -> None:
             "dropped, because an agent that quietly ran without the network it asked for "
             "would fail somewhere else entirely."
         )
-    # `Path.is_relative_to` rather than the POSIX containment `extra_binds` uses. A bind is
-    # a sandbox-side path and always POSIX; an agent *file* is read by this process, which
-    # on Windows means a native path with native separators, and comparing those with "/"
-    # rules would silently answer no to everything.
+    # `Path.is_relative_to`, not the POSIX containment `extra_binds` uses: a bind is always
+    # a POSIX sandbox path, while an agent *file* is read by this process, on Windows with
+    # native separators, which "/" rules would silently answer no to.
     personal = Path(os.path.realpath(os.path.expanduser(cfg.agents_dir)))
     if not Path(os.path.realpath(where)).is_relative_to(personal):
         raise AgentError(
@@ -333,9 +321,9 @@ def validate(
 ) -> AgentSpec:
     """Every frontmatter rule, in one place, refusing rather than defaulting.
 
-    Ordered so the cheapest and most likely mistake -- a misspelt key -- is reported first.
-    A file that fails any check produces no `AgentSpec` at all: a partially applied agent
-    definition is worse than none, because it runs and looks like it worked.
+    Ordered so the most likely mistake -- a misspelt key -- is reported first. A file that
+    fails any check produces no `AgentSpec`: a partially applied definition is worse than
+    none, because it runs and looks like it worked.
     """
     unknown = set(raw) - KNOWN_FIELDS
     if unknown:
@@ -346,13 +334,11 @@ def validate(
             "nothing is the bug this format was rewritten to prevent."
         )
 
-    # Present-but-empty is a third case, and it used to read as absent. `name:` with no
-    # value parses as null and renders as "", which is indistinguishable from the key not
-    # being there -- so the file loaded and `docs/AGENTS.md`'s promise that a present `name`
-    # must match the filename quietly did not hold. It is the same shape as the unknown-key
-    # refusal above: a key typed on purpose whose value went missing, silently doing
-    # nothing. Refusing costs nothing real, because a `name` equal to the filename is
-    # redundant and one that disagrees was already refused.
+    # Present-but-empty is a third case. `name:` with no value renders as "", which reads
+    # like an absent key, so `docs/AGENTS.md`'s promise that a present `name` matches the
+    # filename would quietly not hold. Like the unknown-key refusal: a key typed on purpose,
+    # silently doing nothing. Refusing costs nothing, since a `name` equal to the filename
+    # is redundant and one that disagrees is refused below.
     if "name" in raw and not _scalar(raw["name"] or ""):
         raise AgentError(
             f"{where} declares an empty 'name:'. A name that is present must equal the "
@@ -404,10 +390,9 @@ def validate(
                 "turns cannot produce an answer."
             )
         if max_turns > cfg.max_turns_hard_cap:
-            # Deliberately unlike `resolve_max_turns`, which clamps a *caller's* number in
-            # silence because the work is legitimate and only the number is not. A call
-            # argument is transient; a file is committed, read again, and trusted. Clamping
-            # here would leave a wrong number sitting in it indefinitely, appearing to work.
+            # Unlike `resolve_max_turns`, which silently clamps a *caller's* number: a call
+            # argument is transient, while a file is committed, read again and trusted, so
+            # clamping would leave a wrong number in it indefinitely, appearing to work.
             raise AgentError(
                 f"{where} max_turns={max_turns} exceeds DELEGATE_MAX_TURNS_HARD_CAP "
                 f"({cfg.max_turns_hard_cap}). Lower it in the file. A caller passing this "
@@ -471,10 +456,10 @@ def validate(
 def load_agent(cfg: Config, name: str, workdir: str | None = None) -> AgentSpec:
     """Find, parse and validate one agent. The only entry point a caller needs.
 
-    A Claude Code file is passed over rather than taken as the match: it is that format's
-    agent sharing the directory (`FOREIGN_KEYS`), not a broken copy of this one, and taking
-    it hid a valid personal agent of the same name behind it. A file in *this* format that
-    fails validation still refuses -- running the next tier's instead would hide the fault.
+    A Claude Code file is passed over, not taken as the match: it is that format's agent
+    sharing the directory (`FOREIGN_KEYS`), not a broken copy of this one, and taking it
+    would hide a valid personal agent of the same name. A file in *this* format that fails
+    validation still refuses -- running the next tier's would hide the fault.
     """
     first = find_agent_file(cfg, name, workdir)
     tiers = _candidates(cfg, name, workdir)
@@ -499,13 +484,11 @@ def load_agent(cfg: Config, name: str, workdir: str | None = None) -> AgentSpec:
     )
 
 
-# Frontmatter keys that belong to Claude Code's agent format and never to this one. A file
-# carrying one is *that* format's file rather than a malformed version of this one, and
-# ADR-0031 is explicit that the two are not portable -- Claude Code spells the tool list
-# `tools` where this format spells it `allowed_tools`. Keeping the two answers apart is not
-# tidiness: four of this repository's own five agent files carry `tools`, deliberately, so
-# folding them into "broken" would leave that list permanently non-empty here and therefore
-# unread -- the same reason `scan-coverage` stays silent about binary files.
+# Frontmatter keys of Claude Code's agent format, never this one. A file carrying one is
+# *that* format's file, not a malformed one of ours; ADR-0031 says the two are not
+# portable (`tools` there, `allowed_tools` here). Keeping the answers apart is not
+# tidiness: Claude Code agent files legitimately carry `tools`, so folding them into
+# "broken" would leave that list permanently non-empty and therefore unread.
 FOREIGN_KEYS = frozenset({"tools"})
 
 
@@ -513,13 +496,11 @@ FOREIGN_KEYS = frozenset({"tools"})
 class SkippedAgent:
     """A file that meant to be an agent for this server and could not be read as one.
 
-    `name` is what the filename claimed, so it is the name a caller would have typed --
-    which is the whole point. The old advice for a missing agent was to ask for it by name
-    with `delegate_to_agent` and read the error; that needs the name, and an omission is
-    exactly what hides it.
+    `name` is what the filename claimed, the name a caller would have typed: to learn why
+    an agent is missing, a caller needs its name, and an omission hides exactly that.
 
-    Non-empty means something needs fixing. That is the property worth protecting, and it
-    is why a file in the other format is reported as `ForeignAgent` instead.
+    Non-empty means something needs fixing. That property is worth protecting, which is
+    why a file in the other format is reported as `ForeignAgent` instead.
     """
 
     name: str
@@ -531,9 +512,8 @@ class SkippedAgent:
 class ForeignAgent:
     """A file in Claude Code's agent format, which this server is not meant to load.
 
-    Reported rather than hidden, because "this exists but belongs to the other reader" is
-    a third answer and a useful one: it tells a caller the name is taken and where to look,
-    without claiming anything is wrong.
+    Reported, not hidden: "this exists but belongs to the other reader" tells a caller the
+    name is taken and where to look, without claiming anything is wrong.
     """
 
     name: str
@@ -545,33 +525,33 @@ class ForeignAgent:
 class AgentListing:
     """What one walk of the agent directories found, in three categories.
 
-    A named result rather than a wider tuple: three parallel sequences at a call site is
-    the shape where the caller eventually unpacks them in the wrong order.
+    A named result, not a wider tuple: parallel sequences at a call site invite unpacking
+    them in the wrong order.
     """
 
     agents: tuple[AgentSpec, ...]
     skipped: tuple[SkippedAgent, ...]
     other_format: tuple[ForeignAgent, ...]
-    # Usable agents read from a pre-ADR-0102 directory, each with the directory it belongs
-    # in. A subset of `agents`, not a fourth category: they still run, for one release.
+    # Usable agents read from the old directory (ADR-0102), each with the directory it
+    # belongs in. A subset of `agents`, not a fourth category: they still run.
     old_location: tuple[tuple[str, str, str], ...] = ()
 
 
 def survey_agents(cfg: Config, workdir: str | None = None) -> AgentListing:
     """Every visible agent, everything broken, and everything in the other format.
 
-    Skipping a broken definition is still right -- one bad file in a personal directory
-    must not make the others undiscoverable -- but skipping it *silently* made "no such
-    agent" and "that agent is broken" the same answer.
+    A broken definition is skipped -- one bad file must not make the others
+    undiscoverable -- but reported, or "no such agent" and "that agent is broken" would be
+    one answer.
 
-    Two things are deliberately not skips. A name shadowed by a nearer tier is not broken:
-    the lookup really does offer only one, so reporting the loser would describe a choice
-    that does not exist. Nor is a filename that could never be an agent name -- `_NAME_RE`
-    governs what may be typed, and a file nobody could address was never a candidate.
+    Two things are not skips. A name shadowed by a nearer tier is not broken: the lookup
+    offers only one, so reporting the loser would describe a choice that does not exist.
+    Nor is a filename that could never be an agent name: `_NAME_RE` governs what may be
+    typed, and a file nobody could address was never a candidate.
 
     A file in Claude Code's format is its own category. A `tools` key is not a typo for
-    `allowed_tools`; it is a different format's file sitting in a shared directory, which
-    ADR-0031 says is expected and CONTRIBUTING.md records as temporary.
+    `allowed_tools`; it is a different format's file in a shared directory, which ADR-0031
+    says is expected.
     """
     seen: dict[str, AgentSpec] = {}
     skipped: dict[str, SkippedAgent] = {}
@@ -601,9 +581,8 @@ def survey_agents(cfg: Config, workdir: str | None = None) -> AgentListing:
                 text = path.read_text(encoding="utf-8")
                 raw, body = parse_frontmatter(text, where=str(path))
             except OSError as e:
-                # Reported, and separately worth having: an unreadable file is a
-                # permissions or encoding problem rather than a malformed definition, and
-                # the two are fixed differently.
+                # Reported separately: an unreadable file is a permissions or encoding
+                # problem, not a malformed definition, and is fixed differently.
                 skipped[name] = SkippedAgent(
                     name, str(path), f"it could not be read: {e.strerror or e}"
                 )
@@ -612,9 +591,8 @@ def survey_agents(cfg: Config, workdir: str | None = None) -> AgentListing:
                 skipped[name] = SkippedAgent(name, str(path), str(e))
                 continue
 
-            # Checked before validation, because validation would refuse the foreign key
-            # as an unknown one and report the file as broken -- which is the conflation
-            # this category exists to undo.
+            # Before validation, which would refuse the foreign key as unknown and report
+            # the file as broken, the conflation this category exists to undo.
             claimed = FOREIGN_KEYS & set(raw)
             if claimed:
                 foreign.setdefault(name, ForeignAgent(name, str(path), tuple(sorted(claimed))))
@@ -638,11 +616,8 @@ def survey_agents(cfg: Config, workdir: str | None = None) -> AgentListing:
 def list_agents(cfg: Config, workdir: str | None = None) -> tuple[AgentSpec, ...]:
     """Every agent visible from here, nearest tier first, shadowed ones dropped.
 
-    A name found in more than one tier appears once, from the tier that would actually be
-    used -- reporting both would describe a choice the lookup does not offer.
-
-    The specs alone, for callers that resolve an agent rather than report on the
-    directory. `survey_agents` is the same walk and also reports what it could not read and
-    what belongs to the other format.
+    A name in more than one tier appears once, from the tier that would be used. The specs
+    alone, for callers that resolve an agent; `survey_agents` is the same walk and also
+    reports what it could not read and what belongs to the other format.
     """
     return survey_agents(cfg, workdir).agents
