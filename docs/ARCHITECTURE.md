@@ -54,10 +54,10 @@ prefetch, the model's first turn is a wasted directory listing.
 Prefetching removes several such turns from the front of every delegation.
 
 Its files arrive **line-numbered, in `read_file`'s format**, so a pass can cite what it
-was given and ask for a range of it rather than the file again. One format rather than
-two: when only the tool numbered, a line cited from one path could not be checked against
-the other. Measured on this repository, the numbers cost 10% of the block's tokens —
-paid on the cheap path to stop the expensive one re-reading what it already has.
+was given and ask for a range of it, not the file again. One format, not two: when only
+the tool numbered, a line cited from one path could not be checked against the other. The
+numbers cost 10% of the block's tokens here, paid on the cheap path to stop the expensive
+one re-reading what it has. A tab follows each: spaces were copied back as indentation.
 
 A prefetch cap is a **drop** threshold and never a truncation: a file over it is left out
 whole, though a caller may name a line range of it (ADR-0105). It is not a fairness control

@@ -405,7 +405,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
   alone. Read, not reproduced: the first run's settle removes the empty dir the second one bound
 91. ✅ 2026-09-26 **The 140k prefetch cap rests on nothing measured** (JOURNAL 2026-09-25): set it, or say why
 92. ⬜ **The read dedup misses a re-read at another offset**: it keys on the arguments; closing it needs range tracking
-93. ⬜ **`read_file`'s two-space line-number separator reads as indentation**: ~40 of 54 `edit_file` misses on 2026-09-27
+93. ✅ 2026-09-28 **`read_file`'s two-space line-number separator reads as indentation**: ~40 of 54 `edit_file` misses on 2026-09-27
 94. ⬜ **`edit_file` cannot replace a repeated string on purpose**: add `expected_count`, not a `replace_all` flag
 95. ⬜ **`edit_file` cannot tell another writer changed its file**: hash on read, updated by the server's own writes
 96. ✅ 2026-09-28 **`ast_unchanged.py` cannot see a pydantic model's docstring**, which is tool-schema text

@@ -107,7 +107,7 @@ def test_an_allowed_tool_does_reach_its_handler(workspace):
         cfg(workspace), call("read_file", path=str(workspace / "a.py")),
         tools.ALL_TOOL_NAMES)
     assert not result.is_error
-    assert result.content == "1  x = 1"
+    assert result.content == "1\tx = 1"
 
 
 def test_an_unknown_tool_name_is_an_error_not_a_crash(workspace):
@@ -137,7 +137,7 @@ def test_read_file_returns_the_whole_file_when_it_fits(workspace):
     result = tools.execute_tool(
         cfg(workspace), call("read_file", path=str(workspace / "a.py")),
         tools.ALL_TOOL_NAMES)
-    assert result.content == "1  x = 1"
+    assert result.content == "1\tx = 1"
 
 
 @posix_only
@@ -179,7 +179,7 @@ def test_read_file_numbers_every_line_it_returns(workspace):
         cfg(workspace), call("read_file", path=str(workspace / "n.py")),
         tools.ALL_TOOL_NAMES)
     assert not result.is_error
-    assert result.content == "1  alpha\n2  beta\n3  gamma"
+    assert result.content == "1\talpha\n2\tbeta\n3\tgamma"
 
 
 @posix_only
@@ -191,7 +191,7 @@ def test_read_file_starts_where_it_is_asked_to(workspace):
         cfg(workspace), call("read_file", path=str(workspace / "n.py"), start_line=8),
         tools.ALL_TOOL_NAMES)
     assert not result.is_error
-    assert result.content == " 8  line 8\n 9  line 9\n10  line 10"
+    assert result.content == " 8\tline 8\n 9\tline 9\n10\tline 10"
 
 
 @posix_only
@@ -211,8 +211,8 @@ def test_read_file_pages_on_whole_lines_and_reports_the_next_one(workspace):
     assert footer, "a file over the window must say so"
     assert "of 20" in footer
     for line in body.split("\n"):
-        # Every returned line is complete: a number, two spaces, then the whole line.
-        number, _, rest = line.strip().partition("  ")
+        # Every returned line is complete: a number, a tab, then the whole line.
+        number, _, rest = line.strip().partition("\t")
         assert rest == f"line {number}"
 
 
@@ -228,7 +228,7 @@ def test_read_file_continues_from_the_line_it_reported(workspace):
     tail = tools.execute_tool(
         c, call("read_file", path=str(workspace / "big.py"), start_line=resume),
         tools.ALL_TOOL_NAMES)
-    assert tail.content.split("\n")[0].strip().startswith(f"{resume}  line {resume}")
+    assert tail.content.split("\n")[0].strip().startswith(f"{resume}\tline {resume}")
 
 
 @posix_only
@@ -243,7 +243,7 @@ def test_read_file_stops_where_it_is_asked_to(workspace):
         call("read_file", path=str(workspace / "n.py"), start_line=3, end_line=5),
         tools.ALL_TOOL_NAMES)
     assert not result.is_error
-    assert result.content == " 3  line 3\n 4  line 4\n 5  line 5"
+    assert result.content == " 3\tline 3\n 4\tline 4\n 5\tline 5"
 
 
 @posix_only
@@ -256,7 +256,7 @@ def test_read_file_end_line_is_inclusive(workspace):
         cfg(workspace),
         call("read_file", path=str(workspace / "n.py"), start_line=4, end_line=4),
         tools.ALL_TOOL_NAMES)
-    assert result.content == " 4  line 4", "one line asked for, one line back"
+    assert result.content == " 4\tline 4", "one line asked for, one line back"
 
 
 @posix_only
@@ -285,7 +285,7 @@ def test_read_file_end_line_past_the_end_is_the_end_of_the_file(workspace):
         call("read_file", path=str(workspace / "n.py"), start_line=9, end_line=999),
         tools.ALL_TOOL_NAMES)
     assert not result.is_error
-    assert result.content == " 9  line 9\n10  line 10"
+    assert result.content == " 9\tline 9\n10\tline 10"
 
 
 @posix_only
@@ -297,7 +297,7 @@ def test_read_file_without_an_end_line_still_reads_to_the_end(workspace):
     result = tools.execute_tool(
         cfg(workspace), call("read_file", path=str(workspace / "n.py"), start_line=8),
         tools.ALL_TOOL_NAMES)
-    assert result.content == " 8  line 8\n 9  line 9\n10  line 10"
+    assert result.content == " 8\tline 8\n 9\tline 9\n10\tline 10"
 
 
 @posix_only
@@ -331,7 +331,7 @@ def test_a_file_without_a_trailing_newline_is_not_one_line_longer(workspace):
         c, call("read_file", path=str(workspace / "no_nl.py")), tools.ALL_TOOL_NAMES)
     withit = tools.execute_tool(
         c, call("read_file", path=str(workspace / "with_nl.py")), tools.ALL_TOOL_NAMES)
-    assert without.content == withit.content == "1  one\n2  two"
+    assert without.content == withit.content == "1\tone\n2\ttwo"
 
 
 @posix_only
@@ -342,7 +342,7 @@ def test_crlf_lines_are_numbered_the_same_as_lf_ones(workspace):
     result = tools.execute_tool(
         cfg(workspace), call("read_file", path=str(workspace / "crlf.py")),
         tools.ALL_TOOL_NAMES)
-    assert result.content == "1  one\n2  two\n3  three"
+    assert result.content == "1\tone\n2\ttwo\n3\tthree"
 
 
 @posix_only

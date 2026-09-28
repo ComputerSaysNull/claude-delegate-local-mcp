@@ -30,6 +30,28 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #403 — 2026-09-28 — fix: read_file separates the line number with a tab
+
+### Fixed
+
+- **A quoted line came back over-indented, and `edit_file` missed.** `read_file` and
+  prefetch printed each line as its number, two spaces, then the text. A model quoting
+  it for `edit_file` kept the two spaces as indentation, which caused about 40 of the 54
+  misses on 2026-09-27. The separator is now a tab. A tab costs what the spaces did:
+  measured through a real prefetch of 200 numbered lines, it came to 3,710 prompt tokens
+  against 3,708 for spaces, where `│` came to 3,908 (one more token a line, about 10% of a
+  read). A copied tab is also a different character from the spaces a file indents with,
+  so the existing miss hint already names it.
+
+### Added
+
+- **`edit_file` says when a quote carries `read_file`'s prefix.** When the quote with the
+  line numbers and tab removed, or with one leading tab removed, is exactly in the file,
+  the refusal names the prefix instead of only the first differing column. The check is
+  on the whole quote, not line by line, so a short line that happens to appear elsewhere
+  does not blame the prefix. A Makefile whose lines really start with a tab is left
+  alone, which the regression test pins.
+
 ## #402 — 2026-09-28 — docs: write-delegate-agent's description says when to use it
 
 ### Changed

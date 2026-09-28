@@ -87,8 +87,8 @@ def test_a_large_file_named_with_a_range_is_prefetched_in_part(tmp_path):
 
     prompt = json.dumps(sent[0])
     assert "lines 10-20 of 200" in prompt, "the BEGIN header must say it is part of the file"
-    assert "10  line 10" in prompt, "the range must be numbered with the file's own numbers"
-    assert "20  line 20" in prompt
+    assert "10\\tline 10" in prompt, "the range must be numbered with the file's own numbers"
+    assert "20\\tline 20" in prompt
     assert result["files_read"], "the ranged file was not read"
     assert result["files_read"][0]["path"] == os.path.realpath(target)
     assert result["files_skipped"] == [], f"skipped: {result['files_skipped']}"
@@ -151,8 +151,8 @@ def test_a_plain_string_entry_renders_exactly_as_before(tmp_path):
 
     prompt = json.dumps(sent[0])
     assert f"--- BEGIN FILE {os.path.realpath(target)} ---" in prompt
-    assert "1  first" in prompt
-    assert "3  third" in prompt
+    assert "1\\tfirst" in prompt
+    assert "3\\tthird" in prompt
     assert result["files_skipped"] == []
 
 @posix_only
