@@ -675,9 +675,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     except PathPolicyError as e:
         raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
-    # One at a time, since `resolve_files` deduplicates and would silently drop a ranged
-    # entry for a file also named plainly, a duplicate that must be refused.
-    seen: set[str] = {r.posix for r in plain_resolved}
+    # One at a time, since `resolve_files` deduplicates by path, and every range of a file
+    # must reach `prefetch`, which merges them knowing their sizes (ADR-0106).
     requests: list[FileRequest] = [FileRequest(entry=r) for r in plain_resolved]
     ranged_refusals: list[Refusal] = []
     for path, start, end in ranged:
@@ -690,19 +689,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             continue
         if not survivors:
             continue
-        r = survivors[0]
-        if r.posix in seen:
-            ranged_refusals.append(Refusal(
-                given=path, layer=LAYER_FORM,
-                reason=(
-                    "this file is already named in files[], so the ranged entry is a "
-                    "duplicate."
-                ),
-                remedy="Name each file once; use one ranged entry for the part you want.",
-            ))
-            continue
-        seen.add(r.posix)
-        requests.append(FileRequest(entry=r, start_line=start, end_line=end))
+        requests.append(FileRequest(entry=survivors[0], start_line=start, end_line=end))
 
     # A pattern's refusal first: it explains files missing entirely.
     refusals = list(glob_refusals) + range_refusals + list(plain_refusals) + list(ranged_refusals)
@@ -1399,7 +1386,10 @@ Files = Annotated[
         "the cap is refused rather than quietly contributing less than you expected. An "
         "entry may instead be an object naming a line range of one file, which is judged by "
         "the range's own size rather than the file's -- so a file over the per-file cap can "
-        "still be prefetched in part."
+        "still be prefetched in part. Several entries for one file -- ranges, or the file "
+        "whole -- are merged where they overlap or touch, so no line is sent twice; a "
+        "merge over the per-file cap falls back to the ranges as named, and what still "
+        "does not fit is skipped with the read_file range that reaches it."
     )),
 ]
 

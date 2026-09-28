@@ -30,6 +30,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #417 — 2026-09-28 — feat: files[] takes several ranges of one file, merged where they meet
+
+### Changed
+
+- **A second `files[]` range of one file is merged, not refused (ADR-0106).** ADR-0105
+  refused a second entry for a file already named, and the schema never said so, so a
+  caller learned it from the refusal: met three times in two days, once leaving a
+  delegation to read the other two ranges itself over 51 turns. Every entry for one file,
+  a whole-file one counting as lines 1 to the end, is now merged where they overlap or
+  touch, so no line is sent twice; a gap keeps them apart as separate blocks in line
+  order. The merge happens in `prefetch`, where sizes are known: a merged span over the
+  per-file cap falls back to the ranges as named, smallest first, each less what is
+  already answered for, so a range that fits is sent even when the span absorbing it is
+  not, and what is left is skipped once. The `files[]` schema says all of it. Red first:
+  every case came back with the second range refused as a duplicate. `merge_spans` has
+  its own table of cases. A prefetched range still does not reach the read cache
+  (Unscheduled.100).
+- **A size skip now says how to reach what it left out.** The skip list told the model to
+  treat every skipped file as unavailable, which a file over the per-file cap is not: it
+  can be read in parts. A skip for size now names the lines left out and, for a model
+  that has `read_file`, the range that reads them, and the list says "not given" rather
+  than "unavailable".
+
 ## #416 — 2026-09-28 — fix: a denylist fault met at tool declaration keeps its misconfigured status
 
 ### Fixed
