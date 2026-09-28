@@ -26,9 +26,11 @@ import posixpath
 import re
 import shutil
 import subprocess
+import threading
 import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
+from hashlib import sha256
 
 from . import provision, sandbox
 from .backends.base import BashOutcome, ToolResultBlock, ToolSpec, ToolUseBlock
@@ -83,6 +85,11 @@ class RegisteredTool:
     # writing tool sets it, and tests/test_tools.py asserts the derived set against the
     # registry.
     writes: bool = False
+    # Whether the handler takes `SeenFiles` as a third argument. Only the file tools:
+    # `read_file` records the bytes it read, `write_file` and `edit_file` the bytes they
+    # wrote, and `edit_file` refuses a file whose bytes differ from that record. Declared
+    # here like `wants_policy`, so `execute_tool` knows the signature without a second table.
+    tracks_reads: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +116,43 @@ class BashResult:
     text: str
     outcome: BashOutcome
     is_error: bool = False
+
+
+class SeenFiles:
+    """What the model last saw on disk: resolved path -> sha256 of its bytes.
+
+    Per delegation, created by the loop and passed to the file tools. `read_file` records
+    the hash of the whole file's bytes it read; `write_file` and `edit_file` record the
+    bytes they wrote; `edit_file` refuses when the bytes it is about to edit differ from
+    the record, which means something other than this delegation's own edits changed the
+    file since the model last saw it. `run_bash` is deliberately untouched: a file a
+    command changed simply hashes differently the next time an edit tries it.
+
+    Guarded by a lock because pooled `read_file` calls run on worker threads, so two reads
+    of two files can touch the map at once. The hash is keyed by `entry.posix`, the one
+    spelling `open_resolved` and the refusal both agree on.
+    """
+
+    __slots__ = ("_hash", "_lock")
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._hash: dict[str, str] = {}
+
+    def record(self, path: str, digest: str) -> None:
+        """Remember `path` as last seen with `digest`, whatever the model just read or wrote."""
+        with self._lock:
+            self._hash[path] = digest
+
+    def changed(self, path: str, digest: str) -> bool:
+        """Whether `path` was seen before and now hashes differently.
+
+        No record at all is False: an edit of a file the model never read behaves exactly
+        as before, which is the safe default for the many callers with no `SeenFiles`.
+        """
+        with self._lock:
+            seen = self._hash.get(path)
+        return seen is not None and seen != digest
 
 
 # --- argument helpers -------------------------------------------------------------------
@@ -182,7 +226,7 @@ def _one_path(
 # --- the tools --------------------------------------------------------------------------
 
 
-def _read_file(cfg: Config, args: dict[str, object]) -> str:
+def _read_file(cfg: Config, args: dict[str, object], seen: SeenFiles | None = None) -> str:
     entry = _one_path(cfg, _text_arg(args, "path"), must_exist=True)
     # 1-based, like an editor. Numbered so the model can cite what it read.
     start = _int_arg(args, "start_line", 1)
@@ -249,6 +293,12 @@ def _read_file(cfg: Config, args: dict[str, object]) -> str:
     else:
         # No break, so `index` is the last line, not the next.
         index = last + 1
+
+    # `raw` is the whole file: the size was checked against the ceiling before the read, so
+    # the model last saw exactly these bytes. Any range records the whole file, since the
+    # range is only a rendering choice and the content the model may quote is the file's.
+    if seen is not None:
+        seen.record(entry.posix, sha256(raw).hexdigest())
 
     body = "\n".join(out)
     # Against `last`: a range ending where asked is complete, not "truncated".
@@ -589,7 +639,7 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
     )
 
 
-def _write_file(cfg: Config, args: dict[str, object]) -> str:
+def _write_file(cfg: Config, args: dict[str, object], seen: SeenFiles | None = None) -> str:
     given = _text_arg(args, "path")
     content = _text_arg(args, "content")
     encoded = content.encode("utf-8")
@@ -606,6 +656,11 @@ def _write_file(cfg: Config, args: dict[str, object]) -> str:
             fh.write(encoded)
     except OSError as e:
         raise ToolRefused(f"could not write it: {e.strerror or e}") from e
+    # The bytes written are what the model last saw, so a later edit of this file is not
+    # a change. Recorded even though `write_file` never refuses: the record exists so the
+    # edit that follows can be judged against it.
+    if seen is not None:
+        seen.record(entry.posix, sha256(encoded).hexdigest())
     # From the open itself, since a second `stat` would reuse a path checked once.
     verb = "Created" if opened.created else "Overwrote"
     return f"{verb} {entry.posix} ({len(encoded)} bytes)."
@@ -777,7 +832,7 @@ def _edit_plan(
     return text.replace(old, new, 1).encode("utf-8"), found
 
 
-def _edit_file(cfg: Config, args: dict[str, object]) -> str:
+def _edit_file(cfg: Config, args: dict[str, object], seen: SeenFiles | None = None) -> str:
     """Replace one exact occurrence of `old_string`, or exactly `expected_count` of them,
     or refuse and change nothing.
 
@@ -833,6 +888,19 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
         if text is None:
             raise ToolRefused(why)
 
+        # The bytes we are about to edit are hashed from this same descriptor's read, never
+        # a second open, so nothing can swap the file between the check and the write. A
+        # record that disagrees means the file changed since the model last saw it -- a
+        # `run_bash` command, the operator -- and a still-matching quote is exactly the case
+        # worth catching, so it is refused. Never file text in the message: it lands in the
+        # operator transcript.
+        if seen is not None and seen.changed(entry.posix, sha256(raw).hexdigest()):
+            raise ToolRefused(
+                "this file changed since it was last read, not by an edit this delegation "
+                "made, so the edit was refused. Read the file again before editing; "
+                "nothing was written."
+            )
+
         edited, count = _edit_plan(text, old, new, expected)
         if len(edited) > cfg.max_write_bytes:
             # `write_file`'s limit, refused for the same reason.
@@ -849,6 +917,10 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
             fh.truncate()
         except OSError as e:
             raise ToolRefused(f"could not write it: {e.strerror or e}") from e
+
+    # The bytes now on disk are what the model last saw, so the next edit is not a change.
+    if seen is not None:
+        seen.record(entry.posix, sha256(edited).hexdigest())
 
     word = "occurrence" if count == 1 else "occurrences"
     return f"Replaced {count} {word} in {entry.posix} ({len(edited)} bytes)."
@@ -1420,6 +1492,7 @@ READ_FILE = RegisteredTool(
     ),
     handler=_read_file,
     cacheable=True,
+    tracks_reads=True,
 )
 
 WRITE_FILE = RegisteredTool(
@@ -1442,6 +1515,7 @@ WRITE_FILE = RegisteredTool(
     ),
     handler=_write_file,
     writes=True,
+    tracks_reads=True,
 )
 
 RUN_BASH = RegisteredTool(
@@ -1550,8 +1624,9 @@ EDIT_FILE = RegisteredTool(
             "unchanged and you are told which, so quote enough of the surrounding lines to "
             "be unique, and read the file first rather than quoting from memory. Set "
             "`expected_count` to replace every occurrence when the text repeats on "
-            "purpose. An empty new_string deletes the text. The same path rules as "
-            "read_file apply."
+            "purpose. An empty new_string deletes the text. An edit to a file that "
+            "changed since you last read it is refused until you read it again. The "
+            "same path rules as read_file apply."
         ),
         input_schema={
             "type": "object",
@@ -1582,6 +1657,7 @@ EDIT_FILE = RegisteredTool(
     ),
     handler=_edit_file,
     writes=True,
+    tracks_reads=True,
 )
 
 
@@ -1766,6 +1842,7 @@ def execute_tool(
     call: ToolUseBlock,
     allowed: Iterable[str],
     policy: BashPolicy | None = None,
+    seen: SeenFiles | None = None,
 ) -> ToolResultBlock:
     """Site two: what actually runs.
 
@@ -1794,11 +1871,12 @@ def execute_tool(
             is_error=True,
         )
     try:
-        produced = (
-            tool.handler(cfg, call.input, policy or BashPolicy())
-            if tool.wants_policy
-            else tool.handler(cfg, call.input)
-        )
+        if tool.wants_policy:
+            produced = tool.handler(cfg, call.input, policy or BashPolicy())
+        elif tool.tracks_reads:
+            produced = tool.handler(cfg, call.input, seen)
+        else:
+            produced = tool.handler(cfg, call.input)
     except (ToolRefused, PathRefused, PathPolicyError) as e:
         return ToolResultBlock(tool_use_id=call.id, content=str(e), is_error=True)
     if isinstance(produced, BashResult):

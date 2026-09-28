@@ -30,6 +30,7 @@ import os
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+from hashlib import sha256
 
 from .config import Config
 from .paths import PathRefused, Refusal, ResolvedPath, open_resolved
@@ -155,6 +156,11 @@ class FileEntry:
     text: str
     nbytes: int
     est_tokens: int
+    # The sha256 of the file's bytes as they were when prefetched. The loop seeds its
+    # per-delegation `SeenFiles` from it, so an `edit_file` can refuse a file that changed
+    # between the prefetch and the edit. Computed from the bytes `_prefetch_one` already
+    # holds -- the same descriptor's read -- never a second open.
+    sha256: str
     # A ranged entry. `start_line` is the file's own (1-based) number for the range's first
     # line; `total_lines` is the file's whole line count, so the BEGIN header can say it is
     # part of the file. Both None for a whole file, which keeps that rendering stable for
@@ -424,6 +430,7 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
             text=text,
             nbytes=nbytes,
             est_tokens=est,
+            sha256=sha256(data).hexdigest(),
         )
 
     # Ranged. `splitlines`, not `split("\n")`, which invents a trailing empty line for a
@@ -471,6 +478,7 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
         text=slice_text,
         nbytes=slice_bytes,
         est_tokens=est,
+        sha256=sha256(data).hexdigest(),
         start_line=start,
         total_lines=total_lines,
     )

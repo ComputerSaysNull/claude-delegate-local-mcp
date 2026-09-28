@@ -67,7 +67,7 @@ Write a UTF-8 text file in the workspace, creating it or replacing it whole. Pat
 
 ## `edit_file`
 
-Change part of a UTF-8 text file in the workspace by replacing exact text, leaving the rest of the file untouched. Prefer this over write_file for an edit to an existing file: write_file replaces the whole file, so it needs you to reproduce every line you are not changing. old_string must appear exactly once -- if it appears never or more than once the file is left completely unchanged and you are told which, so quote enough of the surrounding lines to be unique, and read the file first rather than quoting from memory. Set `expected_count` to replace every occurrence when the text repeats on purpose. An empty new_string deletes the text. The same path rules as read_file apply.
+Change part of a UTF-8 text file in the workspace by replacing exact text, leaving the rest of the file untouched. Prefer this over write_file for an edit to an existing file: write_file replaces the whole file, so it needs you to reproduce every line you are not changing. old_string must appear exactly once -- if it appears never or more than once the file is left completely unchanged and you are told which, so quote enough of the surrounding lines to be unique, and read the file first rather than quoting from memory. Set `expected_count` to replace every occurrence when the text repeats on purpose. An empty new_string deletes the text. An edit to a file that changed since you last read it is refused until you read it again. The same path rules as read_file apply.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |

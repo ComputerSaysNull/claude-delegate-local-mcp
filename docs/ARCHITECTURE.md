@@ -286,8 +286,8 @@ for the same endpoint. The cache is injectable, for the reason the adapter takes
 
 ### `delegate()` prefetches, resolves, and then runs turns
 
-`delegate()` builds the opening request from one task and the files named with it, hands it
-to the turn loop, and returns what the loop finished with. Paths are checked before the
+`delegate()` builds the opening request from one task and the files named with it, and
+hands it, with each prefetched file's hash, to the turn loop. Paths are checked before the
 backend is looked up. A refused one is skipped and the call proceeds with the rest, named
 in `files_skipped`; refusing every path costs nothing and needs no cluster (ADR-0061).
 

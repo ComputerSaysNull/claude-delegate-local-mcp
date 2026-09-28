@@ -51,10 +51,10 @@ from .config import (
     OVERFLOW_TIGHTEN_AT,
     Config,
 )
-from .context import numbered_lines, numbered_span
+from .context import FileEntry, numbered_lines, numbered_span
 from .paths import repo_status
 from .registry import ModelEntry
-from .tools import REGISTRY, BashPolicy, declared_tools, execute_tool
+from .tools import REGISTRY, BashPolicy, SeenFiles, declared_tools, execute_tool
 
 # Derived from EFFORT_LEVELS, not written out: a second copy stops agreeing when a level is
 # added, and fails silently. Gives max -> high -> low -> off and nothing below off: there is
@@ -2331,12 +2331,14 @@ def _assistant_blocks(cfg: Config, response: CanonicalResponse) -> tuple[Content
 _tool_clock: Callable[[], float] = time.monotonic
 
 
-def _run_one_call(
+def _run_one_call(  # noqa: PLR0913 -- the sixth is the per-delegation read record
     cfg: Config,
     call: ToolUseBlock,
     allowed: frozenset[str],
     cached: dict[tuple[str, str], _CachedResult],
     policy: BashPolicy,
+    *,
+    seen: SeenFiles | None = None,
 ) -> tuple[ToolResultBlock, str, int | None]:
     """Execute one tool call, or serve it from what an identical earlier one returned.
 
@@ -2362,7 +2364,7 @@ def _run_one_call(
         ), "repeat", None
 
     started = _tool_clock()
-    result = execute_tool(cfg, call, allowed, policy)
+    result = execute_tool(cfg, call, allowed, policy, seen)
     ms = int((_tool_clock() - started) * 1000)
     tool = REGISTRY.get(call.name)
     if tool is None or not tool.cacheable:
@@ -2405,12 +2407,14 @@ def _pooled_groups(calls: tuple[ToolUseBlock, ...]) -> Iterator[tuple[ToolUseBlo
         yield tuple(group)
 
 
-def _run_group(
+def _run_group(  # noqa: PLR0913 -- the sixth is the per-delegation read record
     cfg: Config,
     group: tuple[ToolUseBlock, ...],
     allowed: frozenset[str],
     cached: dict[tuple[str, str], _CachedResult],
     policy: BashPolicy,
+    *,
+    seen: SeenFiles | None = None,
 ) -> list[tuple[ContentBlock, str, int | None]]:
     """One group's calls, overlapped, with `cached` read and written only on this thread.
 
@@ -2439,13 +2443,13 @@ def _run_group(
         key, call = pending[0]
         started = _tool_clock()
         fetched[key] = (
-            execute_tool(cfg, call, allowed, policy),
+            execute_tool(cfg, call, allowed, policy, seen),
             int((_tool_clock() - started) * 1000),
         )
     elif pending:
         def run(item: tuple[tuple[str, str], ToolUseBlock]) -> tuple[ContentBlock, int]:
             started = _tool_clock()
-            block = execute_tool(cfg, item[1], allowed, policy)
+            block = execute_tool(cfg, item[1], allowed, policy, seen)
             return block, int((_tool_clock() - started) * 1000)
 
         workers = min(len(pending), MAX_CONCURRENT_TOOL_CALLS)
@@ -2494,6 +2498,7 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     watch: _Watch,
     *,
     policy: BashPolicy,
+    seen: SeenFiles | None = None,
 ) -> tuple[list[ContentBlock], tuple[ToolCallRecord, ...]]:
     """One turn's tool calls, run in order. Returns the result blocks and their records.
 
@@ -2506,9 +2511,9 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     for group in _pooled_groups(calls):
         # A group of one keeps the original path, cache clear and all.
         outcomes = (
-            [_run_one_call(cfg, group[0], allowed, cached, policy)]
+            [_run_one_call(cfg, group[0], allowed, cached, policy, seen=seen)]
             if len(group) == 1
-            else _run_group(cfg, group, allowed, cached, policy)
+            else _run_group(cfg, group, allowed, cached, policy, seen=seen)
         )
         # On one thread, in the model's order; a worker appending would reorder the report.
         for call, (block, outcome, ms) in zip(group, outcomes, strict=True):
@@ -2555,6 +2560,7 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     max_tokens: int | None = None,
     max_turns: int | None = None,
     policy: BashPolicy | None = None,
+    prefetched: tuple[FileEntry, ...] = (),
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
     on_alive: Callable[[float, int, float, int, int, float | None], Awaitable[None]] | None = None,
@@ -2620,6 +2626,12 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     history: list[Message] = [Message("user", (TextBlock(delegation.render()),))]
 
     cached: dict[tuple[str, str], _CachedResult] = {}
+    # What the model last saw, for `edit_file`'s changed-file refusal. Seeded from the
+    # prefetch: those files were read before the first turn, so an edit of one is judged
+    # against the bytes the model was actually shown, not against nothing.
+    seen = SeenFiles()
+    for pre in prefetched:
+        seen.record(pre.path, pre.sha256)
     watch = _Watch(diagnostics=diagnostics)
     guard = _OverflowGuard(cfg, entry)
     dispatch: Dispatch | None = None
@@ -2779,7 +2791,8 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
             # `cached` nor `watch`.
             tools_running = True
             results, outcomes = await asyncio.to_thread(
-                _run_calls, cfg, calls, allowed, cached, watch, policy=bash_policy
+                _run_calls, cfg, calls, allowed, cached, watch, policy=bash_policy,
+                seen=seen,
             )
             tools_running = False
             watch.turn_tools(outcomes)

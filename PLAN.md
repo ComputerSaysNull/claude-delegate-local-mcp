@@ -407,7 +407,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 92. ✅ 2026-09-28 **The read dedup misses a re-read at another offset**: it keys on the arguments; closing it needs range tracking
 93. ✅ 2026-09-28 **`read_file`'s two-space line-number separator reads as indentation**: ~40 of 54 `edit_file` misses on 2026-09-27
 94. ✅ 2026-09-28 **`edit_file` cannot replace a repeated string on purpose**: add `expected_count`, not a `replace_all` flag
-95. ⬜ **`edit_file` cannot tell another writer changed its file**: hash on read, updated by the server's own writes
+95. ✅ 2026-09-28 **`edit_file` cannot tell another writer changed its file**: hash on read, updated by the server's own writes
 96. ✅ 2026-09-28 **`ast_unchanged.py` cannot see a pydantic model's docstring**, which is tool-schema text
 97. ✅ 2026-09-27 **"`max` never answers" is stale**: 8 of 8 answered on 2026-09-27; MODELS.md and TROUBLESHOOTING.md say otherwise
 

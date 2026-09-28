@@ -84,7 +84,7 @@ def test_overlapped_calls_are_each_timed_around_their_own_work(monkeypatch, tmp_
     A clock read before the call rather than after it reports 0 for every call, which the
     `>= 0` above cannot tell from a real measurement. So the work here takes known time.
     """
-    def slow(cfg, call, allowed, policy):
+    def slow(cfg, call, allowed, policy, _seen=None):
         time.sleep(0.05)
         return ToolResultBlock(tool_use_id=call.id, content="ok")
 
