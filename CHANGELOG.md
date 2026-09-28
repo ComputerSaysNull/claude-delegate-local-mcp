@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #415 — 2026-09-28 — feat: a failed run_bash with no workdir says the shell sees none of your files
+
+### Changed
+
+- **A failed `run_bash` in a shell with no `workdir` now says why a file is missing.**
+  `write_file` and `edit_file` resolve against the workspace roots, so a writing
+  delegation without a `workdir` can write a file and then find its shell cannot see it:
+  nothing of the caller's is bound, and the command fails with "No such file or
+  directory". The model was told only that, and reached for the path again. A command
+  that exits non-zero, or hides a failure behind a later stage, now carries one more
+  sentence: the shell sees none of your files, the file tools do, and a `workdir` is the
+  caller's to give. It is result text, so it is a behaviour change, and it never appears
+  on a success or in a bound shell. A `workdir` stays optional, because a scratch-only
+  shell is a real use. Red first on the words themselves, so the red is an assertion; the
+  controls are a success and a bound shell.
+
 ## #414 — 2026-09-28 — fix: a truncated result's line count leaves out the truncation note
 
 ### Fixed

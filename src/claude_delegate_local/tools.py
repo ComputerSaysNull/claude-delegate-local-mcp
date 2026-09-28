@@ -973,6 +973,16 @@ def stale_env_note(cfg: Config, workdir: str | None) -> str | None:
     )
 
 
+# Beside a failed command in a shell with nothing of the caller's bound. The file tools
+# resolve against the workspace roots, so a model can write a file its shell then cannot
+# find, and "No such file" alone sends it probing a path that exists.
+NO_WORKDIR_NOTE = (
+    "No workdir is bound, so this shell sees none of your files; write_file and edit_file "
+    "do. If the command needed them, say so rather than retrying: a workdir is the "
+    "caller's to give."
+)
+
+
 def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashResult:
     """Run one command in the sandbox, and report what the server saw it do.
 
@@ -1031,8 +1041,11 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
         if result.masked_failure
         else ""
     )
-    note = stale_env_note(cfg, policy.workdir)
-    note_part = f"\n\n{note}" if note else ""
+    failed = result.exit_code != 0 or result.masked_failure
+    unbound = NO_WORKDIR_NOTE if policy.workdir is None and failed else None
+    note_part = "".join(
+        f"\n\n{n}" for n in (stale_env_note(cfg, policy.workdir), unbound) if n
+    )
     return BashResult(
         f"exit {result.exit_code}{masked}{moved}\n\n{body}{note_part}",
         BashOutcome(
