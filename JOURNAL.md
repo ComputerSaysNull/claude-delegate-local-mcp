@@ -2782,3 +2782,27 @@ Isolated, with the negative control first (an unrelated CSV description scored 0
 The shipped text missed only "move it out of `.claude/agents`", which the rewrite names.
 Not settled: one model, and queries written by someone who knew the rewrite. The
 near-misses were too easy for both texts, so a harder set is what would separate them.
+
+## 2026-09-28 — A writing delegation can have its own worktree, and git in it runs on the host
+
+Wanted: several writing delegations at once, each on its own branch, instead of serially on
+the main checkout. The worry was that nothing outside the repository is inside a workspace
+root, while a worktree inside it is walked by the docs gate or refused by the gitignore
+layer, and that it would have no provisioned interpreter.
+
+Measured with a worktree made by WSL's git at `/tmp/wt-deleg` on ext4, and
+`DELEGATE_WORKSPACE_ROOTS` naming the repository and the worktree **in the environment of
+one `run` command**, so `.env` and the running server were untouched. `provision --yes`
+built its environment; one writing delegation with `--workdir` on it then ran:
+
+- `write_file` landed the file in the worktree; the main checkout's tree was unchanged.
+- `run_bash` saw it (`cat` exit 0), and `$DELEGATE_PYTHON` was the worktree's own venv.
+- **`git` inside the sandbox exited 128**, "not a git repository". A worktree's `.git` is a
+  file naming `<repo>/.git/worktrees/<name>`, which the sandbox does not bind, and `.git`
+  is on the denylist regardless.
+- `read_git`, which runs on the host, answered `status` and `log` in the worktree.
+
+So it works, with git the host's job: the delegation writes and tests, `read_git` or the
+caller reads the history and commits. What it needs to be routine is a root per worktree.
+The environment variable is enough for the `run` CLI; the MCP tools need the roots in
+`.env` and a reconnect, which is a choice about this machine's layout, not the code's.
