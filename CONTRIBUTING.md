@@ -168,7 +168,7 @@ Two things that live outside it and are easy to miss:
 `main` is protected by a ruleset checked in as `.github/ruleset.json` — read it for the
 rules, ADR-0026 for why the bypass list and the review count are set the way they are. In
 practice: open a pull request, because direct pushes are refused for everyone, and expect
-four required checks. Repository-level secret scanning and push protection are on as well,
+every CI job to be a required check, by its job name. Repository-level secret scanning and push protection are on as well,
 catching what reaches GitHub even if a local hook was skipped.
 
 ## Build-time agents
