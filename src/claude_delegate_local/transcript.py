@@ -203,8 +203,9 @@ class Stream:
             "ms": ms,
             "backend_ms": backend_ms,
             # Where `backend_ms` went, summed over this turn's attempts: queueing and
-            # prefill, then decode. Tool time is `ms - backend_ms` and has no field, which
-            # would be a fourth number able to disagree with the other three.
+            # prefill, then decode. Tool time is the sum of the calls' own `ms` above, never
+            # `ms - backend_ms`, which also holds the dispatch's bookkeeping; a field for it
+            # would be one more number able to disagree with the calls it sums.
             "prefill_seconds": getattr(diagnostic, "prefill_seconds", None),
             "decode_seconds": getattr(diagnostic, "decode_seconds", None),
             # Decode rate over the *answering attempt's* decode span, not `backend_ms`,

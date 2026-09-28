@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #419 — 2026-09-28 — docs: a turn's tool time is the sum of its calls, said so where it is written
+
+### Fixed
+
+- **A comment in `transcript.py` said tool time is `ms - backend_ms`.** It is the sum of
+  each tool call's own `ms`, which `docs/ARCHITECTURE.md` and the viewer both use,
+  because the subtraction also holds the dispatch's bookkeeping. Found by the 2026-09-28
+  audit (finding 4). `docs/ARCHITECTURE.md`'s "three durations" sentence was loose in the
+  same direction and now names them as they are recorded. `ast_unchanged.py` reads the
+  module as unchanged.
+
 ## #418 — 2026-09-28 — docs: a writing delegation can have its own worktree, with git on the host
 
 ### Added

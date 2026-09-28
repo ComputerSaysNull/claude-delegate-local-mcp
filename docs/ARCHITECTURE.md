@@ -957,8 +957,8 @@ stream has to survive a dispatch that never reaches an end. (ADR-0043)
 budget, resolved from the same toolset the loop uses, beside the effort; each row repeats it — a
 reader scrolling a long transcript is past the header — and `end` reports the count
 against it, because six turns and six of six are the same run and different news. A turn
-names its three durations rather than implying one from another: total, tools where it
-called any, and generating. And it says how much of itself it repeated, which is the one
+names its durations rather than implying one from another: total, generating, and each
+tool call's own. And it says how much of itself it repeated, which is the one
 number that tells a loop from a long answer while it is still running.
 
 The stream carries the model's reply text, which the record does not. That is an extension
