@@ -578,9 +578,9 @@ room in (ADR-0080). The entry carries its `tool_use_id`, eviction marks it throu
 diff the ledger reads, and a marked entry serves a line saying the result was dropped and to
 ask for the part needed. Marked and not deleted: deleting re-runs the tool.
 
-Known gap, recorded rather than papered over: a re-read of the same file from a different
-`start_line` is a different argument set and is not caught. Closing it needs range tracking,
-which is its own piece of work. Upstream's version has the same hole.
+A `read_file` of lines an earlier read of that path **returned** — its numbered span, not
+its request, since a budget can cut it short — is a repeat too, served with just those lines
+sliced out. A range reaching past the span runs; "to the end" needs a read that got there.
 
 ## A turn's independent calls run together
 
