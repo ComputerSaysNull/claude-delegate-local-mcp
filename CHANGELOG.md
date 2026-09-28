@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #418 — 2026-09-28 — docs: a writing delegation can have its own worktree, with git on the host
+
+### Added
+
+- **JOURNAL records whether writing delegations can work in parallel worktrees.** The
+  working assumption was no: a worktree outside the repository is in no workspace root,
+  one inside it is walked by the gate or refused by the gitignore layer, and it would have
+  no interpreter. A spike settled it with a WSL-made worktree on ext4 and the roots
+  override in one `run` command's environment, so nothing live changed: the write landed
+  there, the shell saw it, provisioning gave it its own venv, and host-side `read_git`
+  read its history. Only git inside the sandbox fails, because a worktree's `.git` points
+  into a directory the sandbox does not bind. No code changes; routine use needs a root
+  per worktree, which for the MCP tools is a `.env` decision about this machine.
+
 ## #417 — 2026-09-28 — feat: files[] takes several ranges of one file, merged where they meet
 
 ### Changed
