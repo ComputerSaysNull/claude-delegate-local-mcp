@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #410 — 2026-09-28 — fix: the checked-in ruleset names the checks CI actually runs
+
+### Fixed
+
+- **`.github/ruleset.json` still required `tests (3.11)` and not `tests (3.14)`.** The
+  matrix moved to 3.12 and 3.14 and the live ruleset was edited to match, but the copy
+  that ADR-0026 checks in so the ruleset can be re-applied was not. Re-applying it would
+  have required a check that never reports, which blocks every merge while every check
+  shows green. The live ruleset's required checks, read with `gh api`, now equal the
+  file's. `CONTRIBUTING.md` said to expect four required checks where there are five; it
+  now says every CI job is required by its job name, which does not go stale when a job
+  is added.
+
 ## #409 — 2026-09-28 — docs: file the viewer's gaps and three audit follow-ups in PLAN.md
 
 ### Added

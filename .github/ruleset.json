@@ -43,13 +43,13 @@
             "context": "lint"
           },
           {
-            "context": "tests (3.11)"
-          },
-          {
             "context": "tests (3.12)"
           },
           {
             "context": "secret scan"
+          },
+          {
+            "context": "tests (3.14)"
           }
         ]
       }
