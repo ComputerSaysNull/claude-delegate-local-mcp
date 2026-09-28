@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #411 — 2026-09-28 — fix: the provision tests stop reading the developer's own .env
+
+### Fixed
+
+- **Two `test_provision.py` tests passed in CI and failed on a machine whose `.env` held a
+  refused line.** `provision.main` loads the live config, and `config.load()` discovers
+  `<repo>/.env` unless a file is named. `drive`, the helper every such test goes through,
+  named none, so a retired setting in the developer's own file made
+  `test_a_project_outside_every_workdir_root_is_refused` and the integration build fail,
+  while CI, having no `.env`, never saw it. `drive` now names an empty env file for the
+  call. Red first, on WSL with `DELEGATE_TOOL_CALL_TEMPERATURE` added to the real `.env`:
+  2 failed, 45 passed; with the fix, 47 passed. The Windows suite skips both, which is why
+  it looked green there. The regression test plants that line in a stand-in repository
+  root and loads the old `drive` from the baseline commit by path: it comes back with the
+  config error on stderr instead of the refusal, and the new one does not.
+
 ## #410 — 2026-09-28 — fix: the checked-in ruleset names the checks CI actually runs
 
 ### Fixed

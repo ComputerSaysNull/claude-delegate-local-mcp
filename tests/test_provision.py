@@ -19,6 +19,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from claude_delegate_local import provision, sandbox
-from claude_delegate_local.config import Config
+from claude_delegate_local.config import ENV_FILE_VAR, Config
 
 posix_only = pytest.mark.skipif(
     os.name != "posix",
@@ -555,8 +556,16 @@ def test_this_repository_declares_the_tests_that_cannot_run_nested():
 
 
 def drive(args: list[str]) -> tuple[int, str]:
+    """`provision.main` loads the live config, which discovers `<repo>/.env` unless a file
+    is named. An empty one keeps the developer's own settings out, so a line CI never sees
+    cannot fail a test here.
+    """
     out = io.StringIO()
-    code = provision.main(argv=args, out=out)
+    with tempfile.TemporaryDirectory() as scratch, pytest.MonkeyPatch.context() as patch:
+        empty = Path(scratch) / "empty.env"
+        empty.write_text("", encoding="utf-8")
+        patch.setenv(ENV_FILE_VAR, str(empty))
+        code = provision.main(argv=args, out=out)
     return code, out.getvalue()
 
 
