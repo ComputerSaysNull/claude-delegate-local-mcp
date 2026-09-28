@@ -689,6 +689,45 @@ def _nearest_miss(text: str, old: str) -> str | None:
     )
 
 
+# A quoted line that carries read_file's line number and its tab separator.
+_PREFIX_NUMBERED = re.compile(r"^ *\d+\t")
+
+
+def _quoted_prefix_hint(text: str, old: str) -> str | None:
+    """Where `old` quotes `read_file`'s line-number prefix back at the file.
+
+    `read_file` prefixes every line with its number and a tab. A model copying that prefix
+    into `old_string` over-indents the quote and misses, and "read it again" alone gets the
+    same edit resent. Name what the prefix is so the model drops it. Never file text, since
+    the refusal lands in the operator transcript: only a description. Why: ADR-0039.
+    """
+    # The whole quote, prefix removed, must be in the file -- a line at a time, a short
+    # line like `)` would match anywhere and the hint would name a cause that is not one.
+    lines = old.split("\n")
+    body = [line for line in lines if line.strip()]
+    if not body:
+        return None
+
+    if all(_PREFIX_NUMBERED.match(line) for line in body):
+        bare = "\n".join(_PREFIX_NUMBERED.sub("", line, count=1) for line in lines)
+        if bare in text:
+            return (
+                "The quote includes read_file's line numbers and the tab after them, which "
+                "are not file content. Quote only what follows the tab."
+            )
+
+    if all(line.startswith("\t") for line in body):
+        bare = "\n".join(line.removeprefix("\t") for line in lines)
+        if bare in text:
+            return (
+                "Each quoted line starts with a tab the file does not have there; that "
+                "tab is read_file's separator after the line number. Drop it and quote "
+                "the line as it appears in the file."
+            )
+
+    return None
+
+
 def _edit_file(cfg: Config, args: dict[str, object]) -> str:
     """Replace one exact occurrence of `old_string`, or refuse and change nothing.
 
@@ -746,7 +785,7 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
                 "the file again -- what you quoted is either stale or not exactly what is "
                 "there, and whitespace counts."
             )
-            hint = _nearest_miss(text, old)
+            hint = _quoted_prefix_hint(text, old) or _nearest_miss(text, old)
             if hint:
                 message = f"{message} {hint}"
             raise ToolRefused(message)

@@ -76,8 +76,11 @@ def numbered_line(index: int, text: str, width: int) -> str:
     `read_file` both deliver file content, and numbered differently, a line cited from one
     could not be checked against the other -- and the cheaper path would be the one that
     cannot be cited.
+
+    The separator is a tab, not spaces, so a copied prefix cannot pass for the file's
+    own indentation.
     """
-    return f"{index:>{width}}  {text}"
+    return f"{index:>{width}}\t{text}"
 
 
 def escape_markers(text: str) -> str:

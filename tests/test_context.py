@@ -293,9 +293,9 @@ def test_a_prefetched_file_arrives_numbered(tmp_path):
     entry = write(tmp_path, "a.py", "first\nsecond\nthird\n")
     block = prefetch(cfg(), (entry,)).block()
 
-    assert "1  first" in block
-    assert "2  second" in block
-    assert "3  third" in block
+    assert "1\tfirst" in block
+    assert "2\tsecond" in block
+    assert "3\tthird" in block
 
 
 @posix_only
@@ -330,8 +330,8 @@ def test_the_numbering_is_width_aligned_to_the_whole_file(tmp_path):
     entry = write(tmp_path, "c.py", "\n".join(str(n) for n in range(1, 13)) + "\n")
     block = prefetch(cfg(), (entry,)).block()
 
-    assert " 1  1" in block, "single digits are not padded to the file's width"
-    assert "12  12" in block
+    assert " 1\t1" in block, "single digits are not padded to the file's width"
+    assert "12\t12" in block
 
 
 # ---- one budget, not two (ADR-0046) ------------------------------------------------
