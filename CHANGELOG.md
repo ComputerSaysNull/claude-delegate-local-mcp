@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #420 — 2026-09-28 — docs: CONTRIBUTING states its build-time agent rules instead of their history
+
+### Changed
+
+- **`CONTRIBUTING.md`'s build-time agents section told each rule as the incident behind
+  it**: "the 2026-09-06 sighting says why", "a seventh sighting", "that rule was tested
+  within a day". CONTRIBUTING's own "Prose" rule sends history to CHANGELOG and JOURNAL,
+  and the section was the one the 2026-09-28 audit flagged (finding 5), after three
+  waivers on this document in the audit before. Each rule now stands as a rule, with its
+  reason: five for keeping an agent body true to its tools, then the measurement rule and
+  the `agent-capability` check. The stories stay where they already were, in CHANGELOG and
+  JOURNAL 2026-09-06, which the measurement rule links. The sentence restating
+  `docs/AGENTS.md`'s account of why the formats have two directories links it instead.
+  387 lines to 362.
+
 ## #419 — 2026-09-28 — docs: a turn's tool time is the sum of its calls, said so where it is written
 
 ### Fixed
