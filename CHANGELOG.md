@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #402 — 2026-09-28 — docs: write-delegate-agent's description says when to use it
+
+### Changed
+
+- **`write-delegate-agent`'s description now opens "Use when…" and names the cases it
+  covers**: writing, fixing or moving an agent file, and a `list_agents` report of a
+  skipped agent or one under `old_location`. It also says what it is not for: Claude Code
+  subagents, skills, and one-off delegations. No skill description had ever been tested
+  for whether Claude Code picks it (M17.3). Run through a trigger eval of twenty queries,
+  three runs each, the shipped text triggered on 27 of 30 should-trigger runs and the
+  rewrite on 30 of 30. Neither triggered on any of the 30 near-miss runs, and an
+  unrelated control description scored 0 of 10. The one query the shipped text missed was
+  moving a file out of `.claude/agents`. The eval first measured this machine's own
+  settings rather than the description (JOURNAL 2026-09-28 has how it was isolated).
+
 ## #401 — 2026-09-28 — fix: the AST check sees a pydantic model's docstring
 
 ### Fixed

@@ -2754,3 +2754,31 @@ reasoning for four to eleven lines, 10 to 30 minutes under load, and the 16 call
 
 What it does not settle: `low` or `off`, and the task without its 92-column rule, which a
 model without a tool can only meet by counting characters.
+
+## 2026-09-28 — A trigger eval measures the evaluator's own settings unless told not to
+
+M17.3.a: does `write-delegate-agent`'s description make Claude Code pick the skill? Twenty
+queries, ten that should trigger and ten near-misses (a Claude Code subagent, a one-off
+delegation, a skill, a pytest), three runs each, split 60/40 with `run_loop.py`'s fixed
+seed, `claude -p --model sonnet` through skill-creator's `run_eval.py`.
+
+The first run said both descriptions almost never trigger: 0 of 30 and 2 of 30 on the
+should-trigger runs. That was the machine, not the text. A nested `claude -p` loads the
+user's own settings and CLAUDE.md, and here those say to delegate reading first, so its
+first tool call was an Explore agent. The harness counts any first call other than
+`Skill` or `Read` as "not triggered". Adding `--setting-sources project --permission-mode
+manual` turned the same query's first call into `Skill`. Two more things the stock
+harness needs on this machine: `select` on a pipe does not work on Windows, and parallel
+workers share one `.claude/commands/`, so each run sees the other workers' copies too.
+The fix for both was a reader thread and a temporary project per query.
+
+Isolated, with the negative control first (an unrelated CSV description scored 0 of 10):
+
+| description | should trigger, train / test | should not, all |
+|---|---|---|
+| shipped | 15/18 · 12/12 | 0/30 |
+| "Use when…" rewrite | 18/18 · 12/12 | 0/30 |
+
+The shipped text missed only "move it out of `.claude/agents`", which the rewrite names.
+Not settled: one model, and queries written by someone who knew the rewrite. The
+near-misses were too easy for both texts, so a harder set is what would separate them.
