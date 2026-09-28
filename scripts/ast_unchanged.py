@@ -49,11 +49,19 @@ def normalised(source: str) -> str:
 
 
 def _is_contract(node: ast.AST) -> bool:
-    """Whether `node` is decorated `@mcp.<anything>`, bare or called.
+    """Whether `node`'s docstring is contract text the model reads.
 
-    Such a function's docstring is the MCP tool's or resource's description, which the
-    model reads, so a pass that rewords it has changed behaviour.
+    Two shapes: a function decorated `@mcp.<anything>`, bare or called, whose docstring is
+    the tool's or resource's description; and a pydantic model, a class with `BaseModel`
+    among its bases, whose docstring is its input-schema description. A pass that rewords
+    either has changed behaviour.
     """
+    if isinstance(node, ast.ClassDef):
+        return any(
+            (isinstance(base, ast.Name) and base.id == "BaseModel")
+            or (isinstance(base, ast.Attribute) and base.attr == "BaseModel")
+            for base in node.bases
+        )
     if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         return False
     for d in node.decorator_list:
