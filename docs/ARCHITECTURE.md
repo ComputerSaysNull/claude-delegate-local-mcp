@@ -901,7 +901,8 @@ schemas so it cannot drift. **A write never depends on the bind**: `write_file` 
 `edit_file` resolve through the path policy in the server process against `workspace_roots`,
 so a delegation with no workdir writes perfectly well. What the bind adds is the other half
 of a write-then-verify loop, which is why the two belong on the same tools rather than one
-implying the other. The permission layer matches on tool name and never
+implying the other. Unbound, a file just written is missing from the shell, so a failed
+`run_bash` there says the shell sees none of the caller's files. The permission layer matches on tool name and never
 inspects arguments, so the claim is a property of the tool or it is worth nothing. Holding
 that asymmetry is what the guard in `tests/test_server.py` is for, and it is worth more than
 the annotations themselves.
