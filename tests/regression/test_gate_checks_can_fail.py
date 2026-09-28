@@ -995,6 +995,57 @@ def test_prose_regrowth_warns_on_an_added_iso_date_comment(repo: Path):
     assert fired(lines, "prose-regrowth", "mod.py line 2", d), lines
 
 
+def test_prose_regrowth_lets_a_journal_pointer_through(repo: Path):
+    """`JOURNAL <date>` is how a comment links its measurement, not history, so it is quiet.
+
+    The dated sentence beside it is the control: a pointer exemption wide enough to pass
+    any date would let exactly the history this check exists for back in.
+    """
+    _mod(repo, "x = 1\n")
+    _commit(repo, "base")
+    d = "20" + "26-01-01"
+    _mod(repo, "x = 1\n# measured, JOURNAL " + d + "\n# cut since " + d + "\n")
+    lines = gate(repo)
+    assert not fired(lines, "prose-regrowth", "mod.py line 2"), lines
+    assert fired(lines, "prose-regrowth", "mod.py line 3", d), lines
+
+
+def _commit_msg_gate(repo: Path) -> list[str]:
+    """The installed hook's view: `commit-msg`, before the commit exists, `origin/main` set."""
+    msg = repo / "msg.txt"
+    msg.write_text("fix: a thing\n\nbody\n", encoding="utf-8")
+    return gate(repo, "--mode", "commit-msg", "--message-file", str(msg))
+
+
+def test_prose_regrowth_reads_the_staged_index_at_commit_msg_time(repo: Path):
+    """`commit-msg` is the hook installed, and it runs before the commit exists.
+
+    Read as `origin/main...HEAD`, it saw the previous commit, so a staged TODO never warned.
+    """
+    _mod(repo, "x = 1\n")
+    _commit(repo, "base")
+    subprocess.run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
+                   cwd=repo, capture_output=True, check=True)
+    todo = "TO" + "DO"
+    _mod(repo, "x = 1\n# " + todo + ": cut this later\n")
+    lines = _commit_msg_gate(repo)
+    assert fired(lines, "prose-regrowth", "mod.py line 2", todo), lines
+
+
+def test_prose_regrowth_at_an_amend_does_not_report_what_it_removes(repo: Path):
+    """At an amend HEAD is the commit being replaced, so reading HEAD reported its text."""
+    _mod(repo, "x = 1\n")
+    _commit(repo, "base")
+    subprocess.run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
+                   cwd=repo, capture_output=True, check=True)
+    todo = "TO" + "DO"
+    _mod(repo, "x = 1\n# " + todo + ": cut this later\n")
+    _commit(repo, "the commit being amended")
+    _mod(repo, "x = 1\n")
+    lines = _commit_msg_gate(repo)
+    assert not fired(lines, "prose-regrowth", todo), lines
+
+
 def test_prose_regrowth_warns_on_future_phrasing_in_an_added_docstring(repo: Path):
     """A docstring line is prose too, so `for now` inside one warns."""
     _mod(repo, "def f():\n    pass\n")

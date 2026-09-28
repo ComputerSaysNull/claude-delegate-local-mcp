@@ -2004,7 +2004,8 @@ def check_doc_references() -> list[Finding]:
 # already shipped is a decision already made, not one being made now; the ratio arm is the
 # whole-file part that watches the level rather than the increment.
 
-PROSE_DATE_RE = re.compile(r"\b20\d\d-\d\d-\d\d\b")
+# A date right after `JOURNAL ` is a pointer to where the history lives, not history.
+PROSE_DATE_RE = re.compile(r"(?<!JOURNAL )\b20\d\d-\d\d-\d\d\b")
 PROSE_TODO_RE = re.compile(r"\b(?:TODO|FIXME|XXX)\b")
 PROSE_FUTURE_RE = re.compile(
     r"\b(?:for now|in future|in the future|eventually|not yet)\b", re.IGNORECASE)
@@ -2140,7 +2141,9 @@ def check_prose_regrowth(mode: str, diff_range: str | None) -> list[Finding]:
     already shipped is a decision already made, not one being made now; the ratio arm
     covers the whole file, so a drift that never lands on an added line still surfaces.
     """
-    if mode == "pre-commit":
+    # commit-msg too: the commit does not exist yet, so a range ending at HEAD reads the
+    # previous one, and at an amend the very text being replaced.
+    if mode in ("pre-commit", "commit-msg"):
         base_rev, new_rev = "HEAD", ""  # "" reads the index: `git show :path`
         diff_base = ("git", "diff", "--cached", "-U0")
         files = [p for p in git("diff", "--cached", "--name-only",

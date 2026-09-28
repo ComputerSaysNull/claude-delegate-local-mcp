@@ -30,6 +30,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #412 — 2026-09-28 — fix: prose-regrowth reads the commit being made, and lets a JOURNAL pointer through
+
+### Fixed
+
+- **At commit time, `prose-regrowth` read the previous commit.** Only `pre-commit` mode
+  read the staged index; every other mode read `origin/main...HEAD`. `commit-msg`, the
+  one hook installed, runs before the commit exists, so HEAD there is the commit before:
+  a new TODO or "for now" never warned locally, and at an amend HEAD is the commit being
+  replaced, so the check reported text the amend was removing. That second symptom was
+  the one seen; the first is why nothing ever warned. Found by reproducing the amend with
+  the real hook in a throwaway worktree, where the first commit's "for now" also went
+  unreported. `commit-msg` now reads the index as `pre-commit` does. Red first: a staged
+  TODO at `commit-msg` time did not warn, and an amend removing one did.
+- **A JOURNAL pointer warned as history.** `# measured, JOURNAL 2026-09-25` is how a
+  comment links its measurement, but the date pattern matched it like any date. A date
+  directly after `JOURNAL ` no longer matches. Red first; the control is a dated sentence
+  on the next line, which still warns, so the exemption cannot pass history in general.
+
 ## #411 — 2026-09-28 — fix: the provision tests stop reading the developer's own .env
 
 ### Fixed
