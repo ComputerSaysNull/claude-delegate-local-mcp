@@ -1,4 +1,4 @@
-<!-- BUDGET: 1215 -->
+<!-- BUDGET: 1220 -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -1078,6 +1078,11 @@ deliberately does not return on its own — the last thing a dispatch writes is 
 thing that was being waited for, and taking the screen away at that moment is the one
 behaviour a watcher must not have. The list redraws itself every couple of seconds so a
 dispatch started elsewhere appears without a keypress, and `r` forces it.
+
+**`--serve` puts the same rendering in a browser**, which repaints and scrolls back for
+free. It binds `localhost`, refuses a `Host` header naming anything else (a rebinding page)
+and serves only a bare `.jsonl` name inside the transcript directory. A poll gets whole
+lines past a **byte** offset: a half-written line waits, and non-ASCII cannot shift a read.
 
 A tool call renders through a per-tool layout where one is registered, and the generic
 `k=v` tail otherwise. `read_file` and `search_files` have one because their arguments are

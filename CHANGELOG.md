@@ -30,6 +30,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #404 — 2026-09-28 — feat: watch a delegation in the browser
+
+### Added
+
+- **`watch_delegations.py --serve` shows a transcript in a browser that repaints as it
+  grows.** The follow view prints and never repaints, and making a terminal repaint is
+  the expensive half. A browser over the same `.jsonl` gets repaint, scrollback and
+  selection for free (M19.3). A stdlib server bound to `localhost` serves one page and
+  the rendered lines past an offset, using the terminal view's own `render`, so the two
+  cannot drift. The `.jsonl` format is unchanged. It refuses a `Host` header that does not
+  name a loopback, so a page on another origin cannot read transcripts by rebinding a
+  name to this machine. It serves only a bare `.jsonl` name inside the transcript
+  directory.
+- **A poll returns only whole lines, and the offset counts bytes.** A line still being
+  written waits for the next poll. The first draft counted the offset in characters, and
+  since transcripts are written with `ensure_ascii=False`, a few accented letters and a
+  dash in a task made the next poll start short, inside a line it had already shown. The
+  regression test caught that before the fix (offset 75 against an 82-byte file). The
+  page runs one poll at a time and drops a reply for a transcript no longer selected.
+
 ## #403 — 2026-09-28 — fix: read_file separates the line number with a tab
 
 ### Fixed
