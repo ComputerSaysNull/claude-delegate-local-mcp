@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #416 — 2026-09-28 — fix: a denylist fault met at tool declaration keeps its misconfigured status
+
+### Fixed
+
+- **An unreadable denylist hit while declaring the tools reached the caller without its
+  status.** Declaring `search_files` reads the secret denylist, so `declared_tools` can
+  raise `PathPolicyError`, and nobody had checked what the MCP layer did with it. Measured
+  first with the `run` CLI and a missing `DELEGATE_SECRET_GLOBS_FILE`: it fails before any
+  turn, the message names the file and the fix, and the transcript closes with an `end`
+  event carrying the error, so nothing is left looking like a crashed run. The one fault
+  was the wire: every other place that meets this error sends `misconfigured: ...`, the
+  status telling a caller the operator's configuration is at fault rather than its call,
+  but raised inside the dispatch it fell through the generic handler and arrived as
+  `Error calling tool 'collect': Layer 3 cannot run ...`. It is now converted like the
+  others. Red first over a real MCP session; the control is the same fault met through
+  `files[]`, which already carried the status.
+
 ## #415 — 2026-09-28 — feat: a failed run_bash with no workdir says the shell sees none of your files
 
 ### Changed
