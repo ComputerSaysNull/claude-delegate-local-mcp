@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #407 — 2026-09-28 — feat: edit_file refuses a file changed since it was read
+
+### Added
+
+- **An `edit_file` of a file that changed since the model last saw it is refused until
+  the file is read again.** `edit_file` matched `old_string` against the current bytes
+  only. A file changed after the model read it, by a `run_bash` command or the operator,
+  still edited cleanly whenever the quoted text survived the change, so the model edited
+  a file it no longer knew. Each delegation now keeps the sha256 of every file as the
+  model last saw it: from the prefetch, from a `read_file` of any range, and from the
+  server's own `write_file` and `edit_file`, so consecutive edits need no re-read. The hash
+  comes from the bytes the tool already read through its own descriptor, never from a
+  second open. With no record, an edit behaves exactly as before. A regression test goes
+  in through the MCP tool, because the loop test hands the loop the prefetch itself: with
+  the server's one hand-off line removed it fails, and every prefetched file would
+  otherwise have gone unguarded.
+
 ## #406 — 2026-09-28 — feat: a re-read of lines already returned is served as a repeat
 
 ### Changed

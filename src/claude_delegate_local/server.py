@@ -39,7 +39,7 @@ from .admission import Admission, AdmissionError, AdmissionLease
 from .agents import AgentError, AgentSpec, load_agent
 from .agents import survey_agents as discover_agents
 from .config import EFFORT_INHERIT, EFFORT_LEVELS, Config, ConfigError
-from .context import FileRequest, estimate_text_tokens, prefetch, skip_from_refusal
+from .context import FileEntry, FileRequest, estimate_text_tokens, prefetch, skip_from_refusal
 from .handles import Handles, UnknownHandle
 from .loop import (
     AgenticDispatch,
@@ -315,6 +315,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     max_tokens: int | None,
     max_turns: int | None = None,
     policy: BashPolicy | None = None,
+    prefetched_files: tuple[FileEntry, ...] = (),
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]],
     on_alive: Callable[[float, int, float, int, int, float | None], Awaitable[None]] | None = None,
@@ -336,7 +337,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
             return await run_agentic_loop(
                 cfg, entry, backend, delegation,
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
-                max_turns=max_turns, policy=policy,
+                max_turns=max_turns, policy=policy, prefetched=prefetched_files,
                 diagnostics=diagnostics, report_progress=report_progress,
                 on_alive=on_alive, on_turn_done=on_turn_done, on_priced=on_priced,
                 on_pool=on_pool,
@@ -908,6 +909,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
                 max_turns=max_turns,
                 policy=policy,
+                prefetched_files=prefetched.files,
                 # The caller's flag decides what the caller sees; a transcript asks for
                 # itself, or the operator record would depend on the caller asking.
                 diagnostics=diagnostics or transcript.enabled(cfg),

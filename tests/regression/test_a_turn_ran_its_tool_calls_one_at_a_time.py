@@ -47,7 +47,7 @@ def _tracked(monkeypatch, hold: float = 0.05):
     seen = {"peak": 0, "live": 0, "order": []}
     lock = threading.Lock()
 
-    def fake(cfg, c, allowed, policy):
+    def fake(cfg, c, allowed, policy, _seen=None):
         with lock:
             seen["live"] += 1
             seen["peak"] = max(seen["peak"], seen["live"])
@@ -105,7 +105,7 @@ def _reverse_timed(seen):
     """Make the first call the slowest, so completion order is the reverse of request order."""
     delays = {"a": 0.15, "b": 0.08, "c": 0.01}
 
-    def fake(cfg, c, allowed, policy):
+    def fake(cfg, c, allowed, policy, _seen=None):
         time.sleep(delays.get(c.id, 0.01))
         seen["order"].append(c.id)
         return ToolResultBlock(tool_use_id=c.id, content=f"body-{c.id}")
@@ -154,7 +154,7 @@ def test_an_identical_call_in_one_batch_still_runs_once(monkeypatch):
     """
     ran = []
 
-    def fake(cfg, c, allowed, policy):
+    def fake(cfg, c, allowed, policy, _seen=None):
         ran.append(c.id)
         return ToolResultBlock(tool_use_id=c.id, content="same-body")
 
@@ -172,7 +172,7 @@ def test_a_cached_result_is_still_served_without_running(monkeypatch):
     """Control. A hit from an earlier turn must not be dispatched just because it is pooled."""
     ran = []
 
-    def fake(cfg, c, allowed, policy):
+    def fake(cfg, c, allowed, policy, _seen=None):
         ran.append(c.id)
         return ToolResultBlock(tool_use_id=c.id, content="fresh")
 
