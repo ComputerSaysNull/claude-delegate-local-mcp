@@ -179,29 +179,30 @@ through `delegate_to_agent`. Not shipped, and not the delegation agents in
 [docs/AGENTS.md](docs/AGENTS.md). A recipe inside one is run and believed, so it earns a
 check's scrutiny.
 
-**The two formats used to share one directory, and Claude Code loaded this server's files as
-subagents with every tool** — the agent appeared to work while `allowed_tools` and the model
-went unapplied. Separate directories end that (ADR-0102). What remains is quiet too: this
-server skips a file it cannot parse, so `list_agents` returning nothing is what a typo looks
-like. Confirm an edit against the consumer you meant.
+**The two formats live in separate directories** (ADR-0102), because Claude Code loads every
+file in `.claude/agents/` as a subagent ([docs/AGENTS.md](docs/AGENTS.md) says with what).
+This server skips a file it cannot parse, so `list_agents` returning nothing is what a typo
+looks like: confirm an edit against the consumer you meant.
 
 Say which one you want when asking for an audit. The duplication ends when the local route
 is dependable enough to be the only one; the copy is then deleted, not left to rot.
 
-**A body can work around a server limitation, and nothing links them.** `docs-audit-local`
-cited by quotation because `read_file` had no line numbers, and elsewhere claimed it could
-not read git history at all, which `read_git` had made untrue. **When you add a tool, grep
-the agent bodies for what it makes possible.**
+**An agent body is a claim about tools, and nothing checks it against them.** So when a tool
+changes, read the bodies and the frontmatter together:
 
-**That is half a rule, and the 2026-09-06 sighting says why.** `docs-audit-local` never
-listed `search_files` in `allowed_tools`, two days after that tool landed — so the agent
-could not have used it whatever its body said. Grepping bodies cannot catch that: an agent is
-never told about a tool it does not have, so the omission leaves no trace in the prose.
-**Read the frontmatter too, and treat a tool the agent lacks as the more likely fault**,
-because a stale body is visible and a missing entry is not. **Adding the entry is half the
-fix**: a body that never had a tool has no guidance for it, and the first pass after the
-grant spent two calls discovering that `search_files` refuses a relative `path`. Grant the
-tool and say how it is used in the same edit.
+- **Grep the bodies for what a new tool makes possible.** A body keeps working around a
+  limitation long after the limitation is gone.
+- **Read the frontmatter too, and treat a tool the agent lacks as the likelier fault.** An
+  agent is never told about a tool it does not have, so a missing `allowed_tools` entry
+  leaves no trace in the prose, where a stale body is visible.
+- **Grant a tool and say how it is used in the same edit**, or the first pass spends its
+  calls discovering the tool's rules.
+- **A body crediting another tool asserts something about that tool's source**: check it
+  there. A false "the gate already checks this" is a blind spot, not a duplicate, because
+  the next line tells the agent not to report it.
+- **Say where the caller must supply what the agent cannot fetch.** A step the sandbox
+  cannot run -- the gate needs `.git` and the denylist, both hidden from it -- burns a turn
+  every time and has the model report the sandbox working correctly as a fault.
 
 **An agent that will not stop is not always a prose problem.** Before rewriting a body to
 make a pass terminate, check what its turns were sampled at: a low temperature makes
@@ -210,43 +211,17 @@ oppose it. The tell is a reply mostly of duplicate lines, at *every* budget — 
 counter cannot stop it, because the loop never ends the turn ([DISPATCH.md](docs/DISPATCH.md)).
 
 **A measurement in an agent body needs its date and its conditions**, or the next reader
-cannot tell which half has expired. One recorded that a prefetched audit finished "in one
-turn with zero tool calls" — true when measured, and the wrong thing to aim at once the reply
-budget was capped against the deadline (ADR-0055): an oversized pass comes back **empty**,
-reporting `ok: true` with `finish_reason: "length"`, not truncated, which is what this
-paragraph itself said until it was corrected. Two passes at 27,603 and 41,364 output tokens
-returned nothing and said `ok`. That sentence had also fused two independent claims —
-prefetch everything, and answer in one turn — so correcting the second read as abandoning
-the first.
+cannot tell which half has expired, and **one claim per sentence**, so that correcting one
+does not read as abandoning the other. **Prefer a measurement taken on purpose over one
+noticed in passing**: a number noticed while doing something else describes a shape nobody
+varied (JOURNAL 2026-09-06 has one that was wrong by the next morning).
 
-**A seventh sighting, 2026-09-07, pointed outward.** Both audit bodies listed "broken links"
-among what `scripts/docs_gate.py` mechanically checks; `CHECKS` had never held one. Every
-earlier sighting was a body wrong about *itself*, so reading the frontmatter — the fix above
-— could not have found this. It also inverts the cost: the next line is "report nothing it
-already catches", making a false entry a **blind spot** rather than a duplication. **A body
-crediting another tool is asserting something about that tool's source** — check it there.
-
-That rule was tested within a day. The *replacement* text carried a fresh measurement of its
-own — that fanning out costs about 120 s of stagger per extra call — and a controlled run the
-next morning found it wrong: four calls issued in one message start seconds apart, and the
-120 s is the client's threshold for backgrounding a call it is waiting on, not for issuing
-the next (`#118`). Both numbers came from real observations; both described a shape nobody
-had varied deliberately. **Prefer a measurement you took on purpose over one you noticed.**
-
-**It can also require what the sandbox cannot do — the same fault inverted, and costlier.**
-That body opened with "run the gate first", which cannot succeed: `.git` is under a tmpfs
-and `security/secret_globs.txt` under `/dev/null`, both because they match the secret
-denylist, so git exits 128 and the gate dies on a `PermissionError`. A stale workaround
-wastes its own instruction; an impossible requirement burns a turn on every invocation and
-has the model report the sandbox working correctly as a fault. Say in the body where the
-caller must supply what the agent cannot fetch.
-
-The `agent-capability` check now does the narrow half of that reading for you: a body
+The `agent-capability` check does the narrow half of this reading for you: a body
 instructing a command its tool list has no shell for is blocked, and so is one naming a
-command that needs a path the sandbox covers — `git`, because `.git` is on the denylist,
+command that needs a path the sandbox covers -- `git`, because `.git` is on the denylist,
 asked of that file rather than hardcoded. What it cannot see is a command needing something
-*indirectly*, which is the case that prompted all this: `python3 scripts/docs_gate.py`
-looks runnable and shells out to git underneath. Read the pair yourself for that.
+*indirectly*: `python3 scripts/docs_gate.py` looks runnable and shells out to git
+underneath. Read the pair yourself for that.
 
 <!-- GEN:AGENTS:START -->
 <!-- Generated from .claude/agents/*.md and .claude/delegate-agents/*.md by scripts/gen_agents_docs.py. Change the frontmatter, not this. -->
