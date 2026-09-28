@@ -67,13 +67,14 @@ Write a UTF-8 text file in the workspace, creating it or replacing it whole. Pat
 
 ## `edit_file`
 
-Change part of a UTF-8 text file in the workspace by replacing exact text, leaving the rest of the file untouched. Prefer this over write_file for an edit to an existing file: write_file replaces the whole file, so it needs you to reproduce every line you are not changing. old_string must appear exactly once -- if it appears never or more than once the file is left completely unchanged and you are told which, so quote enough of the surrounding lines to be unique, and read the file first rather than quoting from memory. An empty new_string deletes the text. The same path rules as read_file apply.
+Change part of a UTF-8 text file in the workspace by replacing exact text, leaving the rest of the file untouched. Prefer this over write_file for an edit to an existing file: write_file replaces the whole file, so it needs you to reproduce every line you are not changing. old_string must appear exactly once -- if it appears never or more than once the file is left completely unchanged and you are told which, so quote enough of the surrounding lines to be unique, and read the file first rather than quoting from memory. Set `expected_count` to replace every occurrence when the text repeats on purpose. An empty new_string deletes the text. The same path rules as read_file apply.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `path` | string | yes | Absolute path to the file. |
-| `old_string` | string | yes | The exact text to replace, including whitespace and indentation. Must occur exactly once in the file. |
+| `old_string` | string | yes | The exact text to replace, including whitespace and indentation. Must occur exactly once in the file, unless expected_count says otherwise. |
 | `new_string` | string | yes | What to put in its place. Empty to delete the text. |
+| `expected_count` | integer | no | How many times old_string is believed to appear. Given, the text must appear exactly that many times and then all of them are replaced; a mismatch refuses and writes nothing. Omitted, the text must appear exactly once. |
 
 ## `run_bash`
 
