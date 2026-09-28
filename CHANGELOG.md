@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #406 — 2026-09-28 — feat: a re-read of lines already returned is served as a repeat
+
+### Changed
+
+- **A `read_file` of lines an earlier read of that path already returned no longer runs
+  again.** The dedup keyed on the exact arguments, so reading lines 10 to 20 after lines
+  1 to 100 re-ran the tool and put all eleven lines in the window a second time. Coverage
+  goes by the lines the earlier result actually holds, read back from its numbers, not by
+  the range it asked for, because a character budget can cut a read short. A covered read
+  is a repeat like an exact one: nothing runs, it counts in `tool_calls_deduplicated`, and
+  it carries only the lines asked for. A range reaching past what was returned runs as
+  before, as does "to the end" unless the earlier read got there untruncated. A write
+  still clears everything, and an evicted source still answers with the eviction notice.
+  The format's parser, `numbered_span`, sits beside `numbered_line` in `context.py`, so
+  the writer and the one reader of the format change together.
+
 ## #405 — 2026-09-28 — feat: edit_file replaces a repeat on purpose with expected_count
 
 ### Added

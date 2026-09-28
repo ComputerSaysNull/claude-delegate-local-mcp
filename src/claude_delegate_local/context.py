@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from .config import Config
@@ -81,6 +82,37 @@ def numbered_line(index: int, text: str, width: int) -> str:
     own indentation.
     """
     return f"{index:>{width}}\t{text}"
+
+
+# A numbered line's start: the right-aligned number, then the tab separator. Shared by the
+# parser below and by `read_file`'s range coverage in `loop.py`, so the format and its
+# reader live in one module.
+_NUMBERED_START = re.compile(r"^\s*(\d+)\t")
+
+
+def numbered_lines(body: str) -> Iterator[tuple[int, str]]:
+    """Each numbered line of `body`, as (line number, the whole line).
+
+    Only lines that *are* numbered are yielded, so a truncation footer or prose does not
+    read as content, and the number is the one the formatter wrote, not one re-derived.
+    """
+    for line in body.splitlines():
+        match = _NUMBERED_START.match(line)
+        if match is not None:
+            yield int(match.group(1)), line
+
+
+def numbered_span(body: str) -> tuple[int, int] | None:
+    """The first and last line number present at the start of `body`'s numbered lines.
+
+    What the result *holds*, not what it asked for: a result truncated by a character
+    budget reports the span it actually returned, so `read_file`'s range coverage never
+    answers with lines that were never delivered. None when nothing is numbered.
+    """
+    numbers = [number for number, _ in numbered_lines(body)]
+    if not numbers:
+        return None
+    return numbers[0], numbers[-1]
 
 
 def escape_markers(text: str) -> str:

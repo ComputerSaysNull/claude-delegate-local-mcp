@@ -51,6 +51,7 @@ from .config import (
     OVERFLOW_TIGHTEN_AT,
     Config,
 )
+from .context import numbered_lines, numbered_span
 from .paths import repo_status
 from .registry import ModelEntry
 from .tools import REGISTRY, BashPolicy, declared_tools, execute_tool
@@ -1426,12 +1427,143 @@ class _CachedResult:
     """One dedup-cache entry, and whether the history still holds what it copies.
 
     `tool_use_id` lets eviction find the entry for a result it stubbed, the cache being
-    keyed by call.
+    keyed by call. The last three fields are `read_file`'s range coverage: `path` and
+    `span` describe the read that produced `content`, `reached_eof` whether it ran to the
+    end of the file untruncated. Everything else carries None/False, so an exact-argument
+    hit is unaffected.
     """
 
     content: str
     tool_use_id: str
     evicted: bool = False
+    path: str | None = None
+    span: tuple[int, int] | None = None
+    reached_eof: bool = False
+
+
+# The truncation footer `_read_file` appends when a character budget cut a range short. Its
+# presence means the result is not the lines it was asked for, so it cannot be used to cover
+# a range ending past what it actually holds.
+_TRUNCATION_MARKER = "[truncated:"
+
+
+def _read_coverage(
+    call: ToolUseBlock, content: str
+) -> tuple[str | None, tuple[int, int] | None, bool]:
+    """The range facts a `read_file` result records, for storing in the cache.
+
+    `span` is what the result holds; `reached_eof` is whether it ran to the file's end
+    untruncated -- no truncation footer, and no `end_line` (or one of 0, which `_read_file`
+    treats as none) or an `end_line` past the last line it holds. Only `read_file` has
+    range facts; anything else records None.
+    """
+    if call.name != "read_file":
+        return None, None, False
+    path = call.input.get("path")
+    path = path if isinstance(path, str) else None
+    span = numbered_span(content)
+    reached_eof = False
+    if span is not None and _TRUNCATION_MARKER not in content:
+        end_line = call.input.get("end_line")
+        if end_line is None or end_line == 0:
+            reached_eof = True
+        elif isinstance(end_line, int) and not isinstance(end_line, bool) and end_line > 0:
+            reached_eof = end_line > span[1]
+    return path, span, reached_eof
+
+
+def _requested_range(call: ToolUseBlock) -> tuple[int, int | None] | None:
+    """The (start, end) `call` asks for, normalized, or None when not coverable.
+
+    `start_line` omitted means 1. `end_line` omitted or 0 is `_read_file`'s "to the end"
+    (None). A range the tool would refuse -- a start below 1, a negative or non-integer
+    `end_line`, or an `end_line` before the start -- is not coverable, since serving a
+    repeat would turn a refusal into an empty answer.
+    """
+    start = call.input.get("start_line", 1)
+    if not isinstance(start, int) or isinstance(start, bool) or start < 1:
+        return None
+    raw_end = call.input.get("end_line")
+    if raw_end is None:
+        end = None
+    elif not isinstance(raw_end, int) or isinstance(raw_end, bool) or raw_end < 0:
+        return None
+    else:
+        end = raw_end if raw_end > 0 else None
+    if end is not None and end < start:
+        return None
+    return start, end
+
+
+def _slice_lines(call: ToolUseBlock, body: str) -> str:
+    """The numbered lines of `body` whose number lies in the range `call` asks for.
+
+    The requested lines only, kept in the form the earlier result rendered them, so a
+    covered read hands back exactly what was asked rather than the whole earlier read.
+    """
+    range_ = _requested_range(call)
+    if range_ is None:
+        return ""
+    start, end = range_
+    kept: list[str] = []
+    for number, line in numbered_lines(body):
+        if number < start:
+            continue
+        if end is not None and number > end:
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _covering_entry(
+    cached: dict[tuple[str, str], _CachedResult], call: ToolUseBlock
+) -> _CachedResult | None:
+    """A cached `read_file` whose span covers `call`'s range, or None.
+
+    Coverage is by the span the earlier result actually holds. A not-evicted covering entry
+    is preferred so content can be sliced from it; if only an evicted one covers, it still
+    answers as a repeat, but `EVICTED_REPEAT` is served rather than content being restored.
+    Only `read_file` gets this; every other tool stays exact-argument.
+    """
+    if call.name != "read_file":
+        return None
+    path = call.input.get("path")
+    if not isinstance(path, str):
+        return None
+    range_ = _requested_range(call)
+    if range_ is None:
+        return None
+    start, end = range_
+    evicted_fallback: _CachedResult | None = None
+    for entry in cached.values():
+        if entry.path != path or entry.span is None:
+            continue
+        first, last = entry.span
+        if start < first or start > last:
+            continue
+        if end is None:
+            if not entry.reached_eof:
+                continue
+        elif end > last:
+            continue
+        if not entry.evicted:
+            return entry
+        if evicted_fallback is None:
+            evicted_fallback = entry
+    return evicted_fallback
+
+
+def _repeat_body(call: ToolUseBlock, entry: _CachedResult, *, exact: bool) -> str:
+    """What a repeat hands back: the evicted notice, or `REPEAT_PREFIX` plus the content.
+
+    `exact` says the call is byte-identical to the one that produced `entry`, so the whole
+    content is served; otherwise the requested lines are sliced out of it.
+    """
+    if entry.evicted:
+        return EVICTED_REPEAT
+    if exact:
+        return REPEAT_PREFIX + entry.content
+    return REPEAT_PREFIX + _slice_lines(call, entry.content)
 
 
 async def _no_progress(turn: int, of: int) -> None:
@@ -2208,17 +2340,26 @@ def _run_one_call(
 ) -> tuple[ToolResultBlock, str, int | None]:
     """Execute one tool call, or serve it from what an identical earlier one returned.
 
-    Dedup is byte-identical, for `cacheable` tools only (`RegisteredTool`). Any other call
-    *clears* the cache: a write invalidates earlier reads, and serving a file from before
-    its overwrite is worse than reading again. The third value is the call's milliseconds,
-    `None` from cache.
+    Dedup is byte-identical, for `cacheable` tools only (`RegisteredTool`), with `read_file`
+    additionally covered by range: a call whose lines an earlier read of the same path
+    already holds is served, sliced, as a repeat. Any other call *clears* the cache: a
+    write invalidates earlier reads, and serving a file from before its overwrite is worse
+    than reading again. The third value is the call's milliseconds, `None` from cache.
     """
     key = (call.name, _dedup_key(call))
     entry = cached.get(key)
     if entry is not None:
         # "repeat" either way, since nothing ran; only the body differs.
-        body = EVICTED_REPEAT if entry.evicted else REPEAT_PREFIX + entry.content
-        return ToolResultBlock(tool_use_id=call.id, content=body), "repeat", None
+        return ToolResultBlock(
+            tool_use_id=call.id, content=_repeat_body(call, entry, exact=True)
+        ), "repeat", None
+
+    covering = _covering_entry(cached, call)
+    if covering is not None:
+        # A narrower read of lines an earlier read already returned. Nothing ran.
+        return ToolResultBlock(
+            tool_use_id=call.id, content=_repeat_body(call, covering, exact=False)
+        ), "repeat", None
 
     started = _tool_clock()
     result = execute_tool(cfg, call, allowed, policy)
@@ -2230,7 +2371,10 @@ def _run_one_call(
     elif not result.is_error:
         # Errors are not cached: many are transient (a file not yet written), and caching
         # would make them permanent.
-        cached[key] = _CachedResult(result.content, call.id)
+        path, span, reached_eof = _read_coverage(call, result.content)
+        cached[key] = _CachedResult(
+            result.content, call.id, path=path, span=span, reached_eof=reached_eof
+        )
     return result, "error" if result.is_error else "ran", ms
 
 
@@ -2279,8 +2423,13 @@ def _run_group(
     keys = [(c.name, _dedup_key(c)) for c in group]
     first_for: dict[tuple[str, str], ToolUseBlock] = {}
     for call, key in zip(group, keys, strict=True):
-        if key not in cached:
-            first_for.setdefault(key, call)
+        if key in cached:
+            continue
+        if _covering_entry(cached, call) is not None:
+            # An earlier read of the same path already holds these lines; the cache answers
+            # and the call must not run.
+            continue
+        first_for.setdefault(key, call)
 
     fetched: dict[tuple[str, str], tuple[ContentBlock, int]] = {}
     pending = list(first_for.items())
@@ -2308,12 +2457,30 @@ def _run_group(
     for call, key in zip(group, keys, strict=True):
         entry = cached.get(key)
         if entry is not None:
-            body = EVICTED_REPEAT if entry.evicted else REPEAT_PREFIX + entry.content
-            out.append((ToolResultBlock(tool_use_id=call.id, content=body), "repeat", None))
+            out.append((
+                ToolResultBlock(
+                    tool_use_id=call.id, content=_repeat_body(call, entry, exact=True)
+                ),
+                "repeat", None,
+            ))
+            continue
+        covering = _covering_entry(cached, call)
+        if covering is not None:
+            # Not byte-identical, but a read of the same path whose span already holds the
+            # requested lines -- from an earlier turn, or a sibling this loop just wrote.
+            out.append((
+                ToolResultBlock(
+                    tool_use_id=call.id, content=_repeat_body(call, covering, exact=False)
+                ),
+                "repeat", None,
+            ))
             continue
         result, ms = fetched[key]
         if isinstance(result, ToolResultBlock) and not result.is_error:
-            cached[key] = _CachedResult(result.content, call.id)
+            path, span, reached_eof = _read_coverage(call, result.content)
+            cached[key] = _CachedResult(
+                result.content, call.id, path=path, span=span, reached_eof=reached_eof
+            )
         is_error = isinstance(result, ToolResultBlock) and result.is_error
         out.append((result, "error" if is_error else "ran", ms))
     return out
