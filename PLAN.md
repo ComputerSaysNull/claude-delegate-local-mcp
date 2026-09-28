@@ -1,4 +1,4 @@
-<!-- BUDGET: 460 -->
+<!-- BUDGET: 470 -->
 # Plan
 
 Open work, status first so the file scans.
@@ -248,6 +248,13 @@ M11's exit, carried. Items 1 to 3 were M11.3, M11.4 and M11.9, moved unchanged o
     over the same `.jsonl` gets repaint, scrollback and selection for nothing.
     - b. ✅ 2026-09-28 The consumer is not the caller — an MCP tool call is request/response either way — it
     is the person reading the transcript stream while the work happens.
+4. ⬜ **A tool call in flight is invisible**: `tool_calls` land in the `turn` event, after the tools finish; write a start event
+5. ⬜ **The partial answer is not in the stream while it generates**, so a watcher sees counters and no text
+6. ⬜ **A delegation has no title**; a list of them reads as timestamps. Derive one from the task, or take it as an argument
+7. ⬜ **Liveness reads as repeated `alive` lines**; the chunk counts belong in counters that update in place
+8. ⬜ **The transcript format has no version**, so a reader cannot tell an old shape from a broken one
+9. ⬜ **Opening the viewer takes a command and a localhost URL**, and a phone cannot reach it
+10. ⬜ **Its own session:** split the viewer out of `docs/ARCHITECTURE.md`, and decide whether the browser viewer becomes its own repository
 ### M20 — A call returns a handle
 
 **Exit:** a delegation longer than the client's window returns a handle, and a second call
@@ -410,6 +417,9 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 95. ✅ 2026-09-28 **`edit_file` cannot tell another writer changed its file**: hash on read, updated by the server's own writes
 96. ✅ 2026-09-28 **`ast_unchanged.py` cannot see a pydantic model's docstring**, which is tool-schema text
 97. ✅ 2026-09-27 **"`max` never answers" is stale**: 8 of 8 answered on 2026-09-27; MODELS.md and TROUBLESHOOTING.md say otherwise
+98. ⬜ **The owning-doc check cannot tell a comment-only change from a behavioural one**: 14 waivers on ARCHITECTURE.md in three days (audit 2026-09-28). Exempt comments, never docstrings (item 96)
+99. ⬜ **Testing traps live in no document**: a `tests/README.md`, with what moves there from CONTRIBUTING and the gate checks that follow it
+100. ⬜ **A prefetched range never reaches the read cache**, so re-reading lines `files[]` already supplied runs the tool again
 
 ## Deferred
 

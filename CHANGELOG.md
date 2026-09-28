@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #409 — 2026-09-28 — docs: file the viewer's gaps and three audit follow-ups in PLAN.md
+
+### Added
+
+- **Seven M19 items and three Unscheduled ones.** The browser viewer shipped as the
+  terminal render inside a page, and watching a live delegation in it showed what a
+  person needs that the stream does not carry: a tool call while it runs, the answer so
+  far, a title, counters in place of repeated `alive` lines, a format version, and a way
+  in that is not a command plus a localhost URL. Splitting the viewer out of
+  `docs/ARCHITECTURE.md` and deciding whether it becomes its own repository is one item,
+  for a session of its own. The 2026-09-28 audit added the owning-doc check's blindness
+  to comment-only changes, a home for testing traps, and prefetched ranges that never
+  reach the read cache. `PLAN.md`'s budget goes from 460 to 470 for the ten lines.
+
 ## #408 — 2026-09-28 — docs: the 2026-09-28 audit, and every finding from it that was wording
 
 ### Added
