@@ -15,11 +15,19 @@ The follow view prints and never repaints, so the terminal's own scrollback hold
 everything you have watched -- including after you return to the list. That is why
 nothing here uses the alternate screen buffer or `ESC[3J`, both of which would throw
 that away.
+
+With `--serve` the same directory is served over a small local web page that repaints as
+the stream grows: a browser gives repaint, scrollback and selection for free, and the
+`.jsonl` format is unchanged. Bound to `localhost` only, and a request whose `Host`
+header does not name a loopback is refused, so a page on another origin cannot read
+transcripts through it.
 """
 
 from __future__ import annotations
 
+import argparse
 import contextlib
+import http.server
 import json
 import os
 import re
@@ -29,6 +37,7 @@ import sys
 import time
 from datetime import datetime, UTC
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 try:
     import termios
@@ -1336,7 +1345,289 @@ def _follow(path: Path) -> None:
                 return
 
 
+# --- a browser view ------------------------------------------------------------------
+
+
+# One self-contained page: inline CSS and vanilla JS, no external resources. It shows the
+# list from `/list`, lets a reader pick a transcript, then polls `/tail` about once a
+# second and appends to a `<pre>`, auto-scrolling only while the reader is already at the
+# bottom -- so a long transcript grows without yanking the view down beneath them.
+PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>delegations</title>
+<style>
+body { margin: 0; padding: 1rem; background: #1e1e1e; color: #d4d4d4;
+       font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+h1 { font-size: 1rem; font-weight: 600; margin: 0 0 .5rem; }
+label { margin-right: .5rem; }
+select, button { font: inherit; padding: .2rem .4rem; }
+pre { white-space: pre-wrap; word-break: break-word; margin: 1rem 0 0;
+      min-height: 70vh; }
+</style>
+</head>
+<body>
+<h1>delegations</h1>
+<div>
+  <label>transcript <select id="pick"></select></label>
+  <button id="reload" type="button">refresh list</button>
+</div>
+<pre id="out"></pre>
+<script>
+"use strict";
+var out = document.getElementById("out");
+var pick = document.getElementById("pick");
+var offset = 0;
+// One poll at a time, and a poll answers only the transcript it was sent for: a slow
+// response would otherwise append twice, or into a transcript picked since.
+var busy = false;
+var generation = 0;
+
+function atBottom() {
+  return out.scrollHeight - out.scrollTop - out.clientHeight < 4;
+}
+
+function append(text) {
+  var stick = atBottom();
+  out.textContent += text;
+  if (stick) out.scrollTop = out.scrollHeight;
+}
+
+function start() {
+  generation += 1;
+  offset = 0;
+  out.textContent = "";
+  poll();
+}
+
+async function load() {
+  try {
+    var r = await fetch("/list");
+    var rows = await r.json();
+    var chosen = pick.value;
+    pick.innerHTML = "";
+    for (var i = 0; i < rows.length; i++) {
+      var opt = document.createElement("option");
+      opt.value = rows[i].name;
+      opt.textContent = rows[i].task + " (" + rows[i].name + ")";
+      pick.appendChild(opt);
+    }
+    if (chosen) pick.value = chosen;
+  } catch (e) {}
+  start();
+}
+
+async function poll() {
+  var name = pick.value;
+  if (!name || busy) return;
+  busy = true;
+  var mine = generation;
+  try {
+    var r = await fetch("/tail?name=" + encodeURIComponent(name) + "&offset=" + offset);
+    if (!r.ok || mine !== generation) return;
+    var data = await r.json();
+    if (mine !== generation) return;
+    if (data.text) append(data.text + "\\n");
+    offset = data.offset;
+  } catch (e) {
+  } finally {
+    busy = false;
+  }
+}
+
+document.getElementById("reload").addEventListener("click", load);
+pick.addEventListener("change", start);
+load();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>
+"""
+
+
+# The only names `host_allowed` accepts.
+_LOOPBACK_V4 = "127.0.0.1"
+_LOOPBACK_V6 = "::1"
+
+
+def host_allowed(host_header: str) -> bool:
+    """Whether a request's `Host` header names this server.
+
+    The `Host` header is what a browser sends for the origin it believes it is talking to,
+    which is exactly what a DNS rebinding attack rewrites: a page on some other origin can
+    make requests to localhost, and the header is how the server tells the difference.
+    Only the loopback names are accepted, and a port may follow any of them.
+    """
+    host = host_header.strip()
+    if host.startswith("["):
+        # Bracketed IPv6, optionally with a port after it. The address is between the
+        # brackets; anything after them must be a port or nothing at all.
+        end = host.find("]")
+        if end < 0:
+            return False
+        rest = host[end + 1:]
+        if rest and not rest.startswith(":"):
+            return False
+        return host[1:end] == _LOOPBACK_V6
+    # A bare name, or a name with a port. The port is stripped, never validated -- the
+    # name is the only thing the guard cares about.
+    addr = host.rsplit(":", 1)[0] if ":" in host else host
+    return addr in ("localhost", _LOOPBACK_V4)
+
+
+def transcript_path(directory: Path, name: str) -> Path | None:
+    """The transcript `name` names, or None when it names nothing this server may open.
+
+    `name` arrives from a URL. It must be a bare file name inside `directory`: no
+    separators, no traversal, not absolute, and ending in `.jsonl`. Resolving the result
+    and checking it stays inside the directory catches a symlink pointing out of it.
+    """
+    if not name.endswith(".jsonl"):
+        return None
+    if "/" in name or "\\" in name or ".." in name or name.startswith("."):
+        return None
+    if os.path.isabs(name):
+        return None
+    try:
+        path = (directory / name).resolve()
+        inside = directory.resolve()
+    except OSError:
+        return None
+    try:
+        path.relative_to(inside)
+    except ValueError:
+        return None
+    return path if path.is_file() else None
+
+
+def complete_lines(path: Path, offset: int) -> tuple[list[str], int]:
+    """The finished lines from `offset`, and where the next poll starts.
+
+    Reads from `offset` but hands back only what ends in a newline: a line the writer is
+    still appending is left for the next poll, so nothing is rendered half -- the same
+    rule `follow` follows one layer down. Each complete line is parsed as JSON, skipped
+    when it is not an object (as `summarise` does), and rendered with the existing
+    `render`, stripped of colour, since a browser gets no ANSI. The offset is in bytes
+    and lands just past the last complete line: counted in characters, a transcript
+    holding any non-ASCII text would send the next poll to the wrong place.
+    """
+    with path.open("rb") as fh:
+        fh.seek(max(offset, 0))
+        data = fh.read()
+    cut = data.rfind(b"\n")
+    if cut < 0:
+        return [], max(offset, 0)
+    lines: list[str] = []
+    for raw in data[:cut].split(b"\n"):
+        try:
+            event = json.loads(raw.decode("utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        lines.extend(_plain(line) for line in render(event, 120))
+    return lines, max(offset, 0) + cut + 1
+
+
+def _list_json(directory: Path) -> list[dict]:
+    """The rows `scan` returns, as JSON objects: everything already JSON-safe, plus the
+    file name, since the row's own `path` is a `Path` and not serialisable."""
+    out: list[dict] = []
+    rows, _ = scan(directory)
+    for row in rows:
+        entry = {key: value for key, value in row.items() if key != "path"}
+        entry["name"] = row["path"].name
+        out.append(entry)
+    return out
+
+
+class _Handler(http.server.BaseHTTPRequestHandler):
+    """One request. Thin: the logic lives in the helpers it calls."""
+
+    server_version = "watch-delegations"
+
+    def do_GET(self) -> None:
+        if not host_allowed(self.headers.get("Host", "")):
+            self.send_error(403)
+            return
+        url = urlparse(self.path)
+        if url.path == "/":
+            body = PAGE.encode("utf-8")
+            self._respond(200, "text/html; charset=utf-8", body)
+            return
+        if url.path == "/list":
+            body = json.dumps(_list_json(self.server.directory)).encode("utf-8")
+            self._respond(200, "application/json", body)
+            return
+        if url.path == "/tail":
+            self._tail(url)
+            return
+        self.send_error(404)
+
+    def _tail(self, url) -> None:
+        query = parse_qs(url.query)
+        name = (query.get("name") or [""])[0]
+        raw = (query.get("offset") or ["0"])[0]
+        try:
+            offset = int(raw)
+        except ValueError:
+            offset = 0
+        path = transcript_path(self.server.directory, name)
+        if path is None:
+            self.send_error(404)
+            return
+        lines, offset = complete_lines(path, offset)
+        body = json.dumps({"text": "\n".join(lines), "offset": offset}).encode("utf-8")
+        self._respond(200, "application/json", body)
+
+    def _respond(self, status: int, content_type: str, body: bytes) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args) -> None:
+        pass  # a watcher's server should be quiet; the terminal view prints nothing
+
+
+class _Server(http.server.ThreadingHTTPServer):
+    """The HTTP server, carrying the transcript directory to each request."""
+
+    def __init__(self, address: tuple, directory: Path) -> None:
+        super().__init__(address, _Handler)
+        self.directory = directory
+
+
+def serve(directory: Path, port: int = 0) -> int:
+    """Serve the transcript directory over a local web page until Ctrl-C.
+
+    The page repaints in the browser, which the terminal `follow` view deliberately does
+    not: a browser gives scrollback, selection and re-rendering for free, and the `.jsonl`
+    format is unchanged. Bound to `localhost` only, so nothing on the network can reach
+    it -- and a request whose `Host` header does not name a loopback is refused, so a
+    page on another origin cannot read transcripts through it either.
+    """
+    server = _Server(("localhost", port), directory)
+    print("http://" + "localhost" + ":" + str(server.server_address[1]))
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Watch delegation transcripts in a terminal, or serve them over HTTP.")
+    parser.add_argument("--serve", action="store_true",
+                        help="serve the transcript directory over a local web page")
+    parser.add_argument("--port", type=int, default=0,
+                        help="port for --serve; 0 lets the OS choose one")
+    args = parser.parse_args()
     if not TRANSCRIPT_DIR:
         print("DELEGATE_TRANSCRIPT_DIR is not set, so there is nothing to watch.",
               file=sys.stderr)
@@ -1345,6 +1636,8 @@ def main() -> int:
     if not directory.is_dir():
         print(f"{TRANSCRIPT_DIR} is not a directory.", file=sys.stderr)
         return 2
+    if args.serve:
+        return serve(directory, args.port)
     if termios is None:
         print("This needs a POSIX terminal. Run it under WSL, where the server runs.",
               file=sys.stderr)
