@@ -207,8 +207,9 @@ the model produced something — and it is the one signal that sees *inside* a t
 completion alone cannot, and gives a one-shot no progress signal at all. A moving deadline
 cannot be enforced by a fixed timeout, so the attempt runs beside a watchdog re-reading the
 budget while the call is in flight,
-rather than inside `asyncio.wait_for`. (ADR-0072) The clock starts *below* the one-off
-rate seed rather than above it, so a slow metrics scrape is not charged to turn 1.
+rather than inside `asyncio.wait_for`. (ADR-0072) On both paths the clock starts *below*
+the one-off rate seed rather than above it, so a slow metrics scrape is not charged to the
+first turn.
 
 Arrival is forwarded to the loop's own caller as well as consumed here, because the deadline
 is not its only consumer: [ARCHITECTURE.md](ARCHITECTURE.md) owns the other, an admission

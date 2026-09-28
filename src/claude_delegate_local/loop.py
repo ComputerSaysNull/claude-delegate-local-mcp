@@ -1299,6 +1299,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         )
 
     async def dispatch() -> Dispatch:
+        nonlocal last_progress
         # Seeded, since a one-shot has no earlier turn and the least slack: its whole answer
         # must fit the one deadline running from entry (ADR-0055).
         rate = await seed_decode_rate(
@@ -1306,6 +1307,9 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
             label_trusted=cfg.admission_idle_hold > 0,
         fallback=cfg.rate_fallback_tok_s,
         )
+        # Restarted after the seed, as the loop does, so a slow `/metrics` is not charged
+        # to the silence budget the answer is measured against.
+        last_progress = clock()
         ceiling = rate.ceiling(cfg, budget_seconds(
             cfg, dispatch_left=deadline - clock()
         ))
