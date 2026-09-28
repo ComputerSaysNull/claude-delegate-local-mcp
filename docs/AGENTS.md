@@ -63,8 +63,8 @@ A name must match `^[A-Za-z0-9_-]+$`: it is a name, not a path, so it cannot tra
 
 `list_agents` names a file that does not parse, because the standing advice for a missing
 agent — ask by name, read the error — needs the very name an omission hides. Hence three,
-and `other_format` (ADR-0031) rather than a second kind of broken: four of this repository's
-own five agent files are in it deliberately, and folding them into `skipped` would leave
+and `other_format` (ADR-0031) rather than a second kind of broken: this repository's own
+Claude Code agents are in it deliberately, and folding them into `skipped` would leave
 that list permanently non-empty, which is a list nobody reads. A shadowed name is listed
 once, as the lookup offers one — but a Claude Code file shadows nothing: the lookup passes
 over it, so its name can be in both lists.
@@ -449,7 +449,7 @@ agent body and the files block are identical and come first, which is exactly th
 [ADR-0011](../DECISIONS.md) fixed the prompt in, so the cluster serves the shared part from
 its prefix cache rather than prefilling it again. **Keeping `files[]` stable across a series
 of questions is what makes this work**, and it is worth more than any other tuning available
-here. A batch tool would buy nothing the separate calls do not already get. (ADR-0051)
+here.
 
 The result reports `bash_failures` and `last_bash_exit` **captured by the server**, not
 claimed by the model. Trust those over the prose: models misreport command outcomes.

@@ -687,9 +687,8 @@ acquired: a waiter that does not fit holds nothing.
 **The token rule binds on the lower of two ceilings.** `kv_token_budget` is what the operator
 allows; `kv_cache_size_tokens` is what the machine has, and it arrives free in the scrape that
 already prices a delegation's first turn. Reading only the configured ceiling risks drifting
-past the pool it describes itself as sitting under, and the drift is silent because
-over-admitting queues rather than errors, so this protects latency and cannot report that it
-has stopped. This is deliberately *not* the silent override `WindowCheck` refuses: that
+past the pool it describes itself as sitting under, and the drift is silent, because
+over-admitting queues rather than errors and cannot report that it has stopped. This is deliberately *not* the silent override `WindowCheck` refuses: that
 validates a declared `context_window` because adopting the endpoint's figure would overrule
 the operator, whereas these two are ceilings on the same physical thing and the lower of two
 ceilings overrules neither. Both, and which is binding, are in `backend_status` — where
@@ -1067,9 +1066,7 @@ once and has nothing to tear.
 
 **The selected row keeps its colours, and re-opens the inverse after each reset**, because a
 row carries its own dim/reset pairs and a reset ends the inverse as surely as it ends the dim
-— highlighting only as far as the first one, two columns in. The band ends with the row
-rather than being padded to the terminal: a pad counted in characters overshoots on a task
-carrying an emoji, which renders two cells wide, and the row wraps. Leaving the follow view returns the highlight to the row it was opened
+— highlighting only as far as the first one, two columns in. Leaving the follow view returns the highlight to the row it was opened
 from, falling back to the top when that transcript has aged out of the newest N.
 
 The list and the follow view are two states of one process, not two runs of it. `q` leaves
@@ -1129,8 +1126,8 @@ in that block worth interrupting a reader for.
 wraps onto its own lines, is coloured like the outcome beside it, and is never trimmed to
 fit; on a narrow terminal the argument list drops to its own line rather than being cut.
 
-Both paths write a fourth kind of event, `alive`, and it is the only one written on a clock
-rather than on an occurrence. The other three mark something that happened; this one exists because either
+Both paths write a fourth kind of event, `alive`, written on a clock rather than on an
+occurrence, as `waiting` below is. The other three mark something that happened; this one exists because either
 shape can be silent for a long time — a one-shot has no turns at all, and one turn can
 outlast the client's idle timer unaided. A synthetic `turn` is written when a one-shot's
 answer arrives, so the record is never the empty shape a failed delegation has.

@@ -298,8 +298,10 @@ re-seeded at that figure.
 
 **With nothing remembered at all, the price is a configured floor** rather than the
 endpoint's since-boot figure, which is a blend over every regime the engine has served and
-errs optimistic -- the direction that kills a turn instead of truncating it (ADR-0101). A
-bucket with samples never reaches that path.
+errs optimistic -- the direction that kills a turn instead of truncating it (ADR-0101). Nor
+is that figure a benign cold start: `expect` searches every sample at the asked concurrency
+*or busier*, so a low expectation searches widely and keeps the worst, while a high one finds
+nothing and would take the optimistic blend. A bucket with samples never reaches that path.
 
 **A bucket answers with its median, and samples arrive on a ticker rather than per turn.**
 A median is chosen because the alternatives are dragged down by the wrong samples: a
@@ -341,11 +343,7 @@ reverse is never true. The concurrency comes from the lease, not the cluster
 fitted to rate-against-concurrency would be a constant baked to one deployment's hardware.
 Samples sit in a bucket per concurrency, each capped on its own. One shared cap evicted by
 recency would spend itself on whichever regime ran most recently and leave every question
-answered from the flood — a memory that gets worse the more it is used.
-An empty memory meets the configured floor, not the since-boot figure, because falling
-through to that figure is **not** the benign cold start it looks like: `expect` searches every
-sample at the asked concurrency *or busier*, so a low expectation searches widely and keeps
-the worst, while a high one finds nothing and would take the optimistic blend. The memory
+answered from the flood — a memory that gets worse the more it is used. The memory
 loads and saves under `rate_history_dir`, durable so a reconnect or reboot does not reach the
 empty-memory path, stamped with the served model so a swap discards it rather than pricing
 a new model at the old one's speed (ADR-0075, ADR-0094). An endpoint publishing no rate caps
@@ -379,11 +377,6 @@ was evaluated at, and the turn's `priced` row records which. One setting each, n
 path: a lower loop temperature would only protect tool-call syntax, and no malformed tool
 call appeared at any temperature from 0.2 to 1.5, so one pair covers both paths.
 A retired name is refused. (ADR-0098)
-
-A reply also reports **how much of itself it repeats**, as a share of its non-blank lines.
-That is the only field separating a loop from a long answer, which are identical
-everywhere else: both end at a length stop having spent the ceiling exactly, so both read
-as "needs a bigger budget". Reported and never acted on — no threshold has been earned.
 
 ## An empty answer is recovered from before it is reported
 
@@ -671,8 +664,10 @@ this for exit codes and the same argument covers the loop's economics: a model's
 its own work is a claim, these are observations. All are absent rather than zeroed on the
 one-shot path, where `tool_calls: 0` would read as a model that chose not to use its tools.
 
-`duplicate_line_share` is what tells a loop from a long answer: the share of non-blank lines
-already said. Code fences are left out, since they are markup; a report with four code blocks
+`duplicate_line_share` is the only field that tells a loop from a long answer, which are
+identical everywhere else: both end at a length stop having spent the ceiling exactly, so
+both read as "needs a bigger budget". It is the share of non-blank lines already said,
+reported and never acted on — no threshold has been earned. Code fences are left out, since they are markup; a report with four code blocks
 otherwise read as a fifth repeated.
 
 `bash_calls`, `bash_failures` and `last_bash_exit` are the subject ADR-0007 was written
