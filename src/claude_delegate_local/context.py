@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Iterator
+import sys
+from collections.abc import Callable, Iterable, Iterator
+from itertools import groupby
 from dataclasses import dataclass
 from hashlib import sha256
 
@@ -142,7 +144,7 @@ FILES_HEADER = (
     "contents, and the paths are absolute and already resolved."
 )
 SKIPS_HEADER = (
-    "These files were named but not included. Treat each as unavailable -- do not infer "
+    "These files were named but not included. Treat each as not given -- do not infer "
     "its contents from its name or from the files that were included:"
 )
 
@@ -181,6 +183,55 @@ class FileRequest:
     entry: ResolvedPath
     start_line: int | None = None
     end_line: int | None = None
+
+
+Span = tuple[int, int | None]  # first line, last line or None for the end of the file
+_EOF = sys.maxsize
+
+
+def merge_spans(spans: Iterable[Span]) -> tuple[Span, ...]:
+    """Ranges of one file, merged where they overlap or touch, in line order.
+
+    An end of None is the end of the file. Merged rather than sent as given, since an
+    overlap would put the same lines in the prompt twice (ADR-0106).
+    """
+    merged: list[tuple[int, int | None]] = []
+    for start, end in sorted(spans, key=lambda s: s[0]):
+        if merged:
+            first, last = merged[-1]
+            if last is None or start <= last + 1:
+                if last is not None and (end is None or end > last):
+                    merged[-1] = (first, end)
+                continue
+        merged.append((start, end))
+    return tuple(merged)
+
+
+def _uncovered(span: Span, covered: Iterable[Span]) -> list[Span]:
+    """The parts of `span` no span in `covered` reaches, in line order."""
+    pieces = [(span[0], _EOF if span[1] is None else span[1])]
+    for first, last in covered:
+        end = _EOF if last is None else last
+        kept: list[tuple[int, int]] = []
+        for start, stop in pieces:
+            if end < start or first > stop:
+                kept.append((start, stop))
+                continue
+            if start < first:
+                kept.append((start, first - 1))
+            if end < stop:
+                kept.append((end + 1, stop))
+        pieces = kept
+    return [(s, None if e == _EOF else e) for s, e in pieces]
+
+
+def _within(inner: Span, outer: Span) -> bool:
+    last = _EOF if outer[1] is None else outer[1]
+    return outer[0] <= inner[0] and (_EOF if inner[1] is None else inner[1]) <= last
+
+
+def _length(span: Span) -> int:
+    return (_EOF if span[1] is None else span[1]) - span[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,7 +449,8 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
                     SKIP_OVER_FILE_BUDGET,
                     f"an estimated {est} tokens exceeds the {cfg.max_file_tokens} "
                     "per-file limit. It is left out whole rather than truncated, because "
-                    "source cut mid-function is worse than absent",
+                    "source cut mid-function is worse than absent. If you have read_file, "
+                    "it reads the file in parts from start_line=1",
                 )
 
             if total + est > cfg.max_total_prefetch_tokens:
@@ -459,7 +511,8 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
             entry.given,
             SKIP_OVER_FILE_BUDGET,
             f"lines {start}-{last} are an estimated {est} tokens, over the "
-            f"{cfg.max_file_tokens} per-file limit. Name a smaller range",
+            f"{cfg.max_file_tokens} per-file limit. Name a smaller range; if you have "
+            f"read_file, it reads them with start_line={start}, end_line={last}",
         )
 
     if total + est > cfg.max_total_prefetch_tokens:
@@ -482,6 +535,47 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
         start_line=start,
         total_lines=total_lines,
     )
+
+
+def _span_of(item: ResolvedPath | FileRequest) -> Span:
+    _, start, end = _request_split(item)
+    return (1, None) if start is None else (start, end)
+
+
+def _request_for(entry: ResolvedPath, span: Span) -> FileRequest:
+    if span == (1, None):
+        return FileRequest(entry=entry)
+    return FileRequest(entry=entry, start_line=span[0], end_line=span[1])
+
+
+def _one_file(
+    items: list[ResolvedPath | FileRequest],
+    attempt: Callable[[ResolvedPath | FileRequest], FileEntry | Skip],
+) -> list[FileEntry | Skip]:
+    """Several entries naming one file: merged where they meet, and split where that is too big.
+
+    A whole-file entry is the span from line 1 to the end. A merged span that fits is one
+    block. One over the per-file cap falls back to the spans as named, smallest first,
+    each less the lines already answered for, so a range that fits is sent even when the
+    span absorbing it is not, and every line the rest named is skipped once, saying why
+    (ADR-0106).
+    """
+    entry = _request_split(items[0])[0]
+    named = [_span_of(item) for item in items]
+    out: list[FileEntry | Skip] = []
+    for span in merge_spans(named):
+        got = attempt(_request_for(entry, span))
+        if not (isinstance(got, Skip) and got.kind == SKIP_OVER_FILE_BUDGET):
+            out.append(got)
+            continue
+        answered: list[Span] = []
+        for one in sorted((s for s in named if _within(s, span)), key=_length):
+            for piece in _uncovered(one, answered):
+                out.append(attempt(_request_for(entry, piece)))
+                answered.append(piece)
+    # In line order, so the blocks read down the file whatever order they were fitted in.
+    sent = sorted((o for o in out if isinstance(o, FileEntry)), key=lambda e: e.start_line or 1)
+    return [*sent, *(o for o in out if isinstance(o, Skip))]
 
 
 def prefetch(cfg: Config, resolved: tuple[ResolvedPath | FileRequest, ...]) -> Prefetch:
@@ -511,30 +605,34 @@ def prefetch(cfg: Config, resolved: tuple[ResolvedPath | FileRequest, ...]) -> P
     total = 0
     exhausted = False
 
-    # Sorted here, once, before anything accumulates; later, or left to the caller, the
-    # budget cutoff would depend on naming order.
-    for item in sorted(resolved, key=_request_posix):
+    def attempt(item: ResolvedPath | FileRequest) -> FileEntry | Skip:
+        nonlocal total, exhausted
         if exhausted:
-            skips.append(
-                Skip(
-                    _request_posix(item),
-                    _request_given(item),
-                    SKIP_OVER_TOTAL_BUDGET,
-                    f"the {cfg.max_total_prefetch_tokens}-token budget for this call was "
-                    "already spent by an earlier file in the list",
-                )
+            return Skip(
+                _request_posix(item),
+                _request_given(item),
+                SKIP_OVER_TOTAL_BUDGET,
+                f"the {cfg.max_total_prefetch_tokens}-token budget for this call was "
+                "already spent by an earlier file in the list",
             )
-            continue
-
         outcome = _prefetch_one(cfg, item, total)
         if isinstance(outcome, Skip):
-            skips.append(outcome)
-            if outcome.kind == SKIP_OVER_TOTAL_BUDGET:
-                exhausted = True
-            continue
+            exhausted = exhausted or outcome.kind == SKIP_OVER_TOTAL_BUDGET
+        else:
+            total += outcome.est_tokens
+        return outcome
 
-        total += outcome.est_tokens
-        entries.append(outcome)
+    # Sorted here, once, before anything accumulates; later, or left to the caller, the
+    # budget cutoff would depend on naming order. Sorting also puts a file's entries side
+    # by side, so its ranges are merged as one group.
+    for _, group in groupby(sorted(resolved, key=_request_posix), key=_request_posix):
+        items = list(group)
+        outcomes = [attempt(items[0])] if len(items) == 1 else _one_file(items, attempt)
+        for outcome in outcomes:
+            if isinstance(outcome, Skip):
+                skips.append(outcome)
+            else:
+                entries.append(outcome)
 
     return Prefetch(
         files=tuple(entries),

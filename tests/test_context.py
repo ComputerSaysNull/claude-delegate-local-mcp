@@ -386,7 +386,7 @@ def test_one_large_file_may_now_spend_the_whole_budget_and_the_rest_are_still_na
     With the caps equal, one file can take the lot, and `prefetch` stops at the first file
     that does not fit instead of continuing -- so everything sorted after it is skipped
     too. What makes that survivable is that nothing is silent: the skip reaches the
-    accounting *and* the prompt, and the model is told to treat the file as unavailable
+    accounting *and* the prompt, and the model is told to treat the file as not given
     rather than infer it from its name.
     """
     # Two files that each fit the per-file cap alone and cannot both fit the total.
@@ -407,3 +407,19 @@ def test_one_large_file_may_now_spend_the_whole_budget_and_the_rest_are_still_na
     assert second.posix in block, "the model was not told the second file was missing"
     assert "y = 2" not in block
     assert result.accounting()["files_skipped"][0]["path"] == second.posix
+
+
+# --- merge_spans (ADR-0106) ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("spans", "merged"), [
+    ([(50, 60), (10, 20)], ((10, 20), (50, 60))),   # apart, returned in line order
+    ([(10, 30), (25, 40)], ((10, 40),)),             # overlapping
+    ([(10, 20), (21, 30)], ((10, 30),)),             # touching
+    ([(10, 20), (22, 30)], ((10, 20), (22, 30))),    # a one-line gap stays a gap
+    ([(10, 30), (12, 15)], ((10, 30),)),             # inside
+    ([(10, None), (500, 510)], ((10, None),)),       # to the end holds everything after
+    ([(10, 20), (15, None)], ((10, None),)),         # and extends what it overlaps
+])
+def test_merge_spans(spans, merged):
+    assert context.merge_spans(spans) == merged

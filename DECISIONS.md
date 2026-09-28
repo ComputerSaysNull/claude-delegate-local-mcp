@@ -19,7 +19,40 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
-## ADR-0105 — 2026-09-25 — A `files[]` entry may name a line range, and is judged by the range — Accepted
+## ADR-0106 — 2026-09-28 — Several `files[]` ranges of one file are merged, not refused — Accepted
+
+**Context.** ADR-0105 refused a second entry for a file already named, so a caller wanting
+two parts of one file could prefetch one and leave the delegation to read the other. It
+was met three times in two days, once costing a delegation 51 turns of reading a file whose
+three ranges had been named up front, only the first of them prefetched.
+
+**Decision.** Every entry for one file is collected, a whole-file entry as the span from
+line 1 to the end, and spans that overlap or touch merge into one; a gap of even one line
+keeps them apart, each its own block with its own `lines A-B of N` header, in line order. A
+merged span that fits the per-file cap is one block. One that does not falls back to the
+spans as named, smallest first, each less the lines already answered for: a range that fits
+is sent even when the span absorbing it is not, and each line the rest named is skipped
+once, with the `read_file` range that reaches it. Smallest first because the cap is per
+block, so the order cannot change which named ranges fit, only whether a large one that
+does not fit hides a small one that does; the pieces left over are never cut to fit, which
+would be the server choosing where a file ends (ADR-0046).
+
+**Why merge rather than send as given.** An overlap would put the same lines in the prompt
+twice: a cost on every turn that resends it, and two copies of a line a citation could
+point at. Merging is exact, because the union of ranges is itself a range.
+
+**What it absorbs.** A range inside another that is sent adds nothing and is dropped
+silently, including one whose `start_line` is past the end and would have been refused on
+its own. Only a span that is attempted is validated.
+
+**The skip says how to get the rest.** A size skip names the lines left out and, for a
+model that has `read_file`, the range to read; the skip list no longer calls such a file
+"unavailable", which a file reachable in parts is not.
+
+**Not in scope.** A prefetched range still does not reach the read cache that answers a
+repeated `read_file` (PLAN Unscheduled.100).
+
+## ADR-0105 — 2026-09-25 — A `files[]` entry may name a line range, and is judged by the range — Partially superseded by ADR-0106
 
 **Context.** The per-file prefetch cap drops a file over it whole (ADR-0046), and
 `CHANGELOG.md`, about 182k tokens against 140k, always came back in `files_skipped` when a
