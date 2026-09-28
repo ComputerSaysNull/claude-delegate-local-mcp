@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #413 — 2026-09-28 — fix: a one-shot's silence budget no longer pays for the rate scrape
+
+### Fixed
+
+- **The one-shot started its stall clock before the metrics scrape that prices it.** The
+  agentic loop was fixed for this in #266 and the one-shot never was:
+  `run_one_shot` stamped `last_progress` at entry and then awaited `seed_decode_rate`
+  inside `dispatch()`, so every second a slow `/metrics` took came out of the silence
+  budget its only turn is measured against, and a blackholed scrape surfaced as a stall
+  in the model. `docs/DISPATCH.md` described the fixed ordering as if it held for both
+  paths, which is how the 2026-09-28 audit found it. The stamp is taken again right after
+  the seed. Red first, mirroring the loop's own regression test: with a 25s scrape
+  against a 30s budget the one-shot began with 5.0s, and a 20s answer died; both pass
+  now, and a 35s silence still raises `DispatchTimedOut`.
+
 ## #412 — 2026-09-28 — fix: prose-regrowth reads the commit being made, and lets a JOURNAL pointer through
 
 ### Fixed
