@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #401 — 2026-09-28 — fix: the AST check sees a pydantic model's docstring
+
+### Fixed
+
+- **`ast_unchanged.py` passed a reworded `FileRange` docstring as "only comments
+  changed".** That docstring is the `delegate` tool's input-schema text for a ranged
+  `files[]` entry, so rewording it changes what the model reads. The check kept only the
+  docstrings of `@mcp.*` functions and stripped every class docstring, which is how a
+  delegated pass re-wrapped it unnoticed (#379). A class with `BaseModel` among its bases
+  now counts as contract text too. Checked live against `server.py`: the old script
+  reports a reworded `FileRange` docstring unchanged and exits 0, the fixed one exits 1.
+  An ordinary class docstring is still invisible, which the regression test pins.
+
 ## #400 — 2026-09-27 — docs: TROUBLESHOOTING no longer says max never answers
 
 ### Fixed
