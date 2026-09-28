@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #414 — 2026-09-28 — fix: a truncated result's line count leaves out the truncation note
+
+### Fixed
+
+- **`result_lines` counted the note saying a result was cut.** `read_file` and
+  `read_git` end a truncated result with a blank line and a `[truncated: ...]` line, and
+  `run_bash` opens one with its note; the record counted every line of the content, so
+  the viewer showed a 657-line read as 659, and two consecutive reads looked as if they
+  overlapped by two lines. The count now leaves the note out, recognised only where that
+  tool writes it, so a file quoting the marker mid-way keeps every line. `result_bytes`
+  still measures what was sent. Red first: 659 against 657 for `read_file` and
+  `read_git`, and 660 against 659 for `run_bash`, whose count keeps its `exit` line and
+  the blank after it; an untruncated read and a file quoting the marker are the controls.
+
 ## #413 — 2026-09-28 — fix: a one-shot's silence budget no longer pays for the rate scrape
 
 ### Fixed

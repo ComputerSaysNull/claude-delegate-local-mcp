@@ -1761,6 +1761,29 @@ def _line_count(text: str) -> int:
     return text.count("\n") + (0 if text.endswith("\n") else 1)
 
 
+# Where each tool puts its truncation note: after a blank line at the end, or first in
+# the output that follows the result's header line and its blank line.
+_NOTE_LAST = frozenset({"read_file", "read_git"})
+_NOTE_FIRST = frozenset({"run_bash"})
+
+
+def _output_line_count(name: str, text: str) -> int:
+    """Lines of the tool's own output, leaving out the server's note that it was cut.
+
+    Counted, the note made a 657-line read show as 659. Recognised only where that tool
+    writes it, so a file quoting the marker keeps every line.
+    """
+    if name in _NOTE_LAST:
+        body, sep, note = text.rpartition("\n\n" + _TRUNCATION_MARKER)
+        if sep and "\n" not in note:
+            return _line_count(body)
+    elif name in _NOTE_FIRST:
+        head, sep, output = text.partition("\n\n")
+        if sep and output.startswith(_TRUNCATION_MARKER):
+            return _line_count(head + sep + output.partition("\n")[2])
+    return _line_count(text)
+
+
 def _body_summary(text: str) -> str:
     """A file body as a length and a digest, never as bytes.
 
@@ -1865,7 +1888,7 @@ def tool_call_record(
         message=message,
         result_bytes=None if result is None else len(result.content),
         # Zero for empty, or an empty `search_files` reads as one match.
-        result_lines=None if result is None else _line_count(result.content),
+        result_lines=None if result is None else _output_line_count(call.name, result.content),
         exit_code=exit_code,
         ms=ms,
         stages=() if result is None or result.bash is None else result.bash.stages,
