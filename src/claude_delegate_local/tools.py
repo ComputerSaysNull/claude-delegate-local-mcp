@@ -136,6 +136,19 @@ def _int_arg(args: dict[str, object], name: str, default: int) -> int:
     return value
 
 
+def _expected_count_arg(args: dict[str, object]) -> int | None:
+    """`expected_count`, or None when omitted; below 1 or non-integer is refused."""
+    value = args.get("expected_count")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ToolRefused("'expected_count' must be a whole number, not "
+                          f"{type(value).__name__}.")
+    if value < 1:
+        raise ToolRefused("'expected_count' must be at least 1.")
+    return value
+
+
 def _one_path(
     cfg: Config,
     given: str,
@@ -728,8 +741,48 @@ def _quoted_prefix_hint(text: str, old: str) -> str | None:
     return None
 
 
+def _edit_plan(
+    text: str, old: str, new: str, expected: int | None
+) -> tuple[bytes, int]:
+    """Count `old` in `text`, validate against `expected`, and build the replacement.
+
+    Returns the encoded replacement and how many occurrences it covers. A missing or
+    ambiguous match is a refusal: stating `expected_count` is the model's own check
+    that it is editing what it thinks.
+    """
+    found = text.count(old)
+    if found == 0:
+        message = (
+            "'old_string' does not appear in the file, so nothing was written. Read "
+            "the file again -- what you quoted is either stale or not exactly what is "
+            "there, and whitespace counts."
+        )
+        hint = _quoted_prefix_hint(text, old) or _nearest_miss(text, old)
+        if hint:
+            message = f"{message} {hint}"
+        raise ToolRefused(message)
+    if expected is not None:
+        if found != expected:
+            raise ToolRefused(
+                f"'old_string' appears {found} times, but expected_count is "
+                f"{expected}, so nothing was written."
+            )
+        return text.replace(old, new).encode("utf-8"), found
+    if found > 1:
+        raise ToolRefused(
+            f"'old_string' appears {found} times, so which one to replace is "
+            f"ambiguous and nothing was written. Quote more of the surrounding "
+            f"lines until the text appears exactly once."
+        )
+    return text.replace(old, new, 1).encode("utf-8"), found
+
+
 def _edit_file(cfg: Config, args: dict[str, object]) -> str:
-    """Replace one exact occurrence of `old_string`, or refuse and change nothing.
+    """Replace one exact occurrence of `old_string`, or exactly `expected_count` of them,
+    or refuse and change nothing.
+
+    A count rather than a replace-all flag, so a model replacing a repeat on purpose still
+    states what it believes is there, and a wrong belief is refused like a wrong quote.
 
     Not `write_file`, where rewriting a long module whole lands any hallucinated character
     silently where nobody looks.
@@ -756,6 +809,8 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
             "nothing. Nothing was written."
         )
 
+    expected = _expected_count_arg(args)
+
     try:
         opened = open_resolved(entry, "r+b", scan_bytes=cfg.secret_content_scan_bytes)
     except OSError as e:
@@ -778,25 +833,7 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
         if text is None:
             raise ToolRefused(why)
 
-        found = text.count(old)
-        if found == 0:
-            message = (
-                "'old_string' does not appear in the file, so nothing was written. Read "
-                "the file again -- what you quoted is either stale or not exactly what is "
-                "there, and whitespace counts."
-            )
-            hint = _quoted_prefix_hint(text, old) or _nearest_miss(text, old)
-            if hint:
-                message = f"{message} {hint}"
-            raise ToolRefused(message)
-        if found > 1:
-            raise ToolRefused(
-                f"'old_string' appears {found} times, so which one to replace is ambiguous "
-                f"and nothing was written. Quote more of the surrounding lines until the "
-                f"text appears exactly once."
-            )
-
-        edited = text.replace(old, new, 1).encode("utf-8")
+        edited, count = _edit_plan(text, old, new, expected)
         if len(edited) > cfg.max_write_bytes:
             # `write_file`'s limit, refused for the same reason.
             raise ToolRefused(
@@ -813,7 +850,8 @@ def _edit_file(cfg: Config, args: dict[str, object]) -> str:
         except OSError as e:
             raise ToolRefused(f"could not write it: {e.strerror or e}") from e
 
-    return f"Replaced 1 occurrence in {entry.posix} ({len(edited)} bytes)."
+    word = "occurrence" if count == 1 else "occurrences"
+    return f"Replaced {count} {word} in {entry.posix} ({len(edited)} bytes)."
 
 
 def _capped(cfg: Config, result: sandbox.SandboxResult) -> str:
@@ -1510,8 +1548,10 @@ EDIT_FILE = RegisteredTool(
             "to reproduce every line you are not changing. old_string must appear exactly "
             "once -- if it appears never or more than once the file is left completely "
             "unchanged and you are told which, so quote enough of the surrounding lines to "
-            "be unique, and read the file first rather than quoting from memory. An empty "
-            "new_string deletes the text. The same path rules as read_file apply."
+            "be unique, and read the file first rather than quoting from memory. Set "
+            "`expected_count` to replace every occurrence when the text repeats on "
+            "purpose. An empty new_string deletes the text. The same path rules as "
+            "read_file apply."
         ),
         input_schema={
             "type": "object",
@@ -1520,11 +1560,21 @@ EDIT_FILE = RegisteredTool(
                 "old_string": {
                     "type": "string",
                     "description": "The exact text to replace, including whitespace and "
-                                   "indentation. Must occur exactly once in the file.",
+                                   "indentation. Must occur exactly once in the file, "
+                                   "unless expected_count says otherwise.",
                 },
                 "new_string": {
                     "type": "string",
                     "description": "What to put in its place. Empty to delete the text.",
+                },
+                "expected_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "How many times old_string is believed to appear. "
+                                   "Given, the text must appear exactly that many times "
+                                   "and then all of them are replaced; a mismatch "
+                                   "refuses and writes nothing. Omitted, the text must "
+                                   "appear exactly once.",
                 },
             },
             "required": ["path", "old_string", "new_string"],

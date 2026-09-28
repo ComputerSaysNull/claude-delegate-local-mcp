@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #405 — 2026-09-28 — feat: edit_file replaces a repeat on purpose with expected_count
+
+### Added
+
+- **`edit_file` takes an optional `expected_count`.** A string that appeared more than
+  once was always refused, so replacing three copies on purpose took three calls, each
+  quoting enough context to be unique, or a `run_bash` `sed` that bypasses the path policy
+  the file tools enforce. With `expected_count: N` the text must appear exactly N times and
+  then every copy is replaced; a different count is refused, naming both, and nothing is
+  written. It is a count and not a replace-all flag, so the model still states what it
+  believes is there, the same self-check that refusing an ambiguous match gives today.
+  Omitted, the rule is unchanged: exactly one.
+
 ## #404 — 2026-09-28 — feat: watch a delegation in the browser
 
 ### Added
