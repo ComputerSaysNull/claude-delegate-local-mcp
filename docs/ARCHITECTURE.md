@@ -422,7 +422,9 @@ would read a private SSH key on request. (ADR-0006)
 Layers 3 and 4 read something outside the process — a globs file, `git check-ignore` — so
 both can be absent, and both raise rather than defaulting to "nothing matched". A layer
 that cannot fire is trusted exactly as much as one that works, and a missing denylist and
-a clean pass are the same empty result in every log.
+a clean pass are the same empty result in every log. The raise reaches the caller as
+`misconfigured` wherever it is met: resolving `files[]`, a `workdir`, or declaring
+`search_files`, which reads the denylist too.
 
 ### One place crosses the boundary
 

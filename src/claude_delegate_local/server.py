@@ -928,6 +928,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         # Not `_refuse`, which blames an endpoint; nothing here reached one.
         failure = e
         raise ToolError(str(e)) from e
+    except PathPolicyError as e:
+        # Met inside the dispatch -- declaring `search_files` reads the denylist -- and
+        # reported as the prefetch reports the same fault, so it reads one way wherever met.
+        failure = e
+        raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
     except BaseException as e:
         failure = e
         # A deadline after some decoding returns what was decoded (ADR-0078), still as a
