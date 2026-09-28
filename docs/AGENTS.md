@@ -104,7 +104,7 @@ prevent:
 | Key | Value | Notes |
 |---|---|---|
 | `name` | the agent's name | Optional, but if present it **must equal the filename**, or the file is refused — and a bare `name:` counts as present, because a key whose value went missing is a setting that silently does nothing |
-| `description` | one line | What `list_agents` reports, so a caller can choose without opening the file |
+| `description` | one line | What `list_agents` reports, so a caller can choose without opening the file. In a `SKILL.md` it is also what Claude Code matches a request against to load the skill, so it says when to use it |
 | `model` | a model-registry key | Binds the dispatch |
 | `effort` | `off`, `low`, `high`, `max` | Refused loudly if misspelt. **Not** `medium` — the backend has no such level. **Not** `inherit` — that is what a *caller* passes to defer to this file |
 | `max_turns` | integer ≥ 1 | Above the server's hard cap the file is **refused, not clamped**: a caller's number is transient, a file is committed and trusted |

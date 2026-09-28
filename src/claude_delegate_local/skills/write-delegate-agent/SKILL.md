@@ -1,6 +1,6 @@
 ---
 name: write-delegate-agent
-description: Write an agent file in this server's format, for delegate_to_agent to run, and validate it by calling list_agents. Use when you want a delegation shaped by a reusable role rather than a one-off task.
+description: Use when writing, fixing or moving an agent file for the delegate-local MCP server — a reusable role, called by name, that delegate_to_agent runs on the local model — or when list_agents reports one as skipped or under old_location. Covers where the file goes (.claude/delegate-agents/, not .claude/agents/), its frontmatter and body, and validating it with list_agents. Not for Claude Code subagents or skills, and not for a one-off delegation.
 ---
 
 An agent file is a role this server can run: frontmatter that sets the dispatch, and a body
@@ -58,7 +58,7 @@ prevent:
 | Key | Value | Notes |
 |---|---|---|
 | `name` | the agent's name | Optional, but if present it **must equal the filename**, or the file is refused — and a bare `name:` counts as present, because a key whose value went missing is a setting that silently does nothing |
-| `description` | one line | What `list_agents` reports, so a caller can choose without opening the file |
+| `description` | one line | What `list_agents` reports, so a caller can choose without opening the file. In a `SKILL.md` it is also what Claude Code matches a request against to load the skill, so it says when to use it |
 | `model` | a model-registry key | Binds the dispatch |
 | `effort` | `off`, `low`, `high`, `max` | Refused loudly if misspelt. **Not** `medium` — the backend has no such level. **Not** `inherit` — that is what a *caller* passes to defer to this file |
 | `max_turns` | integer ≥ 1 | Above the server's hard cap the file is **refused, not clamped**: a caller's number is transient, a file is committed and trusted |

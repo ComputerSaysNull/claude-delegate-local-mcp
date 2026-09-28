@@ -192,7 +192,7 @@ Sources: the [specification](https://agentskills.io/specification),
   `references/`, each with when to read it
 3. ⬜ **No description has been tested for triggering.** Rewrite each as "Use when…", then a
   trigger eval: about twenty queries, half near-misses, three runs each, a fixed 60/40 split
-    - a. ⬜ Start with the shipped `write-delegate-agent`, the one skill other people load.
+    - a. ✅ 2026-09-28 Start with the shipped `write-delegate-agent`, the one skill other people load.
 
 ### M18 — Code and docs describe what is, and records own the rest
 
