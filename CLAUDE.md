@@ -76,8 +76,8 @@ Rules a machine cannot check, so they land here:
 - **`allowed_tools` is enforced at two sites**, `declared_tools` and `execute_tool` in
   `tools.py`, and neither trusts the other — why that is necessary is `docs/AGENTS.md`'s. The
   trap here is a maintenance one: change either site alone and enforcement goes back to being
-  asymmetric, silently. `WITHHELD_TOOL_NAMES` is empty and kept anyway, so remember
-  what it never was: it narrows only what is *declared*, never a substitute for the check.
+  asymmetric, silently. `WITHHELD_TOOL_NAMES` is kept though empty (`docs/ARCHITECTURE.md`
+  says why): it narrows only what is *declared*, never a substitute for the check.
 - **Trust server-captured exit codes, never the model's account of them.** `bash_failures`
   and `last_bash_exit` come from real process exits and may contradict the model's final
   text. Why the design rests on this is `docs/ARCHITECTURE.md`'s. (ADR-0007)

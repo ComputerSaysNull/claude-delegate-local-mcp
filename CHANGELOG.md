@@ -30,6 +30,33 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #408 — 2026-09-28 — docs: the 2026-09-28 audit, and every finding from it that was wording
+
+### Added
+
+- **`docs/audits/2026-09-28-audit.md`.** All sixteen passes returned, none partial, over
+  24 delegations. Of eighteen candidate findings, six were rejected on verification and
+  one reframed. One finding was not a pass's at all: measuring `list_agents` showed a
+  count the document gives is stale. Two findings are not wording and are left open: the
+  one-shot path still starts its stall clock before the rate seed, which the loop's own
+  fix never reached, and fourteen waivers on `docs/ARCHITECTURE.md` in ninety days share
+  one cause the owning-doc check cannot see.
+
+### Fixed
+
+- **`docs/ARCHITECTURE.md` called `alive` the only event written on a clock**, ten lines
+  above describing `waiting`, which is one too. It also explained the viewer's emoji pad
+  twice, and one sentence on the token ceiling no longer parsed.
+- **`docs/AGENTS.md` counted "four of this repository's own five agent files"** in
+  `other_format`; there are six. It now names what is there instead of a count that goes
+  stale with every agent added. A repeat of the batch-tool rationale goes.
+- **`docs/DISPATCH.md` stated the empty-memory floor twice and the loop signal twice**, the
+  second copy of the latter under Sampling, where it did not belong. Each is now said once,
+  with every reason kept.
+- **`CLAUDE.md` pointed the `WITHHELD_TOOL_NAMES` trap at `docs/AGENTS.md`**, which never
+  mentions it; `docs/ARCHITECTURE.md` owns it. `docs/MODELS.md` drops a restatement of its
+  own opening section.
+
 ## #407 — 2026-09-28 — feat: edit_file refuses a file changed since it was read
 
 ### Added

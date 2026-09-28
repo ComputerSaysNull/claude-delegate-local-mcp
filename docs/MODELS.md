@@ -74,8 +74,7 @@ what the server calls `none` — which changes the spelling and never the streng
 
 ## Adding a second model
 
-On this class of stack a second model is a second container on a second port. There is no
-router, and `GET /v1/models` returns one entry per endpoint. So:
+There is no router: `GET /v1/models` returns one entry per endpoint. So:
 
 ```toml
 [models.qwen3-vl]
