@@ -2806,3 +2806,41 @@ So it works, with git the host's job: the delegation writes and tests, `read_git
 caller reads the history and commits. What it needs to be routine is a root per worktree.
 The environment variable is enough for the `run` CLI; the MCP tools need the roots in
 `.env` and a reconnect, which is a choice about this machine's layout, not the code's.
+
+## 2026-09-29 — Five open items asked one question of the transcripts, and three answers moved
+
+Planning over Unscheduled, every open item rested on a claim about real traffic, so one walk
+over the transcript directory answered them together: 1,119 streams, 2026-08-31 to 09-29,
+reading `start.files_read` and each `turn` event's `tool_calls`, `input_tokens` and
+`tool_results_evicted`. Two readings the records need: `tool_results_evicted` is a per-turn
+count, not a running total, and eviction is oldest-first, so the evicted results of a stream
+are exactly its first N tool calls; and `stages` is written only for a pipeline with a
+non-zero stage, so every record is a candidate.
+
+- **Prefetched files are read again.** 493 `read_file` calls ran on a path the stream's own
+  `files[]` had already delivered — 20% of all 2,458 — in 121 streams. 208 came before any
+  `write_file`, `edit_file` or `run_bash`, so a cache could have answered them: 4.2 MB of
+  results for lines already in the prompt. Median 2 a stream, maximum 10.
+- **Eviction has not fired since 2026-09-14.** 328 evicted results in 20 streams, the last
+  on 09-14; per-call `ms` begins 09-25, so no evicted result has a time. Since #191 a
+  declared window holds eviction until the prompt projects to `OVERFLOW_EVICT_AT`, half of
+  1,048,576 here, and no delegation has come near it.
+- **Masked pipelines are 27, not 3.** Last stage 0, an earlier one non-zero: 18 are
+  `pytest … | tail` or `| head`, 3 `ruff check | tail`, and `cat` of a missing file, `ls`
+  (2), `git status` (128) and `diff` (1 and 2) one each. Only `diff`'s 1, "the files
+  differ", is not a failure. No SIGPIPE at all, and a rule dropping every status of 128 or
+  more would have dropped git's 128.
+- **A real endpoint's prompt does not plateau.** Of 3,569 consecutive turn pairs where the
+  first appended more than 256 estimated tokens and the second evicted nothing, 65 reported
+  a next prompt no larger than the last plus 64 — every one between 09-02 and 09-06, before
+  ADR-0056's stepped boundary. None in the 3,000-odd pairs since. The 31 tests that refused
+  arming the overflow guard were refusing their doubles, which report a 7-token prompt.
+- **An over-priced turn has cut nothing off.** Since 09-19, 126 of 1,717 priced turns were
+  priced above 50 tok/s, against a 44.1 solo benchmark, and one at 103. Of 574 delegations
+  none ended on the deadline mid-reply: 36 were not ok, all client cancellations but two
+  stall timeouts with no turn finished. The quoting-turn premise predates the bucket median
+  (#340); what is left is a bucket of one sample, which returns it whole.
+
+So the read cache should be seeded from `files[]`, a masked stage is worth classifying now,
+and the overflow guard can be armed once its doubles grow; eviction cost and the fast
+sample have nothing to act on yet.
