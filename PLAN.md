@@ -190,9 +190,11 @@ Sources: the [specification](https://agentskills.io/specification),
 2. ✅ **`docs-audit-dispatch` loads its whole runbook every time** (review §5). Keep the
   steps and gotchas in `SKILL.md`; move the check-class definitions and sizing evidence to
   `references/`, each with when to read it
-3. ⬜ **No description has been tested for triggering.** Rewrite each as "Use when…", then a
+3. ✅ 2026-09-29 **No description has been tested for triggering.** Rewrite each as "Use when…", then a
   trigger eval: about twenty queries, half near-misses, three runs each, a fixed 60/40 split
     - a. ✅ 2026-09-28 Start with the shipped `write-delegate-agent`, the one skill other people load.
+    - b. ✅ 2026-09-29 The other three are only ever run by the operator's slash command, so no
+    description decides whether they trigger and an eval of one would measure nothing.
 
 ### M18 — Code and docs describe what is, and records own the rest
 
@@ -300,9 +302,6 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     - b. ✅ 2026-09-25 The cost half did reproduce: **one turn, zero tool calls** against 26. Whether accuracy
     holds is still unmeasured, and needs a task that *necessarily* quotes — a STALE pass
     against a known discrepancy, not a class that may legitimately return an empty list.
-4. ⬜ **Eviction is sized in tokens and cannot see what a result cost** — it will drop a 657s read
-  to save a few thousand. **Its example died 2026-09-16:** the 657s read was the unscoped
-  search, now ~4.6s (#219, #220). Tokens landed in #199 — the *cost* half is what remains
 5. ❌ 2026-09-19 **Premise collapsed — a 0.5% median, not 89.3%**, re-measured over 27 dispatches
   and 55 turns; max 72.7% and one above 20%, so the tail is real and the rule is not, and the
   search that made the figure is #219 (JOURNAL 2026-09-19). ~~budget pays for tool time~~
@@ -311,18 +310,6 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
   doubles reporting a 7-token prompt.
     - a. ⬜ That says those doubles are unrealistic, not that the change is wrong, and settling
     which needs a real delegation rather than an argument.
-14. ⬜ **A quoting turn measures the accept path, not the decoder, and no floor catches it.**
-  Measured 2026-09-13 at one concurrency: quoting a prefetched file read 63.75 tok/s against
-  41.83 for generated prose and a 44.1 benchmark, from a turn clear of ADR-0073's floor.
-    - a. ❌ 2026-09-16 **Disproved: a minimum is immune to a fast sample only while its bucket
-    holds a slower one, and a bucket of one *is* that sample (JOURNAL).** Original: `expect`'s
-    minimum contains it — immune to *fast* samples, vulnerable only to slow ones.
-    - b. ⬜ **Both constant-free ceilings failed 2026-09-16:** the engine's windowed aggregate is
-    too loose (63.75 hides under an 80 tok/s total) and its per-request mean refuses a
-    faster-than-average stream. Observe the window against real turns before choosing a figure
-    - c. ⬜ **`expect(1)` = 60.590 on 2026-09-18 against a 44.1 solo benchmark**, alone in its
-    bucket. `reply_budget_margin` absorbs it: a ceiling fails only above 1.667x, so it would
-    take 73.5 tok/s. Latent, not live — and a quoting turn may genuinely decode this fast.
 19. ⬜ **The deadline counts down while the *server* works on the delegation's behalf.** A
   third liveness state ADR-0072 does not name: producing, silent, and producing nothing on
   the wire because a tool is running.
@@ -435,6 +422,16 @@ On hold for weeks or months. Not cancelled, and not queued.
   its own `max_inflight_seqs` and `max_inflight_large_prefills` against one endpoint
 4. ⬜ Per-user identity on the endpoint. `api_key_env` is empty, so there is no auth, no
   quota and no fair share
+5. ⬜ Was Unscheduled 4. **Eviction cannot see what a result cost**, and has not fired since
+  2026-09-14: a declared window holds it until 50% (JOURNAL 2026-09-29). Reopen when a
+  stream that records per-call `ms` evicts
+6. ⬜ Was Unscheduled 14. **A rate bucket holding one sample returns it as the price**
+  (ADR-0089), and a copied turn decodes faster than the model writes. Latent: no deadline cut
+  in 574 delegations (JOURNAL 2026-09-29). Reopen on one cut above 1.667x its actual rate
+    - a. ❌ 2026-09-16 **Disproved: a minimum is immune to a fast sample only while its bucket
+    holds a slower one, and a bucket of one *is* that sample (JOURNAL).** Original: `expect`'s
+    minimum contains it — immune to *fast* samples, vulnerable only to slow ones.
+
 ## Cancelled
 
 1. ❌ 2026-09-05 A batch returns nothing until its slowest item settles — **wrong when

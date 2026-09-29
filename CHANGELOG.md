@@ -30,6 +30,28 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #422 — 2026-09-29 — docs: close M17 and defer two items the transcripts give nothing to act on
+
+### Added
+
+- **JOURNAL records one walk over every stored transcript**, made because each open
+  Unscheduled item rested on a claim about real traffic. Three answers moved work: 20% of
+  `read_file` calls re-read a file `files[]` had already sent, 27 pipelines hid a failed
+  stage where the notes said 3, and a real endpoint's prompt has not plateaued once since
+  ADR-0056, so the 31 tests that refused arming the overflow guard were refusing their
+  doubles. Two left nothing to act on, below.
+
+### Changed
+
+- **M17.3 is done, and with it M17.** The three skills without a trigger eval are run only
+  by the operator's slash command, so their descriptions never decide whether they trigger
+  and an eval would measure nothing. The one other people load passed its eval in #402.
+- **Unscheduled 4 and 14 move to Deferred**, each with the event that reopens it. Eviction
+  has not fired since 2026-09-14, because a declared window holds it until half the window,
+  so nothing records what an evicted result cost. The fast quoting sample was filed before
+  the rate memory priced from a bucket median (#340); what remains is a bucket of one
+  sample, and no delegation since 09-19 has been cut off by an over-priced turn.
+
 ## #421 — 2026-09-29 — fix: a prefetched range ending on a blank line renders every line it names
 
 ### Fixed
