@@ -232,9 +232,10 @@ class WindowCheck:
     disagreement disarms and says so, since the operator's file is the truth for the rest
     of the model and a field silently overridden is worse than one wrong in the open.
 
-    Agrees or no window: armed. **Answered** and disagrees: disarmed, cached, re-checked on
-    expiry. Unreachable: disarmed for this call, not cached, so an outage cannot disable
-    overflow handling until restart.
+    Agrees, or no window against one the operator wrote: armed. **Answered** and disagrees,
+    or no window against a defaulted one: disarmed, cached, re-checked on expiry.
+    Unreachable: disarmed for this call, not cached, so an outage cannot disable overflow
+    handling until restart.
     """
 
     def __init__(self, cfg: Config, *, clock: Callable[[], float] = time.monotonic) -> None:
@@ -242,7 +243,7 @@ class WindowCheck:
         self._clock = clock
         self._verdicts: dict[str, tuple[str, float]] = {}
 
-    async def armed(self, backend: Backend, entry: ModelEntry) -> tuple[bool, str]:
+    async def armed(self, backend: Backend, entry: ModelEntry) -> tuple[bool, str]:  # noqa: PLR0911 -- one return per verdict the docstring lists
         """May overflow handling act for this model? Returns the verdict and a reason."""
         if not self._cfg.context_overflow_enabled:
             return False, ""
@@ -281,6 +282,18 @@ class WindowCheck:
                 f"{source}, but the endpoint reports {reported}. Overflow handling "
                 "stays off rather than compute every threshold against a number one of "
                 f"the two disagrees with. {remedy}"
+            )
+            self._verdicts[entry.key] = (reason, self._clock())
+            return False, reason
+
+        if reported is None and entry.context_window_defaulted:
+            # Nobody chose the number and nothing confirmed it: every threshold would be a
+            # share of a guess, which is the case this check exists for.
+            reason = (
+                f"models.toml sets no context_window for {entry.key!r} and the endpoint "
+                f"reports none, so the default of {entry.context_window} is unconfirmed. "
+                "Overflow handling stays off rather than compute every threshold against "
+                "it. Set context_window in models.toml to arm it."
             )
             self._verdicts[entry.key] = (reason, self._clock())
             return False, reason

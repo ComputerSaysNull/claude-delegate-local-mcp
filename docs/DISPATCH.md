@@ -749,7 +749,7 @@ what window it is serving and compares.
 The check **validates and never derives**. On a disagreement overflow handling stays off and
 says which two numbers disagree; it does not adopt the endpoint's figure, because the
 operator's file is authoritative for everything else about that model. An endpoint that
-reports no window at all is answering correctly and does not block anything.
+reports no window is answering correctly and blocks nothing, unless the window was defaulted.
 
 The verdict is cached per model, and the cache expires — that expiry is the whole point of
 it. A cache that never expired, written on any failure, would let one transient outage disable

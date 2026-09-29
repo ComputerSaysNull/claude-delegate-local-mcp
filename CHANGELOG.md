@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #429 — 2026-09-29 — feat: overflow handling is on by default
+
+### Fixed
+
+- **Overflow handling armed against a window nobody set and nothing confirmed.** Every
+  threshold is a share of `context_window`, and an entry that omits it inherits a default.
+  The window check disarmed only when the endpoint reported a *different* number, so an
+  endpoint that reports none left the guard armed on the guess — the case the switch was
+  off by default to avoid. A defaulted window the endpoint cannot confirm now disarms, and
+  the reason names the `models.toml` line to add. A window the operator wrote still arms
+  when the endpoint is silent.
+
 ## #428 — 2026-09-29 — feat: the heartbeat names the tools a turn is running
 
 ### Added

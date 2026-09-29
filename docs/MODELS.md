@@ -127,7 +127,8 @@ threshold over a wrong denominator is the bug that feature exists to avoid.
 A disagreement disarms overflow handling for that model and reports both numbers. The
 endpoint's figure is never adopted: an auto-derived window would compute every threshold
 against a model file's architecture maximum rather than the window being served. An
-endpoint that reports no window is fine and blocks nothing; vLLM reports one as
+endpoint that reports no window blocks nothing against a window you set, and disarms a
+defaulted one, which nobody chose and nothing then confirms. vLLM reports one as
 `max_model_len` (JOURNAL 2026-08-29).
 
 An entry that omits `context_window` gets the default, and the server records that it did.
