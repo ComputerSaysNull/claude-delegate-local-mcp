@@ -1641,7 +1641,7 @@ def _prefetched_cache_entry(pre: FileEntry) -> _CachedResult:
     covers it by the span the entry actually holds.
     """
     first, last = _prefetch_span(pre)
-    total = pre.total_lines if pre.start_line is not None else last
+    total = pre.total_lines if pre.start_line is not None and pre.total_lines else last
     width = line_number_width(total)
     lines = pre.text.split("\n") if pre.start_line is not None else pre.text.splitlines()
     body = "\n".join(numbered_line(n, line, width) for n, line in enumerate(lines, first))
@@ -2473,10 +2473,10 @@ def _run_one_call(  # noqa: PLR0913 -- the sixth is the per-delegation read reco
     if covering is not None:
         # A narrower read of lines an earlier read already returned. Nothing ran. A
         # prefetched entry answers with the pointer first, then the content.
-        cover_key, covering = covering
+        cover_key, cover_entry = covering
         return ToolResultBlock(
             tool_use_id=call.id,
-            content=_repeat_body(call, covering, exact=False, cached=cached, key=cover_key),
+            content=_repeat_body(call, cover_entry, exact=False, cached=cached, key=cover_key),
         ), "repeat", None
 
     started = _tool_clock()
@@ -2590,12 +2590,12 @@ def _run_group(  # noqa: PLR0913 -- the sixth is the per-delegation read record
             # requested lines -- from an earlier turn, a sibling this loop just wrote, or a
             # prefetched entry. A prefetched one answers with the pointer first, then the
             # content.
-            cover_key, covering = covering
+            cover_key, cover_entry = covering
             out.append((
                 ToolResultBlock(
                     tool_use_id=call.id,
                     content=_repeat_body(
-                        call, covering, exact=False, cached=cached, key=cover_key
+                        call, cover_entry, exact=False, cached=cached, key=cover_key
                     ),
                 ),
                 "repeat", None,
