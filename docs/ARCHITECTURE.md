@@ -615,10 +615,10 @@ aborting the line — so a failure before the last command reaches `bash_masked_
 where the status reads 0. Dash, which `/bin/sh` is here, can express neither half, so the
 shell is chosen and a host without bash loses the accounting rather than the command.
 `pipefail` would cover pipelines and is refused: measured, it marks `grep <absent> | head`
-and `yes | head -1` as failures. So the count **undercounts, never over**. (ADR-0095) The
-pipeline half is recorded instead: a `DEBUG` trap logs each stage to a marker the host reads
-as a regular file only, never through a link or FIFO, and a failed stage reaches the call's
-transcript record as `stages`, never the model. About 27µs a command; 30x on a builtin loop.
+and `yes | head -1` as failures. (ADR-0095) A `DEBUG` trap logs each stage to a marker read
+only as a regular file (27µs a command, 30x on a builtin loop), kept in the transcript. A failed stage
+before the last is masked unless it is 1 from a `NO_RESULT_COMMANDS` entry or 141 with a
+later stage at 0, so an exit that list does not know overcounts. (ADR-0107)
 
 ### Prompt order is load-bearing
 
