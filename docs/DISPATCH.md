@@ -575,6 +575,9 @@ ask for the part needed. Marked and not deleted: deleting re-runs the tool.
 A `read_file` of lines an earlier read of that path **returned** — its numbered span, not
 its request, since a budget can cut it short — is a repeat too, served with just those lines
 sliced out. A range reaching past the span runs; "to the end" needs a read that got there.
+Lines `files[]` prefetched count as returned, but the first such read gets a pointer to the
+files block instead of the lines, which the prompt already holds and every later turn would
+pay for twice; asking again gets them. A write clears these entries with the rest.
 
 **An edit of a file that changed since it was read is refused.** Each delegation keeps the
 sha256 of every file as the model last saw it, prefetched, read or written by the server
