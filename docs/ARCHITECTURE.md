@@ -624,7 +624,7 @@ later stage at 0, so an exit that list does not know overcounts. (ADR-0107)
 
 The cluster caches prompt prefixes, so identical leading tokens are served from cache —
 saving prefill time *and* leaving more KV pool free. Order is therefore fixed: system
-prompt, agent body, files block, task last, with the file list sorted deterministically by
+prompt, agent body, files block, a bound workdir, task last, the file list sorted by
 resolved path. That order lives on `Delegation.render`, in one place, because the one-shot
 builder and the turn loop both need it and two copies of an ordering rule is one too many.
 

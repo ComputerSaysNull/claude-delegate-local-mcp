@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #427 — 2026-09-29 — feat: a delegation is told the workdir it was given
+
+### Added
+
+- **A delegation given a `workdir` was never told where it is.** The sandbox starts
+  `run_bash` in it and the file tools refuse a relative path, so a task naming
+  `tests/x.py` left the model to guess the directory both halves mean. The search tool's
+  description lists the workspace roots, which is not the same thing. Callers worked round
+  it by writing the path into every task, a second copy of the argument that nothing kept
+  in step. The first message now carries one line naming the workdir, after the files and
+  before the task, so the cached prompt prefix is untouched (ADR-0011). Found while writing
+  this session's delegations, each of which repeated the path by hand.
+
 ## #426 — 2026-09-29 — feat: a comment-only Python change is not held to its owning document
 
 ### Changed
