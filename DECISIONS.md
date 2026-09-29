@@ -19,6 +19,32 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0109 — 2026-09-29 — Overflow handling is armed by default, on a window the endpoint confirms — Accepted
+
+**Context.** `context_overflow_enabled` shipped off because every threshold is a share of
+`context_window`, which an entry may inherit. ADR-0056 gated only eviction's hold on it,
+and #191 left tighten, nudge, abort and the plateau check waiting for the flag, because
+arming them everywhere failed 31 tests on doubles reporting a 7-token prompt; whether that
+condemned the doubles or the change was left for a real delegation to settle.
+
+**Measured instead of argued (JOURNAL 2026-09-29).** Over every stored transcript, 3,569
+consecutive turn pairs appended more than 256 estimated tokens with no eviction between. 65
+reported a flat or shrinking prompt, every one between 2026-09-02 and 09-06, before
+ADR-0056's stepped boundary; none in the 3,000-odd pairs since. A real endpoint's prompt
+grows with the history. The doubles do not, so it was the doubles.
+
+**Decision.** The switch defaults on. What it was off to prevent — thresholds against a
+window nobody chose — is closed where the window is checked: a defaulted window the
+endpoint does not confirm now disarms that model with a reason, where before an endpoint
+reporting no window left it armed on the guess. A declared window arms whatever the
+endpoint says or omits, and a disagreement disarms, as ADR-0056 had it. Tests whose doubles
+model neither a growing prompt nor the window probe opt out in their shared config helpers,
+and the overflow tests keep it armed.
+
+**What it does not claim.** That the thresholds are right; they are the same constants. Only
+that the preventive half now runs where its denominator is known, which was the condition
+for running it at all.
+
 ## ADR-0108 — 2026-09-29 — A Python change that touches only comments is not held to its document — Accepted
 
 **Context.** The owning-doc check sees file names, so a pass that rewrites a module's
@@ -2359,7 +2385,7 @@ breaks on `final` regardless of what came back, so that path is unchanged.
 
 ---
 
-## ADR-0056 — 2026-09-06 — The eviction boundary is carried and stepped, not recomputed every turn — Accepted
+## ADR-0056 — 2026-09-06 — The eviction boundary is carried and stepped, not recomputed every turn — Partially superseded by ADR-0109
 
 `evict_stale_tool_results` collapsed everything older than the newest `keep` tool results,
 every turn. That reads as a stable window and is not one: as the history grows the boundary

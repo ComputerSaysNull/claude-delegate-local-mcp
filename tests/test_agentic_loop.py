@@ -34,7 +34,10 @@ HOST = "http://example.com:8000"  # on the gate's placeholder allowlist
 
 
 def cfg(**over) -> Config:
-    kw = {"workspace_roots": (".",)}
+    # Overflow handling off: the scripted turns report a fixed prompt size whatever the
+    # history holds, which an armed plateau check reads as history being dropped. Its own
+    # tests arm it (test_context_overflow.py).
+    kw = {"workspace_roots": (".",), "context_overflow_enabled": False}
     kw.update(over)
     # The deadlines have to nest, and these tests set absurdly small ceilings on purpose so
     # a fake clock is cheap. Follow the ceiling down unless the test names this itself, so

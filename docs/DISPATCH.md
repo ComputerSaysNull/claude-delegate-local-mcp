@@ -503,8 +503,8 @@ means one rewrite buys `keep` turns instead of one.
 [`context_overflow_enabled`](CONFIGURATION.md) armed, `OVERFLOW_EVICT_AT` holds the boundary
 still while there is genuinely room — the first stage of the same ladder that tightens,
 nudges and aborts. Unarmed, it holds off only where the window was declared, as below; with a
-defaulted window the guard steps anyway, because gating the whole policy on a flag that is off
-by default would leave the common configuration bounding nothing. Below
+defaulted window the guard steps anyway, because gating the whole policy on the flag would
+leave an unarmed configuration bounding nothing. Below
 the threshold the boundary is held rather than reset: un-stubbing rewrites the history in the
 other direction at the same cost.
 
@@ -520,14 +520,12 @@ new top-level entry moves the front of the prompt, which by the measurement belo
 the prefix cache cannot absorb. Rarer than a delegation, and cheaper than one unscoped search.
 
 The pressure gate applies wherever pressure can be *read*, rather than only where
-`context_overflow_enabled` is set. That setting ships off for a stated reason — every
-threshold is measured against the model's `context_window`, and an entry omitting that field
-inherits a silent default — and the reason simply does not cover an entry whose window was
-declared. Unarmed, `evict_upto` would skip the check and stub on count alone, so the
-threshold this design is built around would never apply to the shipped configuration. The
-preventive half — tighten, nudge, abort and the plateau check
-— still waits for the flag, because those act on a delegation and arming them everywhere is a
-larger claim than the one measured.
+`context_overflow_enabled` is armed. The switch can be off, and a model is disarmed when its
+window is defaulted and unconfirmed, since every threshold is a share of `context_window` —
+a reason that does not cover a declared window. Unarmed, `evict_upto` would skip the check
+and stub on count alone, so the threshold this design is built around would not apply. The
+preventive half — tighten, nudge, abort and the plateau check — waits for the flag, which is
+on by default: a real endpoint's prompt has not plateaued once since ADR-0056 (ADR-0109).
 
 The scrape that prices the first turn also carries the size of the KV pool, and it is
 reported to admission — the only sighting of the figure on the dispatch path. The scrape is
@@ -703,12 +701,12 @@ refusal never started a process, so the last command that ran is still the previ
 its exit code is still the true answer. `None` carries "nothing exited"; `0` cannot, being a
 real exit code a command can return.
 
-## Context economics, off by default
+## Context economics
 
 A delegation that runs out of room does not fail. It keeps answering, from a history the
 backend has quietly begun dropping, and the answer looks exactly like one written with
-everything in view. `context_overflow_enabled` turns on two checks that notice, and it is
-off by default for a reason given below.
+everything in view. `context_overflow_enabled` turns on two checks that notice, for every
+model whose window survives the check below.
 
 Every threshold is a share of `ModelEntry.context_window` and of nothing else. A threshold
 computed against the wrong denominator is the bug this guards against, so the window is read

@@ -134,8 +134,8 @@ defaulted one, which nobody chose and nothing then confirms. vLLM reports one as
 An entry that omits `context_window` gets the default, and the server records that it did.
 The report says the window was assumed and names the one the endpoint served, and
 `backend_status` carries `context_window_defaulted` beside the number, so the two cases are
-distinguishable before anything disagrees. Overflow handling stays off by default
-regardless: arming it against a number nobody chose is worse than not arming it.
+distinguishable before anything disagrees. Overflow handling is on by default, but a
+defaulted window arms it only once the endpoint confirms that number: a guess is worse.
 
 ## The token estimator is measured against a tokenizer, not against file types
 

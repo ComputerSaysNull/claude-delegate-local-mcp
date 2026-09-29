@@ -30,6 +30,7 @@ def _cfg(**over) -> Config:
         "workspace_roots": (".",),
         "keep_tool_results": KEEP,
         "retained_tool_result_tokens": BUDGET,
+        "context_overflow_enabled": False,
     }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
@@ -40,11 +41,12 @@ def _guard(cfg: Config | None = None) -> _OverflowGuard:
     entry = ModelEntry(
         key="flash", base_url="http://example.com:8000", served_model_id="served-id-1",
     )
-    # The shipped configuration, which is where the bug was measured: overflow handling
-    # off, and a window the operator never declared. Both halves of the pressure gate are
-    # then unavailable -- `armed` is False and `pressure_known` is False -- so it is
-    # skipped and the size boundary alone decides. Declaring the window instead would hold
-    # the boundary below `OVERFLOW_EVICT_AT` and every test here would measure the gate.
+    # The configuration the bug was measured in, and what a defaulted window the endpoint
+    # cannot confirm still gets: overflow handling unarmed, and a window never declared.
+    # Both halves of the pressure gate are then unavailable -- `armed` is False and
+    # `pressure_known` is False -- so it is skipped and the size boundary alone decides.
+    # Declaring the window instead would hold the boundary below `OVERFLOW_EVICT_AT` and
+    # every test here would measure the gate.
     guard = _OverflowGuard(cfg, replace(entry, context_window_defaulted=True))
     return guard
 

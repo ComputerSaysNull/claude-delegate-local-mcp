@@ -35,7 +35,9 @@ LONG_PATH = "x" * 700  # long enough that the refusal text exceeds TOOL_MESSAGE_
 
 
 def cfg(**over) -> Config:
-    kw = {"workspace_roots": (".",)}
+    # Overflow handling off: the scripted turns report a fixed prompt size, which an armed
+    # plateau check reads as history being dropped.
+    kw = {"workspace_roots": (".",), "context_overflow_enabled": False}
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
 

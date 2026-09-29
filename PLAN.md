@@ -305,10 +305,10 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 5. ❌ 2026-09-19 **Premise collapsed — a 0.5% median, not 89.3%**, re-measured over 27 dispatches
   and 55 turns; max 72.7% and one above 20%, so the tail is real and the rule is not, and the
   search that made the figure is #219 (JOURNAL 2026-09-19). ~~budget pays for tool time~~
-11. ⬜ **Arming the preventive half is unmeasured.** Tighten, nudge, abort and the plateau
+11. ✅ 2026-09-29 **Arming the preventive half is unmeasured.** Tighten, nudge, abort and the plateau
   check still wait for `context_overflow_enabled`. Arming them everywhere failed 31 tests on
   doubles reporting a 7-token prompt.
-    - a. ⬜ That says those doubles are unrealistic, not that the change is wrong, and settling
+    - a. ✅ 2026-09-29 That says those doubles are unrealistic, not that the change is wrong, and settling
     which needs a real delegation rather than an argument.
 19. ✅ 2026-09-29 **The deadline counts down while the *server* works on the delegation's behalf.** A
   third liveness state ADR-0072 does not name: producing, silent, and producing nothing on
