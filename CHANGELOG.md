@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #425 — 2026-09-29 — feat: a read of lines files[] already sent is answered, not run
+
+### Changed
+
+- **A `read_file` of lines `files[]` prefetched ran the tool and sent the lines again.**
+  The read cache answers a read that an earlier read's lines cover, but it was seeded only
+  by reads, so the prefetch never reached it: JOURNAL 2026-09-29 counted 208 such reads
+  before any write, 4.2 MB of results for lines already in the prompt, each then paid for
+  again on every later turn. The cache is now seeded from the prefetch, numbered exactly as
+  `read_file` numbers lines. The first read it answers gets a one-line pointer to the files
+  block instead of the lines, since resending them is the cost; asking again gets them,
+  marked as coming from the files block, so a model that cannot find them is not stuck. A
+  write clears these entries with the rest, so a read after one still runs.
+
 ## #424 — 2026-09-29 — docs: testing traps get one home, tests/README.md
 
 ### Added

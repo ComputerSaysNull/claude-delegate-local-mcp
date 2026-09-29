@@ -51,7 +51,7 @@ from .config import (
     OVERFLOW_TIGHTEN_AT,
     Config,
 )
-from .context import FileEntry, numbered_lines, numbered_span
+from .context import FileEntry, line_number_width, numbered_line, numbered_lines, numbered_span
 from .paths import repo_status
 from .registry import ModelEntry
 from .tools import REGISTRY, BashPolicy, SeenFiles, declared_tools, execute_tool
@@ -1417,6 +1417,23 @@ EVICTED_STUB = "[dropped from the history to keep it bounded. Call the tool agai
 # hearing that nothing new happened is what breaks that.
 REPEAT_PREFIX = "[repeat of an identical earlier call; nothing was run again]\n"
 
+# The pointer served on the FIRST read answered from a prefetched entry. The model already
+# holds the lines -- they are in the files block at the start of the conversation -- so
+# resending them is the waste this cache exists to stop. The pointer tells it they are there
+# and how to get them repeated, rather than silently returning nothing.
+PREFETCHED_POINTER = (
+    "[these lines are already in the files block at the start of this conversation, under "
+    "{path}; nothing was run. Ask again with the same arguments to have them repeated here.]"
+)
+
+# Prefixed to a read answered from a prefetched entry that already got its pointer: the
+# model asked for the lines again, so it gets them, marked as coming from the files block.
+# Not `REPEAT_PREFIX`, whose "identical earlier call" would be false -- nothing was run,
+# and this was not an earlier call's result.
+PREFETCHED_REPEAT_PREFIX = (
+    "[from the files block at the start of this conversation:]\n"
+)
+
 # Served once eviction dropped the cached result, so an identical call answers at once
 # without re-running (ADR-0080); it points the model at asking for a narrower part.
 EVICTED_REPEAT = (
@@ -1443,6 +1460,12 @@ class _CachedResult:
     path: str | None = None
     span: tuple[int, int] | None = None
     reached_eof: bool = False
+    # Seeded from a prefetched `FileEntry`, not from a tool result: nothing was run to
+    # produce it, and the lines are in the prompt's files block already. A prefetched entry
+    # is never evicted (its `tool_use_id` never enters the history), so its first covering
+    # read answers with a pointer and `pointed` records that the pointer was sent.
+    prefetched: bool = False
+    pointed: bool = False
 
 
 # The truncation footer `_read_file` appends when a character budget cut a range short. Its
@@ -1521,13 +1544,16 @@ def _slice_lines(call: ToolUseBlock, body: str) -> str:
 
 def _covering_entry(
     cached: dict[tuple[str, str], _CachedResult], call: ToolUseBlock
-) -> _CachedResult | None:
-    """A cached `read_file` whose span covers `call`'s range, or None.
+) -> tuple[tuple[str, str], _CachedResult] | None:
+    """A cached `read_file` whose span covers `call`'s range, with its key, or None.
 
     Coverage is by the span the earlier result actually holds. A not-evicted covering entry
     is preferred so content can be sliced from it; if only an evicted one covers, it still
     answers as a repeat, but `EVICTED_REPEAT` is served rather than content being restored.
     Only `read_file` gets this; every other tool stays exact-argument.
+
+    The key is returned with it, since a prefetched entry's pointer is recorded by
+    replacing the entry and the caller needs the key to do so without a second scan.
     """
     if call.name != "read_file":
         return None
@@ -1538,8 +1564,8 @@ def _covering_entry(
     if range_ is None:
         return None
     start, end = range_
-    evicted_fallback: _CachedResult | None = None
-    for entry in cached.values():
+    evicted_fallback: tuple[tuple[str, str], _CachedResult] | None = None
+    for key, entry in cached.items():
         if entry.path != path or entry.span is None:
             continue
         first, last = entry.span
@@ -1551,23 +1577,83 @@ def _covering_entry(
         elif end > last:
             continue
         if not entry.evicted:
-            return entry
+            return key, entry
         if evicted_fallback is None:
-            evicted_fallback = entry
+            evicted_fallback = (key, entry)
     return evicted_fallback
 
 
-def _repeat_body(call: ToolUseBlock, entry: _CachedResult, *, exact: bool) -> str:
-    """What a repeat hands back: the evicted notice, or `REPEAT_PREFIX` plus the content.
+def _repeat_body(
+    call: ToolUseBlock,
+    entry: _CachedResult,
+    *,
+    exact: bool,
+    cached: dict[tuple[str, str], _CachedResult] | None = None,
+    key: tuple[str, str] | None = None,
+) -> str:
+    """What a repeat hands back: the prefetched pointer or content, the evicted notice, or
+    `REPEAT_PREFIX` plus the content.
 
     `exact` says the call is byte-identical to the one that produced `entry`, so the whole
     content is served; otherwise the requested lines are sliced out of it.
+
+    A prefetched entry answers its first covering read with the pointer, not the content --
+    the model already holds the lines, so resending them is the waste this cache exists to
+    stop -- and is rewritten `pointed`, so a later read of the same span is answered with
+    the content, prefixed to say it came from the files block.
     """
+    if entry.prefetched:
+        assert cached is not None and key is not None
+        if not entry.pointed:
+            cached[key] = replace(entry, pointed=True)
+            return PREFETCHED_POINTER.format(path=entry.path)
+        return PREFETCHED_REPEAT_PREFIX + _slice_lines(call, entry.content)
     if entry.evicted:
         return EVICTED_REPEAT
     if exact:
         return REPEAT_PREFIX + entry.content
     return REPEAT_PREFIX + _slice_lines(call, entry.content)
+
+
+def _prefetch_span(pre: FileEntry) -> tuple[int, int]:
+    """The line span a prefetched entry holds, `(first, last)` in the file's own numbers."""
+    if pre.start_line is None:
+        return 1, len(pre.text.splitlines())
+    return pre.start_line, pre.start_line + len(pre.text.split("\n")) - 1
+
+
+def _prefetch_key(pre: FileEntry) -> tuple[str, str]:
+    """The cache key for a prefetched entry: unique per span, never a real call's key.
+
+    A real call's key is `(name, dedup_key)`; this one can never collide with it, so a
+    prefetched entry is reached only through `_covering_entry`, never as an exact repeat.
+    """
+    first, last = _prefetch_span(pre)
+    return ("prefetch", f"{pre.path}:{first}-{last}")
+
+
+def _prefetched_cache_entry(pre: FileEntry) -> _CachedResult:
+    """A prefetched file as a cache entry shaped like a `read_file` result for its span.
+
+    The content is numbered exactly as `read_file` renders it -- the same width and the
+    file's own line numbers, via `context`'s numbering helpers -- so `_slice_lines` hands
+    back a sub-range identical to what the tool would have returned, and `_covering_entry`
+    covers it by the span the entry actually holds.
+    """
+    first, last = _prefetch_span(pre)
+    total = pre.total_lines if pre.start_line is not None else last
+    width = line_number_width(total)
+    lines = pre.text.split("\n") if pre.start_line is not None else pre.text.splitlines()
+    body = "\n".join(numbered_line(n, line, width) for n, line in enumerate(lines, first))
+    return _CachedResult(
+        content=body,
+        # Never in the history, so `_mark_evicted_in_cache` can never match it.
+        tool_use_id=f"prefetch:{pre.path}:{first}-{last}",
+        path=pre.path,
+        span=(first, last),
+        reached_eof=(last == total),
+        prefetched=True,
+    )
 
 
 async def _no_progress(turn: int, of: int) -> None:
@@ -2385,9 +2471,12 @@ def _run_one_call(  # noqa: PLR0913 -- the sixth is the per-delegation read reco
 
     covering = _covering_entry(cached, call)
     if covering is not None:
-        # A narrower read of lines an earlier read already returned. Nothing ran.
+        # A narrower read of lines an earlier read already returned. Nothing ran. A
+        # prefetched entry answers with the pointer first, then the content.
+        cover_key, covering = covering
         return ToolResultBlock(
-            tool_use_id=call.id, content=_repeat_body(call, covering, exact=False)
+            tool_use_id=call.id,
+            content=_repeat_body(call, covering, exact=False, cached=cached, key=cover_key),
         ), "repeat", None
 
     started = _tool_clock()
@@ -2498,10 +2587,16 @@ def _run_group(  # noqa: PLR0913 -- the sixth is the per-delegation read record
         covering = _covering_entry(cached, call)
         if covering is not None:
             # Not byte-identical, but a read of the same path whose span already holds the
-            # requested lines -- from an earlier turn, or a sibling this loop just wrote.
+            # requested lines -- from an earlier turn, a sibling this loop just wrote, or a
+            # prefetched entry. A prefetched one answers with the pointer first, then the
+            # content.
+            cover_key, covering = covering
             out.append((
                 ToolResultBlock(
-                    tool_use_id=call.id, content=_repeat_body(call, covering, exact=False)
+                    tool_use_id=call.id,
+                    content=_repeat_body(
+                        call, covering, exact=False, cached=cached, key=cover_key
+                    ),
                 ),
                 "repeat", None,
             ))
@@ -2575,7 +2670,7 @@ async def _reread_concurrency(
     return current, DecodeRate(remembered, float(current), source="observed_at_concurrency")
 
 
-async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are test
+async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the nine are test
     # seams; the statements are the turn lifecycle, and splitting would reorder it.
     cfg: Config,
     entry: ModelEntry,
@@ -2659,6 +2754,11 @@ async def run_agentic_loop(  # noqa: PLR0913, PLR0915 -- three of the nine are t
     seen = SeenFiles()
     for pre in prefetched:
         seen.record(pre.path, pre.sha256)
+    # The read cache is seeded from the prefetch too, so a read of lines the files block
+    # already holds is answered from it rather than run -- the measured re-read waste. A
+    # write still clears the cache, seeded entries included, so a read after one is fresh.
+    for pre in prefetched:
+        cached[_prefetch_key(pre)] = _prefetched_cache_entry(pre)
     watch = _Watch(diagnostics=diagnostics)
     guard = _OverflowGuard(cfg, entry)
     dispatch: Dispatch | None = None
