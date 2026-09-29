@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #430 — 2026-09-29 — docs: closing out a commit runs mypy beside ruff
+
+### Changed
+
+- **mypy ran only in CI, so a type error was found after the push.** #425 reached CI with
+  five mypy errors that a local run would have shown: the `session-execute` checklist
+  named the suites and `ruff check`, and CI's lint job runs mypy as well. The checklist
+  now names mypy with ruff, and CONTRIBUTING's CI section says to run it locally. Measured
+  here: 1.2s with its cache warm and 61s cold; it imports nothing and writes no
+  `__pycache__`, so it can run beside a suite.
+
 ## #429 — 2026-09-29 — feat: overflow handling is on by default
 
 ### Changed

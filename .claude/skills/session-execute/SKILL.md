@@ -40,12 +40,13 @@ module as of reading one. Quote a suite's tail rather than pasting its whole run
 
 In order, every time:
 
-1. **Full suite on both platforms, plus ruff** — Windows and the WSL venv, never at once
-   against this checkout. Targeted runs are the right tool *while you iterate*; the full
+1. **Full suite on both platforms, plus ruff and mypy** — Windows and the WSL venv, never at
+   once against this checkout. Targeted runs are the right tool *while you iterate*; the full
    suite is what closes a commit, because a targeted run cannot see the coupling a change
    creates. What has to be green is what **lands**: a branch is squash-merged, so that is
    its tip rather than every intermediate commit. `ruff format` is not a gate here;
-   `ruff check` is.
+   `ruff check` is, and so is `mypy src`, which CI's lint job runs too. It imports nothing, so
+   it can run beside a suite; a second warm, a minute cold.
 2. **The CHANGELOG entry, written to `CHANGELOG.md`'s own header** — it states the heading
    shape, the subsections and what an entry has to carry, and restating that here is how the
    two would come to disagree. **The heading's number is provisional at this point**; §4 is
