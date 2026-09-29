@@ -104,19 +104,8 @@ a module's prose ratio rising.
 
 ## Tests
 
-Regression tests are named after the bug and live in `tests/regression/`. If you fix
-something subtle, the test goes in the same commit.
-
-**Negative-test every check**: assert it fires on a real violation, not merely that it
-passes on clean input. Six checks here have already been found unable to fail — CLAUDE.md
-lists them.
-
-Mark anything needing the live cluster or a real `bwrap` as `@pytest.mark.integration`.
-
-**Neither kind runs in CI, and the `bwrap` kind cannot**: on a runner it builds its user
-namespace, then fails to configure loopback for want of `CAP_NET_ADMIN` (measured
-2026-08-29, see JOURNAL). A green CI run is therefore no evidence about the sandbox. Change
-`sandbox.py` and you must run the suite in WSL yourself before pushing.
+How a test is written here, and the traps in writing one, are
+[tests/README.md](tests/README.md)'s.
 
 ## Decisions
 

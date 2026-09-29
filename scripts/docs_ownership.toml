@@ -54,6 +54,14 @@ covers_not = """
 Architecture, configuration values, or the documentation strategy itself. Those live in
 ARCHITECTURE.md, CONFIGURATION.md and CLAUDE.md respectively."""
 
+[docs."tests/README.md"]
+audience = ["contributor", "agent"]
+plane = "project"
+owns = []            # tests/** is unowned; this holds how a test is written, not the tests
+covers_not = """
+Setting up and running the suite, which is CONTRIBUTING's, and rules a machine cannot
+check, which are CLAUDE.md's. It holds the traps met in writing and proving a test."""
+
 [docs."PLAN.md"]
 audience = ["contributor", "agent"]
 plane = "project"
