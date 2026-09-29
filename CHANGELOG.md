@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #428 — 2026-09-29 — feat: the heartbeat names the tools a turn is running
+
+### Added
+
+- **While a turn's tools ran, the heartbeat looked like a delegation gone quiet.** The
+  chunk count froze and the countdown fell, and nothing named the command, because a
+  turn's tool calls are written only once they finish; measured 2026-09-13, 505s of one
+  turn looked exactly like that. The `alive` event now carries `running` while tools run,
+  each call's name and its arguments capped as the turn record caps them, and the viewer
+  prints it on the heartbeat line. A beat with nothing running keeps its old shape. The
+  callback's shape is one alias now, declared the same in all four places that pass it,
+  because the heartbeat swallows the `TypeError` a drifted shape raises. What tool time
+  consumes stays the delegation's own deadline: it is the delegation's wall time, and the
+  median dispatch spends 0.5% of it in tools. A start event per call is still M19.4.
+
 ## #427 — 2026-09-29 — feat: a delegation is told the workdir it was given
 
 ### Added

@@ -224,6 +224,13 @@ class Delegation:
         return "\n\n".join(part for part in parts if part)
 
 
+# The tool calls running now, each `{"name", "arguments"}` capped as a turn record is.
+RunningCalls = tuple[dict[str, Any], ...]
+
+# One alias for the four places that declare the heartbeat callback, since `_keepalive`
+# swallows the `TypeError` a drifted shape would raise.
+AliveCallback = Callable[[float, int, float, int, int, float | None, RunningCalls], Awaitable[None]]
+
 # Rendered just before the task when a workdir is bound.
 WORKDIR_LINE = (
     "Your workdir is {path}. `run_bash` starts there, and a relative path in the task "
@@ -1239,7 +1246,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     *,
     effort: str | None = None,
     max_tokens: int | None = None,
-    on_alive: Callable[[float, int, float, int, int, float | None], Awaitable[None]] | None = None,
+    on_alive: AliveCallback | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
@@ -1370,12 +1377,13 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
             pass
 
 
-async def _keepalive(
+async def _keepalive(  # noqa: PLR0913, PLR0917 -- one reading per argument, all read per beat
     cfg: Config,
-    on_alive: Callable[[float, int, float, int, int, float | None], Awaitable[None]],
+    on_alive: AliveCallback,
     clock: Callable[[], float],
     ends_in: Callable[[], float],
     streamed: Callable[[], tuple[int, int, float | None]] = lambda: (0, 0, None),
+    running: Callable[[], RunningCalls] = lambda: (),
 ) -> None:
     """Say the delegation is still running, on a timer, until cancelled.
 
@@ -1391,11 +1399,11 @@ async def _keepalive(
         await asyncio.sleep(cfg.keepalive_interval)
         try:
             # What is allowed, when the tightest deadline fires, and from streaming, how
-            # much has arrived and how long since (ADR-0072).
+            # much has arrived and how long since (ADR-0072), and which tools are running.
             chunks, reasoning_chunks, since = streamed()
             await on_alive(
                 clock() - started, cfg.dispatch_timeout, ends_in(),
-                chunks, reasoning_chunks, since,
+                chunks, reasoning_chunks, since, running(),
             )
         except asyncio.CancelledError:
             raise
@@ -2696,7 +2704,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     prefetched: tuple[FileEntry, ...] = (),
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
-    on_alive: Callable[[float, int, float, int, int, float | None], Awaitable[None]] | None = None,
+    on_alive: AliveCallback | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
@@ -2807,6 +2815,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     # the slot is held to the end. `None` rather than an early return, which would need two
     # copies of the turn lifecycle (ADR-0018).
     tools_running = False
+    running_calls: RunningCalls = ()
     beat = asyncio.create_task(_keepalive(
         cfg, on_alive, clock,
         # Names the deadline that will end the run: usually the stall (ADR-0099), but while
@@ -2815,6 +2824,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                  if tools_running
                  else max(min(stall_left(), deadline - clock()), 0.0)),
         streamed,
+        lambda: running_calls,
     )) if on_alive else None
     current = expected_concurrency
     try:
@@ -2928,11 +2938,16 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             # for the batch, keeping the model's order; the timer beside it touches neither
             # `cached` nor `watch`.
             tools_running = True
+            # For the heartbeat, since the turn record lands only once these finish.
+            running_calls = tuple(
+                {"name": c.name, "arguments": dict(record_arguments(c))} for c in calls
+            )
             results, outcomes = await asyncio.to_thread(
                 _run_calls, cfg, calls, allowed, cached, watch, policy=bash_policy,
                 seen=seen,
             )
             tools_running = False
+            running_calls = ()
             watch.turn_tools(outcomes)
             await turn_done(dispatch.response.text, backend_seconds)
             results.append(TextBlock(countdown_line(turns - turn)))
