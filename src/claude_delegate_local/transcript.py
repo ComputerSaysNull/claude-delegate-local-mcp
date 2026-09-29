@@ -286,7 +286,8 @@ class Stream:
     def alive(self, *, elapsed_seconds: float, of_seconds: int,  # noqa: PLR0913 -- one event's fields, all keyword-only
               ends_in_seconds: float | None = None,
               chunks_seen: int = 0, reasoning_chunks: int = 0,
-              since_chunk_seconds: float | None = None) -> None:
+              since_chunk_seconds: float | None = None,
+              running: tuple[dict[str, Any], ...] = ()) -> None:
         """A delegation is still running, and what it is doing (ADR-0072).
 
         Every other event marks something that happened. On the one-shot path nothing
@@ -302,8 +303,11 @@ class Stream:
 
         Chunks, not tokens, and named so: a frame usually carries one token here but is
         not promised to, and the only real count arrives in the final usage frame.
+
+        `running` names the tool calls in flight, which is why nothing is arriving while
+        they run; written only then, so a beat with none keeps its old shape.
         """
-        self._put({
+        event: dict[str, Any] = {
             "t": "alive", "at": datetime.now(UTC).isoformat(),
             "elapsed_seconds": round(elapsed_seconds, 3), "of_seconds": of_seconds,
             # Beside `of_seconds`, the delegation ceiling, which stays because transcripts
@@ -318,7 +322,10 @@ class Stream:
             "since_chunk_seconds": (
                 None if since_chunk_seconds is None else round(since_chunk_seconds, 3)
             ),
-        })
+        }
+        if running:
+            event["running"] = [dict(call) for call in running]
+        self._put(event)
 
     def end(  # noqa: PLR0913 -- one event's fields, all keyword-only
             self, *, ok: bool, turns: int | None, elapsed_seconds: float,

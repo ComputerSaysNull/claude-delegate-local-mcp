@@ -310,16 +310,16 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
   doubles reporting a 7-token prompt.
     - a. ⬜ That says those doubles are unrealistic, not that the change is wrong, and settling
     which needs a real delegation rather than an argument.
-19. ⬜ **The deadline counts down while the *server* works on the delegation's behalf.** A
+19. ✅ 2026-09-29 **The deadline counts down while the *server* works on the delegation's behalf.** A
   third liveness state ADR-0072 does not name: producing, silent, and producing nothing on
   the wire because a tool is running.
-    - a. ⬜ Measured 2026-09-13 — 505s of one turn with `chunks_seen` frozen and `ends_in_seconds`
+    - a. ✅ 2026-09-29 Measured 2026-09-13 — 505s of one turn with `chunks_seen` frozen and `ends_in_seconds`
     falling 60s per minute, then jumping back on completion. The event loop is *not* blocked
     (`_run_calls` goes through `asyncio.to_thread`), so this bounds the delegation only.
     - b. ✅ **Corrected 2026-09-14: "killed while working" is false; this is a reporting defect.**
     `turn_done` sets `last_progress` unconditionally after the tool batch returns and
     `stalled()` is evaluated at the next dispatch, so tool time cannot kill by stall.
-    - c. ⬜ What it consumes is the whole-delegation `dispatch_timeout`, which arguably it should.
+    - c. ✅ 2026-09-29 What it consumes is the whole-delegation `dispatch_timeout`, which arguably it should.
     **Re-ranked down 2026-09-19**: 19.a's 505s was the unscoped search, now ~4.6s, and the median
     dispatch spends 0.5% of its wall time in tools, so the watcher is told rarely and briefly
 25. ✅ 2026-09-29 **A captured exit code of zero is not proof of success, and only the server can close

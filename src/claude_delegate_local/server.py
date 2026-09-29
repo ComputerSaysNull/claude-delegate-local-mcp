@@ -43,6 +43,8 @@ from .context import FileEntry, FileRequest, estimate_text_tokens, prefetch, ski
 from .handles import Handles, UnknownHandle
 from .loop import (
     AgenticDispatch,
+    AliveCallback,
+    RunningCalls,
     ContextOverflowAborted,
     Delegation,
     Dispatch,
@@ -318,7 +320,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     prefetched_files: tuple[FileEntry, ...] = (),
     diagnostics: bool = False,
     report_progress: Callable[[int, int], Awaitable[None]],
-    on_alive: Callable[[float, int, float, int, int, float | None], Awaitable[None]] | None = None,
+    on_alive: AliveCallback | None = None,
     on_turn_done: Callable[[Any, str, float], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
@@ -842,7 +844,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
 
     async def alive(elapsed_seconds: float, of_seconds: int, ends_in: float,  # noqa: PLR0913, PLR0917 -- the heartbeat's positional arity, fixed by _keepalive
                     chunks_seen: int = 0, reasoning_chunks: int = 0,
-                    since_chunk: float | None = None) -> None:
+                    since_chunk: float | None = None, running: RunningCalls = ()) -> None:
         """The one-shot's heartbeat, on the wire and in the transcript (ADR-0018).
 
         A single backend call sends nothing between `start` and `end`, so without this the
@@ -855,7 +857,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             stream.alive(elapsed_seconds=elapsed_seconds, of_seconds=of_seconds,
                          ends_in_seconds=ends_in, chunks_seen=chunks_seen,
                          reasoning_chunks=reasoning_chunks,
-                         since_chunk_seconds=since_chunk)
+                         since_chunk_seconds=since_chunk, running=running)
 
     # Captured before the attempt, never re-derived: a failure path must still have the
     # agent's name, which is in scope only here (ADR-0024).

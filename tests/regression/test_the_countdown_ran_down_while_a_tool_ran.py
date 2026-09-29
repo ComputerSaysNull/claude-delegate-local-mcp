@@ -74,7 +74,7 @@ def test_the_countdown_during_a_tool_names_the_delegation_deadline():
 
     async def on_alive(elapsed: float, of: int, ends_in: float,  # noqa: PLR0913, PLR0917 -- the heartbeat's positional arity, fixed by _keepalive
                        chunks: int = 0, reasoning_chunks: int = 0,
-                       since: float | None = None) -> None:
+                       since: float | None = None, running: tuple = ()) -> None:
         seen.append((ends_in, now[0], in_tool[0]))
 
     try:

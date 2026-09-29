@@ -548,7 +548,22 @@ def _alive_line(event: dict) -> str:
             flow += f" ({reasoning:,} thinking, {seen - reasoning:,} answering)"
         if isinstance(since, (int, float)) and since >= 2:
             flow += f" (last {since:.0f}s ago)"
-    return f"{DIM}still running · {spent}{budget}{ends}{flow}{R}"
+    # Why nothing is arriving: a tool is running, which a frozen count cannot say.
+    running = event.get("running")
+    tools = ""
+    if isinstance(running, list) and running:
+        tools = ", running " + "; ".join(_running_call(c) for c in running)
+    return f"{DIM}still running · {spent}{budget}{ends}{flow}{tools}{R}"
+
+
+def _running_call(call: object) -> str:
+    """`run_bash: pytest -q` -- the tool and the argument that says what it is doing."""
+    if not isinstance(call, dict):
+        return "?"
+    args = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
+    what = next((str(args[k]) for k in ("command", "path", "pattern", "args") if k in args), "")
+    what = what if len(what) <= 60 else what[:57] + "..."
+    return f"{call.get('name', '?')}: {what}" if what else str(call.get("name", "?"))
 
 
 def _waiting_line(event: dict) -> str:
