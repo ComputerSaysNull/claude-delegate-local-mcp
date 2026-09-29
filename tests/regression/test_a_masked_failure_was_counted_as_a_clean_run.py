@@ -7,11 +7,11 @@ which fires on a *sequence* member as well as inside a pipeline's stages, and do
 the line.
 
 Scope, measured rather than assumed (2026-09-19, in a real bwrap sandbox): the trap covers
-`false; echo done` and does **not** cover `false | true`, because without `pipefail` the
-pipeline's own status is the last stage's and no `ERR` occurs. `pipefail` was refused --
-measured, it marks `grep <absent> | head` and `yes | head -1` as failures, which are
-ordinary commands. The counter may therefore undercount and may never overcount, and
-`test_a_pipeline_is_not_covered_and_that_is_deliberate` pins exactly that.
+`false; echo done`, and a pipeline that hides a failed stage is covered through its `stages`
+record -- `false | true` leaves no `ERR`, but `pipeline_hid_a_failure` reads the record and
+calls it. `pipefail` was still refused: measured, it marks `grep <absent> | head` and
+`yes | head -1` as failures, which are ordinary commands, and the stage record exempts
+both. `test_a_pipeline_hiding_a_failed_stage_is_counted` pins the pipeline half (ADR-0107).
 """
 
 from __future__ import annotations
@@ -234,12 +234,12 @@ def test_the_trap_does_not_change_what_the_line_means(tmp_path: Path) -> None:
 
 
 @needs_sandbox
-def test_a_pipeline_is_not_covered_and_that_is_deliberate(tmp_path: Path) -> None:
-    """Pins the scope, so nobody later reads the feature as covering more than it does.
+def test_a_pipeline_hiding_a_failed_stage_is_counted(tmp_path: Path) -> None:
+    """Pins the pipeline half, so nobody later reads the feature as covering less than it does.
 
-    `pipefail` would cover this and was refused: measured, it marks `grep <absent> | head`
-    and `yes | head -1` as failures. If someone adds it, this test fails and they have to
-    argue with the reason rather than discover it.
+    The `ERR` trap cannot see `false | true` -- the pipeline's status is the last stage's --
+    so the `stages` record is what carries it. `pipefail` was still refused: measured, it
+    marks `grep <absent> | head` and `yes | head -1` as failures, which are ordinary commands.
     """
     from claude_delegate_local import config as config_module
 
@@ -248,8 +248,8 @@ def test_a_pipeline_is_not_covered_and_that_is_deliberate(tmp_path: Path) -> Non
 
     result = sandbox.run(cfg, req)
 
-    assert result.masked_failure is False, (
-        "the pipeline half is out of scope; see ADR-0095 before changing this"
+    assert result.masked_failure is True, (
+        "a pipeline whose earlier stage failed must count as a masked failure"
     )
 
 

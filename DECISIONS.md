@@ -19,6 +19,39 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0107 — 2026-09-29 — A pipeline stage that failed is counted unless its exit is known to mean "no result" — Accepted
+
+**Context.** ADR-0095 counted a failure the `ERR` trap sees and left the pipeline half open,
+because `pipefail` marks `grep <absent> | head -1` and `yes | head -1` failing. The stages
+have been recorded since 2026-09-26, and JOURNAL 2026-09-29 counted them: 27 pipelines hid a
+failed stage behind a zero, 18 of them `pytest … | tail` or `| head`, and only one — `diff`
+exiting 1 because the files differ — was not a failure. Every one read as a clean run to the
+model and to `bash_failures`.
+
+**Decision.** A recorded stage before its pipeline's last with a non-zero status makes the
+call a masked failure, except two shapes that are ordinary: status 1 from a command in
+`NO_RESULT_COMMANDS` (`grep` and its kin, `rg`, `diff`, `cmp`, `test`, `[`), where 1 means
+"nothing matched" or "they differ"; and 141, SIGPIPE, where a later stage of the same
+pipeline exited 0, because the reader stopped early. The command is named by its first word
+after any `NAME=value` prefix, path stripped. The last stage is never judged here: a non-zero
+there is the pipeline's own status, which the exit code or the trap already reports. It
+feeds the existing `masked_failure`, so the model hears it in the note it already gets and
+`bash_failures` and `bash_masked_failures` count it; `exit_code` and `last_bash_exit` are
+untouched, so ADR-0007's asymmetry stands.
+
+**This gives up "never overcounts", knowingly.** ADR-0095 chose undercounting because a
+counter that fires on ordinary commands is noise with a server's authority. The allowlist
+removes both of the ordinary shapes that made `pipefail` noise, and the measured cost of
+the other direction was 26 real failures hidden against one exit the list now covers. What
+it can still overcount is an exit 1 that means "no result" for a command not on the list,
+such as `git diff --exit-code`. The list is one constant in `sandbox.py`, so adding to it is
+one line and nothing else restates it.
+
+**What 141 cannot tell apart.** A producer cut off by `| head` exits 141 whether its work
+would have passed or failed, so `pytest | head -5` stopped mid-run is not counted. None of
+the three recorded `pytest | head` pipelines was cut off — each finished with status 1 —
+and counting 141 would count every `yes | head` too.
+
 ## ADR-0106 — 2026-09-28 — Several `files[]` ranges of one file are merged, not refused — Accepted
 
 **Context.** ADR-0105 refused a second entry for a file already named, so a caller wanting
@@ -452,7 +485,7 @@ else does.
 scanned window, one that is not PEM or PuTTY, or one a command constructs at runtime is not
 caught. It closes the renamed-file case, which is the one that needed no effort at all.
 
-## ADR-0095 — 2026-09-19 — A masked shell failure is counted, by an ERR trap and not by pipefail — Accepted
+## ADR-0095 — 2026-09-19 — A masked shell failure is counted, by an ERR trap and not by pipefail — Partially superseded by ADR-0107
 
 **Context.** `run_bash` ended in `["--", "/bin/sh", "-c", req.command]` and recorded
 `proc.returncode` — the status of the whole line the model composed. A trailing `; echo $?`

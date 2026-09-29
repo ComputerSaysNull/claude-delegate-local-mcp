@@ -322,7 +322,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     - c. ⬜ What it consumes is the whole-delegation `dispatch_timeout`, which arguably it should.
     **Re-ranked down 2026-09-19**: 19.a's 505s was the unscoped search, now ~4.6s, and the median
     dispatch spends 0.5% of its wall time in tools, so the watcher is told rarely and briefly
-25. ⬜ **A captured exit code of zero is not proof of success, and only the server can close
+25. ✅ 2026-09-29 **A captured exit code of zero is not proof of success, and only the server can close
   that.** `last_bash_exit` is the status of the whole shell line the model composed, so a
   trailing `; echo $?` or a `| tail` replaces the work's status with the echo's.
     - a. ✅ 2026-09-26 Measured 2026-09-08 over four trials each: the `run_bash` description now says the code
@@ -333,7 +333,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     - c. ✅ 2026-09-19 The server-side answer is a signal for *any* command in the line exiting non-zero
     beside the last one's. `/bin/sh` is dash here, so measure first whether that can be had
     without changing what a compound command means.
-    - d. ⬜ **The `| tail` half is still open**, and `pipefail` is not the way: it marks
+    - d. ✅ 2026-09-29 **The `| tail` half is still open**, and `pipefail` is not the way: it marks
     `grep <absent> | head` failing. Failed stages are recorded as `stages` since 2026-09-26;
     classifying them is what is left, once the records say how often masking happens.
 

@@ -28,6 +28,7 @@ import logging
 import os
 import posixpath
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -99,6 +100,14 @@ _STAGES_TRAP = (
     "trap 'p=(\"${PIPESTATUS[@]}\"); c=\"${BASH_COMMAND//$'\\n'/ }\"; "
     "c=\"${c//$'\\t'/ }\"; printf \"%s\\t%s\\n\" \"${p[*]}\" \"$c\" >> \"$"
     + STAGES_FILE_ENV + "\"' DEBUG\n"
+)
+
+# Commands whose exit 1 means "no match / files differ / false" rather than a failed
+# stage. `pipeline_hid_a_failure` treats a non-last stage that exits 1 under one of these
+# as benign, so `grep absent f | head` is not reported as hiding a failure -- and, with
+# the 141 SIGPIPE rule below, neither is `yes | head -1`.
+NO_RESULT_COMMANDS: frozenset[str] = frozenset(
+    {"grep", "egrep", "fgrep", "rg", "diff", "cmp", "test", "["}
 )
 
 # The one subdirectory of the sandbox HOME that a command may read but not write, and the
@@ -1060,7 +1069,17 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
             stages_marker.unlink(missing_ok=True)
         moved = _settle_protected(made, absent)
     if stages or moved:
-        return replace(result, stages=stages, protected_moved=moved)
+        return replace(
+            result,
+            stages=stages,
+            protected_moved=moved,
+            masked_failure=result.masked_failure
+            or (
+                result.exit_code == 0
+                and not result.timed_out
+                and pipeline_hid_a_failure(stages)
+            ),
+        )
     return result
 
 
@@ -1199,6 +1218,50 @@ def _read_stages(path: Path) -> tuple[tuple[tuple[str, int], ...], ...]:
     finally:
         os.close(fd)
     return parse_stage_records(data.decode("utf-8", "replace"))
+
+
+def _stage_command_name(command: str) -> str:
+    """The command a stage ran, for the `NO_RESULT_COMMANDS` check.
+
+    `shlex.split` first, so a quoted argument does not split into tokens; on a `ValueError`
+    (an unbalanced quote) it falls back to a plain split, because a stage that failed to
+    parse is not a reason to misread the command name. Leading `NAME=value` assignments
+    are dropped, and a path is reduced to its basename, so `LC_ALL=C grep x f` and
+    `/usr/bin/grep x f` both name `grep`. No token left names nothing, which is never benign.
+    """
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    for part in parts:
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", part):
+            continue
+        return os.path.basename(part)
+    return ""
+
+
+def pipeline_hid_a_failure(stages: Sequence[Sequence[tuple[str, int]]]) -> bool:
+    """Whether a recorded pipeline hides a failed stage that the exit code does not show.
+
+    A pipeline's status is its last stage's, so a non-zero earlier stage is invisible to
+    both the exit code and the `ERR` trap. That is a hidden failure -- unless it is one of
+    the benign shapes: a status 0 stage, a SIGPIPE (141) that a later stage with status 0
+    caused by closing the reader, or a status 1 under a `NO_RESULT_COMMANDS` command whose
+    exit 1 means "no match" rather than an error. The last stage of each pipeline is
+    ignored, because a non-zero there is already the pipeline's own status.
+    """
+    for pipeline in stages:
+        for i, (command, status) in enumerate(pipeline):
+            if i == len(pipeline) - 1:
+                continue
+            if status == 0:
+                continue
+            if status == 141 and any(s == 0 for _, s in pipeline[i + 1:]):
+                continue
+            if status == 1 and _stage_command_name(command) in NO_RESULT_COMMANDS:
+                continue
+            return True
+    return False
 
 
 def _as_text(raw: str | bytes | None) -> str:

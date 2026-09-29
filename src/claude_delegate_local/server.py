@@ -1167,8 +1167,9 @@ _DELEGATION_RESULT: dict[str, Any] = {
             "because a later command in the same line succeeded -- the `; echo $?` shape. "
             "Counted inside `bash_failures` too; reported apart because a caller reading "
             "`last_bash_exit: 0` needs to know the zero is hiding something. Detected by "
-            "an `ERR` trap the server prepends, so a pipeline whose last stage succeeds "
-            "is *not* covered and this can undercount, never overcount."
+            "an `ERR` trap the server prepends and, for a pipeline, by each stage's own "
+            "status; a stage exiting 1 from a no-result command such as `grep` or `diff`, "
+            "or 141 because a later stage stopped reading, is not counted."
         ),
         "last_bash_exit": _num(
             "Exit status of the last command, captured by the server. Null means nothing "
@@ -1958,9 +1959,9 @@ ones to believe. `last_bash_exit` is the status of the whole shell line, so a tr
 non-zero is trustworthy because nothing invents one, a zero is not proof of success.
 Ask for the outcome, never the exit code: a task that asks for the number is what gets a
 model to append the `; echo $?` that replaces it.
-`bash_masked_failures` closes the first of those two: the server prepends an `ERR` trap, so
-a command that failed before the last one is counted even when the status reads 0. A
-pipeline whose last stage succeeds is not covered, so it can undercount but never overcount.
+`bash_masked_failures` closes both: an `ERR` trap counts a command that failed before the
+last one, and each pipeline stage's own status counts `pytest | tail`, even when the status
+reads 0. A `grep` or `diff` exiting 1, or a stage stopped by SIGPIPE, is not counted.
 
 `hit_turn_limit` means the delegation was still calling tools when its turns ran out; the
 answer is whatever it could write once tools were withdrawn, so treat it as partial and

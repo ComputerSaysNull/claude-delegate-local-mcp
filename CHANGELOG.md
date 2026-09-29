@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #423 — 2026-09-29 — fix: a pipeline that hides a failed stage is counted as a masked failure
+
+### Fixed
+
+- **`pytest … | tail -40` with failing tests read as a clean run.** A pipeline's status is
+  its last stage's, and the `ERR` trap that counts a masked failure never fires for an
+  earlier stage, so neither the model nor `bash_failures` heard about it. The stages were
+  already recorded for the transcript; JOURNAL 2026-09-29 counted 27 such pipelines, 26 of
+  them real failures. A recorded stage before the last with a non-zero status now sets
+  `masked_failure`, so the model gets the note it already gets for `false; echo done` and
+  both counters count it. Two shapes stay clean because they are ordinary: 1 from `grep`,
+  `rg`, `diff`, `cmp` or `test`, which means "no match" or "they differ", and 141 where a
+  later stage exited 0 and stopped reading, as in `yes | head -1`. That is ADR-0107, which
+  gives up ADR-0095's "never overcounts" for an exit 1 the list does not know; the list is
+  `NO_RESULT_COMMANDS` in `sandbox.py`. The ledger schema and the orchestration resource
+  said a pipeline was not covered, and now say what is.
+
 ## #422 — 2026-09-29 — docs: close M17 and defer two items the transcripts give nothing to act on
 
 ### Added
