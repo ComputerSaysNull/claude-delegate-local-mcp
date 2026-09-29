@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #424 — 2026-09-29 — docs: testing traps get one home, tests/README.md
+
+### Added
+
+- **`tests/README.md` holds how a test is written here and the traps in doing it.** The
+  traps lived only in the hand-off notebook, which is outside the repository, so a
+  contributor or an agent writing a test never saw them: proving a red after the fix is
+  written, patching one layer below the behaviour, why a deadline cannot be driven through
+  the whole stack, a mock transport that buffers the body a test means to check, and the
+  gate's own testing traps. CONTRIBUTING's Tests section moved there with them and now
+  links it. It is registered in `docs_ownership.toml` owning no code, since `tests/**` is
+  unowned, so it carries a budget and its links are checked like every other document's.
+
 ## #423 — 2026-09-29 — fix: a pipeline that hides a failed stage is counted as a masked failure
 
 ### Fixed
