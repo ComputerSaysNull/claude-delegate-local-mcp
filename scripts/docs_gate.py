@@ -1331,11 +1331,13 @@ def owners_of(path: str, manifest: dict) -> list[str]:
             if _matches(path, meta.get("owns", []))]
 
 
-def check_ownership(changed: list[str]) -> list[Finding]:
+def check_ownership(changed: list[str], exempt: frozenset[str] = frozenset()) -> list[Finding]:
     """Changed code must be accompanied by its owning document, in the same commit.
 
     This is what makes the one-feature-per-commit rule mean something: without it there
-    is nothing for the check to compare against.
+    is nothing for the check to compare against. A path in `exempt` changed only in
+    comments, so it is not held to its document -- `ownership_findings` computes that set
+    for the reading it evaluates.
     """
     manifest = load_manifest()
     if manifest is None:
@@ -1347,6 +1349,8 @@ def check_ownership(changed: list[str]) -> list[Finding]:
     stale_pairs: dict[str, list[str]] = {}
 
     for path in changed:
+        if path in exempt:
+            continue
         if not path.startswith(("src/", "scripts/", ".github/", ".claude/")):
             continue
         if _matches(path, unowned):
@@ -2276,7 +2280,36 @@ def amend_hint(mode: str) -> str:
     return hint
 
 
-def ownership_findings(changed: list[str], reused_message: bool, mode: str) -> list[Finding]:
+def _only_comments_changed(path: str, base_rev: str, new_rev: str) -> bool:
+    """True when a `.py` file's only difference is comment text.
+
+    `check_ownership` sees file names only, so without this a comment pass is held to the
+    document exactly as a behaviour change is (ADR-0108). The two contents are compared
+    token by token, with `COMMENT` and `NL` dropped: those are the only tokens a comment
+    edit moves. A docstring is a `STRING` token, so rewording one is a behaviour change and
+    stays held -- it is part of the contract a reader uses. Either side that does not
+    tokenize is a behaviour change by default, as is a path that is not Python.
+    """
+    if not path.endswith(".py"):
+        return False
+
+    def tokens(rev: str) -> list[tuple[int, str]] | None:
+        text = _file_at(rev, path)
+        if text is None:
+            return None
+        try:
+            return [(t.type, t.string) for t in
+                    tokenize.generate_tokens(io.StringIO(text).readline)
+                    if t.type not in (tokenize.COMMENT, tokenize.NL)]
+        except (SyntaxError, tokenize.TokenError, IndentationError, ValueError):
+            return None
+
+    base, new = tokens(base_rev), tokens(new_rev)
+    return base is not None and new is not None and base == new
+
+
+def ownership_findings(changed: list[str], reused_message: bool, mode: str,
+                       diff_range: str | None = None) -> list[Finding]:
     """Ownership, judged against the parent the resulting commit will actually have.
 
     A normal commit is the index against HEAD. An amend is the index against HEAD~1: the
@@ -2291,10 +2324,35 @@ def ownership_findings(changed: list[str], reused_message: bool, mode: str) -> l
     first, and a pass that depended on the amend reading is *announced* rather than taken
     quietly. An escape hatch nobody can see becomes the default route; this one leaves a
     line in every run that used it.
+
+    The comment-only exemption is computed per reading, from that reading's own base: the
+    index against HEAD for an ordinary commit, against HEAD~1 for an amend, and the range's
+    merge base for CI. A file exempted in the reading whose result is returned is named in
+    a warning, so the relaxation is visible rather than silent.
     """
-    strict = check_ownership(changed)
+    def exempted(changed_list: list[str], base_rev: str, new_rev: str) -> frozenset[str]:
+        return frozenset(p for p in changed_list
+                         if p.endswith(".py") and _only_comments_changed(p, base_rev, new_rev))
+
+    def comment_exempt_warn(exempt: frozenset[str]) -> list[Finding]:
+        if not exempt:
+            return []
+        names = ", ".join(sorted(exempt))
+        return [Finding(
+            WARN, "owning-doc",
+            f"{len(exempt)} file(s) changed only in comments, so not held to their "
+            f"owning document: {names}")]
+
+    if mode == "ci":
+        rng = pr_range(diff_range)
+        strict_exempt = exempted(changed, *_range_base_and_new(rng)) if rng else frozenset()
+        strict = check_ownership(changed, exempt=strict_exempt)
+        return [*strict, *comment_exempt_warn(strict_exempt)]
+
+    strict_exempt = exempted(changed, "HEAD", "")
+    strict = check_ownership(changed, exempt=strict_exempt)
     if not any(f.level == BLOCK for f in strict):
-        return strict
+        return [*strict, *comment_exempt_warn(strict_exempt)]
     if not reused_message:
         return [*strict, Finding(WARN, "owning-doc", amend_hint(mode))] if mode in (
             "commit-msg", "pre-commit") else strict
@@ -2306,12 +2364,13 @@ def ownership_findings(changed: list[str], reused_message: bool, mode: str) -> l
             "this commit reuses HEAD's message but HEAD has no parent, so there is no "
             "amend reading to check. Judged against HEAD alone.")]
 
-    relaxed = check_ownership(widened)
+    relaxed_exempt = exempted(widened, "HEAD~1", "")
+    relaxed = check_ownership(widened, exempt=relaxed_exempt)
     if any(f.level == BLOCK for f in relaxed):
         return relaxed
 
     extra = sorted(set(widened) - set(changed))
-    return [*relaxed, Finding(
+    return [*relaxed, *comment_exempt_warn(relaxed_exempt), Finding(
         WARN, "owning-doc",
         "passed only when read as an amend. This commit reuses HEAD's message, so its "
         f"parent is HEAD~1 rather than HEAD, and {len(extra)} file(s) already inside the "
@@ -2374,7 +2433,8 @@ def _run_checks(args: argparse.Namespace) -> tuple[list[str], list[Finding]]:
             elif name in ("public-text", "changelog-number"):
                 findings += fn(args.pr_event)
             elif name == "owning-doc":
-                findings += ownership_findings(changed, reused_message, args.mode)
+                findings += ownership_findings(changed, reused_message, args.mode,
+                                               args.diff_range)
             else:
                 findings += fn()
         except GitFailed as e:

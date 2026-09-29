@@ -404,7 +404,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 95. ✅ 2026-09-28 **`edit_file` cannot tell another writer changed its file**: hash on read, updated by the server's own writes
 96. ✅ 2026-09-28 **`ast_unchanged.py` cannot see a pydantic model's docstring**, which is tool-schema text
 97. ✅ 2026-09-27 **"`max` never answers" is stale**: 8 of 8 answered on 2026-09-27; MODELS.md and TROUBLESHOOTING.md say otherwise
-98. ⬜ **The owning-doc check cannot tell a comment-only change from a behavioural one**: 14 waivers on ARCHITECTURE.md in three days (audit 2026-09-28). Exempt comments, never docstrings (item 96)
+98. ✅ 2026-09-29 **The owning-doc check cannot tell a comment-only change from a behavioural one**: 14 waivers on ARCHITECTURE.md in three days (audit 2026-09-28). Exempt comments, never docstrings (item 96)
 99. ✅ 2026-09-29 **Testing traps live in no document**: a `tests/README.md`, with what moves there from CONTRIBUTING and the gate checks that follow it
 100. ✅ 2026-09-29 **A prefetched range never reaches the read cache**, so re-reading lines `files[]` already supplied runs the tool again
 

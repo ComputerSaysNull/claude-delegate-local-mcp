@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #426 — 2026-09-29 — feat: a comment-only Python change is not held to its owning document
+
+### Changed
+
+- **Every comment pass needed a `Docs-Gate-Skip: owning-doc` waiver.** The owning-doc
+  check sees file names only, so rewording a module's comments demanded the document that
+  describes its behaviour: 14 waivers on ARCHITECTURE.md in three days, 11 of them comment
+  passes (audit 2026-09-28). The gate now compares each changed `.py` file's tokens with
+  comments and blank lines dropped, against the same base its reading uses — HEAD, HEAD~1
+  for an amend, the merge base in CI — and a file whose tokens are unchanged is exempt. A
+  docstring is a string token, so rewording one still demands the document. The run
+  prints a warning naming every file it exempted. ADR-0108.
+
 ## #425 — 2026-09-29 — feat: a read of lines files[] already sent is answered, not run
 
 ### Changed

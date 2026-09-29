@@ -19,6 +19,34 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0108 — 2026-09-29 — A Python change that touches only comments is not held to its document — Accepted
+
+**Context.** The owning-doc check sees file names, so a pass that rewrites a module's
+comments demands the document that describes the module's behaviour, which has not changed.
+The 2026-09-28 audit counted 14 `Docs-Gate-Skip: owning-doc` waivers on ARCHITECTURE.md in
+three days, 11 of them giving "comment pass, `ast_unchanged` exits 0". A waiver that is the
+normal route is a check being taught to be ignored, and the audit's pressure then measures
+the waivers rather than the drift. The audit named the design question and left it open,
+because exempting anything weakens a check.
+
+**Decision.** For each changed `.py` file, the gate compares the old and new token streams
+with `COMMENT` and `NL` tokens dropped, from the same base the reading judges against: HEAD
+for an ordinary commit, HEAD~1 for the amend reading, the range's merge base in CI. Equal
+streams exempt the file from its owning document, and the run prints a WARN naming every
+file it exempted, so the relaxation is visible in the same place a waiver would have been.
+
+**Docstrings are not comments here, deliberately.** A docstring is a `STRING` token, so
+rewording one still demands the document. That keeps item 96's rule — a pydantic model's
+docstring is tool-schema text — without the gate needing to know which docstrings are
+contract, and it is why tokens are compared rather than `ast_unchanged.py`'s tree, which
+strips ordinary docstrings as not behaviour.
+
+**What it lets through.** A comment is not behaviour, but a few are read by tools:
+`# type: ignore`, `# noqa`, `# pragma: no cover`. Changing one alters what a checker says,
+never what the program does, and the owning documents describe the program. A file that
+does not tokenize on either side, a renamed file with no base to compare, and any file that
+is not Python are held to their document as before.
+
 ## ADR-0107 — 2026-09-29 — A pipeline stage that failed is counted unless its exit is known to mean "no result" — Accepted
 
 **Context.** ADR-0095 counted a failure the `ERR` trap sees and left the pipeline half open,
