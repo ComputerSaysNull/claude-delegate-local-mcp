@@ -52,7 +52,8 @@ rather than an exception, and one already was.
 **One feature per commit: code, tests, documentation and CHANGELOG together.** Not
 tidiness — it is what gives the owning-document check something to compare against. A
 commit that changes `paths.py` without touching `docs/AGENTS.md` is blocked, and that only
-means anything if features arrive whole.
+means anything if features arrive whole. A Python file whose tokens differ only in comments
+is not held to its document; the gate names each one it let through (ADR-0108).
 
 [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`,
 `test:`, `refactor:`, `chore:`. Branches `feat/<slug>`, `fix/<slug>`, `docs/<slug>`. The
