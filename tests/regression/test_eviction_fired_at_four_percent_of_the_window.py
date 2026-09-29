@@ -52,7 +52,9 @@ def entry(*, defaulted: bool) -> ModelEntry:
 
 
 def guard_at(prompt_tokens: int, *, defaulted: bool) -> loop._OverflowGuard:
-    g = loop._OverflowGuard(cfg(), entry(defaulted=defaulted))
+    # Unarmed: this file is about the guard the loop gets when the window check disarms it,
+    # which is what a defaulted window the endpoint cannot confirm now gets.
+    g = loop._OverflowGuard(cfg(context_overflow_enabled=False), entry(defaulted=defaulted))
     g.prev_input_tokens = prompt_tokens
     return g
 

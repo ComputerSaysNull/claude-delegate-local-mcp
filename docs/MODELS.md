@@ -127,14 +127,15 @@ threshold over a wrong denominator is the bug that feature exists to avoid.
 A disagreement disarms overflow handling for that model and reports both numbers. The
 endpoint's figure is never adopted: an auto-derived window would compute every threshold
 against a model file's architecture maximum rather than the window being served. An
-endpoint that reports no window is fine and blocks nothing; vLLM reports one as
+endpoint that reports no window blocks nothing against a window you set, and disarms a
+defaulted one, which nobody chose and nothing then confirms. vLLM reports one as
 `max_model_len` (JOURNAL 2026-08-29).
 
 An entry that omits `context_window` gets the default, and the server records that it did.
 The report says the window was assumed and names the one the endpoint served, and
 `backend_status` carries `context_window_defaulted` beside the number, so the two cases are
-distinguishable before anything disagrees. Overflow handling stays off by default
-regardless: arming it against a number nobody chose is worse than not arming it.
+distinguishable before anything disagrees. Overflow handling is on by default, but a
+defaulted window arms it only once the endpoint confirms that number: a guess is worse.
 
 ## The token estimator is measured against a tokenizer, not against file types
 

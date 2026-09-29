@@ -37,6 +37,9 @@ def cfg(**over) -> Config:
         "workspace_roots": (".",),
         "keep_tool_results": 1,
         "retained_tool_result_tokens": 1,
+        # Scripted turns report a fixed prompt size, which an armed plateau check reads as
+        # history being dropped; overflow handling has its own tests.
+        "context_overflow_enabled": False,
     }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]

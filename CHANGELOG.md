@@ -30,6 +30,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #429 — 2026-09-29 — feat: overflow handling is on by default
+
+### Changed
+
+- **`context_overflow_enabled` now defaults to on.** Tighten, nudge, abort and the plateau
+  check waited for it because arming them failed 31 tests whose doubles report a 7-token
+  prompt, and nobody had shown whether that condemned the doubles or the change. JOURNAL
+  2026-09-29 did, from every stored transcript: a real endpoint's prompt has not failed to
+  grow once in 3,000-odd turn pairs since ADR-0056, so it was the doubles. What the switch
+  was off to prevent is closed below, where the window is checked. Test modules whose
+  doubles model neither a growing prompt nor the window probe opt out in their shared
+  config helper; the overflow tests keep it armed. ADR-0109.
+
+### Fixed
+
+- **Overflow handling armed against a window nobody set and nothing confirmed.** Every
+  threshold is a share of `context_window`, and an entry that omits it inherits a default.
+  The window check disarmed only when the endpoint reported a *different* number, so an
+  endpoint that reports none left the guard armed on the guess — the case the switch was
+  off by default to avoid. A defaulted window the endpoint cannot confirm now disarms, and
+  the reason names the `models.toml` line to add. A window the operator wrote still arms
+  when the endpoint is silent.
+
 ## #428 — 2026-09-29 — feat: the heartbeat names the tools a turn is running
 
 ### Added

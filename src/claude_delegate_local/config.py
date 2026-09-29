@@ -393,14 +393,14 @@ class Config:
 
     # ---- context overflow --------------------------------------------------------
     context_overflow_enabled: bool = _f(
-        False,
+        True,
         "Master switch for both halves of overflow handling: the retroactive check that "
         "notices a prompt has stopped growing while the history did not, and the "
         "preventive response that tightens retention, nudges and finally aborts as "
-        "projected usage climbs. Off by default because every threshold here is measured "
-        "against ModelEntry.context_window, and a registry entry that omits that field "
-        "inherits a silent default -- arming this against a window nobody set would "
-        "compute every threshold from a number the operator never chose.",
+        "projected usage climbs. Every threshold is a share of ModelEntry.context_window, "
+        "so each model's window is first checked against the endpoint: a disagreement, "
+        "or a defaulted window the endpoint cannot confirm, disarms that model and says "
+        "why. Off stops both halves everywhere.",
     )
     overflow_plateau_slop_tokens: int = _f(
         64,

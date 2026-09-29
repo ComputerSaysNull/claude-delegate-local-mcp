@@ -36,6 +36,7 @@ def files_cfg(tmp_path, **over) -> Config:
         "secret_globs_file": str(globs),
         "respect_gitignore": False,
         "admission_idle_hold": 0.0,
+        "context_overflow_enabled": False,  # the doubles answer no window probe
         # Deliberately tight: the whole file is over this, the 10-20 range is not.
         "max_file_tokens": 50,
         "max_total_prefetch_tokens": 1000,

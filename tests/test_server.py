@@ -39,7 +39,11 @@ def cfg(**over) -> Config:
     # ten seconds apiece. Zeroing it in only some helpers moves the cost rather than
     # removing it, because whoever arrives next finds the gate idle instead. The tests
     # that are about the debounce set their own value.
-    kw = {"workspace_roots": (".",), "admission_idle_hold": 0.0}
+    # Overflow handling off for the same reason: these doubles answer no window probe and
+    # report a fixed prompt size, so an armed guard would test the doubles. Its own tests
+    # arm it (test_context_overflow.py and the window-check regressions).
+    kw = {"workspace_roots": (".",), "admission_idle_hold": 0.0,
+          "context_overflow_enabled": False}
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
 
@@ -696,6 +700,7 @@ def files_cfg(tmp_path, **over) -> Config:
         "secret_globs_file": str(globs),
         "respect_gitignore": False,
         "admission_idle_hold": 0.0,  # see cfg()
+        "context_overflow_enabled": False,  # see cfg()
     }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
