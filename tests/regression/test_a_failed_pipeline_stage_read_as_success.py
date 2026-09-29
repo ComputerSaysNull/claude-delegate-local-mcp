@@ -52,7 +52,7 @@ def _sandbox_unusable() -> str:
 
 needs_sandbox = pytest.mark.skipif(
     not _POSIX or bool(_sandbox_unusable()),
-    reason=_sandbox_unusable() if _POSIX else "POSIX shell required; the sandbox never runs on Windows",
+    reason=_sandbox_unusable() if _POSIX else "POSIX shell required; the sandbox is not on Windows",
 )
 
 
