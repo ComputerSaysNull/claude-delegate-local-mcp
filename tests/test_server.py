@@ -700,6 +700,7 @@ def files_cfg(tmp_path, **over) -> Config:
         "secret_globs_file": str(globs),
         "respect_gitignore": False,
         "admission_idle_hold": 0.0,  # see cfg()
+        "context_overflow_enabled": False,  # see cfg()
     }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
