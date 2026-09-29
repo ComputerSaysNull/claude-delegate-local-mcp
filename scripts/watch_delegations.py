@@ -359,6 +359,36 @@ def _search_files_lines(call: dict, width: int) -> list[str]:
 _LAYOUTS = {"read_file": _read_file_lines, "search_files": _search_files_lines}
 
 
+def _announced_lines(call: dict, width: int) -> list[str]:
+    """A call about to run: its name and what it was asked, with no outcome yet."""
+    out = [f"  {YELLOW}▸ {call.get('name', '?')}{R}"]
+    if layout := _LAYOUTS.get(str(call.get("name") or "")):
+        return out + layout(call, width)
+    tail = "  ".join(f"{k}={v}" for k, v in (call.get("arguments") or {}).items())
+    return out + ([f"{DIM}{line}{R}" for line in _wrap(tail, width, INDENT)] if tail else [])
+
+
+def _result_lines(call: dict, width: int) -> list[str]:
+    """A call that ran, whose arguments the announcement above already showed.
+
+    The outcome, then what is recorded of what came back -- size and time, never the
+    content, which the stream does not keep (ADR-0039) -- and the refusal in full.
+    """
+    outcome = str(call.get("outcome") or "error")
+    colour = GREEN if outcome in _GOOD_OUTCOMES else RED
+    bits = [note] if (note := _size_note(call)) else []
+    if isinstance(ms := call.get("ms"), int):
+        bits.append(_span(ms / 1000))
+    tail = f"  {DIM}{' · '.join(bits)}{R}" if bits else ""
+    out = [f"  {YELLOW}▸ {call.get('name', '?')}{R} {colour}{outcome}{R}{tail}"]
+    if message := str(call.get("message") or "").strip():
+        out.extend(
+            f"{RED}{line}{R}" if line.strip() else line
+            for line in _wrap(message, width, INDENT)
+        )
+    return out
+
+
 def _call_lines(call: dict, width: int) -> list[str]:
     """One tool call: what it was asked, how it ended, and why if it refused.
 
@@ -486,6 +516,8 @@ def _turn_lines(event: dict, stamp: str, width: int) -> list[str]:
     # scrolling a long transcript is not looking at the header any more.
     of = event.get("of_turns")
     whose = f"turn {n} of {of}" if isinstance(of, int) else f"turn {n}"
+    if event.get("announced"):
+        whose += " done"  # the heading above already opened it
     head = f"{stamp}  {BOLD}{CYAN}{whose}{R}"
     if effort := event.get("effort"):
         head += f"  {DIM}effort {effort}{R}"
@@ -503,12 +535,21 @@ def _turn_lines(event: dict, stamp: str, width: int) -> list[str]:
     if isinstance(share, (int, float)) and share >= REPETITION_WORTH_SAYING:
         head += f"  {YELLOW}{share:.0%} repeated{R}"
     lines = ["", f"{head}  {cost}"]
+    # Announced calls were shown with their arguments when they started, so only what
+    # came back is left to show; a stream older than the announcement shows it all here.
+    show = _result_lines if event.get("announced") else _call_lines
     for call in event.get("tool_calls", []) or []:
-        lines.extend(_call_lines(call, width))
+        lines.extend(show(call, width))
     if text := (event.get("text") or "").strip():
         lines.append("")
         lines.extend(_wrap(text, width, "  "))
-    return lines
+    # The turn's closing rule; `priced` draws its opening one, so each turn reads as a unit.
+    return [*lines, _turn_rule(width)]
+
+
+def _turn_rule(width: int) -> str:
+    """The line above and below a turn: lighter than the delegation's own rules."""
+    return f"{DIM}{'┄' * width}{R}"
 
 
 def _alive_line(event: dict) -> str:
@@ -551,9 +592,19 @@ def _alive_line(event: dict) -> str:
     # Why nothing is arriving: a tool is running, which a frozen count cannot say.
     running = event.get("running")
     tools = ""
-    if isinstance(running, list) and running:
-        tools = ", running " + "; ".join(_running_call(c) for c in running)
-    return f"{DIM}still running · {spent}{budget}{ends}{flow}{tools}{R}"
+    if isinstance(running, list) and running and all(
+            isinstance(c, dict) and "status" in c for c in running):
+        # Each call's own state, coloured, so the one holding the turn up stands out.
+        tools = f"{DIM}, tools:{R} " + ", ".join(
+            f"{c.get('name', '?')} {_STATUS_COLOUR.get(c['status'], RED)}{c['status']}{R}"
+            for c in running)
+    elif isinstance(running, list) and running:
+        tools = f"{DIM}, running " + "; ".join(_running_call(c) for c in running) + R
+    return f"{DIM}still running · {spent}{budget}{ends}{flow}{R}{tools}"
+
+
+# How a call's state reads on the heartbeat line; any other word is an outcome gone wrong.
+_STATUS_COLOUR = {"done": GREEN, "running": YELLOW, "queued": DIM}
 
 
 def _running_call(call: object) -> str:
@@ -702,6 +753,61 @@ def _end_summary(event: dict) -> list[str]:
     return [f"  {DIM}{' · '.join(parts)}{R}"] if parts else []
 
 
+def _priced_lines(event: dict, stamp: str, width: int) -> list[str]:
+    """A turn opening: its heading, and what it was allowed and why."""
+    # What the turn below was allowed, and what that was worked out from. Shown
+    # because a turn that dies at a deadline prints nothing else: the ceiling and the
+    # load it was read against are the two numbers that say whether the budget was
+    # ever payable, and they are meaningless apart.
+    cap = event.get("budget_ceiling")
+    rate = event.get("decode_rate")
+    running = event.get("requests_running")
+    source = event.get("rate_source")
+    n = event.get("turn")
+    # "of 25" is the half that says whether this turn is anywhere near the last, and
+    # so whether the answer to a delegation running long is to raise the cap. Omitted
+    # when absent rather than guessed: an older stream carries no budget.
+    of = event.get("of_turns")
+    whose = f"turn {n}" if isinstance(n, int) else "the turn below"
+    if isinstance(n, int) and isinstance(of, int):
+        whose = f"turn {n} of {of}"
+    cap_s = f"{cap:,} tok" if isinstance(cap, int) else "uncapped"
+    rate_s = f"{rate:.1f} tok/s" if isinstance(rate, (int, float)) else "rate unknown"
+    load_s = ""
+    if isinstance(running, (int, float)):
+        # Three cases, not two, and the third is the one a two-way split gets wrong.
+        # Only `cluster_since_boot` carries a reading of the machine. Every other
+        # *known* source echoes the concurrency frozen at lease grant, which is a
+        # claim about this delegation's pricing -- and `own_turns`, the commonest of
+        # all at five of six rows on a real six-turn run, used to fall through to the
+        # neutral word and invite the cluster reading. A source that is absent or
+        # unrecognised still gets that neutral word, because a stream written before
+        # the field existed cannot support either claim.
+        if source == "cluster_since_boot":
+            load_s = f", {running:.0f} running"
+        elif source in PRICED_SOURCES:
+            load_s = f", priced for {running:.0f}"
+        else:
+            load_s = f", concurrency {running:.0f}"
+    # A turn opens here, so this draws its rule and its heading: the heartbeats, calls
+    # and results that follow belong to it, down to the `turn` event's closing rule.
+    return ["", _turn_rule(width),
+            f"{stamp}  {BOLD}{CYAN}{whose}{R}  {DIM}budget {cap_s} · {rate_s}{load_s}{R}"]
+
+
+def _tools_lines(event: dict, stamp: str, width: int) -> list[str]:
+    """The calls a turn is about to run."""
+    # The calls, named as they start, so a long one is legible while it runs.
+    lines = [f"{stamp}  {DIM}calling{R}"]
+    for call in event.get("tool_calls", []) or []:
+        lines.extend(_announced_lines(call, width))
+    return lines
+
+
+# The events drawn as blocks, all with one signature, so `render` stays a dispatch.
+_BLOCKS = {"turn": _turn_lines, "priced": _priced_lines, "tools": _tools_lines}
+
+
 def render(event: dict, width: int) -> list[str]:
     """One event, as a block a person reads rather than a line a machine parses."""
     kind = event.get("t")
@@ -721,45 +827,8 @@ def render(event: dict, width: int) -> list[str]:
                 *_given(event),
                 f"{DIM}{'─' * width}{R}"]
 
-    if kind == "turn":
-        return _turn_lines(event, stamp, width)
-
-    if kind == "priced":
-        # What the turn below was allowed, and what that was worked out from. Shown
-        # because a turn that dies at a deadline prints nothing else: the ceiling and the
-        # load it was read against are the two numbers that say whether the budget was
-        # ever payable, and they are meaningless apart.
-        cap = event.get("budget_ceiling")
-        rate = event.get("decode_rate")
-        running = event.get("requests_running")
-        source = event.get("rate_source")
-        n = event.get("turn")
-        # "of 25" is the half that says whether this turn is anywhere near the last, and
-        # so whether the answer to a delegation running long is to raise the cap. Omitted
-        # when absent rather than guessed: an older stream carries no budget.
-        of = event.get("of_turns")
-        whose = f"turn {n}" if isinstance(n, int) else "the turn below"
-        if isinstance(n, int) and isinstance(of, int):
-            whose = f"turn {n} of {of}"
-        cap_s = f"{cap:,} tok" if isinstance(cap, int) else "uncapped"
-        rate_s = f"{rate:.1f} tok/s" if isinstance(rate, (int, float)) else "rate unknown"
-        load_s = ""
-        if isinstance(running, (int, float)):
-            # Three cases, not two, and the third is the one a two-way split gets wrong.
-            # Only `cluster_since_boot` carries a reading of the machine. Every other
-            # *known* source echoes the concurrency frozen at lease grant, which is a
-            # claim about this delegation's pricing -- and `own_turns`, the commonest of
-            # all at five of six rows on a real six-turn run, used to fall through to the
-            # neutral word and invite the cluster reading. A source that is absent or
-            # unrecognised still gets that neutral word, because a stream written before
-            # the field existed cannot support either claim.
-            if source == "cluster_since_boot":
-                load_s = f", {running:.0f} running"
-            elif source in PRICED_SOURCES:
-                load_s = f", priced for {running:.0f}"
-            else:
-                load_s = f", concurrency {running:.0f}"
-        return ["", f"{stamp}  {DIM}budget for {whose}: {cap_s} · {rate_s}{load_s}{R}"]
+    if kind in _BLOCKS:
+        return _BLOCKS[kind](event, stamp, width)
 
     if kind in _ONE_LINERS:
         return [f"{stamp}  {_ONE_LINERS[kind](event)}"]

@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #431 — 2026-09-29 — feat: a turn's calls are announced as they start, and the viewer groups each turn
+
+### Added
+
+- **The viewer printed a turn's heartbeats above the turn they belonged to.** A turn's
+  calls reached the stream only in its `turn` event, written once every call had finished,
+  so the heartbeats beating while they ran came first and read as the turn before. A new
+  `tools` event names the calls, with their capped arguments, the moment the model's reply
+  is in and before any runs, and the `turn` after it carries `announced`. Each heartbeat now
+  says whether each call is queued, running or done, from the worker thread that runs them.
+  The viewer opens a turn at its budget line with a rule and the turn's heading, lists the
+  calls there, shows the heartbeats with each call's state coloured, and closes the turn
+  after its results with another rule. An announced turn's results show each call's
+  outcome, size, time and any error, not its arguments again; an older stream renders as
+  before. Output content is still not recorded (ADR-0039). This is M19.4.
+
 ## #430 — 2026-09-29 — docs: closing out a commit runs mypy beside ruff
 
 ### Changed

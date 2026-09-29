@@ -54,7 +54,9 @@ def test_a_beat_during_a_tool_names_the_tool_and_its_arguments():
 
     named = [r for r in beats if r]
     assert named, f"no beat during the tool named anything: {beats}"
-    assert named[0] == ({"name": "slow", "arguments": {"command": "pytest -q tests"}},)
+    assert named[0] == (
+        {"name": "slow", "arguments": {"command": "pytest -q tests"}, "status": "running"},
+    )
 
 
 def test_a_one_shot_beat_names_no_tool():

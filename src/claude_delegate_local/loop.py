@@ -2640,16 +2640,23 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     *,
     policy: BashPolicy,
     seen: SeenFiles | None = None,
+    status: list[str] | None = None,
 ) -> tuple[list[ContentBlock], tuple[ToolCallRecord, ...]]:
     """One turn's tool calls, run in order. Returns the result blocks and their records.
 
     The ledger belongs to the turn and records the path the model asked for, not the one
     resolved: what the model *believed* it wrote, against the disk, is the abort report's
     point. Built here, the only place holding both arguments and refusal text.
+
+    `status` holds one word per call for the heartbeat to read: `queued`, `running` while
+    its group runs, then `done` or its outcome. By group, since a group's calls run at once.
     """
     results: list[ContentBlock] = []
     records: list[ToolCallRecord] = []
+    first = 0
     for group in _pooled_groups(calls):
+        if status is not None:
+            status[first:first + len(group)] = ["running"] * len(group)
         # A group of one keeps the original path, cache clear and all.
         outcomes = (
             [_run_one_call(cfg, group[0], allowed, cached, policy, seen=seen)]
@@ -2657,11 +2664,14 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
             else _run_group(cfg, group, allowed, cached, policy, seen=seen)
         )
         # On one thread, in the model's order; a worker appending would reorder the report.
-        for call, (block, outcome, ms) in zip(group, outcomes, strict=True):
+        for i, (call, (block, outcome, ms)) in enumerate(zip(group, outcomes, strict=True)):
             result = block if isinstance(block, ToolResultBlock) else None
             watch.called(call, outcome, result)
             records.append(tool_call_record(call, outcome, result, ms=ms))
             results.append(block)
+            if status is not None:
+                status[first + i] = "done" if outcome in ("ran", "repeat") else outcome
+        first += len(group)
     return results, tuple(records)
 
 
@@ -2706,6 +2716,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     report_progress: Callable[[int, int], Awaitable[None]] = _no_progress,
     on_alive: AliveCallback | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    on_tools: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
@@ -2816,6 +2827,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     # copies of the turn lifecycle (ADR-0018).
     tools_running = False
     running_calls: RunningCalls = ()
+    call_status: list[str] = []
     beat = asyncio.create_task(_keepalive(
         cfg, on_alive, clock,
         # Names the deadline that will end the run: usually the stall (ADR-0099), but while
@@ -2824,7 +2836,9 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                  if tools_running
                  else max(min(stall_left(), deadline - clock()), 0.0)),
         streamed,
-        lambda: running_calls,
+        lambda: tuple(
+            {**c, "status": s} for c, s in zip(running_calls, call_status, strict=False)
+        ),
     )) if on_alive else None
     current = expected_concurrency
     try:
@@ -2938,13 +2952,18 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             # for the batch, keeping the model's order; the timer beside it touches neither
             # `cached` nor `watch`.
             tools_running = True
-            # For the heartbeat, since the turn record lands only once these finish.
+            # For the stream and the heartbeat, since the turn record lands only once these
+            # finish; the worker thread moves each call's status along.
             running_calls = tuple(
                 {"name": c.name, "arguments": dict(record_arguments(c))} for c in calls
             )
+            call_status = ["queued"] * len(calls)
+            if on_tools is not None:
+                await on_tools({"turn": turn, "of_turns": turns,
+                                "tool_calls": [dict(c) for c in running_calls]})
             results, outcomes = await asyncio.to_thread(
                 _run_calls, cfg, calls, allowed, cached, watch, policy=bash_policy,
-                seen=seen,
+                seen=seen, status=call_status,
             )
             tools_running = False
             running_calls = ()

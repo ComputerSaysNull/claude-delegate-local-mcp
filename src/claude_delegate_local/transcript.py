@@ -127,6 +127,8 @@ class Stream:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._broken = False
+        # Turns whose calls a `tools` event already named, so their `turn` event can say so.
+        self._announced: set[int] = set()
 
     def _put(self, event: dict[str, Any]) -> None:
         if self._broken:
@@ -182,6 +184,8 @@ class Stream:
         self._put({
             "t": "turn", "at": datetime.now(UTC).isoformat(),
             "turn": getattr(diagnostic, "turn", None),
+            # A `tools` event already named this turn's calls, so a reader shows results.
+            "announced": getattr(diagnostic, "turn", None) in self._announced,
             # On every turn, not only the head: a reader deep in a long transcript cannot
             # see the header, and "turn 3" without "of 10" cannot be acted on.
             "of_turns": of_turns,
@@ -265,6 +269,20 @@ class Stream:
             # The budget this turn is one of: `turn` alone does not say whether the end
             # is near, which decides whether a long run needs a higher cap.
             "of_turns": of_turns,
+        })
+
+    def tools(self, *, turn: int, of_turns: int | None,
+              tool_calls: list[dict[str, Any]]) -> None:
+        """The calls a turn is about to run, named before any of them does.
+
+        The `turn` event lands only once they have all finished, so without this a long
+        command is visible only as a heartbeat. Arguments come capped as the turn record
+        caps them; the results stay in the `turn` event, which says it was announced.
+        """
+        self._announced.add(turn)
+        self._put({
+            "t": "tools", "at": datetime.now(UTC).isoformat(), "turn": turn,
+            "of_turns": of_turns, "tool_calls": tool_calls,
         })
 
     def waiting(self, *, waited_seconds: float, of_seconds: int) -> None:

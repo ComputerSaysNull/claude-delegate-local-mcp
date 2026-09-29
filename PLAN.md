@@ -250,7 +250,7 @@ M11's exit, carried. Items 1 to 3 were M11.3, M11.4 and M11.9, moved unchanged o
     over the same `.jsonl` gets repaint, scrollback and selection for nothing.
     - b. ✅ 2026-09-28 The consumer is not the caller — an MCP tool call is request/response either way — it
     is the person reading the transcript stream while the work happens.
-4. ⬜ **A tool call in flight is invisible**: `tool_calls` land in the `turn` event, after the tools finish; write a start event
+4. ✅ 2026-09-29 **A tool call in flight is invisible**: `tool_calls` land in the `turn` event, after the tools finish; write a start event
 5. ⬜ **The partial answer is not in the stream while it generates**, so a watcher sees counters and no text
 6. ⬜ **A delegation has no title**; a list of them reads as timestamps. Derive one from the task, or take it as an argument
 7. ⬜ **Liveness reads as repeated `alive` lines**; the chunk counts belong in counters that update in place
