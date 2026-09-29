@@ -640,8 +640,9 @@ a delegation use different functions. Since ADR-0072 it also carries what the mo
 have arrived, and how long since the last — the gap being what separates a delegation
 producing from one gone quiet. **Chunks, and named so**: a frame usually carries one token
 here and is not promised to, and the real count lands in the final usage frame, after a
-heartbeat has stopped mattering. While tools run it names them, in `running`: a frozen
-count alone reads as a model gone quiet. Nothing is cancelled when the interval passes.
+heartbeat has stopped mattering. While tools run it names them in `running`, each queued,
+running or done, since a frozen count alone reads as a model gone quiet; the loop announces
+the calls through `on_tools` first. Nothing is cancelled when the interval passes.
 
 Each runs beside the work rather than inside it, cancelled and awaited in a `finally`
 covering every exit including the raised ones, so none outlives its dispatch. A callback

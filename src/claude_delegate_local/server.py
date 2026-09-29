@@ -336,6 +336,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     on_alive: AliveCallback | None = None,
     on_turn_done: Callable[[Any, str, float], Awaitable[None]] | None = None,
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    on_tools: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
@@ -355,6 +356,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 max_turns=max_turns, policy=policy, prefetched=prefetched_files,
                 diagnostics=diagnostics, report_progress=report_progress,
                 on_alive=on_alive, on_turn_done=on_turn_done, on_priced=on_priced,
+                on_tools=on_tools,
                 on_pool=on_pool,
                 rate_history=rate_history, expected_concurrency=expected_concurrency,
                 concurrency_now=concurrency_now,
@@ -882,6 +884,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         if stream is not None:
             stream.priced(**row)
 
+    async def announced(row: dict) -> None:
+        """The calls a turn is about to run, before any of them does."""
+        if stream is not None:
+            stream.tools(**row)
+
     started = _clock()
     lease: AdmissionLease | None = None
     dispatched: Dispatch | AgenticDispatch | None = None
@@ -920,6 +927,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 on_alive=alive,
                 on_turn_done=streamed_turn,
                 on_priced=priced,
+                on_tools=announced,
                 # Only while the gate has not seen the pool size, so the scrape can be
                 # skipped once it has. Why: ADR-0081.
                 on_pool=None if admission.pool_known else admission.observe_pool,

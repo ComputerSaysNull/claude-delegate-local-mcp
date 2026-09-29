@@ -1,4 +1,4 @@
-<!-- BUDGET: 1220 -->
+<!-- BUDGET: 1224 -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -1135,8 +1135,9 @@ shape can be silent for a long time — a one-shot has no turns at all, and one 
 outlast the client's idle timer unaided. A synthetic `turn` is written when a one-shot's
 answer arrives, so the record is never the empty shape a failed delegation has.
 [DISPATCH.md](DISPATCH.md) owns what the heartbeat carries and why (ADR-0018, ADR-0072).
-The viewer renders it as one dim line, and its chunk count is what makes a running
-delegation legible as *working* rather than merely *unfinished* — split by kind, thinking or answering, and naming the tool running when one is.
+The viewer renders it as one dim line inside the turn it beats in, and its chunk count is
+what makes a running delegation legible as *working* rather than merely *unfinished* —
+split by kind, thinking or answering, and each running call as queued, running or done.
 
 A sixth, `waiting`, is written while a delegation is still queued at the gate, from the
 tick that resets the client's idle timer — on the first tick, then every thirty seconds,
@@ -1149,9 +1150,12 @@ stream would only mean something on the machine that wrote it. (ADR-0072)
 
 A fifth, `priced`, is written *before* each turn, carrying the ceiling that turn was given,
 the budget its first attempt sent, the rate it came from, the load that rate was read
-against, and the sampling it was drawn at. Ordering is the whole of it: a `turn` event lands only when a turn completes, so a turn
-killed at a deadline recorded nothing. An absent ceiling is written as null rather than
-omitted, because "no cap applied" is the most incriminating thing the record can say.
+against, and the sampling it was drawn at. Ordering is the whole of it: a `turn` event lands
+only when a turn completes, so a turn killed at a deadline recorded nothing. An absent
+ceiling is written as null rather than omitted, because "no cap applied" is the most
+incriminating thing the record can say. A seventh, `tools`, names a turn's calls as they
+start, for the same reason, and the `turn` after it says so; the viewer opens each turn at
+its `priced` line, lists the calls there, and closes the turn after its results.
 
 The `end` event also carries what a whole run cost, because a reader following the stream
 never sees the per-dispatch record: `tool_calls`, `tool_errors`, `bash_calls`, `bash_failures`

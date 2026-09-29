@@ -1216,7 +1216,8 @@ def test_a_budget_line_opens_a_block_rather_than_closing_the_one_above(viewer):
     lines = viewer.render(_priced(), 100)
 
     assert lines[0] == "", f"the budget line still joins the turn above it: {lines}"
-    assert len(lines) == 2, lines
+    assert "┄" in lines[1], f"the turn it opens has no opening rule: {lines}"
+    assert len(lines) == 3, lines
 
 
 def test_a_one_shot_budget_still_renders_without_a_turn_number(viewer):
@@ -1686,11 +1687,11 @@ BIG_PATTERN = r"def\s+(_?[a-z_]+)\(self,\s*\*\*kwargs\)\s*->\s*(None|dict\[str, 
 
 
 def _calls(viewer, call: dict, width: int = 100) -> list[str]:
-    """The lines one tool call renders, without the turn head or its machine-local clock."""
+    """The lines one tool call renders, without the turn head, its clock or closing rule."""
     return [viewer._plain(line) for line in viewer.render({
         "t": "turn", "at": "2026-01-01T00:00:00+00:00", "turn": 1,
         "input_tokens": 100, "output_tokens": 5, "tool_calls": [call],
-    }, width)][2:]
+    }, width)][2:-1]
 
 
 def test_a_long_path_never_shares_its_line_with_anything_else(viewer):
