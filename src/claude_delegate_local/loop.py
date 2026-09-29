@@ -207,17 +207,28 @@ class Delegation:
     task: str
     files_block: str = ""
     agent_body: str = ""
+    workdir: str | None = None
 
     def render(self) -> str:
-        """The user message: agent body, then files, then task, which varies most.
+        """The user message: agent body, then files, then the workdir, then the task.
 
         Never the system prompt, a cached byte-for-byte constant that nothing per-delegation
-        may enter, the agent body included. Why: ADR-0011.
+        may enter, the agent body included. Why: ADR-0011. The workdir is named because
+        nothing else names it: the shell starts there and the file tools refuse a relative
+        path, so a task's relative path means nothing without it.
         """
         if not self.task or not self.task.strip():
             raise InvalidDelegation("task is empty. There is nothing to delegate.")
-        parts = (self.agent_body, self.files_block, self.task)
+        where = WORKDIR_LINE.format(path=self.workdir) if self.workdir else ""
+        parts = (self.agent_body, self.files_block, where, self.task)
         return "\n\n".join(part for part in parts if part)
+
+
+# Rendered just before the task when a workdir is bound.
+WORKDIR_LINE = (
+    "Your workdir is {path}. `run_bash` starts there, and a relative path in the task "
+    "below is relative to it; the file tools take the absolute path."
+)
 
 
 def resolve_effort(cfg: Config, entry: ModelEntry, explicit: str | None = None) -> str:

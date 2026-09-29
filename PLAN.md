@@ -407,6 +407,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 98. ✅ 2026-09-29 **The owning-doc check cannot tell a comment-only change from a behavioural one**: 14 waivers on ARCHITECTURE.md in three days (audit 2026-09-28). Exempt comments, never docstrings (item 96)
 99. ✅ 2026-09-29 **Testing traps live in no document**: a `tests/README.md`, with what moves there from CONTRIBUTING and the gate checks that follow it
 100. ✅ 2026-09-29 **A prefetched range never reaches the read cache**, so re-reading lines `files[]` already supplied runs the tool again
+101. ✅ 2026-09-29 **A delegation is never told its `workdir`**: the shell starts there and the file tools refuse a relative path, so callers wrote the path into every task
 
 ## Deferred
 

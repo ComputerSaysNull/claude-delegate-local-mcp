@@ -614,6 +614,8 @@ text goes on the message carrying the tool results, never in the system prompt: 
 counter in the prefix changes one byte of it per turn and silently costs a full prefill
 every time, with no error and no symptom beyond slower answers (ADR-0011). The tail is where
 dynamic content is free, because the tool results beside it were never cacheable anyway.
+A bound `workdir` is named the same way, in the first message just before the task: the
+shell starts there and the file tools refuse a relative path, so nothing else says it.
 
 Separately, and for a different reason, the server emits one **progress notification per
 turn**. Nothing renders it and the client cannot cancel a synchronous tool call through it,

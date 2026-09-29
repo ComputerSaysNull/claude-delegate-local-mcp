@@ -717,6 +717,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         task=task,
         files_block=prefetched.block(),
         agent_body=agent.body if agent else "",
+        workdir=workdir,
     )
     allowed = resolve_allowed(allowed_tools, cfg)
     policy = BashPolicy(
