@@ -409,6 +409,34 @@ def test_one_large_file_may_now_spend_the_whole_budget_and_the_rest_are_still_na
     assert result.accounting()["files_skipped"][0]["path"] == second.posix
 
 
+# --- a range ending on a blank line ----------------------------------------------------
+
+
+@posix_only
+def test_a_range_ending_on_a_blank_line_renders_every_line_it_names(tmp_path):
+    """Lines 2-3 of "a\\nb\\n\\nc\\n": line 3 is blank, and it is still line 3.
+
+    The slice is joined with "\\n", so a trailing blank line leaves the text ending in
+    "\\n"; splitting it with `splitlines` for the block dropped that line, and the header,
+    counted from the rendered lines, said "lines 2-2" for a request of 2-3.
+    """
+    entry = write(tmp_path, "blank.py", "a\nb\n\nc\n")
+    block = prefetch(cfg(), (context.FileRequest(entry=entry, start_line=2, end_line=3),)).block()
+
+    assert "(lines 2-3 of 4)" in block, block
+    assert "3\t\n" in block, "the blank line 3 was not rendered"
+
+
+@posix_only
+def test_a_range_ending_on_text_renders_as_before(tmp_path):
+    """Control: nothing trails, so the header and the lines are unchanged."""
+    entry = write(tmp_path, "text.py", "a\nb\n\nc\n")
+    block = prefetch(cfg(), (context.FileRequest(entry=entry, start_line=1, end_line=2),)).block()
+
+    assert "(lines 1-2 of 4)" in block, block
+    assert "3\t" not in block, block
+
+
 # --- merge_spans (ADR-0106) ------------------------------------------------------------
 
 

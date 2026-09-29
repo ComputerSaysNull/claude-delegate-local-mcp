@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #421 — 2026-09-29 — fix: a prefetched range ending on a blank line renders every line it names
+
+### Fixed
+
+- **A `files[]` range ending on a blank line came back one line short.** The slice is
+  joined with `"\n"`, so a trailing blank line leaves its text ending in a newline, and
+  the block split it again with `splitlines`, which drops that line. The header is
+  counted from the rendered lines, so it under-reported too: CHANGELOG lines 10-20 showed
+  as "lines 10-19", line 20 being blank, and the model was told it had not been given a
+  line it had asked for. Seen in the live check of #417, and older than it: every range
+  since ADR-0105 rendered this way. A ranged block now splits on `"\n"`, the join's exact
+  inverse; a whole file still uses `splitlines`, since its text ends in the file's own
+  newline. Red first: "lines 2-2 of 4" for a request of lines 2-3; a range ending on text
+  is the control.
+
 ## #420 — 2026-09-28 — docs: CONTRIBUTING states its build-time agent rules instead of their history
 
 ### Changed

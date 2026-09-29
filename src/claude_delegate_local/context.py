@@ -272,7 +272,10 @@ class Prefetch:
                 # rendering choice and the escape a boundary control; letting the first
                 # become the second would rest a control on something nobody knew it
                 # rested on.
-                lines = escape_markers(entry.text).splitlines()
+                text = escape_markers(entry.text)
+                # A range was joined with "\n", so it splits back on "\n" alone: a
+                # `splitlines` would drop a trailing blank line the range named.
+                lines = text.splitlines() if entry.start_line is None else text.split("\n")
                 if entry.start_line is None:
                     # Whole file, rendered stably for the cached prefix (ADR-0011).
                     width = line_number_width(len(lines))
