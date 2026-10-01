@@ -954,7 +954,7 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
     jitter: Callable[[float, float], float] = random.uniform,
     deadline: float | None = None,
     stall_left: Callable[[], float] | None = None,
-    on_token: Callable[[str], None] | None = None,
+    on_token: Callable[[str, str], None] | None = None,
     on_retry: Callable[[RetryRecord], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -1135,7 +1135,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     effort: str,
     deadline: float | None,
     stall_left: Callable[[], float] | None = None,
-    on_token: Callable[[str], None] | None = None,
+    on_token: Callable[[str, str], None] | None = None,
     max_tokens: int | None = None,
     budget_ceiling: int | None = None,
     # Computed by the caller so the priced row and the send are one number; `None` (the
@@ -1253,6 +1253,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     expected_concurrency: int = 1,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     on_token: Callable[[], None] | None = None,
+    on_partial: Callable[[int, str, str], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
@@ -1285,18 +1286,22 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
 
     chunks = 0
     reasoning_chunks = 0
+    partial = PartialText(
+        cfg.partial_every_seconds,
+        None if on_partial is None else lambda r, a: on_partial(1, r, a), clock)
 
-    def token_arrived(kind: str = "answer") -> None:
+    def token_arrived(kind: str = "answer", piece: str = "") -> None:
         """One frame carried generated output; `kind` names which half of the reply.
 
-        The default keeps a backend that calls `on_token()` bare working: any frame is at
-        least an answer's worth of progress.
+        The defaults keep a backend that calls `on_token()` bare working: any frame is at
+        least an answer's worth of progress, and no text is no partial.
         """
         nonlocal last_progress, chunks, reasoning_chunks
         last_progress = clock()
         chunks += 1
         if kind == "reasoning":
             reasoning_chunks += 1
+        partial.add(kind, piece)
         if on_token is not None:
             on_token()
 
@@ -1375,6 +1380,47 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
         except asyncio.CancelledError:
             # Ours; re-raising would replace whatever actually ended the delegation.
             pass
+
+
+class PartialText:
+    """A turn's reply as it streams, handed on in pieces for a person watching (M19.5).
+
+    The first piece of a turn goes at once, so a watcher sees text the moment there is any,
+    then at most one hand-off per `every` seconds, holding what arrived between: a write per
+    frame would be the four-events-a-second stream the `waiting` rate limit exists to
+    prevent. Only while tokens arrive, so a quiet turn writes nothing. `every` of zero turns
+    it off. The `turn` event still carries the whole reply; this is never the record.
+    """
+
+    def __init__(self, every: float, emit: Callable[[str, str], None] | None,
+                 clock: Callable[[], float]) -> None:
+        self._every = every
+        self._emit = emit if every > 0 else None
+        self._clock = clock
+        self._reasoning: list[str] = []
+        self._answer: list[str] = []
+        self._last: float | None = None
+
+    def add(self, kind: str, piece: str) -> None:
+        if self._emit is None or not piece:
+            return
+        (self._reasoning if kind == "reasoning" else self._answer).append(piece)
+        now = self._clock()
+        if self._last is None or now - self._last >= self._every:
+            self._last = now
+            reasoning, answer = "".join(self._reasoning), "".join(self._answer)
+            self._reasoning.clear()
+            self._answer.clear()
+            try:
+                self._emit(reasoning, answer)
+            except Exception:  # a watcher's line must never fail a turn
+                self._emit = None
+
+    def reset(self) -> None:
+        """A new turn: drop what the last one held, and send the next first piece at once."""
+        self._reasoning.clear()
+        self._answer.clear()
+        self._last = None
 
 
 async def _keepalive(  # noqa: PLR0913, PLR0917 -- one reading per argument, all read per beat
@@ -2724,6 +2770,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     on_turn_done: Callable[[TurnDiagnostic, str, float], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     on_token: Callable[[], None] | None = None,
+    on_partial: Callable[[int, str, str], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> AgenticDispatch:
@@ -2754,16 +2801,22 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     def stall_left() -> float:
         return cfg.stall_timeout - (clock() - last_progress)
 
-    def token_arrived(kind: str = "answer") -> None:
+    # Read when a piece is handed on, so each one is filed under the turn that wrote it.
+    partial = PartialText(
+        cfg.partial_every_seconds,
+        None if on_partial is None else lambda r, a: on_partial(turn, r, a), clock)
+
+    def token_arrived(kind: str = "answer", piece: str = "") -> None:
         """The finer progress signal (ADR-0072): turn completion cannot see inside a long
         turn, and unlike the notification and keepalive this is real. `kind` lets thinking
-        be tallied apart; its default keeps a backend calling `on_token()` bare working.
+        be tallied apart, `piece` is shown; the defaults keep a bare `on_token()` working.
         """
         nonlocal last_progress, chunks, reasoning_chunks
         last_progress = clock()
         chunks += 1
         if kind == "reasoning":
             reasoning_chunks += 1
+        partial.add(kind, piece)
         if on_token is not None:
             on_token()
 
@@ -2845,6 +2898,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
         while turn < turns:
             turn += 1
             watch.turn = turn
+            partial.reset()
             await report_progress(turn, turns)
             final = turn == turns
             if turn > 1 and concurrency_now is not None:

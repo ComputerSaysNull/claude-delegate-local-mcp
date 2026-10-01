@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.0"
+FORMAT = "1.1"
 
 # Anything outside this is replaced in a filename. An agent name reaches us from a file on
 # disk, and a name is not a promise about path separators.
@@ -287,6 +287,17 @@ class Stream:
         self._put({
             "t": "tools", "at": datetime.now(UTC).isoformat(), "turn": turn,
             "of_turns": of_turns, "tool_calls": tool_calls,
+        })
+
+    def partial(self, *, turn: int, reasoning: str, answer: str) -> None:
+        """The reply's text since the last `partial`, while the turn is still generating.
+
+        For a person watching; the `turn` event that follows carries the whole reply and is
+        the one to keep. A retried attempt's text is here too, since it was what arrived.
+        """
+        self._put({
+            "t": "partial", "at": datetime.now(UTC).isoformat(), "turn": turn,
+            "reasoning": reasoning, "answer": answer,
         })
 
     def waiting(self, *, waited_seconds: float, of_seconds: int) -> None:

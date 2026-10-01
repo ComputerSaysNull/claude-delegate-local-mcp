@@ -962,10 +962,10 @@ names its durations rather than implying one from another: total, generating, an
 tool call's own. And it says how much of itself it repeated, which is the one
 number that tells a loop from a long answer while it is still running.
 
-The stream carries the model's reply text, which the record does not. That is an extension
-of ADR-0039 rather than a reversal of it: that decision excluded file *bodies* as bulky and
-recoverable from the repository by path, and a reply is neither — it is small and exists
-nowhere else, which is the same argument ADR-0039 used to write the task verbatim.
+The stream carries the model's reply text, which the record does not: whole in `turn`, and
+as it generates in `partial` (ADR-0114). That extends ADR-0039 rather than reversing it: file
+*bodies* were excluded as bulky and recoverable by path, and a reply is neither — small, and
+nowhere else, which is the argument ADR-0039 used to write the task verbatim.
 
 A `turn` carries **the effort that turn ran at, how many attempts it took, and how much of
 itself it repeated**, and the viewer renders all three — attempts only above one, and the

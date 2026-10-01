@@ -250,7 +250,7 @@ Items 1 to 3 were M11.3, M11.4 and M11.9, moved unchanged on 2026-09-23.
     - b. ✅ 2026-09-28 The consumer is not the caller — an MCP tool call is request/response either way — it
     is the person reading the transcript stream while the work happens.
 4. ✅ 2026-09-29 **A tool call in flight is invisible**: `tool_calls` land in the `turn` event, after the tools finish; write a start event
-5. ⬜ **The partial answer is not in the stream while it generates**, so a watcher sees counters and no text
+5. ✅ 2026-10-01 **The partial answer is not in the stream while it generates**, so a watcher sees counters and no text
 6. ❌ 2026-10-01 (moved to the viewer's repository, which derives and stores titles itself; ADR-0113) **A delegation has no title**; a list of them reads as timestamps. Derive one from the task, or take it as an argument
 7. ❌ 2026-10-01 (moved to the viewer's repository: in-place counters are a page's, the terminal view never repaints; ADR-0113) **Liveness reads as repeated `alive` lines**; the chunk counts belong in counters that update in place
 8. ✅ 2026-10-01 **The transcript format has no version**, so a reader cannot tell an old shape from a broken one

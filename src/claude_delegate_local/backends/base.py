@@ -441,7 +441,7 @@ class Backend(Protocol):
         self,
         request: CanonicalRequest,
         *,
-        on_token: Callable[[str], None] | None = None,
+        on_token: Callable[[str, str], None] | None = None,
     ) -> CanonicalResponse:
         """Send one request. Raises a BackendError subclass; never returns a partial.
 
@@ -449,8 +449,9 @@ class Backend(Protocol):
         this layer learns that decoding has begun. It is *alongside* the return value, so
         the contract above holds, and an adapter that cannot stream never calls it.
 
-        Synchronous, and given the frame's kind -- `"reasoning"` or `"answer"` -- so a
-        consumer can tell thinking from answering as it happens. It runs on the read loop
+        Synchronous, and given the frame's kind -- `"reasoning"` or `"answer"` -- and its
+        text, so a consumer can tell thinking from answering, and show it, as it happens.
+        The text is empty for a frame carrying only a tool-call fragment. It runs on the read loop
         once per frame, so awaiting would put latency between two tokens; a consumer that
         must act once, like the admission lease, guards that itself.
         """

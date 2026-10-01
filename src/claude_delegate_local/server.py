@@ -347,6 +347,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     expected_concurrency: int = 1,
     concurrency_now: Callable[[], Awaitable[int]] | None = None,
     on_token: Callable[[], None] | None = None,
+    on_partial: Callable[[int, str, str], None] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
 
@@ -365,7 +366,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 on_pool=on_pool,
                 rate_history=rate_history, expected_concurrency=expected_concurrency,
                 concurrency_now=concurrency_now,
-                on_token=on_token,
+                on_token=on_token, on_partial=on_partial,
             )
         # An explicitly empty toolset: the one-shot prompt tells the model it can open
         # nothing and has no second turn, true only here. `on_alive`, since a one-shot has
@@ -374,7 +375,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
             cfg, entry, backend, delegation, effort=effort, max_tokens=max_tokens,
             on_alive=on_alive, on_priced=on_priced, on_pool=on_pool,
             rate_history=rate_history, expected_concurrency=expected_concurrency,
-            on_token=on_token,
+            on_token=on_token, on_partial=on_partial,
         )
     except ContextOverflowAborted as e:
         # Before its base class. The report is the point: an abort lands mid-work, and the
@@ -894,6 +895,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         if stream is not None:
             stream.tools(**row)
 
+    def generating(turn: int, reasoning: str, answer: str) -> None:
+        """The reply so far, for a person watching (M19.5). Never the record: `turn` is."""
+        if stream is not None:
+            stream.partial(turn=turn, reasoning=reasoning, answer=answer)
+
     started = _clock()
     lease: AdmissionLease | None = None
     dispatched: Dispatch | AgenticDispatch | None = None
@@ -933,6 +939,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 on_turn_done=streamed_turn,
                 on_priced=priced,
                 on_tools=announced,
+                on_partial=generating if stream is not None else None,
                 # Only while the gate has not seen the pool size, so the scrape can be
                 # skipped once it has. Why: ADR-0081.
                 on_pool=None if admission.pool_known else admission.observe_pool,
