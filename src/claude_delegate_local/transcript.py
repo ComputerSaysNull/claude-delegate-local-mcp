@@ -62,6 +62,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# Written on `start`; `transcript.schema.json` beside this file defines it and moves with
+# it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
+FORMAT = "1.0"
+
 # Anything outside this is replaced in a filename. An agent name reaches us from a file on
 # disk, and a name is not a promise about path separators.
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -163,7 +167,7 @@ class Stream:
         the work is over, and "what is this delegation chewing on" is asked while it runs.
         """
         self._put({
-            "t": "start", "at": datetime.now(UTC).isoformat(), "tool": tool,
+            "t": "start", "at": datetime.now(UTC).isoformat(), "format": FORMAT, "tool": tool,
             "task": task, "agent": agent, "model_key": model_key, "effort": effort,
             # Beside `effort`, the same kind of fact: a resolved setting this run is held
             # to. None for a one-shot, which runs no loop.

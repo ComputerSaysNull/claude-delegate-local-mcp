@@ -948,10 +948,10 @@ failing its purpose. (ADR-0066) Another holds the homes to each other: a backtic
 
 `transcript.write` produces the record an operator reads afterwards: paths, accounting, the
 task, and the per-turn ledger, written once the dispatch is over. `transcript.Stream`
-produces the file a person watches during it — `start`, one `turn` per completed turn, then
-`end` — appended and flushed a line at a time. Neither is derived from the other. A record
-that exists only once the work is finished cannot say whether the work is stuck, and a
-stream has to survive a dispatch that never reaches an end. (ADR-0043)
+produces the file a person watches during it, one event a line, appended and flushed; the
+shipped `transcript.schema.json` defines each kind and `start` names its version (ADR-0111).
+Neither is derived from the other. A record that exists only once the work is finished
+cannot say whether it is stuck, and a stream has to survive a dispatch that never ends. (ADR-0043)
 
 **A stream says where a run is, not only where it has got to.** `start` carries the turn
 budget, resolved from the same toolset the loop uses, beside the effort; each row repeats it — a

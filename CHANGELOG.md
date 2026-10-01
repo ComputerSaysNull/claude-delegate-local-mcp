@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #433 — 2026-10-01 — feat: the transcript stream names its format version and ships a schema
+
+### Added
+
+- **A reader could not tell an old stream from a broken one.** The stream carried no
+  version, and its only contract was prose in `docs/ARCHITECTURE.md`, kept true by owning
+  the viewer from the same document. That stops working once the web viewer lives in its own
+  repository. `start` now carries `format: "1.0"`, and `transcript.schema.json` ships inside
+  the package, defining every event kind: an addition bumps the minor version, a removal,
+  rename or changed meaning the major, and readers ignore what they do not know (ADR-0111).
+  Samples of every kind are in `tests/transcript_samples/`. A test validates every line a
+  real delegation writes against the schema, and negative tests prove a missing field, a
+  wrong type and an unknown major are refused. `jsonschema` becomes a named test
+  dependency; it was already installed through fastmcp. This is M19.8.
+
 ## #432 — 2026-10-01 — fix: a session reaches only the folders its client lists
 
 ### Added

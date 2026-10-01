@@ -43,6 +43,12 @@ def test_the_agent_format_skill_is_in_the_wheel(shipped_paths: frozenset[str]) -
     )
 
 
+def test_the_transcript_schema_is_in_the_wheel(shipped_paths: frozenset[str]) -> None:
+    """A reader in another repository pins the format to a release; the schema is what it
+    pins, so it has to be in what the release ships (ADR-0111)."""
+    assert "claude_delegate_local/transcript.schema.json" in shipped_paths
+
+
 def test_a_repository_root_document_is_not_in_the_wheel(shipped_paths: frozenset[str]) -> None:
     """The negative control for the test above.
 

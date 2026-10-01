@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "One line of a delegation's .jsonl transcript stream",
+  "description": "Format 1.x. Every line is one event, discriminated by `t`. Readers ignore fields and kinds they do not know: a minor version only adds, a major version removes, renames or changes a meaning (ADR-0111).",
+  "x-transcript-format": "1.0",
+  "type": "object",
+  "required": ["t", "at"],
+  "properties": {
+    "t": {"type": "string"},
+    "at": {"type": "string"}
+  },
+  "allOf": [
+    {"if": {"properties": {"t": {"const": "start"}}}, "then": {"$ref": "#/$defs/start"}},
+    {"if": {"properties": {"t": {"const": "turn"}}}, "then": {"$ref": "#/$defs/turn"}},
+    {"if": {"properties": {"t": {"const": "priced"}}}, "then": {"$ref": "#/$defs/priced"}},
+    {"if": {"properties": {"t": {"const": "tools"}}}, "then": {"$ref": "#/$defs/tools"}},
+    {"if": {"properties": {"t": {"const": "waiting"}}}, "then": {"$ref": "#/$defs/waiting"}},
+    {"if": {"properties": {"t": {"const": "alive"}}}, "then": {"$ref": "#/$defs/alive"}},
+    {"if": {"properties": {"t": {"const": "end"}}}, "then": {"$ref": "#/$defs/end"}}
+  ],
+  "$defs": {
+    "int_or_null": {"type": ["integer", "null"]},
+    "num_or_null": {"type": ["number", "null"]},
+    "str_or_null": {"type": ["string", "null"]},
+    "start": {
+      "description": "The head of the stream: which call this was, what it was given, and which format the rest of the file is in.",
+      "required": ["format", "tool", "task", "agent", "model_key", "effort", "max_turns", "tools"],
+      "properties": {
+        "format": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+        "tool": {"type": "string"},
+        "task": {"type": "string"},
+        "agent": {"$ref": "#/$defs/str_or_null"},
+        "model_key": {"$ref": "#/$defs/str_or_null"},
+        "effort": {"$ref": "#/$defs/str_or_null"},
+        "max_turns": {"$ref": "#/$defs/int_or_null"},
+        "tools": {"type": "array", "items": {"type": "string"}},
+        "files_read": {"type": "array", "items": {"$ref": "#/$defs/file_read"}},
+        "files_skipped": {"type": "array", "items": {"$ref": "#/$defs/file_skipped"}},
+        "prefetch_tokens": {"type": "integer"},
+        "prefetch_budget": {"type": "integer"}
+      }
+    },
+    "turn": {
+      "description": "One completed turn, with what the model said in it.",
+      "required": ["turn", "tool_calls", "text"],
+      "properties": {
+        "turn": {"$ref": "#/$defs/int_or_null"},
+        "announced": {"type": "boolean"},
+        "of_turns": {"$ref": "#/$defs/int_or_null"},
+        "input_tokens": {"$ref": "#/$defs/int_or_null"},
+        "output_tokens": {"$ref": "#/$defs/int_or_null"},
+        "cached_tokens": {"$ref": "#/$defs/int_or_null"},
+        "tool_results_evicted": {"type": ["integer", "boolean", "null"]},
+        "effort": {"$ref": "#/$defs/str_or_null"},
+        "attempts": {"$ref": "#/$defs/int_or_null"},
+        "tool_calls": {"type": "array", "items": {"$ref": "#/$defs/tool_call"}},
+        "ms": {"$ref": "#/$defs/int_or_null"},
+        "backend_ms": {"$ref": "#/$defs/int_or_null"},
+        "prefill_seconds": {"$ref": "#/$defs/num_or_null"},
+        "decode_seconds": {"$ref": "#/$defs/num_or_null"},
+        "out_tok_s": {"$ref": "#/$defs/num_or_null"},
+        "duplicate_line_share": {"$ref": "#/$defs/num_or_null"},
+        "retries": {"type": "array", "items": {"$ref": "#/$defs/retry"}},
+        "text": {"type": "string"}
+      }
+    },
+    "priced": {
+      "description": "Written before each turn: the budget and sampling it was priced at.",
+      "required": ["turn"],
+      "properties": {
+        "turn": {"$ref": "#/$defs/int_or_null"},
+        "effort": {"$ref": "#/$defs/str_or_null"},
+        "max_tokens": {"$ref": "#/$defs/int_or_null"},
+        "max_tokens_sent": {"$ref": "#/$defs/int_or_null"},
+        "budget_ceiling": {"$ref": "#/$defs/int_or_null"},
+        "decode_rate": {"$ref": "#/$defs/num_or_null"},
+        "requests_running": {"$ref": "#/$defs/num_or_null"},
+        "rate_source": {"$ref": "#/$defs/str_or_null"},
+        "expected_concurrency": {"$ref": "#/$defs/num_or_null"},
+        "temperature": {"$ref": "#/$defs/num_or_null"},
+        "top_p": {"$ref": "#/$defs/num_or_null"},
+        "of_turns": {"$ref": "#/$defs/int_or_null"}
+      }
+    },
+    "tools": {
+      "description": "A turn's calls, named the moment the model's reply is in and before any runs.",
+      "required": ["turn", "tool_calls"],
+      "properties": {
+        "turn": {"$ref": "#/$defs/int_or_null"},
+        "of_turns": {"$ref": "#/$defs/int_or_null"},
+        "tool_calls": {"type": "array", "items": {"$ref": "#/$defs/announced_call"}}
+      }
+    },
+    "waiting": {
+      "description": "Held at admission, at most once per thirty seconds.",
+      "required": ["waited_seconds"],
+      "properties": {
+        "waited_seconds": {"type": "number"},
+        "of_seconds": {"$ref": "#/$defs/num_or_null"}
+      }
+    },
+    "alive": {
+      "description": "The heartbeat while a turn generates: chunk counts, and the calls running.",
+      "required": ["elapsed_seconds", "chunks_seen", "reasoning_chunks", "answer_chunks"],
+      "properties": {
+        "elapsed_seconds": {"type": "number"},
+        "of_seconds": {"$ref": "#/$defs/num_or_null"},
+        "ends_in_seconds": {"$ref": "#/$defs/num_or_null"},
+        "chunks_seen": {"type": "integer"},
+        "reasoning_chunks": {"type": "integer"},
+        "answer_chunks": {"type": "integer"},
+        "since_chunk_seconds": {"$ref": "#/$defs/num_or_null"},
+        "running": {"type": "array", "items": {"$ref": "#/$defs/running_call"}}
+      }
+    },
+    "end": {
+      "description": "The last line of a stream that finished, whether or not it succeeded.",
+      "required": ["ok", "turns", "elapsed_seconds"],
+      "properties": {
+        "ok": {"type": "boolean"},
+        "turns": {"$ref": "#/$defs/int_or_null"},
+        "max_turns": {"$ref": "#/$defs/int_or_null"},
+        "elapsed_seconds": {"type": "number"},
+        "input_tokens": {"$ref": "#/$defs/int_or_null"},
+        "output_tokens": {"$ref": "#/$defs/int_or_null"},
+        "finish_reason": {"$ref": "#/$defs/str_or_null"},
+        "cached_tokens": {"$ref": "#/$defs/int_or_null"},
+        "backend_ms": {"$ref": "#/$defs/int_or_null"},
+        "out_tok_s": {"$ref": "#/$defs/num_or_null"},
+        "prefill_seconds": {"$ref": "#/$defs/num_or_null"},
+        "decode_seconds": {"$ref": "#/$defs/num_or_null"},
+        "tool_seconds": {"$ref": "#/$defs/num_or_null"},
+        "tool_calls": {"$ref": "#/$defs/int_or_null"},
+        "tool_errors": {"$ref": "#/$defs/int_or_null"},
+        "bash_calls": {"$ref": "#/$defs/int_or_null"},
+        "bash_failures": {"$ref": "#/$defs/int_or_null"},
+        "failed_calls": {"$ref": "#/$defs/int_or_null"},
+        "error": {"$ref": "#/$defs/str_or_null"}
+      }
+    },
+    "tool_call": {
+      "required": ["name", "outcome", "arguments"],
+      "properties": {
+        "name": {"type": "string"},
+        "outcome": {"type": "string"},
+        "arguments": {"type": "object"},
+        "message": {"type": "string"},
+        "result_bytes": {"$ref": "#/$defs/int_or_null"},
+        "result_lines": {"$ref": "#/$defs/int_or_null"},
+        "exit_code": {"$ref": "#/$defs/int_or_null"},
+        "ms": {"$ref": "#/$defs/int_or_null"},
+        "stages": {"type": "array"}
+      }
+    },
+    "announced_call": {
+      "required": ["name", "arguments"],
+      "properties": {
+        "name": {"type": "string"},
+        "arguments": {"type": "object"}
+      }
+    },
+    "running_call": {
+      "required": ["name", "arguments", "status"],
+      "properties": {
+        "name": {"type": "string"},
+        "arguments": {"type": "object"},
+        "status": {"type": "string"}
+      }
+    },
+    "retry": {
+      "required": ["kind"],
+      "properties": {
+        "kind": {"type": "string"},
+        "status": {"$ref": "#/$defs/int_or_null"},
+        "seconds": {"type": "number"},
+        "wait": {"type": "number"}
+      }
+    },
+    "file_read": {
+      "required": ["path", "given"],
+      "properties": {
+        "path": {"type": "string"},
+        "given": {"type": "string"},
+        "bytes": {"type": "integer"},
+        "est_tokens": {"type": "integer"}
+      }
+    },
+    "file_skipped": {
+      "required": ["given", "reason"],
+      "properties": {
+        "path": {"$ref": "#/$defs/str_or_null"},
+        "given": {"type": "string"},
+        "reason": {"type": "string"},
+        "kind": {"type": "string"}
+      }
+    }
+  }
+}
