@@ -39,6 +39,10 @@ dev = [
     # makes real YAML raise, so the file loaded here and broke in every editor and in
     # Claude Code. Testing that both readers accept a file needs the other reader.
     "pyyaml>=6,<7",
+    # A *test* dependency too: the stream is checked against the schema it ships with, by
+    # a real validator rather than one written here (ADR-0111). Already resolved through
+    # fastmcp, so naming it adds no install.
+    "jsonschema>=4.26,<5",
 ]
 
 [build-system]

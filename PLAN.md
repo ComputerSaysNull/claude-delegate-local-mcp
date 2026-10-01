@@ -254,7 +254,7 @@ M11's exit, carried. Items 1 to 3 were M11.3, M11.4 and M11.9, moved unchanged o
 5. ⬜ **The partial answer is not in the stream while it generates**, so a watcher sees counters and no text
 6. ⬜ **A delegation has no title**; a list of them reads as timestamps. Derive one from the task, or take it as an argument
 7. ⬜ **Liveness reads as repeated `alive` lines**; the chunk counts belong in counters that update in place
-8. ⬜ **The transcript format has no version**, so a reader cannot tell an old shape from a broken one
+8. ✅ 2026-10-01 **The transcript format has no version**, so a reader cannot tell an old shape from a broken one
 9. ⬜ **Opening the viewer takes a command and a localhost URL**, and a phone cannot reach it
 10. ⬜ **Its own session:** split the viewer out of `docs/ARCHITECTURE.md`, and decide whether the browser viewer becomes its own repository
 ### M20 — A call returns a handle

@@ -19,6 +19,34 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0111 — 2026-10-01 — The transcript stream carries a format version and ships a schema — Accepted
+
+**Context.** The stream's only reader was `scripts/watch_delegations.py`, owned by the same
+document as `transcript.py` so that the two could not drift: one decision, one document. The
+web viewer is moving to its own repository, in another language, and that guarantee does not
+cross a repository boundary. Without a version, such a reader cannot tell a stream written
+before a field existed from one that lost it by mistake (M19.8).
+
+**Decision.** `start` carries `format: "<major>.<minor>"`, from `transcript.FORMAT`.
+`transcript.schema.json` (JSON Schema 2020-12) ships inside the package, so a reader pins it
+to a release, and samples under `tests/transcript_samples/` show every kind.
+
+- **Minor** for an addition: a field, or an event kind. **Major** for a removal, a rename,
+  or a field whose meaning changes. A schema for major *n* accepts any `n.x`.
+- **Readers ignore what they do not know**, fields and kinds alike, so the schema allows
+  both. That is what lets a reader pinned to 1.0 keep working while the writer adds.
+- **On `start` only.** One per file, and the first line a reader sees. Repeating it on
+  every line would cost bytes on the event that is written most and buy nothing a reader
+  following a file cannot get by reading its head.
+- **The schema is checked against real output**, not only against samples: a test drives a
+  delegation and validates every line it writes, and negative tests prove a missing field, a
+  wrong type and an unknown major are refused.
+
+**Consequence.** Changing an event's shape now means a version decision as well as a code
+change, and the schema moves with `FORMAT` or the tests fail. The one-decision ownership
+still holds for the terminal viewer in this repository; for a reader elsewhere, the schema
+replaces it.
+
 ## ADR-0110 — 2026-10-01 — A session reaches the folders its client lists, inside the configured roots — Accepted
 
 **Context.** Every session's server read one `DELEGATE_WORKSPACE_ROOTS`: `config.load()`

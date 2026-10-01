@@ -125,6 +125,8 @@ owns = [
   "src/claude_delegate_local/handles.py",
   "src/claude_delegate_local/slots.py",
   "src/claude_delegate_local/transcript.py",
+  # The stream's schema, beside the module that writes the stream (ADR-0111).
+  "src/claude_delegate_local/transcript.schema.json",
   # The ledger belongs to the same document as the transcript it runs beside: both are
   # one decision -- what an operator records of a delegation -- seen from two ends.
   "src/claude_delegate_local/ledger.py",
