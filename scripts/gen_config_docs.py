@@ -76,6 +76,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Timeouts and retries", ("turn_timeout", "connect_timeout", "dispatch_timeout",
                               "stall_timeout",
                               "status_probe_timeout", "keepalive_interval",
+                              "partial_every_seconds",
                               "retry_max_attempts",
                               "retry_base_delay", "retry_max_delay")),
     ("Admission control", ("max_inflight_seqs", "kv_token_budget",

@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #437 — 2026-10-01 — feat: the reply streams as partial events while it generates
+
+### Added
+
+- **A watcher saw counters and no words until a turn finished.** The reply's text reached
+  the stream only in the `turn` event, and never left the adapter before that: `on_token`
+  carried a frame's kind and not its text. It now carries both, and a `partial` event holds
+  the reasoning and answer text since the last one, for the turn writing it. A turn's
+  first piece is written at once, then at most one per `DELEGATE_PARTIAL_EVERY_SECONDS`,
+  and only while tokens arrive; 0 turns it off. The `turn` event still carries the whole
+  reply (ADR-0114). The format is now 1.1, an addition, so a 1.0 reader keeps working
+  (ADR-0111), and the schema and samples carry the new kind. The terminal viewer shows a
+  partial as one dim line with the newest text, since the whole reply follows. This is
+  M19.5.
+
 ## #436 — 2026-10-01 — docs: the web viewer becomes its own repository
 
 ### Changed

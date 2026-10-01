@@ -510,6 +510,14 @@ class Config:
         "at startup above half the idle timeout. Not a deadline.",
         unit="seconds",
     )
+    partial_every_seconds: float = _f(
+        2.0,
+        "How often the transcript stream gets a `partial` event: the reply's text since the "
+        "last one, so a watcher sees it while it generates. A turn's first piece is written "
+        "at once, then at most one event per this many seconds, and only while tokens "
+        "arrive. 0 turns them off. The `turn` event carries the whole reply either way.",
+        unit="seconds",
+    )
     retry_max_attempts: int = _f(3, "Attempts on a retryable backend status.")
     retry_base_delay: float = _f(1.0, "Exponential backoff base.", unit="seconds")
     retry_max_delay: float = _f(
@@ -926,6 +934,8 @@ class Config:
         ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"DELEGATE_{name.upper()} must be positive.")
+        if self.partial_every_seconds < 0:
+            raise ConfigError("DELEGATE_PARTIAL_EVERY_SECONDS must be 0 (off) or positive.")
         self._check_retired()
         self._check_deadlines_nest()
         self._check_sampling()

@@ -58,7 +58,7 @@ async def test_the_adapter_reports_the_kind_of_each_arrival():
     from test_backends_openai_compat import backend, request
 
     clock = Clock()
-    seen: list[str] = []
+    seen: list[tuple[str, str]] = []
     schedule = [
         (1.0, "data: " + json.dumps(delta(reasoning="a")) + "\n\n"),
         (2.0, "data: " + json.dumps(delta(reasoning="b")) + "\n\n"),
@@ -72,10 +72,12 @@ async def test_the_adapter_reports_the_kind_of_each_arrival():
     ]
 
     await backend(paced(clock, schedule), clock=clock).complete(
-        request(), on_token=seen.append
+        request(), on_token=lambda kind, piece: seen.append((kind, piece))
     )
 
-    assert seen == ["reasoning"] * 3 + ["answer"] * 2
+    # The kind, and since M19.5 the frame's own text, which a `partial` event shows.
+    assert seen == [("reasoning", "a"), ("reasoning", "b"), ("reasoning", "c"),
+                    ("answer", "d"), ("answer", "e")]
 
 
 def test_the_alive_event_splits_the_chunks_by_kind(tmp_path):

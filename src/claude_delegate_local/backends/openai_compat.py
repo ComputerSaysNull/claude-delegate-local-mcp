@@ -192,7 +192,7 @@ class OpenAICompatBackend:
         self,
         request: CanonicalRequest,
         *,
-        on_token: Callable[[str], None] | None = None,
+        on_token: Callable[[str, str], None] | None = None,
     ) -> CanonicalResponse:
         payload, decode_seconds, prefill_seconds = await self._post_stream(
             self._entry.chat_url, self.wire_body(request), _CHAT_PATH, on_token=on_token
@@ -207,7 +207,7 @@ class OpenAICompatBackend:
         body: dict[str, Any],
         path: str,
         *,
-        on_token: Callable[[str], None] | None = None,
+        on_token: Callable[[str, str], None] | None = None,
     ) -> tuple[dict[str, Any], float | None, float | None]:
         """Stream the chat call and hand back one payload plus both halves of its clock.
 
@@ -276,7 +276,7 @@ class OpenAICompatBackend:
                         # or finish reason is not the decoder producing, and reporting it
                         # would tell the admission lease a running prefill had finished.
                         if on_token is not None:
-                            on_token(kind)
+                            on_token(kind, acc.piece)
         except httpx.HTTPError as e:
             # A read timeout is the one shape that spent the whole allowance: delivered,
             # and never answered in time. `ConnectTimeout` is excluded -- a subclass of the
@@ -523,6 +523,7 @@ class _StreamAccumulator:
         "_fingerprint",
         "_finish",
         "_model",
+        "_piece",
         "_reasoning",
         "_reasoning_key",
         "_stop",
@@ -540,6 +541,12 @@ class _StreamAccumulator:
         self._usage: dict[str, Any] | None = None
         self._model: str | None = None
         self._fingerprint: Any = None
+        self._piece = ""
+
+    @property
+    def piece(self) -> str:
+        """The text the last frame carried: its answer if it had one, else its reasoning."""
+        return self._piece
 
     def feed(self, frame: dict[str, Any]) -> str | None:
         """Absorb one frame. What it carried: `"reasoning"`, `"answer"`, or None.
@@ -580,16 +587,19 @@ class _StreamAccumulator:
         `None` when it carried no generated output, so a bookkeeping frame is not counted.
         """
         kind: str | None = None
+        self._piece = ""
         for key in _REASONING_KEYS:
             piece = delta.get(key)
             if isinstance(piece, str) and piece:
                 self._reasoning.append(piece)
                 self._reasoning_key = key
+                self._piece = piece
                 kind = "reasoning"
                 break
         piece = delta.get("content")
         if isinstance(piece, str) and piece:
             self._content.append(piece)
+            self._piece = piece
             kind = "answer"
         for call in delta.get("tool_calls") or []:
             if isinstance(call, dict) and self._feed_tool_call(call):

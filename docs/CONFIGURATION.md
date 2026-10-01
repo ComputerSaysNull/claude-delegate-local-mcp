@@ -1,4 +1,4 @@
-<!-- BUDGET: 184 -->
+<!-- BUDGET: 185 -->
 
 # Configuration
 
@@ -117,6 +117,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_STALL_TIMEOUT` | 900 seconds | No-progress deadline: how long a delegation may run without a frame arriving from the endpoint. Distinct from dispatch_timeout, which bounds total time and cannot tell a merely long delegation from a wedged one (ADR-0047). Silence is the endpoint having stopped, not the model thinking: a running tool cannot trip it, and prefill produces no frame. Refused only above dispatch_timeout, where it could never fire (ADR-0099). Also the httpx read budget, so it bounds silence at the socket too. |
 | `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 seconds | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, stall_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
 | `DELEGATE_KEEPALIVE_INTERVAL` | 60 seconds | How often a one-shot delegation reports it is still running, to the client as a progress notification and to the transcript as an `alive` event, and how often a `collect` still waiting reports to the client. The loop reports once per turn (ADR-0018), and a one-shot has no turns, so without this it can be abandoned at the client's stdio idle timeout while still holding its admission slot. Refused at startup above half the idle timeout. Not a deadline. |
+| `DELEGATE_PARTIAL_EVERY_SECONDS` | 2.0 seconds | How often the transcript stream gets a `partial` event: the reply's text since the last one, so a watcher sees it while it generates. A turn's first piece is written at once, then at most one event per this many seconds, and only while tokens arrive. 0 turns them off. The `turn` event carries the whole reply either way. |
 | `DELEGATE_RETRY_MAX_ATTEMPTS` | 3 | Attempts on a retryable backend status. |
 | `DELEGATE_RETRY_BASE_DELAY` | 1.0 seconds | Exponential backoff base. |
 | `DELEGATE_RETRY_MAX_DELAY` | 20.0 seconds | Cap on a single wait between attempts, including one the endpoint asked for via Retry-After. Uncapped, a large or hostile Retry-After stalls a call far past anything the deadlines were meant to bound, and the wait happens between requests where no HTTP timeout applies to it. Kept well under the stdio idle even though ADR-0018's notification now holds that off: it fires once at the top of a turn, and this wait sits inside one, unobserved. |
@@ -179,6 +180,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting because naming another transport should be an error rather than silence (ADR-0034). |
 
-*79 settings.*
+*80 settings.*
 
 <!-- GEN:CONFIG:END -->

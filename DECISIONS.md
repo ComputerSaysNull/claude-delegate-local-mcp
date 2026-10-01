@@ -19,6 +19,30 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0114 — 2026-10-01 — The reply streams as `partial` events, the first piece at once and then on an interval — Accepted
+
+**Context.** The reply's text reached the stream only in the `turn` event, once whole, so
+during a long turn a watcher saw chunk counts climb and no words (M19.5). The text never
+left the adapter: `on_token` carried only the frame's kind.
+
+**Decision.** `on_token` carries the frame's text beside its kind, and a `partial` event
+(format 1.1, an addition under ADR-0111) carries the reasoning and answer text since the
+last one.
+
+- **The first piece of a turn at once, then at most one per `partial_every_seconds`.** At
+  once, so a watcher sees words as soon as there are any; on an interval after, because a
+  write per frame is the event rate the `waiting` limit was added to stop, after a queued
+  delegation wrote four events a second. Only while tokens arrive, so a quiet turn writes
+  nothing.
+- **Never the record.** `turn` still carries the whole reply; a partial is what arrived,
+  including from an attempt a retry then discards, and a new turn drops what the last one
+  still held rather than filing it under the wrong number.
+- **Off at 0.** A watcher's line cannot fail a turn: a writer that raises is dropped.
+
+**Consequence.** A stream grows by about the reply's size again, reasoning included, since a
+partial carries both halves. A reader that does not know `partial` ignores it, as 1.0 readers
+must (ADR-0111).
+
 ## ADR-0113 — 2026-10-01 — The web viewer is its own repository; the format, the feed and the terminal viewer stay — Accepted
 
 **Context.** M19.10 left open whether the browser viewer becomes its own repository. The

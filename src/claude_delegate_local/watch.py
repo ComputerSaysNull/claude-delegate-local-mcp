@@ -629,9 +629,22 @@ def _waiting_line(event: dict) -> str:
     return f"{DIM}queued at the gate · {spent}{cap}{R}"
 
 
+def _partial_line(event: dict) -> str:
+    """The newest of the reply as it generates, as one line: a sign of what is being written.
+
+    Not the reply itself, which the `turn` event prints whole; printing every piece here as
+    well would show the answer twice in a view that never repaints. So the tail only.
+    """
+    answer = " ".join(str(event.get("answer") or "").split())
+    if answer:
+        return f"{DIM}writing: {answer[-80:]}{R}"
+    reasoning = " ".join(str(event.get("reasoning") or "").split())
+    return f"{DIM}thinking: {reasoning[-80:]}{R}"
+
+
 # The events that render as one dim line with no rule. Kept as a table so `render` does
 # not grow a branch and a return for each.
-_ONE_LINERS = {"waiting": _waiting_line, "alive": _alive_line}
+_ONE_LINERS = {"waiting": _waiting_line, "alive": _alive_line, "partial": _partial_line}
 
 
 def _end_head(event: dict) -> str:
