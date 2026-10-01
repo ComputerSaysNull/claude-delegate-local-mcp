@@ -150,7 +150,7 @@ and a bubblewrap that cannot unshare a namespace passes it and then refuses ever
 POSIX only, since on Windows every answer would describe a machine the server never runs
 on. stdout is the report rather than the wire — nothing speaks MCP to a doctor run. `FAIL`
 exits non-zero and `WARN` does not, because a missing toolchain still leaves the read-heavy
-majority working. No row names an endpoint (ADR-0029).
+majority working. No row names an endpoint (ADR-0029); the second names the installed version.
 
 ### `--init` shows a default without writing one down
 

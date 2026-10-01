@@ -31,6 +31,7 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +89,24 @@ def check_platform() -> Check:
         "Run the doctor where the server runs. On Windows that means inside WSL, "
         "through the same interpreter the MCP registration names.",
     )
+
+
+def check_version() -> Check:
+    """Which release is installed, so two people comparing notes compare like with like.
+
+    From the installed metadata, not `pyproject.toml`: the doctor runs where the server is
+    installed, which need not be a checkout. An editable install keeps the version it was
+    installed with, so after a bump it reads the old one until reinstalled.
+    """
+    remedy = ("Reinstall the package where the server runs (on this project's setup, "
+              "`provision`), so the installed metadata matches the release.")
+    try:
+        found = metadata.version("claude-delegate-local-mcp")
+    except metadata.PackageNotFoundError:
+        return Check("version", WARN, "the package is not installed", remedy)
+    if found == "0.0.0":
+        return Check("version", WARN, "0.0.0, a placeholder from before releases", remedy)
+    return Check("version", OK, found)
 
 
 def check_workspace_roots(cfg: Config) -> Check:
@@ -421,6 +440,7 @@ def collect(cfg: Config, reg: registry.Registry) -> list[Check]:
     """Every check, in the order a reader should care about them."""
     return [
         check_platform(),
+        check_version(),
         check_workspace_roots(cfg),
         check_bwrap(cfg),
         check_limiter(cfg),

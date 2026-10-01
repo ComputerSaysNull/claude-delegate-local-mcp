@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #438 — 2026-10-01 — feat: releases are version tags published to GitHub Releases
+
+### Added
+
+- **There was no release to pin to.** The version was `0.0.0` and nothing had been
+  published, so installing meant a clone, `--doctor` could not say which build it saw, and
+  the web viewer's repository had nothing to pin the transcript schema to. The version is
+  now 0.6.0, in `pyproject.toml` only. Pushing the tag `v<version>` runs a release workflow
+  that refuses any tag naming another version before it builds, then publishes the wheel
+  and `transcript.schema.json` to GitHub Releases, and nowhere else (ADR-0115).
+  `--doctor` reports the installed version, warning on `0.0.0` or a missing install,
+  because an editable install keeps its old version until reinstalled. CONTRIBUTING
+  says how to release. This is Unscheduled.103.
+
 ## #437 — 2026-10-01 — feat: the reply streams as partial events while it generates
 
 ### Added

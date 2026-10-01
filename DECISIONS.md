@@ -19,6 +19,25 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0115 — 2026-10-01 — A release is a version tag, published to GitHub Releases by CI — Accepted
+
+**Context.** The version was `0.0.0` and nothing was ever published, so installing meant a
+clone, `--doctor` could not say which build it was looking at, and the web viewer's
+repository had nothing to pin the transcript schema to (Unscheduled.103, ADR-0113). Tags
+`v0.4.0` to `v0.5.0` exist in one checkout and were never pushed.
+
+**Decision.** The version lives in `pyproject.toml` only, starting at 0.6.0 so it cannot
+collide with those local tags. A release is the tag `v<version>`, pushed from `main`; a
+workflow refuses any other tag before building, then publishes the wheel and
+`transcript.schema.json` to **GitHub Releases only**. Not PyPI: an upload there is permanent
+for that version, a second public account under the same identity, and nobody installs
+this by name yet. `--doctor` reports the installed version, and warns on `0.0.0` or a
+missing install, since an editable install keeps the version it was installed with.
+
+**Consequence.** Bumping the version is a change in its own right, ahead of the tag. The
+workflow needs `contents: write`, the one job that does. Reopen PyPI when someone outside
+this workstation installs the server.
+
 ## ADR-0114 — 2026-10-01 — The reply streams as `partial` events, the first piece at once and then on an interval — Accepted
 
 **Context.** The reply's text reached the stream only in the `turn` event, once whole, so
