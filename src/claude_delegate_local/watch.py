@@ -1,9 +1,9 @@
-#!/usr/bin/env python3
 """Pick a delegation from the transcript directory and follow it as it happens.
 
-Run it with no arguments: it lists what is there, newest first, live ones marked. Arrow
-keys and Enter choose one; `q` leaves a transcript and comes back to the list, so one run
-watches a whole session rather than one dispatch. Ctrl-C quits from anywhere. Open a
+`claude-delegate-watch`, installed with the server. Run it with no arguments: it lists
+what is there, newest first, live ones marked. Arrow keys and Enter choose one; `q`
+leaves a transcript and comes back to the list, so one run watches a whole session rather
+than one dispatch. Ctrl-C quits from anywhere. Open a
 second terminal tab and run it again to watch two at once -- it holds no lock and writes
 nothing.
 
@@ -37,7 +37,11 @@ import sys
 import time
 from datetime import datetime, UTC
 from pathlib import Path
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
+
+from .config import ENV_FILE_VAR, REPO_ROOT, parse_env_file
+from .transcript import FORMAT
 
 try:
     import termios
@@ -46,7 +50,7 @@ except ImportError:
     # Windows. The viewer is run through WSL like everything else that touches the
     # server, and guarding here rather than at the top is what lets the test suite --
     # which runs on the Windows interpreter -- import the parsing functions at all.
-    termios = tty = None
+    termios = tty = None  # type: ignore[assignment]
 
 def _transcript_dir() -> str:
     """Where the server writes, found the way the server finds it.
@@ -59,15 +63,15 @@ def _transcript_dir() -> str:
     """
     if found := os.environ.get("DELEGATE_TRANSCRIPT_DIR", "").strip():
         return found
-    env = Path(__file__).resolve().parents[1] / ".env"
+    # The file the server reads, by the server's own rule and parser: a second lookup would
+    # be a second answer to "which .env", and that is the one that goes stale.
+    named = os.environ.get(ENV_FILE_VAR, "").strip()
+    env = Path(named) if named else REPO_ROOT / ".env"
     try:
-        for raw in env.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if line.startswith("DELEGATE_TRANSCRIPT_DIR="):
-                return line.split("=", 1)[1].strip().strip("\"'")
-    except OSError:
-        pass
-    return ""
+        values = parse_env_file(env.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return values.get("DELEGATE_TRANSCRIPT_DIR", "").strip()
 
 
 TRANSCRIPT_DIR = _transcript_dir()
@@ -175,12 +179,6 @@ def _clock(value: str | float | None) -> str:
     except ValueError:
         return str(value)[:8]
     return moment.astimezone().strftime("%H:%M:%S")
-
-
-def _tokens(n: int | None) -> str:
-    if n is None:
-        return "?"
-    return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
 
 
 def _wrap(text: str, width: int, indent: str) -> list[str]:
@@ -611,7 +609,8 @@ def _running_call(call: object) -> str:
     """`run_bash: pytest -q` -- the tool and the argument that says what it is doing."""
     if not isinstance(call, dict):
         return "?"
-    args = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
+    raw = call.get("arguments")
+    args = raw if isinstance(raw, dict) else {}
     what = next((str(args[k]) for k in ("command", "path", "pattern", "args") if k in args), "")
     what = what if len(what) <= 60 else what[:57] + "..."
     return f"{call.get('name', '?')}: {what}" if what else str(call.get("name", "?"))
@@ -693,7 +692,7 @@ def _end_counts(event: dict) -> list[str]:
         # a count that flags one twice beats one that hides one. Both halves are required
         # there rather than defaulted, since adding an absent half as zero would be the
         # absent-is-not-zero mistake the rest of this renderer goes to trouble to avoid.
-        failed = distinct if isinstance(distinct, int) else errors + bad_shell
+        failed = distinct if isinstance(distinct, int) else int(errors or 0) + int(bad_shell or 0)
         word = f"{failed} failure{'' if failed == 1 else 's'}"
         # The one thing that breaks the dimness, and only when there is something to
         # break it for. Dim and red combine into a dim red rather than replacing each
@@ -822,7 +821,14 @@ def render(event: dict, width: int) -> list[str]:
         budget = f" · {turns} turns" if isinstance(turns, int) else ""
         head = (f"{stamp}  {BOLD}{BLUE}{who}{R} "
                 f"{DIM}· {model} · effort {effort}{budget}{R}")
-        return ["", f"{DIM}{'─' * width}{R}", head,
+        # Only another major is worth a line: a newer minor only adds, and what this viewer
+        # does not know it ignores (ADR-0111). Absent is every stream from before 1.0.
+        fmt = event.get("format")
+        foreign = ([(f"  {YELLOW}written in format {fmt}; this viewer reads {FORMAT}, so "
+                     f"what follows may be drawn wrong{R}")]
+                   if isinstance(fmt, str) and fmt.split(".")[0] != FORMAT.split(".")[0]
+                   else [])
+        return ["", f"{DIM}{'─' * width}{R}", head, *foreign,
                 *_wrap(event.get("task", ""), width, "          "),
                 *_given(event),
                 f"{DIM}{'─' * width}{R}"]
@@ -899,7 +905,7 @@ _SIGNALS = frozenset({"waiting", "priced", "turn", "alive", "end"})
 
 def summarise(path: Path) -> dict:
     """One row for the picker, read cheaply: the head of the file plus its mtime."""
-    row = {"path": path, "task": "", "model": "", "turns": 0, "done": False,
+    row: dict[str, Any] = {"path": path, "task": "", "model": "", "turns": 0, "done": False,
            "last_signal": "", "waited_seconds": None,
            "tool": "", "tools": None, "effort": "", "elapsed_seconds": None,
            "turn_cached": None, "end_cached": None, "turn_sent": 0, "end_sent": None,
@@ -1641,7 +1647,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._respond(200, "text/html; charset=utf-8", body)
             return
         if url.path == "/list":
-            body = json.dumps(_list_json(self.server.directory)).encode("utf-8")
+            body = json.dumps(_list_json(cast("_Server", self.server).directory)).encode("utf-8")
             self._respond(200, "application/json", body)
             return
         if url.path == "/tail":
@@ -1657,7 +1663,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             offset = int(raw)
         except ValueError:
             offset = 0
-        path = transcript_path(self.server.directory, name)
+        path = transcript_path(cast("_Server", self.server).directory, name)
         if path is None:
             self.send_error(404)
             return

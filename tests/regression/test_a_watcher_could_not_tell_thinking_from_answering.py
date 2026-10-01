@@ -13,7 +13,6 @@ tallies it separately, and the viewer says both numbers.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -30,15 +29,9 @@ pytestmark = pytest.mark.anyio
 
 
 def load_viewer():
-    """Import scripts/watch_delegations.py the way tests/test_watch_delegations.py does."""
-    root = Path(__file__).resolve().parents[2]
-    spec = importlib.util.spec_from_file_location(
-        "watch_delegations", root / "scripts" / "watch_delegations.py"
-    )
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    from claude_delegate_local import watch
+
+    return watch
 
 
 def test_the_accumulator_names_the_kind_of_each_frame():

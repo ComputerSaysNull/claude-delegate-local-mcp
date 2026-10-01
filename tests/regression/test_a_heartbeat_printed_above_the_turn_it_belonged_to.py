@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 from test_agentic_loop import ScriptedTurns, cfg, entry, says, wants
 
-import scripts.watch_delegations as wd
+from claude_delegate_local import watch as wd
 from claude_delegate_local import loop, tools, transcript
 from claude_delegate_local.backends.base import ToolSpec
 

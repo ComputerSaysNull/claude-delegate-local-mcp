@@ -58,7 +58,7 @@ the repository root or the agent is not found. Generated documents (`docs/CONFIG
 | 13 | ESCAPE ABUSE | nothing | low |
 | 14 | FILED ALREADY | the hand-off notebook — **not delegable**, see below | — |
 | 15 | NARRATIVE | every `.claude/agents/*.md`, `.claude/delegate-agents/*.md`, `.claude/skills/*/SKILL.md` and `.claude/skills/*/references/*.md` | high |
-| 16 | STALE | `docs/ARCHITECTURE.md` + `scripts/watch_delegations.py` | high |
+| 16 | STALE | `docs/ARCHITECTURE.md` + `src/claude_delegate_local/watch.py` | high |
 
 **Pass 14 is run by whoever is driving the audit, not by a delegation.** The notebook lives
 in the plans directory, outside every workspace root, so `files[]` refuses it and the agent

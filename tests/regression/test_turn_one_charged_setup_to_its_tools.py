@@ -12,9 +12,7 @@ however long the dispatch spent pricing the budget or writing the transcript aro
 
 from __future__ import annotations
 
-import importlib.util
 import os
-import pathlib
 import time
 
 import pytest
@@ -105,13 +103,9 @@ def test_overlapped_calls_are_each_timed_around_their_own_work(monkeypatch, tmp_
 
 @pytest.fixture()
 def viewer():
-    """The same import the viewer's own suite uses."""
-    path = (pathlib.Path(__file__).resolve().parents[2]
-            / "scripts" / "watch_delegations.py")
-    spec = importlib.util.spec_from_file_location("watch_delegations", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    from claude_delegate_local import watch
+
+    return watch
 
 
 def test_the_turn_line_uses_the_calls_own_ms_when_present(viewer):

@@ -49,6 +49,22 @@ def test_the_transcript_schema_is_in_the_wheel(shipped_paths: frozenset[str]) ->
     assert "claude_delegate_local/transcript.schema.json" in shipped_paths
 
 
+def test_the_viewer_is_in_the_wheel(shipped_paths: frozenset[str]) -> None:
+    """Installing the server without a viewer leaves a delegation a black box until it
+    lands, so the viewer ships with it rather than living in a checkout's scripts/."""
+    assert "claude_delegate_local/watch.py" in shipped_paths
+
+
+def test_the_viewer_has_a_console_script_that_resolves() -> None:
+    import importlib
+    import tomllib
+
+    scripts = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"]["scripts"]
+    module, _, attr = scripts["claude-delegate-watch"].partition(":")
+    assert callable(getattr(importlib.import_module(module), attr))
+
+
 def test_a_repository_root_document_is_not_in_the_wheel(shipped_paths: frozenset[str]) -> None:
     """The negative control for the test above.
 

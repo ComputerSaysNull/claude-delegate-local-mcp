@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 from wire_double import Clock, delta, paced
 
-import scripts.watch_delegations as wd
+from claude_delegate_local import watch as wd
 
 pytestmark = pytest.mark.anyio
 

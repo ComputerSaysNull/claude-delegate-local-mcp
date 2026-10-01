@@ -83,6 +83,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `admission.py` | The capacity gate every delegation passes before it reaches a backend |
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
+| `watch.py` | `claude-delegate-watch`: the terminal viewer of the stream `transcript.py` writes |
 | `handles.py` | A delegation's handle, the task `collect` reads, and what `cancel_delegation` stops |
 | `server.py` | MCP wiring, the tool declarations, the backend cache, and each call's roots narrowed to the folders its client lists (ADR-0110) |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
@@ -1019,11 +1020,10 @@ reads as *not measured*.
 other's question, and the transcript record carries the `total_*` fields as well — so
 the same words mean the same quantities in the two records a reader compares.
 
-`scripts/watch_delegations.py` reads that stream: it lists what is in the transcript
-directory, follows the one you pick, and renders turns as a conversation rather than as
-JSON — passing over a line that is not an event, and surviving a pipe. It is owned here, because a renderer and the format
-it renders are one decision — split across two documents, a renderer ends up describing a
-shape the writer no longer produces.
+`watch.py`, installed as `claude-delegate-watch`, reads that stream: it lists the transcript
+directory, follows the one you pick, and renders turns as a conversation — passing over a
+line that is not an event, and surviving a pipe. It is owned here because a renderer and the
+format it renders are one decision; a reader elsewhere has the schema instead (ADR-0111).
 
 **It states what it knows and no more.** A `priced` row's `requests_running` is the
 concurrency the turn was priced for — the lease's grant-time figure on turn one, the shared
