@@ -45,6 +45,7 @@ plane = "project"
 owns = [
   "scripts/install_hooks.py",
   "scripts/plan_stack.py",
+  "scripts/release_check.py",
   ".github/**",
   ".claude/agents/**",
   ".claude/delegate-agents/**",

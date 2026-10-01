@@ -153,6 +153,16 @@ Two things that live outside it and are easy to miss:
   never the specimen. GitHub retains edit history for pull request bodies, so an edited
   mistake is not an erased one.
 
+## Releasing
+
+The version lives in `pyproject.toml` and nowhere else. To release, merge a change setting
+it, then push the tag `v<version>` from `main`. `.github/workflows/release.yml` refuses a
+tag naming any other version (`scripts/release_check.py`) before it builds anything, then
+publishes the wheel and `transcript.schema.json` to GitHub Releases — the file a reader in
+another repository pins (ADR-0115). There is no PyPI upload. A tag cannot be re-used once
+published, so the version moves first; reinstall where the server runs afterwards, or
+`--doctor` keeps reporting the old one.
+
 ## Branch protection
 
 `main` is protected by a ruleset checked in as `.github/ruleset.json` — read it for the
