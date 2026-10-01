@@ -19,6 +19,38 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0113 — 2026-10-01 — The web viewer is its own repository; the format, the feed and the terminal viewer stay — Accepted
+
+**Context.** M19.10 left open whether the browser viewer becomes its own repository. The
+server's own work is largely done, and the viewer's remaining items are what is left. The
+operator wants a polished front end, reachable from a phone over the overlay VPN, showing
+live cluster figures beside the delegations: the kind of page an existing GPU dashboard for
+this hardware already draws, with a JavaScript toolchain and a container on the cluster.
+
+**Decision.** The web viewer is a separate repository, written from scratch with that
+dashboard as inspiration rather than as a fork, so its licence and stack are its own
+choice; it may read the dashboard's API for cluster figures before building its own. What
+changes together with the server stays here:
+
+- **The format**, versioned, with its schema shipped in the package (ADR-0111). That is the
+  contract between the two repositories, replacing "one decision, one document" across them.
+- **The feed** (ADR-0112). It reads files on the workstation, so it stays under this
+  repository's path rules and reviewer.
+- **The terminal viewer**, shipped as `claude-delegate-watch`, so a user without the web
+  viewer is not left with a black box. Its section stays in `docs/ARCHITECTURE.md`, beside
+  the format it renders: the half of M19.10 that asked to split it out is answered no.
+- **Streaming the partial answer** (M19.5): the server must write it before any viewer can
+  show it. It arrives as a minor version.
+
+Titles, in-place counters and the phone page (M19.6, M19.7, M19.9's page) move with the
+viewer. Keeping everything here was rejected: it would put a front-end toolchain under a
+docs gate built for a security-sensitive Python server, or rebuild the cluster figures in
+Python.
+
+**Consequence.** A format change now ships here first, and the viewer follows by version;
+two repositories, two CI setups. The specification the viewer's repository starts from is
+written outside this one, since it is that repository's first document.
+
 ## ADR-0112 — 2026-10-01 — The viewer feeds raw events to another machine, from behind a proxy it does not run — Accepted
 
 **Context.** `--serve` put the terminal rendering in a browser page, bound to `localhost`.
