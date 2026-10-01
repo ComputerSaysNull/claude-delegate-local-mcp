@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 # `C:\rest`, `C:/rest`, or a bare `C:` -- Claude Code emits all three, not necessarily
 # consistently within one call.
@@ -96,6 +97,31 @@ def to_posix(given: str) -> str:
         return f"/mnt/{drive}{rest}"
 
     return s
+
+
+def file_uri_to_posix(uri: str) -> str | None:
+    """The POSIX folder a `file:` URI names, or None when it names none this side can reach.
+
+    Here because an MCP client lists its roots as URIs, and on this topology they are
+    Windows ones -- `file:///C:/Users/...` -- so this is the same boundary as `to_posix`,
+    arriving in a different envelope. None rather than a raise: a root that names nothing
+    reachable narrows nothing, and the caller decides whether what is left is enough.
+    """
+    parsed = urlparse(uri)
+    if parsed.scheme != "file" or not parsed.path:
+        return None
+    path = unquote(parsed.path)
+    if parsed.netloc and parsed.netloc != "localhost":
+        path = f"//{parsed.netloc}{path}"  # UNC: a `\\wsl$` spelling, or a network share
+    elif re.match(r"^/[A-Za-z]:", path):
+        path = path[1:]  # `/C:/Users` is the URI spelling of `C:/Users`
+    try:
+        posix = to_posix(path)
+    except UntranslatablePath:
+        return None
+    # A drive-relative `C:foo` passes through untranslated, and `realpath` would resolve it
+    # against this process's working directory: a folder the client never named.
+    return posix if posix.startswith("/") else None
 
 
 def to_local(given: str) -> str:

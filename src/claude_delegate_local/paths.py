@@ -199,6 +199,24 @@ def _within(real: str, root: str) -> bool:
     return real == root or real.startswith(root + "/")
 
 
+def narrow_roots(ceiling: Sequence[str], session: Sequence[str]) -> tuple[str, ...]:
+    """The part of `ceiling` that `session` also covers: per pair, the deeper of two nested
+    roots, and nothing for two disjoint ones.
+
+    Both sides are resolved POSIX paths. The ceiling is what the operator allows any session;
+    the session's roots are what one client says it is working in. A session root wider than
+    the ceiling gets the ceiling, never the wider folder, so the result can only shrink what
+    the operator configured (ADR-0110).
+    """
+    narrowed: list[str] = []
+    for c in ceiling:
+        for s in session:
+            deeper = s if _within(s, c) else c if _within(c, s) else None
+            if deeper is not None and deeper not in narrowed:
+                narrowed.append(deeper)
+    return tuple(narrowed)
+
+
 def path_within_roots(real: str, roots: Sequence[str]) -> bool:
     """`_within` against any of `roots`, for callers outside this module.
 
@@ -217,9 +235,11 @@ def _check_roots(given: str, real: str, roots: Sequence[str]) -> Refusal | None:
         layer=LAYER_ROOTS,
         reason=f"its real location {real} is outside every workspace root.",
         remedy=(
-            f"Configured roots: {', '.join(roots) or '(none)'}. If the path went through "
-            "a symlink it is the resolved location that is checked, not the link. Name a "
-            "file inside a root, or add the project to DELEGATE_WORKSPACE_ROOTS."
+            f"Roots for this session: {', '.join(roots) or '(none)'}. If the path went "
+            "through a symlink it is the resolved location that is checked, not the link. "
+            "Name a file inside a root. A client listing MCP roots narrows "
+            "DELEGATE_WORKSPACE_ROOTS to its own folders, so another project inside them is "
+            "added from the client (Claude Code: /add-dir); one outside them is added there."
         ),
     )
 

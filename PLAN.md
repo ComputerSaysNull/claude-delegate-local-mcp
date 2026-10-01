@@ -408,6 +408,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 99. ✅ 2026-09-29 **Testing traps live in no document**: a `tests/README.md`, with what moves there from CONTRIBUTING and the gate checks that follow it
 100. ✅ 2026-09-29 **A prefetched range never reaches the read cache**, so re-reading lines `files[]` already supplied runs the tool again
 101. ✅ 2026-09-29 **A delegation is never told its `workdir`**: the shell starts there and the file tools refuse a relative path, so callers wrote the path into every task
+102. ✅ 2026-10-01 **Every session reaches every configured root**: a session in one project can read another listed one; narrow to the folders the client lists (MCP roots)
 
 ## Deferred
 

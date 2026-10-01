@@ -2844,3 +2844,28 @@ non-zero stage, so every record is a candidate.
 So the read cache should be seeded from `files[]`, a masked stage is worth classifying now,
 and the overflow guard can be armed once its doubles grow; eviction cost and the fast
 sample have nothing to act on yet.
+
+## 2026-10-01 — Claude Code tells a server which folders its session works in
+
+Per-project roots had three possible shapes, and the cheapest one rested on a claim nobody
+had checked: that Claude Code answers MCP `roots/list`. Its documentation does not say, and
+the binary carrying `roots/list` 38 times proved nothing — the bundled SDK carries the
+string whether or not the client answers.
+
+The measurement: a throwaway stdio server whose one tool records the client's `initialize`
+capabilities and the answer to `ctx.list_roots()`, run under `claude -p --mcp-config <file>
+--strict-mcp-config`, once from a test folder and once with `--add-dir <second folder>`.
+The negative control came first: under fastmcp's own `Client` with no roots handler the
+same tool recorded `roots_capability: null` and "List roots not supported", and with
+`roots=[...]` it recorded them — so the recorder can report an absence.
+
+Claude Code 2.1.286 declared `roots: {listChanged: true}` and answered with its working
+directory as a `file:///C:/Users/...` URI; with `--add-dir` it answered with both folders.
+So the server can ask rather than be configured per project (ADR-0110). What was not
+measured: whether an interactive `/add-dir` sends `list_changed`. The design does not need
+it, asking on every call.
+
+One trap on the way. The nested `claude -p` started in plan mode, inherited from the
+operator's settings, and refused the tool as "cannot call while in plan mode" — a refusal
+that reads like a capability answer. `--permission-mode default` on the nested call fixed
+it.

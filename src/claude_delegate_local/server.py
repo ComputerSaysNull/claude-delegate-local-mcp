@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -63,9 +64,13 @@ from .paths import (
     Refusal,
     expand_globs,
     has_magic,
+    narrow_roots,
     resolve_files,
     resolve_workdir,
+    resolved_roots,
+    resolved_workdir_roots,
 )
+from .wsl import file_uri_to_posix
 from .registry import ModelEntry, Registry, RegistryError
 from .slots import (
     SharedSlots,
@@ -1544,6 +1549,76 @@ failure modes worth knowing, kept there rather than here so it costs nothing unt
 """.strip()
 
 
+class SessionScope(NamedTuple):
+    """The configuration one call runs under, narrowed to its session's folders.
+
+    `workdir_ok` is False when `workdir_roots` is configured and none of the session's
+    folders is inside it: an empty `workdir_roots` means "reuse workspace_roots", so the
+    empty narrowing cannot be written into the config without silently widening it.
+    """
+
+    cfg: Config
+    workdir_ok: bool
+
+
+async def _client_roots(ctx: Context | None) -> list[str] | None:
+    """The folders the client lists for this session, resolved; None if it lists none.
+
+    A client that declares the capability and then fails to answer is refused rather than
+    treated as one without it: it has said it knows where it works, so falling back to the
+    configured roots would widen exactly the session that asked to be narrowed.
+    """
+    if ctx is None:
+        return None
+    try:
+        params = ctx.session.client_params
+    except RuntimeError:  # no live request, as when a handler is called directly
+        return None
+    if params is None or params.capabilities.roots is None:
+        return None
+    try:
+        listed = await ctx.list_roots()
+    except Exception as e:
+        raise ToolError(
+            f"This client declares MCP roots but listing them failed ({e}), so the session's "
+            "folders are unknown and nothing is reached. Retry the call."
+        ) from e
+    found = (file_uri_to_posix(str(r.uri)) for r in listed)
+    return [os.path.realpath(p) for p in found if p is not None]
+
+
+async def session_scope(cfg: Config, ctx: Context | None) -> SessionScope:
+    """`cfg` with its roots narrowed to the folders this call's client lists (ADR-0110).
+
+    Before anything reads a path, and in every handler that reads one: a handler left on
+    the build-time `cfg` is a session reaching every configured root, which is the bug.
+    """
+    roots = await _client_roots(ctx)
+    if roots is None:
+        if cfg.client_roots == "require":
+            raise ToolError(
+                "This client lists no MCP roots, so it has not said which project this "
+                "session works in, and DELEGATE_CLIENT_ROOTS=require refuses that. Use a "
+                "client that lists roots, or set DELEGATE_CLIENT_ROOTS=narrow to apply "
+                "DELEGATE_WORKSPACE_ROOTS as configured."
+            )
+        return SessionScope(cfg, workdir_ok=True)
+    ceiling = resolved_roots(cfg)
+    workspace = narrow_roots(ceiling, roots)
+    if not workspace:
+        raise ToolError(
+            f"None of the folders this session lists ({', '.join(roots) or 'none'}) is "
+            f"inside DELEGATE_WORKSPACE_ROOTS ({', '.join(ceiling)}), so it may reach "
+            "nothing. Open the session in a project under one of those roots, or add the "
+            "project to DELEGATE_WORKSPACE_ROOTS."
+        )
+    if not cfg.workdir_roots:
+        return SessionScope(replace(cfg, workspace_roots=workspace), workdir_ok=True)
+    workdir = narrow_roots(resolved_workdir_roots(cfg), roots)
+    narrowed = replace(cfg, workspace_roots=workspace, workdir_roots=workdir or cfg.workdir_roots)
+    return SessionScope(narrowed, workdir_ok=bool(workdir))
+
+
 def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiring
     cfg: Config, registry: Registry, cache: BackendCache | None = None
 ) -> FastMCP:
@@ -1618,6 +1693,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         max_turns: MaxTurns = None,
         workdir: Workdir = None,
         diagnostics: Diagnostics = False,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Delegate a task to a local model that can read, write and run commands.
 
@@ -1631,11 +1707,14 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
 
         Answers at once with a `handle`: `collect` it for the result.
         """
+        # The roots are asked for while the call is live: the run outlives it, which is why
+        # it is handed `ctx=None`.
+        scope = await session_scope(cfg, ctx)
         run = run_delegation(
-            cfg, registry, cache, windows, admission, rates=rates,
+            scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
-            workdir=_rooted(workdir),
+            workdir=_rooted(scope, workdir),
             diagnostics=diagnostics, ctx=None, tool_name="delegate",
         )
         return await _answered(run, "delegate")
@@ -1664,8 +1743,9 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         turns and can go looking, so name the obvious material and let it find the rest.
         Use `delegate_to_agent_readonly` when an agent file should shape the work.
         """
+        scope = await session_scope(cfg, ctx)
         return await run_delegation(
-            cfg, registry, cache, windows, admission, rates=rates,
+            scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, files=files, model=model, effort=effort,
             # Fixed and intersected (`resolve_allowed`), so no caller can widen it: that is
             # what makes readOnlyHint a property of the tool, not a claim a caller could
@@ -1676,14 +1756,14 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_readonly",
         )
 
-    def _load(agent_name: str, workdir: str | None) -> AgentSpec:
+    def _load(scope: SessionScope, agent_name: str, workdir: str | None) -> AgentSpec:
         try:
-            return load_agent(cfg, agent_name, workdir)
+            return load_agent(scope.cfg, agent_name, workdir)
         except AgentError as e:
             raise ToolError(str(e)) from e
 
-    def _rooted(given: str | None) -> str | None:
-        """Resolved and root-checked against `workdir_roots` once, here.
+    def _rooted(scope: SessionScope, given: str | None) -> str | None:
+        """Resolved and root-checked against the session's `workdir_roots` once, here.
 
         For both `workdir` (bound writable) and `project` (where agent files are looked up):
         different meanings, but neither may leave the roots, and a check in two places would
@@ -1691,8 +1771,13 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         """
         if given is None:
             return None
+        if not scope.workdir_ok:
+            raise ToolError(
+                f"{given} is outside every workdir root this session has: none of the "
+                "folders the client lists is inside DELEGATE_WORKDIR_ROOTS."
+            )
         try:
-            return resolve_workdir(cfg, given)
+            return resolve_workdir(scope.cfg, given)
         except PathRefused as e:
             raise ToolError(str(e)) from e
         except PathPolicyError as e:
@@ -1714,6 +1799,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         max_tokens: MaxTokens = None,
         max_turns: MaxTurns = None,
         diagnostics: Diagnostics = False,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Delegate to a named agent: a file that shapes how one *kind* of task is done.
 
@@ -1729,11 +1815,13 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         """
         # Both checked *before* either is used: the agent lookup reads under `project`, and
         # a root check after that read would not be a check.
-        resolved_workdir = _rooted(workdir)
-        resolved_project = _rooted(project) if project is not None else resolved_workdir
-        agent = _load(agent_name, resolved_project)
+        scope = await session_scope(cfg, ctx)
+        resolved_workdir = _rooted(scope, workdir)
+        resolved_project = (
+            _rooted(scope, project) if project is not None else resolved_workdir)
+        agent = _load(scope, agent_name, resolved_project)
         run = run_delegation(
-            cfg, registry, cache, windows, admission, rates=rates,
+            scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             agent=agent, workdir=resolved_workdir,
@@ -1766,10 +1854,11 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         `search_files` and `read_git` whatever its file says -- so an agent declaring
         `run_bash` does not get it, and one declaring less gains the rest.
         """
-        resolved_project = _rooted(project)
-        agent = _load(agent_name, resolved_project)
+        scope = await session_scope(cfg, ctx)
+        resolved_project = _rooted(scope, project)
+        agent = _load(scope, agent_name, resolved_project)
         return await run_delegation(
-            cfg, registry, cache, windows, admission, rates=rates,
+            scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, files=files, model=model, effort=effort,
             # Fixed, derived from `writes`, as in `delegate_readonly` (ADR-0042).
             allowed_tools=sorted(READ_ONLY_TOOL_NAMES),
@@ -1835,7 +1924,9 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
 
     @mcp.tool(title="List agents", annotations={**_READS, "idempotentHint": True},
               output_schema=_AGENT_LIST_RESULT)
-    async def list_agents(project: ProjectLookup = None) -> dict[str, Any]:
+    async def list_agents(
+        project: ProjectLookup = None, ctx: Context | None = None,
+    ) -> dict[str, Any]:
         """List the agents `delegate_to_agent` can reach, and where each was found.
 
         Call this before guessing an agent name.
@@ -1845,7 +1936,8 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         and `other_format` are Claude Code's own agent files sharing the directory -- not
         faulty, and not runnable here.
         """
-        listing = discover_agents(cfg, _rooted(project))
+        scope = await session_scope(cfg, ctx)
+        listing = discover_agents(scope.cfg, _rooted(scope, project))
         found, skipped = listing.agents, listing.skipped
         return {
             "agents": [
