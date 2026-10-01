@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #435 — 2026-10-01 — feat: the viewer feeds raw transcript events to another machine
+
+### Changed
+
+- **`--serve` is replaced by `--feed`.** The browser page was the terminal's rendering in a
+  `<pre>`, and the operator found it added nothing; meanwhile the web viewer is moving to its
+  own repository, to run on another machine, while the transcripts stay on the workstation.
+  `claude-delegate-watch --feed` serves `/list` (each transcript's row, now with its format)
+  and `/events?name=&offset=` (whole events past a byte offset, at most a mebibyte a poll,
+  with `more` when the file holds more) as JSON, GET only, with no page and no CORS header.
+  A first-pass review found the uncapped read, a null byte in a name raising instead of
+  refusing, and a blank `--allow-host` admitting an empty `Host`; each has a test. It still binds `localhost` and keeps the rebinding guard and the
+  name check; reaching it from elsewhere is a proxy's job, such as the overlay VPN's own,
+  whose name is passed with `--allow-host` (ADR-0112). Measured first: Windows `localhost`
+  reaches a WSL loopback listener under default NAT networking, so the feed can run beside
+  the server. Part of M19.9: the server half.
+
 ## #434 — 2026-10-01 — feat: the terminal viewer ships with the server as claude-delegate-watch
 
 ### Added

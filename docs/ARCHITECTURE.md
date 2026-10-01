@@ -1079,10 +1079,10 @@ thing that was being waited for, and taking the screen away at that moment is th
 behaviour a watcher must not have. The list redraws itself every couple of seconds so a
 dispatch started elsewhere appears without a keypress, and `r` forces it.
 
-**`--serve` puts the same rendering in a browser**, which repaints and scrolls back for
-free. It binds `localhost`, refuses a `Host` header naming anything else (a rebinding page)
-and serves only a bare `.jsonl` name inside the transcript directory. A poll gets whole
-lines past a **byte** offset: a half-written line waits, and non-ASCII cannot shift a read.
+**`--feed` hands raw events to a viewer on another machine** (ADR-0112): `/list` and `/events`,
+GET only, for a bare `.jsonl` name in the transcript directory, bound to `localhost`, refusing
+any `Host` but a loopback or `--allow-host` name. A poll gets at most a mebibyte of whole lines
+past a **byte** offset: a half-written line waits, and non-ASCII cannot shift a read.
 
 A tool call renders through a per-tool layout where one is registered, and the generic
 `k=v` tail otherwise. `read_file` and `search_files` have one because their arguments are

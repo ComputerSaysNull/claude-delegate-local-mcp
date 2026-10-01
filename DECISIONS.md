@@ -19,6 +19,40 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0112 — 2026-10-01 — The viewer feeds raw events to another machine, from behind a proxy it does not run — Accepted
+
+**Context.** `--serve` put the terminal rendering in a browser page, bound to `localhost`.
+The operator found it added nothing over the terminal, and the web viewer is moving to its
+own repository, to run on the cluster or a small box beside it — while the transcripts are
+written on the workstation, into a synced folder no other machine mounts. Something has to
+carry them across. A pull was chosen over a push from each server process: every Claude Code
+session runs its own server, so a push would be one sender per session and a network
+dependency inside the server, where one feed serves every session.
+
+**Decision.** `claude-delegate-watch --feed` serves `/list` (each transcript's row and its
+format) and `/events?name=&offset=` (whole events past a byte offset), as JSON, and nothing
+else; the page and `/tail` are deleted.
+
+- **Bound to `localhost`, always.** Reaching it from another machine is a proxy's job: the
+  overlay VPN's own reverse proxy runs on the workstation, so only that network's devices
+  reach it, and the server holds no listener, certificate or token of its own. Measured
+  before deciding: Windows `localhost` reaches a WSL loopback listener under WSL's default
+  NAT networking, and a port with none refuses.
+- **`Host` must be a loopback name or one the operator passed** with `--allow-host`, the
+  name the proxy sends. The rebinding guard stays, and naming one host opens no other.
+- **GET only, no CORS header.** The reader is a server, so a browser on another origin has
+  no business reading the feed, and without the header it cannot.
+- **Raw events, not rendered text.** The reader renders; the contract is the schema
+  (ADR-0111), not this module's layout.
+- **At most a mebibyte of whole lines per poll**, with `more` saying the file holds more.
+  A long stream runs to tens of megabytes, and an uncapped read held all of it per request
+  on a threaded server. A single longer line comes whole and alone.
+
+**Consequence.** The streams carry task text and model replies (ADR-0043), so whoever can
+reach the proxy can read every delegation: that is the operator's grant to make, by who is
+on the overlay network, and it is stated here rather than implied. If the server moves to
+another machine, the feed moves with the transcripts and nothing in the reader changes.
+
 ## ADR-0111 — 2026-10-01 — The transcript stream carries a format version and ships a schema — Accepted
 
 **Context.** The stream's only reader was `scripts/watch_delegations.py`, owned by the same

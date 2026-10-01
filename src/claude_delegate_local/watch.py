@@ -16,11 +16,10 @@ everything you have watched -- including after you return to the list. That is w
 nothing here uses the alternate screen buffer or `ESC[3J`, both of which would throw
 that away.
 
-With `--serve` the same directory is served over a small local web page that repaints as
-the stream grows: a browser gives repaint, scrollback and selection for free, and the
-`.jsonl` format is unchanged. Bound to `localhost` only, and a request whose `Host`
-header does not name a loopback is refused, so a page on another origin cannot read
-transcripts through it.
+With `--feed` the same directory's events are served as JSON, for a viewer on another
+machine that renders them itself. Bound to `localhost` only, and a request whose `Host`
+header names neither a loopback nor a name the operator allowed is refused, so a page on
+another origin cannot read transcripts through it.
 """
 
 from __future__ import annotations
@@ -35,6 +34,7 @@ import select
 import shutil
 import sys
 import time
+from collections.abc import Iterable
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, cast
@@ -931,6 +931,7 @@ def summarise(path: Path) -> dict:
                     row["at"] = event.get("at")
                     row["tool"] = event.get("tool", "")
                     row["effort"] = event.get("effort") or ""
+                    row["format"] = event.get("format")  # None: written before 1.0
                     # Absent and empty are kept apart on purpose: `kind_of` reports the
                     # first as unknown and the second as a one-shot.
                     row["tools"] = event.get("tools")
@@ -1435,119 +1436,25 @@ def _follow(path: Path) -> None:
                 return
 
 
-# --- a browser view ------------------------------------------------------------------
+# --- a feed for a reader on another machine ------------------------------------------
 
 
-# One self-contained page: inline CSS and vanilla JS, no external resources. It shows the
-# list from `/list`, lets a reader pick a transcript, then polls `/tail` about once a
-# second and appends to a `<pre>`, auto-scrolling only while the reader is already at the
-# bottom -- so a long transcript grows without yanking the view down beneath them.
-PAGE = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>delegations</title>
-<style>
-body { margin: 0; padding: 1rem; background: #1e1e1e; color: #d4d4d4;
-       font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-h1 { font-size: 1rem; font-weight: 600; margin: 0 0 .5rem; }
-label { margin-right: .5rem; }
-select, button { font: inherit; padding: .2rem .4rem; }
-pre { white-space: pre-wrap; word-break: break-word; margin: 1rem 0 0;
-      min-height: 70vh; }
-</style>
-</head>
-<body>
-<h1>delegations</h1>
-<div>
-  <label>transcript <select id="pick"></select></label>
-  <button id="reload" type="button">refresh list</button>
-</div>
-<pre id="out"></pre>
-<script>
-"use strict";
-var out = document.getElementById("out");
-var pick = document.getElementById("pick");
-var offset = 0;
-// One poll at a time, and a poll answers only the transcript it was sent for: a slow
-// response would otherwise append twice, or into a transcript picked since.
-var busy = false;
-var generation = 0;
+# The most one `/events` poll reads, in whole lines (`complete_events`).
+FEED_CHUNK_BYTES = 1 << 20
 
-function atBottom() {
-  return out.scrollHeight - out.scrollTop - out.clientHeight < 4;
-}
-
-function append(text) {
-  var stick = atBottom();
-  out.textContent += text;
-  if (stick) out.scrollTop = out.scrollHeight;
-}
-
-function start() {
-  generation += 1;
-  offset = 0;
-  out.textContent = "";
-  poll();
-}
-
-async function load() {
-  try {
-    var r = await fetch("/list");
-    var rows = await r.json();
-    var chosen = pick.value;
-    pick.innerHTML = "";
-    for (var i = 0; i < rows.length; i++) {
-      var opt = document.createElement("option");
-      opt.value = rows[i].name;
-      opt.textContent = rows[i].task + " (" + rows[i].name + ")";
-      pick.appendChild(opt);
-    }
-    if (chosen) pick.value = chosen;
-  } catch (e) {}
-  start();
-}
-
-async function poll() {
-  var name = pick.value;
-  if (!name || busy) return;
-  busy = true;
-  var mine = generation;
-  try {
-    var r = await fetch("/tail?name=" + encodeURIComponent(name) + "&offset=" + offset);
-    if (!r.ok || mine !== generation) return;
-    var data = await r.json();
-    if (mine !== generation) return;
-    if (data.text) append(data.text + "\\n");
-    offset = data.offset;
-  } catch (e) {
-  } finally {
-    busy = false;
-  }
-}
-
-document.getElementById("reload").addEventListener("click", load);
-pick.addEventListener("change", start);
-load();
-setInterval(poll, 1000);
-</script>
-</body>
-</html>
-"""
-
-
-# The only names `host_allowed` accepts.
+# The names `host_allowed` accepts before the operator adds any.
 _LOOPBACK_V4 = "127.0.0.1"
 _LOOPBACK_V6 = "::1"
 
 
-def host_allowed(host_header: str) -> bool:
+def host_allowed(host_header: str, extra: Iterable[str] = ()) -> bool:
     """Whether a request's `Host` header names this server.
 
     The `Host` header is what a browser sends for the origin it believes it is talking to,
     which is exactly what a DNS rebinding attack rewrites: a page on some other origin can
     make requests to localhost, and the header is how the server tells the difference.
-    Only the loopback names are accepted, and a port may follow any of them.
+    The loopback names are accepted, and `extra` -- names the operator gave, such as the one
+    the overlay VPN's own proxy sends -- compared without case. A port may follow any.
     """
     host = host_header.strip()
     if host.startswith("["):
@@ -1562,8 +1469,11 @@ def host_allowed(host_header: str) -> bool:
         return host[1:end] == _LOOPBACK_V6
     # A bare name, or a name with a port. The port is stripped, never validated -- the
     # name is the only thing the guard cares about.
-    addr = host.rsplit(":", 1)[0] if ":" in host else host
-    return addr in ("localhost", _LOOPBACK_V4)
+    addr = (host.rsplit(":", 1)[0] if ":" in host else host).lower()
+    # A blank allowed name is dropped: it would match the empty header a request with no
+    # `Host` is read as.
+    named = {e.strip().lower() for e in extra if e.strip()}
+    return addr in ("localhost", _LOOPBACK_V4) or (bool(addr) and addr in named)
 
 
 def transcript_path(directory: Path, name: str) -> Path | None:
@@ -1582,7 +1492,7 @@ def transcript_path(directory: Path, name: str) -> Path | None:
     try:
         path = (directory / name).resolve()
         inside = directory.resolve()
-    except OSError:
+    except (OSError, ValueError):  # ValueError: an embedded null byte
         return None
     try:
         path.relative_to(inside)
@@ -1591,33 +1501,44 @@ def transcript_path(directory: Path, name: str) -> Path | None:
     return path if path.is_file() else None
 
 
-def complete_lines(path: Path, offset: int) -> tuple[list[str], int]:
-    """The finished lines from `offset`, and where the next poll starts.
+def complete_events(path: Path, offset: int) -> tuple[list[dict], int, bool]:
+    """The finished events from `offset`, where the next poll starts, and whether more of
+    the file is already there to read.
 
-    Reads from `offset` but hands back only what ends in a newline: a line the writer is
-    still appending is left for the next poll, so nothing is rendered half -- the same
-    rule `follow` follows one layer down. Each complete line is parsed as JSON, skipped
-    when it is not an object (as `summarise` does), and rendered with the existing
-    `render`, stripped of colour, since a browser gets no ANSI. The offset is in bytes
-    and lands just past the last complete line: counted in characters, a transcript
-    holding any non-ASCII text would send the next poll to the wrong place.
+    Hands back only what ends in a newline: a line the writer is still appending is left for
+    the next poll, the rule `follow` follows too. At most `FEED_CHUNK_BYTES` of whole lines,
+    because a long stream runs to tens of megabytes and this runs once per request on a
+    threaded server; a single longer line is returned whole, alone, since cutting it hands
+    over a fragment and stopping short of it never gets past it. A line that is not a JSON
+    object is passed over, as `summarise` passes it. The offset is in bytes, so non-ASCII
+    text cannot send the next poll into the middle of a line.
     """
+    start = max(offset, 0)
+    long_line = False
     with path.open("rb") as fh:
-        fh.seek(max(offset, 0))
-        data = fh.read()
-    cut = data.rfind(b"\n")
+        fh.seek(start)
+        data = tail = fh.read(FEED_CHUNK_BYTES)
+        while b"\n" not in data and len(tail) == FEED_CHUNK_BYTES:
+            tail = fh.read(FEED_CHUNK_BYTES)
+            data += tail  # one line over the cap: read on to its end
+            long_line = True
+        size = os.fstat(fh.fileno()).st_size
+    # The long line alone; otherwise every whole line the chunk holds.
+    cut = data.find(b"\n") if long_line else data.rfind(b"\n")
     if cut < 0:
-        return [], max(offset, 0)
-    lines: list[str] = []
+        return [], start, False
+    events: list[dict] = []
     for raw in data[:cut].split(b"\n"):
         try:
             event = json.loads(raw.decode("utf-8", errors="replace"))
         except json.JSONDecodeError:
             continue
-        if not isinstance(event, dict):
-            continue
-        lines.extend(_plain(line) for line in render(event, 120))
-    return lines, max(offset, 0) + cut + 1
+        if isinstance(event, dict):
+            events.append(event)
+    after = start + cut + 1
+    # More is on disk past this poll's end, so the reader asks again at once rather than
+    # waiting out its interval. A half-written line counts too, which costs one empty poll.
+    return events, after, size > after
 
 
 def _list_json(directory: Path) -> list[dict]:
@@ -1633,29 +1554,27 @@ def _list_json(directory: Path) -> list[dict]:
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
-    """One request. Thin: the logic lives in the helpers it calls."""
+    """One GET. Thin: the logic lives in the helpers it calls. Any other method is
+    answered 501 by the base class, which is what keeps the feed read-only."""
 
-    server_version = "watch-delegations"
+    server_version = "claude-delegate-watch"
+    sys_version = ""  # the base class would add the interpreter's version to `Server`
 
     def do_GET(self) -> None:
-        if not host_allowed(self.headers.get("Host", "")):
+        server = cast("_Server", self.server)
+        if not host_allowed(self.headers.get("Host", ""), server.allowed):
             self.send_error(403)
             return
         url = urlparse(self.path)
-        if url.path == "/":
-            body = PAGE.encode("utf-8")
-            self._respond(200, "text/html; charset=utf-8", body)
-            return
         if url.path == "/list":
-            body = json.dumps(_list_json(cast("_Server", self.server).directory)).encode("utf-8")
-            self._respond(200, "application/json", body)
+            self._respond({"format": FORMAT, "transcripts": _list_json(server.directory)})
             return
-        if url.path == "/tail":
-            self._tail(url)
+        if url.path == "/events":
+            self._events(server.directory, url)
             return
         self.send_error(404)
 
-    def _tail(self, url) -> None:
+    def _events(self, directory: Path, url) -> None:
         query = parse_qs(url.query)
         name = (query.get("name") or [""])[0]
         raw = (query.get("offset") or ["0"])[0]
@@ -1663,18 +1582,23 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             offset = int(raw)
         except ValueError:
             offset = 0
-        path = transcript_path(cast("_Server", self.server).directory, name)
+        path = transcript_path(directory, name)
         if path is None:
             self.send_error(404)
             return
-        lines, offset = complete_lines(path, offset)
-        body = json.dumps({"text": "\n".join(lines), "offset": offset}).encode("utf-8")
-        self._respond(200, "application/json", body)
+        events, offset, more = complete_events(path, offset)
+        self._respond({"events": events, "offset": offset, "more": more})
 
-    def _respond(self, status: int, content_type: str, body: bytes) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
+    def _respond(self, payload: dict) -> None:
+        body = json.dumps(payload, default=str, ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        # A live file: a cached poll is a stale one. No CORS header, on purpose: the reader
+        # is a server, and without the header a page on another origin cannot read the
+        # response -- the Host check refuses only the rebinding form of that page.
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
 
@@ -1683,23 +1607,25 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 
 class _Server(http.server.ThreadingHTTPServer):
-    """The HTTP server, carrying the transcript directory to each request."""
+    """The HTTP server, carrying the transcript directory and the allowed names."""
 
-    def __init__(self, address: tuple, directory: Path) -> None:
+    def __init__(self, address: tuple, directory: Path,
+                 allowed: Iterable[str] = ()) -> None:
         super().__init__(address, _Handler)
         self.directory = directory
+        self.allowed = tuple(allowed)
 
 
-def serve(directory: Path, port: int = 0) -> int:
-    """Serve the transcript directory over a local web page until Ctrl-C.
+def feed(directory: Path, port: int = 0, allowed: Iterable[str] = ()) -> int:
+    """Serve the transcript directory's events as JSON until Ctrl-C (ADR-0112).
 
-    The page repaints in the browser, which the terminal `follow` view deliberately does
-    not: a browser gives scrollback, selection and re-rendering for free, and the `.jsonl`
-    format is unchanged. Bound to `localhost` only, so nothing on the network can reach
-    it -- and a request whose `Host` header does not name a loopback is refused, so a
-    page on another origin cannot read transcripts through it either.
+    For a reader on another machine, which renders them itself. Bound to `localhost`
+    only: reaching it from elsewhere is the job of a proxy the operator runs in front of
+    it, such as the overlay VPN's own, and the name that proxy sends goes in `allowed`.
+    The streams carry task text and model replies (ADR-0043), so who may reach that proxy
+    is who may read them.
     """
-    server = _Server(("localhost", port), directory)
+    server = _Server(("localhost", port), directory, allowed)
     print("http://" + "localhost" + ":" + str(server.server_address[1]))
     try:
         server.serve_forever()
@@ -1712,11 +1638,15 @@ def serve(directory: Path, port: int = 0) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Watch delegation transcripts in a terminal, or serve them over HTTP.")
-    parser.add_argument("--serve", action="store_true",
-                        help="serve the transcript directory over a local web page")
+        description="Watch delegation transcripts in a terminal, or feed their events "
+                    "to a reader on another machine.")
+    parser.add_argument("--feed", action="store_true",
+                        help="serve the transcripts' events as JSON on localhost")
     parser.add_argument("--port", type=int, default=0,
-                        help="port for --serve; 0 lets the OS choose one")
+                        help="port for --feed; 0 lets the OS choose one")
+    parser.add_argument("--allow-host", action="append", default=[], metavar="NAME",
+                        help="a Host name --feed accepts besides the loopback ones, such "
+                             "as the one a proxy in front of it sends; repeatable")
     args = parser.parse_args()
     if not TRANSCRIPT_DIR:
         print("DELEGATE_TRANSCRIPT_DIR is not set, so there is nothing to watch.",
@@ -1726,8 +1656,8 @@ def main() -> int:
     if not directory.is_dir():
         print(f"{TRANSCRIPT_DIR} is not a directory.", file=sys.stderr)
         return 2
-    if args.serve:
-        return serve(directory, args.port)
+    if args.feed:
+        return feed(directory, args.port, args.allow_host)
     if termios is None:
         print("This needs a POSIX terminal. Run it under WSL, where the server runs.",
               file=sys.stderr)
