@@ -231,11 +231,10 @@ changed no code, and the gate warns on a date or a TODO in a `src/` comment.
 
 ### M19 — A browser viewer, and the ledger it reads
 
-**Exit:** the viewer shows a running delegation and live cluster figures on a host where
-nothing was configured, and no tool result changes shape.
+**Exit:** the terminal viewer ships, a reader elsewhere follows a running delegation through
+the feed against a versioned schema, and no tool result changes shape (ADR-0113).
 
-M11's exit, carried. Items 1 to 3 were M11.3, M11.4 and M11.9, moved unchanged on
-2026-09-23, to be picked up with the browser viewer.
+Items 1 to 3 were M11.3, M11.4 and M11.9, moved unchanged on 2026-09-23.
 
 1. ✅ Split the running totals from the transcripts so retention and accuracy stop competing:
   an append-only ledger of one line per dispatch, never pruned, beside the fat per-dispatch
@@ -252,11 +251,11 @@ M11's exit, carried. Items 1 to 3 were M11.3, M11.4 and M11.9, moved unchanged o
     is the person reading the transcript stream while the work happens.
 4. ✅ 2026-09-29 **A tool call in flight is invisible**: `tool_calls` land in the `turn` event, after the tools finish; write a start event
 5. ⬜ **The partial answer is not in the stream while it generates**, so a watcher sees counters and no text
-6. ⬜ **A delegation has no title**; a list of them reads as timestamps. Derive one from the task, or take it as an argument
-7. ⬜ **Liveness reads as repeated `alive` lines**; the chunk counts belong in counters that update in place
+6. ❌ 2026-10-01 (moved to the viewer's repository, which derives and stores titles itself; ADR-0113) **A delegation has no title**; a list of them reads as timestamps. Derive one from the task, or take it as an argument
+7. ❌ 2026-10-01 (moved to the viewer's repository: in-place counters are a page's, the terminal view never repaints; ADR-0113) **Liveness reads as repeated `alive` lines**; the chunk counts belong in counters that update in place
 8. ✅ 2026-10-01 **The transcript format has no version**, so a reader cannot tell an old shape from a broken one
-9. ⬜ **Opening the viewer takes a command and a localhost URL**, and a phone cannot reach it
-10. ⬜ **Its own session:** split the viewer out of `docs/ARCHITECTURE.md`, and decide whether the browser viewer becomes its own repository
+9. ❌ 2026-10-01 (the server half is the feed, ADR-0112; the page a phone opens is the viewer's repository's, ADR-0113) **Opening the viewer takes a command and a localhost URL**, and a phone cannot reach it
+10. ✅ 2026-10-01 (its own repository; the terminal viewer's section stays here, with the format it renders; ADR-0113) **Its own session:** split the viewer out of `docs/ARCHITECTURE.md`, and decide whether the browser viewer becomes its own repository
 11. ✅ 2026-10-01 **The viewer does not ship with the server**: it lives in `scripts/`, outside the wheel, so an installed server is a black box until a delegation lands
 ### M20 — A call returns a handle
 
@@ -410,6 +409,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 100. ✅ 2026-09-29 **A prefetched range never reaches the read cache**, so re-reading lines `files[]` already supplied runs the tool again
 101. ✅ 2026-09-29 **A delegation is never told its `workdir`**: the shell starts there and the file tools refuse a relative path, so callers wrote the path into every task
 102. ✅ 2026-10-01 **Every session reaches every configured root**: a session in one project can read another listed one; narrow to the folders the client lists (MCP roots)
+103. ⬜ Was Deferred 2. **Packaging for other people** — a real version and a publishable wheel, since `version` is `0.0.0` and installing means a clone; and a version `--doctor` can report
 
 ## Deferred
 
@@ -417,9 +417,6 @@ On hold for weeks or months. Not cancelled, and not queued.
 
 1. ⬜ Anthropic-compatible adapter — the seam and canonical shape are kept so this is
   additive, roughly 150 to 220 lines in one new file (ADR-0008)
-2. ⬜ Packaging for other people, on hold until wanted — a real version and a publishable
-  wheel, since `version` is `0.0.0` and installing means a clone; whether it travels as a
-  wheel or a repository URL; and a version a colleague's `--doctor` can report
 3. ⬜ Cluster-wide queueing across machines. Admission counts one machine (ADR-0040) and
   cross-process slots need a POSIX lock, so two hosts coordinate not at all — each admits
   its own `max_inflight_seqs` and `max_inflight_large_prefills` against one endpoint
@@ -434,6 +431,9 @@ On hold for weeks or months. Not cancelled, and not queued.
     - a. ❌ 2026-09-16 **Disproved: a minimum is immune to a fast sample only while its bucket
     holds a slower one, and a bucket of one *is* that sample (JOURNAL).** Original: `expect`'s
     minimum contains it — immune to *fast* samples, vulnerable only to slow ones.
+7. ⬜ **The server on a small Linux box beside the cluster.** Reopens Cancelled 3 (ADR-0020):
+  the repositories stay on the workstation, and a stdio server elsewhere needs SSH as its
+  stdio or a network transport. Reopen when the box is bought
 
 ## Cancelled
 

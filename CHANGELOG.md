@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #436 — 2026-10-01 — docs: the web viewer becomes its own repository
+
+### Changed
+
+- **Whether the viewer becomes its own repository was an open item (M19.10).** Decided: the
+  web viewer is a separate repository, written from scratch, while the versioned format, the
+  feed and the terminal viewer stay here, because each changes together with the server
+  (ADR-0113). M19's exit is reworded to what this repository now delivers, since the old one
+  asked for a dashboard "on a host where nothing was configured". M19.6, M19.7 and the page
+  half of M19.9 move to the viewer's repository; M19.5 stays. Packaging (Deferred 2) moves to
+  Unscheduled, now the viewer ships and a reader elsewhere pins the schema to a release, and
+  the server on a small box beside the cluster is deferred with what it would reopen.
+
 ## #435 — 2026-10-01 — feat: the viewer feeds raw transcript events to another machine
 
 ### Changed
