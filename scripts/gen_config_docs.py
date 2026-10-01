@@ -54,7 +54,7 @@ END = "<!-- GEN:CONFIG:END -->"
 # group lands in "Other" -- which is a visible prompt to place it, not a silent bucket.
 SECTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Backend selection", ("models_file", "default_model")),
-    ("Path policy", ("workspace_roots", "workdir_roots", "ext_allowlist",
+    ("Path policy", ("workspace_roots", "workdir_roots", "client_roots", "ext_allowlist",
                      "secret_globs_file", "secret_content_scan_bytes",
                      "protected_globs_file", "respect_gitignore")),
     ("Context prefetch", ("max_file_tokens", "max_total_prefetch_tokens",

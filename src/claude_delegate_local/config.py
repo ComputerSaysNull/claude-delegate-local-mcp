@@ -69,6 +69,9 @@ EFFORT_INHERIT = "inherit"
 # something to name and a second entry is one line.
 TRANSPORTS = ("stdio",)
 
+# What a session's MCP roots do to the configured ones (ADR-0110).
+CLIENT_ROOTS_MODES = ("narrow", "require")
+
 # The client's stdio idle timeout, in seconds: a measured property of Claude Code, not a
 # setting (JOURNAL 2026-09-01). At this much silence the client abandons the tool call and
 # **nothing reaches the server** -- no cancellation, no EOF -- so the dispatch runs on
@@ -157,6 +160,14 @@ class Config:
         (),
         "Layer 1 applied to the `workdir` argument itself, which is a separate surface "
         "from the files read within it. Empty means reuse workspace_roots.",
+    )
+    client_roots: str = _f(
+        "narrow",
+        f"One of {CLIENT_ROOTS_MODES}: how the folders an MCP client lists for its session "
+        "bound that session. `narrow`: a client listing roots gets workspace_roots and "
+        "workdir_roots narrowed to them, and is refused if every one falls outside; a "
+        "client listing none gets the configured roots unchanged. `require`: the same, "
+        "except a client listing none is refused (ADR-0110).",
     )
     ext_allowlist: tuple[str, ...] = _f(
         (
@@ -846,6 +857,12 @@ class Config:
                 "DELEGATE_WORKSPACE_ROOTS is required and has no safe default. It is "
                 "layer 1 of the path policy: without it, nothing bounds which files a "
                 "delegated model may read. Set it to the directory holding your projects."
+            )
+        if self.client_roots not in CLIENT_ROOTS_MODES:
+            raise ConfigError(
+                f"DELEGATE_CLIENT_ROOTS={self.client_roots!r} is not one of "
+                f"{CLIENT_ROOTS_MODES}. Refused at load: a misspelt `require` that fell "
+                "back to `narrow` would be a session boundary believed and not enforced."
             )
         if self.thinking_default not in EFFORT_LEVELS:
             raise ConfigError(

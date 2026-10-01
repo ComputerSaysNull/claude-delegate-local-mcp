@@ -19,6 +19,43 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0110 — 2026-10-01 — A session reaches the folders its client lists, inside the configured roots — Accepted
+
+**Context.** Every session's server read one `DELEGATE_WORKSPACE_ROOTS`: `config.load()`
+reads `.env` from the checkout (ADR-0027) and the path roots are loaded once per process
+(ADR-0040). An operator switching projects lists all of them rather than editing the list
+each time, so a session opened in project B could read project A, bind it as a `workdir`
+and look up agents under it. A registration's `env` cannot carry per-project roots on this
+topology: it sets them for `wsl.exe`, one hop short of the server (ADR-0027).
+
+**Measured (JOURNAL 2026-10-01).** Claude Code declares the MCP roots capability with
+`listChanged`, answers `roots/list` with its working directory, and adds each `--add-dir`.
+
+**Decision.** Every handler that reads a path asks its client for roots before reading one,
+and narrows `workspace_roots` and `workdir_roots` to them: per pair, the deeper of two nested
+roots, nothing for two disjoint ones. The configured lists become a ceiling, and a session
+root wider than the ceiling gets the ceiling, never the wider folder.
+
+- **Fails closed** when a client lists roots and none is inside the ceiling, and when it
+  declares the capability and then fails to list them: it has said it knows where it works.
+- **A client listing none** gets the configured roots under `client_roots = narrow`, the
+  default, and is refused under `require`. Narrow is the default because a client without
+  roots support — the suite's own among them — would otherwise be refused on every call,
+  while the boundary asked for, between Claude Code sessions, holds either way.
+- **Asked per call, not cached** against `list_changed`: one round trip, and a folder added
+  mid-session is in force on the next call. A run already started keeps the roots it began
+  with.
+- **`agent_bind_roots` is not narrowed.** It governs toolchain mounts, not projects, and
+  shares no list with the reading roots on purpose (ADR-0053). So a project listed there
+  stays mountable by an agent from any session: it is no place for a project.
+- The `run` CLI has no client and is unchanged.
+
+**Consequence.** The ceiling can span several projects without widening a session that lists
+its roots. Under `narrow`, a client without roots support still sees the whole ceiling,
+which is what `require` is for. The sandbox's only project bind is the `workdir`, checked
+against the narrowed roots; `paths.py` reads the same narrowed config separately, so neither
+covers for the other (CLAUDE.md).
+
 ## ADR-0109 — 2026-09-29 — Overflow handling is armed by default, on a window the endpoint confirms — Accepted
 
 **Context.** `context_overflow_enabled` shipped off because every threshold is a share of

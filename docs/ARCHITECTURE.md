@@ -84,7 +84,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
 | `handles.py` | A delegation's handle, the task `collect` reads, and what `cancel_delegation` stops |
-| `server.py` | MCP wiring, the tool declarations, the backend cache |
+| `server.py` | MCP wiring, the tool declarations, the backend cache, and each call's roots narrowed to the folders its client lists (ADR-0110) |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
 | `init.py` | `--init`: the two files that have no safe default, from answers |
@@ -428,9 +428,9 @@ a clean pass are the same empty result in every log. The raise reaches the calle
 
 ### One place crosses the boundary
 
-Claude Code runs on Windows, the server runs in WSL, and `files[]` arrives in a form
-nothing downstream understands. `wsl.py` is the only module that knows this; everything
-below it is POSIX-only.
+Claude Code runs on Windows, the server runs in WSL, and `files[]` and the client's roots
+(`file:` URIs) arrive in a form nothing downstream understands. `wsl.py` is the only module
+that knows this; everything below it is POSIX-only.
 
 Translating at the edge, rather than requiring POSIX paths from the caller, keeps the
 translation away from the least reliable participant in it. Both failure modes here are

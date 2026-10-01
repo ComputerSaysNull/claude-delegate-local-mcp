@@ -30,6 +30,29 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #432 — 2026-10-01 — fix: a session reaches only the folders its client lists
+
+### Added
+
+- **`DELEGATE_CLIENT_ROOTS`**, `narrow` or `require`: what happens to a client that lists no
+  roots. `narrow` keeps the configured roots for it; `require` refuses it (ADR-0110).
+
+### Fixed
+
+- **A session in one project could read another.** Every session's server read one
+  `DELEGATE_WORKSPACE_ROOTS`, and switching projects without editing it means listing all of
+  them, so a session opened in project B could read project A's files, bind it as a
+  `workdir` and look up agent files under it. A registration's `env` could not narrow it per
+  project, because it sets the variable for `wsl.exe` rather than the server (ADR-0027).
+  Claude Code already lists each session's folders as MCP roots — its working directory and
+  every `--add-dir`, measured (JOURNAL 2026-10-01) — so every handler that reads a path now
+  asks for them first and narrows the configured roots to them. The configured lists become
+  a ceiling: a session root above it gets the ceiling, and a session whose roots all fall
+  outside it is refused rather than given everything. The roots arrive as `file:` URIs, which
+  `wsl.py` now unwraps into the same Windows-to-WSL translation as `files[]`. A refusal for a
+  path outside the session's roots now says another project is added from the client
+  (`/add-dir`).
+
 ## #431 — 2026-09-29 — feat: a turn's calls are announced as they start, and the viewer groups each turn
 
 ### Added
