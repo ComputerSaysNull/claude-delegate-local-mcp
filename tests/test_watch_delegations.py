@@ -10,7 +10,6 @@ and CI runs the suite on Linux, so it is exercised in both places the viewer is 
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import re
@@ -24,19 +23,16 @@ from pathlib import Path
 
 import pytest
 
+from claude_delegate_local import watch
+
 ROOT = Path(__file__).resolve().parents[1]
-VIEWER = ROOT / "scripts" / "watch_delegations.py"
 posix_only = pytest.mark.skipif(os.name != "posix", reason="needs a pty")
 
 
 def load_viewer():
-    """Import scripts/watch_delegations.py by path -- scripts/ is not a package."""
-    spec = importlib.util.spec_from_file_location(
-        "watch_delegations", ROOT / "scripts" / "watch_delegations.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    """The viewer module. A function rather than an import, so the regression tests that
+    call it keep one spelling."""
+    return watch
 
 
 @pytest.fixture
@@ -387,9 +383,12 @@ def session(tmp_path):
         pid, fd = pty.fork()
         if pid == 0:                                    # the child never returns
             os.chdir(ROOT)
-            os.execve(sys.executable, [sys.executable, str(VIEWER)],
+            # By module, with this tree's `src` first: the installed copy may be another one.
+            path = os.pathsep.join(
+                p for p in (str(ROOT / "src"), os.environ.get("PYTHONPATH")) if p)
+            os.execve(sys.executable, [sys.executable, "-m", "claude_delegate_local.watch"],
                       dict(os.environ, DELEGATE_TRANSCRIPT_DIR=str(directory),
-                           TERM="xterm-256color"))
+                           TERM="xterm-256color", PYTHONPATH=path))
         made = Session(pid, fd)
         spawned.append(made)
         return made

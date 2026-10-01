@@ -1,4 +1,4 @@
-<!-- BUDGET: 170 -->
+<!-- BUDGET: 175 -->
 
 # claude-delegate-local-mcp
 
@@ -140,6 +140,11 @@ Windows form of the path; `/mnt/c/...` is rejected.
 
 `timeout` is milliseconds and the wall-clock default is generous. What the per-turn progress
 notification holds off, and what it does not, is [DISPATCH](docs/DISPATCH.md)'s.
+
+## Watch a delegation
+
+Set `DELEGATE_TRANSCRIPT_DIR`, then run `claude-delegate-watch` where the server runs (in WSL
+on Windows): it lists delegations, newest first, and follows the one you pick as it works.
 
 ## Documentation
 

@@ -30,6 +30,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #434 — 2026-10-01 — feat: the terminal viewer ships with the server as claude-delegate-watch
+
+### Added
+
+- **An installed server came with no viewer.** The viewer was `scripts/watch_delegations.py`,
+  outside the one tree the wheel packages, so anyone who installed the server rather than
+  cloning it could not see a delegation until it landed. It is now the package module
+  `watch.py`, installed as the `claude-delegate-watch` console script, and README says how
+  to run it. It finds `.env` by the server's own rule and parser (`DELEGATE_ENV_FILE`, then
+  the checkout's), instead of a second lookup of its own. A stream that names another major
+  format version gets a line at its head saying it may be drawn wrong (ADR-0111). This is
+  M19.11.
+
+### Fixed
+
+- **Two functions were both named `_tokens`, and the second silently replaced the first.**
+  The first, showing `?` for a missing count, was dead: every caller already got the second,
+  which shows `-`. Found when the module came under `mypy src`; the dead one is deleted, so
+  nothing renders differently. The same move brought eight type errors into reach, all
+  annotation gaps rather than behaviour.
+
 ## #433 — 2026-10-01 — feat: the transcript stream names its format version and ships a schema
 
 ### Added

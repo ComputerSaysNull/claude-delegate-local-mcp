@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 claude-delegate-local-mcp = "claude_delegate_local.main:run"
+claude-delegate-watch = "claude_delegate_local.watch:main"
 
 [project.optional-dependencies]
 dev = [

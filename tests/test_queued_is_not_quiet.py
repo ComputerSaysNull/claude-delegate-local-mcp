@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 
-import scripts.watch_delegations as wd
+from claude_delegate_local import watch as wd
 
 
 def _row(**over) -> dict:

@@ -83,16 +83,9 @@ def test_only_the_turns_that_ran_tools_contribute():
 
 @pytest.fixture()
 def viewer():
-    """The same import the viewer's own suite uses."""
-    import importlib.util
-    import pathlib
+    from claude_delegate_local import watch
 
-    path = (pathlib.Path(__file__).resolve().parents[2]
-            / "scripts" / "watch_delegations.py")
-    spec = importlib.util.spec_from_file_location("watch_delegations", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return watch
 
 
 def test_the_summary_line_does_not_claim_tool_time_with_no_tool_calls(viewer):

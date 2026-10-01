@@ -257,6 +257,7 @@ M11's exit, carried. Items 1 to 3 were M11.3, M11.4 and M11.9, moved unchanged o
 8. ✅ 2026-10-01 **The transcript format has no version**, so a reader cannot tell an old shape from a broken one
 9. ⬜ **Opening the viewer takes a command and a localhost URL**, and a phone cannot reach it
 10. ⬜ **Its own session:** split the viewer out of `docs/ARCHITECTURE.md`, and decide whether the browser viewer becomes its own repository
+11. ✅ 2026-10-01 **The viewer does not ship with the server**: it lives in `scripts/`, outside the wheel, so an installed server is a black box until a delegation lands
 ### M20 — A call returns a handle
 
 **Exit:** a delegation longer than the client's window returns a handle, and a second call

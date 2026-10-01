@@ -133,7 +133,7 @@ owns = [
   # The viewer belongs to the same document as the stream it reads: the file format and
   # the thing that renders it are one decision, and splitting them across two documents is
   # how a renderer ends up describing a shape the writer no longer produces.
-  "scripts/watch_delegations.py",
+  "src/claude_delegate_local/watch.py",
 ]
 covers_not = """
 Environment variable values (CONFIGURATION.md), tool schemas (TOOLS.md), registry file

@@ -10,7 +10,6 @@ port 0 in a thread, since the routes only mean anything once they are wired to a
 from __future__ import annotations
 
 import http.client
-import importlib.util
 import ipaddress
 import json
 import threading
@@ -24,13 +23,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_viewer():
-    """Import scripts/watch_delegations.py by path -- scripts/ is not a package."""
-    spec = importlib.util.spec_from_file_location(
-        "watch_delegations", ROOT / "scripts" / "watch_delegations.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    from claude_delegate_local import watch
+
+    return watch
 
 
 @pytest.fixture

@@ -15,23 +15,21 @@ renderer for the same reason: colour is looked at, not asserted on. Hence this f
 
 from __future__ import annotations
 
-import importlib.util
 import re
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-VIEWER = ROOT / "scripts" / "watch_delegations.py"
+VIEWER = ROOT / "src" / "claude_delegate_local" / "watch.py"
 _ANSI = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
 
 
 @pytest.fixture
 def viewer():
-    spec = importlib.util.spec_from_file_location("watch_delegations", VIEWER)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    from claude_delegate_local import watch
+
+    return watch
 
 
 def turn(*calls: dict) -> dict:
