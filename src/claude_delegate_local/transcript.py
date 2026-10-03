@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.1"
+FORMAT = "1.2"
 
 # Anything outside this is replaced in a filename. An agent name reaches us from a file on
 # disk, and a name is not a promise about path separators.
@@ -152,7 +152,8 @@ class Stream:
 
     def start(  # noqa: PLR0913 -- each field is a separate fact about the call, and an
         # object grouping them would put the event's shape in two places.
-        self, *, tool: str, task: str, agent: str | None,
+        self, *, tool: str, task: str, title: str | None = None,
+        agent: str | None,
         model_key: str | None, effort: str | None,
         tools: Iterable[str] = (), prefetched: Prefetch | None = None,
         max_turns: int | None = None,
@@ -172,6 +173,7 @@ class Stream:
             # Beside `effort`, the same kind of fact: a resolved setting this run is held
             # to. None for a one-shot, which runs no loop.
             "max_turns": max_turns,
+            **({"title": title} if title else {}),
             "tools": sorted(tools),
             **_files(prefetched),
         })

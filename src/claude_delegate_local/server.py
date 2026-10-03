@@ -596,6 +596,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     # Keyword-only, so a sixth positional cannot be transposed silently at a call site.
     rates: RateHistory,
     task: str,
+    title: str | None = None,
     files: list[str | FileRange] | None = None,
     model: str | None = None,
     effort: str | None = None,
@@ -835,7 +836,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     if stream is not None:
         stream.start(
             tool=tool_name,
-            task=task, agent=agent.name if agent else None,
+            task=task, title=title, agent=agent.name if agent else None,
             model_key=entry.key, effort=effort,
             tools=allowed, prefetched=prefetched,
             max_turns=resolved_turns,
@@ -1439,6 +1440,14 @@ Model = Annotated[
     )),
 ]
 
+Title = Annotated[
+    str | None,
+    Field(max_length=120, description=(
+        "A short name for this delegation, written into its transcript for a viewer "
+        "to show. Omit it and a viewer names the delegation from the task's first line."
+    )),
+]
+
 AllowedTools = Annotated[
     list[str] | None,
     Field(description=(
@@ -1725,6 +1734,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         workdir: Workdir = None,
         diagnostics: Diagnostics = False,
         ctx: Context | None = None,
+        title: Title = None,
     ) -> dict[str, Any]:
         """Delegate a task to a local model that can read, write and run commands.
 
@@ -1743,7 +1753,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         scope = await session_scope(cfg, ctx)
         run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
-            task=task, files=files, model=model, effort=effort,
+            task=task, title=title, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             workdir=_rooted(scope, workdir),
             diagnostics=diagnostics, ctx=None, tool_name="delegate",
@@ -1762,6 +1772,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         max_turns: MaxTurns = None,
         diagnostics: Diagnostics = False,
         ctx: Context | None = None,
+        title: Title = None,
     ) -> dict[str, Any]:
         """Delegate a read-only task: search, read files, read git history, change nothing.
 
@@ -1777,7 +1788,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         scope = await session_scope(cfg, ctx)
         return await run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
-            task=task, files=files, model=model, effort=effort,
+            task=task, title=title, files=files, model=model, effort=effort,
             # Fixed and intersected (`resolve_allowed`), so no caller can widen it: that is
             # what makes readOnlyHint a property of the tool, not a claim a caller could
             # falsify. Derived from which tools declare `writes`, since a list here would
@@ -1831,6 +1842,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         max_turns: MaxTurns = None,
         diagnostics: Diagnostics = False,
         ctx: Context | None = None,
+        title: Title = None,
     ) -> dict[str, Any]:
         """Delegate to a named agent: a file that shapes how one *kind* of task is done.
 
@@ -1853,7 +1865,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         agent = _load(scope, agent_name, resolved_project)
         run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
-            task=task, files=files, model=model, effort=effort,
+            task=task, title=title, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             agent=agent, workdir=resolved_workdir,
             diagnostics=diagnostics, ctx=None, tool_name="delegate_to_agent",
@@ -1874,6 +1886,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         max_turns: MaxTurns = None,
         diagnostics: Diagnostics = False,
         ctx: Context | None = None,
+        title: Title = None,
     ) -> dict[str, Any]:
         """Delegate to a named agent, with the toolset fixed to reading.
 
@@ -1890,7 +1903,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         agent = _load(scope, agent_name, resolved_project)
         return await run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
-            task=task, files=files, model=model, effort=effort,
+            task=task, title=title, files=files, model=model, effort=effort,
             # Fixed, derived from `writes`, as in `delegate_readonly` (ADR-0042).
             allowed_tools=sorted(READ_ONLY_TOOL_NAMES),
             max_tokens=max_tokens, max_turns=max_turns,
