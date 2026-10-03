@@ -307,7 +307,8 @@ a date or a pull request number in one; the undated kind is the audit's.
 [session-execute](.claude/skills/session-execute/SKILL.md) starts there. A close-out rule
 left in the planning skill is read while planning and forgotten while committing. The
 separation runs one way only: the planner reads the executor, or the plan omits what
-execution will need from it.
+execution will need from it. Planning also reads one input kept outside this repository: the
+web viewer's requests for changes to the transcript format, whose location is private.
 
 There are now **two** skill directories and they are not interchangeable. This one is for
 working on this repository and is never installed anywhere. `src/claude_delegate_local/skills/`

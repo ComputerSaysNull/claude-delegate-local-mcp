@@ -20,6 +20,13 @@ For why an item exists: `DECISIONS.md`. For what shipped and why: `CHANGELOG.md`
 was measured recently: the last few `JOURNAL.md` entries. For what an upcoming session needs
 and no tracked document holds: the hand-off notebook in the plans directory.
 
+**Requests from the web viewer's repository are input too**: changes it needs in the
+transcript format or the feed, filed as open issues labelled "contract" in the planning
+repository `CLAUDE.local.md` names. List them with `gh issue list --label contract --state
+open` and that repository passed as `-R`, and rank each with the `⬜` items, named in the
+plan by its issue number. Never write that repository's name into a tracked file: it is
+private.
+
 Delegate the reading. `delegate_readonly`, one question per call, and name the documents in
 `files[]`. Do not read them in the main conversation to answer what a delegation could
 answer — that is what actually ends a session. If `delegate_readonly` is not available, use
