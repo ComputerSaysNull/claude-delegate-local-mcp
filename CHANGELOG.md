@@ -30,6 +30,16 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #442 — 2026-10-03 — docs: defer the width and topology measurements
+
+### Changed
+
+- **M16.8 and M16.9 move to Deferred, unchanged.** Both are cluster measurements: eight-wide
+  concurrency before raising the inflight limit, and one replica per machine against tensor
+  parallelism across both. Each needs the operator to reconfigure the serving engine, and
+  neither is wanted now, so they were the only `⬜` items left in the roadmap while blocking
+  nothing. The other M16 items keep their numbers.
+
 ## #441 — 2026-10-03 — docs: session planning lists the web viewer's contract requests
 
 ### Changed

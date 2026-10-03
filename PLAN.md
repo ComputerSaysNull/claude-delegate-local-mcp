@@ -166,10 +166,6 @@ Item 2 was Unscheduled.62, moved unchanged on 2026-09-23.
   streams before changing the draft length
 7. ✅ 2026-09-25 **Long prompts may decode slower** (P5): 29 against 44 tok/s at one stream, from five
   and six samples. Benchmark it before prefetching less
-8. ⬜ **Width past six is unmeasured** (P7), and aggregate still rises at six. Measure
-  eight-wide with real prompt sizes before raising `max_inflight_seqs` and the endpoint's
-9. ⬜ **Topology** (P4): tensor parallelism spans both machines, an all-reduce every decode
-  step. Compare one replica per machine behind one endpoint, if a quantised copy fits
 10. ✅ **`analyse_transcripts.py concurrency` understates the cluster by about a third**
   (review §9): it spreads a turn's tokens over its prefill too. Use `out_tok_s` or retire it
 11. ✅ **A watcher cannot tell thinking from answering** (review §9): the `alive` event counts
@@ -434,6 +430,10 @@ On hold for weeks or months. Not cancelled, and not queued.
 7. ⬜ **The server on a small Linux box beside the cluster.** Reopens Cancelled 3 (ADR-0020):
   the repositories stay on the workstation, and a stdio server elsewhere needs SSH as its
   stdio or a network transport. Reopen when the box is bought
+8. ⬜ Was M16.8. **Width past six is unmeasured** (P7), and aggregate still rises at six. Measure
+  eight-wide with real prompt sizes before raising `max_inflight_seqs` and the endpoint's
+9. ⬜ Was M16.9. **Topology** (P4): tensor parallelism spans both machines, an all-reduce every decode
+  step. Compare one replica per machine behind one endpoint, if a quantised copy fits
 
 ## Cancelled
 
