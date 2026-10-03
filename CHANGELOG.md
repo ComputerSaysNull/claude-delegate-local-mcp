@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #446 — 2026-10-03 — fix: CI's actions move off the deprecated Node 20 runtime
+
+### Fixed
+
+- **Every CI run warned that three pinned actions target Node 20**, which GitHub has
+  deprecated and now forces onto Node 24: `actions/checkout`, `actions/setup-python` and
+  `gitleaks/gitleaks-action`. gitleaks' own notes say its v2 stops working once Node 20 is
+  removed, so the secret scan was running on a fallback. Each is re-pinned by commit to a
+  release that declares `node24`: checkout v7.0.1, setup-python v7.0.0, gitleaks-action
+  v3.0.0, in `ci.yml` and `release.yml`. Their breaking changes were checked against how this
+  repository uses them. Checkout v7 refuses fork checkouts on `pull_request_target` and
+  `workflow_run`, which nothing here uses. setup-python v7 drops `pip-install` and end-of-life
+  Pythons, which nothing here uses either. gitleaks v3 changes only the runtime. No job is
+  renamed, so the required checks still match.
+
 ## #445 — 2026-10-03 — feat: a delegation can carry a title, written into its stream
 
 ### Added
