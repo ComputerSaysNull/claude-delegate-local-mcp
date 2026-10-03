@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #447 — 2026-10-03 — docs: plan a way for a delegation to ask its caller
+
+### Added
+
+- **A delegation that misreads its task has nobody to ask.** The operator watched one argue
+  back and forth about what the caller meant. Since handles arrived (M20) the server could
+  pause a run, put its question in `collect` and resume it with the caller's answer. That
+  costs a held slot and possibly a re-prefill, though, and how often the problem happens is
+  unmeasured. Unscheduled 106 records the idea with its spike first: measure how much
+  reasoning goes to weighing readings of a task, then decide. It also names MCP elicitation,
+  which asks the person rather than the calling model, as a possible second route for a
+  question only the person can answer. Whether Claude Code accepts one from this server is
+  unverified.
+
 ## #446 — 2026-10-03 — fix: CI's actions move off the deprecated Node 20 runtime
 
 ### Fixed
