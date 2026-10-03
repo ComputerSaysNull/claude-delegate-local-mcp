@@ -1856,3 +1856,44 @@ def test_the_tool_name_marker_stays_yellow_under_a_per_tool_layout(viewer):
     assert viewer.YELLOW in head and viewer.GREEN in head
     assert viewer.CYAN in path_line, path_line
     assert viewer.YELLOW not in path_line, "the marker's colour leaked onto the path"
+
+
+# --- defect 8: the picker reads only the newest streams -------------------------------
+
+
+def test_a_list_reads_only_the_newest_streams(viewer, tmp_path, monkeypatch):
+    """/list and the picker summarised every transcript per call, 48 s cold at 1,161
+    streams, for a 20-row answer."""
+    now = datetime.now(UTC)
+    for n in range(40):
+        stream(tmp_path, now - timedelta(minutes=n), task=f"t{n}")
+
+    reads: list[Path] = []
+    real = viewer.summarise
+    monkeypatch.setattr(viewer, "summarise",
+                        lambda p: (reads.append(p), real(p))[1])
+
+    rows, trimmed = viewer.scan(tmp_path)
+
+    assert len(reads) <= viewer.MAX_ROWS + 5, (
+        f"summarised {len(reads)} streams for a {viewer.MAX_ROWS}-row list")
+    assert [row["task"] for row in rows] == [
+        f"t{n}" for n in range(viewer.MAX_ROWS)], "the twenty newest in newest-first order"
+    assert trimmed == 20
+
+
+def test_a_stream_without_a_stamp_still_sorts_by_its_start(viewer, tmp_path):
+    """A name the server did not write is not ordered by its name, so it must never be
+    filtered out by it."""
+    now = datetime.now(UTC)
+    for n in range(40):
+        stream(tmp_path, now - timedelta(minutes=n + 1), task=f"t{n}")
+    unstamped = tmp_path / "copied-from-elsewhere.jsonl"
+    unstamped.write_text(json.dumps(
+        {"t": "start", "at": (now + timedelta(minutes=1)).astimezone(UTC).isoformat(),
+         "model_key": "m", "tool": "delegate", "task": "copied"}) + "\n",
+        encoding="utf-8")
+
+    rows, _ = viewer.scan(tmp_path)
+
+    assert rows[0]["path"] == unstamped

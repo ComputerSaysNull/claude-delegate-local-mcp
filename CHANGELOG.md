@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #444 — 2026-10-03 — fix: the feed's list and the picker read only the newest streams
+
+### Fixed
+
+- **`/list` read every transcript in the folder to answer with twenty.** `scan` summarised
+  each `*.jsonl` (or statted it, when cached) before sorting and cutting to `MAX_ROWS`, so its
+  cost grew with the whole history. The tracker reading through the feed made this its front
+  door, and the terminal picker shares the path. Names sort as starts do (ADR-0117), so
+  `scan` now sorts names first and reads only the newest `MAX_ROWS + SCAN_MARGIN` (25), plus
+  every name the server did not write, since that says nothing about its age. `trimmed` still
+  counts the whole folder. Measured in WSL at 1,245 streams on `/mnt/c`, back to back: the
+  first call fell from 13.5 s to 0.37 s, and a warm one from 2.2 s to 0.07 s. The first call
+  had been 46 s before the OS cached the files. Both versions returned the same twenty rows.
+  The new test counted 40 files read for a twenty-row list before the fix. A second test keeps
+  an unstamped file in the list, and it fails if the fix ignores such names.
+
 ## #443 — 2026-10-03 — docs: the contract covers stream file names and the feed's list keys
 
 ### Changed
