@@ -2268,6 +2268,58 @@ def test_a_failing_heartbeat_does_not_take_the_delegation_with_it():
     assert asyncio.run(go())["answer"] == "ok"
 
 
+# --- a delegation can be titled by its caller -----------------------------------------------
+
+
+def _readonly_stream(config, *, title=None) -> list[dict]:
+    """Run one `delegate_readonly` and return every event its transcript got."""
+    mcp = server.build(config, registry(entry()), DoubleCache(config, chat_handler()))
+    args = {"task": "q", "effort": "inherit"}
+    if title is not None:
+        args["title"] = title
+
+    async def go():
+        async with Client(mcp) as client:
+            await answered(client, "delegate_readonly", args)
+
+    asyncio.run(go())
+    lines = [ln for p in Path(config.transcript_dir).glob("*.jsonl")
+             for ln in p.read_text(encoding="utf-8").splitlines() if ln]
+    return [e for e in map(json.loads, lines)]
+
+
+def test_a_title_is_written_into_the_start_event(tmp_path):
+    """A reader titled a delegation from its task's first line, which is often not what
+    the caller would call it."""
+    config = cfg(transcript_dir=str(tmp_path))
+    start = _readonly_stream(config, title="Explain the retry")[0]
+    assert start["t"] == "start"
+    assert start["title"] == "Explain the retry"
+
+
+def test_without_a_title_start_has_no_title_key(tmp_path):
+    """Absent is not empty: the key is written only when the caller named the work, so a
+    reader can tell "the caller titled it" from "the caller did not"."""
+    config = cfg(transcript_dir=str(tmp_path))
+    start = _readonly_stream(config)[0]
+    assert start["t"] == "start"
+    assert "title" not in start
+
+
+def test_only_the_delegating_tools_take_a_title():
+    """A label belongs to the four calls that start work; the ledger tools read state and
+    must not accept one, or a caller's title would go to a tool that never writes it."""
+    tools = _tools(_built())
+    for name in DELEGATING:
+        props = tools[name].inputSchema["properties"]
+        assert "title" in props, f"{name} must accept a title"
+        string = next(b for b in props["title"]["anyOf"] if b.get("type") == "string")
+        assert string["maxLength"] == 120
+    for name in ("collect", "cancel_delegation", "list_agents", "backend_status"):
+        props = tools[name].inputSchema["properties"]
+        assert "title" not in props, f"{name} must not accept a title"
+
+
 # --- effort is always stated (ADR-0045) ---------------------------------------------------
 
 

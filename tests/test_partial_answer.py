@@ -112,7 +112,7 @@ def test_with_partials_off_the_stream_has_none(tmp_path):
 
 def test_the_format_says_partials_may_appear():
     """An addition, so a minor version (ADR-0111)."""
-    assert transcript.FORMAT == "1.1"
+    assert transcript.FORMAT == "1.2"
 
 
 def test_the_terminal_viewer_shows_a_partial_as_one_line():

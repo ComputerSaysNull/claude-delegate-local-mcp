@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #445 — 2026-10-03 — feat: a delegation can carry a title, written into its stream
+
+### Added
+
+- **A viewer named each delegation after its task's first line**, which is often not what
+  the caller would call it, because nothing better reached the stream. The four delegating
+  tools now take an optional `title`, at most 120 characters, and `start` carries it when
+  given and leaves the key out when not. The web viewer's tracker asked for exactly this
+  shape. It is a field added to the format, so the format moves from 1.1 to 1.2 (ADR-0111),
+  and readers pinned to 1.x keep working. `collect` and the other non-delegating tools don't
+  take it, since they start nothing. A test that passed a title failed with "Unexpected
+  keyword argument" before the change, and the schema test found no `title` on `delegate`.
+
 ## #444 — 2026-10-03 — fix: the feed's list and the picker read only the newest streams
 
 ### Fixed
