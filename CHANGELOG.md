@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #443 — 2026-10-03 — docs: the contract covers stream file names and the feed's list keys
+
+### Changed
+
+- **The web viewer's tracker relied on two things nothing promised.** It sorts stream file
+  names and opens only the newest, and on a machine without the transcript folder it lists
+  streams through the feed's `/list`, reading `name` and `at` from each row. The contract was
+  the event schema alone, so either could have changed under it without a version bump.
+  ADR-0117 adds both to the contract, under the format's major version: a name starts with a
+  UTC `YYYYMMDDTHHMMSS.mmm` stamp taken just before `start`, and `/list` answers
+  `{format, transcripts}` with `name` and `at` on every row. Measured first, over 1,233 real
+  streams: `start.at` trails the stamp by 0 to 5 ms, and name order equals start order. A test
+  now drives the real writer and checks the stamp, and the feed test checks `at`. Until now
+  the name tests built their names by hand, and `at` was never asserted.
+
 ## #442 — 2026-10-03 — docs: defer the width and topology measurements
 
 ### Changed

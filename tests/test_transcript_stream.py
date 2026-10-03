@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+from datetime import datetime, UTC
 from pathlib import Path
 
 import httpx
@@ -236,3 +238,21 @@ def test_the_recorded_sampling_is_what_was_configured(tmp_path: Path):
     assert rows, f"no priced event in {[e['t'] for e in events]}"
     assert rows[0]["temperature"] == 0.3
     assert rows[0]["top_p"] == 0.4
+
+
+def test_a_stream_name_starts_with_the_utc_stamp_of_its_start(tmp_path: Path):
+    """The tracker sorts streams by this stamp and takes the newest before opening any, so
+    the stamp's shape and its place before `start` are a promise (ADR-0117)."""
+    stream = transcript.open_stream(cfg(transcript_dir=str(tmp_path)), None)
+    assert stream is not None
+    stream.start(tool="delegate", task="explain the retry", agent=None,
+                 model_key=None, effort=None)
+    name = stream.path.name
+    assert re.compile(r"^\d{8}T\d{6}\.\d{3}-").match(name)
+    first_event = json.loads(stream.path.read_text(encoding="utf-8").splitlines()[0])
+    assert first_event["t"] == "start"
+    stamp = datetime.strptime(name.split("-", 1)[0], "%Y%m%dT%H%M%S.%f").replace(tzinfo=UTC)
+    started = datetime.fromisoformat(first_event["at"])
+    assert stamp <= started
+    # Generous, only to catch a local-time stamp, which would be off by hours or not at all.
+    assert (started - stamp).total_seconds() < 5

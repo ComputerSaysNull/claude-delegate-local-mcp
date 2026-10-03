@@ -18,7 +18,7 @@ import json
 import threading
 import urllib.error
 import urllib.request
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 
 import jsonschema
@@ -244,6 +244,12 @@ def test_a_real_feed_lists_and_serves_raw_events(tmp_path, running):
     row = next(r for r in listing["transcripts"] if r["name"] == path.name)
     assert row["task"] == "FEED"
     assert row["format"] == transcript.FORMAT
+    start = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    # `name` and `at` on a row, and the top-level `format`, are promised to readers
+    # (ADR-0117).
+    assert row["at"] == start["at"]
+    assert datetime.fromisoformat(row["at"]).utcoffset() == timedelta(0)
+    assert set(listing) >= {"format", "transcripts"}
 
     with urllib.request.urlopen(base + "/events?name=" + path.name + "&offset=0") as resp:
         data = json.loads(resp.read().decode("utf-8"))
