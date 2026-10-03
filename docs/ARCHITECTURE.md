@@ -1,4 +1,4 @@
-<!-- BUDGET: 1224 -->
+<!-- BUDGET: 1230 -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -1083,6 +1083,7 @@ dispatch started elsewhere appears without a keypress, and `r` forces it.
 GET only, for a bare `.jsonl` name in the transcript directory, bound to `localhost`, refusing
 any `Host` but a loopback or `--allow-host` name. A poll gets at most a mebibyte of whole lines
 past a **byte** offset: a half-written line waits, and non-ASCII cannot shift a read.
+Promised beyond the schema (ADR-0117): a name's UTC stamp, and a `/list` row's `name` and `at`.
 
 A tool call renders through a per-tool layout where one is registered, and the generic
 `k=v` tail otherwise. `read_file` and `search_files` have one because their arguments are

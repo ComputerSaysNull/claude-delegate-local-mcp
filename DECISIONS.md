@@ -19,6 +19,32 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0117 — 2026-10-03 — The contract covers a stream's file name and the feed's `/list` keys, not only the schema — Accepted
+
+**Context.** The contract between this repository and the web viewer's was the event schema
+alone (ADR-0111, ADR-0113), and the feed's was "the schema, not this module's layout"
+(ADR-0112). The viewer's tracker relies on two things outside it. It sorts stream names and
+opens only the newest, so the name's leading stamp decides what it shows. And on a machine
+that cannot see the transcript folder it lists streams through `/list`, reading each row's
+`name` and `at`. Both were implementation details, free to change without notice.
+
+**Decision.** Two more facts are part of the contract, versioned by the format's major like
+the schema:
+
+- **A stream's file name starts with a UTC stamp**, `YYYYMMDDTHHMMSS.mmm`, before the first
+  `-`, taken when the stream opens and so just before `start` is written. Measured over 1,233
+  real streams: `start.at` trails the stamp by 0 to 5 ms, and sorting by name or by `at` gives
+  the same order. The rest of the name is not promised.
+- **`/list` answers `{format, transcripts}`**, and each row carries `name`, the stream's file
+  name, and `at`, its `start` event's `at`. Other row keys stay the terminal viewer's
+  and may change.
+
+A test pins each, against the real writer and the real feed rather than hand-built names.
+
+**Consequence.** Changing either now needs a major format version, as removing a schema field
+does. This partly supersedes ADR-0112's "not this module's layout" and ADR-0113's "the format
+is the contract": the format is still most of it, but not all.
+
 ## ADR-0116 — 2026-10-03 — A repository may add to the extension allowlist, in a file the model cannot write — Accepted
 
 **Context.** `DELEGATE_EXT_ALLOWLIST` replaces the whole list, and it is the operator's, for
@@ -82,7 +108,7 @@ last one.
 partial carries both halves. A reader that does not know `partial` ignores it, as 1.0 readers
 must (ADR-0111).
 
-## ADR-0113 — 2026-10-01 — The web viewer is its own repository; the format, the feed and the terminal viewer stay — Accepted
+## ADR-0113 — 2026-10-01 — The web viewer is its own repository; the format, the feed and the terminal viewer stay — Partially superseded by ADR-0117
 
 **Context.** M19.10 left open whether the browser viewer becomes its own repository. The
 server's own work is largely done, and the viewer's remaining items are what is left. The
@@ -114,7 +140,7 @@ Python.
 two repositories, two CI setups. The specification the viewer's repository starts from is
 written outside this one, since it is that repository's first document.
 
-## ADR-0112 — 2026-10-01 — The viewer feeds raw events to another machine, from behind a proxy it does not run — Accepted
+## ADR-0112 — 2026-10-01 — The viewer feeds raw events to another machine, from behind a proxy it does not run — Partially superseded by ADR-0117
 
 **Context.** `--serve` put the terminal rendering in a browser page, bound to `localhost`.
 The operator found it added nothing over the terminal, and the web viewer is moving to its
