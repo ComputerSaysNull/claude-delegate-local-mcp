@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #441 — 2026-10-03 — docs: session planning lists the web viewer's contract requests
+
+### Changed
+
+- **A planning session here never saw what the web viewer was waiting on.** Its requests
+  for changes to the transcript format are filed as `contract` issues in a private planning
+  repository, and `session-plan` read only this repository's documents, so a request could
+  sit unranked indefinitely. Step 1 now lists the open ones and ranks them with the `⬜`
+  items. That repository's name stays out of tracked files: `CLAUDE.local.md` holds it, and
+  the local forbidden-strings list now refuses it.
+
 ## #440 — 2026-10-03 — feat: a repository can add file extensions for its own files
 
 ### Added
