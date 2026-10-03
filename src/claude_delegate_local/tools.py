@@ -453,8 +453,9 @@ def _search_candidates(cfg: Config, scope: str, name_glob: str) -> tuple[list[st
             full = posixpath.join(dirpath, name)
             if os.path.islink(full):
                 continue
-            # Layer 2's own predicate, since `Makefile` is allowlisted by whole name.
-            if extension_refusal(cfg, name) is not None:
+            # Layer 2's own predicate, since `Makefile` is allowlisted by whole name. The
+            # full path, so a repository's own `ext_allowlist_extra` can widen it.
+            if extension_refusal(cfg, full) is not None:
                 continue
             if name_glob and not fnmatch.fnmatchcase(name, name_glob):
                 continue
@@ -1296,15 +1297,17 @@ def _require_commits(scope: str, command: str, revisions: list[str]) -> None:
                 )
 
 
-def _path_refusal(cfg: Config, rel: str) -> str | None:
+def _path_refusal(cfg: Config, top: str, rel: str) -> str | None:
     """Why layers 2 or 3 refuse this repository-relative path, or None.
 
     The same two predicates `read_file` applies, called rather than copied, so a history
     path and a worktree path are judged by one rule. Layer 4 is not asked: a tracked file
     is not ignored in any sense git reports, and history holds no ignore state to consult.
+    `rel` is joined onto the repository top level, so layer 2's per-repository additions
+    apply to history paths the way they apply to the worktree (ADR-0116).
     """
     rel = rel.replace("\\", "/")
-    refusal = extension_refusal(cfg, rel)
+    refusal = extension_refusal(cfg, posixpath.join(top, rel))
     if refusal is not None:
         return refusal.reason
     glob = secret_match(rel, load_secret_globs(cfg))
@@ -1313,7 +1316,7 @@ def _path_refusal(cfg: Config, rel: str) -> str | None:
     return None
 
 
-def _withhold_refused_sections(cfg: Config, out: str) -> str:
+def _withhold_refused_sections(cfg: Config, top: str, out: str) -> str:
     """Drop the patch body of every file the path policy refuses, and say so.
 
     The header survives, so the reply still says the file changed -- names are not what
@@ -1327,7 +1330,7 @@ def _withhold_refused_sections(cfg: Config, out: str) -> str:
         if header:
             path = header.group("b") or header.group("c") or ""
             reason = ("its name is quoted, so it is not checked here"
-                      if path.startswith('"') else _path_refusal(cfg, path))
+                      if path.startswith('"') else _path_refusal(cfg, top, path))
             withholding = reason is not None
             kept.append(line)
             if withholding:
@@ -1409,7 +1412,7 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
     if command in GIT_CONTENT_COMMANDS:
         _require_commits(scope, command, _revisions(checked))
         for rel in paths:
-            reason = _path_refusal(cfg, rel)
+            reason = _path_refusal(cfg, scope, rel)
             if reason is not None:
                 raise ToolRefused(
                     f"{rel!r} is refused by the path policy: {reason} 'git {command}' "
@@ -1439,7 +1442,7 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
             f"rather than missing -- no commits, no changes, or nothing matched."
         )
     if command in GIT_CONTENT_COMMANDS:
-        out = _withhold_refused_sections(cfg, out)
+        out = _withhold_refused_sections(cfg, scope, out)
         # The last net, as `read_file` has one: a file whose name and extension are both
         # allowed can still hold a key, and history keeps one after the worktree drops it.
         marker = key_material_marker(out.encode("utf-8", "replace"))

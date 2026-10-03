@@ -271,7 +271,7 @@ alike, so a path outside every root is never told whether it exists.
 | | Layer | Refuses |
 |---|---|---|
 | 1 | Workspace roots | Anything whose **real** path falls outside a configured root — narrowed, per call, to the folders the client lists for its session, so the configured roots are a ceiling ([`client_roots`](CONFIGURATION.md), ADR-0110). Resolution happens after symlinks, which closes escape through a link that was already there; one planted afterwards is caught at the open, below |
-| 2 | Extension allowlist | Anything whose extension is not listed |
+| 2 | Extension allowlist | Anything whose extension is not listed: the operator's list, plus what the file's own workspace root adds with `ext_allowlist_extra` in `.claude/delegate-local.toml`, a file the model cannot write (ADR-0116) |
 | 3 | Secret denylist | `.env*`, `*.pem`, `*.key`, `id_*`, `*credential*`, `*secret*`, `.git/**`, and more — **and, at the open, private-key armour in the first `secret_content_scan_bytes` whatever the file is named** |
 | 4 | Gitignore | Anything git ignores |
 | 6 | Protected path | **Writes only.** A file a host program acts on, from `security/protected_globs.txt`, whether or not it exists yet |

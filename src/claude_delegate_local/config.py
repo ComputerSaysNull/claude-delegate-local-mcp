@@ -15,6 +15,7 @@ Environment prefix is `DELEGATE_`, naming no model, because the registry is mult
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
@@ -202,7 +203,18 @@ class Config:
         "Layer 2: the practical allowlist. A pure allowlist cannot work for file "
         "contents -- you cannot enumerate every source file you will ever delegate -- so "
         "extension is the axis that can be allowlisted. Anything not listed is refused. "
-        "Setting it replaces this whole list rather than adding to it.",
+        "Setting it replaces this whole list rather than adding to it. A repository adds "
+        "to the list for its own files with `ext_allowlist_extra` in "
+        "`.claude/delegate-local.toml` (ADR-0116).",
+    )
+    repo_ext_allowlists: tuple[tuple[str, tuple[str, ...]], ...] = field(
+        default=(),
+        metadata={
+            "derived": True,
+            "description": "Per-repository additions to the extension allowlist, read from "
+            "each workspace root's .claude/delegate-local.toml at session setup (ADR-0116). "
+            "Never an environment setting.",
+        },
     )
     secret_globs_file: str = _f(
         "./security/secret_globs.txt",
@@ -1037,6 +1049,15 @@ def env_name(field_name: str) -> str:
     return "DELEGATE_" + field_name.upper()
 
 
+def normalise_extensions(entries: Iterable[str]) -> tuple[str, ...]:
+    """Lower case each entry and ensure a leading dot, for both allowlists.
+
+    One copy, because `load` normalises `ext_allowlist` and the repo loader normalises
+    `ext_allowlist_extra`, and two copies would drift on a rule that is security-relevant.
+    """
+    return tuple(e.lower() if e.startswith(".") else "." + e.lower() for e in entries)
+
+
 def _coerce(raw: str, current: Any, field_name: str) -> Any:
     if isinstance(current, bool):
         low = raw.strip().lower()
@@ -1150,6 +1171,8 @@ def load(environ: dict[str, str] | None = None,
     defaults = Config.__dataclass_fields__
     kwargs: dict[str, Any] = {}
     for f in fields(Config):
+        if f.metadata.get("derived"):
+            continue
         raw = src.get(env_name(f.name))
         if raw is None or raw == "":
             continue
@@ -1157,10 +1180,7 @@ def load(environ: dict[str, str] | None = None,
         kwargs[f.name] = _coerce(raw, sentinel, f.name)
     # ext_allowlist is compared case-insensitively and needs leading dots.
     if "ext_allowlist" in kwargs:
-        kwargs["ext_allowlist"] = tuple(
-            e.lower() if e.startswith(".") else "." + e.lower()
-            for e in kwargs["ext_allowlist"]
-        )
+        kwargs["ext_allowlist"] = normalise_extensions(kwargs["ext_allowlist"])
     return Config(**kwargs)
 
 
@@ -1168,6 +1188,8 @@ def describe() -> list[dict[str, Any]]:
     """The rows `scripts/gen_config_docs.py` renders. Introspection, not a second list."""
     out = []
     for f in fields(Config):
+        if f.metadata.get("derived"):
+            continue
         default = f.default
         out.append(
             {

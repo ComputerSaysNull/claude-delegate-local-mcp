@@ -23,7 +23,7 @@ import argparse
 import asyncio
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 _EFFORTS = ("off", "low", "high", "max", "inherit")
@@ -61,19 +61,32 @@ def _parser() -> argparse.ArgumentParser:
     return p
 
 
+def _load_config() -> Any:
+    """`config.load` plus each configured root's own layer-2 additions (ADR-0116).
+
+    The MCP tools get those from `session_scope`; `run` has no session, so it reads them
+    here, once, for the roots as configured.
+    """
+    from . import config  # noqa: PLC0415
+    from .paths import load_repo_ext_allowlists, resolved_roots  # noqa: PLC0415
+
+    cfg = config.load()
+    return replace(cfg, repo_ext_allowlists=load_repo_ext_allowlists(resolved_roots(cfg)))
+
+
 def _build_pieces() -> tuple[Any, Any, Any, _Gates]:
     """Everything `run_delegation` receives rather than constructs.
 
     Imported inside the function, like the other subcommands: an ordinary server launch
     should not pay to import the delegation loop.
     """
-    from . import config, registry  # noqa: PLC0415
+    from . import registry  # noqa: PLC0415
     from .admission import Admission  # noqa: PLC0415
     from .loop import RateHistory  # noqa: PLC0415
     from .server import BackendCache, WindowCheck  # noqa: PLC0415
     from .slots import build_slots, rate_history_path  # noqa: PLC0415
 
-    cfg = config.load()
+    cfg = _load_config()
     reg = registry.load(cfg)
     slots, _ = build_slots(cfg)
     gates = _Gates(

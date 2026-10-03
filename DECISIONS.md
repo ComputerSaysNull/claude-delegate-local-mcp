@@ -19,6 +19,26 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0116 — 2026-10-03 — A repository may add to the extension allowlist, in a file the model cannot write — Accepted
+
+**Context.** `DELEGATE_EXT_ALLOWLIST` replaces the whole list, and it is the operator's, for
+every repository the server serves. A repository whose own files fall outside it -- a web
+viewer reading `.jsonl` samples, say -- could only be served by the operator restating the
+whole default list in `.env`, on every machine, for every repository at once.
+
+**Decision.** A workspace root may hold `.claude/delegate-local.toml` with
+`ext_allowlist_extra`. Its entries are added to layer 2 for files under that root only; with
+nested roots the deepest wins. It is read once per call, where the session's roots are
+narrowed (ADR-0110), and once per `run`, into a derived `Config` field that is never an
+environment setting. A
+malformed file fails the call and names the file, rather than being skipped. It can only add:
+layers 1, 3 and 4 still apply, and the file sits under `.claude/**`, which the write tools
+refuse and the sandbox mounts read-only, so the model can never widen its own reading.
+
+**Consequence.** What a delegation may read now depends on the repository as well as the
+operator: whoever can commit to a repository can widen layer 2 inside it, never past its root
+and never past the secret denylist. `run_bash` is unchanged, since layer 2 never governed it.
+
 ## ADR-0115 — 2026-10-01 — A release is a version tag, published to GitHub Releases by CI — Accepted
 
 **Context.** The version was `0.0.0` and nothing was ever published, so installing meant a
