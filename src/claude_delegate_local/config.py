@@ -173,7 +173,7 @@ class Config:
         (
             # prose and data
             ".md", ".mdx", ".rst", ".adoc", ".tex", ".bib", ".org", ".txt",
-            ".toml", ".yaml", ".yml", ".json", ".jsonc", ".json5", ".xml", ".xsd",
+            ".toml", ".yaml", ".yml", ".json", ".jsonc", ".json5", ".jsonl", ".xml", ".xsd",
             ".xsl", ".xslt", ".csv", ".tsv", ".ini", ".cfg", ".sql", ".graphql", ".gql",
             ".proto",
             # web
