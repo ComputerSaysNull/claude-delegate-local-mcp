@@ -1097,7 +1097,8 @@ started** — the `start` event's `at`, falling back to the timestamp `transcrip
 filename — never from mtime, which moves every turn and would reshuffle the list under a reader
 watching a long dispatch. **The list is then the newest twenty**, a count rather than the
 seven-day window it replaces: an age left a busy day unreadable and a quiet week nearly empty.
-Nothing is deleted, and an older stream still opens by path. Unchanged files come from a cache
+Nothing is deleted, and an older stream still opens by path. Only the newest names are read,
+since they sort as starts do, plus any name this did not write. Unchanged ones come from a cache
 keyed on `(mtime, size)`: an unattended redraw over `/mnt/c` that re-read every one would make
 the viewer a load generator (ADR-0020). The start clock is local, because `at` is UTC.
 

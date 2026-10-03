@@ -77,6 +77,8 @@ def _transcript_dir() -> str:
 TRANSCRIPT_DIR = _transcript_dir()
 
 MAX_ROWS = 20            # how far back the list reaches: the newest this many, always
+SCAN_MARGIN = 5          # names sort as starts do (ADR-0117), and the margin absorbs a
+                         # stamp taken just before a slower `start`
 REFRESH_SECONDS = 2.0    # unattended redraw of the list
 POLL_SECONDS = 0.3       # how often a live stream is checked for new lines
 STALL_SECONDS = 120      # silence after which an unfinished stream stops claiming "live"
@@ -870,6 +872,14 @@ def render(event: dict, width: int) -> list[str]:
     return [f"{stamp}  {DIM}{json.dumps(event)[:width]}{R}"]
 
 
+def _stamp(path: Path) -> datetime | None:
+    """The dispatch-start time a transcript name records, or None when it is not one."""
+    try:
+        return datetime.strptime(path.name.split("-", 1)[0], "%Y%m%dT%H%M%S.%f")
+    except ValueError:
+        return None
+
+
 def created_at(path: Path) -> float:
     """When the dispatch started, from the name its writer chose.
 
@@ -878,14 +888,13 @@ def created_at(path: Path) -> float:
     first is the inode-change time rather than a birth time, and the second moves every
     time a turn lands. Falling back to mtime is only for a name this did not write.
     """
-    stamp = path.name.split("-", 1)[0]
+    when = _stamp(path)
+    if when is not None:
+        return when.replace(tzinfo=UTC).timestamp()
     try:
-        return datetime.strptime(stamp, "%Y%m%dT%H%M%S.%f").replace(tzinfo=UTC).timestamp()
-    except ValueError:
-        try:
-            return path.stat().st_mtime
-        except OSError:
-            return 0.0
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def started_at(row: dict) -> float:
@@ -993,19 +1002,24 @@ def scan(directory: Path) -> tuple[list[dict], int]:
     is not the question the list is for -- it left a busy day unreadable and a quiet week
     nearly empty. The newest N is the same length whatever the week looked like.
 
-    Dropping the window also drops the cheap pre-filter: it was applied from the filename
-    before anything was opened, and ordering by start time needs the cached row. `_CACHE`
-    is what bounds the cost instead. The list redraws unattended every couple of seconds,
-    `summarise` reads a whole file, and this workspace lives on `/mnt/c` where that is
-    roughly 12x the cost it would be on ext4 (ADR-0020) -- so an unchanged file is served
-    from the cache, and a quiet refresh stats each candidate and reads none of them.
+    Names sort as starts do (ADR-0117), so only the newest `MAX_ROWS + SCAN_MARGIN`
+    stamped names are candidates, plus every name this did not write, which says nothing
+    about its age. `_CACHE` bounds the rest. The list redraws unattended every couple of
+    seconds, `summarise` reads a whole file, and this workspace lives on `/mnt/c` where
+    that is roughly 12x the cost it would be on ext4 (ADR-0020) -- so an unchanged file is
+    served from the cache, and a quiet refresh stats each candidate and reads none of them.
     """
     paths = list(directory.glob("*.jsonl"))
     for gone in set(_CACHE) - set(paths):
         del _CACHE[gone]
-    rows = [_cached(p) for p in paths]
+    stamped: list[Path] = []
+    unstamped: list[Path] = []
+    for p in paths:
+        (stamped if _stamp(p) is not None else unstamped).append(p)
+    stamped.sort(key=lambda p: p.name, reverse=True)
+    rows = [_cached(p) for p in stamped[:MAX_ROWS + SCAN_MARGIN] + unstamped]
     rows.sort(key=started_at, reverse=True)
-    return rows[:MAX_ROWS], max(len(rows) - MAX_ROWS, 0)
+    return rows[:MAX_ROWS], max(len(paths) - MAX_ROWS, 0)
 
 
 def _cached(path: Path) -> dict:

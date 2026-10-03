@@ -1,4 +1,4 @@
-<!-- BUDGET: 470 -->
+<!-- BUDGET: 480 -->
 # Plan
 
 Open work, status first so the file scans.
@@ -406,6 +406,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 101. ✅ 2026-09-29 **A delegation is never told its `workdir`**: the shell starts there and the file tools refuse a relative path, so callers wrote the path into every task
 102. ✅ 2026-10-01 **Every session reaches every configured root**: a session in one project can read another listed one; narrow to the folders the client lists (MCP roots)
 103. ✅ 2026-10-01 Was Deferred 2. **Packaging for other people** — a real version and a publishable wheel, since `version` is `0.0.0` and installing means a clone; and a version `--doctor` can report
+104. ✅ 2026-10-03 **`/list` and the picker read every transcript for a 20-row answer**: 46 s on the first call at 1,242 streams. Read only the newest names (ADR-0117), plus any name this did not write
 
 ## Deferred
 
