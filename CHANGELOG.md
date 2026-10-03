@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #439 — 2026-10-03 — fix: delegations can read .jsonl files
+
+### Fixed
+
+- **No delegation could read a transcript sample.** `tests/transcript_samples/*.jsonl`,
+  the samples ADR-0111 ships for readers of the format, were refused by `read_file`,
+  `search_files` and `git show` alike: `.jsonl` was not on the default extension
+  allowlist. Setting `DELEGATE_EXT_ALLOWLIST` was no way round it, since that replaces the
+  whole list. `.jsonl` is now on the default. What it opens is bounded as before: the
+  ledger's default path and an unset transcript directory sit outside every workspace
+  root, and a `.jsonl` file git ignores is still refused by layer 4.
+
 ## #438 — 2026-10-01 — feat: releases are version tags published to GitHub Releases
 
 ### Added
