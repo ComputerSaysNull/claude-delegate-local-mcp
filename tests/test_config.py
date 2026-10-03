@@ -206,7 +206,10 @@ def test_describe_covers_every_field_so_no_setting_can_be_undocumented():
     from dataclasses import fields
 
     described = {r["field"] for r in config.describe()}
-    assert described == {f.name for f in fields(config.Config)}
+    # Derived fields are read from the repository, never the environment, so they are not
+    # settings and are deliberately absent from `describe` (ADR-0116).
+    settings = {f.name for f in fields(config.Config) if not f.metadata.get("derived")}
+    assert described == settings
 
 
 def test_every_setting_carries_a_description():

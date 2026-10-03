@@ -62,8 +62,10 @@ from .paths import (
     PathPolicyError,
     PathRefused,
     Refusal,
+    RepoSettingsError,
     expand_globs,
     has_magic,
+    load_repo_ext_allowlists,
     narrow_roots,
     resolve_files,
     resolve_workdir,
@@ -1594,6 +1596,19 @@ async def _client_roots(ctx: Context | None) -> list[str] | None:
     return [os.path.realpath(p) for p in found if p is not None]
 
 
+def _repo_ext_allowlists(cfg: Config) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Layer-2 additions over the scope's final roots (ADR-0116).
+
+    A malformed `.claude/delegate-local.toml` fails the call the way a bad root does,
+    naming the file, rather than silently serving a narrower reading than the repository
+    asked for.
+    """
+    try:
+        return load_repo_ext_allowlists(resolved_roots(cfg))
+    except RepoSettingsError as e:
+        raise ToolError(str(e)) from e
+
+
 async def session_scope(cfg: Config, ctx: Context | None) -> SessionScope:
     """`cfg` with its roots narrowed to the folders this call's client lists (ADR-0110).
 
@@ -1609,7 +1624,9 @@ async def session_scope(cfg: Config, ctx: Context | None) -> SessionScope:
                 "client that lists roots, or set DELEGATE_CLIENT_ROOTS=narrow to apply "
                 "DELEGATE_WORKSPACE_ROOTS as configured."
             )
-        return SessionScope(cfg, workdir_ok=True)
+        return SessionScope(
+            replace(cfg, repo_ext_allowlists=_repo_ext_allowlists(cfg)), workdir_ok=True
+        )
     ceiling = resolved_roots(cfg)
     workspace = narrow_roots(ceiling, roots)
     if not workspace:
@@ -1620,10 +1637,17 @@ async def session_scope(cfg: Config, ctx: Context | None) -> SessionScope:
             "project to DELEGATE_WORKSPACE_ROOTS."
         )
     if not cfg.workdir_roots:
-        return SessionScope(replace(cfg, workspace_roots=workspace), workdir_ok=True)
+        scope_cfg = replace(cfg, workspace_roots=workspace)
+        return SessionScope(
+            replace(scope_cfg, repo_ext_allowlists=_repo_ext_allowlists(scope_cfg)),
+            workdir_ok=True,
+        )
     workdir = narrow_roots(resolved_workdir_roots(cfg), roots)
     narrowed = replace(cfg, workspace_roots=workspace, workdir_roots=workdir or cfg.workdir_roots)
-    return SessionScope(narrowed, workdir_ok=bool(workdir))
+    return SessionScope(
+        replace(narrowed, repo_ext_allowlists=_repo_ext_allowlists(narrowed)),
+        workdir_ok=bool(workdir),
+    )
 
 
 def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiring

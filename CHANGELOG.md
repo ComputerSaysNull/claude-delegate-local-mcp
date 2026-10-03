@@ -30,6 +30,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #440 — 2026-10-03 — feat: a repository can add file extensions for its own files
+
+### Added
+
+- **A repository could not widen the extension allowlist without widening it everywhere.**
+  `DELEGATE_EXT_ALLOWLIST` is the operator's, for every repository the server serves, and
+  setting it replaces the whole default list. A repository now adds to it for its own files
+  with `ext_allowlist_extra` in `.claude/delegate-local.toml` (ADR-0116). The MCP tools read
+  it per call, for the session's roots, and `run` once at start; a malformed file fails the
+  call and names the file. It cannot reach past its root or the secret denylist, and the
+  model cannot write it, since `.claude/**` is protected. `search_files` and `read_git` now
+  judge layer 2 by full path, so the addition reaches them too.
+
+### Changed
+
+- **A layer-2 refusal points at the repository's file**, not `DELEGATE_EXT_ALLOWLIST`, which
+  replaces the whole list rather than adding to it.
+
 ## #439 — 2026-10-03 — fix: delegations can read .jsonl files
 
 ### Fixed

@@ -30,19 +30,21 @@ from __future__ import annotations
 
 import errno
 import fnmatch
+import functools
 import glob as glob_module  # `glob` is a local name for a denylist pattern throughout
 import os
 import posixpath
 import re
 import stat as stat_module
 import subprocess
+import tomllib
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
-from .config import Config
+from .config import Config, normalise_extensions
 from .wsl import UntranslatablePath, to_posix
 
 # Layer 0 is not one of the four. It is the boundary crossing itself, named separately so
@@ -70,6 +72,18 @@ LAYER_NAMES = {
     LAYER_OPENED: "the opened file",
     LAYER_PROTECTED: "protected path",
 }
+
+# Where a repository widens layer 2 for its own files (ADR-0116). Sits under `.claude/**`,
+# which the write tools refuse and the sandbox mounts read-only.
+REPO_SETTINGS_FILE = Path(".claude") / "delegate-local.toml"
+
+
+class RepoSettingsError(ValueError):
+    """A workspace root's `.claude/delegate-local.toml` is malformed.
+
+    Raised at session setup, never skipped: a repository that tried to widen layer 2 and
+    got it wrong would otherwise silently narrow its own delegation.
+    """
 
 
 class PathPolicyError(RuntimeError):
@@ -199,6 +213,31 @@ def _within(real: str, root: str) -> bool:
     return real == root or real.startswith(root + "/")
 
 
+@functools.lru_cache(maxsize=64)
+def _roots_for_extras(workspace_roots: tuple[str, ...]) -> tuple[str, ...]:
+    """`resolved_roots` memoised, for finding which root's extras apply and nothing else.
+
+    Layer 2 runs once per file a search walks, and resolving every root each time costs a
+    `stat` per path component, which on `/mnt/c` is a slow round trip. A stale entry can
+    only fail to match, withholding extras, so it never widens anything; layer 1 keeps its
+    own per-call resolution.
+    """
+    return tuple(os.path.realpath(to_posix(r)) for r in workspace_roots)
+
+
+def _deepest_root_containing(real: str, roots: Sequence[str]) -> str | None:
+    """The longest root in `roots` that contains `real`, or None.
+
+    The repo-extras rule: a file is judged by the deepest workspace root that holds it, so
+    an outer root's additions do not leak into a nested root that chose not to carry them.
+    """
+    deepest: str | None = None
+    for root in roots:
+        if _within(real, root) and (deepest is None or len(root) > len(deepest)):
+            deepest = root
+    return deepest
+
+
 def narrow_roots(ceiling: Sequence[str], session: Sequence[str]) -> tuple[str, ...]:
     """The part of `ceiling` that `session` also covers: per pair, the deeper of two nested
     roots, and nothing for two disjoint ones.
@@ -262,6 +301,12 @@ def _check_ext(cfg: Config, given: str, real: str) -> Refusal | None:
     avoid. Layers 3 and 4 still apply to it.
     """
     allow = {e.lower() for e in cfg.ext_allowlist}
+    if cfg.repo_ext_allowlists:
+        root = _deepest_root_containing(real, _roots_for_extras(cfg.workspace_roots))
+        for r, extras in cfg.repo_ext_allowlists:
+            if r == root:
+                allow |= {e.lower() for e in extras}
+                break
     name = posixpath.basename(real).lower()
     suffix = posixpath.splitext(name)[1]
 
@@ -278,8 +323,8 @@ def _check_ext(cfg: Config, given: str, real: str) -> Refusal | None:
         remedy=(
             "Extension is the one axis that can be allowlisted for file contents -- you "
             "cannot enumerate every source file you might delegate. Add it to "
-            "DELEGATE_EXT_ALLOWLIST if it is genuinely source, or paste the relevant "
-            "part into the task instead."
+            "ext_allowlist_extra in the repository's .claude/delegate-local.toml if it is "
+            "genuinely source, or paste the relevant part into the task instead."
         ),
     )
 
@@ -291,6 +336,44 @@ def extension_refusal(cfg: Config, path: str) -> Refusal | None:
     `read_file` applies to the worktree -- one predicate, so the two cannot disagree.
     """
     return _check_ext(cfg, path, path)
+
+
+def load_repo_ext_allowlists(roots: Sequence[str]) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """The layer-2 additions each root's `.claude/delegate-local.toml` grants (ADR-0116).
+
+    A root with no such file is omitted; a malformed one raises `RepoSettingsError` naming
+    the file, because a repository that tried to widen layer 2 and got it wrong should fail
+    the session rather than silently narrow its own delegation. Entries are normalised the
+    same way `DELEGATE_EXT_ALLOWLIST` is, by `config.normalise_extensions`.
+    """
+    out: list[tuple[str, tuple[str, ...]]] = []
+    for root in roots:
+        settings = Path(root) / REPO_SETTINGS_FILE
+        if not settings.is_file():
+            continue
+        try:
+            data = tomllib.loads(settings.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError) as e:
+            raise RepoSettingsError(f"{settings}: {e}") from e
+        if data.keys() - {"ext_allowlist_extra"}:
+            extra_keys = ", ".join(sorted(data.keys() - {"ext_allowlist_extra"}))
+            raise RepoSettingsError(
+                f"{settings}: unrecognised key(s) {extra_keys!r}; only "
+                "'ext_allowlist_extra' is accepted."
+            )
+        extra = data.get("ext_allowlist_extra")
+        if extra is None:
+            continue
+        if not isinstance(extra, list) or not all(isinstance(e, str) for e in extra):
+            raise RepoSettingsError(
+                f"{settings}: 'ext_allowlist_extra' must be a list of strings."
+            )
+        if any("/" in e or "\\" in e or "*" in e for e in extra):
+            raise RepoSettingsError(
+                f"{settings}: 'ext_allowlist_extra' entries must be bare extensions."
+            )
+        out.append((root, normalise_extensions(extra)))
+    return tuple(out)
 
 
 # ---- layer 3 ---------------------------------------------------------------------

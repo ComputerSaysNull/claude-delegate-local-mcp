@@ -85,7 +85,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `transcript.py` | One operator record per dispatch, written outside the response |
 | `watch.py` | `claude-delegate-watch`: the terminal viewer of the stream `transcript.py` writes |
 | `handles.py` | A delegation's handle, the task `collect` reads, and what `cancel_delegation` stops |
-| `server.py` | MCP wiring, the tool declarations, the backend cache, and each call's roots narrowed to the folders its client lists (ADR-0110) |
+| `server.py` | MCP wiring, the tool declarations, the backend cache, and each call's roots narrowed to the folders its client lists (ADR-0110), with each root's own layer-2 additions read in (ADR-0116) |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
 | `init.py` | `--init`: the two files that have no safe default, from answers |
