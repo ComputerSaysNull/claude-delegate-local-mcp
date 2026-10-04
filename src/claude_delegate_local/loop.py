@@ -155,6 +155,9 @@ class DispatchTimedOut(Exception):
         # completed".
         self.stage = stage
         self.setting = setting
+        # Which deadline fired, so a caller can tell a stall from a deadline without
+        # parsing the message.
+        self.stalled = setting == "DELEGATE_STALL_TIMEOUT"
         # A parameter because "raise that setting" suits a ceiling reached while producing
         # and is wrong for a stall, where a longer deadline only waits longer for a run that
         # has stopped.

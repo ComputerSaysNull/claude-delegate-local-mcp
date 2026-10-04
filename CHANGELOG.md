@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #452 — 2026-10-04 — feat: the stream's end says how a run ended
+
+### Added
+
+- **Only the error text said how a run ended, and that text is not contract.** So the web
+  viewer's tracker could not tell a run someone stopped from one that waited too long in
+  the queue, or from a real failure. `end` now carries `ended`, one of `finished`,
+  `stopped`, `queue_timeout`, `deadline`, `stalled` or `error`. The value comes from the
+  exception that ended the run, not from its message. The stall timeout is kept apart from
+  the deadline because it usually means the backend went quiet: over every stream so far,
+  26 of the 30 runs the text called "abandoned … past" were stalls. Replayed over all
+  1,364 historical endings, each fell under exactly one value: 1,241 finished, 55 stopped,
+  35 queue timeouts, 26 stalls, 4 deadlines and 3 errors. All 3 errors came from
+  deliberately broken setups. An added field, so the format moves to 1.4 (ADR-0111).
+  Written first, all six runs reached their `end` and found no `ended` key.
+
 ## #451 — 2026-10-04 — feat: a read-only delegation can ask its caller too
 
 ### Added
