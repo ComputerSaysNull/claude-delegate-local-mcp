@@ -116,6 +116,10 @@ def test_the_new_events_validate_against_the_schema(tmp_path):
     assert bad == {}
 
 
-def test_the_format_is_1_3():
-    assert transcript.FORMAT == "1.3"
-    assert schema()["x-transcript-format"] == "1.3"
+def test_the_schema_defines_both_kinds_since_1_3():
+    """Pinned by kind, not by the current version: a later minor bump must not break it."""
+    defs = schema()["$defs"]
+    assert {"question", "answer"} <= set(defs)
+    assert "1.3" in defs["question"]["description"] and "1.3" in defs["answer"]["description"]
+    major, minor = (int(part) for part in transcript.FORMAT.split("."))
+    assert (major, minor) >= (1, 3)

@@ -64,7 +64,11 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.3"
+FORMAT = "1.4"
+
+# The fixed values `end.ended` may hold, so a reader can branch on the ending rather than
+# parse the words in `error`. Kept beside FORMAT because it is the same contract.
+ENDINGS = ("finished", "stopped", "queue_timeout", "deadline", "stalled", "error")
 
 # Anything outside this is replaced in a filename. An agent name reaches us from a file on
 # disk, and a name is not a promise about path separators.
@@ -392,6 +396,7 @@ class Stream:
 
     def end(  # noqa: PLR0913 -- one event's fields, all keyword-only
             self, *, ok: bool, turns: int | None, elapsed_seconds: float,
+            ended: str,
             output_tokens: int | None = None, cached_tokens: int | None = None,
             backend_ms: int | None = None, error: str | None = None,
             finish_reason: str | None = None, max_turns: int | None = None,
@@ -414,11 +419,16 @@ class Stream:
         carries: counting tool calls a second way is how two files come to disagree about
         one delegation.
         """
+        # A typo in `ended` must reach a reader as a broken file, not silently as a new
+        # ending, so refuse it here.
+        if ended not in ENDINGS:
+            raise ValueError(f"unknown ended value {ended!r}")
         # `.get`, because a one-shot ran no loop and `_ledger` is empty for it. The keys
         # are emitted anyway: as an absent key, "no loop" and "not recorded" read alike.
         ledger = _ledger(dispatched)
         self._put({
             "t": "end", "at": datetime.now(UTC).isoformat(), "ok": ok,
+            "ended": ended,
             "turns": turns,
             # What `turns` could reach: only the pair says whether the cap ended the run.
             "max_turns": max_turns,

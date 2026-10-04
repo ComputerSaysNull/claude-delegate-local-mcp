@@ -37,7 +37,7 @@ from .backends.base import (
     duplicate_line_share,
 )
 from .backends.openai_compat import OpenAICompatBackend
-from .admission import Admission, AdmissionError, AdmissionLease
+from .admission import Admission, AdmissionError, AdmissionLease, AdmissionTimedOut
 from .agents import AgentError, AgentSpec, load_agent
 from .agents import survey_agents as discover_agents
 from .config import EFFORT_INHERIT, EFFORT_LEVELS, Config, ConfigError
@@ -142,6 +142,24 @@ class QuestionNotAnswered(Exception):
         super().__init__(
             f"question not answered within {limit_seconds:g}s"
         )
+
+
+def _ended(failure: BaseException | None) -> str:
+    """How the run ended, as one of `transcript.ENDINGS`, from the exception that ended it.
+
+    `None` is a finished run; a cancellation is a stop; otherwise the exception carries the
+    ending where one applies, and anything else is an error.
+    """
+    if failure is None:
+        return "finished"
+    if isinstance(failure, asyncio.CancelledError):
+        return "stopped"
+    if isinstance(failure, AdmissionTimedOut):
+        return "queue_timeout"
+    ended = getattr(failure, "ended", None)
+    if ended in transcript.ENDINGS:
+        return ended
+    return "error"
 
 
 def _partial_result(
@@ -443,6 +461,8 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
         failed.partial = e.partial  # type: ignore[attr-defined]
         failed.turns = e.turns  # type: ignore[attr-defined]
         failed.tool_calls = e.tool_calls  # type: ignore[attr-defined]
+        # Which deadline fired: a stall stopped producing, a deadline merely ran long.
+        failed.ended = "stalled" if e.stalled else "deadline"  # type: ignore[attr-defined]
         raise failed from e
     except (BackendUnavailable, BackendRefused, BackendProtocolError) as e:
         raise _refuse(e) from e
@@ -1071,6 +1091,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 streamed_decode_seconds = getattr(dispatched, "decode_seconds", None)
             stream.end(
                 ok=failure is None,
+                ended=_ended(failure),
                 # A timeout has no `dispatched`, so the exception supplies what the loop
                 # managed, or the record would say a failed run did nothing. `None` for
                 # every other failure, where nothing counted.

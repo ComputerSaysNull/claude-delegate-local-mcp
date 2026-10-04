@@ -198,7 +198,7 @@ arriving*. Both bound every attempt and the tighter one wins; without that, the 
 would let a single wedged call sit for its whole duration, which is the failure the pair
 exists to split apart. No third deadline: a wedged call is a silent one and silence is what
 these measure. (ADR-0047, ADR-0099, ADR-0100) Neither counts a wait on `ask_caller`, which
-is a caller thinking rather than a call wedged (ADR-0118).
+is a caller thinking rather than a call wedged (ADR-0118). `end.ended` names which fired.
 
 The progress signal is turn **completion** or **token arrival**, and which signals count is
 a real design constraint. The per-turn notification fires at the *top* of a turn, so it
