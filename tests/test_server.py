@@ -1948,11 +1948,12 @@ def test_delegate_readonly_offers_only_tools_that_cannot_write():
 
     assert sent, "nothing was dispatched"
     declared = {t["function"]["name"] for t in sent[0].get("tools") or ()}
-    assert declared == {"read_file", "search_files", "read_git"}, declared
+    assert declared == {"read_file", "search_files", "read_git", "ask_caller"}, declared
     # The property, not the list: whatever it was offered, none of it writes. Written this
     # way so adding a read-only tool does not need this test edited, while adding a
-    # writing one to the set fails here as well as in tests/test_tools.py.
-    for name in declared:
+    # writing one to the set fails here as well as in tests/test_tools.py. `ask_caller` is
+    # outside the registry and asks rather than acts, so it is the one name exempted.
+    for name in declared - {"ask_caller"}:
         assert not tools_module.REGISTRY[name].writes, f"{name} can write"
 
 
@@ -2037,10 +2038,10 @@ def test_delegate_to_agent_readonly_offers_only_tools_that_cannot_write(tmp_path
 
     assert sent, "nothing was dispatched"
     declared = {t["function"]["name"] for t in sent[0].get("tools") or ()}
-    assert declared == {"read_file", "search_files", "read_git"}, declared
+    assert declared == {"read_file", "search_files", "read_git", "ask_caller"}, declared
     # The property, not the list, for the same reason `delegate_readonly` asserts it that
     # way: a writing tool added later must fail here rather than ride the fixed set in.
-    for name in declared:
+    for name in declared - {"ask_caller"}:
         assert not tools_module.REGISTRY[name].writes, f"{name} can write"
 
 

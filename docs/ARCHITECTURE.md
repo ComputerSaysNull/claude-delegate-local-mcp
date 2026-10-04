@@ -269,8 +269,8 @@ in flight and releases the next at whichever of completion or 120s comes first. 
 write-capable tools answer at once with a handle instead (ADR-0103), so the run carries on
 in a task the server owns, admission wait included, and `collect` reads it back, reporting
 progress every `keepalive_interval` it waits so the idle timeout (ADR-0018) cannot drop
-it. A run that asks its caller (`ask_caller`, ADR-0118) makes `collect` answer at once with
-`status: question`; `answer` replies, and the run keeps its admission slot while it waits.
+it. A run that asks its caller (`ask_caller`, ADR-0118) makes `collect`, or a read-only call,
+answer at once with `status: question`; `answer` replies, and the run keeps its slot meanwhile.
 What `run` still buys is context — a tool result lands in the caller's window whole,
 where this one is redirected to a file and read back in part.
 

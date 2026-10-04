@@ -14,6 +14,7 @@ to it.
 from __future__ import annotations
 
 import asyncio
+import math
 import secrets
 import time
 from collections.abc import Awaitable, Callable
@@ -152,7 +153,9 @@ class Handles:
                     asked.cancel()
             if pause is not None and pause.waiting() and not entry.task.done():
                 return self._question(handle, entry, pause)
-            remaining -= step
+            # An infinite step is an infinite wait, not something to subtract from a budget.
+            if step != math.inf:
+                remaining -= step
             if keepalive and not entry.task.done() and remaining > 0:
                 await keepalive(self._clock() - entry.started)
         if not entry.task.done():
