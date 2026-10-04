@@ -41,7 +41,7 @@ from .agents import AgentError, AgentSpec, load_agent
 from .agents import survey_agents as discover_agents
 from .config import EFFORT_INHERIT, EFFORT_LEVELS, Config, ConfigError
 from .context import FileEntry, FileRequest, estimate_text_tokens, prefetch, skip_from_refusal
-from .handles import Handles, UnknownHandle
+from .handles import Handles, NotWaitingError, Pause, UnknownHandle
 from .loop import (
     AgenticDispatch,
     AliveCallback,
@@ -94,6 +94,15 @@ STATUS_AUTH_FAILED = "auth_failed"
 STATUS_REFUSED = "backend_refused"
 STATUS_PROTOCOL_ERROR = "backend_protocol_error"
 STATUS_MISCONFIGURED = "misconfigured"
+
+
+class QuestionNotAnswered(Exception):
+    """A run asked its caller a question and no answer came within the limit."""
+
+    def __init__(self, limit_seconds: float) -> None:
+        super().__init__(
+            f"question not answered within {limit_seconds:g}s"
+        )
 
 
 def _partial_result(
@@ -350,6 +359,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     concurrency_now: Callable[[], Awaitable[int]] | None = None,
     on_token: Callable[[], None] | None = None,
     on_partial: Callable[[int, str, str], None] | None = None,
+    ask: Callable[[list[str]], Awaitable[str]] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
 
@@ -369,6 +379,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 rate_history=rate_history, expected_concurrency=expected_concurrency,
                 concurrency_now=concurrency_now,
                 on_token=on_token, on_partial=on_partial,
+                ask=ask,
             )
         # An explicitly empty toolset: the one-shot prompt tells the model it can open
         # nothing and has no second turn, true only here. `on_alive`, since a one-shot has
@@ -608,6 +619,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     diagnostics: bool = False,
     ctx: Context | None = None,
     tool_name: str = "delegate",
+    ask: Callable[[list[str]], Awaitable[str]] | None = None,
 ) -> dict[str, Any]:
     """One delegation, from arguments to the result dict, for every tool that runs one.
 
@@ -949,6 +961,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 rate_history=rates,
                 expected_concurrency=expected,
                 concurrency_now=concurrency_now,
+                ask=ask,
             )
     except AdmissionError as e:
         # Not `_refuse`, which blames an endpoint; nothing here reached one.
@@ -959,6 +972,18 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         # reported as the prefetch reports the same fault, so it reads one way wherever met.
         failure = e
         raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
+    except QuestionNotAnswered as e:
+        # A question the caller never answered: no backend fault to blame, and nothing was
+        # decoded to salvage -- a plain failure, `ok: false` with the reason.
+        failure = e
+        return {
+            **prefetched.accounting(),
+            **({"agent": agent.name, "agent_source": agent.source_path} if agent else {}),
+            "answer": "",
+            "empty_response": True,
+            "ok": False,
+            "error": str(e),
+        }
     except BaseException as e:
         failure = e
         # A deadline after some decoding returns what was decoded (ADR-0078), still as a
@@ -1120,12 +1145,20 @@ _DELEGATION_RESULT: dict[str, Any] = {
             "Set on the write-capable delegations: the name `collect` reads this run back by."
         )},
         "status": {"type": "string", "description": (
-            "`running` from a write-capable call, which answers at once; from `collect`, "
-            "`done` with the result, `running` while it is still going, or `cancelled`."
+            "`running` from a write-capable call, which answers at once; from `collect` "
+            "and `answer`, `done` with the result, `running` while it is still going, "
+            "`question` while it waits on an answer, or `cancelled`."
         )},
         "tool": {"type": "string", "description": "Beside `running`: which tool started it."},
         "running_seconds": {"type": "number", "description": (
             "From `collect` while it is still going: how long the run has taken so far."
+        )},
+        "questions": {"type": "array", "items": {"type": "string"}, "description": (
+            "From `collect` while the run waits on an answer: the questions the model "
+            "asked its caller, all in one call."
+        )},
+        "waiting_seconds": {"type": "number", "description": (
+            "From `collect` while the run waits on an answer: how long it has waited."
         )},
         "empty_response": {"type": "boolean", "description": (
             "Nothing came back at all -- neither an answer nor reasoning. Reaching this "
@@ -1543,6 +1576,29 @@ ProjectLookup = Annotated[
     )),
 ]
 
+AnswerText = Annotated[
+    str | None,
+    Field(description="The reply, read by the model as the result of its `ask_caller` call."),
+]
+
+BestReading = Annotated[
+    bool,
+    Field(description=(
+        "Instead of `text`: tell the model the choice is its own, to proceed on its best "
+        "reading of the task."
+    )),
+]
+
+MayAsk = Annotated[
+    bool,
+    Field(description=(
+        "Offer the model `ask_caller`: one call per task, holding every question it has, "
+        "when it cannot tell which reading of the task is meant. `collect` then reports "
+        "`status: \"question\"`, and `answer` replies. False for a caller that will not "
+        "answer."
+    )),
+]
+
 
 def _server_instructions(cfg: Config) -> str:
     """The few rules that decide a call before the caller has chosen a tool.
@@ -1659,6 +1715,21 @@ async def session_scope(cfg: Config, ctx: Context | None) -> SessionScope:
     )
 
 
+def _ask_caller(pause: Pause, cfg: Config) -> Callable[[list[str]], Awaitable[str]]:
+    """The `ask` callback a run passes to `run_agentic_loop` when the caller may answer.
+
+    Records the questions on the pause and awaits the answer; a caller that never answers
+    ends the run unanswered, which `run_delegation` turns into `ok: false`.
+    """
+    async def ask(questions: list[str]) -> str:
+        try:
+            return await asyncio.wait_for(
+                pause.ask(questions), timeout=cfg.question_wait_limit)
+        except TimeoutError:
+            raise QuestionNotAnswered(cfg.question_wait_limit) from None
+    return ask
+
+
 def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiring
     cfg: Config, registry: Registry, cache: BackendCache | None = None
 ) -> FastMCP:
@@ -1695,13 +1766,14 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
 
     handles = Handles(cfg.handle_ttl_seconds)
 
-    async def _answered(run: Awaitable[dict[str, Any]], tool: str) -> dict[str, Any]:
+    async def _answered(run: Awaitable[dict[str, Any]], tool: str,
+                        *, pause: Pause | None = None) -> dict[str, Any]:
         """Start a write-capable delegation and answer with its handle at once (ADR-0103).
 
         The client releases the next call only when this returns, so answering at once lets
         several start together. The run carries on in a task this process owns.
         """
-        handle = handles.start(run, tool=tool)
+        handle = handles.start(run, tool=tool, pause=pause)
         return {"handle": handle, "status": "running", "tool": tool}
 
     @asynccontextmanager
@@ -1735,6 +1807,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         diagnostics: Diagnostics = False,
         ctx: Context | None = None,
         title: Title = None,
+        may_ask: MayAsk = True,
     ) -> dict[str, Any]:
         """Delegate a task to a local model that can read, write and run commands.
 
@@ -1751,14 +1824,17 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         # The roots are asked for while the call is live: the run outlives it, which is why
         # it is handed `ctx=None`.
         scope = await session_scope(cfg, ctx)
+        pause = Pause() if may_ask else None
+        ask = _ask_caller(pause, scope.cfg) if pause is not None else None
         run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, title=title, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             workdir=_rooted(scope, workdir),
             diagnostics=diagnostics, ctx=None, tool_name="delegate",
+            ask=ask,
         )
-        return await _answered(run, "delegate")
+        return await _answered(run, "delegate", pause=pause)
 
     @mcp.tool(title="Delegate a read-only task", annotations=_READS,
               output_schema=_DELEGATION_RESULT)
@@ -1843,6 +1919,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         diagnostics: Diagnostics = False,
         ctx: Context | None = None,
         title: Title = None,
+        may_ask: MayAsk = True,
     ) -> dict[str, Any]:
         """Delegate to a named agent: a file that shapes how one *kind* of task is done.
 
@@ -1863,14 +1940,17 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         resolved_project = (
             _rooted(scope, project) if project is not None else resolved_workdir)
         agent = _load(scope, agent_name, resolved_project)
+        pause = Pause() if may_ask else None
+        ask = _ask_caller(pause, scope.cfg) if pause is not None else None
         run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, title=title, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             agent=agent, workdir=resolved_workdir,
             diagnostics=diagnostics, ctx=None, tool_name="delegate_to_agent",
+            ask=ask,
         )
-        return await _answered(run, "delegate_to_agent")
+        return await _answered(run, "delegate_to_agent", pause=pause)
 
     @mcp.tool(title="Delegate a read-only task to a named agent", annotations=_READS,
               output_schema=_DELEGATION_RESULT)
@@ -1913,18 +1993,10 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent_readonly",
         )
 
-    @mcp.tool(title="Collect a delegation", annotations={**_READS, "idempotentHint": True},
-              output_schema=_DELEGATION_RESULT)
-    async def collect(
-        handle: HandleArg, wait_seconds: WaitSeconds = None, ctx: Context | None = None,
+    async def _collect_wait(
+        handle: str, wait_seconds: float | None, ctx: Context | None,
     ) -> dict[str, Any]:
-        """Collect a delegation by the `handle` a delegating call returned.
-
-        Answers with the run's result once it has finished, carrying `status: done`, or
-        with `status: running` and how long it has run if it is still going when the wait
-        is over. Waiting never cancels the run, and collecting twice returns the same
-        result until the server forgets it. A run that was stopped says `cancelled`.
-        """
+        """Wait on a delegation's handle and return its result: `collect`'s whole body."""
         wait = cfg.collect_wait_seconds if wait_seconds is None else wait_seconds
         notified = 0
 
@@ -1942,6 +2014,55 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                 handle, wait, keepalive=keepalive, every=cfg.keepalive_interval)
         except UnknownHandle as e:
             raise ToolError(str(e)) from e
+
+    @mcp.tool(title="Collect a delegation", annotations={**_READS, "idempotentHint": True},
+              output_schema=_DELEGATION_RESULT)
+    async def collect(
+        handle: HandleArg, wait_seconds: WaitSeconds = None, ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        """Collect a delegation by the `handle` a delegating call returned.
+
+        Answers with the run's result once it has finished, carrying `status: done`, with
+        `status: question` and the question it is waiting on when a run that asked is
+        paused, or with `status: running` and how long it has run if it is still going
+        when the wait is over. `answer` replies to a question. Waiting never cancels the
+        run, and collecting twice returns the same result until the server forgets it. A
+        run that was stopped says `cancelled`.
+        """
+        return await _collect_wait(handle, wait_seconds, ctx)
+
+    @mcp.tool(title="Answer a delegation's question",
+              annotations={"readOnlyHint": False, "destructiveHint": False,
+                           "idempotentHint": False, "openWorldHint": False},
+              output_schema=_DELEGATION_RESULT)
+    async def answer(
+        handle: HandleArg,
+        text: AnswerText = None,
+        best_reading: BestReading = False,
+        wait_seconds: WaitSeconds = None,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        """Reply to a delegation that asked a question (`status: "question"`). Give
+        `text`, or set `best_reading` to leave the choice to the model; the run then
+        continues and this waits for it like `collect`. Answer what the task's own meaning
+        settles yourself, and pass on to the person only what only they can decide: the
+        run waits, its clocks paused, until you reply.
+        """
+        if (text is not None) == best_reading:
+            raise ToolError(
+                "answer takes exactly one of `text` and `best_reading: true` -- not "
+                "neither, and not both.")
+        reply = (
+            "The caller left the choice to you: proceed on your best reading."
+            if best_reading else str(text)
+        )
+        try:
+            handles.answer(handle, reply)
+        except UnknownHandle as e:
+            raise ToolError(str(e)) from e
+        except NotWaitingError as e:
+            raise ToolError(str(e)) from e
+        return await _collect_wait(handle, wait_seconds, ctx)
 
     # Not read-only -- it stops work -- but it destroys nothing and reaches nothing outside
     # this process, and stopping a run twice is the same as stopping it once.
@@ -2085,6 +2206,18 @@ remaining run and be told when it is done. `running` means wait again, never sta
 refusal from inside the run arrives from `collect`, not from the call. `cancel_delegation`
 stops a run; cancelling a `collect` only stops waiting. Until a writing run is collected,
 leave its `workdir` alone: it may still be writing there. A reconnect forgets every handle.
+
+## A run may ask you a question
+
+A delegation that cannot tell which reading of its task is meant may ask, once, with every
+question in one call. Whatever is waiting on the run -- `collect`, `answer`, or a read-only
+call -- then returns at once with `status: question`, the `questions` and a `handle`. Reply
+with `answer`, giving `text`, or set `best_reading` to leave the choice to the model; it then
+waits like `collect`. Answer what the task's own meaning settles yourself, and pass on to the
+person only what only they can decide. Never drop a question: the run keeps its admission
+slot while it waits, every other delegation queues behind it, and only
+`question_wait_limit` ends it. A caller that will not answer passes `may_ask` as false, or
+cancels the run with `cancel_delegation`.
 
 ## How many run at once
 

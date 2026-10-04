@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #449 — 2026-10-04 — feat: a delegation can ask its caller, and waits for the reply
+
+### Added
+
+- **A delegation that could not tell what its task meant had nobody to ask**, so it
+  reasoned through every reading alone. Measured, that was 52 of 94 runs and about a fifth
+  of all reasoning, mostly one question re-decided several times (JOURNAL 2026-10-03). The
+  model now gets `ask_caller`: one call per run, with every question in it. The run waits
+  where it is, its time limit and stall clock frozen, and keeps its admission slot so the
+  length of real waits can be measured before deciding otherwise. `collect` reports
+  `status: "question"` at once, and a ninth tool, `answer`, replies with `text` or
+  `best_reading: true`, then waits like `collect`. It is offered by default on the
+  write-capable tools, and `may_ask: false` withholds it. Nothing proceeds on its own:
+  `question_wait_limit`, a day by default, only ends a run whose caller has gone (ADR-0118).
+
 ## #448 — 2026-10-04 — docs: measure how much delegations reason about what the caller meant
 
 ### Added

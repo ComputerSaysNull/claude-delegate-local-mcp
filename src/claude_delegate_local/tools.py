@@ -1738,6 +1738,38 @@ READ_GIT = RegisteredTool(
 )
 
 
+# Offered only by the agentic loop when it was given someone to ask (its `ask` parameter),
+# never through `allowed` or the registry: a caller who did not hand over an answerer must
+# not be asked, and a model told it may ask when nobody is there spends a turn finding that
+# out. Kept out of `REGISTRY`, so it is not in `ALL_TOOL_NAMES` or `READ_ONLY_TOOL_NAMES`,
+# and `declared_tools` cannot offer it.
+ASK_CALLER_SPEC = ToolSpec(
+    name="ask_caller",
+    description=(
+        "Ask whoever gave you this task, when you cannot tell which of two or more readings "
+        "of it is meant and the readings lead to different results. Put every question into "
+        "this one call: you can ask only once per task. The answer comes back as this call's "
+        "result; if it leaves the choice to you, proceed on your best reading. Do not ask "
+        "what you can find out by reading the files."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "questions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 5,
+                "description": "Each question, short enough to answer in a line.",
+            },
+        },
+        "required": ["questions"],
+    },
+)
+
+ASKED_ALREADY = "You have already asked your one question. Proceed on your best reading."
+
+
 REGISTRY: dict[str, RegisteredTool] = {
     t.spec.name: t
     for t in (READ_FILE, SEARCH_FILES, READ_GIT, WRITE_FILE, EDIT_FILE, RUN_BASH)

@@ -2906,3 +2906,26 @@ main conversation as sensitive, since streams hold every project's tasks, until 
 allowed it. And the server refuses a gitignored file in `files[]` (layer 4), which is where
 the extracts had to be. `DELEGATE_RESPECT_GITIGNORE=false` in `.env` for the run, then
 restored, got past that without moving the extracts anywhere tracked.
+
+## 2026-10-04 — The classifier's "about a fifth" holds against a hand count
+
+The 2026-10-03 figure was the classifier's own per-stream estimate, so it was calibrated by
+hand before Unscheduled 106 was built on it: five streams of 8 to 18 thousand characters,
+from four sessions, four the classifier called deliberating and one it scored zero.
+Each was read in full and the passages that weigh what the caller meant were counted.
+
+| Classifier share | Counted by hand | Size |
+|---|---|---|
+| 0.15 | 0.15 to 0.23 | 9.7 k |
+| 0.55 | about 0.43 | 15.4 k |
+| 0.15 | about 0.30 | 12.4 k |
+| 0.08 | about 0.06 | 17.7 k |
+| 0.00 | about 0.03 | 15.3 k |
+
+Weighted by size, both come to 0.19. Per stream the classifier missed by up to 0.15 either
+way, and the errors cancelled, so the aggregate can be used and a single stream's share
+cannot. The stream it scored zero held about 450 characters of it, a negligible miss.
+
+What the reading showed that the count does not: the long cases re-decide the same one or
+two questions three or four times, which is the case one answer settles. And one was a
+contradiction in the caller's own task text, which the model was right to puzzle over.

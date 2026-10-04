@@ -777,6 +777,13 @@ class Config:
         "backgrounding it, so the default answers within any client's patience.",
         unit="seconds",
     )
+    question_wait_limit: float = _f(
+        86400.0,
+        "How long a delegation that asked its caller a question waits for `answer` before "
+        "it ends unanswered. The wait does not count against `dispatch_timeout`; this "
+        "bounds a run whose caller has gone.",
+        unit="seconds",
+    )
 
     # ---- agents ------------------------------------------------------------------
     agents_dir: str = _f(

@@ -54,7 +54,15 @@ from .config import (
 from .context import FileEntry, line_number_width, numbered_line, numbered_lines, numbered_span
 from .paths import repo_status
 from .registry import ModelEntry
-from .tools import REGISTRY, BashPolicy, SeenFiles, declared_tools, execute_tool
+from .tools import (
+    ASK_CALLER_SPEC,
+    ASKED_ALREADY,
+    REGISTRY,
+    BashPolicy,
+    SeenFiles,
+    declared_tools,
+    execute_tool,
+)
 
 # Derived from EFFORT_LEVELS, not written out: a second copy stops agreeing when a level is
 # added, and fails silently. Gives max -> high -> low -> off and nothing below off: there is
@@ -2773,6 +2781,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     on_partial: Callable[[int, str, str], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
+    ask: Callable[[list[str]], Awaitable[str]] | None = None,
 ) -> AgenticDispatch:
     """Turns, until the model answers or the budget runs out.
 
@@ -2793,6 +2802,11 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     resolved_effort = resolve_effort(cfg, entry, effort)
     turns = resolve_max_turns(cfg, max_turns, allowed)
     specs = declared_tools(cfg, allowed)
+    if ask is not None:
+        # Appended, never inserted, so the cached prefix of the other tools survives. Only
+        # when someone can answer; a model told it may ask when nobody is there spends a
+        # turn finding that out (test_ask_caller).
+        specs = (*specs, ASK_CALLER_SPEC)
     deadline = clock() + cfg.dispatch_timeout
     chunks = 0
     reasoning_chunks = 0
@@ -2847,6 +2861,9 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     dispatch: Dispatch | None = None
     text_before_nudge = ""
     nudge_pending = False
+    # Asked at most once per run, every question in that one call: a model that keeps asking
+    # is told to proceed on its best reading.
+    asked = False
     turn = 0
 
     async def turn_done(text: str, backend_seconds: float) -> None:
@@ -3000,6 +3017,17 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             history.append(assistant)
             guard.added(assistant)
 
+            # `ask_caller` is answered by whoever gave the delegation, so it is awaited on the
+            # event loop rather than run in the worker thread: take those calls out of the
+            # batch and put them back in the model's order after.
+            ask_here: list[tuple[int, ToolUseBlock]] = []
+            batch: list[tuple[int, ToolUseBlock]] = []
+            for i, c in enumerate(calls):
+                if ask is not None and c.name == "ask_caller":
+                    ask_here.append((i, c))
+                else:
+                    batch.append((i, c))
+
             # Off the event loop: `run_bash` blocks in `subprocess.run`, which on the loop
             # would stop the heartbeat, `report_progress` and every other delegation's
             # stdio, and a heartbeat quiet during the longest block cannot fail. One thread
@@ -3012,13 +3040,73 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                 {"name": c.name, "arguments": dict(record_arguments(c))} for c in calls
             )
             call_status = ["queued"] * len(calls)
+            # The heartbeat reads `call_status` while the thread writes it, so a turn with
+            # no question hands the thread that very list. One that also asks writes the
+            # batch's own and copies it over after: its other calls read as queued until
+            # they finish, which only a turn mixing the two can show.
+            batch_status = call_status if not ask_here else ["queued"] * len(batch)
             if on_tools is not None:
                 await on_tools({"turn": turn, "of_turns": turns,
                                 "tool_calls": [dict(c) for c in running_calls]})
-            results, outcomes = await asyncio.to_thread(
-                _run_calls, cfg, calls, allowed, cached, watch, policy=bash_policy,
-                seen=seen, status=call_status,
+            batch_results, batch_records = await asyncio.to_thread(
+                _run_calls, cfg, tuple(c for _, c in batch), allowed, cached, watch,
+                policy=bash_policy, seen=seen, status=batch_status,
             )
+            if ask_here:
+                for (idx, _), word in zip(batch, batch_status, strict=True):
+                    call_status[idx] = word
+
+            # Both halves are indexed by the model's call order, so the results and the
+            # records they became line up with the `tool_use` blocks they answer.
+            by_index: dict[int, tuple[ContentBlock, ToolCallRecord]] = {
+                idx: (block, record)
+                for (idx, _), block, record in zip(
+                    batch, batch_results, batch_records, strict=True
+                )
+            }
+
+            for idx, call in ask_here:
+                assert ask is not None  # `ask_here` is only filled when there is someone to ask
+                call_status[idx] = "running"
+                questions = call.input.get("questions")
+                if not (isinstance(questions, list) and questions
+                        and all(isinstance(q, str) for q in questions)):
+                    result = ToolResultBlock(
+                        tool_use_id=call.id,
+                        content="ask_caller: `questions` must be a non-empty list of "
+                                "strings.",
+                        is_error=True,
+                    )
+                    outcome = "error"
+                elif asked:
+                    result = ToolResultBlock(tool_use_id=call.id, content=ASKED_ALREADY)
+                    outcome = "ran"
+                else:
+                    # Waiting on the caller is not the delegation's work, so neither the
+                    # dispatch deadline nor the stall clock counts it: push the deadline
+                    # forward by the wait and treat the answer as fresh progress.
+                    # `tools_running` keeps the heartbeat on the deadline rather than the
+                    # stall clock while it is awaited.
+                    started = clock()
+                    tools_running = True
+                    try:
+                        answer = await ask(questions)
+                    finally:
+                        waited = clock() - started
+                        deadline += waited
+                        last_progress = clock()
+                        tools_running = False
+                    asked = True
+                    result = ToolResultBlock(tool_use_id=call.id, content=answer)
+                    outcome = "ran"
+                call_status[idx] = "done"
+                # Filed like any other call, with the duration zeroed so a long wait cannot
+                # inflate tool time; the wait is not this tool's work either.
+                watch.called(call, outcome, result)
+                by_index[idx] = (result, tool_call_record(call, outcome, result, ms=0))
+
+            results = [by_index[i][0] for i in range(len(calls))]
+            outcomes = tuple(by_index[i][1] for i in range(len(calls)))
             tools_running = False
             running_calls = ()
             watch.turn_tools(outcomes)

@@ -1,4 +1,4 @@
-<!-- BUDGET: 185 -->
+<!-- BUDGET: 190 -->
 
 # Configuration
 
@@ -140,6 +140,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_HANDLE_TTL_SECONDS` | 3600.0 seconds | How long a finished delegation's result is kept for `collect` after it finished. A running one is never forgotten; one nobody collects is dropped after this, and its transcript record remains. |
 | `DELEGATE_COLLECT_WAIT_SECONDS` | 110.0 seconds | How long `collect` waits for a running delegation when the caller does not say. Just under the 120s a client commonly waits on one call before giving up or backgrounding it, so the default answers within any client's patience. |
+| `DELEGATE_QUESTION_WAIT_LIMIT` | 86400.0 seconds | How long a delegation that asked its caller a question waits for `answer` before it ends unanswered. The wait does not count against `dispatch_timeout`; this bounds a run whose caller has gone. |
 
 ### Operator records
 
@@ -180,6 +181,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting because naming another transport should be an error rather than silence (ADR-0034). |
 
-*80 settings.*
+*81 settings.*
 
 <!-- GEN:CONFIG:END -->

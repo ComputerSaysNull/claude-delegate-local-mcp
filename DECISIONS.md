@@ -19,6 +19,40 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0118 — 2026-10-04 — A delegation may ask its caller, and waits in place for the reply — Accepted
+
+**Context.** Every delegation ran as if nobody were at the other end. Measured over the 94
+streams carrying reasoning (JOURNAL 2026-10-03), 52 weighed two readings of their task, and
+about a fifth of all reasoning went there, which a hand count of five matched (JOURNAL
+2026-10-04). In 51 of the 52 one short answer would have settled it, often a question the
+model re-decided three or four times.
+
+**Decision.** The model gets `ask_caller`, and the caller a ninth MCP tool, `answer`.
+
+- **One call per run, holding every question.** A second call is told to proceed on its
+  best reading. Offered by default; `may_ask: false` withholds it, for a caller that will
+  not answer.
+- **The run waits in place.** Saving the turn loop's state to resume later was rejected:
+  its state lives in closures across one long loop, and its callers assume one call is one
+  finished run. The coroutine simply awaits the reply, with `dispatch_timeout` and the
+  stall clock frozen, since a caller thinking is not a call wedged.
+- **It keeps its admission slot while it waits.** Giving it back and queueing again is the
+  alternative; the operator chose to measure how long replies take first.
+- **`collect` answers at once with `status: "question"`**, and `answer` replies with
+  `text`, or `best_reading: true` to leave the choice to the model, then waits like
+  `collect`. `answer` is a tool rather than an argument because a reply changes a run's
+  state and `collect` only reads. A read-only call, which otherwise answers inline,
+  returns early with the question and a handle, so the caller is never left blocked on a
+  run that is waiting for it.
+- **No automatic proceed.** A caller may pass the question on to the person and the reply
+  may come the next morning, so carrying on is the caller's choice. Only
+  `question_wait_limit` ends a wait, for a caller that has gone.
+
+**Consequence.** A paused run holds a slot others queue behind, and a server restart loses
+it like any handle. A question costs the caller tokens where the guessing it replaces cost
+none, so the gain is time and fewer wrong readings, not money. Routing a question to the
+person by MCP elicitation stays open (Unscheduled 106).
+
 ## ADR-0117 — 2026-10-03 — The contract covers a stream's file name and the feed's `/list` keys, not only the schema — Accepted
 
 **Context.** The contract between this repository and the web viewer's was the event schema

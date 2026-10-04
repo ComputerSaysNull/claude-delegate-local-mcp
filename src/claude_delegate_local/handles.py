@@ -35,12 +35,51 @@ class UnknownHandle(LookupError):
         self.handle = handle
 
 
+class NotWaitingError(LookupError):
+    """The run is not paused on a question: finished, never asked, or already answered."""
+
+    def __init__(self, handle: str) -> None:
+        super().__init__(
+            f"not waiting: delegation {handle!r} is not waiting for an answer -- it "
+            "finished, never asked, or was already answered."
+        )
+        self.handle = handle
+
+
+class Pause:
+    """A delegation paused on a question it asked its caller.
+
+    The run records its questions here and waits on the answer future; `collect` reports
+    the pause as `status: "question"` and `answer` resolves the future. One question per
+    run, so the event is set once and the future resolved once.
+    """
+
+    def __init__(self) -> None:
+        self.questions: list[str] = []
+        self.asked_at: float | None = None
+        self.answer: asyncio.Future[str] | None = None
+        self.asked = asyncio.Event()
+
+    def ask(self, questions: list[str]) -> asyncio.Future[str]:
+        """Record the questions the run is waiting on, and return the future it awaits."""
+        self.questions = list(questions)
+        self.asked_at = time.monotonic()
+        self.answer = asyncio.get_running_loop().create_future()
+        self.asked.set()
+        return self.answer
+
+    def waiting(self) -> bool:
+        """Whether the run is still paused on an unanswered question."""
+        return self.asked.is_set() and self.answer is not None and not self.answer.done()
+
+
 @dataclass
 class _Entry:
     task: asyncio.Future[dict[str, Any]]
     tool: str
     started: float
     finished: float | None = None
+    pause: Pause | None = None
 
 
 class Handles:
@@ -51,13 +90,14 @@ class Handles:
         self._clock = clock
         self._entries: dict[str, _Entry] = {}
 
-    def start(self, work: Awaitable[dict[str, Any]], *, tool: str) -> str:
+    def start(self, work: Awaitable[dict[str, Any]], *, tool: str,
+              pause: Pause | None = None) -> str:
         """Run `work` as a task of its own and return the handle it can be collected by."""
         self._reap()
         handle = f"d-{secrets.token_hex(6)}"
         while handle in self._entries:  # pragma: no cover - 48 bits
             handle = f"d-{secrets.token_hex(6)}"
-        entry = _Entry(asyncio.ensure_future(work), tool, self._clock())
+        entry = _Entry(asyncio.ensure_future(work), tool, self._clock(), pause=pause)
 
         def finished(task: asyncio.Future[dict[str, Any]]) -> None:
             entry.finished = self._clock()
@@ -90,10 +130,28 @@ class Handles:
         a wait that says nothing is dropped by the client at its idle timeout (ADR-0018).
         """
         entry = self._entry(handle)
+        pause = entry.pause
         remaining = wait_seconds
         while not entry.task.done() and remaining > 0:
+            if pause is not None and pause.waiting():
+                return self._question(handle, entry, pause)
             step = min(remaining, every) if keepalive and every > 0 else remaining
-            await asyncio.wait({entry.task}, timeout=step)
+            watching: set[asyncio.Future[Any]] = {entry.task}
+            # A run that may still ask answers a `collect` the moment it does, so the wait
+            # watches for the question beside the task -- only until one is asked, or an
+            # answered question would wake every wait at once.
+            asked: asyncio.Task[Any] | None = None
+            if pause is not None and not pause.asked.is_set():
+                asked = asyncio.ensure_future(pause.asked.wait())
+                watching.add(asked)
+            try:
+                await asyncio.wait(watching, timeout=step,
+                                   return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                if asked is not None:
+                    asked.cancel()
+            if pause is not None and pause.waiting() and not entry.task.done():
+                return self._question(handle, entry, pause)
             remaining -= step
             if keepalive and not entry.task.done() and remaining > 0:
                 await keepalive(self._clock() - entry.started)
@@ -103,6 +161,25 @@ class Handles:
         if entry.task.cancelled():
             return {"handle": handle, "status": "cancelled", "tool": entry.tool}
         return {**entry.task.result(), "handle": handle, "status": "done"}
+
+    @staticmethod
+    def _question(handle: str, entry: _Entry, pause: Pause) -> dict[str, Any]:
+        assert pause.asked_at is not None  # `waiting()` is only true once it asked
+        return {"handle": handle, "status": "question", "tool": entry.tool,
+                "questions": list(pause.questions),
+                "waiting_seconds": round(time.monotonic() - pause.asked_at, 1)}
+
+    def answer(self, handle: str, text: str) -> None:
+        """Hand `text` to a run paused on a question, so it resumes with it.
+
+        Raises `NotWaitingError` when the run is not waiting for an answer -- finished,
+        never asked, or already answered.
+        """
+        entry = self._entry(handle)
+        pause = entry.pause
+        if pause is None or not pause.waiting() or pause.answer is None:
+            raise NotWaitingError(handle)
+        pause.answer.set_result(text)
 
     def cancel(self, handle: str) -> bool:
         """Cancel a running delegation. False when it had already finished."""
