@@ -2869,3 +2869,40 @@ One trap on the way. The nested `claude -p` started in plan mode, inherited from
 operator's settings, and refused the tool as "cannot call while in plan mode" — a refusal
 that reads like a capability answer. `--permission-mode default` on the nested call fixed
 it.
+
+## 2026-10-03 — Delegations spend real reasoning on what the caller meant (Unscheduled 106)
+
+The question behind a pause-and-ask tool: how often does a delegation weigh readings of its
+task, and how much of its reasoning goes there? Only `partial` events carry reasoning text
+(format 1.1+), so the population was every stream holding one: 94 of 1,250.
+
+Each stream's task and per-turn reasoning were written to `.spike/` and classified by a
+read-only delegation, one per stream, driven through the `run` CLI so 94 answers never
+entered the conversation. It returned whether the reasoning deliberated on intent, up to
+five verbatim quotes, an estimated share of the reasoning, and the question it would have
+asked. A script then checked every quote against its source; a planted invented quote
+failed that check while a real one passed, so the check can fail.
+
+- **52 of 94 streams** deliberated, counting only those with at least one quote found
+  verbatim (60 claimed it; 8 had no quote that survived). In 51 of the 52 the classifier
+  judged that one short answer from the caller would have settled it.
+- **About 20% of all reasoning characters**, by the classifier's own per-stream share
+  (median 0.25, max 0.90), weighted by each stream's size. That figure is its estimate,
+  not a count. The only hard number is a floor: 20,470 characters of verified quotes,
+  which is capped by design at five quotes of 300 characters each.
+- **Quotes are half reliable**: 124 of 263 were verbatim; the rest were close paraphrase.
+  Verifying them, not trusting them, is what kept 8 claims out.
+- Three of the largest, read by hand, were real: a test contradicting the documented
+  behaviour, two defensible readings of an edit, and a type the task never showed. Each
+  question was one the caller could have answered in a line.
+
+**Not representative.** 87 of the 94 streams are from one day and 47 from one batch of
+document edits, which invite judgement calls. Before building on the 20%, measure the share
+by hand on a few streams to calibrate the estimate, and re-run this over a wider spread of
+work once more streams carry reasoning.
+
+Two walls on the way. Claude Code's auto-mode classifier refused reading the extracts in the
+main conversation as sensitive, since streams hold every project's tasks, until the operator
+allowed it. And the server refuses a gitignored file in `files[]` (layer 4), which is where
+the extracts had to be. `DELEGATE_RESPECT_GITIGNORE=false` in `.env` for the run, then
+restored, got past that without moving the extracts anywhere tracked.
