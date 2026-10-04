@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
-from typing import Annotated, Any, NamedTuple
+from typing import Annotated, Any, NamedTuple, Protocol
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -99,6 +100,39 @@ STATUS_MISCONFIGURED = "misconfigured"
 # transcript's `answer` event says so by comparing the text it records against this same
 # sentence, so a reader can tell a caller's words from the best-reading instruction.
 BEST_READING_REPLY = "The caller left the choice to you: proceed on your best reading."
+
+
+class ProgressSink(Protocol):
+    """Where a delegation reports progress: an MCP `Context`, or a `_CallProgress`."""
+
+    async def report_progress(
+        self, progress: float, total: float | None = None, message: str | None = None,
+    ) -> None: ...
+
+
+class _CallProgress:
+    """Progress for one read-only call whose run may outlive it.
+
+    A call that returns early with a question leaves its run waiting, so the run must stop
+    reporting to a request that has ended: `close` makes this quiet. And the run's turns
+    and the call's keepalive share one request, whose progress must rise every time, so
+    this numbers both rather than trusting two counters.
+    """
+
+    def __init__(self, ctx: Context | None) -> None:
+        self._ctx = ctx
+        self._count = 0
+
+    async def report_progress(
+        self, progress: float, total: float | None = None, message: str | None = None,
+    ) -> None:
+        if self._ctx is None:
+            return
+        self._count += 1
+        await self._ctx.report_progress(progress=self._count, total=total, message=message)
+
+    def close(self) -> None:
+        self._ctx = None
 
 
 class QuestionNotAnswered(Exception):
@@ -622,7 +656,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     agent: AgentSpec | None = None,
     workdir: str | None = None,
     diagnostics: bool = False,
-    ctx: Context | None = None,
+    ctx: ProgressSink | None = None,
     tool_name: str = "delegate",
     ask: Callable[[list[str]], Awaitable[str]] | None = None,
 ) -> dict[str, Any]:
@@ -1800,6 +1834,27 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         handle = handles.start(run, tool=tool, pause=pause)
         return {"handle": handle, "status": "running", "tool": tool}
 
+    async def _inline_or_question(
+        run: Awaitable[dict[str, Any]], tool: str, pause: Pause, sink: _CallProgress,
+    ) -> dict[str, Any]:
+        """Run a read-only delegation inline, except a run that asks answers at once.
+
+        A run that asks must not leave the caller blocked on a run waiting for it: it
+        returns the question with its handle, and `answer` resumes the run later.
+        """
+        handle = handles.start(run, tool=tool, pause=pause)
+        try:
+            result = await _collect_wait(handle, math.inf, sink)
+        finally:
+            sink.close()
+        if result["status"] == "question":
+            return result
+        if result["status"] == "cancelled":
+            raise ToolError(f"delegation {handle!r} was cancelled")
+        # "done": keep the inline shape, with no `status` or `handle` (ADR-0118).
+        return {key: value for key, value in result.items()
+                if key not in ("status", "handle")}
+
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncIterator[dict[str, Any]]:
         try:
@@ -1873,6 +1928,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         diagnostics: Diagnostics = False,
         ctx: Context | None = None,
         title: Title = None,
+        may_ask: MayAsk = True,
     ) -> dict[str, Any]:
         """Delegate a read-only task: search, read files, read git history, change nothing.
 
@@ -1886,17 +1942,30 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         Use `delegate_to_agent_readonly` when an agent file should shape the work.
         """
         scope = await session_scope(cfg, ctx)
-        return await run_delegation(
+        if not may_ask:
+            return await run_delegation(
+                scope.cfg, registry, cache, windows, admission, rates=rates,
+                task=task, title=title, files=files, model=model, effort=effort,
+                # Fixed and intersected (`resolve_allowed`), so no caller can widen it: that
+                # is what makes readOnlyHint a property of the tool, not a claim a caller
+                # could falsify. Derived from which tools declare `writes`, since a list
+                # here would silently go stale when a writing tool is added. Why: ADR-0048.
+                allowed_tools=sorted(READ_ONLY_TOOL_NAMES), max_tokens=max_tokens,
+                max_turns=max_turns,
+                diagnostics=diagnostics, ctx=ctx, tool_name="delegate_readonly",
+            )
+        pause, sink = Pause(), _CallProgress(ctx)
+        run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, title=title, files=files, model=model, effort=effort,
-            # Fixed and intersected (`resolve_allowed`), so no caller can widen it: that is
-            # what makes readOnlyHint a property of the tool, not a claim a caller could
-            # falsify. Derived from which tools declare `writes`, since a list here would
-            # silently go stale when a writing tool is added. Why: ADR-0048.
+            # Fixed, as above. A run that asks outlives this call, so it reports through
+            # `sink`, which goes quiet once the call has returned its question.
             allowed_tools=sorted(READ_ONLY_TOOL_NAMES), max_tokens=max_tokens,
             max_turns=max_turns,
-            diagnostics=diagnostics, ctx=ctx, tool_name="delegate_readonly",
+            diagnostics=diagnostics, ctx=sink, tool_name="delegate_readonly",
+            ask=_ask_caller(pause, scope.cfg),
         )
+        return await _inline_or_question(run, "delegate_readonly", pause, sink)
 
     def _load(scope: SessionScope, agent_name: str, workdir: str | None) -> AgentSpec:
         try:
@@ -1991,6 +2060,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         diagnostics: Diagnostics = False,
         ctx: Context | None = None,
         title: Title = None,
+        may_ask: MayAsk = True,
     ) -> dict[str, Any]:
         """Delegate to a named agent, with the toolset fixed to reading.
 
@@ -2005,20 +2075,35 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         scope = await session_scope(cfg, ctx)
         resolved_project = _rooted(scope, project)
         agent = _load(scope, agent_name, resolved_project)
-        return await run_delegation(
+        if not may_ask:
+            return await run_delegation(
+                scope.cfg, registry, cache, windows, admission, rates=rates,
+                task=task, title=title, files=files, model=model, effort=effort,
+                # Fixed, derived from `writes`, as in `delegate_readonly` (ADR-0042).
+                allowed_tools=sorted(READ_ONLY_TOOL_NAMES),
+                max_tokens=max_tokens, max_turns=max_turns,
+                # No `workdir`: `resolved_project` is a lookup path, and passing it would
+                # bind it read-write and make the readOnlyHint a lie.
+                agent=agent,
+                diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent_readonly",
+            )
+        pause, sink = Pause(), _CallProgress(ctx)
+        run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, title=title, files=files, model=model, effort=effort,
-            # Fixed, derived from `writes`, as in `delegate_readonly` (ADR-0042).
+            # Fixed, as above; reports through `sink`, as in `delegate_readonly`.
             allowed_tools=sorted(READ_ONLY_TOOL_NAMES),
             max_tokens=max_tokens, max_turns=max_turns,
             # No `workdir`: `resolved_project` is a lookup path, and passing it would bind
             # it read-write and make the readOnlyHint a lie.
             agent=agent,
-            diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent_readonly",
+            diagnostics=diagnostics, ctx=sink, tool_name="delegate_to_agent_readonly",
+            ask=_ask_caller(pause, scope.cfg),
         )
+        return await _inline_or_question(run, "delegate_to_agent_readonly", pause, sink)
 
     async def _collect_wait(
-        handle: str, wait_seconds: float | None, ctx: Context | None,
+        handle: str, wait_seconds: float | None, ctx: ProgressSink | None,
     ) -> dict[str, Any]:
         """Wait on a delegation's handle and return its result: `collect`'s whole body."""
         wait = cfg.collect_wait_seconds if wait_seconds is None else wait_seconds

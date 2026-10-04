@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #451 — 2026-10-04 — feat: a read-only delegation can ask its caller too
+
+### Added
+
+- **The read-only tools answer inline, so a run that asked would have left its caller
+  blocked on a run waiting for that same caller.** `delegate_readonly` and
+  `delegate_to_agent_readonly` now take `may_ask`, on by default. A run that asks makes the
+  call return early with `status: "question"` and a handle, which `answer` resumes. A run
+  that never asks returns exactly the shape it always did, with no `status` and no
+  `handle`. The run reports progress through a guard that numbers its turns and the call's
+  keepalive as one rising count, and goes quiet once the call has returned. A first version
+  passed `ctx=None` instead, and three progress tests caught the per-turn notifications it
+  dropped. Written before the change, the early-return test found no `status` in the
+  result, and `may_ask` was rejected as an unknown argument. Item 107 carries what is left:
+  routing a question only the person can answer to them.
+
 ## #450 — 2026-10-04 — feat: the stream records a delegation's question and the reply
 
 ### Added
