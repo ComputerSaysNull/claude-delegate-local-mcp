@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #453 — 2026-10-04 — chore: release 0.7.0
+
+### Changed
+
+- **The version moves to 0.7.0, so the web viewer's tracker can pin what it now reads.**
+  Since 0.6.0 the transcript format went from 1.1 to 1.4: `start.title` (#445), the
+  `question` and `answer` kinds (#450), and `end.ended` (#452). The contract also grew past
+  the schema, to a stream's file-name stamp and the feed's `/list` keys (#443). Beside
+  those: delegations can ask their caller (#449, #451), the feed lists only the newest
+  streams (#444), and CI runs off Node 20 (#446). The release itself is the tag `v0.7.0`
+  on `main`, published by the release workflow (ADR-0115).
+
 ## #452 — 2026-10-04 — feat: the stream's end says how a run ended
 
 ### Added

@@ -2,7 +2,7 @@
 name = "claude-delegate-local-mcp"
 # The one place the version lives. A release is the tag `v<this>`, refused by CI if it names
 # anything else (scripts/release_check.py, ADR-0115).
-version = "0.6.0"
+version = "0.7.0"
 description = "MCP server that delegates Claude Code work to self-hosted local models over an OpenAI-compatible endpoint."
 readme = "README.md"
 requires-python = ">=3.12"
