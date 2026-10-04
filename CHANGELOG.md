@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #450 — 2026-10-04 — feat: the stream records a delegation's question and the reply
+
+### Added
+
+- **A run waiting on its caller looked, in the stream, like a run that had gone quiet.**
+  The stream now writes a `question` event when the model asks, and an `answer` event when
+  the reply arrives. The answer carries the text the model received, `best_reading` when
+  the caller left the choice to it, and `waited_seconds`. That last figure is the
+  measurement ADR-0118 asked for before deciding whether a waiting run should give its
+  admission slot back. Two added kinds, so the format moves to 1.3 (ADR-0111), with a
+  sample stream showing both. Written before the change, the stream tests found no
+  `question` event, and the format test read 1.2.
+
 ## #449 — 2026-10-04 — feat: a delegation can ask its caller, and waits for the reply
 
 ### Added

@@ -95,6 +95,11 @@ STATUS_REFUSED = "backend_refused"
 STATUS_PROTOCOL_ERROR = "backend_protocol_error"
 STATUS_MISCONFIGURED = "misconfigured"
 
+# What the `answer` tool hands the run when the caller leaves the choice to the model. The
+# transcript's `answer` event says so by comparing the text it records against this same
+# sentence, so a reader can tell a caller's words from the best-reading instruction.
+BEST_READING_REPLY = "The caller left the choice to you: proceed on your best reading."
+
 
 class QuestionNotAnswered(Exception):
     """A run asked its caller a question and no answer came within the limit."""
@@ -940,6 +945,25 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                     admission._slots, cap=cfg.max_inflight_seqs, fallback=expected
                 )
 
+            # The `ask` callback, plus its transcript: the pause and its cost are events a
+            # watcher reads while the run waits. Wrapped only when both halves exist -- no
+            # caller to answer means nothing to record, no stream means nowhere to record
+            # it -- and only then is the wait measured, so a run with neither still asks
+            # exactly as before.
+            loop_ask = ask
+            if ask is not None and stream is not None:
+                async def _asked(questions: list[str]) -> str:
+                    stream.question(questions)
+                    wait_started = _clock()
+                    # If the question is never answered this raises and no `answer` is
+                    # written: there was none. The stream then ends as it would without
+                    # this wrapper, on the unanswered run.
+                    text = await ask(questions)
+                    stream.answer(text, _clock() - wait_started,
+                                  text == BEST_READING_REPLY)
+                    return text
+                loop_ask = _asked
+
             dispatched = await dispatch_delegation(
                 loop_cfg, entry, backend, delegation,
                 allowed=allowed, effort=effort, max_tokens=max_tokens,
@@ -961,7 +985,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 rate_history=rates,
                 expected_concurrency=expected,
                 concurrency_now=concurrency_now,
-                ask=ask,
+                ask=loop_ask,
             )
     except AdmissionError as e:
         # Not `_refuse`, which blames an endpoint; nothing here reached one.
@@ -2053,7 +2077,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                 "answer takes exactly one of `text` and `best_reading: true` -- not "
                 "neither, and not both.")
         reply = (
-            "The caller left the choice to you: proceed on your best reading."
+            BEST_READING_REPLY
             if best_reading else str(text)
         )
         try:

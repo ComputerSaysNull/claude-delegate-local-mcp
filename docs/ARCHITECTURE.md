@@ -964,6 +964,7 @@ names its durations rather than implying one from another: total, generating, an
 tool call's own. And it says how much of itself it repeated, which is the one
 number that tells a loop from a long answer while it is still running. `start` also carries
 the caller's `title`, if any, so a viewer need not name the run from its task's first line.
+A run that asks its caller writes `question`, then `answer` with how long the reply took.
 
 The stream carries the model's reply text, which the record does not: whole in `turn`, and
 as it generates in `partial` (ADR-0114). That extends ADR-0039 rather than reversing it: file

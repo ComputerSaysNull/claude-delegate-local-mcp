@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.2"
+FORMAT = "1.3"
 
 # Anything outside this is replaced in a filename. An agent name reaches us from a file on
 # disk, and a name is not a promise about path separators.
@@ -301,6 +301,34 @@ class Stream:
             "t": "partial", "at": datetime.now(UTC).isoformat(), "turn": turn,
             "reasoning": reasoning, "answer": answer,
         })
+
+    def question(self, questions: list[str]) -> None:
+        """A run paused on its caller: the question it asked, before anyone answers it.
+
+        Written by the `ask` callback the moment the loop hands the questions over, so a
+        watcher sees the pause -- not only the tool call that triggered it -- and, paired
+        with `answer`, how long the caller took.
+        """
+        self._put({
+            "t": "question", "at": datetime.now(UTC).isoformat(),
+            "questions": questions,
+        })
+
+    def answer(self, text: str, waited_seconds: float, best_reading: bool) -> None:
+        """The caller's reply, and how long the run was held waiting for it.
+
+        `best_reading` is true when the caller left the choice to the model, in which case
+        `text` is the sentence the `answer` tool hands over rather than anything the caller
+        typed; a reader must be able to tell the two apart.
+        """
+        event: dict[str, Any] = {
+            "t": "answer", "at": datetime.now(UTC).isoformat(),
+            "waited_seconds": round(waited_seconds, 1),
+            "text": text,
+        }
+        if best_reading:
+            event["best_reading"] = True
+        self._put(event)
 
     def waiting(self, *, waited_seconds: float, of_seconds: int) -> None:
         """Still queued at the admission gate, having reached no backend at all.

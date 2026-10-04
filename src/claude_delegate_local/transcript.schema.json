@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "One line of a delegation's .jsonl transcript stream",
   "description": "Format 1.x. Every line is one event, discriminated by `t`. Readers ignore fields and kinds they do not know: a minor version only adds, a major version removes, renames or changes a meaning (ADR-0111).",
-  "x-transcript-format": "1.2",
+  "x-transcript-format": "1.3",
   "type": "object",
   "required": ["t", "at"],
   "properties": {
@@ -17,6 +17,8 @@
     {"if": {"properties": {"t": {"const": "waiting"}}}, "then": {"$ref": "#/$defs/waiting"}},
     {"if": {"properties": {"t": {"const": "alive"}}}, "then": {"$ref": "#/$defs/alive"}},
     {"if": {"properties": {"t": {"const": "partial"}}}, "then": {"$ref": "#/$defs/partial"}},
+    {"if": {"properties": {"t": {"const": "question"}}}, "then": {"$ref": "#/$defs/question"}},
+    {"if": {"properties": {"t": {"const": "answer"}}}, "then": {"$ref": "#/$defs/answer"}},
     {"if": {"properties": {"t": {"const": "end"}}}, "then": {"$ref": "#/$defs/end"}}
   ],
   "$defs": {
@@ -100,6 +102,22 @@
         "turn": {"type": "integer"},
         "reasoning": {"type": "string"},
         "answer": {"type": "string"}
+      }
+    },
+    "question": {
+      "description": "Since 1.3. A run paused on its caller: the question it asked, written before anyone answers it.",
+      "required": ["questions"],
+      "properties": {
+        "questions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "answer": {
+      "description": "Since 1.3. The caller's reply to a `question`, and how long the run waited for it.",
+      "required": ["waited_seconds", "text"],
+      "properties": {
+        "waited_seconds": {"type": "number"},
+        "text": {"type": "string"},
+        "best_reading": {"type": "boolean", "description": "The caller left the choice to the model, so `text` is the best-reading sentence it was told to proceed on."}
       }
     },
     "waiting": {

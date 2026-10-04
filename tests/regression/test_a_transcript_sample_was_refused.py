@@ -20,6 +20,7 @@ def _cfg() -> Config:
 @pytest.mark.parametrize("name", [
     "tests/transcript_samples/agentic.jsonl",
     "tests/transcript_samples/one_shot_failed.jsonl",
+    "tests/transcript_samples/asked_the_caller.jsonl",
 ])
 def test_the_default_allowlist_accepts_a_jsonl_transcript_sample(name):
     assert paths.extension_refusal(_cfg(), name) is None
