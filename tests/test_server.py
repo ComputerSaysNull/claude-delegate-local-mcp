@@ -449,7 +449,7 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_exactly_eight_tools_are_declared():
+def test_exactly_nine_tools_are_declared():
     """docs/AGENTS.md promises this exact set, and this is what holds it to that.
 
     The promise is the design: a new *kind* of delegated task is a markdown file, not
@@ -477,7 +477,8 @@ def test_exactly_eight_tools_are_declared():
     the third application of the same argument, written down in ADR-0059. Seven for
     `collect`, which a call that returns a handle needs to be answered at all, and eight for
     `cancel_delegation`, because the call a client would cancel is then already over
-    (ADR-0103).
+    (ADR-0103). Nine for `answer`: a run that asks its caller a question waits on a reply,
+    and `collect` only reads (ADR-0118).
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -489,7 +490,7 @@ def test_exactly_eight_tools_are_declared():
     assert set(asyncio.run(go())) == {
         "delegate", "delegate_readonly", "delegate_to_agent",
         "delegate_to_agent_readonly", "list_agents", "backend_status", "collect",
-        "cancel_delegation",
+        "cancel_delegation", "answer",
     }
 
 
@@ -1276,6 +1277,7 @@ def test_the_default_delegation_offers_every_available_tool(monkeypatch):
 
     delegated(handler, task="a question")
     declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
+    # `ask_caller` too: `may_ask` defaults to true.
     assert declared == {
         "read_file",
         "search_files",
@@ -1283,6 +1285,7 @@ def test_the_default_delegation_offers_every_available_tool(monkeypatch):
         "write_file",
         "edit_file",
         "run_bash",
+        "ask_caller",
     }
 
 
@@ -1304,7 +1307,8 @@ def test_a_host_without_bubblewrap_is_not_offered_run_bash(monkeypatch):
 
     delegated(handler, task="a question")
     declared = {t["function"]["name"] for t in seen[0].get("tools", [])}
-    assert declared == {"read_file", "search_files", "read_git", "write_file", "edit_file"}
+    assert declared == {"read_file", "search_files", "read_git", "write_file", "edit_file",
+                        "ask_caller"}
 
 
 def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
@@ -1983,7 +1987,8 @@ def test_an_agent_file_cannot_widen_a_caller_supplied_tool_set(tmp_path):
     for body in sent:
         declared = {t["function"]["name"] for t in body.get("tools") or ()}
         assert "write_file" not in declared, declared
-        assert declared == {"read_file", "search_files"}, declared
+        # `ask_caller` comes from `may_ask`, which defaults on, not from any tool set.
+        assert declared == {"read_file", "search_files", "ask_caller"}, declared
 
 
 def test_delegate_readonly_has_no_argument_that_could_widen_it():
@@ -2117,7 +2122,8 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
     seen = asyncio.run(go())
     cannot_write = ("backend_status", "list_agents", "collect", "delegate_readonly",
                     "delegate_to_agent_readonly")
-    can_write = ("delegate", "delegate_to_agent", "cancel_delegation")
+    # `answer` resumes a run that may write.
+    can_write = ("delegate", "delegate_to_agent", "cancel_delegation", "answer")
 
     for name in cannot_write:
         assert seen[name] is not None and seen[name].readOnlyHint is True, (

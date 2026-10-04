@@ -84,7 +84,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
 | `watch.py` | `claude-delegate-watch`: the terminal viewer of the stream `transcript.py` writes |
-| `handles.py` | A delegation's handle, the task `collect` reads, and what `cancel_delegation` stops |
+| `handles.py` | A delegation's handle, the task `collect` reads, what `cancel_delegation` stops, and the question `answer` replies to |
 | `server.py` | MCP wiring, the tool declarations, the backend cache, and each call's roots narrowed to the folders its client lists (ADR-0110), with each root's own layer-2 additions read in (ADR-0116) |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
@@ -269,7 +269,9 @@ in flight and releases the next at whichever of completion or 120s comes first. 
 write-capable tools answer at once with a handle instead (ADR-0103), so the run carries on
 in a task the server owns, admission wait included, and `collect` reads it back, reporting
 progress every `keepalive_interval` it waits so the idle timeout (ADR-0018) cannot drop
-it. What `run` still buys is context — a tool result lands in the caller's window whole,
+it. A run that asks its caller (`ask_caller`, ADR-0118) makes `collect` answer at once with
+`status: question`; `answer` replies, and the run keeps its admission slot while it waits.
+What `run` still buys is context — a tool result lands in the caller's window whole,
 where this one is redirected to a file and read back in part.
 
 stdout carries that JSON, which is why `main.run` dispatches here *before* building a

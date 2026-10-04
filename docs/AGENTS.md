@@ -13,8 +13,8 @@ mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md). Settings are in
 
 ## Why agents are files
 
-There are eight MCP tools: `delegate`, `delegate_readonly`, `delegate_to_agent`,
-`delegate_to_agent_readonly`, `collect`, `cancel_delegation`, `list_agents` and `backend_status`. A new *kind* of delegated task — review, test-writing,
+There are nine MCP tools: `delegate`, `delegate_readonly`, `delegate_to_agent`,
+`delegate_to_agent_readonly`, `collect`, `answer`, `cancel_delegation`, `list_agents` and `backend_status`. A new *kind* of delegated task — review, test-writing,
 refactoring, migration — is a markdown file, not a new tool. A test asserts the exact set,
 so another cannot arrive unargued.
 
