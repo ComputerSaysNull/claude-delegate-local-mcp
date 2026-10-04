@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #448 — 2026-10-04 — docs: measure how much delegations reason about what the caller meant
+
+### Added
+
+- **Unscheduled 106 rested on one sighting**: a delegation that argued with itself about
+  what its caller meant. Its spike is now measured (JOURNAL 2026-10-03). Every stream that
+  carries reasoning was classified by a read-only delegation, and every quote it offered was
+  checked against the source. 52 of 94 weighed readings of their task, and in 51 of those one
+  short answer would have settled it. The classifier puts the cost at about a fifth of all
+  reasoning, but that is its estimate rather than a count, and the sample leans heavily on
+  one day and one batch of document edits. So the item stays open, with a hand calibration
+  of that share as its next step before any tool is built.
+
 ## #447 — 2026-10-03 — docs: plan a way for a delegation to ask its caller
 
 ### Added
