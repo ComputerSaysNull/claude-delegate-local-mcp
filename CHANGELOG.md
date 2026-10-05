@@ -30,6 +30,15 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #456 — 2026-10-05 — chore: release 0.8.0
+
+### Changed
+
+- **The version moves to 0.8.0, so the web viewer's tracker can pin what it now reads.**
+  The transcript format went from 1.4 to 1.6: `start.workspace` (#454) and
+  `turn.reasoning_seconds` (#455). The release itself is the tag `v0.8.0` on `main`,
+  published by the release workflow (ADR-0115).
+
 ## #455 — 2026-10-05 — feat: a turn says how long it reasoned
 
 ### Added
