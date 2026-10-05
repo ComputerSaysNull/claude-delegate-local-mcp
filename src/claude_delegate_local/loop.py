@@ -2085,6 +2085,10 @@ class TurnDiagnostic:
     # The answering attempt's decode span: the only interval `output_tokens` may divide,
     # since the counts come from that attempt (ADR-0014).
     answered_decode_seconds: float | None = None
+    # The answering attempt's reasoning span: first streamed chunk to first answer chunk,
+    # a tool call counting as an answer. Measured per response, so a retried turn must not
+    # count the failed attempt's reasoning against itself.
+    reasoning_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2262,6 +2266,7 @@ class _Watch:
                 prefill_seconds=dispatch.prefill_seconds,
                 decode_seconds=dispatch.decode_seconds,
                 answered_decode_seconds=dispatch.response.decode_seconds,
+                reasoning_seconds=dispatch.response.reasoning_seconds,
             )
         )
 

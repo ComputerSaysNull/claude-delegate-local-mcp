@@ -325,8 +325,8 @@ backoff between attempts is outside the interval by construction, and since ADR-
 prefill: the chat call streams, so the adapter reports `decode_seconds` — last token minus
 first — and the estimators divide by that. Prefill is reported beside it rather than
 subtracted and discarded, and a `Dispatch` carries both summed over a turn's attempts: a
-rate divides by one attempt, but a wall-clock total is owed all of them.
-An adapter that cannot time the tokens reports
+rate divides by one attempt, but a wall-clock total is owed all of them. How long a turn
+reasoned is the answering attempt's alone. An adapter that cannot time the tokens reports
 `None`, the whole attempt is used instead, and the result is pessimistic, which is the safe
 direction for a budget. `MIN_TOKENS` cannot catch that defect — it guards the size of the
 answer, and there the problem is the size of the prompt. Both estimators apply the same

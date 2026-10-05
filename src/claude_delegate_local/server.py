@@ -602,7 +602,7 @@ class _OneShotTurn:
 
     __slots__ = ("answered_decode_seconds", "attempts", "cached_tokens", "decode_seconds",
                  "effort", "evicted", "input_tokens", "output_tokens", "prefill_seconds",
-                 "tool_calls", "turn")
+                 "reasoning_seconds", "tool_calls", "turn")
 
     def __init__(self, dispatched: Any) -> None:
         self.turn = 1
@@ -619,6 +619,8 @@ class _OneShotTurn:
         self.prefill_seconds = dispatched.prefill_seconds
         self.decode_seconds = dispatched.decode_seconds
         self.answered_decode_seconds = dispatched.response.decode_seconds
+        # Measured per response, not summed: only the answering attempt's reasoning counts.
+        self.reasoning_seconds = dispatched.response.reasoning_seconds
 
 
 def tool_ms_for_turn(diagnostic: Any) -> int:

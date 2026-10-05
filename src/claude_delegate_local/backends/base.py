@@ -338,6 +338,10 @@ class CanonicalResponse:
     # nothing the decoder did. Prefill grows with the prompt rather than the answer, the
     # half a run summary is trying to see. `None` on an adapter that cannot stream.
     prefill_seconds: float | None = None
+    # First streamed chunk to first answer chunk, a tool call counting as an answer. `None`
+    # when the model did not reason or nothing streamed. Per response, unlike the loop's
+    # chunk counters, which run across retries.
+    reasoning_seconds: float | None = None
 
     @property
     def text(self) -> str:
