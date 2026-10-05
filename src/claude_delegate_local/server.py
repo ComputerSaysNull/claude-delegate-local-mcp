@@ -16,7 +16,7 @@ import json
 import math
 import os
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from typing import Annotated, Any, NamedTuple, Protocol
@@ -679,6 +679,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     ctx: ProgressSink | None = None,
     tool_name: str = "delegate",
     ask: Callable[[list[str]], Awaitable[str]] | None = None,
+    workspace: str | None = None,
 ) -> dict[str, Any]:
     """One delegation, from arguments to the result dict, for every tool that runs one.
 
@@ -911,6 +912,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             model_key=entry.key, effort=effort,
             tools=allowed, prefetched=prefetched,
             max_turns=resolved_turns,
+            workspace=workspace,
         )
 
     waiting_since = _clock()
@@ -1708,10 +1710,31 @@ class SessionScope(NamedTuple):
     `workdir_ok` is False when `workdir_roots` is configured and none of the session's
     folders is inside it: an empty `workdir_roots` means "reuse workspace_roots", so the
     empty narrowing cannot be written into the config without silently widening it.
+
+    `workspace` is the *name* of the project folder the session runs in -- the last
+    component of the first folder the client lists inside the configured ceiling -- so the
+    stream's `start` event can say which project a delegation was in. None when the client
+    lists no roots, which is when the configured roots apply unchanged.
     """
 
     cfg: Config
     workdir_ok: bool
+    workspace: str | None
+
+
+def _workspace_name(ceiling: Sequence[str], roots: Sequence[str]) -> str | None:
+    """The name of the first client-listed root inside the ceiling, or None.
+
+    The client's own order, never `narrow_roots(ceiling, roots)`'s: that re-sorts into the
+    ceiling's order, so its head is the first *configured* root, which is not the same as
+    the first folder the client listed. The name is the last component of the narrowed root
+    -- the folder that actually gets read from -- not the path.
+    """
+    for r in roots:
+        narrowed = narrow_roots(ceiling, (r,))
+        if narrowed:
+            return os.path.basename(narrowed[0].rstrip("/")) or None
+    return None
 
 
 async def _client_roots(ctx: Context | None) -> list[str] | None:
@@ -1769,7 +1792,8 @@ async def session_scope(cfg: Config, ctx: Context | None) -> SessionScope:
                 "DELEGATE_WORKSPACE_ROOTS as configured."
             )
         return SessionScope(
-            replace(cfg, repo_ext_allowlists=_repo_ext_allowlists(cfg)), workdir_ok=True
+            replace(cfg, repo_ext_allowlists=_repo_ext_allowlists(cfg)), workdir_ok=True,
+            workspace=None,
         )
     ceiling = resolved_roots(cfg)
     workspace = narrow_roots(ceiling, roots)
@@ -1780,17 +1804,20 @@ async def session_scope(cfg: Config, ctx: Context | None) -> SessionScope:
             "nothing. Open the session in a project under one of those roots, or add the "
             "project to DELEGATE_WORKSPACE_ROOTS."
         )
+    workspace_name = _workspace_name(ceiling, roots)
     if not cfg.workdir_roots:
         scope_cfg = replace(cfg, workspace_roots=workspace)
         return SessionScope(
             replace(scope_cfg, repo_ext_allowlists=_repo_ext_allowlists(scope_cfg)),
             workdir_ok=True,
+            workspace=workspace_name,
         )
     workdir = narrow_roots(resolved_workdir_roots(cfg), roots)
     narrowed = replace(cfg, workspace_roots=workspace, workdir_roots=workdir or cfg.workdir_roots)
     return SessionScope(
         replace(narrowed, repo_ext_allowlists=_repo_ext_allowlists(narrowed)),
         workdir_ok=bool(workdir),
+        workspace=workspace_name,
     )
 
 
@@ -1932,7 +1959,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             workdir=_rooted(scope, workdir),
             diagnostics=diagnostics, ctx=None, tool_name="delegate",
-            ask=ask,
+            ask=ask, workspace=scope.workspace,
         )
         return await _answered(run, "delegate", pause=pause)
 
@@ -1974,6 +2001,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                 allowed_tools=sorted(READ_ONLY_TOOL_NAMES), max_tokens=max_tokens,
                 max_turns=max_turns,
                 diagnostics=diagnostics, ctx=ctx, tool_name="delegate_readonly",
+                workspace=scope.workspace,
             )
         pause, sink = Pause(), _CallProgress(ctx)
         run = run_delegation(
@@ -1984,7 +2012,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             allowed_tools=sorted(READ_ONLY_TOOL_NAMES), max_tokens=max_tokens,
             max_turns=max_turns,
             diagnostics=diagnostics, ctx=sink, tool_name="delegate_readonly",
-            ask=_ask_caller(pause, scope.cfg),
+            ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
         )
         return await _inline_or_question(run, "delegate_readonly", pause, sink)
 
@@ -2062,7 +2090,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             agent=agent, workdir=resolved_workdir,
             diagnostics=diagnostics, ctx=None, tool_name="delegate_to_agent",
-            ask=ask,
+            ask=ask, workspace=scope.workspace,
         )
         return await _answered(run, "delegate_to_agent", pause=pause)
 
@@ -2107,6 +2135,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                 # bind it read-write and make the readOnlyHint a lie.
                 agent=agent,
                 diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent_readonly",
+                workspace=scope.workspace,
             )
         pause, sink = Pause(), _CallProgress(ctx)
         run = run_delegation(
@@ -2119,7 +2148,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             # it read-write and make the readOnlyHint a lie.
             agent=agent,
             diagnostics=diagnostics, ctx=sink, tool_name="delegate_to_agent_readonly",
-            ask=_ask_caller(pause, scope.cfg),
+            ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
         )
         return await _inline_or_question(run, "delegate_to_agent_readonly", pause, sink)
 

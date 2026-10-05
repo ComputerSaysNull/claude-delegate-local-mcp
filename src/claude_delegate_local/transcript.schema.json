@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "One line of a delegation's .jsonl transcript stream",
   "description": "Format 1.x. Every line is one event, discriminated by `t`. Readers ignore fields and kinds they do not know: a minor version only adds, a major version removes, renames or changes a meaning (ADR-0111).",
-  "x-transcript-format": "1.4",
+  "x-transcript-format": "1.5",
   "type": "object",
   "required": ["t", "at"],
   "properties": {
@@ -38,6 +38,7 @@
         "max_turns": {"$ref": "#/$defs/int_or_null"},
         "tools": {"type": "array", "items": {"type": "string"}},
         "title": {"type": "string", "maxLength": 120, "description": "The caller's name for this delegation, when it gave one (format 1.2)."},
+        "workspace": {"type": "string", "description": "The name of the workspace root this delegation ran under: the last component of the first folder the client lists inside DELEGATE_WORKSPACE_ROOTS. Absent when the client lists none (format 1.5)."},
         "files_read": {"type": "array", "items": {"$ref": "#/$defs/file_read"}},
         "files_skipped": {"type": "array", "items": {"$ref": "#/$defs/file_skipped"}},
         "prefetch_tokens": {"type": "integer"},

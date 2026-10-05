@@ -963,7 +963,10 @@ against it, because six turns and six of six are the same run and different news
 names its durations rather than implying one from another: total, generating, and each
 tool call's own. And it says how much of itself it repeated, which is the one
 number that tells a loop from a long answer while it is still running. `start` also carries
-the caller's `title`, if any, so a viewer need not name the run from its task's first line.
+the caller's `title`, if any, so a viewer need not name the run from its task's first line,
+and `workspace`: the name of the first folder the client lists inside the ceiling, in the
+client's order. The roots are the only signal: the server's own directory is whatever its
+launch command set, usually the same for every project.
 A run that asks its caller writes `question`, then `answer` with how long the reply took.
 `end.ended` says how a run ended as a fixed value, so a reader need not parse `error`.
 

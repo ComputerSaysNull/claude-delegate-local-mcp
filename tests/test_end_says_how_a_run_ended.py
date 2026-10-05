@@ -203,13 +203,14 @@ def test_an_unreachable_backend_says_error(tmp_path):
     assert _end(config)["ended"] == "error"
 
 
-def test_the_format_is_1_4_and_the_schema_lists_the_endings():
-    assert transcript.FORMAT == "1.4"
+def test_the_schema_lists_the_endings_since_1_4():
+    """The `ended` values are a 1.4 addition (ADR-0111), so the format is at least 1.4."""
     schema = json.loads(
         Path(transcript.__file__).with_name("transcript.schema.json").read_text(
             encoding="utf-8"))
-    assert schema["x-transcript-format"] == "1.4"
     enum = schema["$defs"]["end"]["properties"]["ended"]["enum"]
     assert set(enum) == {
         "finished", "stopped", "queue_timeout", "deadline", "stalled", "error",
     }
+    major, minor = (int(part) for part in transcript.FORMAT.split("."))
+    assert (major, minor) >= (1, 4)

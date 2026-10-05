@@ -112,7 +112,11 @@ def test_with_partials_off_the_stream_has_none(tmp_path):
 
 def test_the_format_says_partials_may_appear():
     """An addition, so a minor version (ADR-0111)."""
-    assert transcript.FORMAT == "1.4"
+    defs = SCHEMA["$defs"]
+    assert "partial" in defs
+    assert "Since 1.1" in defs["partial"]["description"]
+    major, minor = (int(part) for part in transcript.FORMAT.split("."))
+    assert (major, minor) >= (1, 1)
 
 
 def test_the_terminal_viewer_shows_a_partial_as_one_line():
