@@ -119,11 +119,11 @@ def test_a_client_whose_roots_are_all_outside_the_ceiling_is_refused(tmp_path):
 
 @posix_only
 def test_a_client_that_lists_no_roots_falls_back_to_the_configured_ones(tmp_path):
-    """The default: a client without roots support has not said where it works, so the
-    operator's list applies as it always did."""
+    """`narrow`: a client without roots support has not said where it works, so the
+    operator's list applies as it always did. No longer the default (ADR-0119)."""
     _, b = projects(tmp_path)
     sent: list = []
-    call(files_cfg(tmp_path), "delegate_readonly",
+    call(files_cfg(tmp_path, client_roots="narrow"), "delegate_readonly",
          {"task": "read it", "files": [str(b / "x.py")]}, roots=None, sent=sent)
     assert sent
 

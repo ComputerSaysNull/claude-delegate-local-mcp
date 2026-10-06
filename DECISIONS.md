@@ -19,6 +19,22 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0119 — 2026-10-06 — A client that lists no folders is refused by default — Accepted
+
+**Context.** ADR-0110 made the configured roots a ceiling and kept `narrow` as the default,
+which hands that ceiling whole to a client listing no folders. Since then the setup meant
+is one parent folder for every project (item 108), so "whole" is every project. Claude Code
+lists its folders under `claude -p` as well as interactively: a `-p` call passed under
+`require` (measured 2026-10-05).
+
+**Decision.** `client_roots` defaults to `require`. `narrow` stays, chosen explicitly, for a
+client that cannot list folders and an operator who accepts what it then reaches. The test
+suite's shared helpers set `narrow`, because its clients list none.
+
+**Consequence.** A client without roots support stops working until its operator opts in,
+and the refusal names the setting to change. This supersedes ADR-0110's choice of default
+and nothing else in it.
+
 ## ADR-0118 — 2026-10-04 — A delegation may ask its caller, and waits in place for the reply — Accepted
 
 **Context.** Every delegation ran as if nobody were at the other end. Measured over the 94
@@ -236,7 +252,7 @@ change, and the schema moves with `FORMAT` or the tests fail. The one-decision o
 still holds for the terminal viewer in this repository; for a reader elsewhere, the schema
 replaces it.
 
-## ADR-0110 — 2026-10-01 — A session reaches the folders its client lists, inside the configured roots — Accepted
+## ADR-0110 — 2026-10-01 — A session reaches the folders its client lists, inside the configured roots — Partially superseded by ADR-0119
 
 **Context.** Every session's server read one `DELEGATE_WORKSPACE_ROOTS`: `config.load()`
 reads `.env` from the checkout (ADR-0027) and the path roots are loaded once per process

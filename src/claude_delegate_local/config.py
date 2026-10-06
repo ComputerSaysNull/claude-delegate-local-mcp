@@ -165,12 +165,12 @@ class Config:
         "from the files read within it. Empty means reuse workspace_roots.",
     )
     client_roots: str = _f(
-        "narrow",
+        "require",
         f"One of {CLIENT_ROOTS_MODES}: how the folders an MCP client lists for its session "
         "bound that session. `narrow`: a client listing roots gets workspace_roots and "
         "workdir_roots narrowed to them, and is refused if every one falls outside; a "
         "client listing none gets the configured roots unchanged. `require`: the same, "
-        "except a client listing none is refused (ADR-0110).",
+        "except a client listing none is refused (ADR-0110, ADR-0119).",
     )
     ext_allowlist: tuple[str, ...] = _f(
         (

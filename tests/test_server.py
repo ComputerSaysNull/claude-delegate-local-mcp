@@ -42,8 +42,10 @@ def cfg(**over) -> Config:
     # Overflow handling off for the same reason: these doubles answer no window probe and
     # report a fixed prompt size, so an armed guard would test the doubles. Its own tests
     # arm it (test_context_overflow.py and the window-check regressions).
+    # `narrow` because these test clients list no roots, which the default refuses
+    # (ADR-0119); the tests about that refusal set `require` themselves.
     kw = {"workspace_roots": (".",), "admission_idle_hold": 0.0,
-          "context_overflow_enabled": False}
+          "context_overflow_enabled": False, "client_roots": "narrow"}
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
 
@@ -702,6 +704,7 @@ def files_cfg(tmp_path, **over) -> Config:
         "respect_gitignore": False,
         "admission_idle_hold": 0.0,  # see cfg()
         "context_overflow_enabled": False,  # see cfg()
+        "client_roots": "narrow",  # see cfg()
     }
     kw.update(over)
     return Config(**kw)  # type: ignore[arg-type]
