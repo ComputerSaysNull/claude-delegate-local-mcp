@@ -414,7 +414,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     - a. ✅ `--init` asks for roots one per line, which reads as "list your projects"; ask for the folder the projects live in
     - b. ✅ The refusal for a session outside the ceiling says to add *the project*; say the parent folder, and name the `.env` the server reads, which a session in another project cannot know
     - c. ✅ `client_roots` defaults to `narrow`, which hands a wide ceiling whole to a client listing no folders; default to `require`, with the suite setting `narrow` for itself (supersedes that part of ADR-0110)
-109. ⬜ **A question only the person can answer still goes to the calling model.** Route it by MCP elicitation: Claude Code answers one interactively and from a subagent, and cancels at once under `claude -p` (JOURNAL 2026-10-06), so a `cancel` falls back to the caller's `answer` (ADR-0118). Open: how the model marks a question as the person's
+109. ✅ 2026-10-06 **A question only the person can answer still goes to the calling model.** Route it by MCP elicitation: Claude Code answers one interactively and from a subagent, and cancels at once under `claude -p` (JOURNAL 2026-10-06), so a `cancel` falls back to the caller's `answer` (ADR-0118). Open: how the model marks a question as the person's
 
 ## Deferred
 

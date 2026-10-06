@@ -100,7 +100,8 @@ def test_an_unknown_major_version_is_refused():
 def test_a_newer_minor_version_and_an_unknown_field_are_both_accepted():
     """What lets a reader pinned to 1.0 keep working while the writer adds things."""
     start = first("start")
-    start["format"] = "1.9"
+    major, minor = (int(part) for part in transcript.FORMAT.split("."))
+    start["format"] = f"{major}.{minor + 1}"
     start["something_new"] = {"any": "shape"}
     assert errors(start) == []
     assert errors({"t": "a_kind_from_the_future", "at": "2026-10-01T00:00:00+00:00"}) == []
