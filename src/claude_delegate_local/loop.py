@@ -1901,7 +1901,8 @@ def projected_fraction(
     **The only place the denominator is chosen: `entry.context_window`**, never a reply
     budget or a count of our own evictions. A wrong denominator is the usual shape of this
     bug, so every threshold uses this. An entry omitting `context_window` silently inherits
-    a default, which is why `context_overflow_enabled` is off by default.
+    a default, which is why `WindowCheck` in `server.py` disarms overflow handling until the
+    endpoint confirms the window.
     """
     reserve = overflow_reserve(cfg, entry)
     return (last_input_tokens + pending_tokens + reserve) / entry.context_window

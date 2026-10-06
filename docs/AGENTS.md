@@ -277,8 +277,8 @@ alike, so a path outside every root is never told whether it exists.
 | 6 | Protected path | **Writes only.** A file a host program acts on, from `security/protected_globs.txt`, whether or not it exists yet |
 
 Layer 6 asks who may *change* a file rather than who may see it, so it runs for
-`write_file` and `edit_file` and nothing else. Why those files, and why by name, is the
-[design note](specs/2026-09-23-host-acted-paths.md)'s.
+`write_file` and `edit_file`; `run_bash` meets the same list in the sandbox. Why those files,
+and why by name, is the [design note](specs/2026-09-23-host-acted-paths.md)'s.
 
 Layer 3 is the one layer that asks a question about *bytes* as well as about names. Every
 other check is a function of the path, so a key renamed `config.json` passed all of them —
