@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #455 — 2026-10-05 — feat: a turn says how long it reasoned
+
+### Added
+
+- **A transcript did not say how long a turn reasoned before it answered.** The web
+  viewer's tracker folds a turn's thinking under a label and could only say "Thinking":
+  the heartbeats bound the moment the answer began, but only to within one interval, and a
+  turn shorter than an interval has neither bound. `turn` now carries `reasoning_seconds`,
+  from the first streamed chunk to the first answer chunk, a tool call counting as an
+  answer; null when the model did not reason. It is measured in the adapter beside
+  `prefill_seconds`, per response, because the loop's chunk counters run across retries
+  and would count a failed attempt's reasoning; a test pins that on a retried turn. An
+  added field, so the format moves to 1.6 (ADR-0111). Written first, all six cases failed
+  on the missing field.
+
 ## #454 — 2026-10-05 — feat: the stream's start names the workspace
 
 ### Added

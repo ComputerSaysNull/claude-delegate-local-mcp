@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.5"
+FORMAT = "1.6"
 
 # The fixed values `end.ended` may hold, so a reader can branch on the ending rather than
 # parse the words in `error`. Kept beside FORMAT because it is the same contract.
@@ -224,6 +224,9 @@ class Stream:
             # would be one more number able to disagree with the calls it sums.
             "prefill_seconds": getattr(diagnostic, "prefill_seconds", None),
             "decode_seconds": getattr(diagnostic, "decode_seconds", None),
+            # How long the model reasoned before answering, measured per response. Always
+            # written, null when it did not reason or could not be measured.
+            "reasoning_seconds": getattr(diagnostic, "reasoning_seconds", None),
             # Decode rate over the *answering attempt's* decode span, not `backend_ms`,
             # which spans every attempt and retry wait. `output_tokens` comes from the one
             # attempt that answered (ADR-0014), so dividing by all of them would report a

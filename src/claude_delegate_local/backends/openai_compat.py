@@ -194,11 +194,12 @@ class OpenAICompatBackend:
         *,
         on_token: Callable[[str, str], None] | None = None,
     ) -> CanonicalResponse:
-        payload, decode_seconds, prefill_seconds = await self._post_stream(
+        payload, decode_seconds, prefill_seconds, reasoning_seconds = await self._post_stream(
             self._entry.chat_url, self.wire_body(request), _CHAT_PATH, on_token=on_token
         )
         return self._from_wire(
-            payload, decode_seconds=decode_seconds, prefill_seconds=prefill_seconds
+            payload, decode_seconds=decode_seconds, prefill_seconds=prefill_seconds,
+            reasoning_seconds=reasoning_seconds,
         )
 
     async def _post_stream(
@@ -208,14 +209,15 @@ class OpenAICompatBackend:
         path: str,
         *,
         on_token: Callable[[str, str], None] | None = None,
-    ) -> tuple[dict[str, Any], float | None, float | None]:
+    ) -> tuple[dict[str, Any], float | None, float | None, float | None]:
         """Stream the chat call and hand back one payload plus both halves of its clock.
 
         Two intervals: request sent to first token (prefill), and first token to last
         (decode). Together they account for the backend call, so a run summary can say
         where the time went rather than report one span and a remainder. Knowing *when*
         tokens arrived is what streaming buys: the only way to time decoding without
-        also timing prefill.
+        also timing prefill. A third lies inside decode: first token to first answer
+        token, how long the model reasoned.
 
         It returns only once the stream has ended, so a successful call is whole. On a
         failing one, what the turn had decoded rides out on the exception rather than
@@ -226,6 +228,9 @@ class OpenAICompatBackend:
         started = self._clock()
         first: float | None = None
         last: float | None = None
+        # When the first chunk of kind "answer" arrived: reasoning_seconds is this minus
+        # `first`, measured beside prefill and decode, in the same pass.
+        answer_first: float | None = None
 
         def decoded() -> CanonicalResponse | None:
             """What the stream had produced, or `None` if it never produced anything.
@@ -242,6 +247,10 @@ class OpenAICompatBackend:
                 # Known on a partial as on a whole reply: the first token has arrived, so
                 # prefill is over and measured.
                 prefill_seconds=max(first - started, 0.0),
+                reasoning_seconds=(
+                    None if answer_first is None or answer_first <= first
+                    else answer_first - first
+                ),
             )
 
         try:
@@ -270,6 +279,8 @@ class OpenAICompatBackend:
                         now = self._clock()
                         if first is None:
                             first = now
+                        if answer_first is None and kind == "answer":
+                            answer_first = now
                         last = now
                         # The predicate `decode_seconds` is measured from, so the caller
                         # hears of exactly the frames the interval counts. A role preamble
@@ -304,7 +315,13 @@ class OpenAICompatBackend:
         # `None` when no frame carried output, for the same reason: the prefill/decode
         # boundary was never observed, and zero would claim it was, and instantaneous.
         prefill = None if first is None else max(first - started, 0.0)
-        return acc.payload(), span, prefill
+        # `None` when the first chunk was already an answer (no reasoning) or when nothing
+        # was streamed at all: either is "could not be measured", never a zero.
+        reasoning = (
+            None if first is None or answer_first is None or answer_first <= first
+            else answer_first - first
+        )
+        return acc.payload(), span, prefill, reasoning
 
     async def probe(self) -> tuple[str, ...]:
         """Model ids this endpoint reports. /v1/models is the health check (MODELS.md)."""
@@ -403,6 +420,7 @@ class OpenAICompatBackend:
     def _from_wire(
         self, payload: dict[str, Any], decode_seconds: float | None = None,
         prefill_seconds: float | None = None,
+        reasoning_seconds: float | None = None,
     ) -> CanonicalResponse:
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
@@ -453,6 +471,7 @@ class OpenAICompatBackend:
             system_fingerprint=str(fingerprint) if fingerprint is not None else None,
             decode_seconds=decode_seconds,
             prefill_seconds=prefill_seconds,
+            reasoning_seconds=reasoning_seconds,
         )
 
 
