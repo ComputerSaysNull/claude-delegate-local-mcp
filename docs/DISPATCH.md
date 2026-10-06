@@ -677,7 +677,7 @@ own output, without the note a cut result carries, which is the server's and not
 identical everywhere else: both end at a length stop having spent the ceiling exactly, so
 both read as "needs a bigger budget". It is the share of non-blank lines already said,
 reported and never acted on — no threshold has been earned. Code fences are left out, since they are markup; a report with four code blocks
-otherwise read as a fifth repeated.
+otherwise read as a fifth repeated. A turn's thinking is measured apart, the same way.
 
 `bash_calls`, `bash_failures` and `last_bash_exit` are the subject ADR-0007 was written
 about, and are now counted the same way. The exit code reaches the ledger as a field on the

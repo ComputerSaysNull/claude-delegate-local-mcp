@@ -602,7 +602,7 @@ class _OneShotTurn:
 
     __slots__ = ("answered_decode_seconds", "attempts", "cached_tokens", "decode_seconds",
                  "effort", "evicted", "input_tokens", "output_tokens", "prefill_seconds",
-                 "reasoning_seconds", "tool_calls", "turn")
+                 "reasoning_duplicate_line_share", "reasoning_seconds", "tool_calls", "turn")
 
     def __init__(self, dispatched: Any) -> None:
         self.turn = 1
@@ -621,6 +621,11 @@ class _OneShotTurn:
         self.answered_decode_seconds = dispatched.response.decode_seconds
         # Measured per response, not summed: only the answering attempt's reasoning counts.
         self.reasoning_seconds = dispatched.response.reasoning_seconds
+        # The thinking's repeated-line share, measured where the diagnostic is built.
+        thinking = dispatched.response.thinking
+        self.reasoning_duplicate_line_share = (
+            duplicate_line_share(thinking) if thinking else None
+        )
 
 
 def tool_ms_for_turn(diagnostic: Any) -> int:
