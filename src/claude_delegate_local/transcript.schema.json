@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "One line of a delegation's .jsonl transcript stream",
   "description": "Format 1.x. Every line is one event, discriminated by `t`. Readers ignore fields and kinds they do not know: a minor version only adds, a major version removes, renames or changes a meaning (ADR-0111).",
-  "x-transcript-format": "1.8",
+  "x-transcript-format": "1.9",
   "type": "object",
   "required": ["t", "at"],
   "properties": {
@@ -64,6 +64,7 @@
         "prefill_seconds": {"$ref": "#/$defs/num_or_null"},
         "decode_seconds": {"$ref": "#/$defs/num_or_null"},
         "reasoning_seconds": {"$ref": "#/$defs/num_or_null", "description": "Seconds from the turn's first streamed chunk to its first answer chunk, a tool call counting as an answer; null when the model did not reason (format 1.6)."},
+        "reasoning_duplicate_line_share": {"$ref": "#/$defs/num_or_null", "description": "Share of the thinking's lines that repeat an earlier line, measured as `duplicate_line_share` is on the reply; null when the turn did not reason (format 1.9)."},
         "out_tok_s": {"$ref": "#/$defs/num_or_null"},
         "duplicate_line_share": {"$ref": "#/$defs/num_or_null"},
         "retries": {"type": "array", "items": {"$ref": "#/$defs/retry"}},

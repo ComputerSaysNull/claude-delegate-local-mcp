@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #462 — 2026-10-06 — feat: repetition is measured in a turn's thinking too
+
+### Added
+
+- **A model looping in its thinking did not show.** `duplicate_line_share` measures the
+  reply only, and over every stream so far 205 finished turns repeated 15% or more of
+  their thinking's lines while only 33 recorded a reply share that high. `turn` now
+  carries `reasoning_duplicate_line_share`, the same measure over the answering attempt's
+  whole thinking, null when the turn did not reason; the existing field keeps its meaning.
+  An added field, so the format moves to 1.9 (ADR-0111). Written first, all five cases
+  found no such key; two of them pin that the reply and thinking figures are not swapped.
+
 ## #461 — 2026-10-06 — feat: a turn's partials hold all of its thinking
 
 ### Added

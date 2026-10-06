@@ -42,6 +42,7 @@ from .backends.base import (
     ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
+    duplicate_line_share,
 )
 from .config import (
     EFFORT_LEVELS,
@@ -2123,6 +2124,10 @@ class TurnDiagnostic:
     # a tool call counting as an answer. Measured per response, so a retried turn must not
     # count the failed attempt's reasoning against itself.
     reasoning_seconds: float | None = None
+    # The thinking's repeated-line share, measured with the same `duplicate_line_share`
+    # the reply uses. `None` when the turn did not reason (empty thinking), which is not a
+    # zero: no thinking cannot repeat a line.
+    reasoning_duplicate_line_share: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2301,6 +2306,10 @@ class _Watch:
                 decode_seconds=dispatch.decode_seconds,
                 answered_decode_seconds=dispatch.response.decode_seconds,
                 reasoning_seconds=dispatch.response.reasoning_seconds,
+                reasoning_duplicate_line_share=(
+                    duplicate_line_share(dispatch.response.thinking)
+                    if dispatch.response.thinking else None
+                ),
             )
         )
 
