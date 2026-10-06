@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #454 — 2026-10-05 — feat: the stream's start names the workspace
+
+### Added
+
+- **A transcript did not say which project sent the delegation.** The web viewer's tracker
+  wants to show it on each run and per project, and could not derive it: a delegation may
+  read no files, and the server's own directory is set by its launch command, the same for
+  every project. `start` now carries `workspace`, the name (never the path) of the first
+  folder the client lists inside `DELEGATE_WORKSPACE_ROOTS`, in the client's own order. Not
+  `narrow_roots`' order, which follows the configured roots and would name another project
+  whenever the two orders differ; a test pins that. Absent when the client lists no folders.
+  An added field, so the format moves to 1.5 (ADR-0111). Written first, the three cases
+  that list folders failed on `KeyError: 'workspace'`.
+
 ## #453 — 2026-10-04 — chore: release 0.7.0
 
 ### Changed
