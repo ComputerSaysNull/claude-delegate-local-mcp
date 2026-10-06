@@ -409,11 +409,12 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 104. ✅ 2026-10-03 **`/list` and the picker read every transcript for a 20-row answer**: 46 s on the first call at 1,242 streams. Read only the newest names (ADR-0117), plus any name this did not write
 105. ✅ 2026-10-03 **CI's pinned actions target the deprecated Node 20**, gitleaks' v2 included: re-pin to releases that declare `node24`
 106. ✅ 2026-10-04 **A delegation cannot ask its caller what it meant**, so it reasons through every reading of an unclear task alone. Spike run (JOURNAL 2026-10-03): 52 of 94 streams with reasoning weighed readings of the task, about a fifth of their reasoning by a classifier's estimate, from a narrow sample; calibrate that share by hand first. Then a tool that pauses the run and surfaces a question through `collect`, answered by the caller
-107. ⬜ **A question only the person can answer has no route to them**, only to the calling model (item 106, ADR-0118). MCP elicitation could carry it: check whether Claude Code accepts one from this server, which it does not advertise the capability for, and what `claude -p` and subagents do with it
-108. ✅ **Setup steers people into listing every project as a root**, so using the MCP in a new project means editing this server's `.env` first. Since item 102 the roots are a ceiling, and the setup meant is one parent folder, set once
+107. ✅ 2026-10-06 **A question only the person can answer has no route to them**, only to the calling model (item 106, ADR-0118). MCP elicitation could carry it: check whether Claude Code accepts one from this server, which it does not advertise the capability for, and what `claude -p` and subagents do with it
+108. ✅ 2026-10-06 **Setup steers people into listing every project as a root**, so using the MCP in a new project means editing this server's `.env` first. Since item 102 the roots are a ceiling, and the setup meant is one parent folder, set once
     - a. ✅ `--init` asks for roots one per line, which reads as "list your projects"; ask for the folder the projects live in
     - b. ✅ The refusal for a session outside the ceiling says to add *the project*; say the parent folder, and name the `.env` the server reads, which a session in another project cannot know
     - c. ✅ `client_roots` defaults to `narrow`, which hands a wide ceiling whole to a client listing no folders; default to `require`, with the suite setting `narrow` for itself (supersedes that part of ADR-0110)
+109. ⬜ **A question only the person can answer still goes to the calling model.** Route it by MCP elicitation: Claude Code answers one interactively and from a subagent, and cancels at once under `claude -p` (JOURNAL 2026-10-06), so a `cancel` falls back to the caller's `answer` (ADR-0118). Open: how the model marks a question as the person's
 
 ## Deferred
 

@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #459 — 2026-10-06 — docs: measure whether Claude Code answers an elicitation
+
+### Added
+
+- **Whether a question could reach the person, not only the calling model, was unknown**
+  (Unscheduled 107). A throwaway server asked by MCP elicitation, three ways (JOURNAL
+  2026-10-06). Claude Code declares the capability in every mode; interactively it showed
+  the question and returned the typed answer, from a subagent too, and under `claude -p` it
+  cancelled the same second. So the route works, a `cancel` must fall back to asking the
+  caller, and building it is filed as Unscheduled 109.
+
 ## #458 — 2026-10-06 — feat: a client that lists no folders is refused by default
 
 ### Changed

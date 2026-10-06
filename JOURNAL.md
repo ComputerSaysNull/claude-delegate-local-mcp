@@ -2929,3 +2929,22 @@ cannot. The stream it scored zero held about 450 characters of it, a negligible 
 What the reading showed that the count does not: the long cases re-decide the same one or
 two questions three or four times, which is the case one answer settles. And one was a
 contradiction in the caller's own task text, which the model was right to puzzle over.
+
+## 2026-10-06 — Claude Code answers an elicitation, except under `claude -p` (Unscheduled 107)
+
+Whether a question only the person can answer could reach them by MCP elicitation was
+unknown. A throwaway stdio server, never committed, logged the client's `initialize`
+capabilities and then called `elicit` with a one-field form, from one tool. Claude Code
+2.1.291, three ways:
+
+| How it was called | Capabilities | `elicit` came back | Person saw it |
+|---|---|---|---|
+| Interactive session, the model calling the tool | `form`, `url` | `accept`, with the typed value, after 16 s | yes |
+| Interactive session, through a subagent | `form`, `url` | `accept`, with the typed value, after 5 s | yes |
+| `claude -p`, directly and through a subagent | `form`, `url` | `cancel`, the same second | no |
+
+So the server need not advertise anything: elicitation is a client capability, and Claude
+Code declares it in every mode, `-p` included. That declaration is what cannot be trusted.
+Under `-p` nobody is there, and the client cancels at once rather than refusing, so a
+`cancel` has to mean "ask the caller instead", not "the person said no". The installed SDK
+already has the call (`ServerSession.elicit`); nothing here needed a dependency change.
