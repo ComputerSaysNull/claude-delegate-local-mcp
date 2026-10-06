@@ -1750,7 +1750,9 @@ ASK_CALLER_SPEC = ToolSpec(
         "of it is meant and the readings lead to different results. Put every question into "
         "this one call: you can ask only once per task. The answer comes back as this call's "
         "result; if it leaves the choice to you, proceed on your best reading. Do not ask "
-        "what you can find out by reading the files."
+        "what you can find out by reading the files. Mark a question `for_person` when only "
+        "the person behind your caller can settle it, and the server asks them directly when "
+        "it can."
     ),
     input_schema={
         "type": "object",
@@ -1761,6 +1763,15 @@ ASK_CALLER_SPEC = ToolSpec(
                 "minItems": 1,
                 "maxItems": 5,
                 "description": "Each question, short enough to answer in a line.",
+            },
+            "for_person": {
+                "type": "boolean",
+                "description": (
+                    "True when only the person behind your caller can answer: a preference, "
+                    "a decision or a fact only they hold, not something your caller can "
+                    "settle from the task or the files. The server then asks the person "
+                    "directly when it can; otherwise your caller is asked as usual."
+                ),
             },
         },
         "required": ["questions"],

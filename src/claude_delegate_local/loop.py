@@ -2832,7 +2832,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     on_partial: Callable[[int, str, str, bool], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
-    ask: Callable[[list[str]], Awaitable[str]] | None = None,
+    ask: Callable[[list[str], bool], Awaitable[str]] | None = None,
 ) -> AgenticDispatch:
     """Turns, until the model answers or the budget runs out.
 
@@ -3124,6 +3124,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                 assert ask is not None  # `ask_here` is only filled when there is someone to ask
                 call_status[idx] = "running"
                 questions = call.input.get("questions")
+                for_person = call.input.get("for_person", False) is True
                 if not (isinstance(questions, list) and questions
                         and all(isinstance(q, str) for q in questions)):
                     result = ToolResultBlock(
@@ -3145,7 +3146,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                     started = clock()
                     tools_running = True
                     try:
-                        answer = await ask(questions)
+                        answer = await ask(questions, for_person)
                     finally:
                         waited = clock() - started
                         deadline += waited

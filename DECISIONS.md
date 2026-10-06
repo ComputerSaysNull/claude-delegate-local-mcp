@@ -19,6 +19,29 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0120 — 2026-10-06 — A question only the person can answer is put to them by elicitation — Accepted
+
+**Context.** ADR-0118 routes every question to the calling model, which cannot answer a
+preference, a decision or a fact only its person holds. Measured (JOURNAL 2026-10-06):
+Claude Code shows an elicited question and returns the typed answer, interactively and from
+a subagent, and under `claude -p` cancels at once.
+
+**Decision.**
+
+- **The model marks the question**, with `for_person` on `ask_caller`. The server cannot
+  tell whose question it is, and asking the person everything would bypass a caller that
+  usually knows.
+- **It is asked from the call that is waiting on the run.** The run's own call may have
+  answered already, and nothing else holds a live request; the inline read-only call, a
+  `collect` or an `answer` each does.
+- **Once.** The person is tried the first time a waiting call sees the question. A decline,
+  a cancel, a failure or a client that cannot elicit hands it to the caller as ADR-0118
+  does, with `person` saying which, so the caller knows whether the person saw it.
+
+**Consequence.** Under `claude -p` a marked question costs one instant cancel and then
+behaves as before. A person who declines is not asked again by the server, though the
+caller may still pass the question on.
+
 ## ADR-0119 — 2026-10-06 — A client that lists no folders is refused by default — Accepted
 
 **Context.** ADR-0110 made the configured roots a ceiling and kept `narrow` as the default,
