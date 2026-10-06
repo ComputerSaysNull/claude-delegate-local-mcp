@@ -62,6 +62,7 @@ class Pause:
         self.asked = asyncio.Event()
         self.for_person = False
         self.person_asked = False  # tried once, never again (ADR-0120)
+        self.answered_by: str | None = None  # "caller" or "person", for the transcript
 
     def ask(self, questions: list[str], for_person: bool = False) -> asyncio.Future[str]:
         """Record the questions the run is waiting on, and return the future it awaits."""
@@ -179,16 +180,18 @@ class Handles:
                 "questions": list(pause.questions),
                 "waiting_seconds": round(time.monotonic() - pause.asked_at, 1)}
 
-    def answer(self, handle: str, text: str) -> None:
+    def answer(self, handle: str, text: str, *, by: str = "caller") -> None:
         """Hand `text` to a run paused on a question, so it resumes with it.
 
-        Raises `NotWaitingError` when the run is not waiting for an answer -- finished,
-        never asked, or already answered.
+        `by` is "caller" for the `answer` tool, "person" for an elicitation. Raises
+        `NotWaitingError` when the run is not waiting for an answer -- finished, never
+        asked, or already answered.
         """
         entry = self._entry(handle)
         pause = entry.pause
         if pause is None or not pause.waiting() or pause.answer is None:
             raise NotWaitingError(handle)
+        pause.answered_by = by
         pause.answer.set_result(text)
 
     def cancel(self, handle: str) -> bool:

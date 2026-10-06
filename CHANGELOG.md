@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #465 — 2026-10-06 — feat: the stream says who answered a question
+
+### Added
+
+- **A transcript could not say whether a question was answered by the calling model or by
+  the person.** Since #464 either can answer, and the difference matters to anyone reading
+  why a run went the way it did. The `answer` event now carries `by`, `caller` or
+  `person`, recorded by whichever path resolved the run's question, so a question meant
+  for the person that they cancelled and the caller then answered says `caller`; a test
+  pins that. An added field, so the format moves to 1.10 (ADR-0111). Written first, every
+  case found no `by` key.
+
 ## #464 — 2026-10-06 — feat: a question only the person can answer is put to them
 
 ### Added

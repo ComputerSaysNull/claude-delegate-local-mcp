@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "One line of a delegation's .jsonl transcript stream",
   "description": "Format 1.x. Every line is one event, discriminated by `t`. Readers ignore fields and kinds they do not know: a minor version only adds, a major version removes, renames or changes a meaning (ADR-0111).",
-  "x-transcript-format": "1.9",
+  "x-transcript-format": "1.10",
   "type": "object",
   "required": ["t", "at"],
   "properties": {
@@ -121,7 +121,8 @@
       "properties": {
         "waited_seconds": {"type": "number"},
         "text": {"type": "string"},
-        "best_reading": {"type": "boolean", "description": "The caller left the choice to the model, so `text` is the best-reading sentence it was told to proceed on."}
+        "best_reading": {"type": "boolean", "description": "The caller left the choice to the model, so `text` is the best-reading sentence it was told to proceed on."},
+        "by": {"enum": ["caller", "person"], "description": "Who supplied the answer: the calling model through `answer`, or the person through MCP elicitation (ADR-0120). Format 1.10."}
       }
     },
     "waiting": {

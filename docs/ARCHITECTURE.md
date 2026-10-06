@@ -971,7 +971,7 @@ the caller's `title`, if any, so a viewer need not name the run from its task's 
 and `workspace`: the name of the first folder the client lists inside the ceiling, in the
 client's order. The roots are the only signal: the server's own directory is whatever its
 launch command set, usually the same for every project.
-A run that asks its caller writes `question`, then `answer` with how long the reply took.
+A run that asks writes `question`, then `answer` with how long the reply took and who gave it.
 `end.ended` says how a run ended as a fixed value, so a reader need not parse `error`.
 
 The stream carries the model's reply text, which the record does not: whole in `turn`, and

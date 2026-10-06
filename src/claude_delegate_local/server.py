@@ -697,6 +697,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     tool_name: str = "delegate",
     ask: Callable[[list[str], bool], Awaitable[str]] | None = None,
     workspace: str | None = None,
+    pause: Pause | None = None,
 ) -> dict[str, Any]:
     """One delegation, from arguments to the result dict, for every tool that runs one.
 
@@ -1033,7 +1034,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                     # this wrapper, on the unanswered run.
                     text = await ask(questions, for_person)
                     stream.answer(text, _clock() - wait_started,
-                                  text == BEST_READING_REPLY)
+                                  text == BEST_READING_REPLY,
+                                  by=(pause and pause.answered_by) or "caller")
                     return text
                 loop_ask = _asked
 
@@ -2041,7 +2043,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             workdir=_rooted(scope, workdir),
             diagnostics=diagnostics, ctx=None, tool_name="delegate",
-            ask=ask, workspace=scope.workspace,
+            ask=ask, workspace=scope.workspace, pause=pause,
         )
         return await _answered(run, "delegate", pause=pause)
 
@@ -2095,6 +2097,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             max_turns=max_turns,
             diagnostics=diagnostics, ctx=sink, tool_name="delegate_readonly",
             ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
+            pause=pause,
         )
         return await _inline_or_question(run, "delegate_readonly", pause, sink)
 
@@ -2172,7 +2175,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             agent=agent, workdir=resolved_workdir,
             diagnostics=diagnostics, ctx=None, tool_name="delegate_to_agent",
-            ask=ask, workspace=scope.workspace,
+            ask=ask, workspace=scope.workspace, pause=pause,
         )
         return await _answered(run, "delegate_to_agent", pause=pause)
 
@@ -2231,6 +2234,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             agent=agent,
             diagnostics=diagnostics, ctx=sink, tool_name="delegate_to_agent_readonly",
             ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
+            pause=pause,
         )
         return await _inline_or_question(run, "delegate_to_agent_readonly", pause, sink)
 
@@ -2265,7 +2269,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                     # The run may have stopped waiting while the person typed; the next
                     # collect then reports how it ended.
                     with suppress(NotWaitingError):
-                        handles.answer(handle, answered)
+                        handles.answer(handle, answered, by="person")
                     continue
             return result
 

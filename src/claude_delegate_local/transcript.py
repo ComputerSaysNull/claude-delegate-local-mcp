@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.9"
+FORMAT = "1.10"
 
 # The fixed values `end.ended` may hold, so a reader can branch on the ending rather than
 # parse the words in `error`. Kept beside FORMAT because it is the same contract.
@@ -335,17 +335,19 @@ class Stream:
             "questions": questions,
         })
 
-    def answer(self, text: str, waited_seconds: float, best_reading: bool) -> None:
-        """The caller's reply, and how long the run was held waiting for it.
+    def answer(self, text: str, waited_seconds: float, best_reading: bool, *,
+               by: str) -> None:
+        """The reply, how long the run was held waiting for it, and who gave it.
 
         `best_reading` is true when the caller left the choice to the model, in which case
         `text` is the sentence the `answer` tool hands over rather than anything the caller
-        typed; a reader must be able to tell the two apart.
+        typed; a reader must be able to tell the two apart. `by` says who supplied the text
+        -- "caller" through `answer`, or "person" through MCP elicitation (ADR-0120).
         """
         event: dict[str, Any] = {
             "t": "answer", "at": datetime.now(UTC).isoformat(),
             "waited_seconds": round(waited_seconds, 1),
-            "text": text,
+            "text": text, "by": by,
         }
         if best_reading:
             event["best_reading"] = True
