@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #458 — 2026-10-06 — feat: a client that lists no folders is refused by default
+
+### Changed
+
+- **A client that listed no folders was handed every project.** `client_roots` defaulted
+  to `narrow`, which gives such a client the configured roots unchanged, and the roots are
+  now one parent folder for every project. It defaults to `require`, which refuses that
+  client and names the setting to change; `narrow` stays for an operator who opts in
+  (ADR-0119, partly superseding ADR-0110). Claude Code lists its folders under `claude -p`
+  too, measured, so headless use is unaffected. The suite's shared config helpers set
+  `narrow`, because its test clients list none: with only the default flipped, 183 tests
+  failed and 6 errored across 34 files; setting it in three helpers and regenerating the
+  configuration reference cleared all of them. Written first, the new test found the default `narrow` and no refusal.
+
 ## #457 — 2026-10-06 — fix: setup and the roots refusal ask for the parent folder
 
 ### Fixed

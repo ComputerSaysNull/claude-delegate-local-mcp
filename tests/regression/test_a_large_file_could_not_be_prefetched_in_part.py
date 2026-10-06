@@ -37,6 +37,7 @@ def files_cfg(tmp_path, **over) -> Config:
         "respect_gitignore": False,
         "admission_idle_hold": 0.0,
         "context_overflow_enabled": False,  # the doubles answer no window probe
+        "client_roots": "narrow",  # the test client lists no roots (ADR-0119)
         # Deliberately tight: the whole file is over this, the 10-20 range is not.
         "max_file_tokens": 50,
         "max_total_prefetch_tokens": 1000,
