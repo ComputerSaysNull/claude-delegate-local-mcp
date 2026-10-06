@@ -30,6 +30,16 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #466 — 2026-10-06 — chore: release 0.10.0
+
+### Changed
+
+- **The version moves to 0.10.0, so the web viewer's tracker can pin what it now reads.**
+  The transcript format went from 1.9 to 1.10: the `answer` event says whether the caller
+  or the person answered (#465). Beside it, a question only the person can answer is put
+  to them by MCP elicitation (#464). The release itself is the tag `v0.10.0` on `main`,
+  published by the release workflow (ADR-0115).
+
 ## #465 — 2026-10-06 — feat: the stream says who answered a question
 
 ### Added
