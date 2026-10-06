@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #463 — 2026-10-06 — chore: release 0.9.0
+
+### Changed
+
+- **The version moves to 0.9.0, so the web viewer's tracker can pin what it now reads.**
+  The transcript format went from 1.6 to 1.9: `retry.kind` names every reason, including
+  `EmptyAtLength` (#460), a turn's last `partial` is marked `final` and holds the tail of
+  its thinking (#461), and `turn.reasoning_duplicate_line_share` (#462). Beside those, a
+  client listing no folders is now refused by default (#458). The release itself is the
+  tag `v0.9.0` on `main`, published by the release workflow (ADR-0115).
+
 ## #462 — 2026-10-06 — feat: repetition is measured in a turn's thinking too
 
 ### Added
