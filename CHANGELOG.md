@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #461 — 2026-10-06 — feat: a turn's partials hold all of its thinking
+
+### Added
+
+- **The stream lost the end of every turn's thinking.** A `partial` carries the text since
+  the previous one and is written at most once per interval, and the buffer was cleared
+  when the next turn began, so whatever arrived after the last interval never reached the
+  stream. The web viewer's tracker keeps each turn's thinking in a fold, and could show
+  only 359 of 1,591 such turns complete. Each turn now ends with one last `partial`,
+  marked `final: true` and written just before its `turn` event, holding that tail, so a
+  turn's partials joined in order are its whole thinking and reply. Writing the thinking
+  whole on `turn` instead was weighed and not done: the partials already carry 12.7 M
+  characters of it across 56 MB of streams, and a copy would add about a fifth. An added
+  field, so the format moves to 1.8 (ADR-0111). Written first, the joined partials lacked
+  the tail on both the loop and the one-shot path.
+
 ## #460 — 2026-10-06 — feat: every retried attempt says why
 
 ### Added

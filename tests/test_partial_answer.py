@@ -48,7 +48,7 @@ class Clock:
 
 def test_the_first_piece_goes_at_once_and_then_one_per_interval():
     clock, sent = Clock(), []
-    text = PartialText(2.0, lambda r, a: sent.append((r, a)), clock)
+    text = PartialText(2.0, lambda r, a, f: sent.append((r, a)), clock)
     text.add("reasoning", "Thinking ")          # first piece of the turn: at once
     clock.t = 0.5
     text.add("reasoning", "it over. ")
@@ -64,7 +64,7 @@ def test_a_new_turn_drops_what_the_last_one_still_held():
     """The `turn` event already carries the whole of that reply; carrying its tail into
     the next turn's first partial would put one turn's words under another's number."""
     clock, sent = Clock(), []
-    text = PartialText(2.0, lambda r, a: sent.append((r, a)), clock)
+    text = PartialText(2.0, lambda r, a, f: sent.append((r, a)), clock)
     text.add("answer", "one ")
     clock.t = 0.5
     text.add("answer", "held")
@@ -76,13 +76,13 @@ def test_a_new_turn_drops_what_the_last_one_still_held():
 
 def test_zero_turns_it_off():
     sent: list = []
-    text = PartialText(0.0, lambda r, a: sent.append((r, a)), Clock())
+    text = PartialText(0.0, lambda r, a, f: sent.append((r, a)), Clock())
     text.add("answer", "anything")
     assert sent == []
 
 
 def test_a_failing_writer_does_not_fail_the_turn():
-    def broken(r, a):
+    def broken(r, a, f):
         raise OSError("disk full")
 
     PartialText(1.0, broken, Clock()).add("answer", "x")  # must not raise

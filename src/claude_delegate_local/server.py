@@ -415,7 +415,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     expected_concurrency: int = 1,
     concurrency_now: Callable[[], Awaitable[int]] | None = None,
     on_token: Callable[[], None] | None = None,
-    on_partial: Callable[[int, str, str], None] | None = None,
+    on_partial: Callable[[int, str, str, bool], None] | None = None,
     ask: Callable[[list[str]], Awaitable[str]] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
@@ -973,10 +973,10 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         if stream is not None:
             stream.tools(**row)
 
-    def generating(turn: int, reasoning: str, answer: str) -> None:
+    def generating(turn: int, reasoning: str, answer: str, final: bool) -> None:
         """The reply so far, for a person watching (M19.5). Never the record: `turn` is."""
         if stream is not None:
-            stream.partial(turn=turn, reasoning=reasoning, answer=answer)
+            stream.partial(turn=turn, reasoning=reasoning, answer=answer, final=final)
 
     started = _clock()
     lease: AdmissionLease | None = None

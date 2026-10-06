@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.7"
+FORMAT = "1.8"
 
 # The fixed values `end.ended` may hold, so a reader can branch on the ending rather than
 # parse the words in `error`. Kept beside FORMAT because it is the same contract.
@@ -300,16 +300,23 @@ class Stream:
             "of_turns": of_turns, "tool_calls": tool_calls,
         })
 
-    def partial(self, *, turn: int, reasoning: str, answer: str) -> None:
+    def partial(self, *, turn: int, reasoning: str, answer: str,
+                final: bool = False) -> None:
         """The reply's text since the last `partial`, while the turn is still generating.
 
         For a person watching; the `turn` event that follows carries the whole reply and is
         the one to keep. A retried attempt's text is here too, since it was what arrived.
+        `final` is true on the turn's last partial, written just before its `turn` event:
+        joined in order, a turn's partials then hold all of its reasoning and reply text
+        (format 1.8). Only a final partial carries the key, so earlier events are unchanged.
         """
-        self._put({
+        event: dict[str, Any] = {
             "t": "partial", "at": datetime.now(UTC).isoformat(), "turn": turn,
             "reasoning": reasoning, "answer": answer,
-        })
+        }
+        if final:
+            event["final"] = True
+        self._put(event)
 
     def question(self, questions: list[str]) -> None:
         """A run paused on its caller: the question it asked, before anyone answers it.
