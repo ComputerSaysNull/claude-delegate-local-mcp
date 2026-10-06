@@ -153,9 +153,11 @@ class Config:
     # ---- path policy, layers 1 to 4 (ADR-0006) -----------------------------------
     workspace_roots: tuple[str, ...] = _f(
         (),
-        "REQUIRED. Layer 1: directories a delegated model may read from, separated by "
-        "os.pathsep. Any path whose real location falls outside every root is refused, "
-        "which is what closes symlink escapes. Written in native host form.",
+        "REQUIRED. Layer 1: the folder your projects live in, usually just one, separated "
+        "by os.pathsep if more. A ceiling rather than a list of projects: each session is "
+        "narrowed to the folders its client lists (ADR-0110), so one parent covers every "
+        "project under it. Any path whose real location falls outside every root is "
+        "refused, which is what closes symlink escapes. Written in native host form.",
     )
     workdir_roots: tuple[str, ...] = _f(
         (),
@@ -213,6 +215,15 @@ class Config:
             "derived": True,
             "description": "Per-repository additions to the extension allowlist, read from "
             "each workspace root's .claude/delegate-local.toml at session setup (ADR-0116). "
+            "Never an environment setting.",
+        },
+    )
+    env_file: str | None = field(
+        default=None,
+        metadata={
+            "derived": True,
+            "description": "The .env file these settings were read from, None if none was, "
+            "so a refusal reaching a session in another project can say where to edit. "
             "Never an environment setting.",
         },
     )
@@ -1131,8 +1142,8 @@ def parse_env_file(text: str) -> dict[str, str]:
     return out
 
 
-def _env_file_values(explicit: str | Path | None) -> dict[str, str]:
-    """Values from a .env file, or an empty mapping if there is none to read.
+def _env_file_values(explicit: str | Path | None) -> tuple[dict[str, str], str | None]:
+    """Values from a .env file and the file's path, or an empty mapping and None.
 
     An explicitly requested file that does not exist is an error, not an empty result:
     asking for a file and silently getting the defaults is no error, no symptom, wrong
@@ -1145,9 +1156,11 @@ def _env_file_values(explicit: str | Path | None) -> dict[str, str]:
                 f"{ENV_FILE_VAR} names {path}, which does not exist. Point it at a real "
                 f"file or unset it; it is not ignored when wrong."
             )
-        return parse_env_file(path.read_text(encoding="utf-8"))
+        return parse_env_file(path.read_text(encoding="utf-8")), str(path)
     found = REPO_ROOT / ".env"
-    return parse_env_file(found.read_text(encoding="utf-8")) if found.is_file() else {}
+    if not found.is_file():
+        return {}, None
+    return parse_env_file(found.read_text(encoding="utf-8")), str(found)
 
 
 def load(environ: dict[str, str] | None = None,
@@ -1168,10 +1181,11 @@ def load(environ: dict[str, str] | None = None,
     .env happens to sit in the working tree. `env_file` overrides both.
     """
     discovered: dict[str, str] = {}
+    read_from: str | None = None
     if env_file is not None:
-        discovered = _env_file_values(env_file)
+        discovered, read_from = _env_file_values(env_file)
     elif environ is None:
-        discovered = _env_file_values(os.environ.get(ENV_FILE_VAR))
+        discovered, read_from = _env_file_values(os.environ.get(ENV_FILE_VAR))
 
     live = os.environ if environ is None else environ
     src: dict[str, str] = {**discovered, **{k: v for k, v in live.items() if v != ""}}
@@ -1188,7 +1202,7 @@ def load(environ: dict[str, str] | None = None,
     # ext_allowlist is compared case-insensitively and needs leading dots.
     if "ext_allowlist" in kwargs:
         kwargs["ext_allowlist"] = normalise_extensions(kwargs["ext_allowlist"])
-    return Config(**kwargs)
+    return Config(**kwargs, env_file=read_from)
 
 
 def describe() -> list[dict[str, Any]]:

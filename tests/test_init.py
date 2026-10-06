@@ -140,6 +140,16 @@ def test_the_prompt_carries_the_setting_s_own_help_text(tmp_path: Path):
         assert rows[name]["env"] in shown, name
 
 
+def test_the_roots_prompt_asks_for_the_folder_the_projects_live_in(tmp_path: Path):
+    """The roots are a ceiling (ADR-0110): one parent folder, not a list of projects.
+
+    "One per line" read as "list your projects", so a new project meant editing `.env`.
+    """
+    _, shown = drive(script(), tmp_path)
+    assert "the folder your projects live in" in shown
+    assert "One per line" not in shown
+
+
 # --------------------------------------------------------------------------------------
 # Backups
 

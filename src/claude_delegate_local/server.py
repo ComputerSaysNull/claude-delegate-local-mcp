@@ -1804,7 +1804,8 @@ async def session_scope(cfg: Config, ctx: Context | None) -> SessionScope:
             f"None of the folders this session lists ({', '.join(roots) or 'none'}) is "
             f"inside DELEGATE_WORKSPACE_ROOTS ({', '.join(ceiling)}), so it may reach "
             "nothing. Open the session in a project under one of those roots, or add the "
-            "project to DELEGATE_WORKSPACE_ROOTS."
+            "folder your projects live in to DELEGATE_WORKSPACE_ROOTS, once, in "
+            f"{cfg.env_file or 'the environment this server was started with'}."
         )
     workspace_name = _workspace_name(ceiling, roots)
     if not cfg.workdir_roots:

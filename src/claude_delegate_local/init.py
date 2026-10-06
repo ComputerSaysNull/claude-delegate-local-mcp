@@ -217,8 +217,8 @@ def ask_roots(row: dict[str, Any], *, inp, out) -> list[str]:
     is this project's one direction of travel.
     """
     print(f"\n{row['env']}\n  {row['description']}", file=out)
-    print("  One per line. A pasted Windows path is accepted; blank line when done.",
-          file=out)
+    print("  Not each project: a new project under it needs no edit here. A pasted Windows "
+          "path is accepted; blank line when done.", file=out)
     roots: list[str] = []
     while True:
         label = "" if not roots else f"  {len(roots)} so far."

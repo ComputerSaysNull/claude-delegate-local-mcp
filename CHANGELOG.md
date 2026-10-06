@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #457 — 2026-10-06 — fix: setup and the roots refusal ask for the parent folder
+
+### Fixed
+
+- **`--init` steered people into listing every project as a root.** It asked for roots
+  "one per line", which reads as "list your projects", so using the MCP in a new project
+  meant editing this server's `.env` first. Since the roots became a ceiling that each
+  session is narrowed under (ADR-0110), the setup meant is one parent folder, set once. The
+  prompt and the setting's own description now ask for the folder the projects live in.
+  Written first, the test found "One per line" and no such question.
+- **The refusal for a session outside the roots said to add *the project*.** Same
+  steering, at the moment it bites, and it reaches a session in another project, which
+  cannot know where this server's `.env` lives. It now asks for the folder the projects
+  live in and names the `.env` the settings were read from, which the loader now records.
+  Written first, the wording and the file name were both missing, and the loader had
+  nowhere to keep the path.
+
 ## #456 — 2026-10-05 — chore: release 0.8.0
 
 ### Changed
