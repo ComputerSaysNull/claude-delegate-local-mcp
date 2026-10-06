@@ -932,13 +932,19 @@ async def _until_deadline(
                 pass  # its own cancellation; the exception that brought us here propagates
 
 
+# The kinds a `RetryRecord.kind` may hold, mirrored as the `retry.kind` enum in
+# `transcript.schema.json` (kept in lockstep by tests/test_every_retry_says_why.py).
+RETRY_KINDS = ("BackendUnavailable", "BackendRefused", "EmptyAtLength")
+
+
 @dataclass(frozen=True, slots=True)
 class RetryRecord:
-    """One failed attempt `complete_with_retry` chose to retry, and why.
+    """One failed attempt the turn tried again after, and why.
 
     `attempts` cannot say which failure it was, and a dropped route and a 503 have
-    different remedies. `kind` is the exception class, `status` a refusal's HTTP status,
-    `seconds` the failed attempt's run, `wait` the sleep chosen.
+    different remedies. `kind` is the exception class for a transport retry, or
+    `EmptyAtLength` for a recovery stage; `status` a refusal's HTTP status, `seconds` the
+    failed attempt's run, `wait` the sleep chosen.
     """
 
     kind: str
@@ -1210,6 +1216,9 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
     stage(response)
     if not is_empty_at_length(response):
         return done(response, effort)
+    # Moving on from an empty attempt is a retry too, and recorded like one: `attempts`
+    # alone cannot say why it rose.
+    retries.append(RetryRecord(kind="EmptyAtLength", status=None, seconds=answered, wait=0.0))
 
     # Stage 2: same level, more room, sized by `thinking_max_tokens_floor` (no second
     # setting).
@@ -1227,6 +1236,7 @@ async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are tes
         stage(response)
         if not is_empty_at_length(response):
             return done(response, effort)
+        retries.append(RetryRecord(kind="EmptyAtLength", status=None, seconds=answered, wait=0.0))
     # Otherwise the model's cap pinned the first budget and the retry would be
     # byte-identical: skipped, since paying a full generation for a chance is no mitigation.
 
