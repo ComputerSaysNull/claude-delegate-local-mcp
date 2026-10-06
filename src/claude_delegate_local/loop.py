@@ -1274,7 +1274,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     expected_concurrency: int = 1,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     on_token: Callable[[], None] | None = None,
-    on_partial: Callable[[int, str, str], None] | None = None,
+    on_partial: Callable[[int, str, str, bool], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> Dispatch:
@@ -1309,7 +1309,7 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
     reasoning_chunks = 0
     partial = PartialText(
         cfg.partial_every_seconds,
-        None if on_partial is None else lambda r, a: on_partial(1, r, a), clock)
+        None if on_partial is None else lambda r, a, f: on_partial(1, r, a, f), clock)
 
     def token_arrived(kind: str = "answer", piece: str = "") -> None:
         """One frame carried generated output; `kind` names which half of the reply.
@@ -1372,13 +1372,15 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
                 "requests_running": rate.seen_running,
                 "temperature": cfg.temperature, "top_p": cfg.top_p,
             })
-        return await dispatch_with_recovery(
+        done = await dispatch_with_recovery(
             cfg, entry, backend, request_at,
             effort=resolved, max_tokens=max_tokens,
             budget_ceiling=ceiling, asked_budget=asked_budget,
             sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=token_arrived,
             tick_sleep=tick_sleep, clock=clock,
         )
+        partial.flush()
+        return done
 
     if on_alive is None:
         return await dispatch()
@@ -1413,7 +1415,7 @@ class PartialText:
     it off. The `turn` event still carries the whole reply; this is never the record.
     """
 
-    def __init__(self, every: float, emit: Callable[[str, str], None] | None,
+    def __init__(self, every: float, emit: Callable[[str, str, bool], None] | None,
                  clock: Callable[[], float]) -> None:
         self._every = every
         self._emit = emit if every > 0 else None
@@ -1421,10 +1423,12 @@ class PartialText:
         self._reasoning: list[str] = []
         self._answer: list[str] = []
         self._last: float | None = None
+        self._seen = False
 
     def add(self, kind: str, piece: str) -> None:
         if self._emit is None or not piece:
             return
+        self._seen = True
         (self._reasoning if kind == "reasoning" else self._answer).append(piece)
         now = self._clock()
         if self._last is None or now - self._last >= self._every:
@@ -1433,15 +1437,35 @@ class PartialText:
             self._reasoning.clear()
             self._answer.clear()
             try:
-                self._emit(reasoning, answer)
+                self._emit(reasoning, answer, False)
             except Exception:  # a watcher's line must never fail a turn
                 self._emit = None
+
+    def flush(self) -> None:
+        """Emit what the turn still holds, whatever the interval, as its final partial.
+
+        Whatever arrived after the last interval emit was never written, so joining a
+        turn's partials missed the tail of its thinking. This closes the turn's stream,
+        so a reader can rely on `final: true` to know the thinking is complete. Emitted
+        only when a turn streamed anything: one that produced no text writes no partial
+        at all, and a final one would then promise completeness about nothing.
+        """
+        if self._emit is None or not self._seen:
+            return
+        reasoning, answer = "".join(self._reasoning), "".join(self._answer)
+        self._reasoning.clear()
+        self._answer.clear()
+        try:
+            self._emit(reasoning, answer, True)
+        except Exception:  # a watcher's line must never fail a turn
+            self._emit = None
 
     def reset(self) -> None:
         """A new turn: drop what the last one held, and send the next first piece at once."""
         self._reasoning.clear()
         self._answer.clear()
         self._last = None
+        self._seen = False
 
 
 async def _keepalive(  # noqa: PLR0913, PLR0917 -- one reading per argument, all read per beat
@@ -2796,7 +2820,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     on_turn_done: Callable[[TurnDiagnostic, str, float], Awaitable[None]] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     on_token: Callable[[], None] | None = None,
-    on_partial: Callable[[int, str, str], None] | None = None,
+    on_partial: Callable[[int, str, str, bool], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
     ask: Callable[[list[str]], Awaitable[str]] | None = None,
@@ -2836,7 +2860,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     # Read when a piece is handed on, so each one is filed under the turn that wrote it.
     partial = PartialText(
         cfg.partial_every_seconds,
-        None if on_partial is None else lambda r, a: on_partial(turn, r, a), clock)
+        None if on_partial is None else lambda r, a, f: on_partial(turn, r, a, f), clock)
 
     def token_arrived(kind: str = "answer", piece: str = "") -> None:
         """The finer progress signal (ADR-0072): turn completion cannot see inside a long
@@ -2893,6 +2917,10 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
         nonlocal last_progress
         # Outside the callback branch, or a delegation nobody observes would stall out.
         last_progress = clock()
+        # The turn's partials end here, before its `turn` event: whatever arrived after
+        # the last interval emit is flushed as one last `final: true` partial, so joined
+        # in order a turn's partials hold all of its reasoning and reply text.
+        partial.flush()
         if on_turn_done is not None and watch.turns:
             await on_turn_done(watch.turns[-1], text, backend_seconds)
 

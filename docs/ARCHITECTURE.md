@@ -974,7 +974,8 @@ A run that asks its caller writes `question`, then `answer` with how long the re
 `end.ended` says how a run ended as a fixed value, so a reader need not parse `error`.
 
 The stream carries the model's reply text, which the record does not: whole in `turn`, and
-as it generates in `partial` (ADR-0114). That extends ADR-0039 rather than reversing it: file
+as it generates in `partial` (ADR-0114), the turn's last one marked `final` and holding the
+tail, so a turn's joined partials are whole. That extends ADR-0039 rather than reversing it: file
 *bodies* were excluded as bulky and recoverable by path, and a reply is neither — small, and
 nowhere else, which is the argument ADR-0039 used to write the task verbatim.
 

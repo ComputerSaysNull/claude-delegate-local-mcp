@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "One line of a delegation's .jsonl transcript stream",
   "description": "Format 1.x. Every line is one event, discriminated by `t`. Readers ignore fields and kinds they do not know: a minor version only adds, a major version removes, renames or changes a meaning (ADR-0111).",
-  "x-transcript-format": "1.7",
+  "x-transcript-format": "1.8",
   "type": "object",
   "required": ["t", "at"],
   "properties": {
@@ -103,7 +103,8 @@
       "properties": {
         "turn": {"type": "integer"},
         "reasoning": {"type": "string"},
-        "answer": {"type": "string"}
+        "answer": {"type": "string"},
+        "final": {"type": "boolean", "description": "True on the turn's last partial, written just before its `turn` event: joined in order, a turn's partials then hold all of its reasoning and reply text (format 1.8)."}
       }
     },
     "question": {
