@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #464 — 2026-10-06 — feat: a question only the person can answer is put to them
+
+### Added
+
+- **Every question a delegation asked went to the calling model**, which cannot answer a
+  preference, a decision or a fact only its person holds, and so guessed or passed it on.
+  `ask_caller` takes `for_person`, and such a question is put to the person by MCP
+  elicitation from the call that is waiting on the run, the only place a live request
+  exists (ADR-0120). An accepted answer goes straight to the run and the caller never sees
+  the question. A decline, a cancel, a failure or a client that cannot elicit hands it to
+  the caller as before, with `person` saying which; the person is asked once. Claude Code
+  showed an elicited question interactively and from a subagent, and cancels at once under
+  `claude -p` (JOURNAL 2026-10-06), where this costs one instant cancel. Written first,
+  eight of nine cases failed; the negative control, a question not marked for the person,
+  never elicits.
+
 ## #463 — 2026-10-06 — chore: release 0.9.0
 
 ### Changed

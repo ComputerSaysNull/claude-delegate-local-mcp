@@ -131,7 +131,7 @@ def test_a_question_reaches_the_caller_and_its_answer_reaches_the_model():
     other tool's output."""
     asked: list = []
 
-    async def answer(questions):
+    async def answer(questions, for_person=False):
         asked.append(list(questions))
         return "foo.py; yes"
 
@@ -160,7 +160,7 @@ def test_ask_caller_is_declared_only_when_a_caller_can_answer():
     names = [s.name for s in backend.requests[0].tools]
     assert "ask_caller" not in names
 
-    async def answer(questions):
+    async def answer(questions, for_person=False):
         return "ok"
 
     backend = ScriptedTurns(says("done"))
@@ -178,7 +178,7 @@ def test_a_second_question_is_refused():
     proceed on its best reading, and `ask` is invoked exactly once for the run."""
     called: list = []
 
-    async def answer(questions):
+    async def answer(questions, for_person=False):
         called.append(list(questions))
         return "first answer"
 
@@ -209,7 +209,7 @@ def test_waiting_for_an_answer_does_not_count_against_the_deadline():
     def clock():
         return now[0]
 
-    async def answer(questions):
+    async def answer(questions, for_person=False):
         now[0] += 3600.0
         return "answered after an hour"
 

@@ -60,10 +60,13 @@ class Pause:
         self.asked_at: float | None = None
         self.answer: asyncio.Future[str] | None = None
         self.asked = asyncio.Event()
+        self.for_person = False
+        self.person_asked = False  # tried once, never again (ADR-0120)
 
-    def ask(self, questions: list[str]) -> asyncio.Future[str]:
+    def ask(self, questions: list[str], for_person: bool = False) -> asyncio.Future[str]:
         """Record the questions the run is waiting on, and return the future it awaits."""
         self.questions = list(questions)
+        self.for_person = bool(for_person)
         self.asked_at = time.monotonic()
         self.answer = asyncio.get_running_loop().create_future()
         self.asked.set()
@@ -113,6 +116,10 @@ class Handles:
 
     def task(self, handle: str) -> asyncio.Future[dict[str, Any]]:
         return self._entry(handle).task
+
+    def pause(self, handle: str) -> Pause | None:
+        """The `Pause` a delegation asked with, or None if it was never given one."""
+        return self._entry(handle).pause
 
     async def collect(
         self,
