@@ -174,6 +174,8 @@ pasted `C:\Users\you\projects` splits on the drive's colon into two roots that t
 survive `to_posix` untouched and rejoin into the original. The value round-trips, every
 path under it is refused, and nothing in the file looks wrong. Asking one root at a time
 removes the parse rather than outsmarting it, and each answer is translated as it is taken.
+The prompt asks for the folder the projects live in, not for each project: the roots are a
+ceiling each session is narrowed under, so listing projects only meant editing `.env` again.
 
 **An existing file is moved aside, not refused** — refusing leaves a half-configured host
 with no way forward but hand-editing. Both `.bak-` names are covered by `.gitignore` *and*

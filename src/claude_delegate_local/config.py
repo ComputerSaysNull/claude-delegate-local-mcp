@@ -153,9 +153,11 @@ class Config:
     # ---- path policy, layers 1 to 4 (ADR-0006) -----------------------------------
     workspace_roots: tuple[str, ...] = _f(
         (),
-        "REQUIRED. Layer 1: directories a delegated model may read from, separated by "
-        "os.pathsep. Any path whose real location falls outside every root is refused, "
-        "which is what closes symlink escapes. Written in native host form.",
+        "REQUIRED. Layer 1: the folder your projects live in, usually just one, separated "
+        "by os.pathsep if more. A ceiling rather than a list of projects: each session is "
+        "narrowed to the folders its client lists (ADR-0110), so one parent covers every "
+        "project under it. Any path whose real location falls outside every root is "
+        "refused, which is what closes symlink escapes. Written in native host form.",
     )
     workdir_roots: tuple[str, ...] = _f(
         (),
