@@ -1258,6 +1258,13 @@ _DELEGATION_RESULT: dict[str, Any] = {
         "waiting_seconds": {"type": "number", "description": (
             "From `collect` while the run waits on an answer: how long it has waited."
         )},
+        "person": {"type": "string",
+                   "enum": ["declined", "cancelled", "failed", "unavailable"],
+                   "description": (
+            "Beside `question`, when the model marked it for the person: why it reached "
+            "you instead. `declined` and `cancelled` mean they saw it and did not answer; "
+            "`failed` and `unavailable` mean they were never shown it."
+        )},
         "empty_response": {"type": "boolean", "description": (
             "Nothing came back at all -- neither an answer nor reasoning. Reaching this "
             "means the server already retried at a larger budget and then at a lower "
@@ -1692,8 +1699,9 @@ MayAsk = Annotated[
     Field(description=(
         "Offer the model `ask_caller`: one call per task, holding every question it has, "
         "when it cannot tell which reading of the task is meant. `collect` then reports "
-        "`status: \"question\"`, and `answer` replies. False for a caller that will not "
-        "answer."
+        "`status: \"question\"`, and `answer` replies. A question the model marks for the "
+        "person is put to them first when the client can ask them. False for a caller "
+        "that will not answer."
     )),
 ]
 
@@ -2292,7 +2300,8 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         `text`, or set `best_reading` to leave the choice to the model; the run then
         continues and this waits for it like `collect`. Answer what the task's own meaning
         settles yourself, and pass on to the person only what only they can decide: the
-        run waits, its clocks paused, until you reply.
+        run waits, its clocks paused, until you reply. A question carrying `person` was
+        meant for them, and that field says whether they have already seen it.
         """
         if (text is not None) == best_reading:
             raise ToolError(

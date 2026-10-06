@@ -253,3 +253,17 @@ def test_ask_caller_schema_declares_for_person_as_an_optional_boolean():
     assert "for_person" in schema["properties"]
     assert schema["properties"]["for_person"]["type"] == "boolean"
     assert "for_person" not in schema.get("required", [])
+
+
+def test_the_caller_is_told_what_person_means():
+    """The other half of the contract: `collect` and `answer` declare the `person` field and
+    every value the server writes, as the client sees them on the wire."""
+    async def go():
+        async with Client(_mcp(cfg(), scripted([]))) as client:
+            return {t.name: t for t in await client.list_tools()}
+
+    listed = asyncio.run(go())
+    for name in ("collect", "answer"):
+        person = listed[name].outputSchema["properties"]["person"]
+        assert set(person["enum"]) == {"declined", "cancelled", "failed", "unavailable"}
+    assert "person" in listed["answer"].description
