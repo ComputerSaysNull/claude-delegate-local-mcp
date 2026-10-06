@@ -427,8 +427,8 @@ back at all.
 them, and across every turn when this runs inside the loop. ADR-0014 requires the retry not
 to charge the turn budget, so a turn is charged for the answer it got rather than for what
 recovering it cost. A count cannot say which failure it was, so each retried attempt is
-also kept as a `retries` entry: the error's kind, its HTTP status, its seconds and the wait
-chosen. The turn's stream event and the summary carry them.
+also kept as a `retries` entry: the error's kind and HTTP status, or `EmptyAtLength` for a
+stage, its seconds and the wait. The stream's turn event and the summary carry them.
 
 ## Turns, and what ends them
 

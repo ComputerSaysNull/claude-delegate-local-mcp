@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #460 — 2026-10-06 — feat: every retried attempt says why
+
+### Added
+
+- **Most retried turns did not say why they were retried.** Over every stream so far, 82
+  of the 88 turns with more than one attempt carried no `retries` entry, so the web
+  viewer's tracker could show that a turn retried but not why. Only a transport retry was
+  recorded; the recovery stages for a reply that came back empty at the length stop (a
+  larger budget, then a lower effort) raised `attempts` and wrote nothing. 68 of the 82
+  had run at a lower effort than asked, which is that ladder. Each stage now records the
+  empty attempt as `EmptyAtLength`, so `retries` has one entry per extra attempt, and the
+  schema lists every `kind` as an enum. An added value, so the format moves to 1.7
+  (ADR-0111). Written first, five of the six cases found no record.
+
 ## #459 — 2026-10-06 — docs: measure whether Claude Code answers an elicitation
 
 ### Added
