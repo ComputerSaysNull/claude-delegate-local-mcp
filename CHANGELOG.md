@@ -40,6 +40,12 @@ Older entries, in the previous flat format, are in
   session is narrowed under (ADR-0110), the setup meant is one parent folder, set once. The
   prompt and the setting's own description now ask for the folder the projects live in.
   Written first, the test found "One per line" and no such question.
+- **The refusal for a session outside the roots said to add *the project*.** Same
+  steering, at the moment it bites, and it reaches a session in another project, which
+  cannot know where this server's `.env` lives. It now asks for the folder the projects
+  live in and names the `.env` the settings were read from, which the loader now records.
+  Written first, the wording and the file name were both missing, and the loader had
+  nowhere to keep the path.
 
 ## #456 — 2026-10-05 — chore: release 0.8.0
 

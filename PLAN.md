@@ -412,7 +412,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 107. ⬜ **A question only the person can answer has no route to them**, only to the calling model (item 106, ADR-0118). MCP elicitation could carry it: check whether Claude Code accepts one from this server, which it does not advertise the capability for, and what `claude -p` and subagents do with it
 108. ⬜ **Setup steers people into listing every project as a root**, so using the MCP in a new project means editing this server's `.env` first. Since item 102 the roots are a ceiling, and the setup meant is one parent folder, set once
     - a. ✅ `--init` asks for roots one per line, which reads as "list your projects"; ask for the folder the projects live in
-    - b. ⬜ The refusal for a session outside the ceiling says to add *the project*; say the parent folder, and name the `.env` the server reads, which a session in another project cannot know
+    - b. ✅ The refusal for a session outside the ceiling says to add *the project*; say the parent folder, and name the `.env` the server reads, which a session in another project cannot know
     - c. ⬜ `client_roots` defaults to `narrow`, which hands a wide ceiling whole to a client listing no folders; default to `require`, with the suite setting `narrow` for itself (supersedes that part of ADR-0110)
 
 ## Deferred
