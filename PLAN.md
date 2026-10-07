@@ -1,4 +1,4 @@
-<!-- BUDGET: 480 -->
+<!-- BUDGET: 490 -->
 # Plan
 
 Open work, status first so the file scans.
@@ -416,6 +416,7 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
     - c. ✅ `client_roots` defaults to `narrow`, which hands a wide ceiling whole to a client listing no folders; default to `require`, with the suite setting `narrow` for itself (supersedes that part of ADR-0110)
 109. ✅ 2026-10-06 **A question only the person can answer still goes to the calling model.** Route it by MCP elicitation: Claude Code answers one interactively and from a subagent, and cancels at once under `claude -p` (JOURNAL 2026-10-06), so a `cancel` falls back to the caller's `answer` (ADR-0118). Open: how the model marks a question as the person's
 110. ✅ 2026-10-07 **A registry entry with no `concurrency` gets the literal 6, not the configured `max_inflight_seqs`**, so raising the cap leaves that endpoint below it, against `docs/MODELS.md`'s "defaults to the global in-flight cap" (audit 2026-10-07, finding 1). Found reading `registry.py` and `server.py`'s admission call; not yet reproduced in a test
+111. ⬜ **`test_a_slow_prefetch_leaves_the_event_loop_free` fails under a full suite's load**: 0.30s, 0.34s and 0.37s against its 0.21s limit in CI on 3.14, in WSL and in CI on 3.12, then in a full WSL run on 2026-10-07; three runs alone passed right after. A wall-clock threshold measuring the machine rather than the prefetch. Make the test tell a blocked loop from a busy one
 
 ## Deferred
 

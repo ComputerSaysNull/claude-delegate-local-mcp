@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #470 — 2026-10-07 — docs: file the prefetch timing test that fails under load
+
+### Added
+
+- **`PLAN.md` item 111.** `test_a_slow_prefetch_leaves_the_event_loop_free` has now failed
+  four times in three environments, twice on 2026-10-07 alone: in CI on #468, passing on
+  re-run, and in the full WSL run for #469, passing three times alone straight after. Each
+  failure was a few tenths of a second over a 0.21s limit, so the test is timing the
+  machine's load as well as the prefetch. It had been a note waiting for one more sighting.
+  `PLAN.md`'s budget goes from 480 to 490 to hold it.
+
 ## #469 — 2026-10-07 — docs: the audit runbook covers tools.py and keeps CLAIMS in one pass
 
 ### Fixed
