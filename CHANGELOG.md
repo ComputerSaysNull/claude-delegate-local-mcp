@@ -30,6 +30,34 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #467 — 2026-10-07 — docs: the 2026-10-07 audit, and every finding from it that was wording
+
+### Added
+
+- **`docs/audits/2026-10-07-audit.md`.** All sixteen passes returned, none partial, over
+  twenty-nine delegations, with two passes added against `tools.py`, the gap the last
+  record named. Of ten candidate findings, five were rejected on verification and one
+  reframed. One finding is a code defect rather than wording, and gets its own pull
+  request with a red test first: a registry entry's default `concurrency` is the literal 6
+  rather than the configured in-flight cap, so raising the cap leaves such an entry below it.
+
+### Fixed
+
+- **`docs/ARCHITECTURE.md` gave the feed a hard one-mebibyte cap** that `complete_events`
+  breaks for a single longer line, which it returns whole. The feed is read by a viewer in
+  another repository, so its contract says so now. It also called the unfinished `return`
+  column blank, where it shows `-`, and said the list is "never" ordered by mtime, which
+  is the last resort for a name the server did not write. Its budget goes from 1240 to
+  1250 for that last one, the feed's fix having spent the final line.
+- **`docs/DISPATCH.md` said each tool call's `ms` is timed in `_run_calls`.** That is where
+  it is recorded; it is timed in `_run_one_call` and `_run_group`, on the thread that ran it.
+- **A `loop.py` comment said `context_overflow_enabled` is off by default**, true until #429
+  turned it on. It now names what actually guards a defaulted window, `WindowCheck`, rather
+  than a default, which belongs only in `config.py`.
+- **`docs/AGENTS.md` said layer 6 runs for the write tools "and nothing else".** True of
+  `paths.py`, but read alone it left `run_bash` unprotected; the clause now says the sandbox
+  applies the same list.
+
 ## #466 — 2026-10-06 — chore: release 0.10.0
 
 ### Changed
