@@ -1,4 +1,4 @@
-<!-- BUDGET: 1240 -->
+<!-- BUDGET: 1250 -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -1108,9 +1108,11 @@ that it does not *share*.
 
 Ordering comes from the stream format rather than the filesystem: from **when the dispatch
 started** — the `start` event's `at`, falling back to the timestamp `transcript.py` puts in the
-filename — never from mtime, which moves every turn and would reshuffle the list under a reader
-watching a long dispatch. **The list is then the newest twenty**, a count rather than the
-seven-day window it replaces: an age left a busy day unreadable and a quiet week nearly empty.
+filename — and never, for a stream this wrote, from mtime, which moves every turn and would
+reshuffle the list under a reader watching a long dispatch. Mtime is the last resort only for a
+name this did not write and whose start cannot be read. **The list is then the newest twenty**,
+a count rather than the seven-day window it replaces: an age left a busy day unreadable and a
+quiet week nearly empty.
 Nothing is deleted, and an older stream still opens by path. Only the newest names are read,
 since they sort as starts do, plus any name this did not write. Unchanged ones come from a cache
 keyed on `(mtime, size)`: an unattended redraw over `/mnt/c` that re-read every one would make
