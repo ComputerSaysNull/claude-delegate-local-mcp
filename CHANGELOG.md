@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #468 — 2026-10-07 — fix: a model with no concurrency follows the configured in-flight cap
+
+### Fixed
+
+- **Raising `DELEGATE_MAX_INFLIGHT_SEQS` left every registry entry without its own
+  `concurrency` capped at 6.** `docs/MODELS.md` says such an entry defaults to the global
+  in-flight cap, and the registry did take it from there, but from a literal copy of the
+  cap's shipped default rather than the configured value. Admission checks the entry's limit
+  beside the global one, so an operator who raised the cap to 8 still got 6 per endpoint:
+  the bind that default exists to prevent, one level down. The existing test loaded only the
+  shipped config, where the two numbers agree, so it could not see it. The parser now falls
+  back to `cfg.max_inflight_seqs`, and the copy kept for an entry built without a config is
+  read from `Config` rather than written out. Found by the 2026-10-07 audit.
+
 ## #467 — 2026-10-07 — docs: the 2026-10-07 audit, and every finding from it that was wording
 
 ### Added
