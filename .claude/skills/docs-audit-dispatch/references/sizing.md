@@ -15,6 +15,9 @@ reports clean. Give MISSING and CLAIMS 40 or split them: CLAIMS returned
 costs nothing. Turns are cheap: measured over a 25-turn pass, tools were 3.4% of the wall
 clock and 94% of input tokens were cache hits, so what a turn costs is what the model writes
 in it. Prefetching what they seek is weaker, because neither knows which document holds it.
+So CLAIMS prefetches the documents it audits and searches its sources: prefetching the
+sources as well cost about five times the prompt tokens of searching them, and overran the
+prefetch budget.
 
 **Scope is the half that carries; effort is not.** A narrow arm returned thirteen of sixteen
 clean, complete answers against a broad arm's four of twelve, and fifteen of sixteen against

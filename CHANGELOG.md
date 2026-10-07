@@ -30,7 +30,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
-## #468 — 2026-10-07 — fix: a model with no concurrency follows the configured in-flight cap
+## #469 — 2026-10-07 — docs: the audit runbook covers tools.py and keeps CLAIMS in one pass
+
+### Fixed
+
+- **No pass paired `tools.py` with a document**, so the tool set and the two `allowed_tools`
+  sites were checked by nobody; the 2026-09-28 audit named the gap and the 2026-10-07 one
+  covered it with two extra passes. Rows 2 and 5 now carry it beside the modules their
+  documents already describe, which keeps the pass count at sixteen.
+- **Row 4 checked DISPATCH's retry section against the backends**, while the retry is in
+  `loop.py`; that pass could only list it unverified. The row now names `loop.py` too.
+- **Row 12 no longer fits one call.** Every document plus `DECISIONS.md` and `JOURNAL.md`
+  overran the prefetch budget, and the last document, `TROUBLESHOOTING.md`, was dropped.
+  Splitting by plane worked but cost: the three CLAIMS passes spent 3,731,750 prompt tokens
+  resending sources they only searched, against 747,948 for three filing searches that
+  prefetched nothing. CLAIMS now prefetches only the documents it audits and searches all
+  three of its sources, which also treats CHANGELOG the same as the other two.
+- **The runbook never said to read `files_skipped`**, so a dropped document would look
+  clean. It does now, beside the fields it already names.2026-10-07 — fix: a model with no concurrency follows the configured in-flight cap
 
 ### Fixed
 
