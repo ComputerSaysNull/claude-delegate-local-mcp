@@ -12,10 +12,10 @@ run yourself.
 ```
 Audit progress:
 - [ ] 1  STALE            docs/ARCHITECTURE.md  vs context, admission, slots
-- [ ] 2  STALE            docs/ARCHITECTURE.md  vs transcript, server
+- [ ] 2  STALE            docs/ARCHITECTURE.md  vs transcript, server, tools
 - [ ] 3  STALE            docs/DISPATCH.md      vs loop, turn and history sections
-- [ ] 4  STALE            docs/DISPATCH.md      vs backends, wire and retry sections
-- [ ] 5  STALE            docs/AGENTS.md
+- [ ] 4  STALE            docs/DISPATCH.md      vs backends and loop, wire and retry sections
+- [ ] 5  STALE            docs/AGENTS.md        vs agents, paths, sandbox, tools
 - [ ] 6  STALE            docs/MODELS.md + docs/TROUBLESHOOTING.md
 - [ ] 7  TOO VERBOSE      project plane
 - [ ] 8  TOO VERBOSE      product plane
@@ -44,17 +44,17 @@ the repository root or the agent is not found. Generated documents (`docs/CONFIG
 | # | Class | Prefetch in `files[]` | Effort |
 |---|---|---|---|
 | 1 | STALE | `docs/ARCHITECTURE.md` + `context.py`, `admission.py`, `slots.py` | high |
-| 2 | STALE | `docs/ARCHITECTURE.md` + `transcript.py`, `server.py` | high |
+| 2 | STALE | `docs/ARCHITECTURE.md` + `transcript.py`, `server.py`, `tools.py` | high |
 | 3 | STALE | `docs/DISPATCH.md`, *the turn and history sections* + `loop.py` | high |
-| 4 | STALE | `docs/DISPATCH.md`, *the wire and retry sections* + `backends/*.py` | high |
-| 5 | STALE | `docs/AGENTS.md` + `agents.py`, `paths.py`, `sandbox.py` | high |
+| 4 | STALE | `docs/DISPATCH.md`, *the wire and retry sections* + `backends/*.py`, and `loop.py`, which holds the retry | high |
+| 5 | STALE | `docs/AGENTS.md` + `agents.py`, `paths.py`, `sandbox.py`, `tools.py` | high |
 | 6 | STALE | `docs/MODELS.md`, `docs/TROUBLESHOOTING.md` + `registry.py`, `doctor.py` | high |
 | 7 | TOO VERBOSE | `CLAUDE.md`, `CONTRIBUTING.md`, `README.md` | high |
 | 8 | TOO VERBOSE | every hand-written `docs/*.md` | high |
 | 9 | WRONG DOCUMENT | every document, plus `config.py` | high |
 | 10 | CROSS-PLANE LEAK | every document | high |
 | 11 | MISSING | every document, plus `PLAN.md`, `archive/PLAN-milestones.md` and `scripts/docs_ownership.toml` | high |
-| 12 | CLAIMS | every document, plus `DECISIONS.md` and `JOURNAL.md` | high |
+| 12 | CLAIMS | every document; the task names `DECISIONS.md`, `JOURNAL.md` and `CHANGELOG.md` to *search*, not prefetch | high |
 | 13 | ESCAPE ABUSE | nothing | low |
 | 14 | FILED ALREADY | the hand-off notebook — **not delegable**, see below | — |
 | 15 | NARRATIVE | every `.claude/agents/*.md`, `.claude/delegate-agents/*.md`, `.claude/skills/*/SKILL.md` and `.claude/skills/*/references/*.md` | high |
@@ -80,7 +80,7 @@ column, not to run an audit.
 **Split by check class, never by document.** Four of the nine classes cannot see a split by
 document: WRONG DOCUMENT and CROSS-PLANE LEAK need every document that could hold the
 restatement, MISSING needs every document or absence cannot be established, and CLAIMS needs
-`DECISIONS.md` and `JOURNAL.md` alongside. A pass that cannot see the other copy reports
+all three of its sources within reach. A pass that cannot see the other copy reports
 nothing and looks clean.
 
 ## Task template
@@ -175,5 +175,9 @@ so.** Its last turn forbids tools, so it wrote whatever it had rather than what 
 finished — a clean verdict from one is weaker than a clean verdict from a pass that stopped
 because it judged itself done. Read the field on every returned pass, not just the ones that
 look thin.
+
+**Read `files_skipped` on every pass too.** A row whose files overrun the prefetch budget
+loses whole files from the end of its sorted list, and a document the pass never saw comes
+back clean unless it happens to say so. Re-send what was dropped as its own pass.
 
 Committing the record resets the gate's audit-due pressure.
