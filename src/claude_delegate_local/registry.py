@@ -14,8 +14,9 @@ its name did or did not match a prefix.
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
+from typing import cast
 
 from .config import EFFORT_LEVELS, Config, ConfigError
 
@@ -32,10 +33,11 @@ _REQUIRED = ("base_url", "served_model_id")
 # default drift, and the one that drifts is whichever the reader did not check.
 DEFAULT_CONTEXT_WINDOW = 131072
 
-# Same rule, for the dataclass default, the zero-check's fallback and the parser's. It
-# tracks `Config.max_inflight_seqs` rather than being an independent number: an entry that
-# says nothing must not cap itself below what the server will admit.
-DEFAULT_CONCURRENCY = 6
+# An entry that says nothing must not cap itself below what the server will admit, so the
+# parser falls back to the *configured* `max_inflight_seqs`. This copy only serves an
+# entry built without a config, and is read from `Config` so no second literal exists.
+DEFAULT_CONCURRENCY = cast(int, next(
+    f.default for f in fields(Config) if f.name == "max_inflight_seqs"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +88,8 @@ class RegistryError(ConfigError):
     """A malformed registry. Raised at startup, never at first use."""
 
 
-def _validate(key: str, raw: dict, path: Path) -> ModelEntry:
+def _validate(key: str, raw: dict, path: Path, *,
+              default_concurrency: int = DEFAULT_CONCURRENCY) -> ModelEntry:
     where = f"{path}: [models.{key}]"
 
     unknown = set(raw) - set(ModelEntry.__dataclass_fields__) - {"default"}
@@ -134,7 +137,7 @@ def _validate(key: str, raw: dict, path: Path) -> ModelEntry:
     for num in ("context_window", "max_tokens_cap", "concurrency"):
         if num in raw and (not isinstance(raw[num], int) or raw[num] < 0):
             raise RegistryError(f"{where} {num} must be a non-negative integer.")
-    if raw.get("concurrency", DEFAULT_CONCURRENCY) == 0:
+    if raw.get("concurrency") == 0:
         raise RegistryError(f"{where} concurrency must be at least 1.")
 
     return ModelEntry(
@@ -147,7 +150,7 @@ def _validate(key: str, raw: dict, path: Path) -> ModelEntry:
         context_window_defaulted="context_window" not in raw,
         default_effort=effort,
         max_tokens_cap=int(raw.get("max_tokens_cap", 0)),
-        concurrency=int(raw.get("concurrency", DEFAULT_CONCURRENCY)),
+        concurrency=int(raw.get("concurrency", default_concurrency)),
         is_default=bool(raw.get("default", False)),
     )
 
@@ -197,7 +200,10 @@ def load(cfg: Config) -> Registry:
             f"{path} declares no models. Expected at least one [models.<key>] table."
         )
 
-    entries = {key: _validate(key, raw, path) for key, raw in raw_models.items()}
+    entries = {
+        key: _validate(key, raw, path, default_concurrency=cfg.max_inflight_seqs)
+        for key, raw in raw_models.items()
+    }
 
     if cfg.default_model:
         if cfg.default_model not in entries:
