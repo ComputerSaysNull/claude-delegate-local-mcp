@@ -995,7 +995,7 @@ file existed at whatever the umask allowed. umask only clears bits, so this is a
 
 Both halves say **which call they came from and what it was handed**: `tool` is the tool the
 caller invoked, `tools` is the set that call resolved to, and the files are the prefetch
-accounting — paths and cost, never text. Both the result dict and the record also carry
+accounting — paths, cost and the lines of a range, never text. Both the result dict and the record also carry
 what the endpoint said about its own work: the cached prompt-token count, the total,
 `stop_reason` and `system_fingerprint`, described in [DISPATCH.md](DISPATCH.md), which owns
 the adapter that reads them. They are recorded rather than summed here, because `None` means
