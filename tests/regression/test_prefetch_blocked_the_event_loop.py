@@ -5,13 +5,16 @@
 measured over 23 to 44 files on `/mnt/c`, longer when the gitignore layer fans out. For that
 long nothing else in the process was scheduled -- no heartbeat, no admission tick, no other
 delegation's stream -- and handles put several runs in one process as the normal case.
+
+The test used to time the loop's ticks, which measured the machine rather than the prefetch
+and failed under a full suite's load (PLAN U.111); it now hands off between the two -- the
+fake prefetch waits for a coroutine that can only run if the loop is free.
 """
 
 from __future__ import annotations
 
 import asyncio
-import time
-from itertools import pairwise
+import threading
 
 from fastmcp import Client
 
@@ -20,36 +23,38 @@ from wire_double import as_stream
 
 from claude_delegate_local import server
 
-BLOCK_SECONDS = 0.3
+# Only spent when the loop is blocked, i.e. when the test is failing anyway.
+HANDSHAKE_SECONDS = 10.0
 
 
 def test_a_slow_prefetch_leaves_the_event_loop_free(tmp_path, monkeypatch) -> None:
     real = server.prefetch
+    entered = threading.Event()
+    released = threading.Event()
+    blocked: list[bool] = []
 
     def slow_prefetch(*args, **kwargs):
-        time.sleep(BLOCK_SECONDS)  # the blocking file work, standing in for a slow disk
+        entered.set()
+        blocked.append(not released.wait(HANDSHAKE_SECONDS))
         return real(*args, **kwargs)
 
     monkeypatch.setattr(server, "prefetch", slow_prefetch)
     config = cfg(slots_dir=str(tmp_path), admission_idle_hold=0)
     mcp = server.build(config, registry(entry()),
                        DoubleCache(config, lambda _r: as_stream(chat_reply(content="ok"))))
-    ticks: list[float] = []
 
-    async def ticker(stop: asyncio.Event) -> None:
-        while not stop.is_set():
-            ticks.append(time.monotonic())
-            await asyncio.sleep(0.02)
+    async def release() -> None:
+        while not entered.is_set():
+            await asyncio.sleep(0.01)
+        released.set()
 
     async def go():
-        stop = asyncio.Event()
-        beat = asyncio.create_task(ticker(stop))
+        releaser = asyncio.create_task(release())
         async with Client(mcp) as client:
             await client.call_tool("delegate_readonly", {"task": "q", "effort": "inherit"})
-        stop.set()
-        await beat
+        releaser.cancel()  # still polling only if prefetch was never called, which fails below
 
     asyncio.run(go())
-    gaps = [b - a for a, b in pairwise(ticks)]
-    assert max(gaps) < BLOCK_SECONDS * 0.7, (
-        f"the loop stood still for {max(gaps):.2f}s while prefetch ran")
+    assert blocked == [False], (
+        "prefetch held the event loop: a coroutine on it could not run "
+        "until the handshake timed out")
