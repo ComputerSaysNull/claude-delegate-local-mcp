@@ -668,12 +668,11 @@ class Config:
 
     secret_content_scan_bytes: int = _f(
         4096,
-        "Bytes of a file read at the head and checked for private-key armour, whatever "
-        "the file is named. Closes the gap every other layer leaves: they all inspect the "
-        "path, so a key renamed config.json passes all of them. Narrow by design -- PEM "
-        "headers and the PuTTY one, never a general secret scanner, which would fire on "
-        "the sources a review delegation exists to read. 0 disables both the read check "
-        "and the sandbox's content shadowing (ADR-0096).",
+        "Bytes of a file read at the head and checked for private-key armour and API "
+        "tokens, whatever the file is named: every other layer inspects the path, so a key "
+        "renamed config.json passes them all. Narrow by design -- PEM headers, the PuTTY "
+        "one and well-known token prefixes, never a general secret scanner. 0 disables "
+        "both the read check and the sandbox's content shadowing (ADR-0096, ADR-0121).",
     )
 
     opaque_globs_file: str = _f(

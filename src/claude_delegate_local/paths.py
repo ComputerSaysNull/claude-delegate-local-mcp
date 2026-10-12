@@ -495,6 +495,30 @@ _KEY_MARKERS: tuple[re.Pattern[bytes], ...] = (
     re.compile(rb"PuTTY-User-Key-File-\d"),
 )
 
+# API tokens, by the prefix their issuer stamps on them, so one in `config.local.json` is
+# caught although its name is ordinary (ADR-0121). The same precision bar: each shape is a
+# fixed prefix plus a run of the issuer's own length and alphabet, bounded so a prefix
+# inside a longer base64 run is no token. Named by a label, never by the match: a key's
+# header is safe to quote, and a token quoted in its own refusal is the leak.
+_NOT_AFTER = rb"(?<![A-Za-z0-9_-])"
+_TOKEN_MARKERS: tuple[tuple[str, re.Pattern[bytes]], ...] = tuple(
+    (label, re.compile(_NOT_AFTER + shape)) for label, shape in (
+        ("a GitHub token", rb"gh[pousr]_[A-Za-z0-9]{36}(?![A-Za-z0-9])"),
+        ("a GitHub fine-grained token", rb"github_pat_[A-Za-z0-9_]{82}"),
+        ("an Anthropic API key", rb"sk-ant-[a-z]+\d{2}-[A-Za-z0-9_-]{32,}"),
+        ("an OpenAI API key", (rb"sk-(?:proj-|svcacct-|admin-)[A-Za-z0-9_-]{40,}"
+                               rb"|sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}")),
+        # AWS's documented example id is quoted everywhere, so it is not a hit.
+        ("an AWS access key id",
+         rb"(?:AKIA|ASIA)(?![0-9A-Z]{9}EXAMPLE)[0-9A-Z]{16}(?![0-9A-Z])"),
+        ("a Slack token", rb"xox[abposr]-\d{6,}-[0-9A-Za-z-]{10,}"),
+        ("a GitLab token", rb"glpat-[A-Za-z0-9_-]{20}"),
+        ("a Hugging Face token", rb"hf_[A-Za-z]{34}(?![A-Za-z0-9])"),
+        ("a Stripe secret key", rb"[sr]k_live_[0-9A-Za-z]{24,}"),
+        ("an npm token", rb"npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])"),
+    )
+)
+
 
 def key_material_marker(head: bytes) -> str | None:
     """The name of the first key-material marker in `head`, or None.
@@ -503,14 +527,17 @@ def key_material_marker(head: bytes) -> str | None:
     a decode that raised would turn a detector into a crash. The caller supplies however
     much of the file it is willing to read, which is what bounds the cost.
 
-    Returns the marker so both callers can name it -- one in a refusal the model reads, one
-    in a diagnostic about what was covered up -- exactly as `secret_match` returns its
-    pattern.
+    Returns the marker so every caller can name it -- in a refusal the model reads, in a
+    diagnostic about what was covered up -- exactly as `secret_match` returns its pattern.
+    A key's header is returned as found; a token only by its label.
     """
     for pattern in _KEY_MARKERS:
         found = pattern.search(head)
         if found is not None:
             return found.group(0).decode("ascii", "replace")
+    for label, pattern in _TOKEN_MARKERS:
+        if pattern.search(head) is not None:
+            return label
     return None
 
 
@@ -1548,7 +1575,7 @@ def _refuse_key_material(entry: ResolvedPath, fd: int, scan_bytes: int) -> None:
             given=entry.given,
             layer=LAYER_SECRET,
             reason=(
-                f"its contents are key material -- it begins {marker!r} -- whatever it is "
+                f"its contents are key material -- it holds {marker!r} -- whatever it is "
                 "named. The denylist matches names, and this file's name did not match."
             ),
             remedy=(

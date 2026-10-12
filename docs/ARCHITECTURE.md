@@ -507,7 +507,7 @@ an interpreter the sandbox did not build. `--doctor` re-scans and *reports* what
 but unusable nested. Both are matched by realpath and skipped; a neighbour is not. (ADR-0065)
 
 **The scan also reads bytes, not only names.** A file the denylist missed by name gets its
-first `secret_content_scan_bytes` checked for private-key armour, and a hit is covered like
+first `secret_content_scan_bytes` checked for private-key armour and API tokens; a hit is covered like
 any other match with `content:` naming what fired. Only where the name did *not* already
 match — a covered file is covered, and re-reading it to reach the same verdict is a read
 per file for nothing. This is the same detector `paths.py` runs, sharing one pattern table

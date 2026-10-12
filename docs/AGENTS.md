@@ -272,7 +272,7 @@ alike, so a path outside every root is never told whether it exists.
 |---|---|---|
 | 1 | Workspace roots | Anything whose **real** path falls outside a configured root — narrowed, per call, to the folders the client lists for its session, so the configured roots are a ceiling ([`client_roots`](CONFIGURATION.md), ADR-0110). Resolution happens after symlinks, which closes escape through a link that was already there; one planted afterwards is caught at the open, below |
 | 2 | Extension allowlist | Anything whose extension is not listed: the operator's list, plus what the file's own workspace root adds with `ext_allowlist_extra` in `.claude/delegate-local.toml`, a file the model cannot write (ADR-0116) |
-| 3 | Secret denylist | `.env*`, `*.pem`, `*.key`, `id_*`, `*credential*`, `*secret*`, `.git/**`, and more — **and, at the open, private-key armour in the first `secret_content_scan_bytes` whatever the file is named** |
+| 3 | Secret denylist | `.env*`, `*.pem`, `*.key`, `id_*`, `*credential*`, `*secret*`, `.git/**`, and more — **and, at the open, private-key armour or an API token in the first `secret_content_scan_bytes` whatever the file is named** |
 | 4 | Gitignore | Anything git ignores |
 | 6 | Protected path | **Writes only.** A file a host program acts on, from `security/protected_globs.txt`, whether or not it exists yet |
 
@@ -285,10 +285,10 @@ other check is a function of the path, so a key renamed `config.json` passed all
 and `run_bash` could read one the mount-level scan had missed by name too, which is why the
 same detector runs in `sandbox.py` as well. One pattern table serves both, or a pattern
 added to one would leave the same bytes reachable through the other. It is deliberately
-tiny — PEM headers and the PuTTY one — and is **not** `scan_text` pointed at contents: that
+tight — PEM headers, the PuTTY one, and API tokens by their issuer's prefix, named by label
+so no refusal quotes one (ADR-0121) — and is **not** `scan_text` pointed at contents: that
 scanner hunts addresses, private-DNS suffixes and unfamiliar emails, and would fire on the
-sources a review delegation exists to read. A check that cries wolf gets switched off, and
-a switched-off check is worse than none because it is still believed. (ADR-0096)
+sources a review delegation exists to read; one that cries wolf gets switched off. (ADR-0096)
 
 A pattern may be prefixed `!` to **exempt** rather than deny, and every exemption is
 checked before any deny. It is for the case where a broad pattern is right about a family

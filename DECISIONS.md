@@ -19,6 +19,37 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0121 — 2026-10-12 — API tokens are found by their issuer's prefix, and named by a label — Accepted
+
+**Context.** The content check finds private-key armour only (ADR-0096), and the denylist
+matches names, so a token in a file with an ordinary name — `config.local.json`,
+`settings.local.json`, `*.tfvars` — passed every layer that is about secrets. The gitignore
+layer stopped most such files, but as a net for local files rather than a secret check, and
+the operator wants gitignored files readable. A token in a file that is read reaches the
+caller's conversation and the transcript folder, which on the operator's machine is synced.
+
+**Decision.**
+
+- **The marker table gains well-known token prefixes**: GitHub, GitHub fine-grained,
+  Anthropic, OpenAI, an AWS access key id, Slack, GitLab, Hugging Face, Stripe, npm. Each is
+  the issuer's fixed prefix plus a run of its own length and alphabet, bounded so a prefix
+  inside a longer base64 run is no hit, and AWS's documented example id is excluded.
+- **One table still serves every caller**: the read check, `read_git`'s output check and the
+  sandbox's content shadowing, as ADR-0096 requires.
+- **A token is named by a label, never by the match.** A key's header is safe to quote; a
+  token quoted in its own refusal would hand the model the credential it was refused.
+- **Plain-text credential files are denied by name too**: Terraform variables and state,
+  a `kubeconfig` outside `.kube/`, Claude Code's `settings.local.json`.
+
+**Rejected.** A general entropy or keyword scanner: it fires on the sources a review
+delegation exists to read, which is why ADR-0096 refused one. Measured before choosing the
+shapes: 0 hits over 13,690 files under the projects folder, virtualenvs included, and 10 of
+10 synthetic tokens found.
+
+**Consequence.** A token of an unlisted shape, in a file with an ordinary name, still
+passes; a new issuer is one line in the table. Like the key check, only the first
+`secret_content_scan_bytes` of a file are read.
+
 ## ADR-0120 — 2026-10-06 — A question only the person can answer is put to them by elicitation — Accepted
 
 **Context.** ADR-0118 routes every question to the calling model, which cannot answer a
