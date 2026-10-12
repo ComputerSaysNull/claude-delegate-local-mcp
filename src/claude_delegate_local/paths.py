@@ -1113,7 +1113,8 @@ def resolve_files(
     data. An exception carrying a list the handler must take apart is a return value that
     has to be caught first.
     """
-    survivors, refusals = _resolve_many(cfg, given, must_exist, writing=writing)
+    survivors, refusals = _resolve_many(
+        cfg, given, must_exist, writing=writing, ask_gitignore=writing)
     return survivors, tuple(refusals)
 
 
@@ -1243,7 +1244,29 @@ def _expand_one(cfg: Config, raw: str, roots: Sequence[str]) -> list[str] | Refu
                 "of sending nothing useful. DELEGATE_MAX_GLOB_MATCHES raises the cap."
             ),
         )
-    return sorted(found)
+    return _drop_ignored(raw, sorted(found)) if cfg.respect_gitignore else sorted(found)
+
+
+def _drop_ignored(raw: str, found: list[str]) -> list[str] | Refusal:
+    """A glob's matches less what git ignores, or the refusal saying it ignores them all.
+
+    A glob is a search in shorthand, so it leaves out what git ignores as a search does:
+    `**/*.py` must not pull in `.venv`. Only a path named outright reads an ignored file
+    (ADR-0122).
+    """
+    ignored = gitignored([os.path.realpath(hit) for hit in found])
+    kept = [hit for hit in found if os.path.realpath(hit) not in ignored]
+    if kept:
+        return kept
+    return Refusal(
+        given=raw,
+        layer=LAYER_GITIGNORE,
+        reason="git ignores every file it matched.",
+        remedy=(
+            "A pattern leaves ignored files out, as a search does. To read an ignored "
+            "file, name it by its path."
+        ),
+    )
 
 
 def resolve_all(  # noqa: PLR0913 -- all keyword-only; each one is a disposition flag
@@ -1293,17 +1316,23 @@ def resolve_permitted(
     matcher here is how a pattern would come to deny `read_file` while leaving the same
     file findable by search, with nothing reporting the disagreement.
     """
-    survivors, _ = _resolve_many(cfg, given, must_exist)
+    survivors, _ = _resolve_many(cfg, given, must_exist, ask_gitignore=True)
     return survivors
 
 
 def _resolve_many(
-    cfg: Config, given: Sequence[str], must_exist: bool, *, writing: bool = False
+    cfg: Config, given: Sequence[str], must_exist: bool, *, writing: bool = False,
+    ask_gitignore: bool,
 ) -> tuple[tuple[ResolvedPath, ...], list[Refusal]]:
     """The four layers over a list, raising nothing. Both dispositions share this.
 
     `writing` adds the protected-path check. It is its own flag rather than read off
     `must_exist`, because `edit_file` writes a file that must already exist.
+
+    `ask_gitignore` is layer 4, asked of a write and of a search's candidates but not of a
+    read the caller named: the secret checks are layer 3's, and a shell can already read
+    an ignored file, so refusing a named read kept out only what was wanted (ADR-0122).
+    Required, so no caller inherits a default it did not choose.
     """
     if not given:
         return (), []
@@ -1326,7 +1355,7 @@ def _resolve_many(
             seen.add(outcome.posix)
             survivors.append(outcome)
 
-    if cfg.respect_gitignore and survivors:
+    if ask_gitignore and cfg.respect_gitignore and survivors:
         ignored = gitignored([s.posix for s in survivors])
         kept: list[ResolvedPath] = []
         for survivor in survivors:
@@ -1339,10 +1368,10 @@ def _resolve_many(
                     layer=LAYER_GITIGNORE,
                     reason="git ignores it.",
                     remedy=(
-                        "Ignored files are build output, local environment or vendored "
-                        "bulk far more often than they are the thing under review. If "
-                        "this one really is source, commit it or set "
-                        "DELEGATE_RESPECT_GITIGNORE=false."
+                        "An ignored file can be read but not written: a change to it "
+                        "never shows in git diff, and an ignored folder such as .venv "
+                        "holds code that runs outside the sandbox. Write a file git "
+                        "tracks, or set DELEGATE_RESPECT_GITIGNORE=false."
                     ),
                 )
             )

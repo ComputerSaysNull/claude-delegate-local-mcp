@@ -48,7 +48,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_SECRET_GLOBS_FILE` | ./security/secret_globs.txt | Layer 3: globs a model must never receive, shared with the git secrets gate so there is one list and not two that drift. |
 | `DELEGATE_SECRET_CONTENT_SCAN_BYTES` | 4096 | Bytes of a file read at the head and checked for private-key armour and API tokens, whatever the file is named: every other layer inspects the path, so a key renamed config.json passes them all. Narrow by design -- PEM headers, the PuTTY one and well-known token prefixes, never a general secret scanner. 0 disables both the read check and the sandbox's content shadowing (ADR-0096, ADR-0121). |
 | `DELEGATE_PROTECTED_GLOBS_FILE` | ./security/protected_globs.txt | Paths a host program acts on -- Claude Code's settings, agent files, CLAUDE.md, editor tasks -- which the write tools refuse and run_bash sees read-only. Missing is fatal, as for the secret denylist: a list that protects nothing looks exactly like one that passed. |
-| `DELEGATE_RESPECT_GITIGNORE` | True | Layer 4: refuse paths git ignores. Cheap, and catches build output and local environment files that pass the extension allowlist. |
+| `DELEGATE_RESPECT_GITIGNORE` | True | Layer 4: refuse a write to a path git ignores, and leave ignored files out of searches and globs; a path named for reading is read (ADR-0122). A write there never shows in git diff, and an ignored .venv holds code the host runs. |
 
 ### Context prefetch
 

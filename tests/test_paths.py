@@ -308,6 +308,8 @@ def test_an_untranslatable_path_names_the_boundary_not_a_layer(tmp_path):
 
 
 # ---- layer 4: gitignore -----------------------------------------------------------
+# Asked of a write and a search, not of a named read (ADR-0122), so these write: a read
+# would pass without asking git, and a check that cannot fail is worse than none.
 
 
 def _repo(tmp_path):
@@ -325,7 +327,7 @@ def test_a_gitignored_path_is_refused(tmp_path):
     target = touch(root / "build" / "out.py")
     conf = cfg(tmp_path, workspace_roots=(os.path.realpath(root),), respect_gitignore=True)
     with pytest.raises(PathRefused) as e:
-        resolve_all(conf, [target])
+        resolve_all(conf, [target], writing=True)
     assert e.value.refusals[0].layer == LAYER_GITIGNORE
 
 
@@ -335,7 +337,7 @@ def test_the_same_path_is_allowed_with_the_layer_switched_off(tmp_path):
     root = _repo(tmp_path)
     target = touch(root / "build" / "out.py")
     conf = cfg(tmp_path, workspace_roots=(os.path.realpath(root),), respect_gitignore=False)
-    assert len(resolve_all(conf, [target])) == 1
+    assert len(resolve_all(conf, [target], writing=True)) == 1
 
 
 @posix_only
@@ -348,7 +350,7 @@ def test_a_tracked_file_is_not_ignored_even_when_a_pattern_matches_it(tmp_path):
         ["git", "-C", str(root), "add", "-f", "schema.generated.py"], check=True, env=env
     )
     conf = cfg(tmp_path, workspace_roots=(os.path.realpath(root),), respect_gitignore=True)
-    assert len(resolve_all(conf, [target])) == 1
+    assert len(resolve_all(conf, [target], writing=True)) == 1
 
 
 @posix_only
@@ -357,7 +359,7 @@ def test_a_path_outside_any_repository_is_not_treated_as_ignored(tmp_path):
     that happens to live outside a work tree."""
     target = touch(tmp_path / "loose.py")
     conf = cfg(tmp_path, respect_gitignore=True)
-    assert len(resolve_all(conf, [target])) == 1
+    assert len(resolve_all(conf, [target], writing=True)) == 1
 
 
 @posix_only
@@ -370,7 +372,7 @@ def test_an_absent_git_stops_the_policy_rather_than_passing(tmp_path, monkeypatc
 
     monkeypatch.setattr(subprocess, "run", no_git)
     with pytest.raises(PathPolicyError) as e:
-        resolve_all(cfg(tmp_path, respect_gitignore=True), [target])
+        resolve_all(cfg(tmp_path, respect_gitignore=True), [target], writing=True)
     assert "not skipped when absent" in str(e.value)
 
 

@@ -1480,8 +1480,8 @@ READ_FILE = RegisteredTool(
             "total number of lines and the line to continue from, so read the next range "
             "rather than the file again, and use start_line and end_line to go straight "
             "to the part you want rather than reading past it. Refused for a path outside "
-            "the workspace, an unlisted extension, a file git ignores, or anything that "
-            "is not text."
+            "the workspace, an unlisted extension, a secret by name or contents, or "
+            "anything that is not text."
         ),
         input_schema={
             "type": "object",
@@ -1584,8 +1584,9 @@ SEARCH_FILES = RegisteredTool(
             "path is required and names the directory to search: it is the only argument "
             "that narrows the walk, and the workspace layout below tells you what to put "
             "there. glob narrows which of the walked files are opened, not how many are "
-            "walked, so it is not a substitute. Files the path "
-            "policy declines are not searched and are not reported: they are not results. "
+            "walked, so it is not a substitute. Files the path policy declines, and files "
+            "git ignores, are not searched or reported; read_file reads an ignored file "
+            "by its path. "
             "The reply says when it stopped early or hit its scan cap -- read that before "
             "concluding something does not exist, because a narrowed search that found "
             "nothing is not proof of absence."
