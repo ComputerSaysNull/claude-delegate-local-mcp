@@ -1909,7 +1909,9 @@ async def _try_person(
     if isinstance(reply, AcceptedElicitation):
         text = reply.data
         if isinstance(text, str) and text.strip():
-            return text
+            # Claude Code ends each typed line with a bare "\r", which reads as one line
+            # anywhere "\r" returns to the start of it -- the model's input included.
+            return text.replace("\r\n", "\n").replace("\r", "\n")
         result["person"] = "failed"
     elif isinstance(reply, DeclinedElicitation):
         result["person"] = "declined"
