@@ -170,6 +170,21 @@ class FileEntry:
     start_line: int | None = None
     total_lines: int | None = None
 
+    @property
+    def end_line(self) -> int | None:
+        """A range's last line, 1-based and inclusive, as read; None for a whole file."""
+        return None if self.start_line is None else last_line(self.start_line, self.text)
+
+
+def last_line(start_line: int, text: str) -> int:
+    """The last line of a range starting at `start_line`, as its text runs.
+
+    One sum for the BEGIN header and the transcript's `files_read`, so the two cannot
+    disagree. A range was joined with "\\n", so it splits back on "\\n" alone: a
+    `splitlines` would drop a trailing blank line the range named.
+    """
+    return start_line + len(text.split("\n")) - 1
+
 
 @dataclass(frozen=True, slots=True)
 class FileRequest:
@@ -288,7 +303,7 @@ class Prefetch:
                     # A range keeps the file's own line numbers -- a 10-20 range starts at
                     # 10 -- and the width fits the largest shown. The BEGIN header says the
                     # file is not there whole, so the model does not take the block for it.
-                    last = entry.start_line + len(lines) - 1
+                    last = last_line(entry.start_line, text)
                     width = line_number_width(last)
                     # Inside the markers, not after them: `MARKER_LINE` escapes a line only
                     # if it ends in dashes, so a suffix would be forgeable unescaped.
@@ -317,13 +332,19 @@ class Prefetch:
         return {
             # Both spellings: `path` is what the server read and the model was shown,
             # `given` what the caller wrote, so the caller need not match `/mnt/c/...`
-            # against the Windows path it sent.
+            # against the Windows path it sent. A range adds the lines it was, which a
+            # whole file leaves out, so two ranges of one file are two different rows.
             "files_read": [
                 {
                     "path": e.path,
                     "given": e.given,
                     "bytes": e.nbytes,
                     "est_tokens": e.est_tokens,
+                    **(
+                        {}
+                        if e.start_line is None
+                        else {"start_line": e.start_line, "end_line": e.end_line}
+                    ),
                 }
                 for e in self.files
             ],

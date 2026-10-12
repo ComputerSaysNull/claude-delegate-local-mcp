@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #472 — 2026-10-12 — feat: a prefetched range records its lines in start.files_read
+
+### Added
+
+- **A ranged `files_read` entry says which lines it was**: `start_line` and `end_line`,
+  1-based and inclusive, on the transcript's `start` event, the record and the result dict;
+  a whole file carries neither. Requested by the web viewer, which shows a chip per
+  prefetched file and could not label a range: entries held only path and cost, so two
+  ranges of one file came out as two identical rows. The lines are the ones actually read
+  — a range past the end of the file stops at its last line, and ranges merged where they
+  meet are one entry — so `end_line` is always a number. The BEGIN header and the
+  accounting now take the end from one sum, `last_line`. Transcript format 1.11.
+
 ## #471 — 2026-10-12 — fix: the prefetch regression test no longer measures the machine
 
 ### Fixed
