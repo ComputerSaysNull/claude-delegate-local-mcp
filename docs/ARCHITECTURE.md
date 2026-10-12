@@ -418,7 +418,8 @@ filtering on the flag nor one filtering on the error reads a timeout as a finish
 
 ### Four path layers, allowlist first
 
-Workspace roots, then an extension allowlist, then a secret denylist, then gitignore.
+Workspace roots, then an extension allowlist, then a secret denylist, then gitignore —
+the last asked of writes and searches only, since ADR-0122 lets a named path be read.
 
 A *pure* allowlist cannot work for file contents — you cannot enumerate every source file
 you might ever delegate — so extension is the axis that can be allowlisted, and the

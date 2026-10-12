@@ -26,7 +26,7 @@ Which of them a given delegation actually gets is its resolved `allowed_tools` s
 
 ## `read_file`
 
-Read a UTF-8 text file from the workspace, with every line numbered, so you can cite what you read as a file name and a line number. Paths must be absolute. Long files come back one range at a time: the result states the total number of lines and the line to continue from, so read the next range rather than the file again, and use start_line and end_line to go straight to the part you want rather than reading past it. Refused for a path outside the workspace, an unlisted extension, a file git ignores, or anything that is not text.
+Read a UTF-8 text file from the workspace, with every line numbered, so you can cite what you read as a file name and a line number. Paths must be absolute. Long files come back one range at a time: the result states the total number of lines and the line to continue from, so read the next range rather than the file again, and use start_line and end_line to go straight to the part you want rather than reading past it. Refused for a path outside the workspace, an unlisted extension, a secret by name or contents, or anything that is not text.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -36,7 +36,7 @@ Read a UTF-8 text file from the workspace, with every line numbered, so you can 
 
 ## `search_files`
 
-Search the workspace for a regular expression and get back the matching lines, each as a file name, the word line, and a line number -- so you can read the part you want with read_file and cite it. This is how you find something whose location you do not know; read_file is for when you do. path is required and names the directory to search: it is the only argument that narrows the walk, and the workspace layout below tells you what to put there. glob narrows which of the walked files are opened, not how many are walked, so it is not a substitute. Files the path policy declines are not searched and are not reported: they are not results. The reply says when it stopped early or hit its scan cap -- read that before concluding something does not exist, because a narrowed search that found nothing is not proof of absence.
+Search the workspace for a regular expression and get back the matching lines, each as a file name, the word line, and a line number -- so you can read the part you want with read_file and cite it. This is how you find something whose location you do not know; read_file is for when you do. path is required and names the directory to search: it is the only argument that narrows the walk, and the workspace layout below tells you what to put there. glob narrows which of the walked files are opened, not how many are walked, so it is not a substitute. Files the path policy declines, and files git ignores, are not searched or reported; read_file reads an ignored file by its path. The reply says when it stopped early or hit its scan cap -- read that before concluding something does not exist, because a narrowed search that found nothing is not proof of absence.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |

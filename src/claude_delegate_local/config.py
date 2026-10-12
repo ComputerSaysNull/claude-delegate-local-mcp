@@ -241,8 +241,9 @@ class Config:
     )
     respect_gitignore: bool = _f(
         True,
-        "Layer 4: refuse paths git ignores. Cheap, and catches build output and local "
-        "environment files that pass the extension allowlist.",
+        "Layer 4: refuse a write to a path git ignores, and leave ignored files out of "
+        "searches and globs; a path named for reading is read (ADR-0122). A write there "
+        "never shows in git diff, and an ignored .venv holds code the host runs.",
     )
 
     # ---- files[] prefetch (ADR-0015, revised by ADR-0019) ------------------------

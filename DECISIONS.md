@@ -19,6 +19,34 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0122 — 2026-10-12 — A gitignored file named for reading is read; writes and searches still skip it — Accepted
+
+**Context.** ADR-0006 made gitignore the third net, asked of every path. Seen 2026-10-12:
+two delegations needed a hand-off document kept out of git on purpose, containing no
+secret, and could only ask the person to paste it — twice, a whole document each time.
+Layer 4 was never the secret check: names, key armour and, since ADR-0121, API tokens are
+layer 3's. And the sandbox does not cast it, so a shell with a workdir could already `cat`
+the file `read_file` refused.
+
+**Decision.**
+
+- **A read of a path someone named skips layer 4** — `read_file`, and a literal path or
+  range in `files[]`. Layers 1–3 and the open-time content check all still apply.
+- **A write still asks it.** A change to an ignored file never shows in `git diff`, and an
+  ignored folder such as `.venv` holds code the host runs outside the sandbox.
+- **A search still asks it, and so does a glob in `files[]`**, which is a search in
+  shorthand: `**/*.py` must not pull in `.venv`. A glob matching only ignored files says
+  so, rather than "matched no files". A model reads an ignored file when it knows the path.
+
+**Rejected.** A per-repository exemption list: each entry would be added only after a
+delegation had already stumbled. Letting a path in `files[]` skip the layer but not
+`read_file`: it hands the choice to the calling model, and would not have helped here,
+since the caller never named the file.
+
+**Consequence.** Private files that are not secrets — a data dump, a notes file — are
+readable by path; a credential under an ordinary name in an unlisted shape is the residue
+ADR-0121 names. `DELEGATE_RESPECT_GITIGNORE=false` still drops the layer for writes too.
+
 ## ADR-0121 — 2026-10-12 — API tokens are found by their issuer's prefix, and named by a label — Accepted
 
 **Context.** The content check finds private-key armour only (ADR-0096), and the denylist
@@ -4477,7 +4505,7 @@ telling the model not to contradict them.
 The whole self-verification design rests on this. Without it, "the tests pass" is an
 assertion rather than a measurement.
 
-## ADR-0006 — 2026-08-24 — Four-layer path policy, allowlist first — Accepted
+## ADR-0006 — 2026-08-24 — Four-layer path policy, allowlist first — Partially superseded by ADR-0122
 
 Workspace roots, then an extension allowlist, then a secret denylist, then gitignore.
 A pure allowlist cannot work for file *contents* — you cannot enumerate every source

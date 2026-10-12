@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #476 — 2026-10-12 — feat: a gitignored file named by path can be read
+
+### Changed
+
+- **A gitignored file is read when a caller or the model names it** (`PLAN.md` item 114,
+  ADR-0122). Two delegations on 2026-10-12 needed a hand-off document kept out of git on
+  purpose, with no secret in it, and could only ask the person to paste it whole. Layer 4
+  was a net rather than the secret check — names, key armour and, since #475, API tokens
+  are layer 3's — and the sandbox never cast it, so a shell could already read the file.
+  `read_file` and a literal path or range in `files[]` now skip it. A write still asks it:
+  a change to an ignored file never shows in `git diff`, and `.venv` holds code the host
+  runs. A search, and a glob in `files[]`, still leave ignored files out, so build output
+  stays out of what the model finds; a glob matching only ignored files now says so.
+  `read_file`'s and `search_files`' descriptions say which is which.
+
 ## #475 — 2026-10-12 — feat: API tokens are refused by their bytes, and credential files by name
 
 ### Added
