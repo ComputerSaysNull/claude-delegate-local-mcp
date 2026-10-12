@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #473 — 2026-10-12 — chore: release 0.11.0
+
+### Changed
+
+- **The version moves to 0.11.0, so the web viewer's tracker can pin what it now reads.**
+  The transcript format went from 1.10 to 1.11: a prefetched range's `files_read` entry
+  says which lines it was (#472). Beside it, a registry entry with no `concurrency`
+  follows the configured in-flight cap (#468), and the prefetch regression test no longer
+  fails under load (#471). The release itself is the tag `v0.11.0` on `main`, published by
+  the release workflow (ADR-0115).
+
 ## #472 — 2026-10-12 — feat: a prefetched range records its lines in start.files_read
 
 ### Added
