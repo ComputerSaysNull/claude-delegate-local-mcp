@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #474 — 2026-10-12 — fix: a person's multi-line answer keeps its line breaks
+
+### Fixed
+
+- **A person's answer arrived as one line.** Claude Code returns an elicited answer with
+  each line break as a bare `\r`, so a pasted document reached the delegation whole but
+  read as one line wherever `\r` returns to the start of it — the model's input, a
+  terminal, the transcript. Seen twice on 2026-10-12, each time a whole hand-off document
+  pasted in answer. `_try_person` now reads `\r\n` and a lone `\r` back as `\n`.
+
+### Added
+
+- **`PLAN.md` item 112**: a long elicited question is cut off in Claude Code's VS Code
+  panel, though the server sends it whole. Measuring how the panel renders one needs the
+  operator at the keyboard, so it is filed rather than guessed at.
+
 ## #473 — 2026-10-12 — chore: release 0.11.0
 
 ### Changed
