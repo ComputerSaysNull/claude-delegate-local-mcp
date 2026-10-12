@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #471 — 2026-10-12 — fix: the prefetch regression test no longer measures the machine
+
+### Fixed
+
+- **`test_a_slow_prefetch_leaves_the_event_loop_free` failed under load** (`PLAN.md` item
+  111). It slept 0.3s inside a fake prefetch and failed if a ticker on the loop ever waited
+  over 0.21s, so any loop work during the call, on a busy machine, counted against
+  prefetch. With 24 busy processes on 12 cores it failed 8 times in 8, though prefetch was
+  off the loop. It now hands off instead: the fake prefetch waits for a coroutine on the
+  loop, which can only run if the loop is free. A busy machine makes it slower, never red;
+  run against the commit before prefetch moved off the loop, it still fails.
+
 ## #470 — 2026-10-07 — docs: file the prefetch timing test that fails under load
 
 ### Added
