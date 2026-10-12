@@ -70,7 +70,9 @@ def test_write_file_refuses_a_host_acted_path(project, rel):
     before = target.read_bytes() if target.exists() else None
     result = _call(project, "write_file", path=str(target), content="planted\n")
     assert result.is_error, result.content
-    assert "protected" in result.content, result.content
+    # The local settings can hold credentials, so the denylist refuses them first (ADR-0121).
+    why = "secret denylist" if rel.endswith("settings.local.json") else "protected"
+    assert why in result.content, result.content
     after = target.read_bytes() if target.exists() else None
     assert after == before, f"{rel} was changed"
 

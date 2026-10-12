@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #475 — 2026-10-12 — feat: API tokens are refused by their bytes, and credential files by name
+
+### Added
+
+- **A well-known API token is refused wherever it sits** (`PLAN.md` item 113, ADR-0121).
+  The content check found private-key armour only and the denylist matches names, so a
+  GitHub or Anthropic token in `config.local.json` passed every secret check; only the
+  gitignore layer, a net for local files, tended to stop it. The shared marker table now
+  holds ten issuers' prefixes, so the read check, `read_git` and the sandbox's shadowing
+  all find one. A token is named by a label such as "a GitHub token", never quoted: the
+  refusal would otherwise hand the model the credential it refused. Measured before
+  choosing the shapes: no hit in 13,690 files under the projects folder, virtualenvs
+  included, and all 10 synthetic tokens found.
+- **Plain-text credential files are denied by name**: `*.tfvars`, `*.tfstate`,
+  `*.tfstate.*`, `kubeconfig` and `settings.local.json`, which hold credentials by design
+  under names nothing on the list caught.
+
 ## #474 — 2026-10-12 — fix: a person's multi-line answer keeps its line breaks
 
 ### Fixed
