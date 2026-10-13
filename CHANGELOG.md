@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #477 — 2026-10-13 — fix: a question for the person fits the prompt that shows it
+
+### Fixed
+
+- **A long question for the person was cut off where they read it** (`PLAN.md` item 112,
+  ADR-0123). Two delegations on 2026-10-12 asked the person long questions, and the person
+  saw only their first words. Measured in Claude Code's VS Code panel: an elicited message
+  shows at most 3 lines, each cut at the panel's width (about 90 characters at its usual
+  width, about 60 narrowed), with no way to expand it. The server spent the first line on a
+  header the prompt already says, then sent each question whole on one line. The header is
+  gone, each question is wrapped at 80 characters, and `ask_caller` refuses a question for
+  the person that would not fit in 3 lines, telling the model the limit. The refusal does
+  not use up its one question, so it can shorten the question and ask again.
+  `for_person`'s schema description states the limit.
+
 ## #476 — 2026-10-12 — feat: a gitignored file named by path can be read
 
 ### Changed
