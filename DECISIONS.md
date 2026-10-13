@@ -19,6 +19,31 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0123 — 2026-10-13 — A question for the person must fit three lines of 80 characters — Accepted
+
+**Context.** ADR-0120 puts a `for_person` question to the person by elicitation. Measured
+2026-10-13 (JOURNAL): Claude Code's panel shows an elicited message in at most three lines,
+cuts each at the panel's width, and cannot expand it. Two delegations' long questions had
+reached the person as their first few words.
+
+**Decision.**
+
+- **The message is the questions alone**, wrapped at 80 characters, with a `- ` bullet
+  each when there are several. The client already names the server asking, so a header
+  only spent a line.
+- **`ask_caller` refuses a question for the person that would not fit**, with the limit
+  in the refusal, and without using up the run's one question, so the model can shorten
+  it and ask again. The schema states the limit too, so most questions fit first time.
+
+**Rejected.** Sending it anyway and letting the client cut it: the person answers a
+question they never saw. Handing a long one to the caller instead: the person still loses
+the direct ask, and the model's question is no shorter. A configurable width: the limit is
+a fact about one client's panel, not a preference.
+
+**Consequence.** A panel narrower than about 80 characters still cuts each line, with a
+visible `…`. A question that cannot be said in three lines can only go to the caller,
+unmarked, who sees it whole.
+
 ## ADR-0122 — 2026-10-12 — A gitignored file named for reading is read; writes and searches still skip it — Accepted
 
 **Context.** ADR-0006 made gitignore the third net, asked of every path. Seen 2026-10-12:

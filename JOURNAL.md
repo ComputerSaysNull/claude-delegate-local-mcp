@@ -2948,3 +2948,23 @@ Code declares it in every mode, `-p` included. That declaration is what cannot b
 Under `-p` nobody is there, and the client cancels at once rather than refusing, so a
 `cancel` has to mean "ask the caller instead", not "the person said no". The installed SDK
 already has the call (`ServerSession.elicit`); nothing here needed a dependency change.
+
+## 2026-10-13 — Claude Code's panel shows three lines of an elicited message (Unscheduled 112)
+
+Two delegations on 2026-10-12 asked the person long questions, and the person saw only
+their start. A throwaway stdio server, never committed, sent five shapes of message, one
+twice, to Claude Code 2.1.296 in the VS Code panel. A marker every 32 characters let the
+person report the last one they could see:
+
+| Shape sent | Last marker seen | Shown |
+|---|---|---|
+| Header line, then 3 bullets of 255 characters | 2nd bullet, ~90 chars in | `(+3 more lines)` |
+| One line of 843 characters | ~90 chars in | `…` |
+| 30 lines of 32 characters | line 3 | `(+28 more lines)` |
+| Short message, long text in the field's description | ~90 chars in, both | `…` |
+| 3 lines wrapped at 80, no header | all of it | nothing cut |
+| One line of 843, the panel narrowed | ~60 chars in | `…` |
+
+None of the cut text could be expanded, clicked or scrolled. So the panel shows the first
+three lines and cuts each at its own width. The prompt's title names the server asking,
+so the server's header line only spent one of the three. (ADR-0123)

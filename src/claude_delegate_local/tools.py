@@ -26,6 +26,7 @@ import posixpath
 import re
 import shutil
 import subprocess
+import textwrap
 import threading
 import unicodedata
 from collections.abc import Callable, Iterable, Sequence
@@ -1744,6 +1745,11 @@ READ_GIT = RegisteredTool(
 # not be asked, and a model told it may ask when nobody is there spends a turn finding that
 # out. Kept out of `REGISTRY`, so it is not in `ALL_TOOL_NAMES` or `READ_ONLY_TOOL_NAMES`,
 # and `declared_tools` cannot offer it.
+# Claude Code shows an elicited message in three lines, cuts each at the panel's width and
+# cannot expand it (JOURNAL 2026-10-13); 80 fits the usual width, not every narrower one.
+PERSON_PROMPT_LINES = 3
+PERSON_PROMPT_WIDTH = 80
+
 ASK_CALLER_SPEC = ToolSpec(
     name="ask_caller",
     description=(
@@ -1771,7 +1777,9 @@ ASK_CALLER_SPEC = ToolSpec(
                     "True when only the person behind your caller can answer: a preference, "
                     "a decision or a fact only they hold, not something your caller can "
                     "settle from the task or the files. The server then asks the person "
-                    "directly when it can; otherwise your caller is asked as usual."
+                    "directly when it can; otherwise your caller is asked as usual. Their "
+                    f"prompt shows {PERSON_PROMPT_LINES} lines of {PERSON_PROMPT_WIDTH} "
+                    "characters and cannot expand, so the questions must fit them."
                 ),
             },
         },
@@ -1780,6 +1788,19 @@ ASK_CALLER_SPEC = ToolSpec(
 )
 
 ASKED_ALREADY = "You have already asked your one question. Proceed on your best reading."
+
+PERSON_TOO_LONG = (
+    f"ask_caller: not asked. The person's prompt shows {PERSON_PROMPT_LINES} lines of "
+    f"{PERSON_PROMPT_WIDTH} characters and cannot expand. Shorten the questions, or ask "
+    "fewer, and call ask_caller again; this did not use up your one question."
+)
+
+
+def person_lines(questions: Sequence[str]) -> list[str]:
+    """The questions as the person's prompt shows them: wrapped, one bullet each if several."""
+    bullet, indent = ("- ", "  ") if len(questions) > 1 else ("", "")
+    return [line for q in questions for line in textwrap.wrap(
+        q, PERSON_PROMPT_WIDTH, initial_indent=bullet, subsequent_indent=indent)]
 
 
 REGISTRY: dict[str, RegisteredTool] = {

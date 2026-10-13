@@ -58,11 +58,14 @@ from .registry import ModelEntry
 from .tools import (
     ASK_CALLER_SPEC,
     ASKED_ALREADY,
+    PERSON_PROMPT_LINES,
+    PERSON_TOO_LONG,
     REGISTRY,
     BashPolicy,
     SeenFiles,
     declared_tools,
     execute_tool,
+    person_lines,
 )
 
 # Derived from EFFORT_LEVELS, not written out: a second copy stops agreeing when a level is
@@ -3138,6 +3141,10 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                 elif asked:
                     result = ToolResultBlock(tool_use_id=call.id, content=ASKED_ALREADY)
                     outcome = "ran"
+                elif for_person and len(person_lines(questions)) > PERSON_PROMPT_LINES:
+                    result = ToolResultBlock(
+                        tool_use_id=call.id, content=PERSON_TOO_LONG, is_error=True)
+                    outcome = "error"
                 else:
                     # Waiting on the caller is not the delegation's work, so neither the
                     # dispatch deadline nor the stall clock counts it: push the deadline

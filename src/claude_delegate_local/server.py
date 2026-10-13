@@ -88,7 +88,7 @@ from .slots import (
     rate_history_path,
 )
 from . import ledger, provision, transcript
-from .tools import READ_ONLY_TOOL_NAMES, BashPolicy, resolve_allowed
+from .tools import READ_ONLY_TOOL_NAMES, BashPolicy, person_lines, resolve_allowed
 
 SERVER_NAME = "delegate-local"
 
@@ -1898,8 +1898,9 @@ async def _try_person(
     if ctx is None or not _can_elicit(ctx):
         result["person"] = "unavailable"
         return None
-    message = "A delegation needs an answer only you can give:\n" + "\n".join(
-        f"- {q}" for q in result.get("questions", []))
+    # No header: the client already names the server asking, and a header would spend one
+    # of the prompt's three lines; the loop refused questions that do not fit.
+    message = "\n".join(person_lines(result.get("questions", [])))
     try:
         # mypy cannot match `response_type=str` to fastmcp's overloads; the runtime does.
         reply = await ctx.elicit(message, response_type=str)  # type: ignore[arg-type]
