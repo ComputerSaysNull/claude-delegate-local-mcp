@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #478 — 2026-10-13 — chore: release 0.12.0
+
+### Changed
+
+- **The version moves to 0.12.0, so an installed wheel carries this week's safety and
+  person-question changes.** No transcript format change since 0.11.0. A well-known API
+  token is refused by its bytes and plain-text credential files by name (#475); a
+  gitignored file named by path can be read, while writes, searches and globs still skip
+  it (#476), and the token check lands first so neither ships alone. A person's multi-line
+  answer keeps its line breaks (#474), and a question for the person now fits the three
+  lines Claude Code's prompt shows (#477). The release itself is the tag `v0.12.0` on
+  `main`, published by the release workflow (ADR-0115).
+
 ## #477 — 2026-10-13 — fix: a question for the person fits the prompt that shows it
 
 ### Fixed
