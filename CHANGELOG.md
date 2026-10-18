@@ -30,6 +30,16 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #484 — 2026-10-18 — feat: an unanswered question ends its run after 30 minutes
+
+### Changed
+
+- **`question_wait_limit` goes from a day to 30 minutes.** A run waiting on a question holds
+  its admission slot, and every other delegation queues behind it. The day was sized for a
+  person who might be away; since #480 only the calling model is asked, and it answered in
+  4 to 235 seconds. The one question never answered, on 2026-10-17, was a run its caller
+  had stopped listening to, and it held its slot for the full day before ending.
+
 ## #483 — 2026-10-18 — docs: plan how a caller hears back from a run it stopped watching
 
 ### Added
