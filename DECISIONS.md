@@ -19,6 +19,24 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0125 — 2026-10-18 — A delegation may ask its caller more than once — Accepted
+
+**Context.** ADR-0118 allowed one `ask_caller` call per run, so the person would not be
+asked twice. Since ADR-0124 every question goes to the caller, which answered in 4 to 235
+seconds. Counted on 2026-10-18: the limit never refused a second call in 13 runs that
+asked, yet 12 runs weighed "I can only ask once" in their reasoning.
+
+**Decision.** No per-run limit: each `ask_caller` call pauses the run and reaches the
+caller, and `question_wait_limit` bounds each wait. A `collect` already waiting wakes for
+every question, not only the first, so the run's pause re-arms when an answer lands.
+
+**Rejected.** A configurable cap: nothing measured says what it should be, and a run that
+asks too often is visible in its stream. Keeping one call: it is a limit on the caller's
+time that the caller no longer needs.
+
+**Consequence.** A run may hold its admission slot across several waits. A stream may
+carry several `question`/`answer` pairs, each answer after its question.
+
 ## ADR-0124 — 2026-10-18 — Every question a delegation asks goes to its caller — Accepted
 
 **Context.** ADR-0120 put a `for_person` question to the person by elicitation, and
@@ -163,7 +181,7 @@ suite's shared helpers set `narrow`, because its clients list none.
 and the refusal names the setting to change. This supersedes ADR-0110's choice of default
 and nothing else in it.
 
-## ADR-0118 — 2026-10-04 — A delegation may ask its caller, and waits in place for the reply — Accepted
+## ADR-0118 — 2026-10-04 — A delegation may ask its caller, and waits in place for the reply — Partially superseded by ADR-0125
 
 **Context.** Every delegation ran as if nobody were at the other end. Measured over the 94
 streams carrying reasoning (JOURNAL 2026-10-03), 52 weighed two readings of their task, and

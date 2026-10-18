@@ -1749,8 +1749,9 @@ ASK_CALLER_SPEC = ToolSpec(
     name="ask_caller",
     description=(
         "Ask whoever gave you this task, when you cannot tell which of two or more readings "
-        "of it is meant and the readings lead to different results. Put every question into "
-        "this one call: you can ask only once per task. The answer comes back as this call's "
+        "of it is meant and the readings lead to different results. Put every question you "
+        "have now into one call; ask again if a new one comes up. The answer comes back as "
+        "this call's "
         "result; if it leaves the choice to you, proceed on your best reading. Do not ask "
         "what you can find out by reading the files. Your caller passes on to the person "
         "behind it whatever only they can decide."
@@ -1769,8 +1770,6 @@ ASK_CALLER_SPEC = ToolSpec(
         "required": ["questions"],
     },
 )
-
-ASKED_ALREADY = "You have already asked your one question. Proceed on your best reading."
 
 
 REGISTRY: dict[str, RegisteredTool] = {

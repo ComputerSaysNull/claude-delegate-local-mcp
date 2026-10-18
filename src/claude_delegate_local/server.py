@@ -1245,7 +1245,7 @@ _DELEGATION_RESULT: dict[str, Any] = {
         )},
         "questions": {"type": "array", "items": {"type": "string"}, "description": (
             "From `collect` while the run waits on an answer: the questions the model "
-            "asked its caller, all in one call."
+            "asked its caller in the call it is waiting on."
         )},
         "waiting_seconds": {"type": "number", "description": (
             "From `collect` while the run waits on an answer: how long it has waited."
@@ -1682,8 +1682,8 @@ BestReading = Annotated[
 MayAsk = Annotated[
     bool,
     Field(description=(
-        "Offer the model `ask_caller`: one call per task, holding every question it has, "
-        "when it cannot tell which reading of the task is meant. `collect` then reports "
+        "Offer the model `ask_caller`, for when it cannot tell which reading of the task is "
+        "meant; it may ask more than once. `collect` then reports "
         "`status: \"question\"`, and `answer` replies. False for a caller "
         "that will not answer."
     )),
@@ -2380,8 +2380,8 @@ leave its `workdir` alone: it may still be writing there. A reconnect forgets ev
 
 ## A run may ask you a question
 
-A delegation that cannot tell which reading of its task is meant may ask, once, with every
-question in one call. Whatever is waiting on the run -- `collect`, `answer`, or a read-only
+A delegation that cannot tell which reading of its task is meant may ask, as often as it
+needs. Whatever is waiting on the run -- `collect`, `answer`, or a read-only
 call -- then returns at once with `status: question`, the `questions` and a `handle`. Reply
 with `answer`, giving `text`, or set `best_reading` to leave the choice to the model; it then
 waits like `collect`. Answer what the task's own meaning settles yourself, and pass on to the
