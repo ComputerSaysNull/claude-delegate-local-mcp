@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #482 — 2026-10-18 — feat: the prefetch budget is 300k tokens
+
+### Changed
+
+- **`files[]` may prefetch 300k estimated tokens per call, and per file, up from 200k.** A
+  wide read-only call that named the source tree had its last files skipped as over the
+  budget, and then spent 18 turns finding them. Raising the budget was weighed against KV
+  use (peak 18.9%, so no preemption) and against the stall clock, which counts a cold
+  prefill and any time queued behind one. Measured cold, the prefill rate falls with
+  length: 400s at 310k, 755s at 488k (JOURNAL 2026-10-18). Two full budgets queued stay
+  under `stall_timeout` at 300k and would not at 500k, so the budget stops at 300k. The
+  two limits stay equal (ADR-0046).
+
 ## #481 — 2026-10-18 — feat: a delegation may ask its caller more than once
 
 ### Changed

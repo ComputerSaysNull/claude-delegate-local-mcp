@@ -248,7 +248,7 @@ class Config:
 
     # ---- files[] prefetch (ADR-0015, revised by ADR-0019) ------------------------
     max_file_tokens: int = _f(
-        200000,
+        300000,
         "Per-file prefetch cap, in estimated tokens. A file over it is skipped whole, "
         "never truncated: source cut mid-function is worse than absent. Equal to "
         "max_total_prefetch_tokens by default, so no file is dropped while the budget it "
@@ -258,14 +258,14 @@ class Config:
         unit="est. tokens",
     )
     max_total_prefetch_tokens: int = _f(
-        200000,
+        300000,
         "Total files[] budget per call, in estimated tokens. Too high has a cost: a cold "
         "prompt's prefill is silence that stall_timeout counts, including time queued "
-        "behind other cold prefills, so max_inflight_seqs calls prefetching this much at "
-        "once can wait about seats x this / 1,300 tok/s before the last one's first token "
-        "-- six full budgets at the defaults would just pass stall_timeout. Keep that "
-        "under stall_timeout, and lower this when you raise max_inflight_seqs. Measured "
-        "in JOURNAL 2026-09-26.",
+        "behind other cold prefills, and the prefill rate falls as the prompt grows. "
+        "Measured cold on one cluster: about 400s for a full budget, 755s at 500k, so two "
+        "full budgets queued stay under stall_timeout's default and two at 500k would "
+        "not. Keep two full prefills under stall_timeout (JOURNAL 2026-09-26, "
+        "2026-10-18).",
         unit="est. tokens",
     )
     max_file_read_bytes: int = _f(
