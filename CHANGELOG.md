@@ -30,6 +30,26 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #481 — 2026-10-18 — feat: a delegation may ask its caller more than once
+
+### Changed
+
+- **`ask_caller` has no one-call limit any more.** A second call used to be answered with
+  "proceed on your best reading", a limit meant to spare the person a second prompt. Since
+  #480 every question goes to the caller, which answered in 4 to 235 seconds; the limit
+  never refused a call in 13 runs that asked, yet 12 runs weighed "I can only ask once" in
+  their reasoning. Each call now pauses the run and reaches the caller, and
+  `question_wait_limit` bounds each wait (ADR-0125). A stream may carry several
+  `question`/`answer` pairs.
+
+### Fixed
+
+- **A second question would not have woken a `collect` that was already waiting.** The
+  pause's "asked" event was set by the first question and never cleared, so a wait armed
+  for a question only before the first one. A scratch run measured the gap: a question asked
+  0.2s into a 3s `collect` was reported at 3.0s, and a read-only call waiting the whole run
+  could have missed it until a keepalive tick. An answer now clears the event.
+
 ## #480 — 2026-10-18 — feat: every question a delegation asks goes to its caller
 
 ### Changed

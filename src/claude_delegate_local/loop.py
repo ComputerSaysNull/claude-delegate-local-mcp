@@ -57,7 +57,6 @@ from .paths import repo_status
 from .registry import ModelEntry
 from .tools import (
     ASK_CALLER_SPEC,
-    ASKED_ALREADY,
     REGISTRY,
     BashPolicy,
     SeenFiles,
@@ -2913,9 +2912,6 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     dispatch: Dispatch | None = None
     text_before_nudge = ""
     nudge_pending = False
-    # Asked at most once per run, every question in that one call: a model that keeps asking
-    # is told to proceed on its best reading.
-    asked = False
     turn = 0
 
     async def turn_done(text: str, backend_seconds: float) -> None:
@@ -3134,9 +3130,6 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                         is_error=True,
                     )
                     outcome = "error"
-                elif asked:
-                    result = ToolResultBlock(tool_use_id=call.id, content=ASKED_ALREADY)
-                    outcome = "ran"
                 else:
                     # Waiting on the caller is not the delegation's work, so neither the
                     # dispatch deadline nor the stall clock counts it: push the deadline
@@ -3152,7 +3145,6 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                         deadline += waited
                         last_progress = clock()
                         tools_running = False
-                    asked = True
                     result = ToolResultBlock(tool_use_id=call.id, content=answer)
                     outcome = "ran"
                 call_status[idx] = "done"

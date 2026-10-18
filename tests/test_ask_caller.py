@@ -170,33 +170,6 @@ def test_ask_caller_is_declared_only_when_a_caller_can_answer():
     assert backend.requests[0].tools[-1] == tools.ASK_CALLER_SPEC
 
 
-# --- one question per run ----------------------------------------------------------------
-
-
-def test_a_second_question_is_refused():
-    """The caller is one person with one answer. A model that keeps asking is told to
-    proceed on its best reading, and `ask` is invoked exactly once for the run."""
-    called: list = []
-
-    async def answer(questions):
-        called.append(list(questions))
-        return "first answer"
-
-    backend = ScriptedTurns(
-        wants(("ask_caller", {"questions": ["first?"]})),
-        wants(("ask_caller", {"questions": ["second?"]})),
-        says("done"),
-    )
-    result = run(backend, ask=answer)
-    assert len(called) == 1
-    assert called == [["first?"]]
-    second = results_in(backend.requests[2])
-    assert len(second) == 1
-    assert "already" in second[0].content
-    assert result.response.text == "done"
-    assert result.turns == 3
-
-
 # --- the wait is outside the clocks -----------------------------------------------------
 
 

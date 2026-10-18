@@ -51,8 +51,8 @@ class Pause:
     """A delegation paused on a question it asked its caller.
 
     The run records its questions here and waits on the answer future; `collect` reports
-    the pause as `status: "question"` and `answer` resolves the future. One question per
-    run, so the event is set once and the future resolved once.
+    the pause as `status: "question"` and `answer` resolves the future. A run may ask
+    again, so an answer clears the event and the next question sets it afresh (ADR-0125).
     """
 
     def __init__(self) -> None:
@@ -143,8 +143,8 @@ class Handles:
             step = min(remaining, every) if keepalive and every > 0 else remaining
             watching: set[asyncio.Future[Any]] = {entry.task}
             # A run that may still ask answers a `collect` the moment it does, so the wait
-            # watches for the question beside the task -- only until one is asked, or an
-            # answered question would wake every wait at once.
+            # watches for the question beside the task. An answer clears the event, so a
+            # wait arms again for the next question instead of waking at once.
             asked: asyncio.Task[Any] | None = None
             if pause is not None and not pause.asked.is_set():
                 asked = asyncio.ensure_future(pause.asked.wait())
@@ -186,6 +186,7 @@ class Handles:
         pause = entry.pause
         if pause is None or not pause.waiting() or pause.answer is None:
             raise NotWaitingError(handle)
+        pause.asked.clear()
         pause.answer.set_result(text)
 
     def cancel(self, handle: str) -> bool:
