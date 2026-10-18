@@ -2968,3 +2968,28 @@ person report the last one they could see:
 None of the cut text could be expanded, clicked or scrolled. So the panel shows the first
 three lines and cuts each at its own width. The prompt's title names the server asking,
 so the server's header line only spent one of the three. (ADR-0123)
+
+## 2026-10-18 — A cold prefill halves its rate by 500k, so the prefetch budget stops at 300k
+
+The question was whether `max_total_prefetch_tokens` could go from 200k to 500k. Peak KV
+use since the tracker started is 18.9%, so preemption is not the limit; the stall clock is,
+because it counts a prefill and any time queued behind one (2026-09-26 above). The bar: one
+cold full-budget prefill under about 450s, so two queued fit inside `stall_timeout`.
+
+Measured with the `run` CLI, both prefetch limits raised by environment variable so the
+MCP server was untouched, repository files ordered so no prefix was cached, one turn,
+reasoning off. Each ran beside one other session's delegation:
+
+| prompt | `cached_tokens` | `prefill_seconds` | rate |
+|---|---|---|---|
+| 488,374 | 0 | 755.2 | about 650 tok/s |
+| 310,037 | 0 | 399.5 | about 775 tok/s |
+
+At 50k to 60k the engine prefilled 1,100 to 1,400 tok/s, so the rate falls steadily with
+length. During the 500k run the other session's next turn, a 29k prompt almost all
+cached, took 760s: it waited out the whole prefill. That is the cost the bar exists for,
+seen from the other side.
+
+What it settles: 500k fails the bar by 300s and two such calls queued would pass the stall
+clock; 300k passes with 50s to spare, so the budget became 300k. What it does not: one
+sample at each size, both beside one other request, never two large prefills at once.
