@@ -1,4 +1,4 @@
-<!-- BUDGET: 490 -->
+<!-- BUDGET: 500 -->
 # Plan
 
 Open work, status first so the file scans.
@@ -424,6 +424,9 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 116. ✅ 2026-10-18 **A delegation's question for the person reached them too often, and too short to be clear**: of 9 questions asked since the person route existed, 6 went to the person, every one the model marked, and the three-lines-of-80 cap refused 3. Send every question to the caller, which passes on only what the person alone can decide (ADR-0124)
 117. ✅ 2026-10-18 **A delegation could ask its caller only once**: a limit that spared the person a second prompt, kept after item 116 when every question goes to the caller. It never refused a call in 13 runs that asked, yet 12 runs weighed it in their reasoning. Allow any number; a waiting `collect` must wake for each (ADR-0125)
 118. ✅ 2026-10-18 **The prefetch budget is 200k tokens**, so a wide read-only call skips its last files and spends turns finding them; peak KV use is 18.9%. Raise it as far as the stall clock allows: two cold full prefills must fit inside `stall_timeout` (JOURNAL 2026-10-18 measured 300k, not 500k)
+119. ⬜ **Spike: can the server tell an idle session that a run finished or asked?** A run started by `delegate` is heard from only while the caller holds a `collect` or `answer` open; a caller that ends its turn without one hears nothing until the person writes. On 2026-10-18 a session's delegations all finished uncollected, and on 2026-10-17 a question waited 24h on a run nobody watched. Claude Code's channels research preview lets an MCP server push a message into a session: measure whether this build has it, whether a push wakes an idle session, and what it costs. If it works, item 120 may be unnecessary
+120. ⬜ **`delegate` answers with a handle, so a caller can stop listening.** ADR-0103 chose the handle because Claude Code held one write-capable call in flight per conversation, releasing the next at completion or 120s (JOURNAL 2026-09-19). Re-run that six-arm measurement first; if the queue is gone, let `delegate` wait inline like the read-only tools so the client backgrounds it and reports its end. After item 119
+121. ⬜ **A question waits up to 24h for an answer** (`question_wait_limit`), holding its admission slot. Every question now goes to the caller (ADR-0124), so a long wait means nobody is listening, as on 2026-10-17. Shorten it to 30 minutes
 
 ## Deferred
 
