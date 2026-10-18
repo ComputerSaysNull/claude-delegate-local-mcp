@@ -85,6 +85,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `transcript.py` | One operator record per dispatch, written outside the response |
 | `watch.py` | `claude-delegate-watch`: the terminal viewer of the stream `transcript.py` writes |
 | `handles.py` | A delegation's handle, the task `collect` reads, what `cancel_delegation` stops, and the question `answer` replies to |
+| `wake.py` | `wait-hook`: wakes a caller that stopped listening, from the state file `handles.py` keeps |
 | `server.py` | MCP wiring, the tool declarations, the backend cache, and each call's roots narrowed to the folders its client lists (ADR-0110), with each root's own layer-2 additions read in (ADR-0116) |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
@@ -274,6 +275,13 @@ in a task the server owns, admission wait included, and `collect` reads it back,
 progress every `keepalive_interval` it waits so the idle timeout (ADR-0018) cannot drop
 it. Each time a run asks its caller (`ask_caller`, ADR-0125), `collect` or a read-only call
 answers at once with `status: question`; `answer` replies, and the run keeps its slot meanwhile.
+A caller that ended its turn hears neither, so `handles.py` keeps a state file per handle and
+a `PostToolUse` hook running `wait-hook` exits 2, waking the session, once a run sits uncollected
+or holds an unread question (ADR-0126). Without a long `timeout` the default kills it silently:
+```json
+{"matcher": "mcp__.*__(delegate.*|collect|answer)", "hooks": [{"type": "command",
+ "asyncRewake": true, "timeout": 86400, "command": "<server command> wait-hook"}]}
+```
 What `run` still buys is context — a tool result lands in the caller's window whole,
 where this one is redirected to a file and read back in part.
 

@@ -14,11 +14,14 @@ to it.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
+import os
 import secrets
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -60,13 +63,18 @@ class Pause:
         self.asked_at: float | None = None
         self.answer: asyncio.Future[str] | None = None
         self.asked = asyncio.Event()
+        self.asked_count = 0
+        self.on_change: Callable[[], None] | None = None
 
     def ask(self, questions: list[str]) -> asyncio.Future[str]:
         """Record the questions the run is waiting on, and return the future it awaits."""
         self.questions = list(questions)
         self.asked_at = time.monotonic()
+        self.asked_count += 1
         self.answer = asyncio.get_running_loop().create_future()
         self.asked.set()
+        if self.on_change is not None:
+            self.on_change()
         return self.answer
 
     def waiting(self) -> bool:
@@ -81,14 +89,23 @@ class _Entry:
     started: float
     finished: float | None = None
     pause: Pause | None = None
+    questions_shown: int = 0
+    collected: bool = False
 
 
 class Handles:
-    """Every delegation this process started and has not yet forgotten, by handle."""
+    """Every delegation this process started and has not yet forgotten, by handle.
 
-    def __init__(self, ttl_seconds: float, *, clock: Callable[[], float] = time.monotonic):
+    With a `state_dir` each handle also carries a small JSON file there, so a wait-hook in
+    another process can poll it and wake the caller when a run finishes or asks and nobody
+    is listening (ADR-0126). Without one, nothing is written.
+    """
+
+    def __init__(self, ttl_seconds: float, *, clock: Callable[[], float] = time.monotonic,
+                 state_dir: Path | None = None) -> None:
         self._ttl = ttl_seconds
         self._clock = clock
+        self._state_dir = state_dir
         self._entries: dict[str, _Entry] = {}
 
     def start(self, work: Awaitable[dict[str, Any]], *, tool: str,
@@ -99,6 +116,8 @@ class Handles:
         while handle in self._entries:  # pragma: no cover - 48 bits
             handle = f"d-{secrets.token_hex(6)}"
         entry = _Entry(asyncio.ensure_future(work), tool, self._clock(), pause=pause)
+        if pause is not None:
+            pause.on_change = lambda: self._write_state(handle)
 
         def finished(task: asyncio.Future[dict[str, Any]]) -> None:
             entry.finished = self._clock()
@@ -106,9 +125,11 @@ class Handles:
                 # Marked as retrieved, so a run nobody collects does not log "exception
                 # was never retrieved" at exit. `collect` still raises it.
                 task.exception()
+            self._write_state(handle)
 
         entry.task.add_done_callback(finished)
         self._entries[handle] = entry
+        self._write_state(handle)
         return handle
 
     def task(self, handle: str) -> asyncio.Future[dict[str, Any]]:
@@ -166,12 +187,17 @@ class Handles:
             return {"handle": handle, "status": "running", "tool": entry.tool,
                     "running_seconds": round(self._clock() - entry.started, 1)}
         if entry.task.cancelled():
+            entry.collected = True
+            self._write_state(handle)
             return {"handle": handle, "status": "cancelled", "tool": entry.tool}
+        entry.collected = True
+        self._write_state(handle)
         return {**entry.task.result(), "handle": handle, "status": "done"}
 
-    @staticmethod
-    def _question(handle: str, entry: _Entry, pause: Pause) -> dict[str, Any]:
+    def _question(self, handle: str, entry: _Entry, pause: Pause) -> dict[str, Any]:
         assert pause.asked_at is not None  # `waiting()` is only true once it asked
+        entry.questions_shown = pause.asked_count
+        self._write_state(handle)
         return {"handle": handle, "status": "question", "tool": entry.tool,
                 "questions": list(pause.questions),
                 "waiting_seconds": round(time.monotonic() - pause.asked_at, 1)}
@@ -188,6 +214,7 @@ class Handles:
             raise NotWaitingError(handle)
         pause.asked.clear()
         pause.answer.set_result(text)
+        self._write_state(handle)
 
     def cancel(self, handle: str) -> bool:
         """Cancel a running delegation. False when it had already finished."""
@@ -210,3 +237,50 @@ class Handles:
         for handle in [h for h, e in self._entries.items()
                        if e.finished is not None and now - e.finished > self._ttl]:
             del self._entries[handle]
+            self._remove_state(handle)
+
+    def _write_state(self, handle: str) -> None:
+        """Write the handle's state file, best-effort. `None` state_dir means no files."""
+        if self._state_dir is None:
+            return
+        entry = self._entries.get(handle)
+        if entry is None:
+            return
+        try:
+            self._state_dir.mkdir(parents=True, exist_ok=True)
+            path = self._state_dir / f"{handle}.json"
+            tmp = self._state_dir / f"{handle}.json.tmp"
+            tmp.write_text(json.dumps(self._state_dict(handle, entry)))
+            os.replace(tmp, path)
+        except OSError:
+            # A state file must never fail a run or a tool call: the wait-hook just keeps
+            # polling whatever the last good write said.
+            pass
+
+    def _remove_state(self, handle: str) -> None:
+        if self._state_dir is None:
+            return
+        try:
+            (self._state_dir / f"{handle}.json").unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    @staticmethod
+    def _state_dict(handle: str, entry: _Entry) -> dict[str, Any]:
+        if entry.task.cancelled():
+            status = "cancelled"
+        elif entry.task.done():
+            status = "done"
+        elif entry.pause is not None and entry.pause.waiting():
+            status = "question"
+        else:
+            status = "running"
+        return {
+            "handle": handle,
+            "pid": os.getpid(),
+            "tool": entry.tool,
+            "status": status,
+            "questions_asked": entry.pause.asked_count if entry.pause is not None else 0,
+            "questions_shown": entry.questions_shown,
+            "collected": entry.collected,
+        }

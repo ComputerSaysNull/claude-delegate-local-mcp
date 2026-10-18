@@ -30,6 +30,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #485 — 2026-10-18 — feat: a background hook wakes a caller that stopped listening
+
+### Added
+
+- **`wait-hook`, and a state file per handle, so a caller that ended its turn is woken.** A
+  run started by `delegate` is heard from only while the caller holds `collect` or `answer`
+  open. On 2026-10-18 a session's delegations all finished uncollected until the person
+  wrote; on 2026-10-17 a question waited a day on a run nobody watched. Claude Code's
+  `asyncRewake` hook flag runs a command in the background and wakes an idle session when it
+  exits 2, measured at 30s, 75s and 690s (JOURNAL 2026-10-18). `handles.py` now writes each
+  handle's status, questions asked and shown, and whether it was collected to the runtime
+  directory, and `wait-hook`, run by that hook after each delegation tool call, exits 2 once
+  a run has sat finished-uncollected or held an unread question for three seconds. One
+  waiter per handle; a dead server or a forgotten handle ends it quietly (ADR-0126). The
+  hook entry is in `docs/ARCHITECTURE.md`; it needs an explicit `timeout`, because the
+  default killed a probe silently before 660s. Channels, the other route, were not taken:
+  they need a launch flag on every start.
+
 ## #484 — 2026-10-18 — feat: an unanswered question ends its run after 30 minutes
 
 ### Changed

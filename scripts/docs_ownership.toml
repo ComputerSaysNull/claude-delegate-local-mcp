@@ -124,6 +124,7 @@ owns = [
   "src/claude_delegate_local/run_task.py",
   "src/claude_delegate_local/admission.py",
   "src/claude_delegate_local/handles.py",
+  "src/claude_delegate_local/wake.py",
   "src/claude_delegate_local/slots.py",
   "src/claude_delegate_local/transcript.py",
   # The stream's schema, beside the module that writes the stream (ADR-0111).

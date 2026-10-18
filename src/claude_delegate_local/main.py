@@ -69,6 +69,13 @@ def run() -> None:
 
         raise SystemExit(run_task.main(argv=sys.argv[2:]))
 
+    # The `asyncRewake` hook that wakes a caller nobody is listening for (ADR-0126). Before
+    # config is loaded: a hook must start fast, and a failure is a quiet exit, not a wake.
+    if sys.argv[1:2] == ["wait-hook"]:
+        from . import wake  # noqa: PLC0415
+
+        raise SystemExit(wake.main(sys.stdin.read()))
+
     try:
         cfg = config.load()
         reg = registry.load(cfg)  # RegistryError subclasses ConfigError
