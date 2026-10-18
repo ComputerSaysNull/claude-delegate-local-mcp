@@ -122,7 +122,7 @@
         "waited_seconds": {"type": "number"},
         "text": {"type": "string"},
         "best_reading": {"type": "boolean", "description": "The caller left the choice to the model, so `text` is the best-reading sentence it was told to proceed on."},
-        "by": {"enum": ["caller", "person"], "description": "Who supplied the answer: the calling model through `answer`, or the person through MCP elicitation (ADR-0120). Format 1.10."}
+        "by": {"enum": ["caller", "person"], "description": "Who supplied the answer. Always `caller` since ADR-0124; `person` appears only in streams written while a question could go to the person by MCP elicitation (ADR-0120). Format 1.10."}
       }
     },
     "waiting": {

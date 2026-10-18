@@ -23,11 +23,6 @@ from typing import Annotated, Any, NamedTuple, Protocol
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.server.elicitation import (
-    AcceptedElicitation,
-    CancelledElicitation,
-    DeclinedElicitation,
-)
 from pydantic import BaseModel, Field
 
 from .backends.base import (
@@ -88,7 +83,7 @@ from .slots import (
     rate_history_path,
 )
 from . import ledger, provision, transcript
-from .tools import READ_ONLY_TOOL_NAMES, BashPolicy, person_lines, resolve_allowed
+from .tools import READ_ONLY_TOOL_NAMES, BashPolicy, resolve_allowed
 
 SERVER_NAME = "delegate-local"
 
@@ -135,11 +130,6 @@ class _CallProgress:
             return
         self._count += 1
         await self._ctx.report_progress(progress=self._count, total=total, message=message)
-
-    @property
-    def context(self) -> Context | None:
-        """The fastmcp `Context` this call reports through, while the call is still live."""
-        return self._ctx
 
     def close(self) -> None:
         self._ctx = None
@@ -426,7 +416,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     concurrency_now: Callable[[], Awaitable[int]] | None = None,
     on_token: Callable[[], None] | None = None,
     on_partial: Callable[[int, str, str, bool], None] | None = None,
-    ask: Callable[[list[str], bool], Awaitable[str]] | None = None,
+    ask: Callable[[list[str]], Awaitable[str]] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
 
@@ -695,7 +685,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     diagnostics: bool = False,
     ctx: ProgressSink | None = None,
     tool_name: str = "delegate",
-    ask: Callable[[list[str], bool], Awaitable[str]] | None = None,
+    ask: Callable[[list[str]], Awaitable[str]] | None = None,
     workspace: str | None = None,
     pause: Pause | None = None,
 ) -> dict[str, Any]:
@@ -1026,16 +1016,16 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             # exactly as before.
             loop_ask = ask
             if ask is not None and stream is not None:
-                async def _asked(questions: list[str], for_person: bool = False) -> str:
+                async def _asked(questions: list[str]) -> str:
                     stream.question(questions)
                     wait_started = _clock()
                     # If the question is never answered this raises and no `answer` is
                     # written: there was none. The stream then ends as it would without
                     # this wrapper, on the unanswered run.
-                    text = await ask(questions, for_person)
+                    text = await ask(questions)
                     stream.answer(text, _clock() - wait_started,
                                   text == BEST_READING_REPLY,
-                                  by=(pause and pause.answered_by) or "caller")
+                                  by="caller")
                     return text
                 loop_ask = _asked
 
@@ -1259,13 +1249,6 @@ _DELEGATION_RESULT: dict[str, Any] = {
         )},
         "waiting_seconds": {"type": "number", "description": (
             "From `collect` while the run waits on an answer: how long it has waited."
-        )},
-        "person": {"type": "string",
-                   "enum": ["declined", "cancelled", "failed", "unavailable"],
-                   "description": (
-            "Beside `question`, when the model marked it for the person: why it reached "
-            "you instead. `declined` and `cancelled` mean they saw it and did not answer; "
-            "`failed` and `unavailable` mean they were never shown it."
         )},
         "empty_response": {"type": "boolean", "description": (
             "Nothing came back at all -- neither an answer nor reasoning. Reaching this "
@@ -1701,8 +1684,7 @@ MayAsk = Annotated[
     Field(description=(
         "Offer the model `ask_caller`: one call per task, holding every question it has, "
         "when it cannot tell which reading of the task is meant. `collect` then reports "
-        "`status: \"question\"`, and `answer` replies. A question the model marks for the "
-        "person is put to them first when the client can ask them. False for a caller "
+        "`status: \"question\"`, and `answer` replies. False for a caller "
         "that will not answer."
     )),
 ]
@@ -1849,78 +1831,19 @@ async def session_scope(cfg: Config, ctx: Context | None) -> SessionScope:
     )
 
 
-def _ask_caller(pause: Pause, cfg: Config) -> Callable[[list[str], bool], Awaitable[str]]:
+def _ask_caller(pause: Pause, cfg: Config) -> Callable[[list[str]], Awaitable[str]]:
     """The `ask` callback a run passes to `run_agentic_loop` when the caller may answer.
 
     Records the questions on the pause and awaits the answer; a caller that never answers
     ends the run unanswered, which `run_delegation` turns into `ok: false`.
     """
-    async def ask(questions: list[str], for_person: bool = False) -> str:
+    async def ask(questions: list[str]) -> str:
         try:
             return await asyncio.wait_for(
-                pause.ask(questions, for_person), timeout=cfg.question_wait_limit)
+                pause.ask(questions), timeout=cfg.question_wait_limit)
         except TimeoutError:
             raise QuestionNotAnswered(cfg.question_wait_limit) from None
     return ask
-
-
-def _call_context(sink: ProgressSink | None) -> Context | None:
-    """The waiting call's fastmcp `Context`, the only thing an elicitation can go through."""
-    if isinstance(sink, _CallProgress):
-        return sink.context
-    if isinstance(sink, Context):
-        return sink
-    return None
-
-
-def _can_elicit(ctx: Context) -> bool:
-    """Whether the client declared elicitation; a session missing the attrs reads as no."""
-    try:
-        params = ctx.session.client_params
-    except Exception:
-        return False
-    capabilities = getattr(params, "capabilities", None)
-    return getattr(capabilities, "elicitation", None) is not None
-
-
-async def _try_person(
-    handles: Handles, handle: str, result: dict[str, Any], ctx: Context | None,
-) -> str | None:
-    """Ask the person, once, a question marked `for_person` (ADR-0120).
-
-    Returns the accepted text for the run, or None to hand the question back to the caller,
-    with `person` added to say why. An elicitation error never fails the run or the call.
-    """
-    pause = handles.pause(handle)
-    if pause is None or not pause.for_person or pause.person_asked:
-        return None
-    pause.person_asked = True
-    if ctx is None or not _can_elicit(ctx):
-        result["person"] = "unavailable"
-        return None
-    # No header: the client already names the server asking, and a header would spend one
-    # of the prompt's three lines; the loop refused questions that do not fit.
-    message = "\n".join(person_lines(result.get("questions", [])))
-    try:
-        # mypy cannot match `response_type=str` to fastmcp's overloads; the runtime does.
-        reply = await ctx.elicit(message, response_type=str)  # type: ignore[arg-type]
-    except Exception:
-        result["person"] = "failed"
-        return None
-    if isinstance(reply, AcceptedElicitation):
-        text = reply.data
-        if isinstance(text, str) and text.strip():
-            # Claude Code ends each typed line with a bare "\r", which reads as one line
-            # anywhere "\r" returns to the start of it -- the model's input included.
-            return text.replace("\r\n", "\n").replace("\r", "\n")
-        result["person"] = "failed"
-    elif isinstance(reply, DeclinedElicitation):
-        result["person"] = "declined"
-    elif isinstance(reply, CancelledElicitation):
-        result["person"] = "cancelled"
-    else:
-        result["person"] = "failed"
-    return None
 
 
 def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiring
@@ -2247,7 +2170,6 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         """Wait on a delegation's handle and return its result: `collect`'s whole body."""
         wait = cfg.collect_wait_seconds if wait_seconds is None else wait_seconds
         notified = 0
-        elicit_ctx = _call_context(ctx)
 
         async def keepalive(running_seconds: float) -> None:
             # The same rule as the delegating tools' heartbeat: one rising counter, no
@@ -2258,23 +2180,11 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                 await ctx.report_progress(
                     progress=notified, message=f"still running after {running_seconds:.0f}s")
 
-        while True:
-            try:
-                result = await handles.collect(
-                    handle, wait, keepalive=keepalive, every=cfg.keepalive_interval)
-            except UnknownHandle as e:
-                raise ToolError(str(e)) from e
-            if result["status"] == "question":
-                # A question only the person can answer is put to them directly; on an
-                # accept the run is answered and this waits again, exactly as `answer` does.
-                answered = await _try_person(handles, handle, result, elicit_ctx)
-                if answered is not None:
-                    # The run may have stopped waiting while the person typed; the next
-                    # collect then reports how it ended.
-                    with suppress(NotWaitingError):
-                        handles.answer(handle, answered, by="person")
-                    continue
-            return result
+        try:
+            return await handles.collect(
+                handle, wait, keepalive=keepalive, every=cfg.keepalive_interval)
+        except UnknownHandle as e:
+            raise ToolError(str(e)) from e
 
     @mcp.tool(title="Collect a delegation", annotations={**_READS, "idempotentHint": True},
               output_schema=_DELEGATION_RESULT)
@@ -2307,8 +2217,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         `text`, or set `best_reading` to leave the choice to the model; the run then
         continues and this waits for it like `collect`. Answer what the task's own meaning
         settles yourself, and pass on to the person only what only they can decide: the
-        run waits, its clocks paused, until you reply. A question carrying `person` was
-        meant for them, and that field says whether they have already seen it.
+        run waits, its clocks paused, until you reply.
         """
         if (text is not None) == best_reading:
             raise ToolError(
@@ -2480,10 +2389,6 @@ person only what only they can decide. Never drop a question: the run keeps its 
 slot while it waits, every other delegation queues behind it, and only
 `question_wait_limit` ends it. A caller that will not answer passes `may_ask` as false, or
 cancels the run with `cancel_delegation`.
-
-A question the model marks `for_person` is put to the person directly when the client can
-elicit, and the caller sees it only if they decline, cancel or cannot be asked -- with
-`person` saying which.
 
 ## How many run at once
 

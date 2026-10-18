@@ -342,7 +342,8 @@ class Stream:
         `best_reading` is true when the caller left the choice to the model, in which case
         `text` is the sentence the `answer` tool hands over rather than anything the caller
         typed; a reader must be able to tell the two apart. `by` says who supplied the text
-        -- "caller" through `answer`, or "person" through MCP elicitation (ADR-0120).
+        -- "caller" through `answer`; "person" appears only in streams written while a
+        question could go to the person by MCP elicitation (ADR-0120).
         """
         event: dict[str, Any] = {
             "t": "answer", "at": datetime.now(UTC).isoformat(),

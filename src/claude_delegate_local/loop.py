@@ -58,14 +58,11 @@ from .registry import ModelEntry
 from .tools import (
     ASK_CALLER_SPEC,
     ASKED_ALREADY,
-    PERSON_PROMPT_LINES,
-    PERSON_TOO_LONG,
     REGISTRY,
     BashPolicy,
     SeenFiles,
     declared_tools,
     execute_tool,
-    person_lines,
 )
 
 # Derived from EFFORT_LEVELS, not written out: a second copy stops agreeing when a level is
@@ -2836,7 +2833,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     on_partial: Callable[[int, str, str, bool], None] | None = None,
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
-    ask: Callable[[list[str], bool], Awaitable[str]] | None = None,
+    ask: Callable[[list[str]], Awaitable[str]] | None = None,
 ) -> AgenticDispatch:
     """Turns, until the model answers or the budget runs out.
 
@@ -3128,7 +3125,6 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                 assert ask is not None  # `ask_here` is only filled when there is someone to ask
                 call_status[idx] = "running"
                 questions = call.input.get("questions")
-                for_person = call.input.get("for_person", False) is True
                 if not (isinstance(questions, list) and questions
                         and all(isinstance(q, str) for q in questions)):
                     result = ToolResultBlock(
@@ -3141,10 +3137,6 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                 elif asked:
                     result = ToolResultBlock(tool_use_id=call.id, content=ASKED_ALREADY)
                     outcome = "ran"
-                elif for_person and len(person_lines(questions)) > PERSON_PROMPT_LINES:
-                    result = ToolResultBlock(
-                        tool_use_id=call.id, content=PERSON_TOO_LONG, is_error=True)
-                    outcome = "error"
                 else:
                     # Waiting on the caller is not the delegation's work, so neither the
                     # dispatch deadline nor the stall clock counts it: push the deadline
@@ -3154,7 +3146,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                     started = clock()
                     tools_running = True
                     try:
-                        answer = await ask(questions, for_person)
+                        answer = await ask(questions)
                     finally:
                         waited = clock() - started
                         deadline += waited
