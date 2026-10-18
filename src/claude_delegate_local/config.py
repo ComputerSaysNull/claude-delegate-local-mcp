@@ -789,10 +789,12 @@ class Config:
         unit="seconds",
     )
     question_wait_limit: float = _f(
-        86400.0,
+        1800.0,
         "How long a delegation that asked its caller a question waits for `answer` before "
         "it ends unanswered. The wait does not count against `dispatch_timeout`; this "
-        "bounds a run whose caller has gone.",
+        "bounds a run whose caller has stopped listening, which holds its admission slot "
+        "meanwhile. Only the calling model is asked (ADR-0124), so a longer wait means "
+        "nobody is.",
         unit="seconds",
     )
 
