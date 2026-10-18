@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #483 — 2026-10-18 — docs: plan how a caller hears back from a run it stopped watching
+
+### Added
+
+- **`PLAN.md` items 119 to 121.** A run started by `delegate` is heard from only while the
+  caller holds a `collect` or `answer` open. On 2026-10-18 a session's delegations all
+  finished and nobody collected them until the person wrote; on 2026-10-17 a question
+  waited a whole day on a run nobody was watching. Item 119 is a spike on whether the
+  server can push a message into an idle session, which could make the rest unnecessary.
+  Item 120 re-measures the per-conversation queue that made `delegate` answer with a handle
+  (ADR-0103), and item 121 shortens the question wait to 30 minutes now that only the
+  caller is ever asked. `PLAN.md`'s budget goes from 490 to 500 to hold them, since every
+  closed item's body is frozen.
+
 ## #482 — 2026-10-18 — feat: the prefetch budget is 300k tokens
 
 ### Changed
