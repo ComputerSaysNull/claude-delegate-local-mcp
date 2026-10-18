@@ -55,6 +55,12 @@ Older entries, in the previous flat format, are in
   gives the session its own `XDG_RUNTIME_DIR`. The same check found that a hook command run
   through Git Bash has its WSL path rewritten into a Windows one, so the waiter never
   started; `MSYS_NO_PATHCONV=1` before `wsl.exe` fixes it, and the docs say so.
+- **The README's setup gains the hook as its own step**, with the Windows form of the
+  command, so whoever registers the server also installs what wakes them; its budget goes
+  from 175 to 190 to hold it. Making the hook travel with the server, as a Claude Code
+  plugin, is deferred until the server is shared (`PLAN.md` Deferred 10). The
+  `delegate://orchestration` guidance tells the calling model to keep a `collect` open, and
+  that only a client running the hook wakes a session that ended its turn.
 
 ## #484 — 2026-10-18 — feat: an unanswered question ends its run after 30 minutes
 

@@ -456,6 +456,7 @@ On hold for weeks or months. Not cancelled, and not queued.
   eight-wide with real prompt sizes before raising `max_inflight_seqs` and the endpoint's
 9. ⬜ Was M16.9. **Topology** (P4): tensor parallelism spans both machines, an all-reduce every decode
   step. Compare one replica per machine behind one endpoint, if a quantised copy fits
+10. ⬜ **Ship the server as a Claude Code plugin, so the wake hook travels with it.** The hook (ADR-0126) is client settings, which a colleague would have to edit by hand; a plugin can bundle the server and `hooks/hooks.json`, installed from this repo as its own marketplace. Open: one launch command for WSL and native, via `userConfig`; whether `asyncRewake` works in a plugin hook; the tool names become `mcp__plugin_<plugin>_<server>__*`. On hold until the server is shared
 
 ## Cancelled
 

@@ -2381,6 +2381,9 @@ remaining run and be told when it is done. `running` means wait again, never sta
 refusal from inside the run arrives from `collect`, not from the call. `cancel_delegation`
 stops a run; cancelling a `collect` only stops waiting. Until a writing run is collected,
 leave its `workdir` alone: it may still be writing there. A reconnect forgets every handle.
+Keep a `collect` open on every run you start. A client that runs the `wait-hook` (README)
+wakes a session that ended its turn when a run finishes uncollected or asks unread; one
+without it never hears from that run again.
 
 ## A run may ask you a question
 

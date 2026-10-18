@@ -276,12 +276,8 @@ progress every `keepalive_interval` it waits so the idle timeout (ADR-0018) cann
 it. Each time a run asks its caller (`ask_caller`, ADR-0125), `collect` or a read-only call
 answers at once with `status: question`; `answer` replies, and the run keeps its slot meanwhile.
 A caller that ended its turn hears neither: `handles.py` keeps a state file per handle, and a
-`PostToolUse` hook running `wait-hook` exits 2, waking it, once a run sits uncollected or holds
-an unread question (ADR-0126). Give it a long `timeout`; from Git Bash, `MSYS_NO_PATHCONV=1`:
-```json
-{"matcher": "mcp__.*__(delegate.*|collect|answer)", "hooks": [{"type": "command",
- "asyncRewake": true, "timeout": 86400, "command": "<server command> wait-hook"}]}
-```
+client hook running `wait-hook` (setup is the README's) exits 2, waking it, once a run sits
+uncollected or holds an unread question for a three-second grace (ADR-0126).
 What `run` still buys is context — a tool result lands in the caller's window whole,
 where this one is redirected to a file and read back in part.
 
