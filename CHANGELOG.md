@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #480 — 2026-10-18 — feat: every question a delegation asks goes to its caller
+
+### Changed
+
+- **A delegation's question is never put to the person any more; it always goes to the
+  caller.** Since 2026-10-06 a question marked `for_person` was elicited from the person in
+  a prompt of three lines of 80 characters. Counted over every transcript: 6 of the 9
+  questions asked since then went to the person, every one the model marked, and the cap
+  refused 3 before they were re-asked shorter. The person found them too frequent and, cut
+  to fit, unclear. The caller now answers what the task settles and passes on to the
+  person, in its own words and at any length, only what they alone can decide (ADR-0124,
+  superseding ADR-0120 and ADR-0123). `ask_caller` loses `for_person`, a result loses
+  `person`, and `answer.by` is always `caller`; a model that still sends the mark is asked
+  of the caller like any other question.
+
 ## #479 — 2026-10-18 — docs: close the terminal viewer's load flake
 
 ### Changed

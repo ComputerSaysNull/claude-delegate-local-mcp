@@ -274,9 +274,6 @@ in a task the server owns, admission wait included, and `collect` reads it back,
 progress every `keepalive_interval` it waits so the idle timeout (ADR-0018) cannot drop
 it. A run that asks its caller (`ask_caller`, ADR-0118) makes `collect`, or a read-only call,
 answer at once with `status: question`; `answer` replies, and the run keeps its slot meanwhile.
-A question marked `for_person` goes first to the person, via that call; `person` says why not.
-It is sent wrapped to fit their prompt, and one too long for it is refused to the model (ADR-0123).
-Their answer's bare `\r` line ends, as Claude Code sends them, are read back as `\n`.
 What `run` still buys is context — a tool result lands in the caller's window whole,
 where this one is redirected to a file and read back in part.
 

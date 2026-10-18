@@ -19,7 +19,28 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
-## ADR-0123 — 2026-10-13 — A question for the person must fit three lines of 80 characters — Accepted
+## ADR-0124 — 2026-10-18 — Every question a delegation asks goes to its caller — Accepted
+
+**Context.** ADR-0120 put a `for_person` question to the person by elicitation, and
+ADR-0123 capped it at three lines of 80 characters. Counted over every transcript on
+2026-10-18 (373 runs since `ask_caller` shipped): 13 asked; since the route existed, 6 of
+9 questions went to the person, every one the model marked, and the cap refused 3. The
+person found the questions came to them too often, and too short to be clear.
+
+**Decision.** `for_person`, the elicitation and the cap are removed. Every question is put
+to the caller, which answers what the task settles and passes on to the person, in its own
+words, only what they alone can decide. A model that still sends `for_person` is asked of
+the caller like any other question.
+
+**Rejected.** Keeping the route with a longer message: the cap is the client's panel, not
+ours. Leaving the mark to a stricter description: the model already marked every
+preference question as the person's, which was the complaint.
+
+**Consequence.** A question reaches the person only through the caller, so it costs the
+caller's tokens and arrives in the caller's phrasing. `answer.by` is always `caller` from
+here; old streams keep `person`.
+
+## ~~ADR-0123 — 2026-10-13 — A question for the person must fit three lines of 80 characters~~ — Superseded by ADR-0124
 
 **Context.** ADR-0120 puts a `for_person` question to the person by elicitation. Measured
 2026-10-13 (JOURNAL): Claude Code's panel shows an elicited message in at most three lines,
@@ -103,7 +124,7 @@ shapes: 0 hits over 13,690 files under the projects folder, virtualenvs included
 passes; a new issuer is one line in the table. Like the key check, only the first
 `secret_content_scan_bytes` of a file are read.
 
-## ADR-0120 — 2026-10-06 — A question only the person can answer is put to them by elicitation — Accepted
+## ~~ADR-0120 — 2026-10-06 — A question only the person can answer is put to them by elicitation~~ — Superseded by ADR-0124
 
 **Context.** ADR-0118 routes every question to the calling model, which cannot answer a
 preference, a decision or a fact only its person holds. Measured (JOURNAL 2026-10-06):

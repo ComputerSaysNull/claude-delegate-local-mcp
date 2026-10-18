@@ -1,76 +1,20 @@
-"""The transcript's `answer` event says who answered the question (ADR-0118/0120).
+"""The transcript's `answer` event says who answered the question.
 
-A delegation's question is answered either by the caller, through the `answer` MCP tool,
-or -- since ADR-0120 -- by the person, through MCP elicitation in `_collect_wait`. The
-stream's `answer` event must record which, so a watcher can tell a caller's reply from a
-person's. `by` follows who actually supplied the text, not the `for_person` mark: a
-`for_person` question the person declines and the caller then answers is `by: "caller"`.
+Every `ask_caller` question goes to the caller (ADR-0124), so the stream's `answer` event
+records `by: "caller"`; the schema keeps `person` only for older streams.
 """
 
 from __future__ import annotations
 
-import asyncio
-
-from fastmcp import Client
-from fastmcp.client.elicitation import ElicitResult
-
-from claude_delegate_local import server, transcript
-from claude_delegate_local.config import Config
-from test_ask_caller_transcript import _drive, _events
-from test_ask_the_person import scripted
-from test_server import (
-    DoubleCache,
-    cfg,
-    chat_reply,
-    entry,
-    payload,
-    registry,
-    tool_call_reply,
-)
+from claude_delegate_local import transcript
+from test_ask_caller_transcript import _drive
+from test_ask_caller_server import scripted
+from test_server import chat_reply, tool_call_reply
 from test_transcript_format import errors, schema
-
-
-def _config(tmp_path) -> Config:
-    return cfg(transcript_dir=str(tmp_path), max_turns_default=4,
-               max_turns_default_writing=4)
-
-
-def _mcp_dir(config, handler):
-    return server.build(config, registry(entry()), DoubleCache(config, handler))
 
 
 def _answers(events: list[dict]) -> list[dict]:
     return [e for e in events if e["t"] == "answer"]
-
-
-def test_a_person_answer_is_marked_by_person(tmp_path):
-    """The person accepts through elicitation: the stream says `by: "person"`."""
-    config = _config(tmp_path)
-    handler, _ = scripted(
-        tool_call_reply("ask_caller", {"questions": ["Which file?"], "for_person": True}),
-        chat_reply(content="it is foo.py"),
-    )
-    mcp = _mcp_dir(config, handler)
-
-    async def elicit(message, response_type, params, context):
-        return "blue"
-
-    async def go():
-        async with Client(mcp, elicitation_handler=elicit) as client:
-            started = payload(await client.call_tool(
-                "delegate", {"task": "q", "effort": "inherit"}))
-            assert started["status"] == "running", started
-            done = payload(await client.call_tool(
-                "collect", {"handle": started["handle"], "wait_seconds": 5}))
-            assert done["status"] == "done", done
-            assert done["answer"] == "it is foo.py", done
-
-    asyncio.run(go())
-
-    answers = _answers(_events(tmp_path))
-    assert len(answers) == 1, answers
-    assert answers[0]["by"] == "person", answers[0]
-    assert errors(answers[0]) == [], errors(answers[0])
 
 
 def test_a_caller_answer_is_marked_by_caller(tmp_path):
@@ -82,42 +26,6 @@ def test_a_caller_answer_is_marked_by_caller(tmp_path):
     events = _drive(tmp_path, handler, text="foo.py")
 
     answers = _answers(events)
-    assert len(answers) == 1, answers
-    assert answers[0]["by"] == "caller", answers[0]
-    assert errors(answers[0]) == [], errors(answers[0])
-
-
-def test_a_person_question_the_caller_answers_is_marked_by_caller(tmp_path):
-    """A `for_person` question the person cancels, then the caller answers through the
-    `answer` tool, is `by: "caller"` -- the mark does not decide, the answerer does."""
-    config = _config(tmp_path)
-    handler, _ = scripted(
-        tool_call_reply("ask_caller", {"questions": ["Which file?"], "for_person": True}),
-        chat_reply(content="done"),
-    )
-    mcp = _mcp_dir(config, handler)
-
-    async def elicit(message, response_type, params, context):
-        return ElicitResult(action="cancel")
-
-    async def go():
-        async with Client(mcp, elicitation_handler=elicit) as client:
-            started = payload(await client.call_tool(
-                "delegate", {"task": "q", "effort": "inherit"}))
-            assert started["status"] == "running", started
-            handle = started["handle"]
-            q = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 5}))
-            assert q["status"] == "question", q
-            assert q["person"] == "cancelled", q
-            done = payload(await client.call_tool(
-                "answer", {"handle": handle, "text": "foo.py", "wait_seconds": 5}))
-            assert done["status"] == "done", done
-            assert done["answer"] == "done", done
-
-    asyncio.run(go())
-
-    answers = _answers(_events(tmp_path))
     assert len(answers) == 1, answers
     assert answers[0]["by"] == "caller", answers[0]
     assert errors(answers[0]) == [], errors(answers[0])
@@ -140,29 +48,14 @@ def test_a_best_reading_reply_is_marked_by_caller(tmp_path):
 
 def test_every_answer_event_validates_against_the_schema(tmp_path):
     """Every `answer` event the question flow writes matches the shipped schema, the way
-    test_ask_caller_transcript does -- here for the person-answered path too."""
-    config = _config(tmp_path)
+    test_ask_caller_transcript does -- here for the caller-answered path too."""
     handler, _ = scripted(
-        tool_call_reply("ask_caller", {"questions": ["Which file?"], "for_person": True}),
+        tool_call_reply("ask_caller", {"questions": ["Which file?"]}),
         chat_reply(content="it is foo.py"),
     )
-    mcp = _mcp_dir(config, handler)
+    events = _drive(tmp_path, handler, text="foo.py")
 
-    async def elicit(message, response_type, params, context):
-        return "blue"
-
-    async def go():
-        async with Client(mcp, elicitation_handler=elicit) as client:
-            started = payload(await client.call_tool(
-                "delegate", {"task": "q", "effort": "inherit"}))
-            assert started["status"] == "running", started
-            done = payload(await client.call_tool(
-                "collect", {"handle": started["handle"], "wait_seconds": 5}))
-            assert done["status"] == "done", done
-
-    asyncio.run(go())
-
-    bad = {e["t"]: errors(e) for e in _events(tmp_path) if errors(e)}
+    bad = {e["t"]: errors(e) for e in events if errors(e)}
     assert bad == {}
 
 
