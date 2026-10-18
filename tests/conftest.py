@@ -36,6 +36,18 @@ def _ledger_stays_out_of_the_real_home(tmp_path_factory):
         patch.setattr(ledger, "path", path)
         yield
 
+
+@pytest.fixture(autouse=True, scope="session")
+def _runtime_dir_stays_out_of_the_real_one(tmp_path_factory):
+    """A test that builds a server must never write the operator's runtime directory.
+
+    Handle state files land there (ADR-0126), and a suite run once left hundreds behind.
+    Set in the environment, so a server a test starts as a subprocess inherits it too.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("XDG_RUNTIME_DIR", str(tmp_path_factory.mktemp("runtime")))
+        yield
+
 # The commit a negative control compares against: `main` as it stood before the work that
 # these controls prove the red of. **A fixed commit, never a branch name.**
 #

@@ -80,6 +80,7 @@ from .slots import (
     SlotsUnavailable,
     build_slots,
     cross_process_status,
+    default_dir_if_available,
     rate_history_path,
 )
 from . import ledger, provision, transcript
@@ -1880,7 +1881,10 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         every=cfg.rate_sample_seconds,
     )
 
-    handles = Handles(cfg.handle_ttl_seconds)
+    handles = Handles(
+        cfg.handle_ttl_seconds,
+        state_dir=(d / "handles") if (d := default_dir_if_available()) is not None else None,
+    )
 
     async def _answered(run: Awaitable[dict[str, Any]], tool: str,
                         *, pause: Pause | None = None) -> dict[str, Any]:
@@ -2377,6 +2381,9 @@ remaining run and be told when it is done. `running` means wait again, never sta
 refusal from inside the run arrives from `collect`, not from the call. `cancel_delegation`
 stops a run; cancelling a `collect` only stops waiting. Until a writing run is collected,
 leave its `workdir` alone: it may still be writing there. A reconnect forgets every handle.
+Keep a `collect` open on every run you start. A client that runs the `wait-hook` (README)
+wakes a session that ended its turn when a run finishes uncollected or asks unread; one
+without it never hears from that run again.
 
 ## A run may ask you a question
 

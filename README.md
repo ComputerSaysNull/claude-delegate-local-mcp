@@ -1,4 +1,4 @@
-<!-- BUDGET: 175 -->
+<!-- BUDGET: 190 -->
 
 # claude-delegate-local-mcp
 
@@ -140,6 +140,21 @@ Windows form of the path; `/mnt/c/...` is rejected.
 
 `timeout` is milliseconds and the wall-clock default is generous. What the per-turn progress
 notification holds off, and what it does not, is [DISPATCH](docs/DISPATCH.md)'s.
+
+### Wake a session that stopped listening
+
+A session that ends its turn without collecting a `delegate` hears nothing more. This hook, in
+`~/.claude/settings.json`, wakes it when a run finishes uncollected or asks unread:
+
+```json
+{ "hooks": { "PostToolUse": [{ "matcher": "mcp__.*__(delegate.*|collect|answer)",
+    "hooks": [{ "type": "command", "asyncRewake": true, "timeout": 86400,
+                "command": "claude-delegate-local-mcp wait-hook" }] }] } }
+```
+
+On Windows hooks run in Git Bash, which rewrites a `/home` path, so the command is
+`MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu-24.04 -e /home/YOU/.venvs/delegate/bin/claude-delegate-local-mcp wait-hook`.
+Keep the long `timeout`: the default ends the hook silently after ten minutes.
 
 ## Watch a delegation
 

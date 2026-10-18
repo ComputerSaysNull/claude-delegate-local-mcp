@@ -2993,3 +2993,37 @@ seen from the other side.
 What it settles: 500k fails the bar by 300s and two such calls queued would pass the stall
 clock; 300k passes with 50s to spare, so the budget became 300k. What it does not: one
 sample at each size, both beside one other request, never two large prefills at once.
+
+## 2026-10-18 — A background hook can wake an idle session; one with no timeout dies before 660s
+
+The question was how a caller that ended its turn can hear that a run finished or asked.
+Claude Code documents a hook flag, `asyncRewake`: the command runs in the background and
+"wakes Claude on exit code 2", its stderr shown to the model. Measured in one interactive
+session, with a `PostToolUse` hook on `backend_status` running a script that logs, sleeps
+and exits 2:
+
+| sleep | `timeout` | started | outcome |
+|---|---|---|---|
+| 30s | unset | 19:53:58 | exited 19:54:28; the idle session woke with the message |
+| 75s | unset | 19:58:10 | exited 19:59:25; woke the idle session |
+| 660s | unset | 19:59:42 | never logged its exit: killed before 660s |
+| 690s | 3600 | 19:59:42 | exited 20:11:12; woke the session |
+
+A wake that fires mid-turn is held and delivered when the turn ends, labelled as a Stop hook
+error. The hook's stdin carries `tool_response` as the tool's JSON text, so a handle can be
+read from it.
+
+Two traps. **A hook edited mid-session takes effect one call late**: the first call after
+an edit still runs the previous configuration, which made the first probe look like a
+failed wake when it had never started. And **a long-lived hook needs an explicit
+`timeout`**: the default ends it silently somewhere under 660s, and nothing reports it.
+
+What it does not settle: one session, one platform (Windows client), and waits up to
+690s; a waiter that runs for hours rests on the 3600s case generalising.
+
+**Then end to end, with `wait-hook` behind the hook.** The first run never woke: no waiter
+process existed. Run by hand from Git Bash, the command failed at once with
+`execvpe(C:/Users/.../Git/home/dev/...)`: Git Bash rewrites a `/`-leading path given to
+`wsl.exe`, and Claude Code runs hooks through it. With `MSYS_NO_PATHCONV=1` in front, by
+hand it exited 2 after 5.4s with the finished message; as the hook, a `delegate` left
+uncollected woke the idle session seconds after the run ended.

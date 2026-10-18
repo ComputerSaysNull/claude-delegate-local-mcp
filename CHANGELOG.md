@@ -30,6 +30,38 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #485 — 2026-10-18 — feat: a background hook wakes a caller that stopped listening
+
+### Added
+
+- **`wait-hook`, and a state file per handle, so a caller that ended its turn is woken.** A
+  run started by `delegate` is heard from only while the caller holds `collect` or `answer`
+  open. On 2026-10-18 a session's delegations all finished uncollected until the person
+  wrote; on 2026-10-17 a question waited a day on a run nobody watched. Claude Code's
+  `asyncRewake` hook flag runs a command in the background and wakes an idle session when it
+  exits 2, measured at 30s, 75s and 690s (JOURNAL 2026-10-18). `handles.py` now writes each
+  handle's status, questions asked and shown, and whether it was collected to the runtime
+  directory, and `wait-hook`, run by that hook after each delegation tool call, exits 2 once
+  a run has sat finished-uncollected or held an unread question for three seconds. One
+  waiter per handle; a dead server or a forgotten handle ends it quietly (ADR-0126). The
+  hook entry is in `docs/ARCHITECTURE.md`; it needs an explicit `timeout`, because the
+  default killed a probe silently before 660s. Channels, the other route, were not taken:
+  they need a launch flag on every start.
+- **State files are swept when their server is gone, and the suite never writes the real
+  runtime directory.** The first live check found hundreds of handle files there, all
+  from one WSL suite run: every test that built a server wrote them, and an exited process
+  never removes its own. A new `Handles` now deletes files whose server pid is dead (on
+  POSIX only, where `os.kill(pid, 0)` probes rather than terminates), and `conftest.py`
+  gives the session its own `XDG_RUNTIME_DIR`. The same check found that a hook command run
+  through Git Bash has its WSL path rewritten into a Windows one, so the waiter never
+  started; `MSYS_NO_PATHCONV=1` before `wsl.exe` fixes it, and the docs say so.
+- **The README's setup gains the hook as its own step**, with the Windows form of the
+  command, so whoever registers the server also installs what wakes them; its budget goes
+  from 175 to 190 to hold it. Making the hook travel with the server, as a Claude Code
+  plugin, is deferred until the server is shared (`PLAN.md` Deferred 10). The
+  `delegate://orchestration` guidance tells the calling model to keep a `collect` open, and
+  that only a client running the hook wakes a session that ended its turn.
+
 ## #484 — 2026-10-18 — feat: an unanswered question ends its run after 30 minutes
 
 ### Changed

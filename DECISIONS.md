@@ -19,6 +19,31 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0126 — 2026-10-18 — A background hook wakes a caller that stopped listening — Accepted
+
+**Context.** A run started by `delegate` is heard from only while the caller holds `collect`
+or `answer` open (ADR-0103). A caller that ends its turn hears nothing: on 2026-10-18 a
+session's delegations all finished uncollected until the person wrote, and on 2026-10-17 a
+question waited a day on a run nobody watched. A server cannot start a turn. Two client
+mechanisms can: channels, a research preview that needs the server named in a launch flag
+the person's editor button cannot pass; and a hook marked `asyncRewake`, which runs in the
+background and wakes the session when it exits 2. Measured on 2026-10-18 (JOURNAL), the
+hook woke an idle session after 30s and after 75s.
+
+**Decision.** The server writes one small state file per handle in its runtime directory:
+status, questions asked and shown, collected. A `wait-hook` subcommand, run by a
+`PostToolUse` hook on the delegation tools, waits on that file and exits 2 when a run has
+finished uncollected or holds a question nobody has read, for longer than a short grace.
+One waiter per handle; a dead server or a reaped handle ends it quietly.
+
+**Rejected.** Channels: a launch flag on every start, an allowlist, and silent drops when
+misconfigured. Letting `delegate` wait inline: Claude Code holds one write-capable call in
+flight per conversation (JOURNAL 2026-09-19), which is why the handle exists.
+
+**Consequence.** The wake is client configuration: a session without the hook behaves as
+before. A wake that fires mid-turn is delivered when the turn ends, possibly after the
+caller collected anyway; the message then costs one redundant `collect`.
+
 ## ADR-0125 — 2026-10-18 — A delegation may ask its caller more than once — Accepted
 
 **Context.** ADR-0118 allowed one `ask_caller` call per run, so the person would not be
