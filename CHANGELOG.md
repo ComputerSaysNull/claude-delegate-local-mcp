@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #486 — 2026-10-18 — chore: release 0.13.0
+
+### Changed
+
+- **The version moves to 0.13.0, so an installed wheel carries today's question and wake
+  changes.** No transcript format change since 0.11.0, but a stream may now hold several
+  `question`/`answer` pairs, so the tracker should pin this release. Every question goes to
+  the caller and the `for_person` argument and `person` result key are gone (#480); a run
+  may ask any number of times (#481); the prefetch budget is 300k tokens (#482); an
+  unanswered question ends its run after 30 minutes (#484); and `wait-hook` with its
+  per-handle state files wakes a caller that stopped listening (#485). The release itself
+  is the tag `v0.13.0` on `main`, published by the release workflow (ADR-0115).
+
 ## #485 — 2026-10-18 — feat: a background hook wakes a caller that stopped listening
 
 ### Added
