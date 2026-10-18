@@ -30,6 +30,16 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #479 — 2026-10-18 — docs: close the terminal viewer's load flake
+
+### Changed
+
+- **`PLAN.md` item 115 is cancelled.** The terminal viewer's tests read a real terminal for
+  a fixed time, so a loaded machine misses output. An earlier attempt at a fix did not hold
+  and left nothing in the record, and the operator chose to close the item rather than try
+  again. The tests stay as they are: a failure in them under load is the known flake, and
+  passing alone is the check.
+
 ## #478 — 2026-10-13 — chore: release 0.12.0
 
 ### Changed
