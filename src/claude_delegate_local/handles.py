@@ -107,6 +107,7 @@ class Handles:
         self._clock = clock
         self._state_dir = state_dir
         self._entries: dict[str, _Entry] = {}
+        self._sweep_dead_servers()
 
     def start(self, work: Awaitable[dict[str, Any]], *, tool: str,
               pause: Pause | None = None) -> str:
@@ -257,6 +258,18 @@ class Handles:
             # polling whatever the last good write said.
             pass
 
+    def _sweep_dead_servers(self) -> None:
+        """Remove state files whose server has exited: nothing else ever would."""
+        if self._state_dir is None:
+            return
+        for path in self._state_dir.glob("d-*.json"):
+            try:
+                pid = json.loads(path.read_text()).get("pid")
+                if isinstance(pid, int) and pid != os.getpid() and not pid_alive(pid):
+                    path.unlink(missing_ok=True)
+            except (OSError, ValueError, AttributeError):
+                pass
+
     def _remove_state(self, handle: str) -> None:
         if self._state_dir is None:
             return
@@ -284,3 +297,17 @@ class Handles:
             "questions_shown": entry.questions_shown,
             "collected": entry.collected,
         }
+
+
+def pid_alive(pid: int) -> bool:
+    """Whether `pid` still runs. Anywhere but POSIX the answer is yes: Windows' `os.kill`
+    terminates rather than probes, so a guess there must never lead to a kill."""
+    if os.name != "posix":
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True

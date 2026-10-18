@@ -275,9 +275,9 @@ in a task the server owns, admission wait included, and `collect` reads it back,
 progress every `keepalive_interval` it waits so the idle timeout (ADR-0018) cannot drop
 it. Each time a run asks its caller (`ask_caller`, ADR-0125), `collect` or a read-only call
 answers at once with `status: question`; `answer` replies, and the run keeps its slot meanwhile.
-A caller that ended its turn hears neither, so `handles.py` keeps a state file per handle and
-a `PostToolUse` hook running `wait-hook` exits 2, waking the session, once a run sits uncollected
-or holds an unread question (ADR-0126). Without a long `timeout` the default kills it silently:
+A caller that ended its turn hears neither: `handles.py` keeps a state file per handle, and a
+`PostToolUse` hook running `wait-hook` exits 2, waking it, once a run sits uncollected or holds
+an unread question (ADR-0126). Give it a long `timeout`; from Git Bash, `MSYS_NO_PATHCONV=1`:
 ```json
 {"matcher": "mcp__.*__(delegate.*|collect|answer)", "hooks": [{"type": "command",
  "asyncRewake": true, "timeout": 86400, "command": "<server command> wait-hook"}]}

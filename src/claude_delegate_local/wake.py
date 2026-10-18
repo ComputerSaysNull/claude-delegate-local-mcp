@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from . import slots
+from .handles import pid_alive
 
 # A `collect` already waiting returns within milliseconds, so this long is genuinely unheard.
 GRACE_SECONDS = 3.0
@@ -73,20 +74,9 @@ def decide(state: dict | None, *, pid_alive: bool, held_for: float) -> tuple[str
     return None
 
 
-def _pid_alive(pid: int) -> bool:
-    """Whether a process with this pid still exists. `kill 0` probes without signalling."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def wait(handle: str, state_dir: Path, *, sleep: Callable[[float], None] = time.sleep,
          clock: Callable[[], float] = time.monotonic,
-         alive: Callable[[int], bool] = _pid_alive) -> tuple[int, str]:
+         alive: Callable[[int], bool] = pid_alive) -> tuple[int, str]:
     """Poll the handle's state file, and report how the hook should exit.
 
     Returns `(0, "")` to exit quietly or `(2, message)` to wake the caller with `message`

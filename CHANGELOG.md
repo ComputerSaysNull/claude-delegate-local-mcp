@@ -47,6 +47,14 @@ Older entries, in the previous flat format, are in
   hook entry is in `docs/ARCHITECTURE.md`; it needs an explicit `timeout`, because the
   default killed a probe silently before 660s. Channels, the other route, were not taken:
   they need a launch flag on every start.
+- **State files are swept when their server is gone, and the suite never writes the real
+  runtime directory.** The first live check found hundreds of handle files there, all
+  from one WSL suite run: every test that built a server wrote them, and an exited process
+  never removes its own. A new `Handles` now deletes files whose server pid is dead (on
+  POSIX only, where `os.kill(pid, 0)` probes rather than terminates), and `conftest.py`
+  gives the session its own `XDG_RUNTIME_DIR`. The same check found that a hook command run
+  through Git Bash has its WSL path rewritten into a Windows one, so the waiter never
+  started; `MSYS_NO_PATHCONV=1` before `wsl.exe` fixes it, and the docs say so.
 
 ## #484 — 2026-10-18 — feat: an unanswered question ends its run after 30 minutes
 

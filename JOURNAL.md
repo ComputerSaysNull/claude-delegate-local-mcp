@@ -3020,3 +3020,10 @@ failed wake when it had never started. And **a long-lived hook needs an explicit
 
 What it does not settle: one session, one platform (Windows client), and waits up to
 690s; a waiter that runs for hours rests on the 3600s case generalising.
+
+**Then end to end, with `wait-hook` behind the hook.** The first run never woke: no waiter
+process existed. Run by hand from Git Bash, the command failed at once with
+`execvpe(C:/Users/.../Git/home/dev/...)`: Git Bash rewrites a `/`-leading path given to
+`wsl.exe`, and Claude Code runs hooks through it. With `MSYS_NO_PATHCONV=1` in front, by
+hand it exited 2 after 5.4s with the finished message; as the hook, a `delegate` left
+uncollected woke the idle session seconds after the run ended.
