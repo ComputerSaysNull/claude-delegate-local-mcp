@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #487 — 2026-10-24 — fix: take FastMCP's 3.x security backports
+
+### Fixed
+
+- **FastMCP's floor is 3.4.11, so an install can no longer resolve to a release without its
+  security backports.** 3.4.8 to 3.4.11 are backports on the 3.x line: Host and Origin checks,
+  authorization applied after transforms, and a `certifi` update after a certificate
+  authority was compromised. The floor was 3.4.7 and CI's constraints pinned exactly that,
+  with the older `certifi`, so CI tested none of them even where a fresh install would have
+  picked them up. Only three pins move (`fastmcp`, `fastmcp-slim`, `certifi`), measured by
+  resolving with every other pin held; CONTRIBUTING now says how to bump one package that way.
+  The move to FastMCP 4 is planned separately: it changes how a session's folders are learnt.
+
 ## #486 — 2026-10-18 — chore: release 0.13.0
 
 ### Changed
