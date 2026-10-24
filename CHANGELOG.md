@@ -30,6 +30,24 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #489 — 2026-10-24 — docs: development moves to an always-on Linux host
+
+### Added
+
+- **ADR-0127 and milestone M21: development, the server, the tracker and the transcripts move
+  to an always-on Linux host.** The server is a stdio child of its session, so on a laptop a
+  closed lid ended every run still going; ADR-0002 had named development moving onto Linux as
+  the condition that would flip its choice, and that machine now exists. What the move rests
+  on was measured first and is in JOURNAL: the sandbox, the backend and the suite on the host,
+  and what Claude Code does with FastMCP 4, roots and MCP tasks. M21 holds the rest of the
+  roadmap, including a bug the move surfaced: the models file and the security lists resolve
+  against the working directory, which `wsl.exe --cd` had always pinned to this repository.
+
+### Changed
+
+- **CONTRIBUTING's setup and the tests README describe a Linux host, not WSL2.** ADR-0002 and
+  ADR-0020 are partially superseded; WSL2 stays a supported topology for users.
+
 ## #488 — 2026-10-24 — feat: Python 3.14 is the floor
 
 ### Changed

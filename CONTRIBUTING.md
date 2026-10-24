@@ -3,25 +3,23 @@
 
 ## Setup
 
-One interpreter, and it is one CI runs: **Python 3.14, in WSL2**. A green run on a version
-CI never tests proves less than it appears to, and WSL2 is where the server runs anyway
-(ADR-0002) -- the only place `bubblewrap` and realistic filesystem speed exist. The venv sits
-in the WSL home, not the repository: creating one on `/mnt/c` is far slower (ADR-0020).
+One interpreter, and it is one CI runs: **Python 3.14, on Linux**. A green run on a version
+CI never tests proves less than it appears to, and Linux is where the server runs anyway --
+the only place `bubblewrap` exists. Development happens on a native Linux host (ADR-0127),
+with the venv in the home rather than the repository.
 
 ```bash
-wsl -d Ubuntu-24.04 -e bash -lc '
-  uv venv --seed -p 3.14 ~/.venvs/delegate
-  ~/.venvs/delegate/bin/pip install -e "/mnt/c/path/to/repo[dev]"'
-
-wsl -d Ubuntu-24.04 -e bash -lc 'cd /mnt/c/path/to/repo && ~/.venvs/delegate/bin/python -m pytest -q'
+python3.14 -m venv ~/.venvs/delegate        # or: uv venv --seed -p 3.14 ~/.venvs/delegate
+~/.venvs/delegate/bin/pip install -e "/path/to/repo[dev]"
+cd /path/to/repo && ~/.venvs/delegate/bin/python -m pytest -q
 ```
 
 Add `-m "not integration"` to skip anything needing the cluster; that is what CI runs. Tests
 also run from a bare clone with nothing but `pytest` -- `tests/conftest.py` puts `src/` on the
 path, so a first `pytest` works before reading anything.
 
-The commit hook is the exception: install it on Windows with `python
-scripts/install_hooks.py`, because that is where git runs. It needs only the standard
+The commit hook is the exception: install it with `python3 scripts/install_hooks.py` in
+the checkout you commit from, because that is where git runs. It needs only the standard
 library, and runs `scripts/docs_gate.py` -- one implementation, two callers, because a hook
 reimplementing the checks would be a second copy destined to disagree. It installs a
 **commit-msg** hook: git writes the message file only after a pre-commit hook returns, so a

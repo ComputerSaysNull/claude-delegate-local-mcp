@@ -1,4 +1,4 @@
-<!-- BUDGET: 500 -->
+<!-- BUDGET: 525 -->
 # Plan
 
 Open work, status first so the file scans.
@@ -49,7 +49,8 @@ every ticked Unscheduled item followed on 2026-09-23. All of them are in
 
 M13 to M18 come from the [2026-09-22 review](docs/reviews/review-2026-09-22.md), cited by its
 own ids, R1 to R26 and P1 to P7. M19 and M20 hold what M11 left open. Ordered security,
-correctness, contract, cost, housekeeping, then the two features waiting on a viewer.
+correctness, contract, cost, housekeeping, then the two features waiting on a viewer. M21 is
+the move to an always-on Linux host and to FastMCP 4 (ADR-0127).
 
 ### M13 — A delegation cannot reach past the path policy
 
@@ -286,6 +287,36 @@ Item 1 was M11.10, moved unchanged on 2026-09-23.
     - h. ✅ 2026-09-24 **A detached run needs its own stop**, since the call a client would
     cancel is already over: `cancel_delegation`, filed and built together.
 
+### M21 — The server lives on an always-on Linux host
+
+**Exit:** development, the server, the tracker and the transcripts run on an always-on Linux
+host that survives a closed laptop, backed up to a second machine, on FastMCP 4, with nothing
+left that exists only because this repository's Python once ran on Windows (ADR-0127).
+
+Item 1 was Deferred.7, moved 2026-10-24 with its premise corrected: the repositories move too.
+
+1. ✅ 2026-10-25 **Development moves to the host**: readiness, setup, state, the tracker as a service,
+  backups and the cutover. Measured first (JOURNAL 2026-10-24).
+    - a. ✅ 2026-10-24 Readiness: sandbox, backend by address, linger, the suite in 3.4 GB
+    - b. ✅ 2026-10-24 Repositories, identities, venvs, config and history; 1849 tracker records, 0 disagreeing
+    - c. ✅ 2026-10-25 Backups to a second machine, append-only, so the host cannot delete them
+    - d. ✅ 2026-10-25 Cutover: the laptop's server unregistered, one Linux suite closes a commit
+2. ✅ 2026-10-24 FastMCP's 3.x security backports, which CI's pins had held back (#487)
+3. ✅ 2026-10-24 Python 3.14 is the floor; nothing runs 3.12 any more (#488)
+4. ⬜ **The models file and the security lists resolve against the working directory**, so a server
+  started in another project reads that project's `security/*.txt`, or refuses to start.
+  `wsl.exe --cd` hid it. Resolve them against the `.env`'s folder; red first
+5. ⬜ Remove what exists only because development ran Windows Python: about 54 POSIX skip
+  guards, the Windows-only tests and branches, the hook's Windows venv. The UTF-8 fixes stay
+6. ⬜ **FastMCP 4**: a session's folders come from `CLAUDE_PROJECT_DIR`, not the deprecated
+  roots, superseding that part of ADR-0110. Only the 12 roots tests fail on 4.1.3
+7. ⬜ Drop `from __future__ import annotations` now that the floor is 3.14
+8. ⬜ **MCP tasks replace handles, `collect` and the wake hook.** A task's `input_required` reaches
+  the person, so a question ends the task and `answer` continues the run; Deferred.10 then lapses
+9. ⬜ Laptop sessions reach the host's server over SSH, a path map replacing `wsl.py`'s fixed
+  rule, so one machine counts every run; closes Deferred.3
+10. ⬜ Revisit an HTTP transport only if over 5% of a month's runs end stopped or unfinished
+
 ### Unscheduled — open, real, and in no milestone
 Neither queued nor deferred: real work not (yet) ranked against a milestone.
 
@@ -437,7 +468,7 @@ On hold for weeks or months. Not cancelled, and not queued.
   additive, roughly 150 to 220 lines in one new file (ADR-0008)
 3. ⬜ Cluster-wide queueing across machines. Admission counts one machine (ADR-0040) and
   cross-process slots need a POSIX lock, so two hosts coordinate not at all — each admits
-  its own `max_inflight_seqs` and `max_inflight_large_prefills` against one endpoint
+  its own `max_inflight_seqs` against one endpoint. M21.9 closes it
 4. ⬜ Per-user identity on the endpoint. `api_key_env` is empty, so there is no auth, no
   quota and no fair share
 5. ⬜ Was Unscheduled 4. **Eviction cannot see what a result cost**, and has not fired since
@@ -449,7 +480,7 @@ On hold for weeks or months. Not cancelled, and not queued.
     - a. ❌ 2026-09-16 **Disproved: a minimum is immune to a fast sample only while its bucket
     holds a slower one, and a bucket of one *is* that sample (JOURNAL).** Original: `expect`'s
     minimum contains it — immune to *fast* samples, vulnerable only to slow ones.
-7. ⬜ **The server on a small Linux box beside the cluster.** Reopens Cancelled 3 (ADR-0020):
+7. ❌ 2026-10-24 (moved to M21.1 when the box arrived, with its premise corrected: the repositories move too, ADR-0127) **The server on a small Linux box beside the cluster.** Reopens Cancelled 3 (ADR-0020):
   the repositories stay on the workstation, and a stdio server elsewhere needs SSH as its
   stdio or a network transport. Reopen when the box is bought
 8. ⬜ Was M16.8. **Width past six is unmeasured** (P7), and aggregate still rises at six. Measure
