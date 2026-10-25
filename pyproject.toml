@@ -11,7 +11,7 @@ authors = [{ name = "ComputerSaysNull" }]
 dependencies = [
     # Pinned below 4.0 deliberately: 3.4.7 is current stable and 4.0.0 is already
     # in beta. An unpinned major bump can change tool registration under us.
-    "fastmcp>=3.4.7,<4",
+    "fastmcp>=3.4.11,<4",
     "httpx>=0.28.1,<0.29",
 ]
 

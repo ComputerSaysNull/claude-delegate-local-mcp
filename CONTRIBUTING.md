@@ -128,7 +128,9 @@ Security-sensitive work — `sandbox.py`, `paths.py`, `wsl.py` — gets a short 
 the rule set, because a lint job on a moving rule set fails builds nobody broke. **lint**
 also runs `mypy` over `src/`, bounded the same way; run it locally beside `ruff check`. `.github/ci-constraints.txt` pins the rest
 for both install steps; refresh it with `pip freeze --exclude-editable` from a clean 3.12
-install of `.[dev]`. Pins, not `pip lock`, whose lock holds one interpreter's wheels. Workflow
+install of `.[dev]`. To bump one package, such as for a security fix, hold every other pin
+(`-c` with its line removed) and move only what the resolver then changes; a full refresh
+would ride unrelated upgrades in on the fix. Pins, not `pip lock`, whose lock holds one interpreter's wheels. Workflow
 comments explain the rest, including why the tests job reports its 25 slowest.
 The generated-document step now checks `docs/CONFIGURATION.md` alone (ADR-0044).
 
