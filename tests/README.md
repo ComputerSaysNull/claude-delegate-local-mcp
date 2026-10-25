@@ -18,7 +18,7 @@ Mark anything needing the live cluster or a real `bwrap` as `@pytest.mark.integr
 **Neither kind runs in CI, and the `bwrap` kind cannot**: on a runner it builds its user
 namespace, then fails to configure loopback for want of `CAP_NET_ADMIN` (JOURNAL
 2026-08-29). A green CI run is therefore no evidence about the sandbox. Change `sandbox.py`
-and you must run the suite in WSL yourself before pushing.
+and you must run the suite on Linux yourself before pushing.
 
 **A test whose premise is "this checkout looks like mine" passes locally and fails in CI** —
 a pinned baseline, a moving `main`, a host where `bwrap` installs but cannot unshare.

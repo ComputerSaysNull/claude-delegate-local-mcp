@@ -19,6 +19,38 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0127 — 2026-10-24 — Development moves to an always-on Linux host — Accepted
+
+**Context.** The server is a stdio child of Claude Code, so it lives only as long as the
+session that started it, and on a laptop that session dies with the lid: runs still going
+are lost, and the person holds the lid open instead. ADR-0002 rejected a separate Linux box
+because the repositories would reach it only over a share, a sync or a clone, and named the
+condition that would flip it: development moving onto Linux. An always-on Linux machine on
+the overlay VPN now exists. Measured on it (JOURNAL 2026-10-24): `bwrap` builds its
+namespace, the backend answers at the address the laptop uses, the suite peaks at 3.4 GB of
+31 and runs in 70 to 110s against 130s in WSL2.
+
+**Decision.** The repositories, the Claude Code sessions, the server, the tracker and the
+transcripts all move to that host, so nothing crosses a network to reach a file. A session
+that must outlive the lid runs on the host (a `tmux` CLI, or the desktop app's SSH session),
+and the laptop or a phone attaches to it. The server stays stdio and unchanged: this moves
+where it runs, not how. A repository whose tools need Windows stays on the laptop with its
+own WSL server until laptop sessions can reach the host's server. WSL2 stays a supported
+topology for users; only development leaves it.
+
+**Rejected.** Moving the server alone: it edits files on its own disk and dies with its
+client, so a lone remote server either works on a second copy of the repository or stops
+with the lid anyway. An HTTP service now: it would add an auth surface to save the 2% of
+runs that ended because their client went away (October), and the lid, the real cost, goes
+with the move whatever the transport. Docker: `bwrap` needs user namespaces a default
+container withholds, so the sandbox would be weakened to host it.
+
+**Consequence.** One Linux suite closes a commit where two did, and code and tests that
+exist only because this repository's Python ran on Windows become removable (PLAN M21).
+Settings that default to a path relative to the working directory are no longer pinned by
+`wsl.exe --cd`, which is how M21.4 surfaced. ADR-0002 and ADR-0020 are superseded in part:
+their measurements stand, their choice of where development runs does not.
+
 ## ADR-0126 — 2026-10-18 — A background hook wakes a caller that stopped listening — Accepted
 
 **Context.** A run started by `delegate` is heard from only while the caller holds `collect`
@@ -4350,7 +4382,7 @@ network denied by default with 000 by address, the real HOME absent rather than
 read-only, `~/.ssh` absent, a bound workdir writable, and network reachable when
 explicitly re-shared.
 
-## ADR-0020 — 2026-08-25 — Topology A confirmed: server in WSL2, workspace on the Windows drive — Accepted
+## ADR-0020 — 2026-08-25 — Topology A confirmed: server in WSL2, workspace on the Windows drive — Partially superseded by ADR-0127
 
 Spike C measured the 9p bridge instead of speculating about it. Same tree, warm caches:
 git status ~100x slower, small writes ~200x, venv creation 27x (69s against 2.5s), and
@@ -4640,7 +4672,7 @@ reference separated from narrative — or it is a budget dodge that produces spr
 That is machine-checkable: a new doc whose audience and owned globs are both subsets
 of its parent's is refused.
 
-## ADR-0002 — 2026-08-24 — Server in WSL2, Claude Code stays on Windows; topology reviewed after the filesystem benchmark — Accepted
+## ADR-0002 — 2026-08-24 — Server in WSL2, Claude Code stays on Windows; topology reviewed after the filesystem benchmark — Partially superseded by ADR-0127
 
 Bubblewrap is Linux-only and Windows has no cheap equivalent — Windows Sandbox is a
 disposable desktop VM, AppContainer has no CLI and would mean hand-written Win32

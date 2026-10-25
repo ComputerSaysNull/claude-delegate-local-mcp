@@ -3027,3 +3027,36 @@ process existed. Run by hand from Git Bash, the command failed at once with
 `wsl.exe`, and Claude Code runs hooks through it. With `MSYS_NO_PATHCONV=1` in front, by
 hand it exited 2 after 5.4s with the finished message; as the hook, a `delegate` left
 uncollected woke the idle session seconds after the run ended.
+
+## 2026-10-24 — What the move to a Linux host and FastMCP 4 actually rest on
+
+Measured before planning the move (ADR-0127) and the FastMCP upgrade, because several
+answers came back the other way from the documentation.
+
+**FastMCP 4.1.3 breaks one thing.** The suite on a throwaway worktree: 2654 passed on 3.4.7,
+then 12 failed and 2642 passed on 4.1.3. All 12 are the per-session folder limit, because
+`ctx.list_roots()` is gone. The run took 303s against 130s, cause not yet looked at.
+
+**Claude Code 2.1.310 negotiates the 2026-07-28 protocol** with a FastMCP 4 server: it opens
+with `server/discover`. On that era the old roots request fails with `NoBackChannelError`;
+the new `input_required` round trip returns the project and every `/add-dir` folder. With
+`MCP_PROTOCOL_NEGOTIATION=legacy` it opens with `initialize` and the old request works, so
+the probe saw a real switch. `CLAUDE_PROJECT_DIR` is in a stdio server's environment, and
+its cwd is the project, but `${CLAUDE_PROJECT_DIR:-.}` in `args` arrived unexpanded as `.`.
+
+**MCP tasks work interactively and never headless.** Under `claude -p` every `tools/call`
+has the tasks extension stripped from its capabilities (`singleShotPrintSession()`), though
+`server/discover` declares it; a tool marked `task=True` then simply blocks. In an
+interactive session the call became a task, polled with `tasks/get` every 5s, and the idle
+session woke by itself when it ended. A task's `input_required` went to the person as a
+dialog, not to the model. One interactive launch still ran the call synchronously.
+
+**Runs rarely die with their client.** Of 718 October streams, 13 ended `stopped` and 2 have
+no end line: about 2%, cancels included.
+
+**The host.** `bwrap` builds its namespace although `apparmor_restrict_unprivileged_userns`
+is 1: Ubuntu's own `bwrap-userns-restrict` profile admits it. The backend answers at the
+address the laptop resolves. The suite peaked at 3.4 GB of 31 machine-wide (the parent
+process alone reads 176 MB, which is why a whole-machine sample was needed) and ran in 70 to
+110s. Tailscale SSH sessions have no `XDG_RUNTIME_DIR`, so `systemd-analyze --user verify`
+failed every unit, broken or not, until it was set.
