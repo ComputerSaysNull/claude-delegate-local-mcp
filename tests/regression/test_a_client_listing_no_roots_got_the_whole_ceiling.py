@@ -1,9 +1,11 @@
-"""A client listing no roots got the whole ceiling.
+"""A session that has not said where it works got the whole ceiling.
 
-With `client_roots` defaulting to `narrow`, a client that lists no folders was handed
-`DELEGATE_WORKSPACE_ROOTS` unchanged. Since the roots became a ceiling, the setup meant is
-one wide parent folder, so that was every project under it. The default is now `require`,
-which refuses such a client instead (ADR-0119).
+With `client_roots` defaulting to `narrow`, a server started without a project directory
+(`project_dir=None`) was handed `DELEGATE_WORKSPACE_ROOTS` unchanged. Since the roots
+became a ceiling, the setup meant is one wide parent folder, so that was every project
+under it. The default is now `require`, which refuses a session that has not said where it
+works instead (ADR-0119). The session's project comes from `CLAUDE_PROJECT_DIR`, so the
+refusal names it.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from test_server import DoubleCache, answered, entry, files_cfg, recording_handl
 
 
 def call(cfg) -> dict:
-    """One read-only delegation over a real MCP session whose client lists no roots."""
+    """One read-only delegation over a real MCP session for `cfg`'s project."""
     mcp = server.build(cfg, registry(entry()), DoubleCache(cfg, recording_handler([])))
 
     async def go():
@@ -37,12 +39,12 @@ def test_the_default_is_require():
     assert DEFAULT == "require"
 
 
-def test_a_client_listing_no_roots_is_refused_by_default(tmp_path):
-    cfg = replace(files_cfg(tmp_path), client_roots=DEFAULT)
-    with pytest.raises(Exception, match="lists no MCP roots"):  # fastmcp's own error type
+def test_a_session_without_a_project_is_refused_by_default(tmp_path):
+    cfg = replace(files_cfg(tmp_path), client_roots=DEFAULT, project_dir=None)
+    with pytest.raises(Exception, match="CLAUDE_PROJECT_DIR"):
         call(cfg)
 
 
-def test_narrow_still_hands_the_configured_roots_to_such_a_client(tmp_path):
-    """The negative control: the refusal comes from the default, not from the client."""
-    call(replace(files_cfg(tmp_path), client_roots="narrow"))
+def test_narrow_still_hands_the_configured_roots_to_such_a_session(tmp_path):
+    """The negative control: the refusal comes from the default, not from the session."""
+    call(replace(files_cfg(tmp_path), client_roots="narrow", project_dir=None))

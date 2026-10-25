@@ -276,9 +276,9 @@ def _check_roots(given: str, real: str, roots: Sequence[str]) -> Refusal | None:
         remedy=(
             f"Roots for this session: {', '.join(roots) or '(none)'}. If the path went "
             "through a symlink it is the resolved location that is checked, not the link. "
-            "Name a file inside a root. A client listing MCP roots narrows "
-            "DELEGATE_WORKSPACE_ROOTS to its own folders, so another project inside them is "
-            "added from the client (Claude Code: /add-dir); one outside them is added there."
+            "Name a file inside a root. A session reaches only its own project, the folder "
+            "its client was started in, narrowed from DELEGATE_WORKSPACE_ROOTS; work in "
+            "another project is delegated from a session opened there."
         ),
     )
 

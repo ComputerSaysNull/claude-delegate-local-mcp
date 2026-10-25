@@ -14,12 +14,10 @@ covered `.claude/**` since before this feature.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import shutil
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -55,37 +53,6 @@ def write_repo_settings(root: Path, content: str) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return target
-
-
-# --- a fake MCP context whose client lists roots, as the ADR-0110 tests drive -----------
-
-
-class _Root:
-    def __init__(self, path: Path) -> None:
-        self.uri = Path(path).as_uri()
-
-
-class _Params:
-    def __init__(self, roots: list[Path] | None) -> None:
-        self.capabilities = SimpleNamespace(
-            roots=SimpleNamespace() if roots is not None else None
-        )
-
-
-class _Session:
-    def __init__(self, roots: list[Path] | None) -> None:
-        self.client_params = _Params(roots)
-
-
-class _Ctx:
-    """Enough of a fastmcp `Context` for `session_scope`: a session and a roots answer."""
-
-    def __init__(self, roots: list[Path] | None) -> None:
-        self.session = _Session(roots)
-        self._roots = list(roots or [])
-
-    async def list_roots(self):
-        return [_Root(r) for r in self._roots]
 
 
 # --- 1. loading ------------------------------------------------------------------------
@@ -190,8 +157,8 @@ def test_session_scope_carries_the_sessions_repo_extras(tmp_path):
     a = tmp_path / "a"
     a.mkdir()
     write_repo_settings(a, 'ext_allowlist_extra = [".foo"]\n')
-    conf = cfg_for(tmp_path)
-    scope = asyncio.run(server.session_scope(conf, _Ctx([a])))
+    conf = cfg_for(tmp_path, project_dir=os.path.realpath(a))
+    scope = server.session_scope(conf)
     assert (os.path.realpath(a), (".foo",)) in scope.cfg.repo_ext_allowlists
 
 
@@ -199,9 +166,9 @@ def test_a_malformed_repo_settings_file_fails_the_session(tmp_path):
     a = tmp_path / "a"
     a.mkdir()
     repo_file = write_repo_settings(a, "this is not toml")
-    conf = cfg_for(tmp_path)
+    conf = cfg_for(tmp_path, project_dir=os.path.realpath(a))
     with pytest.raises(Exception) as e:
-        asyncio.run(server.session_scope(conf, _Ctx([a])))
+        server.session_scope(conf)
     assert str(repo_file) in str(e.value)
 
 

@@ -19,6 +19,39 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0128 — 2026-10-25 — A session's folder is the project its client was started in, not its roots — Accepted
+
+**Context.** ADR-0110 narrowed each session to the folders its client lists as MCP roots,
+asked per call. The 2026-07-28 protocol deprecates roots as an access-control mechanism and
+tells servers to take folders from their own configuration instead, and FastMCP 4 removes
+`ctx.list_roots()`; the replacement asks the client to retry each call, costs a round trip
+and can be removed from 2027-07-28. Claude Code sets `CLAUDE_PROJECT_DIR` in every stdio
+server's environment. Measured (JOURNAL 2026-10-24): it is the session's project, and it is
+not expanded in `args`, so it has to be read from the environment.
+
+**Decision.** A session's `workspace_roots` and `workdir_roots` are narrowed to one folder,
+`CLAUDE_PROJECT_DIR`, read once by `config.load` from the live environment and never from
+`.env`: the project is the client's to name and the operator's file cannot. Everything else
+in ADR-0110 stands -- the configured roots are a ceiling, a project wider than it gets the
+ceiling, one outside it is refused, `agent_bind_roots` is not narrowed, the `run` CLI is
+unchanged. A client's roots are not read at all, so they can neither narrow nor widen a
+session. `client_roots` keeps ADR-0119's values for a server started without the variable:
+`require`, the default, refuses it; `narrow` hands it the configured roots.
+
+**Rejected.** Roots over the new retry route: it keeps `/add-dir`, at a round trip per call
+on a mechanism the specification is retiring. Roots where offered with the variable as a
+fallback: two sources for one boundary, and a client choosing which one applies. A
+`folders_extra` key in `.claude/delegate-local.toml` to replace `/add-dir`: nothing measured
+needs it yet.
+
+**Consequence.** `/add-dir` no longer widens a delegation; work in another project is
+delegated from a session opened there, and the refusal says so. The variable is set by the
+client process, never by the model, so the boundary keeps the trust level roots had and
+works on both protocol eras. A server registered through `wsl.exe` does not receive it
+unless `WSLENV` passes it, so that topology is refused under `require` until laptop sessions
+reach the host's server (M21.9). The project is fixed for the server's life, where roots
+could change mid-session.
+
 ## ADR-0127 — 2026-10-24 — Development moves to an always-on Linux host — Accepted
 
 **Context.** The server is a stdio child of Claude Code, so it lives only as long as the
@@ -222,7 +255,7 @@ a subagent, and under `claude -p` cancels at once.
 behaves as before. A person who declines is not asked again by the server, though the
 caller may still pass the question on.
 
-## ADR-0119 — 2026-10-06 — A client that lists no folders is refused by default — Accepted
+## ADR-0119 — 2026-10-06 — A client that lists no folders is refused by default — Partially superseded by ADR-0128
 
 **Context.** ADR-0110 made the configured roots a ceiling and kept `narrow` as the default,
 which hands that ceiling whole to a client listing no folders. Since then the setup meant
@@ -455,7 +488,7 @@ change, and the schema moves with `FORMAT` or the tests fail. The one-decision o
 still holds for the terminal viewer in this repository; for a reader elsewhere, the schema
 replaces it.
 
-## ADR-0110 — 2026-10-01 — A session reaches the folders its client lists, inside the configured roots — Partially superseded by ADR-0119
+## ADR-0110 — 2026-10-01 — A session reaches the folders its client lists, inside the configured roots — Partially superseded by ADR-0119 and ADR-0128
 
 **Context.** Every session's server read one `DELEGATE_WORKSPACE_ROOTS`: `config.load()`
 reads `.env` from the checkout (ADR-0027) and the path roots are loaded once per process

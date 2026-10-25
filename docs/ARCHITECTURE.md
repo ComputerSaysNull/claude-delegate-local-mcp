@@ -86,7 +86,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `watch.py` | `claude-delegate-watch`: the terminal viewer of the stream `transcript.py` writes |
 | `handles.py` | A delegation's handle, the task `collect` reads, what `cancel_delegation` stops, and the question `answer` replies to |
 | `wake.py` | `wait-hook`: wakes a caller that stopped listening, from the state file `handles.py` keeps |
-| `server.py` | MCP wiring, the tool declarations, the backend cache, and each call's roots narrowed to the folders its client lists (ADR-0110), with each root's own layer-2 additions read in (ADR-0116) |
+| `server.py` | MCP wiring, the tool declarations, the backend cache, and each session's roots narrowed to its client's project (ADR-0110, ADR-0128), with the project's own layer-2 additions read in (ADR-0116) |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
 | `init.py` | `--init`: the two files that have no safe default, from answers |
@@ -440,9 +440,9 @@ a clean pass are the same empty result in every log. The raise reaches the calle
 
 ### One place crosses the boundary
 
-Claude Code runs on Windows, the server runs in WSL, and `files[]` and the client's roots
-(`file:` URIs) arrive in a form nothing downstream understands. `wsl.py` is the only module
-that knows this; everything below it is POSIX-only.
+Claude Code runs on Windows, the server runs in WSL, and `files[]` paths arrive in a form
+nothing downstream understands. `wsl.py` is the only module that knows this; everything
+below it is POSIX-only.
 
 Translating at the edge, rather than requiring POSIX paths from the caller, keeps the
 translation away from the least reliable participant in it. Both failure modes here are
@@ -969,9 +969,7 @@ names its durations rather than implying one from another: total, generating, re
 before the answer began, and each tool call's own. And it says how much of its reply, and apart from that of its thinking, it repeated, which is the one
 number that tells a loop from a long answer while it is still running. `start` also carries
 the caller's `title`, if any, so a viewer need not name the run from its task's first line,
-and `workspace`: the name of the first folder the client lists inside the ceiling, in the
-client's order. The roots are the only signal: the server's own directory is whatever its
-launch command set, usually the same for every project.
+and `workspace`: the name of the session's project, narrowed into the ceiling (ADR-0128).
 A run that asks writes `question`, then `answer` with how long the reply took and who gave it.
 `end.ended` says how a run ended as a fixed value, so a reader need not parse `error`.
 

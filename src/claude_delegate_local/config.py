@@ -20,6 +20,8 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from .wsl import UntranslatablePath, to_posix
+
 # Values accepted by *this project* for reasoning effort -- not the server's set, which
 # has its own vocabulary. `backends/openai_compat.py` owns the translation, and
 # docs/ARCHITECTURE.md says why validating here is not redundant (ADR-0013).
@@ -70,8 +72,11 @@ EFFORT_INHERIT = "inherit"
 # something to name and a second entry is one line.
 TRANSPORTS = ("stdio",)
 
-# What a session's MCP roots do to the configured ones (ADR-0110).
+# What a server started without a project does with the configured roots (ADR-0119).
 CLIENT_ROOTS_MODES = ("narrow", "require")
+
+# Set by Claude Code in every stdio server's environment: the session's project (ADR-0128).
+PROJECT_DIR_VAR = "CLAUDE_PROJECT_DIR"
 
 # The client's stdio idle timeout, in seconds: a measured property of Claude Code, not a
 # setting (JOURNAL 2026-09-01). At this much silence the client abandons the tool call and
@@ -155,7 +160,7 @@ class Config:
         (),
         "REQUIRED. Layer 1: the folder your projects live in, usually just one, separated "
         "by os.pathsep if more. A ceiling rather than a list of projects: each session is "
-        "narrowed to the folders its client lists (ADR-0110), so one parent covers every "
+        "narrowed to its own project (ADR-0128), so one parent covers every "
         "project under it. Any path whose real location falls outside every root is "
         "refused, which is what closes symlink escapes. Written in native host form.",
     )
@@ -166,11 +171,10 @@ class Config:
     )
     client_roots: str = _f(
         "require",
-        f"One of {CLIENT_ROOTS_MODES}: how the folders an MCP client lists for its session "
-        "bound that session. `narrow`: a client listing roots gets workspace_roots and "
-        "workdir_roots narrowed to them, and is refused if every one falls outside; a "
-        "client listing none gets the configured roots unchanged. `require`: the same, "
-        "except a client listing none is refused (ADR-0110, ADR-0119).",
+        f"One of {CLIENT_ROOTS_MODES}. A session's workspace_roots and workdir_roots are "
+        f"narrowed to its project, `{PROJECT_DIR_VAR}`, and refused if that falls outside "
+        "them; this decides a server started without one. `narrow`: the configured roots "
+        "apply unchanged. `require`: it is refused (ADR-0119, ADR-0128).",
     )
     ext_allowlist: tuple[str, ...] = _f(
         (
@@ -225,6 +229,15 @@ class Config:
             "description": "The .env file these settings were read from, None if none was, "
             "so a refusal reaching a session in another project can say where to edit. "
             "Never an environment setting.",
+        },
+    )
+    project_dir: str | None = field(
+        default=None,
+        metadata={
+            "derived": True,
+            "description": "The project this server's session works in, resolved: "
+            f"`{PROJECT_DIR_VAR}`, which Claude Code sets for every stdio server it starts "
+            "and the model cannot. None if unset. Never a DELEGATE_ setting (ADR-0128).",
         },
     )
     secret_globs_file: str = _f(
@@ -1219,7 +1232,32 @@ def load(environ: dict[str, str] | None = None,
     # ext_allowlist is compared case-insensitively and needs leading dots.
     if "ext_allowlist" in kwargs:
         kwargs["ext_allowlist"] = normalise_extensions(kwargs["ext_allowlist"])
-    return Config(**kwargs, env_file=read_from)
+    # From the live environment only: a `.env` is the operator's, and the project is the
+    # client's to name, per session.
+    return Config(**kwargs, env_file=read_from,
+                  project_dir=_project_dir(live.get(PROJECT_DIR_VAR, "")))
+
+
+def _project_dir(raw: str) -> str | None:
+    """The session's project, resolved; None if unset. Refused unless it names a folder.
+
+    Through `to_posix` like every path from a client. A relative value would resolve against
+    this server's working directory -- a folder the client never named -- so it is refused
+    rather than quietly narrowing the session to the wrong place.
+    """
+    given = raw.strip()
+    if not given:
+        return None
+    try:
+        posix = to_posix(given)
+    except UntranslatablePath as e:
+        raise ConfigError(f"{PROJECT_DIR_VAR} names no folder this server can reach: {e}") from e
+    if not posix.startswith("/"):
+        raise ConfigError(
+            f"{PROJECT_DIR_VAR}={given!r} is not an absolute path, so it does not say which "
+            "project this session works in. The client that starts the server sets it."
+        )
+    return os.path.realpath(posix)
 
 
 def describe() -> list[dict[str, Any]]:

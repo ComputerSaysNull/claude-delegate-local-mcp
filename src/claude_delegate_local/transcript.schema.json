@@ -38,7 +38,7 @@
         "max_turns": {"$ref": "#/$defs/int_or_null"},
         "tools": {"type": "array", "items": {"type": "string"}},
         "title": {"type": "string", "maxLength": 120, "description": "The caller's name for this delegation, when it gave one (format 1.2)."},
-        "workspace": {"type": "string", "description": "The name of the workspace root this delegation ran under: the last component of the first folder the client lists inside DELEGATE_WORKSPACE_ROOTS. Absent when the client lists none (format 1.5)."},
+        "workspace": {"type": "string", "description": "The name of the workspace root this delegation ran under: the last component of the session's project, narrowed into DELEGATE_WORKSPACE_ROOTS. Absent when the server has no project (format 1.5)."},
         "files_read": {"type": "array", "items": {"$ref": "#/$defs/file_read"}},
         "files_skipped": {"type": "array", "items": {"$ref": "#/$defs/file_skipped"}},
         "prefetch_tokens": {"type": "integer"},
