@@ -9,8 +9,6 @@ as paths.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local.tools import READ_GIT, RUN_BASH
 
 

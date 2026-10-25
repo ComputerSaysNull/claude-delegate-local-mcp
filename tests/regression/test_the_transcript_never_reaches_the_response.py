@@ -18,8 +18,6 @@ nobody thought to list, which is the leak that would actually happen.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import sys

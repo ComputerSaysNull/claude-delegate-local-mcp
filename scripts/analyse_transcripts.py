@@ -34,8 +34,6 @@ The directory defaults to DELEGATE_TRANSCRIPT_DIR, so a checkout with a configur
 needs no argument. Nothing here is imported by the server.
 """
 
-from __future__ import annotations
-
 import argparse
 import glob
 import json

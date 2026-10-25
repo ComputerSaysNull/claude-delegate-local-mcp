@@ -13,8 +13,6 @@ hostname** (ADR-0021) -- a hostname request fails whether or not the namespace i
 so a hostname-only test would report a tight sandbox that might just have broken DNS.
 """
 
-from __future__ import annotations
-
 import os
 import shlex
 import shutil

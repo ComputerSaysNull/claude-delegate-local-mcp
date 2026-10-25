@@ -24,8 +24,6 @@ list is sorted by resolved path before anything is accumulated -- before the tot
 cutoff too, or six files in a different order would produce a different five (ADR-0011).
 """
 
-from __future__ import annotations
-
 import os
 import re
 import sys

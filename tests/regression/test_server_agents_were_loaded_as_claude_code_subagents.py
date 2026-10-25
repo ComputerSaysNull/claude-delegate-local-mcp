@@ -6,8 +6,6 @@ save. They now live in `.claude/delegate-agents/`; the old directory is still re
 for one release, and `list_agents` says where each agent found there should move.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from claude_delegate_local import agents

@@ -7,8 +7,6 @@ overlapped by two lines. The note is the server's, not the file's, so the count 
 out and `result_bytes` still measures what was sent.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local.backends.base import BashOutcome, ToolResultBlock, ToolUseBlock
 from claude_delegate_local.loop import _TRUNCATION_MARKER, tool_call_record
 

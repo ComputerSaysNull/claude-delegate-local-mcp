@@ -12,8 +12,6 @@ ends, but "small" is not "unbounded" -- a refusal that is itself the size of the
 exists to explain would recreate the problem the record was built to avoid.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

@@ -19,8 +19,6 @@ it gates on the calls and documents why: "one that ran none says nothing rather 
 so both are pinned here.
 """
 
-from __future__ import annotations
-
 import pytest
 
 

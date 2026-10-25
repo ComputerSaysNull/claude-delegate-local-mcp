@@ -11,8 +11,6 @@ Both waiting shapes are covered, because they are two code paths: the default wa
 the task itself, and the test seam `tick_sleep` polls it.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

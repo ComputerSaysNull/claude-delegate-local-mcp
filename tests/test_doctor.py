@@ -13,8 +13,6 @@ what breaks is the probe's own error handling, and that is `server.probe_entry`'
 reused here on purpose.
 """
 
-from __future__ import annotations
-
 import json
 import socket
 import stat

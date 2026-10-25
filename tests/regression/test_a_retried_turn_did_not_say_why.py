@@ -8,8 +8,6 @@ scope in `complete_with_retry`'s `except` and all discarded.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from pathlib import Path

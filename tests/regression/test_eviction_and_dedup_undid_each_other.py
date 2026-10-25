@@ -15,8 +15,6 @@ call re-run the tool, and one of the reads this happened to took 657 seconds -- 
 again to recover bytes we deliberately discarded is worse than either mechanism alone.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local import loop
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config

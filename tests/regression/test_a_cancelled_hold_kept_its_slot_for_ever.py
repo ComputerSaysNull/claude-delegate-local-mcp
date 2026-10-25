@@ -22,8 +22,6 @@ The negative control is the ordinary cancellation, which was never broken: cance
 because a fix that released on the wrong path would pass the first assertion alone.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

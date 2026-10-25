@@ -310,7 +310,7 @@ Item 1 was Deferred.7, moved 2026-10-24 with its premise corrected: the reposito
   guards, the Windows-only tests and branches, the hook's Windows venv. The UTF-8 fixes stay
 6. ✅ 2026-10-25 **FastMCP 4**: a session's folders come from `CLAUDE_PROJECT_DIR`, not the deprecated
   roots, superseding that part of ADR-0110. Only the 12 roots tests fail on 4.1.3
-7. ⬜ Drop `from __future__ import annotations` now that the floor is 3.14
+7. ✅ 2026-10-25 Drop `from __future__ import annotations` now that the floor is 3.14
 8. ⬜ **MCP tasks replace handles, `collect` and the wake hook.** A task's `input_required` reaches
   the person, so a question ends the task and `answer` continues the run; Deferred.10 then lapses
 9. ⬜ Laptop sessions reach the host's server over SSH, a path map replacing `wsl.py`'s fixed

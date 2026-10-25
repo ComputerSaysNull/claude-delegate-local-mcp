@@ -7,8 +7,6 @@ their code with this repository's secrets in reach: the gate job hands
 commit hash cannot be moved.
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 

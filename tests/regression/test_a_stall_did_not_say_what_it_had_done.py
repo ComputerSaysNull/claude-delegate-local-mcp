@@ -24,8 +24,6 @@ Verified to fail without the fix: with the `except DispatchTimedOut` block remov
 message-level tests still pass -- which is why both levels are here.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

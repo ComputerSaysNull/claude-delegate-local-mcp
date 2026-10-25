@@ -9,8 +9,6 @@ never left in place. Refusing would leave a half-installed tree with no route fo
 hand-editing; overwriting would destroy an edit someone made deliberately.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from claude_delegate_local import agents, install_skills

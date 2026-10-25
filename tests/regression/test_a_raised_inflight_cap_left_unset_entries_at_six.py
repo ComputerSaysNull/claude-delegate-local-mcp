@@ -7,8 +7,6 @@ at 6 by its own limit: the bind the default exists to prevent, one level down. T
 existing test only ever loaded the default config, where the two numbers agree.
 """
 
-from __future__ import annotations
-
 import dataclasses
 
 from claude_delegate_local import config, registry

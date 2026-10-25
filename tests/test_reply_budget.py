@@ -15,8 +15,6 @@ This replaces `tests/regression/test_the_budget_outlived_the_attempt.py`, whose 
 was the ceiling being added.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local.config import Config
 from claude_delegate_local.loop import budget_seconds
 

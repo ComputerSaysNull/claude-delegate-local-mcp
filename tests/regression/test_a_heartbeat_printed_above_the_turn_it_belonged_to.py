@@ -7,8 +7,6 @@ heartbeat says which are queued, running or done, and the viewer opens a turn at
 line and closes it after its results.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import time

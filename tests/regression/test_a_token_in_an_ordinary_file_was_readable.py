@@ -14,8 +14,6 @@ Every token here is assembled at runtime from repeated fragments, so no literal 
 in this file and the sandbox walk does not cover this test during a run_bash.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

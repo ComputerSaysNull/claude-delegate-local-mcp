@@ -10,8 +10,6 @@ that the accounting names what was dropped, and that two orderings produce ident
 bytes.
 """
 
-from __future__ import annotations
-
 import os
 import random
 

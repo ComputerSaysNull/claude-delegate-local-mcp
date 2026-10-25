@@ -8,8 +8,6 @@ cluster's real decode throughput. A `t: "turn"` event already carries `decode_se
 lack either, reporting how many it skipped.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import json
 from datetime import UTC, datetime, timedelta

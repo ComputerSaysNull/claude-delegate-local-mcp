@@ -7,8 +7,6 @@ taken only locally must not be handed back to the file, or it gives back one of 
 process's other slots there.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

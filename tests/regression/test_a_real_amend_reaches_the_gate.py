@@ -21,8 +21,6 @@ So this drives real commits through real hooks, and pins both the forms that wor
 one that cannot, so a future change is told which is which.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess

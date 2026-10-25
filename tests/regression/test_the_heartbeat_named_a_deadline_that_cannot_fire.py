@@ -19,8 +19,6 @@ delegation are two questions, and only the second is what a watcher is asking.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from test_loop import SleepingBackend, a_reply, cfg, entry

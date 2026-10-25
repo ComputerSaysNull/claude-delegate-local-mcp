@@ -6,8 +6,6 @@ which fails on its assertion rather than on an import: before the subcommand exi
 so the gate it is asserting was genuinely open.
 """
 
-from __future__ import annotations
-
 import json
 import sys
 from types import SimpleNamespace

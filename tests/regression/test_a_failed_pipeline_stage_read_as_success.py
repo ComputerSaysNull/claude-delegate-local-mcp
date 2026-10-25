@@ -5,8 +5,6 @@ stage leaves no trace and the delegation counts the call as clean. `pipeline_hid
 reads the recorded `stages` and marks such a call as a masked failure instead.
 """
 
-from __future__ import annotations
-
 from functools import lru_cache
 from pathlib import Path
 

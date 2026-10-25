@@ -7,8 +7,6 @@ it reached the operator transcript, and a link to `/dev/zero` was read whole bef
 cap applied. The read must refuse anything that is not a regular file it opened itself.
 """
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
 

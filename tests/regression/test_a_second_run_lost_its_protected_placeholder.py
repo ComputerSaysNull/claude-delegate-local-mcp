@@ -10,8 +10,6 @@ fix prepares again and starts once more.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from test_a_sandboxed_command_changed_a_file_the_host_acts_on import _run, needs_sandbox

@@ -12,8 +12,6 @@ transcript directory is shared by every process that writes one.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import json
 from datetime import datetime, UTC
 

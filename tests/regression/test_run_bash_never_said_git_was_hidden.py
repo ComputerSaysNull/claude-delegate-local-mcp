@@ -7,8 +7,6 @@ shell reads the shell's description, not the other tool's. Every git command und
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local.tools import RUN_BASH
 
 

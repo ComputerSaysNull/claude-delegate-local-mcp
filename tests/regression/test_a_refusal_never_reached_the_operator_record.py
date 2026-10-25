@@ -13,8 +13,6 @@ shaping the reply alone. If that ever regresses, the fields below go quietly emp
 than failing, which is exactly the shape of bug this file exists to catch.
 """
 
-from __future__ import annotations
-
 import json
 
 

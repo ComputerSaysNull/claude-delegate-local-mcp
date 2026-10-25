@@ -10,8 +10,6 @@ description, an argument description or the orchestration resource must name a k
 tool's `outputSchema` declares, at any depth. A rename that strands a sentence fails here.
 """
 
-from __future__ import annotations
-
 import asyncio
 import re
 

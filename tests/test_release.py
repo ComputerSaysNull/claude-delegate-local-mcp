@@ -6,8 +6,6 @@ nothing to pin the transcript schema to, and a colleague's `--doctor` nothing to
 the tag names the version `pyproject.toml` carries (ADR-0115).
 """
 
-from __future__ import annotations
-
 import re
 import subprocess
 import sys

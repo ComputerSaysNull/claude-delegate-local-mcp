@@ -13,8 +13,6 @@ delegated model may read, which is why the fix is an entry in the list rather th
 of some other commit.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import sys
 from pathlib import Path

@@ -30,6 +30,16 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #495 — 2026-10-25 — refactor: drop from __future__ import annotations
+
+### Changed
+
+- **No module imports `from __future__ import annotations` any more.** Python 3.14 evaluates
+  annotations lazily by default, which is what the import bought on 3.12, the old floor; with
+  3.14 the floor (#488) it was one line of noise in 293 files. Removed by script, with one
+  blank line beside it where two would otherwise remain: the suite, the doc generators and
+  the count of files `ruff format` would change are all exactly as before.
+
 ## #494 — 2026-10-25 — feat: FastMCP 4
 
 ### Changed

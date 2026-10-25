@@ -25,8 +25,6 @@ label carries configuration and handler paths, and once LMCache is enabled
 `kv_transfer_params` is where a transfer target would appear.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import os

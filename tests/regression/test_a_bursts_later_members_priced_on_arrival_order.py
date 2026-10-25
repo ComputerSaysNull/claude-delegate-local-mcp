@@ -20,8 +20,6 @@ nothing open still does not wait at all — which the second test pins, because 
 quietly became a toll on every admission would be a worse bug than the one fixed here.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

@@ -6,8 +6,6 @@ drives the whole thing through a real pty, because the interesting failures live
 seam between the terminal and the code and are invisible to anything that stubs stdin.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import re

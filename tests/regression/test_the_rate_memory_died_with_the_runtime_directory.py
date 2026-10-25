@@ -10,8 +10,6 @@ The negative control loads the committed module by path and asserts the new beha
 together.
 """
 
-from __future__ import annotations
-
 
 import importlib.util
 import sys

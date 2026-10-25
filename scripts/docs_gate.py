@@ -18,8 +18,6 @@ yet reports SKIP with the reason, rather than passing silently -- an invisible n
 check is worse than an absent one, because it is trusted.
 """
 
-from __future__ import annotations
-
 import argparse
 import ast
 import atexit

@@ -27,8 +27,6 @@ with no observer attached advanced its progress clock never, and would have been
 mid-progress. Only a test that completes turns *without* a callback sees that.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

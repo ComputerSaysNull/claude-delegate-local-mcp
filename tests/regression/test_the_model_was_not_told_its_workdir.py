@@ -7,8 +7,6 @@ nothing kept in step. The rendered delegation now names the workdir, in the tail
 task, never in the system prompt (ADR-0011).
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import os

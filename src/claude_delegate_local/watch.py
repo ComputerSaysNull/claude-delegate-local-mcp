@@ -22,8 +22,6 @@ header names neither a loopback nor a name the operator allowed is refused, so a
 another origin cannot read transcripts through it.
 """
 
-from __future__ import annotations
-
 import argparse
 import contextlib
 import http.server

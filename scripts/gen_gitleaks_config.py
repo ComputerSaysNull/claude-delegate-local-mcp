@@ -10,8 +10,6 @@ caught it.
     python scripts/gen_gitleaks_config.py --check   # exit 1 if stale
 """
 
-from __future__ import annotations
-
 import argparse
 import atexit
 import re

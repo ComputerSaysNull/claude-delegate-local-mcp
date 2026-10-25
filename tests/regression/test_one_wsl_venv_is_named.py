@@ -13,8 +13,6 @@ tests needed WSL to prove layer 1 and the documented interpreter was absent.
 Five copies of one fact, and nothing compared them. This does.
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 

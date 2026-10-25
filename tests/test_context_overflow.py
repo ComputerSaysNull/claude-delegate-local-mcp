@@ -11,8 +11,6 @@ possible. A threshold reachable only by scripting eight turns is a threshold nob
 re-test when they change it.
 """
 
-from __future__ import annotations
-
 import inspect
 
 import pytest

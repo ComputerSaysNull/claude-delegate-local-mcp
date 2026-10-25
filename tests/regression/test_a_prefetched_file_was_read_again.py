@@ -8,8 +8,6 @@ rather than the lines, and a later one gets the lines themselves, prefixed to sa
 came from. Nothing runs in either case.
 """
 
-from __future__ import annotations
-
 import hashlib
 import os
 

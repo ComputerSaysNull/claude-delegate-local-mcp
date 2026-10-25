@@ -5,8 +5,6 @@ validated. The ancestor's five prefix tables failed silently -- a model whose na
 an expected suffix quietly got the wrong token budget. Every refusal here names the fix.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local import config, registry

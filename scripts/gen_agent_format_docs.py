@@ -25,8 +25,6 @@ Usage:
     python scripts/gen_agent_format_docs.py --check   # exit 1 if stale, print a diff
 """
 
-from __future__ import annotations
-
 import argparse
 import difflib
 import re

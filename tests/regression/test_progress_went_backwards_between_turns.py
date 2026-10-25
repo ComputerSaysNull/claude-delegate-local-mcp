@@ -8,8 +8,6 @@ reads as "zero of zero". One counter per call now rises on every notification, t
 is left out because it is not known, and what happened goes in `message`.
 """
 
-from __future__ import annotations
-
 import asyncio
 from contextlib import asynccontextmanager
 from itertools import pairwise

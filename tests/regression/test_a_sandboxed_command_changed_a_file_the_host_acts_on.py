@@ -16,8 +16,6 @@ docs/specs/2026-09-23-host-acted-paths.md.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import tempfile
 from functools import lru_cache
 from pathlib import Path

@@ -14,8 +14,6 @@ nothing speaks MCP to them, so there is no protocol on stdout to corrupt. All re
 before any of the below.
 """
 
-from __future__ import annotations
-
 import sys
 from typing import Literal, cast
 

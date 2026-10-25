@@ -6,8 +6,6 @@ nothing about the repository (ADR-0052). What is tested is everything that runs 
 the diff, the shape and metric helpers, and the enforcement.
 """
 
-from __future__ import annotations
-
 import fnmatch
 import importlib.util
 import json

@@ -10,8 +10,6 @@ The feed replaced a browser page (ADR-0112): the web viewer lives in its own rep
 reads events, so the feed hands over events and renders nothing.
 """
 
-from __future__ import annotations
-
 import http.client
 import ipaddress
 import json

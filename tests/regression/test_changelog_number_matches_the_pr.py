@@ -16,8 +16,6 @@ fire could fire on everything, and one asserted only to stay silent could be sil
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import json
 import subprocess
 import sys

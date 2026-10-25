@@ -8,8 +8,6 @@ accumulate across retries, so a value measured there would count the failed atte
 reasoning against a turn that answered on the retry.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from pathlib import Path

@@ -16,8 +16,6 @@ boot flag is the wrong one (ADR-0017); and anything derived from a model *name*,
 selection is a registry lookup (ADR-0009).
 """
 
-from __future__ import annotations
-
 import json
 import re
 import os

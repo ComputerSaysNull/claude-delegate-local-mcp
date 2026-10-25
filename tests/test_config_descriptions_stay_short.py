@@ -7,8 +7,6 @@ ceiling keeps them from regrowing. It is a count, not a judgement, so it cannot 
 description is good, only that it has stopped being a history.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local import config
 
 MAX_WORDS = 80

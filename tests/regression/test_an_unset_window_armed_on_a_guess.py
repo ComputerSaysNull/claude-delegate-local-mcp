@@ -7,8 +7,6 @@ case the switch shipped off to avoid. A defaulted window the endpoint cannot con
 disarms and says which line to add.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from claude_delegate_local import server

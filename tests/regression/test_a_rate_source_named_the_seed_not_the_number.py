@@ -17,8 +17,6 @@ a sample that is refused moves neither, and a sample that is taken moves both.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local.loop import DecodeRate
 
 # Comfortably past `MIN_TOKENS` and `MIN_SECONDS`, so the sample is taken.

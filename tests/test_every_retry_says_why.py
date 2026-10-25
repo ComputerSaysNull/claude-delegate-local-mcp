@@ -13,8 +13,6 @@ with a scripted backend, so the count of records against the count of attempts i
 invariant no individual case can miss.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from pathlib import Path

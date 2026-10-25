@@ -17,8 +17,6 @@ register the check in CHECKS fails these tests too. A check nobody calls cannot 
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 import sys

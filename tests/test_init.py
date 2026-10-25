@@ -13,8 +13,6 @@ No test names a real host. `localhost` is one of the placeholders the gate's own
 recognises, and a real endpoint in a tracked file is the leak that scanner exists to stop.
 """
 
-from __future__ import annotations
-
 import io
 import os
 import tempfile

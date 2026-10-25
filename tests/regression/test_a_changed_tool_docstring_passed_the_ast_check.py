@@ -5,8 +5,6 @@ rewords such a docstring is therefore wrongly reported unchanged, and this test
 pins that docstring as behaviour rather than prose.
 """
 
-from __future__ import annotations
-
 import importlib.util
 from pathlib import Path
 

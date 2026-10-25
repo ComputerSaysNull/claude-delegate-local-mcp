@@ -20,8 +20,6 @@ Named after the bug, per the project's convention. Companion to
 test_inert_settings_are_marked.py, which asserts the marker appears and clears.
 """
 
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 

@@ -7,8 +7,6 @@ handler that ran first and failed afterwards. The call-counting stub below is wh
 distinguishes "refused" from "ran and then complained".
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import sys

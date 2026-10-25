@@ -14,8 +14,6 @@ calls it. `pipefail` was still refused: measured, it marks `grep <absent> | head
 both. `test_a_pipeline_hiding_a_failed_stage_is_counted` pins the pipeline half (ADR-0107).
 """
 
-from __future__ import annotations
-
 from functools import lru_cache
 from pathlib import Path
 

@@ -18,8 +18,6 @@ the reserve equals a fraction of the window, for every window, which no flat con
 satisfy for more than one.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local import loop

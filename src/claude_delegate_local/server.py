@@ -9,8 +9,6 @@ carries a CHANGELOG entry.
 message, so diagnostics go to stderr (`main.py` holds the other half of that rule).
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import math

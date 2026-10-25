@@ -12,8 +12,6 @@ Everything else keeps exact-argument dedup, a write still invalidates the cache,
 truncated read covers only the lines it actually returned.
 """
 
-from __future__ import annotations
-
 
 
 from claude_delegate_local import context, loop

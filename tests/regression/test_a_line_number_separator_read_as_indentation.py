@@ -10,8 +10,6 @@ The pure helper is tested directly because layer 1 needs a real POSIX filesystem
 end-to-end refusals carry the same skip marker the existing `edit_file` tests use.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 

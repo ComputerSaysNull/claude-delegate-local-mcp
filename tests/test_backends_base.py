@@ -5,8 +5,6 @@ fail is worse than none, because it is trusted -- three such checks have already
 found in this repository.
 """
 
-from __future__ import annotations
-
 import dataclasses
 
 import pytest

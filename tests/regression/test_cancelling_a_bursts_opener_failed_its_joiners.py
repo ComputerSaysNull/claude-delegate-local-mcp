@@ -5,8 +5,6 @@ joiner that was never cancelled lands in its own `except asyncio.CancelledError`
 releases a slot it validly held, and is cancelled too.
 """
 
-from __future__ import annotations
-
 import asyncio
 import time
 

@@ -6,8 +6,6 @@ one line per dispatch, never torn, never raising. The concurrency guarantee is a
 the same way it was measured -- many processes, many appends, and every line surviving.
 """
 
-from __future__ import annotations
-
 import json
 import multiprocessing
 import os

@@ -10,8 +10,6 @@ what we dropped" is the claim that needs evidence, and a correlation that report
 re-read, or none, would look equally plausible in a report. So both directions.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

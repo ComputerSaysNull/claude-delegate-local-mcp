@@ -16,8 +16,6 @@ tests assert the checks FIRE, not merely that a clean case passes -- the old cod
 every clean case too, which is precisely why nobody noticed.
 """
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 import sys

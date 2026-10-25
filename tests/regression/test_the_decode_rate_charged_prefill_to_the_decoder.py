@@ -26,8 +26,6 @@ quantity simply does not contain prefill (ADR-0070).
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

@@ -25,8 +25,6 @@ discarded.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local.admission import Admission
 from claude_delegate_local.config import Config
 

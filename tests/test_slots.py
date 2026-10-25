@@ -17,8 +17,6 @@ These need real `flock` and a real `/proc`, so they are skipped where those are 
 and are meant to be run inside WSL rather than from the Windows drive.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import os

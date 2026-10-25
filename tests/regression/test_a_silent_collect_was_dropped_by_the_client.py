@@ -6,8 +6,6 @@ while the run it waited on finished fine. The delegating tools already beat thro
 own silence; `collect` had no context to beat with.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from fastmcp import Client

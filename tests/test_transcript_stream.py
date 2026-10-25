@@ -5,8 +5,6 @@ happening, which is a different question and cannot be served by the same file: 
 produced at the end cannot say whether a delegation is still making progress.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import re

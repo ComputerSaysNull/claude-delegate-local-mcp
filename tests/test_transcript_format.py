@@ -9,8 +9,6 @@ Every check here is also run backwards: a schema that accepts everything would p
 forward half, so each negative test asserts a real violation is refused.
 """
 
-from __future__ import annotations
-
 import copy
 import json
 import re

@@ -10,8 +10,6 @@ The two events are new kinds, so the stream's format is 1.3 under ADR-0111: an a
 kind is a minor bump.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from pathlib import Path

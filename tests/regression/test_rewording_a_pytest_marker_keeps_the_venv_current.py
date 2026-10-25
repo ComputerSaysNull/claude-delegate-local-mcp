@@ -9,8 +9,6 @@ build reads and nothing else.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from claude_delegate_local import provision

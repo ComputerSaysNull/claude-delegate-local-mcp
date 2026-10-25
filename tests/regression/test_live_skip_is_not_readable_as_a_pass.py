@@ -14,8 +14,6 @@ These tests assert the guard distinguishes the layers. A guard that reported one
 reason would pass a test that only checked it skipped.
 """
 
-from __future__ import annotations
-
 import socket
 
 import pytest

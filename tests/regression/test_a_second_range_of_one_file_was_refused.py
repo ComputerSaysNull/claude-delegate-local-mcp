@@ -8,8 +8,6 @@ the span from line 1. A merged span too big to send falls back to the ranges as 
 range that fits is still sent and what does not is skipped saying how to read it.
 """
 
-from __future__ import annotations
-
 import json
 
 import pytest

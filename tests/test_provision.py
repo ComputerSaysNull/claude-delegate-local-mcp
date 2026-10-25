@@ -13,8 +13,6 @@ missing file, `install_target` dropping `[dev]` for a project that does not decl
 would be the fourth check in this repository that could not fail.
 """
 
-from __future__ import annotations
-
 import io
 import json
 import os

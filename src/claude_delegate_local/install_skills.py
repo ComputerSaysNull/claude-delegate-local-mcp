@@ -19,8 +19,6 @@ name that could not be an agent name, so a skill shipped under one would install
 and never load -- a failure with no symptom where it was caused.
 """
 
-from __future__ import annotations
-
 import shutil
 import sys
 from datetime import datetime

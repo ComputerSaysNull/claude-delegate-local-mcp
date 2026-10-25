@@ -14,8 +14,6 @@ on a retry happen *after* pricing, so `max_tokens_sent` is the first attempt's b
 `max_tokens` remains the caller's raw argument.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from pathlib import Path

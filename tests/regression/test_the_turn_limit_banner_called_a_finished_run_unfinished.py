@@ -8,8 +8,6 @@ answer was "a report of an unfinished investigation". Observed on a probe that h
 finished. The banner now states what is known, and leaves the judgement to the reader.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local.backends.base import TURN_LIMIT_BANNER
 
 

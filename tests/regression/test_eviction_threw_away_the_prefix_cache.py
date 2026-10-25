@@ -30,8 +30,6 @@ measured hit rates to the decimal on the turns before the first eviction, which 
 instrument being right rather than a coincidence.
 """
 
-from __future__ import annotations
-
 from dataclasses import replace
 
 import pytest

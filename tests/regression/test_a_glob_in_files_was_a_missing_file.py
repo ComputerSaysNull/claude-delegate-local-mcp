@@ -11,9 +11,6 @@ budget and never enforce the total. A pattern that overflows the budget is repor
 `files_skipped` with `SKIP_OVER_TOTAL_BUDGET` rather than silently truncated.
 """
 
-from __future__ import annotations
-
-
 from pathlib import Path
 
 import pytest

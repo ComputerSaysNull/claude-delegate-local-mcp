@@ -7,8 +7,6 @@ worse than an absent check, because an absent check is not trusted.
 Named after the bugs, per the project's testing convention.
 """
 
-from __future__ import annotations
-
 import re
 import subprocess
 import sys

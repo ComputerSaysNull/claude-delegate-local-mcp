@@ -17,8 +17,6 @@ These tests assert the block FIRES on every surface. The old code passed every c
 on all three, which is exactly why nothing noticed.
 """
 
-from __future__ import annotations
-
 import json
 import shutil
 import subprocess

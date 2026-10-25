@@ -25,8 +25,6 @@ cross-process case, without the cost of real subprocesses. They need real `flock
 real `/proc`, so they are skipped where those are absent.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from pathlib import Path

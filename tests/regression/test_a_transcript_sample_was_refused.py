@@ -5,8 +5,6 @@
 default list, so every one of them refused the samples.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local import paths

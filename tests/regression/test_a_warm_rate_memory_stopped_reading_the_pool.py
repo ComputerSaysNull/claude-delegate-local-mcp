@@ -15,8 +15,6 @@ reader reported the right pool when it ran. It was the *pairing* that broke, so 
 these assert.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from claude_delegate_local.loop import RateHistory, seed_decode_rate

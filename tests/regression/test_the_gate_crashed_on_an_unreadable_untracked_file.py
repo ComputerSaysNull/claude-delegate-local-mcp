@@ -9,8 +9,6 @@ never going to be committed, and no commit could be made from the sandbox at all
 other check in the gate already lists tracked files only.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 import sys

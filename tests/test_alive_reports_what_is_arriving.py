@@ -10,8 +10,6 @@ usually carries one token on this stack and is not promised to, and the only rea
 count arrives in the final usage frame, after the heartbeat has stopped mattering.
 """
 
-from __future__ import annotations
-
 import pytest
 from wire_double import Clock, delta, paced
 

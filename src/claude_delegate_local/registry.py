@@ -11,8 +11,6 @@ less state, and it removes a bug class: a model silently getting the wrong setti
 its name did or did not match a prefix.
 """
 
-from __future__ import annotations
-
 import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path

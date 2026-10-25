@@ -4,8 +4,6 @@ Every `ask_caller` question goes to the caller (ADR-0124), so the stream's `answ
 records `by: "caller"`; the schema keeps `person` only for older streams.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local import transcript
 from test_ask_caller_transcript import _drive
 from test_ask_caller_server import scripted

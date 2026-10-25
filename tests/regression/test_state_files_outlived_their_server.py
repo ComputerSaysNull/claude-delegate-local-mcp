@@ -6,8 +6,6 @@ process that exits never removes its own. Two fixes, one test each: the suite ge
 directory of its own, and a new `Handles` sweeps files whose server is gone.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import subprocess

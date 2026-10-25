@@ -31,8 +31,6 @@ and a reconnect was throwing all of them away.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

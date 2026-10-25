@@ -19,8 +19,6 @@ check. `test_the_claim_would_be_caught_again` feeds the checker the sentence tha
 and asserts it is rejected.
 """
 
-from __future__ import annotations
-
 import inspect
 import pathlib
 

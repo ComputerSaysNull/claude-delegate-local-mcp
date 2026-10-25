@@ -7,8 +7,6 @@ the sandbox's home after one evening, all of them fake, in the file the cost rep
 keeps it.
 """
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
 

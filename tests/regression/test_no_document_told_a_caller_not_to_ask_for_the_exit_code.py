@@ -7,8 +7,6 @@ writes the task left ARCHITECTURE.md in #376 and had no other home. Its home is
 `delegate://orchestration`, the guide a caller reads when shaping a delegation.
 """
 
-from __future__ import annotations
-
 from test_caller_rules_lived_only_in_one_operators_memory import _resource
 
 

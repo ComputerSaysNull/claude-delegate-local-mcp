@@ -7,8 +7,6 @@ anything, and a reader that went away mid-print raised `BrokenPipeError`. The wr
 this server, so the practical source is a truncated or hand-edited file.
 """
 
-from __future__ import annotations
-
 import io
 import json
 

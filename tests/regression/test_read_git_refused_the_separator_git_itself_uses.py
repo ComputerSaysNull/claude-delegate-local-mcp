@@ -10,8 +10,6 @@ repository, and through the path policy for the commands that return file conten
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess

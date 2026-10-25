@@ -13,8 +13,6 @@ caller also gets `provisioning_stale` in the delegation result.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import json
 import sys
 from pathlib import Path

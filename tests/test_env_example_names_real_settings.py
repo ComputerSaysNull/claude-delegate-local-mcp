@@ -10,8 +10,6 @@ Commented lines count. A `# DELEGATE_FOO=` suggestion is exactly as misleading a
 one, and more likely to be stale because nothing ever exercises it.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import re
 from pathlib import Path

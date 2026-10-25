@@ -17,8 +17,6 @@ failed. Found by running the suite under `pytest -n auto`, which failed intermit
 the read-only test below.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import shutil
 import subprocess

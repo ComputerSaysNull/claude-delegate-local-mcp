@@ -9,8 +9,6 @@ file that does not exist raises, and a line that could never have been read rais
 loader that shrugs at both is indistinguishable from the bug it replaces.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local import config

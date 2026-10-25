@@ -14,8 +14,6 @@ Both directions are asserted. A fix that hard-codes `False` would satisfy the fi
 and break the field's actual purpose, so the second is the control that catches it.
 """
 
-from __future__ import annotations
-
 import json
 
 import httpx

@@ -6,8 +6,6 @@ once they finish. The heartbeat now carries the running batch, each call's name 
 arguments capped as the turn record caps them, and the viewer prints it.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import time

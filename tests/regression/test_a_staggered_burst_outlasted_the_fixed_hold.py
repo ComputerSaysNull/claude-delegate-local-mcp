@@ -28,8 +28,6 @@ where the cost is one call's dispatch latency rather than a stuck gate.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from claude_delegate_local import admission as adm

@@ -13,8 +13,6 @@ float, or setting a flag and scheduling the real work. A consumer that needs to 
 guards its own once-ness; the adapter does not decide that for it.
 """
 
-from __future__ import annotations
-
 import json
 
 import pytest

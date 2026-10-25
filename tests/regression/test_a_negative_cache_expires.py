@@ -16,8 +16,6 @@ The clock is injected rather than slept through. A test that waited out a fiftee
 would be deleted by the first person whose suite it slowed down.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

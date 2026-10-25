@@ -8,8 +8,6 @@ the transcript schema to that release would pin something other than what it ask
     python scripts/release_check.py v0.6.0      # exit 0 when pyproject says 0.6.0
 """
 
-from __future__ import annotations
-
 import sys
 import tomllib
 from pathlib import Path

@@ -11,8 +11,6 @@ and failed under a full suite's load (PLAN U.111); it now hands off between the 
 fake prefetch waits for a coroutine that can only run if the loop is free.
 """
 
-from __future__ import annotations
-
 import asyncio
 import threading
 

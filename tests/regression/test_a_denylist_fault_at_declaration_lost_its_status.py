@@ -10,8 +10,6 @@ two ways depending on which step met it first.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 from test_server import cfg, chat_handler, refusal
 
 from claude_delegate_local import server

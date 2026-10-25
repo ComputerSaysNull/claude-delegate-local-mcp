@@ -9,8 +9,6 @@ file that no longer tokenizes is never exempt.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 import sys

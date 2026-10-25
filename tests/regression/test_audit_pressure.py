@@ -10,8 +10,6 @@ nothing, so a green result on real data is not accepted as proof. These tests bu
 repository where the condition genuinely holds.
 """
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 import sys

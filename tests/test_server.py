@@ -7,8 +7,6 @@ is someone else's hardware -- and a vocabulary nothing distinguishes is not a
 vocabulary. Each negative test asserts the check *fires*.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import os

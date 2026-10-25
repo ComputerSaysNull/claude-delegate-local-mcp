@@ -26,8 +26,6 @@ repeated the mistake that created them.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import json
 import re
 import shutil

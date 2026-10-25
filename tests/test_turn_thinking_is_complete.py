@@ -8,8 +8,6 @@ turn's `turn` event: joined in order, a turn's partials then hold all of its rea
 reply text (format 1.8).
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

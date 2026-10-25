@@ -13,8 +13,6 @@ that must keep working sit beside the ones that must not, so a fix that refused
 everything would fail here too.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess

@@ -14,8 +14,6 @@ Usage:
     python scripts/gen_config_docs.py --check   # exit 1 if stale, print a diff
 """
 
-from __future__ import annotations
-
 import argparse
 import ast
 import atexit

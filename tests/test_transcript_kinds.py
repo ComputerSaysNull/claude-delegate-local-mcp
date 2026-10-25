@@ -7,8 +7,6 @@ files it was given. Until those were recorded a `delegate_readonly` call and a p
 by kind and a reader could not see what a delegation was actually working on.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import os

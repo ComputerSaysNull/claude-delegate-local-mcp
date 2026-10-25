@@ -10,8 +10,6 @@ Every assertion here has a negative twin, because CLAUDE.md's rule is that a che
 cannot fail is worse than no check, and this repository has found six of those.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local.backends.base import BashOutcome, ToolResultBlock, ToolUseBlock
 from claude_delegate_local.loop import (
     TOOL_ARG_VALUE_CAP,
