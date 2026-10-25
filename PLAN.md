@@ -303,7 +303,7 @@ Item 1 was Deferred.7, moved 2026-10-24 with its premise corrected: the reposito
     - d. ✅ 2026-10-25 Cutover: the laptop's server unregistered, one Linux suite closes a commit
 2. ✅ 2026-10-24 FastMCP's 3.x security backports, which CI's pins had held back (#487)
 3. ✅ 2026-10-24 Python 3.14 is the floor; nothing runs 3.12 any more (#488)
-4. ⬜ **The models file and the security lists resolve against the working directory**, so a server
+4. ✅ 2026-10-25 **The models file and the security lists resolve against the working directory**, so a server
   started in another project reads that project's `security/*.txt`, or refuses to start.
   `wsl.exe --cd` hid it. Resolve them against the `.env`'s folder; red first
 5. ✅ 2026-10-25 Remove what exists only because development ran Windows Python: about 54 POSIX skip

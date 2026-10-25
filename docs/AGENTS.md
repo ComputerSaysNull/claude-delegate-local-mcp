@@ -302,9 +302,9 @@ cannot enumerate every source file you might ever delegate — so extension is t
 *can* be allowlisted, and layers 3 and 4 are second and third nets for what passes it: an
 extensionless key, a `.env.local`, a committed config full of tokens. (ADR-0006)
 
-The list is read from `secret_globs_file`, a relative setting resolving against the server's
-working directory via `resolve_configured_path` — shared with the opaque list and with the
-scan that must recognise both to avoid covering them (ADR-0065).
+The list is read from `secret_globs_file`, resolved beside the `.env` it came from, never in
+the client's working directory, by `Config.resolve_file_setting` — shared with the opaque
+list, the registry and the scan that must recognise both lists to avoid covering them (ADR-0065).
 
 Order decides which message you get, not just whether the file is refused. A `.pem` is
 stopped by layer 2, never reaching the denylist, because its extension is not allowlisted;

@@ -1064,6 +1064,21 @@ class Config:
         ratio = BYTES_PER_TOKEN.get(ext.lower(), BYTES_PER_TOKEN_DEFAULT)
         return int(nbytes / ratio)
 
+    def resolve_file_setting(self, raw: str) -> Path:
+        """Where a file setting points: a relative one hangs off the `.env`'s folder.
+
+        Never off the working directory, which for a stdio server is its client's project:
+        that would read another repository's lists. With no `.env` read, the checkout is
+        the anchor. One copy for every caller -- the list loaders, the registry, and the
+        shadow scan, which must resolve a list exactly as its loader did or it would cover
+        the very file just read.
+        """
+        path = Path(raw).expanduser()
+        if path.is_absolute():
+            return path
+        anchor = Path(self.env_file).resolve().parent if self.env_file else REPO_ROOT
+        return anchor / path
+
 
 def env_name(field_name: str) -> str:
     return "DELEGATE_" + field_name.upper()

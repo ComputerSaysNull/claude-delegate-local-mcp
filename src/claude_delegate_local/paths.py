@@ -379,20 +379,6 @@ def load_repo_ext_allowlists(roots: Sequence[str]) -> tuple[tuple[str, tuple[str
 # ---- layer 3 ---------------------------------------------------------------------
 
 
-def resolve_configured_path(raw: str) -> Path:
-    """Where a configured list file actually is: relative settings hang off the cwd.
-
-    One copy, three callers -- `load_secret_globs`, `load_opaque_globs`, and the shadow
-    scan that has to recognise both files to avoid covering them. The third is why this is
-    a function at all: comparing a walked path against a setting resolved a different way
-    would let the scan cover the very list it had just read.
-    """
-    path = Path(raw)
-    if not path.is_absolute():
-        path = Path.cwd() / path
-    return path
-
-
 def load_secret_globs(cfg: Config) -> tuple[str, ...]:
     """Read the denylist, or refuse to run without it.
 
@@ -400,15 +386,15 @@ def load_secret_globs(cfg: Config) -> tuple[str, ...]:
     also why a missing file is fatal here: the gate would keep passing while the server
     quietly stopped denying anything, and nothing would report the difference.
     """
-    path = resolve_configured_path(cfg.secret_globs_file)
+    path = cfg.resolve_file_setting(cfg.secret_globs_file)
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as e:
         raise PathPolicyError(
             f"Layer 3 cannot run: the secret denylist at {path} is unreadable ({e}). It "
             "is not skipped when absent -- a denylist that matches nothing is "
-            "indistinguishable from one that passed. Set DELEGATE_SECRET_GLOBS_FILE, or "
-            "start the server with its working directory at the repository root."
+            "indistinguishable from one that passed. Set DELEGATE_SECRET_GLOBS_FILE, or put "
+            "the list beside the .env it was read from, where a relative setting looks."
         ) from e
 
     globs = tuple(
@@ -547,14 +533,14 @@ def load_protected_globs(cfg: Config) -> tuple[str, ...]:
     Fatal when missing or empty for the reason `load_secret_globs` gives: a list that
     protects nothing reads exactly like one that matched nothing.
     """
-    path = resolve_configured_path(cfg.protected_globs_file)
+    path = cfg.resolve_file_setting(cfg.protected_globs_file)
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as e:
         raise PathPolicyError(
             f"The write tools cannot run: the protected-path list at {path} is unreadable "
-            f"({e}). Set DELEGATE_PROTECTED_GLOBS_FILE, or start the server with its "
-            "working directory at the repository root."
+            f"({e}). Set DELEGATE_PROTECTED_GLOBS_FILE, or put the list beside the .env "
+            "it was read from, where a relative setting looks."
         ) from e
     globs = tuple(
         line.strip()
