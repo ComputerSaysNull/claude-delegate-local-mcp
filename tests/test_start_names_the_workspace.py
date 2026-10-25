@@ -17,14 +17,10 @@ import json
 import os
 from pathlib import Path
 
-import pytest
 from fastmcp import Client
 
 from claude_delegate_local import server
 from test_server import DoubleCache, answered, entry, files_cfg, recording_handler, registry
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix", reason="the path policy resolves POSIX paths; the server is POSIX-only")
 
 
 def start_for(config, *, roots=None) -> dict:
@@ -52,7 +48,6 @@ def start_for(config, *, roots=None) -> dict:
     return start
 
 
-@posix_only
 def test_the_first_listed_folder_names_the_workspace(tmp_path):
     """Two folders inside the ceiling: the client's first one wins."""
     one, two = tmp_path / "one", tmp_path / "two"
@@ -64,7 +59,6 @@ def test_the_first_listed_folder_names_the_workspace(tmp_path):
     assert start["workspace"] == "one"
 
 
-@posix_only
 def test_a_folder_outside_the_ceiling_first_does_not_name_it(tmp_path):
     """A client that lists something outside first is skipped, not a failure."""
     outside = tmp_path / "outside"
@@ -77,7 +71,6 @@ def test_a_folder_outside_the_ceiling_first_does_not_name_it(tmp_path):
     assert start["workspace"] == "inner"
 
 
-@posix_only
 def test_the_client_order_names_the_workspace_not_the_ceiling_order(tmp_path):
     """ORDER PIN. The ceiling is two roots X then Y; the client lists Y first, X second.
 
@@ -94,7 +87,6 @@ def test_the_client_order_names_the_workspace_not_the_ceiling_order(tmp_path):
     assert start["workspace"] == "Y"
 
 
-@posix_only
 def test_a_client_that_lists_no_roots_omits_the_workspace(tmp_path):
     """The `narrow` fallback: the session did not say where it works, so the key is absent,
     not written as null."""

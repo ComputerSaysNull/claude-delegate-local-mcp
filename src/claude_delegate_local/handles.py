@@ -300,10 +300,7 @@ class Handles:
 
 
 def pid_alive(pid: int) -> bool:
-    """Whether `pid` still runs. Anywhere but POSIX the answer is yes: Windows' `os.kill`
-    terminates rather than probes, so a guess there must never lead to a kill."""
-    if os.name != "posix":
-        return True
+    """Whether `pid` still runs."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

@@ -13,7 +13,6 @@ budget and never enforce the total. A pattern that overflows the budget is repor
 
 from __future__ import annotations
 
-import os
 
 from pathlib import Path
 
@@ -25,11 +24,6 @@ from claude_delegate_local.context import SKIP_OVER_TOTAL_BUDGET, prefetch
 from claude_delegate_local.paths import expand_globs, has_magic, resolve_files
 
 REPO = Path(__file__).resolve().parents[2]
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="EXPANSION IS UNPROVEN BY THIS RUN -- layer 1 needs a POSIX filesystem",
-)
 
 
 def _cfg(tmp_path: Path, **overrides: object) -> config_module.Config:
@@ -64,7 +58,6 @@ def test_a_literal_path_is_not_a_pattern() -> None:
 # ---- expansion ----------------------------------------------------------------------
 
 
-@posix_only
 def test_a_pattern_becomes_the_files_it_matches(tmp_path: Path) -> None:
     src = _tree(tmp_path)
 
@@ -74,7 +67,6 @@ def test_a_pattern_becomes_the_files_it_matches(tmp_path: Path) -> None:
     assert [Path(p).name for p in named] == ["mod0.py", "mod1.py", "mod2.py"]
 
 
-@posix_only
 def test_literals_pass_through_untouched_and_keep_their_place(tmp_path: Path) -> None:
     """A mixed list is the ordinary case, and order is the caller's."""
     src = _tree(tmp_path)
@@ -87,7 +79,6 @@ def test_literals_pass_through_untouched_and_keep_their_place(tmp_path: Path) ->
     assert len(named) == 4
 
 
-@posix_only
 def test_a_directory_match_is_not_prefetched(tmp_path: Path) -> None:
     """`src/*` matches `deep/`, which is a legitimate match and never a file to read."""
     src = _tree(tmp_path)
@@ -98,7 +89,6 @@ def test_a_directory_match_is_not_prefetched(tmp_path: Path) -> None:
     assert not any(Path(p).name == "deep" for p in named)
 
 
-@posix_only
 def test_recursive_patterns_reach_down(tmp_path: Path) -> None:
     src = _tree(tmp_path)
 
@@ -111,7 +101,6 @@ def test_recursive_patterns_reach_down(tmp_path: Path) -> None:
 # ---- what is refused, and told rather than dropped -----------------------------------
 
 
-@posix_only
 def test_a_pattern_matching_nothing_is_refused_not_ignored(tmp_path: Path) -> None:
     """The design call: silence here is indistinguishable from a typo that cost nothing."""
     _tree(tmp_path)
@@ -123,7 +112,6 @@ def test_a_pattern_matching_nothing_is_refused_not_ignored(tmp_path: Path) -> No
     assert "matched no files" in refusals[0].reason
 
 
-@posix_only
 def test_a_pattern_anchored_outside_every_root_never_walks(tmp_path: Path) -> None:
     """The bound on the walk, checked before the walk rather than on its results."""
     _tree(tmp_path)
@@ -135,7 +123,6 @@ def test_a_pattern_anchored_outside_every_root_never_walks(tmp_path: Path) -> No
     assert "outside every workspace root" in refusals[0].reason
 
 
-@posix_only
 def test_a_relative_pattern_is_refused(tmp_path: Path) -> None:
     named, refusals = expand_globs(_cfg(tmp_path), ["src/*.py"])
 
@@ -143,7 +130,6 @@ def test_a_relative_pattern_is_refused(tmp_path: Path) -> None:
     assert "relative pattern" in refusals[0].reason
 
 
-@posix_only
 def test_too_many_matches_is_refused_rather_than_truncated(tmp_path: Path) -> None:
     """Truncating would send a subset and say it was the answer."""
     src = _tree(tmp_path, count=10)
@@ -155,7 +141,6 @@ def test_too_many_matches_is_refused_rather_than_truncated(tmp_path: Path) -> No
     assert "more than 4" in refusals[0].reason
 
 
-@posix_only
 def test_the_policy_still_judges_every_match(tmp_path: Path) -> None:
     """Expansion widens what may be *named*, and nothing about what is allowed."""
     src = _tree(tmp_path)
@@ -173,7 +158,6 @@ def test_the_policy_still_judges_every_match(tmp_path: Path) -> None:
 # ---- the budget, which is where the work actually is ---------------------------------
 
 
-@posix_only
 def test_an_overflowing_expansion_is_skipped_not_truncated(tmp_path: Path) -> None:
     """One prefetch over the whole expansion, and the overflow is reported as such.
 
@@ -223,7 +207,6 @@ def test_negative_control_the_committed_code_had_no_expansion() -> None:
     assert "resolved, refusals = resolve_files(cfg, files or [])" in server_blob
 
 
-@posix_only
 def test_negative_control_a_glob_was_refused_as_a_missing_file(tmp_path: Path) -> None:
     """What `main` did with a pattern: resolved it as a filename and failed to find it."""
     src = _tree(tmp_path)

@@ -35,14 +35,6 @@ from claude_delegate_local.paths import (
     resolve_workdir,
 )
 
-UNPROVEN = (
-    "LAYERS 1 AND 4 UNPROVEN BY THIS RUN -- this is not a pass. They need a POSIX "
-    "filesystem (resolving symlinks, a git work tree) and the server runs in WSL. Run "
-    "them there -- see CONTRIBUTING.md: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest tests/test_paths.py'"
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
-
 GLOBS = ".env\n.env.*\n*.pem\n*secret*\n.git/**\n.ssh/**\n.docker/config.json\n"
 
 
@@ -73,7 +65,6 @@ def touch(path, content: str = "x") -> str:
 # ---- layer 2: the extension allowlist --------------------------------------------
 
 
-@posix_only
 def test_a_disallowed_extension_is_refused(tmp_path):
     target = touch(tmp_path / "bundle.wasm")
     with pytest.raises(PathRefused) as e:
@@ -83,7 +74,6 @@ def test_a_disallowed_extension_is_refused(tmp_path):
     assert ".wasm" in refusal.reason
 
 
-@posix_only
 @pytest.mark.parametrize("name", [".gitignore", "Makefile", "Dockerfile", ".env-example"])
 def test_an_allowlisted_whole_filename_is_allowed(tmp_path, name):
     """The wrinkle worth a test of its own.
@@ -97,7 +87,6 @@ def test_an_allowlisted_whole_filename_is_allowed(tmp_path, name):
     assert len(resolved) == 1
 
 
-@posix_only
 def test_an_extensionless_file_that_is_not_allowlisted_is_still_refused(tmp_path):
     """The other half of the same wrinkle: name matching must not admit everything."""
     target = touch(tmp_path / "id_rsa_backup_notes")
@@ -109,7 +98,6 @@ def test_an_extensionless_file_that_is_not_allowlisted_is_still_refused(tmp_path
 # ---- layer 3: the secret denylist -------------------------------------------------
 
 
-@posix_only
 def test_a_secret_glob_match_is_refused(tmp_path):
     """A file the extension allowlist is happy with, which layer 3 stops anyway.
 
@@ -124,7 +112,6 @@ def test_a_secret_glob_match_is_refused(tmp_path):
     assert "*secret*" in refusal.reason
 
 
-@posix_only
 def test_the_allowlist_is_checked_before_the_denylist(tmp_path):
     """Order is documented, and it decides which message the caller gets.
 
@@ -154,7 +141,6 @@ def test_a_directory_glob_fires_on_a_file_inside_that_directory():
     assert paths._check_secret("x", "/mnt/c/proj/src/git/config.py", globs) is None
 
 
-@posix_only
 def test_a_multi_component_glob_fires_end_to_end(tmp_path):
     """The same matching, through `resolve_all` rather than the helper.
 
@@ -170,7 +156,6 @@ def test_a_multi_component_glob_fires_end_to_end(tmp_path):
     assert ".docker/config.json" in refusal.reason
 
 
-@posix_only
 def test_the_denylist_is_case_insensitive(tmp_path):
     """Paths cross from a case-insensitive filesystem, so the match must not depend on it."""
     target = touch(tmp_path / "MySecretStuff.py")
@@ -216,7 +201,6 @@ def test_the_shipped_denylist_denies_the_thing_it_exists_for(tmp_path):
 # ---- layer 1: the workspace roots -------------------------------------------------
 
 
-@posix_only
 def test_a_path_outside_every_root_is_refused(tmp_path):
     inside = tmp_path / "root"
     inside.mkdir()
@@ -227,7 +211,6 @@ def test_a_path_outside_every_root_is_refused(tmp_path):
     assert e.value.refusals[0].layer == LAYER_ROOTS
 
 
-@posix_only
 def test_a_symlink_inside_a_root_pointing_out_of_it_is_refused(tmp_path):
     """The test the whole `realpath`-first ordering exists for.
 
@@ -249,7 +232,6 @@ def test_a_symlink_inside_a_root_pointing_out_of_it_is_refused(tmp_path):
     assert "loot.py" in refusal.reason, "the message names the resolved target, not the link"
 
 
-@posix_only
 def test_a_symlink_staying_inside_the_root_is_allowed(tmp_path):
     """Otherwise the previous test would pass against a policy that refuses all symlinks."""
     root = tmp_path / "root"
@@ -260,7 +242,6 @@ def test_a_symlink_staying_inside_the_root_is_allowed(tmp_path):
     assert resolved[0].posix == os.path.realpath(real)
 
 
-@posix_only
 def test_a_sibling_directory_sharing_a_name_prefix_is_not_inside_the_root(tmp_path):
     """`/a/proj` must not contain `/a/proj-secrets`, which a bare startswith would say."""
     root = tmp_path / "proj"
@@ -272,14 +253,12 @@ def test_a_sibling_directory_sharing_a_name_prefix_is_not_inside_the_root(tmp_pa
     assert e.value.refusals[0].layer == LAYER_ROOTS
 
 
-@posix_only
 def test_a_missing_file_is_refused_not_silently_dropped(tmp_path):
     with pytest.raises(PathRefused) as e:
         resolve_all(cfg(tmp_path), [str(tmp_path / "typo.py")])
     assert "no such file" in e.value.refusals[0].reason
 
 
-@posix_only
 def test_a_directory_is_refused(tmp_path):
     (tmp_path / "src").mkdir()
     with pytest.raises(PathRefused) as e:
@@ -287,7 +266,6 @@ def test_a_directory_is_refused(tmp_path):
     assert "directory" in e.value.refusals[0].reason
 
 
-@posix_only
 def test_a_relative_path_is_refused(tmp_path):
     """It would resolve against the server's working directory, which is not the caller's."""
     with pytest.raises(PathRefused) as e:
@@ -297,7 +275,6 @@ def test_a_relative_path_is_refused(tmp_path):
     assert "relative" in refusal.reason
 
 
-@posix_only
 def test_an_untranslatable_path_names_the_boundary_not_a_layer(tmp_path):
     """A UNC share never reaches the policy, so it must not claim a layer that never ran."""
     with pytest.raises(PathRefused) as e:
@@ -321,7 +298,6 @@ def _repo(tmp_path):
     return root
 
 
-@posix_only
 def test_a_gitignored_path_is_refused(tmp_path):
     root = _repo(tmp_path)
     target = touch(root / "build" / "out.py")
@@ -331,7 +307,6 @@ def test_a_gitignored_path_is_refused(tmp_path):
     assert e.value.refusals[0].layer == LAYER_GITIGNORE
 
 
-@posix_only
 def test_the_same_path_is_allowed_with_the_layer_switched_off(tmp_path):
     """Pins that the previous test measured layer 4 and not something else about the file."""
     root = _repo(tmp_path)
@@ -340,7 +315,6 @@ def test_the_same_path_is_allowed_with_the_layer_switched_off(tmp_path):
     assert len(resolve_all(conf, [target], writing=True)) == 1
 
 
-@posix_only
 def test_a_tracked_file_is_not_ignored_even_when_a_pattern_matches_it(tmp_path):
     """git's own semantics, relied on rather than reimplemented. Committed is not ignored."""
     root = _repo(tmp_path)
@@ -353,7 +327,6 @@ def test_a_tracked_file_is_not_ignored_even_when_a_pattern_matches_it(tmp_path):
     assert len(resolve_all(conf, [target], writing=True)) == 1
 
 
-@posix_only
 def test_a_path_outside_any_repository_is_not_treated_as_ignored(tmp_path):
     """git exits 128 there. Treating a fatal exit as "ignored" would refuse every file
     that happens to live outside a work tree."""
@@ -362,7 +335,6 @@ def test_a_path_outside_any_repository_is_not_treated_as_ignored(tmp_path):
     assert len(resolve_all(conf, [target], writing=True)) == 1
 
 
-@posix_only
 def test_an_absent_git_stops_the_policy_rather_than_passing(tmp_path, monkeypatch):
     """The other silent-disable mode: no git means no output, which reads as nothing ignored."""
     target = touch(tmp_path / "a.py")
@@ -379,7 +351,6 @@ def test_an_absent_git_stops_the_policy_rather_than_passing(tmp_path, monkeypatc
 # ---- the whole call ---------------------------------------------------------------
 
 
-@posix_only
 def test_every_refusal_is_reported_not_just_the_first(tmp_path):
     """One round trip has to be enough to fix all of them.
 
@@ -399,7 +370,6 @@ def test_every_refusal_is_reported_not_just_the_first(tmp_path):
     assert e.value.total == 4
 
 
-@posix_only
 def test_one_bad_path_refuses_the_whole_call(tmp_path):
     """Skips proceed and are reported; refusals do not proceed at all."""
     good = touch(tmp_path / "good.py")
@@ -409,7 +379,6 @@ def test_one_bad_path_refuses_the_whole_call(tmp_path):
     assert "nothing was sent to the model" in str(e.value)
 
 
-@posix_only
 def test_the_same_file_named_twice_is_resolved_once(tmp_path):
     """Two spellings of one path would otherwise be inlined -- and paid for -- twice."""
     target = touch(tmp_path / "a.py")
@@ -417,7 +386,6 @@ def test_the_same_file_named_twice_is_resolved_once(tmp_path):
     assert len(resolved) == 1
 
 
-@posix_only
 def test_results_keep_caller_order(tmp_path):
     """Prompt ordering belongs to context.py (ADR-0011).
 
@@ -432,7 +400,6 @@ def test_results_keep_caller_order(tmp_path):
     ]
 
 
-@posix_only
 def test_an_empty_file_list_is_not_an_error(tmp_path):
     assert resolve_all(cfg(tmp_path), []) == ()
 
@@ -453,7 +420,6 @@ def test_a_refusal_names_the_layer_and_a_remedy():
 # --- the workdir surface (layer 1 only) ---------------------------------------------------
 
 
-@posix_only
 def test_a_workdir_inside_a_root_resolves_to_its_real_location(tmp_path):
     root = tmp_path / "root"
     (root / "proj").mkdir(parents=True)
@@ -461,7 +427,6 @@ def test_a_workdir_inside_a_root_resolves_to_its_real_location(tmp_path):
     assert resolve_workdir(conf, str(root / "proj")) == os.path.realpath(root / "proj")
 
 
-@posix_only
 def test_a_workdir_symlinked_out_of_every_root_is_refused(tmp_path):
     """The escape this item exists to close, and the one a written-path check cannot see.
 
@@ -484,7 +449,6 @@ def test_a_workdir_symlinked_out_of_every_root_is_refused(tmp_path):
     assert "loot" in refusal.reason, "the message names where it lands, not where it sits"
 
 
-@posix_only
 def test_a_workdir_symlink_staying_inside_the_root_is_allowed(tmp_path):
     """Otherwise the test above would pass against a policy that refused every symlink."""
     root = tmp_path / "root"
@@ -496,7 +460,6 @@ def test_a_workdir_symlink_staying_inside_the_root_is_allowed(tmp_path):
     assert resolve_workdir(conf, str(link)) == os.path.realpath(real)
 
 
-@posix_only
 def test_a_workdir_outside_every_root_is_refused(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
@@ -508,7 +471,6 @@ def test_a_workdir_outside_every_root_is_refused(tmp_path):
     assert e.value.refusals[0].layer == LAYER_ROOTS
 
 
-@posix_only
 def test_workdir_roots_are_a_separate_surface_from_workspace_roots(tmp_path):
     """Reading a project and working in it are different grants, so they are configured
     separately. A model may be allowed to read three checkouts and write in one."""
@@ -526,7 +488,6 @@ def test_workdir_roots_are_a_separate_surface_from_workspace_roots(tmp_path):
         resolve_workdir(conf, str(readable))
 
 
-@posix_only
 def test_empty_workdir_roots_falls_back_to_the_workspace_roots(tmp_path):
     """The default, and the reason the second setting is not required to use the first."""
     root = tmp_path / "root"
@@ -541,7 +502,6 @@ def test_a_relative_workdir_is_refused(tmp_path):
         resolve_workdir(cfg(tmp_path), "relative/proj")
 
 
-@posix_only
 def test_a_workdir_that_is_a_file_or_missing_is_refused(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
@@ -580,7 +540,7 @@ def test_the_proof_refuses_a_descriptor_that_points_somewhere_else(tmp_path, mon
     """
     target = Path(touch(tmp_path / "a.txt", "x"))
     monkeypatch.setattr(paths, "_opened_path", lambda fd: "/etc/shadow")
-    fd = os.open(target, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    fd = os.open(target, os.O_RDONLY)
     try:
         with pytest.raises(PathRefused) as e:
             paths._prove_descriptor(entry_for(target), fd)
@@ -608,7 +568,7 @@ def test_the_inode_branch_refuses_when_the_path_stops_naming_the_open_file(
     named = Path(touch(tmp_path / "named.txt", "named"))
     monkeypatch.setattr(paths, "_opened_path", lambda fd: None)
 
-    fd = os.open(held, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    fd = os.open(held, os.O_RDONLY)
     try:
         with pytest.raises(PathRefused) as e:
             paths._prove_descriptor(entry_for(named), fd)
@@ -620,7 +580,6 @@ def test_the_inode_branch_refuses_when_the_path_stops_naming_the_open_file(
         os.close(fd)
 
 
-@posix_only
 def test_open_resolved_reads_the_file_it_approved(tmp_path):
     target = tmp_path / "a.txt"
     touch(target, "hello\n")
@@ -630,7 +589,6 @@ def test_open_resolved_reads_the_file_it_approved(tmp_path):
     assert opened.created is False
 
 
-@posix_only
 def test_an_unsupported_mode_is_a_programming_error_not_a_refusal(tmp_path):
     """A bad mode is our bug, so it must not arrive dressed as the model's fault."""
     target = touch(tmp_path / "a.txt", "x")
@@ -639,7 +597,6 @@ def test_an_unsupported_mode_is_a_programming_error_not_a_refusal(tmp_path):
         paths.open_resolved(entry, "a+")
 
 
-@posix_only
 def test_a_link_planted_after_approval_is_refused_by_the_open_itself(tmp_path):
     """O_NOFOLLOW, which is safe here because `realpath` already collapsed the path."""
     outside = tmp_path.parent / "outside.txt"
@@ -657,7 +614,6 @@ def test_a_link_planted_after_approval_is_refused_by_the_open_itself(tmp_path):
     assert "symbolic link" in str(e.value)
 
 
-@posix_only
 def test_the_descriptor_proof_catches_the_same_link_without_o_nofollow(
     tmp_path, monkeypatch
 ):
@@ -682,7 +638,6 @@ def test_the_descriptor_proof_catches_the_same_link_without_o_nofollow(
     assert os.path.realpath(outside) in str(e.value)
 
 
-@posix_only
 def test_a_refused_write_has_not_truncated_anything(tmp_path, monkeypatch):
     """The reason "wb" sets O_CREAT and never O_TRUNC.
 
@@ -706,7 +661,6 @@ def test_a_refused_write_has_not_truncated_anything(tmp_path, monkeypatch):
     assert outside.read_text(encoding="utf-8") == "must survive\n"
 
 
-@posix_only
 def test_wb_reports_whether_it_created_the_file(tmp_path):
     target = tmp_path / "new.txt"
     entry = resolve_all(cfg(tmp_path), [str(target)], must_exist=False)[0]
@@ -723,7 +677,6 @@ def test_wb_reports_whether_it_created_the_file(tmp_path):
     assert target.read_bytes() == b"xy"
 
 
-@posix_only
 def test_r_plus_b_holds_one_descriptor_for_the_whole_read_modify_write(tmp_path):
     """What makes `edit_file` safe by construction: there is no second open to race."""
     target = tmp_path / "a.txt"

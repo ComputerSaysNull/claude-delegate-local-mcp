@@ -13,24 +13,12 @@ end-to-end refusal carries the same skip marker the existing `edit_file` tests u
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-import pytest
 
 from claude_delegate_local import tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
-
-
-UNPROVEN = (
-    "LAYER 1 UNPROVEN BY THIS RUN -- this is not a pass. Resolving a real path needs a "
-    "POSIX filesystem and the server runs in WSL, so every case that actually opens a "
-    "file is proven there. Run: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest "
-    "tests/regression/test_an_edit_miss_gave_nothing_to_correct.py'"
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 
 
 def cfg(root: Path, **over) -> Config:
@@ -84,7 +72,6 @@ def test_the_hint_never_quotes_file_text():
 
 
 # (e) end-to-end: a near-miss edit_file refusal carries the hint
-@posix_only
 def test_edit_file_refusal_names_the_nearest_region(tmp_path):
     target = tmp_path / "mod.py"
     target.write_text("def one():\n\treturn 1\n", encoding="utf-8")

@@ -11,17 +11,13 @@ range that fits is still sent and what does not is skipped saying how to read it
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 from test_a_large_file_could_not_be_prefetched_in_part import (
-    UNPROVEN,
     big_file,
     dispatched,
     files_cfg,
 )
-
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 
 
 def headers(sent: list) -> list[str]:
@@ -29,7 +25,6 @@ def headers(sent: list) -> list[str]:
     return [chunk.split(" ---")[0] for chunk in prompt.split("--- BEGIN FILE ")[1:]]
 
 
-@posix_only
 def test_two_separate_ranges_of_one_file_are_both_sent(tmp_path):
     target = big_file(tmp_path)
     sent: list = []
@@ -44,7 +39,6 @@ def test_two_separate_ranges_of_one_file_are_both_sent(tmp_path):
     assert "lines 10-20 of 200" in found[0] and "lines 50-60 of 200" in found[1], found
 
 
-@posix_only
 @pytest.mark.parametrize(("first", "second", "merged"), [
     ((10, 30), (25, 40), "lines 10-40 of 200"),   # overlapping
     ((10, 20), (21, 30), "lines 10-30 of 200"),   # touching
@@ -72,7 +66,6 @@ def skipped(result) -> list[str]:
 # The cap in `files_cfg` is 50 tokens: about 21 of these lines fit, 31 do not.
 
 
-@posix_only
 def test_ranges_that_fit_are_sent_when_their_merge_does_not(tmp_path):
     """Each named range fits and their union does not: both are sent, no line twice."""
     target = big_file(tmp_path)
@@ -88,7 +81,6 @@ def test_ranges_that_fit_are_sent_when_their_merge_does_not(tmp_path):
     assert json.dumps(sent[0]).count("\\tline 27\\n") == 1, "a line was sent twice"
 
 
-@posix_only
 def test_a_range_that_fits_is_sent_when_the_range_holding_it_does_not(tmp_path):
     """The small range goes in; the rest of the large one is skipped loudly, with the way in."""
     target = big_file(tmp_path)
@@ -107,7 +99,6 @@ def test_a_range_that_fits_is_sent_when_the_range_holding_it_does_not(tmp_path):
     assert "lines 16-80" in json.dumps(sent[0]), "the model was not told what it is missing"
 
 
-@posix_only
 def test_a_range_of_a_file_too_big_to_send_whole_is_still_sent(tmp_path):
     """Named whole and by range: the range fits, the whole does not, so the range goes in."""
     target = big_file(tmp_path)
@@ -124,7 +115,6 @@ def test_a_range_of_a_file_too_big_to_send_whole_is_still_sent(tmp_path):
     assert prompt.count("\\tline 15\\n") == 1, "a line was sent twice"
 
 
-@posix_only
 def test_a_file_named_whole_and_by_range_is_sent_once_whole(tmp_path):
     small = tmp_path / "small.py"
     small.write_text("a = 1\nb = 2\nc = 3\n", encoding="utf-8")

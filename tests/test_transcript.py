@@ -14,10 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from pathlib import Path
 
-import pytest
 from fastmcp import Client
 
 from claude_delegate_local import server
@@ -30,7 +28,6 @@ from test_server import (
     chat_reply,
     entry,
     files_cfg,
-    files_posix_only,
     registry,
 )
 from wire_double import as_stream
@@ -128,7 +125,6 @@ def test_a_record_carries_real_usage_not_the_admission_estimate(tmp_path):
     assert one["admission"]["estimated_tokens"] != 1234
 
 
-@files_posix_only
 def test_file_contents_never_reach_a_record(tmp_path):
     """Paths and cost, not text. Bodies are recoverable from the repository by path, and
     writing them would put every prefetched file on disk at rest indefinitely."""
@@ -167,8 +163,6 @@ def test_a_write_failure_does_not_fail_the_delegation(tmp_path):
     assert result["answer"] == "still fine"
 
 
-
-
 def test_per_turn_records_reach_the_transcript_though_the_caller_never_asked(tmp_path):
     """ADR-0024's actual requirement: independent of any caller-facing flag.
 
@@ -191,13 +185,6 @@ def test_per_turn_records_reach_the_transcript_though_the_caller_never_asked(tmp
     assert one["per_turn"][0]["input_tokens"] == 7
 
 
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="POSIX mode bits. Windows has no 0o600, and the server runs in WSL anyway.",
-)
-
-
-@posix_only
 def test_a_transcript_is_not_readable_by_anyone_but_its_owner(tmp_path):
     """Both files were created at whatever the umask happened to allow.
 

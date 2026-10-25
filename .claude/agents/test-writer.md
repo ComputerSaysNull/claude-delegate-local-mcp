@@ -48,8 +48,7 @@ Then the positive case, so the check is not simply always-on.
 ## Running
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q                    # Windows
-wsl -d Ubuntu-24.04 -e bash -lc 'cd /mnt/c/... && python3 -m pytest -q'   # needs bwrap
+python -m pytest -q   # tests needing a real bwrap fail or skip where namespaces are denied
 ```
 
 Run the suite before you finish. Report the **real** exit code — if it is non-zero, say

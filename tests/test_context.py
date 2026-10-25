@@ -29,14 +29,6 @@ from claude_delegate_local.context import (
 )
 from claude_delegate_local.paths import ResolvedPath
 
-UNPROVEN = (
-    "PREFETCH UNPROVEN BY THIS RUN -- this is not a pass. It reads real files through "
-    "resolved POSIX paths, and the server runs in WSL. Run it there -- see "
-    "CONTRIBUTING.md: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest tests/test_context.py'"
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
-
 
 def cfg(**over) -> Config:
     kw = {"workspace_roots": (".",)}
@@ -57,7 +49,6 @@ def write(tmp_path, name: str, data: bytes | str) -> ResolvedPath:
 # ---- the happy path ---------------------------------------------------------------
 
 
-@posix_only
 def test_a_file_is_read_and_inlined(tmp_path):
     item = write(tmp_path, "a.py", "def f():\n    return 1\n")
     result = prefetch(cfg(), (item,))
@@ -67,7 +58,6 @@ def test_a_file_is_read_and_inlined(tmp_path):
     assert result.total_tokens > 0
 
 
-@posix_only
 def test_the_block_uses_the_resolved_path_not_the_one_the_caller_wrote(tmp_path):
     """Two spellings of one file must not render as two different prompts.
 
@@ -79,7 +69,6 @@ def test_the_block_uses_the_resolved_path_not_the_one_the_caller_wrote(tmp_path)
     assert prefetch(cfg(), (aliased,)).block() == prefetch(cfg(), (real,)).block()
 
 
-@posix_only
 def test_a_markdown_file_carrying_fences_is_not_cut_short_by_them(tmp_path):
     """Why the file markers are not a markdown fence.
 
@@ -96,7 +85,6 @@ def test_a_markdown_file_carrying_fences_is_not_cut_short_by_them(tmp_path):
 # ---- skips: size ------------------------------------------------------------------
 
 
-@posix_only
 def test_a_file_over_the_byte_ceiling_is_skipped_without_being_read(tmp_path):
     item = write(tmp_path, "big.py", "A" * 5000)
     result = prefetch(cfg(max_file_read_bytes=1000), (item,))
@@ -104,7 +92,6 @@ def test_a_file_over_the_byte_ceiling_is_skipped_without_being_read(tmp_path):
     assert result.skips[0].kind == SKIP_TOO_MANY_BYTES
 
 
-@posix_only
 def test_an_over_budget_file_is_skipped_whole_and_none_of_it_appears(tmp_path):
     """The assertion that matters is the absence, not the skip.
 
@@ -123,7 +110,6 @@ def test_an_over_budget_file_is_skipped_whole_and_none_of_it_appears(tmp_path):
     assert result.skips[0].kind == SKIP_OVER_FILE_BUDGET
 
 
-@posix_only
 def test_the_skip_reason_reaches_the_prompt_as_well_as_the_accounting(tmp_path):
     """The model has to be told, or it answers about a file it never saw."""
     item = write(tmp_path, "big.py", "x = 1\n" * 5000)
@@ -135,7 +121,6 @@ def test_the_skip_reason_reaches_the_prompt_as_well_as_the_accounting(tmp_path):
 # ---- skips: binary ----------------------------------------------------------------
 
 
-@posix_only
 def test_a_nul_byte_makes_a_python_file_binary(tmp_path):
     """Extension is not evidence. The allowlist admits .py; a .py can still be a blob."""
     item = write(tmp_path, "weird.py", b"print(1)\n\x00\x01\x02binary tail")
@@ -145,7 +130,6 @@ def test_a_nul_byte_makes_a_python_file_binary(tmp_path):
     assert "NUL" in result.skips[0].reason
 
 
-@posix_only
 def test_a_utf16_json_file_is_binary(tmp_path):
     """The case extension alone cannot catch, and the one a BOM check alone would miss."""
     item = write(tmp_path, "config.json", '{"a": 1}'.encode("utf-16"))
@@ -154,7 +138,6 @@ def test_a_utf16_json_file_is_binary(tmp_path):
     assert result.skips[0].kind == SKIP_BINARY
 
 
-@posix_only
 def test_latin1_bytes_are_binary_rather_than_silently_mangled(tmp_path):
     """The strict decode, asserted directly.
 
@@ -167,7 +150,6 @@ def test_latin1_bytes_are_binary_rather_than_silently_mangled(tmp_path):
     assert result.skips[0].kind == SKIP_BINARY
 
 
-@posix_only
 def test_a_utf8_bom_is_stripped_rather_than_treated_as_content(tmp_path):
     item = write(tmp_path, "a.py", b"\xef\xbb\xbfx = 1\n")
     result = prefetch(cfg(), (item,))
@@ -190,7 +172,6 @@ def test_valid_utf8_with_multibyte_characters_is_text():
 MEDIUM = "x = 1\n" * 92
 
 
-@posix_only
 def test_the_total_budget_stops_the_list_and_the_accounting_says_so(tmp_path):
     """Silent truncation of the *list* reads as full coverage, exactly like a truncated file."""
     items = [write(tmp_path, f"{n}.py", MEDIUM) for n in "abcd"]
@@ -209,7 +190,6 @@ def test_the_total_budget_stops_the_list_and_the_accounting_says_so(tmp_path):
     assert "already spent" in reasons[items[3].posix]
 
 
-@posix_only
 def test_the_cutoff_does_not_depend_on_the_order_the_caller_named_them(tmp_path):
     """Sorting before accumulating, not after.
 
@@ -232,7 +212,6 @@ def test_the_cutoff_does_not_depend_on_the_order_the_caller_named_them(tmp_path)
         ]
 
 
-@posix_only
 def test_a_shuffled_input_produces_a_byte_identical_block(tmp_path):
     """The whole point of the ordering rule, asserted on the bytes rather than the list."""
     items = [write(tmp_path, f"{n}.py", f"# {n}\nvalue = {i}\n") for i, n in enumerate("abcde")]
@@ -246,7 +225,6 @@ def test_a_shuffled_input_produces_a_byte_identical_block(tmp_path):
 # ---- token accounting -------------------------------------------------------------
 
 
-@posix_only
 def test_json_and_python_of_equal_size_are_costed_differently(tmp_path):
     """Pins the ADR-0019 claim that the prefetch budget rests on.
 
@@ -263,7 +241,6 @@ def test_json_and_python_of_equal_size_are_costed_differently(tmp_path):
     assert json_tokens > py_tokens, "punctuation-dense JSON must cost more tokens per byte"
 
 
-@posix_only
 def test_the_accounting_totals_match_what_was_included(tmp_path):
     a = write(tmp_path, "a.py", "x = 1\n" * 50)
     b = write(tmp_path, "b.py", "y = 2\n" * 50)
@@ -283,7 +260,6 @@ def test_no_files_produces_no_block_and_no_noise():
 # ---- the block is addressable (PLAN 64.a) -------------------------------------------
 
 
-@posix_only
 def test_a_prefetched_file_arrives_numbered(tmp_path):
     """Whole-file delivery already costs no turn. What it lacked was somewhere to point.
 
@@ -298,7 +274,6 @@ def test_a_prefetched_file_arrives_numbered(tmp_path):
     assert "3\tthird" in block
 
 
-@posix_only
 def test_both_delivery_paths_number_a_line_identically(tmp_path):
     """One format, not two. `read_file` numbered and prefetch did not, so the same line
     of the same file read differently depending on how it arrived -- and a citation from
@@ -319,7 +294,6 @@ def test_both_delivery_paths_number_a_line_identically(tmp_path):
             assert line in prefetched, f"{line!r} rendered differently by the two paths"
 
 
-@posix_only
 def test_the_numbering_is_width_aligned_to_the_whole_file(tmp_path):
     """The negative control for the two above, which a naive `enumerate` would satisfy.
 
@@ -350,7 +324,6 @@ def test_the_per_file_cap_defaults_to_the_whole_budget():
     assert c.max_file_tokens == c.max_total_prefetch_tokens
 
 
-@posix_only
 def test_a_file_that_fits_the_total_is_not_dropped_for_being_large(tmp_path):
     """The bug this closes. Under the old defaults a 40K-token file was refused outright
     while 100K of the budget went unspent -- and the largest documents are the ones most
@@ -365,7 +338,6 @@ def test_a_file_that_fits_the_total_is_not_dropped_for_being_large(tmp_path):
     assert "x = 1" in result.block()
 
 
-@posix_only
 def test_an_operator_can_still_re_tighten_the_per_file_cap_below_the_total(tmp_path):
     """The one job the setting has left. The same file, the same total, a lower per-file
     cap -- and it is refused whole rather than truncated, exactly as before."""
@@ -379,7 +351,6 @@ def test_an_operator_can_still_re_tighten_the_per_file_cap_below_the_total(tmp_p
     assert "x = 1" not in result.block()
 
 
-@posix_only
 def test_one_large_file_may_now_spend_the_whole_budget_and_the_rest_are_still_named(tmp_path):
     """The consequence ADR-0046 accepts rather than hides.
 
@@ -412,7 +383,6 @@ def test_one_large_file_may_now_spend_the_whole_budget_and_the_rest_are_still_na
 # --- a range ending on a blank line ----------------------------------------------------
 
 
-@posix_only
 def test_a_range_ending_on_a_blank_line_renders_every_line_it_names(tmp_path):
     """Lines 2-3 of "a\\nb\\n\\nc\\n": line 3 is blank, and it is still line 3.
 
@@ -427,7 +397,6 @@ def test_a_range_ending_on_a_blank_line_renders_every_line_it_names(tmp_path):
     assert "3\t\n" in block, "the blank line 3 was not rendered"
 
 
-@posix_only
 def test_a_range_ending_on_text_renders_as_before(tmp_path):
     """Control: nothing trails, so the header and the lines are unchanged."""
     entry = write(tmp_path, "text.py", "a\nb\n\nc\n")

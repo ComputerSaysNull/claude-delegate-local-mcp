@@ -30,11 +30,6 @@ import pytest
 from claude_delegate_local import paths
 from claude_delegate_local.config import Config
 
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="LAYER 1 UNPROVEN BY THIS RUN -- run it under WSL, where the server lives.",
-)
-
 FILES = 50
 
 
@@ -57,7 +52,6 @@ def batch(tmp_path: Path) -> tuple[Path, list[str]]:
     return tmp_path, names
 
 
-@posix_only
 def test_the_prefix_is_walked_once_not_once_per_candidate(batch, monkeypatch):
     """The bug, counted at the call that does the walking.
 
@@ -81,7 +75,6 @@ def test_the_prefix_is_walked_once_not_once_per_candidate(batch, monkeypatch):
         "the prefix is still being re-walked once per candidate")
 
 
-@posix_only
 def test_existence_is_asked_once_not_twice(batch, monkeypatch):
     """The other half of the same profile: `exists` then `isfile` is two stats for one fact.
 
@@ -105,7 +98,6 @@ def test_existence_is_asked_once_not_twice(batch, monkeypatch):
         "the filesystem the same question twice and discarding the first answer")
 
 
-@posix_only
 def test_a_symlink_out_of_the_root_is_still_refused(batch):
     """The security control, and the reason the final component is never cached.
 
@@ -133,7 +125,6 @@ def test_a_symlink_out_of_the_root_is_still_refused(batch):
         "the wrong path against the roots")
 
 
-@posix_only
 def test_every_candidate_still_resolves_to_the_same_answer(batch):
     """The control.
 

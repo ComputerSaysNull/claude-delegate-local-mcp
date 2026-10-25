@@ -1,4 +1,4 @@
-"""Every document and skip message must name the same WSL virtualenv.
+"""Every document must name the same WSL virtualenv.
 
 `CONTRIBUTING.md` said `~/.venvs/cdl` and `README.md` said `~/.venvs/delegate`, for what
 is one environment. The machine had only the second, so the first was a path that did not
@@ -26,9 +26,6 @@ VENV = re.compile(r"~?/?\.venvs/([A-Za-z0-9._-]+)")
 SOURCES = (
     "README.md",
     "CONTRIBUTING.md",
-    "tests/test_paths.py",
-    "tests/test_context.py",
-    "tests/test_tools.py",
 )
 
 
@@ -49,13 +46,6 @@ def test_every_document_names_the_same_venv():
     assert len(everywhere) == 1, (
         f"the WSL virtualenv is named {sorted(everywhere)} in different places: {found}. "
         f"One of them is a path nobody creates.")
-
-
-def test_the_skip_messages_name_a_venv_at_all():
-    """A message that dropped the path would pass the test above by naming nothing."""
-    for rel in ("tests/test_paths.py", "tests/test_context.py", "tests/test_tools.py"):
-        text = (ROOT / rel).read_text(encoding="utf-8")
-        assert VENV.search(text), f"{rel}'s skip reason no longer names an interpreter"
 
 
 def test_contributing_installs_the_dev_extra():

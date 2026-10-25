@@ -105,8 +105,6 @@ Rules a machine cannot check, so they land here:
   `wsl.py` — what it converts and refuses is `docs/ARCHITECTURE.md`'s.
 - A checkout on a Windows drive seen from WSL is an order of magnitude slower. Accepted.
   (ADR-0020)
-- **Never run two interpreters' suites against one checkout at once.** They share
-  `__pycache__`, and it surfaces as an ImportError in an unrelated module.
 - `bwrap` needs `--symlink usr/lib64 /lib64`; without it nothing dynamically linked runs
   and the error blames the executable rather than the missing loader. (ADR-0021)
 - The head node is configuration. Never a literal in code, docs, tests, a commit message

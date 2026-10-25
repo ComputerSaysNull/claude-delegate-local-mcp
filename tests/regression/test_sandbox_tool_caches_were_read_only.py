@@ -22,9 +22,8 @@ from claude_delegate_local.config import Config
 
 BWRAP_REASON = (
     "EXIT-CODE CAPTURE UNPROVEN BY THIS RUN -- this is not a pass. Capturing a real "
-    "exit code needs a real bubblewrap, which exists in WSL and not on Windows. Run: "
-    "wsl -d Ubuntu-24.04 -e bash -lc 'cd <repo> && ~/.venvs/delegate/bin/python -m "
-    "pytest tests/regression/test_sandbox_tool_caches_were_read_only.py'"
+    "exit code needs a real bubblewrap. Run it where bubblewrap can create namespaces: "
+    "python -m pytest tests/regression/test_sandbox_tool_caches_were_read_only.py"
 )
 
 

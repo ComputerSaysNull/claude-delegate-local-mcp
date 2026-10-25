@@ -9,7 +9,6 @@ the file the settings were read from.
 from __future__ import annotations
 
 import asyncio
-import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -18,9 +17,6 @@ from fastmcp import Client
 
 from claude_delegate_local import config, server
 from test_server import DoubleCache, answered, entry, files_cfg, recording_handler, registry
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix", reason="the path policy resolves POSIX paths; the server is POSIX-only")
 
 
 def refusal(cfg, roots: list[Path]) -> str:
@@ -43,7 +39,6 @@ def outside(tmp_path: Path) -> tuple[Path, Path]:
     return ceiling, elsewhere
 
 
-@posix_only
 def test_the_refusal_asks_for_the_parent_folder_not_the_project(tmp_path):
     ceiling, elsewhere = outside(tmp_path)
     text = refusal(files_cfg(ceiling), [elsewhere])
@@ -51,7 +46,6 @@ def test_the_refusal_asks_for_the_parent_folder_not_the_project(tmp_path):
     assert "add the project" not in text
 
 
-@posix_only
 def test_the_refusal_names_the_env_file_the_settings_came_from(tmp_path):
     ceiling, elsewhere = outside(tmp_path)
     env = tmp_path / "server.env"

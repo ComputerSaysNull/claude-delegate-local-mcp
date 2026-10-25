@@ -51,7 +51,7 @@ from .backends.base import duplicate_line_share
 # reads through `slots` when it runs: a bound alias would freeze a second definition of
 # process identity at import, which is what the import exists to avoid.
 from . import slots
-from .wsl import UntranslatablePath, to_local
+from .wsl import UntranslatablePath, to_posix
 
 if TYPE_CHECKING:
     from .admission import AdmissionLease
@@ -491,7 +491,7 @@ class Stream:
 def directory(cfg: Config) -> Path:
     """Where records go: the one place `transcript_dir` becomes a path.
 
-    Translated with `to_local`, because the setting is written on the Windows side and
+    Translated with `to_posix`, because the setting is written on the Windows side and
     read inside WSL. Untranslated, a Windows path is a
     legal *single-component* POSIX filename, so `C:\\Users\\me\\t` is relative, and
     `mkdir(parents=True)` would silently make a directory of that literal name under the
@@ -500,7 +500,7 @@ def directory(cfg: Config) -> Path:
     Raises `UntranslatablePath` for a UNC share, which has no mount point here. Callers on
     the dispatch path must swallow it -- this module may not raise into a delegation.
     """
-    return Path(os.path.expanduser(to_local(cfg.transcript_dir)))
+    return Path(os.path.expanduser(to_posix(cfg.transcript_dir)))
 
 
 def open_stream(cfg: Config, agent_name: str | None) -> Stream | None:

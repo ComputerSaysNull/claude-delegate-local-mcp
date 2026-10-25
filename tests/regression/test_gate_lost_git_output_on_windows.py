@@ -21,6 +21,7 @@ Named after the bug, per the project's convention.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import subprocess
 import sys
@@ -87,9 +88,49 @@ def test_run_reports_a_failing_command_as_empty_rather_than_raising(repo, monkey
     assert gate.run("git", "rev-parse", "--verify", "refs/heads/nope") == ""
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="the ambient codec is only cp1252 here")
-def test_the_ambient_codec_really_cannot_decode_it():
-    """Pins the premise. If Windows ever defaults to UTF-8, the red above stops being a red
-    and this says so rather than letting the file quietly become decorative."""
-    with pytest.raises(UnicodeDecodeError):
-        CANCELLED.encode("utf-8").decode("cp1252")
+def _is_true(node) -> bool:
+    """An `ast` node spelling a literal `True`."""
+    return isinstance(node, ast.Constant) and node.value is True
+
+
+def text_mode_subprocess_calls_without_encoding(path: Path) -> list[int]:
+    """Line numbers of text-mode subprocess calls in `path` that name no encoding.
+
+    `subprocess.run(..., text=True)` (or `universal_newlines=True`) decodes with the
+    ambient codec unless `encoding=` is given -- the very bug this file guards. Returns the
+    offending line numbers rather than raising, so the test names them all at once and the
+    negative control can call this directly on a doctored copy.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    offenders: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr not in (
+            "run", "check_output", "Popen",
+        ):
+            continue
+        if not (isinstance(func.value, ast.Name) and func.value.id == "subprocess"):
+            continue
+        kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
+        if not (_is_true(kwargs.get("text")) or _is_true(kwargs.get("universal_newlines"))):
+            continue
+        if "encoding" not in kwargs:
+            offenders.append(node.lineno)
+    return offenders
+
+
+def test_every_text_mode_git_call_in_the_gate_names_its_encoding():
+    """`text=True` with no `encoding=` decodes with the ambient codec -- cp1252 on the
+    Windows machine where this bug was found -- and loses characters that codec has no byte
+    for. On Linux the default codec is already UTF-8, so today removing `encoding="utf-8"`
+    from the gate's `subprocess.run` would make no test fail; this one is the check that
+    does, and it names the line of every text-mode call the gate makes without one.
+    """
+    offenders = text_mode_subprocess_calls_without_encoding(
+        ROOT / "scripts" / "docs_gate.py")
+    assert not offenders, (
+        "text-mode subprocess calls in scripts/docs_gate.py must name an encoding: "
+        + ", ".join(f"line {n}" for n in offenders)
+    )

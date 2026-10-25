@@ -14,22 +14,12 @@ import hashlib
 import os
 from pathlib import Path
 
-import pytest
 
 from claude_delegate_local import context, tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
 
 from test_agentic_loop import ScriptedTurns, results_in, run, says, wants
-
-UNPROVEN = (
-    "LAYER 1 UNPROVEN BY THIS RUN -- this is not a pass. Resolving a real path needs a "
-    "POSIX filesystem and the server runs in WSL, so every case that actually opens a "
-    "file is proven there. Run: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest "
-    "tests/regression/test_an_edit_landed_on_a_file_changed_since_it_was_read.py'"
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 
 
 def cfg(root: Path, **over) -> Config:
@@ -87,7 +77,6 @@ class ChangeBetweenTurns(ScriptedTurns):
 # --- the refusal ------------------------------------------------------------------------
 
 
-@posix_only
 def test_an_edit_after_an_outside_change_is_refused(tmp_path):
     """The bug. The quoted line still matches, but the file is no longer what was read."""
     target = tmp_path / "mod.py"
@@ -116,7 +105,6 @@ def test_an_edit_after_an_outside_change_is_refused(tmp_path):
 # --- negative controls ------------------------------------------------------------------
 
 
-@posix_only
 def test_a_read_edit_edit_without_a_reread_both_succeed(tmp_path):
     """The model's own edits must not trip the guard: each records the bytes it wrote."""
     target = tmp_path / "mod.py"
@@ -139,7 +127,6 @@ def test_a_read_edit_edit_without_a_reread_both_succeed(tmp_path):
     assert target.read_text(encoding="utf-8") == "x = 3\n"
 
 
-@posix_only
 def test_an_edit_with_no_earlier_read_succeeds(tmp_path):
     """No record means behave exactly as today: the change is not refused."""
     target = tmp_path / "mod.py"
@@ -153,7 +140,6 @@ def test_an_edit_with_no_earlier_read_succeeds(tmp_path):
     assert target.read_text(encoding="utf-8") == "x = 2\n"
 
 
-@posix_only
 def test_a_reread_after_an_outside_change_allows_the_edit(tmp_path):
     """Read again and the model knows the file: the same edit is then allowed."""
     target = tmp_path / "mod.py"
@@ -171,7 +157,6 @@ def test_a_reread_after_an_outside_change_allows_the_edit(tmp_path):
     assert target.read_text(encoding="utf-8") == "x = 999\ny = 3\n"
 
 
-@posix_only
 def test_a_write_then_edit_with_no_read_in_between_succeeds(tmp_path):
     """A write records the bytes, so an edit right after it is not a change."""
     target = tmp_path / "mod.py"
@@ -191,7 +176,6 @@ def test_a_write_then_edit_with_no_read_in_between_succeeds(tmp_path):
 # --- the loop ---------------------------------------------------------------------------
 
 
-@posix_only
 def test_the_loop_refuses_an_edit_of_a_file_changed_between_turns(tmp_path):
     """A change outside the server, between the read turn and the edit turn."""
     target = tmp_path / "mod.py"
@@ -223,7 +207,6 @@ def _entry(real: str, given: str, text: str, nbytes: int) -> context.FileEntry:
     )
 
 
-@posix_only
 def test_a_prefetched_file_changed_before_the_first_edit_is_refused(tmp_path):
     """A prefetched file is seeded as seen, so a change before the first edit refuses."""
     target = tmp_path / "mod.py"
@@ -255,7 +238,6 @@ def test_a_prefetched_file_changed_before_the_first_edit_is_refused(tmp_path):
 # --- the wiring -------------------------------------------------------------------------
 
 
-@posix_only
 def test_the_server_hands_the_prefetch_to_the_loop(tmp_path, monkeypatch):
     """The loop test above passes `prefetched` itself, so a server that dropped the
     hand-off would pass it while every prefetched file went unguarded. This goes in

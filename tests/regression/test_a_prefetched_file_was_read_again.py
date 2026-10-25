@@ -21,15 +21,6 @@ from claude_delegate_local.paths import ResolvedPath
 
 from test_agentic_loop import ScriptedTurns, cfg, results_in, run, says, wants
 
-# Every case that reads a real file needs a POSIX filesystem: on Windows the path policy
-# refuses anything under `tmp_path`, so each read fails and a "served from cache" case passes
-# for the wrong reason.
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="LAYER 1 UNPROVEN BY THIS RUN -- this is not a pass. Reading a real file "
-    "needs a POSIX filesystem; run this file in WSL.",
-)
-
 
 def _file(tmp_path, n, name="n.py"):
     p = tmp_path / name
@@ -77,7 +68,6 @@ def _range_prefetch(path, n, first, last):
 # --- the pointer -------------------------------------------------------------------------
 
 
-@posix_only
 def test_a_whole_file_prefetched_is_not_read_again(tmp_path):
     """The bug. The file is already in the files block, so the read must not run."""
     path = _file(tmp_path, 10)
@@ -97,7 +87,6 @@ def test_a_whole_file_prefetched_is_not_read_again(tmp_path):
     assert result.tool_errors == 0
 
 
-@posix_only
 def test_a_range_of_prefetched_lines_is_answered_with_a_pointer(tmp_path):
     """A read whose lines a ranged prefetch already holds is also a pointer."""
     path = _file(tmp_path, 10)
@@ -119,7 +108,6 @@ def test_a_range_of_prefetched_lines_is_answered_with_a_pointer(tmp_path):
 # --- what does not cover -----------------------------------------------------------------
 
 
-@posix_only
 def test_a_read_sticking_out_past_the_prefetched_range_runs(tmp_path):
     """The other direction: coverage that matched too widely answers the wrong question."""
     path = _file(tmp_path, 10)
@@ -139,7 +127,6 @@ def test_a_read_sticking_out_past_the_prefetched_range_runs(tmp_path):
     assert " 5\tline 5" in served.content
 
 
-@posix_only
 def test_a_write_before_the_read_runs_it(tmp_path):
     """A write clears the cache, seeded entries included: the read is then fresh."""
     path = _file(tmp_path, 10)
@@ -161,7 +148,6 @@ def test_a_write_before_the_read_runs_it(tmp_path):
     assert " 1\tline 1" in served.content
 
 
-@posix_only
 def test_a_read_of_a_file_that_was_not_prefetched_runs(tmp_path):
     """No prefetched entry for this path means the cache has nothing to answer from."""
     path = _file(tmp_path, 10)
@@ -186,7 +172,6 @@ def test_a_read_of_a_file_that_was_not_prefetched_runs(tmp_path):
 # --- the pointer once, then the lines ----------------------------------------------------
 
 
-@posix_only
 def test_a_second_read_of_the_same_prefetched_lines_returns_them(tmp_path):
     """The pointer is sent once; a later read of the same lines gets the content."""
     path = _file(tmp_path, 10)
@@ -212,7 +197,6 @@ def test_a_second_read_of_the_same_prefetched_lines_returns_them(tmp_path):
 # --- the no-drift check ------------------------------------------------------------------
 
 
-@posix_only
 def test_the_seeded_content_slices_to_what_read_file_returns(tmp_path):
     """The seeded content must slice to exactly what `read_file` would have returned."""
     path = _file(tmp_path, 150)
@@ -230,7 +214,6 @@ def test_the_seeded_content_slices_to_what_read_file_returns(tmp_path):
     assert sliced == got.content
 
 
-@posix_only
 @pytest.mark.parametrize(("start", "end", "sub"), [
     (2, 3, (2, 3)),        # a range ending on a blank line, the shape #421 fixed
     (None, None, (3, 4)),  # the whole file, sliced to a part holding the blank line

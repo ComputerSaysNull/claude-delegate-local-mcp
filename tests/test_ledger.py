@@ -28,16 +28,6 @@ from test_server import (
 )
 from test_server import cfg as server_cfg
 
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason=(
-        "CONCURRENCY UNPROVEN BY THIS RUN -- not a pass. It uses multiprocessing with the "
-        "fork context and POSIX files, and the server runs in WSL. Run: wsl -d "
-        "Ubuntu-24.04 -e bash -lc 'cd <repo> && <python> -m pytest "
-        "tests/test_ledger.py'"
-    ),
-)
-
 
 def cfg(**over) -> Config:
     """A config rooted at the current directory, with an empty ledger unless asked."""
@@ -106,7 +96,6 @@ def _append_worker(path_str: str, count: int) -> None:
         ledger.append(local, {"i": i, "pid": os.getpid()})
 
 
-@posix_only
 def test_concurrent_appends_never_lose_a_line(tmp_path):
     """The single-write guarantee, measured rather than assumed.
 

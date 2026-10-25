@@ -913,7 +913,8 @@ def check_generated_docs() -> list[Finding]:
             out.append(Finding(SKIP, "generated-doc", f"{script} not written yet."))
             continue
         proc = subprocess.run([sys.executable, script, "--check"],
-                              cwd=ROOT, capture_output=True, text=True, check=False)
+                              cwd=ROOT, capture_output=True, text=True, check=False,
+                              encoding="utf-8", errors="replace")
         if proc.returncode != 0:
             first = (proc.stdout or proc.stderr).strip().splitlines()
             out.append(Finding(BLOCK, "generated-doc",

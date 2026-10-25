@@ -28,31 +28,19 @@ STALE = ROOT / ".git" / "hooks" / "pre-commit"
 # running here rather than at pre-commit, so verify_installed() asserts it is present --
 # a shim that silently kept an older body would reintroduce exactly the bug this fixes.
 #
-# The interpreter search is four candidates in order, and each position is a measurement.
+# The interpreter search is three candidates in order, and each position is a measurement.
 # It used to be "the Windows venv, else `python`", which does not run in WSL at all:
 # Debian dropped the unversioned `python` long ago, so the hook died with
 # "exec: python: not found" and every commit failed for a reason that blamed the hook
 # rather than saying the gate had not run. Eight tests in
 # tests/regression/test_a_real_amend_reaches_the_gate.py failed on it.
-#
-# The Windows venv is gated on actually being on Windows, which the old `[ -x ]` test
-# could not tell: /mnt/c is DrvFs and reports mode 777 for every file, so that probe
-# succeeds from WSL for a `.exe` a POSIX shell has no business exec'ing.
 BODY = """#!/bin/sh
 # Installed by scripts/install_hooks.py -- edit that, not this.
 # Local feedback only. The same script runs in CI, where --no-verify cannot help.
 root="$(git rev-parse --show-toplevel)"
 
-case "$(uname -s 2>/dev/null)" in
-  MINGW*|MSYS*|CYGWIN*) windows=yes ;;
-  *) windows=no ;;
-esac
-
 py=""
-for candidate in "$root/.venv/bin/python" "$root/.venv/Scripts/python.exe" python3 python; do
-  case "$candidate" in
-    *Scripts/python.exe) [ "$windows" = yes ] || continue ;;
-  esac
+for candidate in "$root/.venv/bin/python" python3 python; do
   # Probed by RUNNING it. `command -v` only says the name resolves, and on Windows
   # `python3` resolves to the Store app-execution alias: on PATH, executable, and it
   # prints an advert and exits 49 instead of running anything.

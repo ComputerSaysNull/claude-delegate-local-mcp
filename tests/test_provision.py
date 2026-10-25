@@ -21,6 +21,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -28,14 +29,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from claude_delegate_local import provision, sandbox
 from claude_delegate_local.config import ENV_FILE_VAR, Config
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason=(
-        "PROVISIONING UNPROVEN BY THIS RUN -- this is not a pass. It builds a POSIX "
-        "virtualenv the sandbox binds, and refuses on Windows by design."
-    ),
-)
 
 PROJECT = "/mnt/c/Users/dev/proj"
 HOME = "/home/dev/.cache/sandbox-home"
@@ -266,7 +259,6 @@ def test_discovery_of_an_absent_root_is_empty_rather_than_an_error(tmp_path):
 # --- the denylist report -----------------------------------------------------------------
 
 
-@posix_only
 def test_a_denylist_match_inside_a_provisioned_tree_is_reported(tmp_path):
     """Reported, never covered. Covering is what breaks the environment (ADR-0041).
 
@@ -286,7 +278,6 @@ def test_a_denylist_match_inside_a_provisioned_tree_is_reported(tmp_path):
     assert [Path(p).name for p in found] == ["credentials.py"]
 
 
-@posix_only
 def test_a_clean_tree_reports_nothing(tmp_path):
     """The control, so the reporter cannot pass by matching everything or nothing."""
     site = tmp_path / "prov" / "lib"
@@ -295,7 +286,6 @@ def test_a_clean_tree_reports_nothing(tmp_path):
     assert provision.denylist_matches(cfg(), str(tmp_path / "prov")) == []
 
 
-@posix_only
 def test_an_opaque_directory_is_pruned_so_the_count_matches_the_scans(tmp_path):
     """The compiled twin of a match must not be counted a second time.
 
@@ -333,7 +323,6 @@ def recorded(home: Path, project: Path, **over) -> Path:
     return venv
 
 
-@posix_only
 def test_the_interpreter_is_found_for_the_project_it_was_built_for(tmp_path):
     home = tmp_path / "home"
     project = project_tree(tmp_path, extras="")
@@ -344,7 +333,6 @@ def test_the_interpreter_is_found_for_the_project_it_was_built_for(tmp_path):
     assert found == (venv / "bin" / "python").as_posix()
 
 
-@posix_only
 def test_a_workdir_inside_the_project_still_finds_it(tmp_path):
     """An editable install works from anywhere under the project, so a subdirectory counts."""
     home = tmp_path / "home"
@@ -357,7 +345,6 @@ def test_a_workdir_inside_the_project_still_finds_it(tmp_path):
     ) is not None
 
 
-@posix_only
 def test_an_unrelated_workdir_finds_nothing(tmp_path):
     """The control. A lookup that matched anything would hand one project another's python."""
     home = tmp_path / "home"
@@ -368,7 +355,6 @@ def test_an_unrelated_workdir_finds_nothing(tmp_path):
     assert provision.interpreter_for(cfg(sandbox_home=str(home)), other.as_posix()) is None
 
 
-@posix_only
 def test_a_stale_environment_is_withheld_rather_than_offered(tmp_path):
     """The point of asking `is_current` instead of just looking.
 
@@ -385,7 +371,6 @@ def test_a_stale_environment_is_withheld_rather_than_offered(tmp_path):
     assert provision.interpreter_for(cfg(sandbox_home=str(home)), project.as_posix()) is None
 
 
-@posix_only
 def test_a_vanished_interpreter_is_withheld(tmp_path):
     home = tmp_path / "home"
     project = project_tree(tmp_path, extras="")
@@ -395,7 +380,6 @@ def test_a_vanished_interpreter_is_withheld(tmp_path):
     assert provision.interpreter_for(cfg(sandbox_home=str(home)), project.as_posix()) is None
 
 
-@posix_only
 def test_the_nearest_project_wins_for_a_nested_checkout(tmp_path):
     """Longest match, so a checkout inside another is not served its parent's environment."""
     home = tmp_path / "home"
@@ -416,7 +400,6 @@ def test_no_workdir_means_no_interpreter():
     assert provision.interpreter_for(cfg(), None) is None
 
 
-@posix_only
 def test_the_name_is_absent_rather_than_empty_when_nothing_is_provisioned(tmp_path):
     """A shell expands an unset name to nothing, so `$DELEGATE_PYTHON -m pytest` would run
     `-m pytest` as a command and fail for a reason unrelated to the actual cause."""
@@ -424,7 +407,6 @@ def test_the_name_is_absent_rather_than_empty_when_nothing_is_provisioned(tmp_pa
     assert env == {}
 
 
-@posix_only
 def test_the_name_carries_the_absolute_path_when_one_is_current(tmp_path):
     home = tmp_path / "home"
     project = project_tree(tmp_path, extras="")
@@ -492,7 +474,6 @@ def test_an_empty_list_produces_no_addopts():
     assert provision.addopts_for([]) == ""
 
 
-@posix_only
 def test_the_deselects_reach_the_sandbox_beside_the_interpreter(tmp_path):
     home = tmp_path / "home"
     project = with_deselect(tmp_path, "tests/test_sandbox.py::test_needs_network")
@@ -504,7 +485,6 @@ def test_the_deselects_reach_the_sandbox_beside_the_interpreter(tmp_path):
     assert env[provision.SANDBOX_ENV_NAME].endswith("/bin/python")
 
 
-@posix_only
 def test_a_project_with_no_list_gets_no_addopts_name_at_all(tmp_path):
     """Absent rather than empty, for the same reason the interpreter name is."""
     home = tmp_path / "home"
@@ -517,7 +497,6 @@ def test_a_project_with_no_list_gets_no_addopts_name_at_all(tmp_path):
     assert provision.SANDBOX_ENV_NAME in env
 
 
-@posix_only
 def test_a_stale_environment_carries_no_deselects_either(tmp_path):
     """They travel with the interpreter: withholding one and offering the other would
     deselect tests for a command that has no interpreter to run them with."""
@@ -569,14 +548,12 @@ def drive(args: list[str]) -> tuple[int, str]:
     return code, out.getvalue()
 
 
-@posix_only
 def test_no_project_is_a_usage_error(capsys):
     code, _ = drive([])
     assert code == 2
     assert "usage:" in capsys.readouterr().err
 
 
-@posix_only
 def test_two_projects_is_a_usage_error(capsys):
     """It takes one project. Silently provisioning the first would be worse than refusing."""
     code, _ = drive(["/a", "/b"])
@@ -584,7 +561,6 @@ def test_two_projects_is_a_usage_error(capsys):
     assert "usage:" in capsys.readouterr().err
 
 
-@posix_only
 def test_a_project_outside_every_workdir_root_is_refused(tmp_path, monkeypatch):
     """Layer 1 is reused rather than reimplemented, so the refusal is the server's own."""
     monkeypatch.setenv("DELEGATE_WORKSPACE_ROOTS", str(tmp_path / "permitted"))
@@ -597,9 +573,13 @@ def test_a_project_outside_every_workdir_root_is_refused(tmp_path, monkeypatch):
     assert "outside every workdir root" in text
 
 
-@pytest.mark.skipif(os.name == "posix", reason="the refusal is for Windows specifically")
-def test_it_refuses_on_windows_rather_than_building_something_unusable(capsys):
-    """The venv it would build binds into a POSIX sandbox, so a Windows one is never usable."""
+def test_it_refuses_on_windows_rather_than_building_something_unusable(capsys, monkeypatch):
+    """The venv it would build binds into a POSIX sandbox, so a Windows one is never usable.
+
+    Skipped wherever the suite runs, it could not fail, so the check is driven instead. Only
+    `provision`'s view of `os` says "nt": patching the real module breaks `pathlib`.
+    """
+    monkeypatch.setattr(provision, "os", SimpleNamespace(**{**vars(os), "name": "nt"}))
     code, _ = drive([PROJECT])
     assert code == 2
     assert "cannot run" in capsys.readouterr().err
@@ -609,7 +589,6 @@ def test_it_refuses_on_windows_rather_than_building_something_unusable(capsys):
 
 
 @pytest.mark.integration
-@posix_only
 def test_a_real_build_leaves_a_usable_interpreter_and_a_record(tmp_path, monkeypatch):
     """The end of it: a real venv, a real record, and a digest matching the declaration."""
     root = project_tree(tmp_path, extras="")

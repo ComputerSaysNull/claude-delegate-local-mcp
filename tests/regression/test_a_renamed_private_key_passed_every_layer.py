@@ -22,7 +22,6 @@ suite failing for it.
 
 from __future__ import annotations
 
-import os
 
 from pathlib import Path
 
@@ -39,16 +38,6 @@ from claude_delegate_local.paths import (
 )
 
 REPO = Path(__file__).resolve().parents[2]
-
-# Layer 1 resolves through `to_posix` and then `realpath`, which agree only on POSIX: on
-# Windows a workspace root translates to `/mnt/c/...` and `realpath` hands back
-# `C:\mnt\c\...`, so every path is refused as outside every root before the content check
-# can run. Same reason `tests/test_paths.py` guards layers 1 and 4, and the same warning --
-# a Windows run does NOT prove anything carrying this mark.
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="THE OPEN-TIME CHECK IS UNPROVEN BY THIS RUN -- layer 1 needs a POSIX filesystem",
-)
 
 # Assembled, never written out. See the module docstring.
 DASHES = "-" * 5
@@ -109,7 +98,6 @@ def test_the_repository_itself_does_not_trip_it() -> None:
 # ---- layer one: the file the model asked for ---------------------------------------
 
 
-@posix_only
 def test_a_renamed_key_is_refused_by_its_bytes(tmp_path: Path) -> None:
     disguised = tmp_path / "config.json"
     disguised.write_text(FAKE_KEY, encoding="utf-8")
@@ -124,7 +112,6 @@ def test_a_renamed_key_is_refused_by_its_bytes(tmp_path: Path) -> None:
     assert "key material" in str(caught.value)
 
 
-@posix_only
 def test_an_ordinary_file_at_the_same_path_opens_fine(tmp_path: Path) -> None:
     """Without this, the test above passes against an open that always refuses."""
     ordinary = tmp_path / "config.json"
@@ -137,7 +124,6 @@ def test_an_ordinary_file_at_the_same_path_opens_fine(tmp_path: Path) -> None:
         assert fh.read().startswith(b'{"private_key_path"')
 
 
-@posix_only
 def test_the_check_is_off_unless_the_caller_asks(tmp_path: Path) -> None:
     """`open_resolved` has callers that are the server reading its own material."""
     disguised = tmp_path / "config.json"
@@ -208,7 +194,6 @@ def test_negative_control_the_committed_code_read_no_bytes() -> None:
     assert "secret_content_scan_bytes" not in show("src/claude_delegate_local/config.py")
 
 
-@posix_only
 def test_negative_control_main_would_have_handed_the_key_over(tmp_path: Path) -> None:
     """Not that the baseline lacks a name -- that it opens the disguised file and reads it.
 

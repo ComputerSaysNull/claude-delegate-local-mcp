@@ -808,7 +808,7 @@ def _key_marker_at(path: str, scan_bytes: int) -> str | None:
     sure.
     """
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_BINARY", 0))
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except OSError:
         return None
     try:

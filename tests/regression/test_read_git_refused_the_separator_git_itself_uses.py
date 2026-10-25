@@ -23,9 +23,9 @@ from claude_delegate_local import tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
 
-posix_only = pytest.mark.skipif(
-    os.name != "posix" or shutil.which("git") is None,
-    reason="LAYER 1 UNPROVEN BY THIS RUN -- run it under WSL, where the server lives.",
+needs_git = pytest.mark.skipif(
+    shutil.which("git") is None,
+    reason="LAYER 1 UNPROVEN BY THIS RUN -- it needs git on PATH.",
 )
 
 
@@ -61,7 +61,7 @@ def _read_git(root: Path, command: str, args: list[str], paths: list[str] | None
     return tools.execute_tool(cfg, call, tools.ALL_TOOL_NAMES)
 
 
-@posix_only
+@needs_git
 def test_paths_after_a_separator_limit_the_command(repo):
     result = _read_git(repo, "log", ["--oneline", "--", "b.txt"])
     assert not result.is_error, result.content
@@ -69,14 +69,14 @@ def test_paths_after_a_separator_limit_the_command(repo):
     assert "only-a-changed" not in result.content, "the path after -- was not applied"
 
 
-@posix_only
+@needs_git
 def test_they_join_any_paths_given_the_ordinary_way(repo):
     result = _read_git(repo, "log", ["--oneline", "--", "b.txt"], paths=["a.txt"])
     assert not result.is_error, result.content
     assert "both" in result.content and "only-a-changed" in result.content
 
 
-@posix_only
+@needs_git
 def test_a_path_after_the_separator_is_still_checked(repo):
     """The control: moving a token into `paths` must not move it past the checks on
     `paths`. One that climbs out of the repository is refused either way."""
@@ -85,7 +85,7 @@ def test_a_path_after_the_separator_is_still_checked(repo):
     assert "climbs out" in result.content, result.content
 
 
-@posix_only
+@needs_git
 def test_without_a_separator_nothing_changes(repo):
     result = _read_git(repo, "log", ["--oneline", "-n", "1"])
     assert not result.is_error, result.content

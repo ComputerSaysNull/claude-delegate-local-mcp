@@ -12,14 +12,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import pytest
 
 from claude_delegate_local import sandbox
-
-pytestmark = pytest.mark.skipif(
-    not hasattr(os, "symlink") or os.name == "nt",
-    reason="POSIX symlinks and FIFOs; the sandbox never runs on Windows",
-)
 
 RECORD = "0\tfalse\n0\ttail -5\n1 0\t\n"
 

@@ -686,15 +686,6 @@ def test_no_refusal_from_delegate_ever_names_the_endpoint():
 
 # --- files[] prefetch, as the client sees it -------------------------------------------
 
-# paths.py resolves and checks real POSIX paths, so these need the filesystem the server
-# actually runs on. Skipped elsewhere with a reason, rather than quietly inflating a pass.
-FILES_UNPROVEN = (
-    "files[] PREFETCH UNPROVEN BY THIS RUN -- this is not a pass. It needs a POSIX "
-    "filesystem; the server runs in WSL. See CONTRIBUTING.md for the invocation."
-)
-files_posix_only = pytest.mark.skipif(os.name != "posix", reason=FILES_UNPROVEN)
-
-
 def files_cfg(tmp_path, **over) -> Config:
     globs = tmp_path / "globs.txt"
     globs.write_text(".env\n*secret*\n", encoding="utf-8")
@@ -718,7 +709,6 @@ def recording_handler(sent: list):
     return handler
 
 
-@files_posix_only
 def test_a_named_file_reaches_the_model_without_the_caller_pasting_it(tmp_path):
     """The whole point of the tool: the bytes go to the model, never through Claude."""
     target = tmp_path / "refund.py"
@@ -737,7 +727,6 @@ def test_a_named_file_reaches_the_model_without_the_caller_pasting_it(tmp_path):
     assert result["files_read"][0]["path"] == os.path.realpath(target)
 
 
-@files_posix_only
 def test_the_task_still_comes_last_in_the_message(tmp_path):
     """ADR-0011's ordering, asserted where it is actually assembled."""
     target = tmp_path / "a.py"
@@ -754,7 +743,6 @@ def test_the_task_still_comes_last_in_the_message(tmp_path):
     assert content.index("x = 1") < content.index("THE-TASK-TEXT")
 
 
-@files_posix_only
 def test_a_refused_path_fails_the_call_and_nothing_is_dispatched(tmp_path):
     """A refusal must cost nothing.
 
@@ -777,7 +765,6 @@ def test_a_refused_path_fails_the_call_and_nothing_is_dispatched(tmp_path):
     assert "workspace root" in str(e.value)
 
 
-@files_posix_only
 def test_every_refused_path_is_named_in_one_error(tmp_path):
     """One round trip has to be enough to fix all of them."""
     secret = tmp_path / "client_secret.json"
@@ -799,7 +786,6 @@ def test_every_refused_path_is_named_in_one_error(tmp_path):
     assert sent == []
 
 
-@files_posix_only
 def test_a_skipped_file_lets_the_call_proceed_and_is_reported(tmp_path):
     """The other half of the refusal/skip split: a skip is not a failure."""
     good = tmp_path / "a.py"
@@ -819,7 +805,6 @@ def test_a_skipped_file_lets_the_call_proceed_and_is_reported(tmp_path):
     assert result["files_skipped"][0]["kind"] == "binary"
 
 
-@files_posix_only
 def test_a_refused_path_no_longer_discards_the_files_that_resolved(tmp_path):
     """ADR-0061: a refused path costs the call its file, not the call.
 
@@ -855,7 +840,6 @@ def test_a_refused_path_no_longer_discards_the_files_that_resolved(tmp_path):
     assert str(tmp_path) in refused[0]["reason"]
 
 
-@files_posix_only
 def test_the_model_is_told_about_a_refused_path_not_merely_the_caller(tmp_path):
     """Otherwise it spends a turn on `read_file` against a path already known to be refused."""
     good = tmp_path / "a.py"
@@ -875,7 +859,6 @@ def test_the_model_is_told_about_a_refused_path_not_merely_the_caller(tmp_path):
     assert "elsewhere.py" in prompt, "the refused path never reached the prompt"
 
 
-@files_posix_only
 def test_every_path_refused_still_fails_before_anything_is_sent(tmp_path):
     """The negative test. Without it, "no longer aborts" and "never aborts" read alike.
 
@@ -902,7 +885,6 @@ def test_every_path_refused_still_fails_before_anything_is_sent(tmp_path):
     assert "also-elsewhere.py" in str(e.value)
 
 
-@files_posix_only
 def test_a_denylist_hit_is_skipped_rather_than_fatal(tmp_path):
     """Decided rather than fallen into: every refusal layer skips, this one included.
 
@@ -1154,7 +1136,6 @@ def test_delegate_does_not_expose_the_injected_context_to_the_model():
     assert "allowed_tools" in schema["properties"]
 
 
-@files_posix_only
 def test_a_delegation_that_calls_a_tool_runs_more_than_one_turn(tmp_path):
     """The whole point of M4, proved through the MCP surface rather than at the loop."""
     target = tmp_path / "note.py"
@@ -1230,7 +1211,6 @@ def test_an_empty_toolset_takes_the_one_shot_path_and_reports_no_ledger():
     assert "last_bash_exit" not in result
 
 
-@files_posix_only
 def test_the_ledger_says_which_tools_were_called_not_only_how_many(tmp_path):
     """The distinction the total cannot carry. `tool_calls: 3` is the same number whether a
     delegation read three files or overwrote three, and `transcript_dir` is empty by default
@@ -1406,9 +1386,8 @@ def test_without_one_the_configured_budget_is_used():
 
 BWRAP_REASON = (
     "THE OPENED ROUTE IS UNPROVEN BY THIS RUN -- this is not a pass. It runs a real "
-    "command in a real sandbox, which needs bubblewrap: WSL, not Windows. Run: wsl -d "
-    "Ubuntu-24.04 -e bash -lc 'cd <repo> && ~/.venvs/delegate/bin/python -m pytest "
-    "tests/test_server.py'"
+    "command in a real sandbox. Run it where bubblewrap can create namespaces: "
+    "python -m pytest tests/test_server.py"
 )
 
 
@@ -1426,7 +1405,6 @@ def needs_bwrap(fn):
     """
     return pytest.mark.integration(
         pytest.mark.skipif(shutil.which("bwrap") is None, reason=BWRAP_REASON)(fn))
-
 
 
 @needs_bwrap
@@ -1506,7 +1484,6 @@ def agent_file(root: Path, name: str, frontmatter: str = "", body: str = "You he
     return path
 
 
-@files_posix_only
 def test_the_agent_body_reaches_the_model_and_the_system_prompt_does_not_move(tmp_path):
     """ADR-0011 at the wire, which is the only place it can actually be checked.
 
@@ -1533,7 +1510,6 @@ def test_the_agent_body_reaches_the_model_and_the_system_prompt_does_not_move(tm
     assert body.index("AGENT INSTRUCTIONS HERE") < body.index("the task")
 
 
-@files_posix_only
 def test_the_frontmatter_model_actually_binds(tmp_path):
     """The ancestor bug, asserted where it does damage: on the wire.
 
@@ -1556,7 +1532,6 @@ def test_the_frontmatter_model_actually_binds(tmp_path):
     assert seen[0] == "served-id-2", "the frontmatter model did not reach the backend"
 
 
-@files_posix_only
 def test_an_explicit_model_still_beats_the_agent_file(tmp_path):
     """Precedence, in the direction that lets one hard case go to a larger model without
     editing a file everyone else uses."""
@@ -1575,7 +1550,6 @@ def test_an_explicit_model_still_beats_the_agent_file(tmp_path):
     assert seen[0] == "served-id-1"
 
 
-@files_posix_only
 def test_the_result_names_the_file_that_shaped_it(tmp_path):
     """The lookup has three tiers, so the name alone does not identify what was read."""
     path = agent_file(tmp_path, "helper")
@@ -1587,7 +1561,6 @@ def test_the_result_names_the_file_that_shaped_it(tmp_path):
     assert result["agent_source"] == str(path)
 
 
-@files_posix_only
 def test_a_missing_agent_is_refused_before_anything_is_sent(tmp_path):
     def explode(request):
         raise AssertionError("the backend was called for an agent that does not exist")
@@ -1599,7 +1572,6 @@ def test_a_missing_agent_is_refused_before_anything_is_sent(tmp_path):
                agent_name="ghost", task="t", workdir=str(tmp_path))
 
 
-@files_posix_only
 def test_a_workdir_outside_every_root_is_refused_before_anything_is_sent(tmp_path):
     """The path check costs nothing and must not depend on the cluster being reachable."""
     agent_file(tmp_path, "helper")
@@ -1614,7 +1586,6 @@ def test_a_workdir_outside_every_root_is_refused_before_anything_is_sent(tmp_pat
                agent_name="helper", task="t", workdir=str(tmp_path.parent))
 
 
-@files_posix_only
 def test_delegate_takes_a_workdir_and_reaches_the_backend_with_it(tmp_path):
     """`delegate` grew a workdir on 2026-09-06. Its own description had claimed one for
     long enough that a model following it earned a validation error, which is how the gap
@@ -1633,7 +1604,6 @@ def test_delegate_takes_a_workdir_and_reaches_the_backend_with_it(tmp_path):
     assert out["answer"] == "done"
 
 
-@files_posix_only
 def test_a_stale_environment_for_the_workdir_is_reported_to_the_caller(tmp_path):
     """Withheld silently, a stale environment reads to the caller as never provisioned."""
     project = tmp_path / "proj"
@@ -1660,7 +1630,6 @@ def test_a_stale_environment_for_the_workdir_is_reported_to_the_caller(tmp_path)
     assert "provisioning_stale" not in absent
 
 
-@files_posix_only
 def test_delegates_workdir_is_root_checked_before_anything_is_sent(tmp_path):
     """The negative half, and the one that matters. `delegate` reuses the same `_workdir`
     helper `delegate_to_agent` does, so a workdir outside every root must be refused on the
@@ -1675,7 +1644,6 @@ def test_delegates_workdir_is_root_checked_before_anything_is_sent(tmp_path):
                task="t", workdir=str(tmp_path.parent))
 
 
-@files_posix_only
 def test_delegate_can_write_without_a_workdir_at_all(tmp_path):
     """Why the workdir is not what write access depends on, which is the confusion that
     prompted the argument being added at all.
@@ -1719,7 +1687,6 @@ def test_delegate_can_write_without_a_workdir_at_all(tmp_path):
 # --- list_agents ---------------------------------------------------------------------------
 
 
-@files_posix_only
 def test_list_agents_reports_what_delegate_to_agent_would_find(tmp_path):
     agent_file(tmp_path, "reviewer",
                frontmatter="description: Reviews a diff.\nmodel: second\neffort: high\n")
@@ -1740,7 +1707,6 @@ def test_list_agents_reports_what_delegate_to_agent_would_find(tmp_path):
     assert rows["writer"]["model"] == "(the server default)"
 
 
-@files_posix_only
 def test_a_broken_agent_file_is_left_out_rather_than_breaking_the_list(tmp_path):
     """Discovery is not validation. One unparseable file must not make every other agent
     undiscoverable -- but asking for it by name still says exactly what is wrong."""
@@ -1764,7 +1730,6 @@ def test_a_broken_agent_file_is_left_out_rather_than_breaking_the_list(tmp_path)
                agent_name="broken", task="t", workdir=str(tmp_path))
 
 
-@files_posix_only
 def test_the_three_answers_are_distinguishable_in_one_call(tmp_path):
     """"Not there", "there and broken", and "there but not mine" through the real tool.
 
@@ -1960,7 +1925,6 @@ def test_delegate_readonly_offers_only_tools_that_cannot_write():
         assert not tools_module.REGISTRY[name].writes, f"{name} can write"
 
 
-@files_posix_only
 def test_an_agent_file_cannot_widen_a_caller_supplied_tool_set(tmp_path):
     """`delegate_to_agent` is the only tool taking both an agent and `allowed_tools`.
 
@@ -2016,7 +1980,6 @@ def test_delegate_readonly_has_no_argument_that_could_widen_it():
         )
 
 
-@files_posix_only
 def test_delegate_to_agent_readonly_offers_only_tools_that_cannot_write(tmp_path):
     """The annotation, asserted on the wire, against an agent that asks for a shell.
 
@@ -2048,7 +2011,6 @@ def test_delegate_to_agent_readonly_offers_only_tools_that_cannot_write(tmp_path
         assert not tools_module.REGISTRY[name].writes, f"{name} can write"
 
 
-@files_posix_only
 def test_project_finds_the_agent_and_the_sandbox_is_given_nothing(monkeypatch, tmp_path):
     """Both halves, because either alone would pass a broken implementation.
 

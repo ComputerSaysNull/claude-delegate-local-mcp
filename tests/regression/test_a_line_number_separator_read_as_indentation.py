@@ -12,24 +12,13 @@ end-to-end refusals carry the same skip marker the existing `edit_file` tests us
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-import pytest
 
 from claude_delegate_local import tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
 from claude_delegate_local.context import numbered_line
-
-UNPROVEN = (
-    "LAYER 1 UNPROVEN BY THIS RUN -- this is not a pass. Resolving a real path needs a "
-    "POSIX filesystem and the server runs in WSL, so every case that actually opens a "
-    "file is proven there. Run: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest "
-    "tests/regression/test_a_line_number_separator_read_as_indentation.py'"
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 
 
 def cfg(root: Path, **over) -> Config:
@@ -50,7 +39,6 @@ def test_the_separator_after_the_line_number_is_a_tab():
     )
 
 
-@posix_only
 def test_edit_file_refusal_names_the_separator(tmp_path):
     target = tmp_path / "mod.py"
     target.write_text("    x = 1\n", encoding="utf-8")
@@ -65,7 +53,6 @@ def test_edit_file_refusal_names_the_separator(tmp_path):
     assert "separator" in result.content
 
 
-@posix_only
 def test_edit_file_refusal_names_the_line_numbers(tmp_path):
     target = tmp_path / "mod.py"
     target.write_text("    x = 1\n", encoding="utf-8")
@@ -80,7 +67,6 @@ def test_edit_file_refusal_names_the_line_numbers(tmp_path):
     assert "line number" in result.content
 
 
-@posix_only
 def test_a_tab_that_is_not_a_prefix_gets_no_prefix_hint(tmp_path):
     target = tmp_path / "Makefile"
     target.write_text("all:\n\tcc -o x x.c\n", encoding="utf-8")
@@ -94,7 +80,6 @@ def test_a_tab_that_is_not_a_prefix_gets_no_prefix_hint(tmp_path):
     assert "read_file" not in result.content
 
 
-@posix_only
 def test_lines_found_one_by_one_but_not_together_get_no_prefix_hint(tmp_path):
     # Each line minus its tab is in the file, but not in this order, so the tab is not
     # the reason the quote missed.
@@ -110,7 +95,6 @@ def test_lines_found_one_by_one_but_not_together_get_no_prefix_hint(tmp_path):
     assert "separator" not in result.content
 
 
-@posix_only
 def test_a_correct_quote_of_a_tab_indented_makefile_line_still_succeeds(tmp_path):
     target = tmp_path / "Makefile"
     target.write_text("all:\n\tcc -o x x.c\n", encoding="utf-8")

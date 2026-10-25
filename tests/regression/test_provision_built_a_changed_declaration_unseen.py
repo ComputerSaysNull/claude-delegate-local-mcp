@@ -24,8 +24,6 @@ import pytest
 from claude_delegate_local import provision
 from claude_delegate_local.config import Config
 
-posix_only = pytest.mark.skipif(os.name != "posix", reason="provision builds POSIX trees")
-
 
 @pytest.fixture
 def setup(tmp_path: Path, monkeypatch):
@@ -63,7 +61,6 @@ def _edit(project: Path):
         "[project]\nname = 'p'\ndependencies = ['a', 'planted']\n", encoding="utf-8")
 
 
-@posix_only
 def test_a_changed_declaration_is_shown_and_not_built(setup):
     cfg, project, builds = setup
     assert _provision(cfg, project)[0] == 0
@@ -75,7 +72,6 @@ def test_a_changed_declaration_is_shown_and_not_built(setup):
     assert "--yes" in out, out
 
 
-@posix_only
 def test_yes_builds_it(setup):
     cfg, project, builds = setup
     _provision(cfg, project)
@@ -85,7 +81,6 @@ def test_yes_builds_it(setup):
     assert len(builds) == 2
 
 
-@posix_only
 def test_an_unchanged_declaration_rebuilds_without_asking(setup):
     """The control: re-provisioning what was already built needs nothing new."""
     cfg, project, builds = setup
@@ -95,7 +90,6 @@ def test_an_unchanged_declaration_rebuilds_without_asking(setup):
     assert len(builds) == 2
 
 
-@posix_only
 def test_the_first_build_does_not_ask(setup):
     """Nothing to compare against, and the operator named the project themselves."""
     cfg, project, builds = setup
@@ -104,7 +98,6 @@ def test_the_first_build_does_not_ask(setup):
     assert builds
 
 
-@posix_only
 def test_a_record_without_a_copy_still_asks(setup):
     """An environment built before copies were kept: the change cannot be shown, so it is
     said rather than built past."""

@@ -27,8 +27,6 @@ import pytest
 from claude_delegate_local import provision
 from claude_delegate_local.config import Config
 
-posix_only = pytest.mark.skipif(os.name != "posix", reason="provision builds POSIX trees")
-
 
 def _cfg(home: Path) -> Config:
     return Config(workspace_roots=(str(home.parent),), sandbox_home=str(home))  # type: ignore[arg-type]
@@ -58,7 +56,6 @@ def built(tmp_path: Path):
     return _cfg(home), project.as_posix(), venv
 
 
-@posix_only
 def test_a_failed_rebuild_leaves_the_old_environment_in_place(built, monkeypatch):
     cfg, project, venv = built
     _stub(monkeypatch, fail_on="--editable")
@@ -68,7 +65,6 @@ def test_a_failed_rebuild_leaves_the_old_environment_in_place(built, monkeypatch
     assert not Path(f"{venv}.previous").exists(), "the aside copy outlived the restore"
 
 
-@posix_only
 def test_a_successful_rebuild_replaces_it(built, monkeypatch):
     """The control: the new environment lands at the same path and nothing is left aside."""
     cfg, project, venv = built
@@ -79,7 +75,6 @@ def test_a_successful_rebuild_replaces_it(built, monkeypatch):
     assert not Path(f"{venv}.previous").exists()
 
 
-@posix_only
 def test_an_unwritable_record_is_a_clean_error(built, monkeypatch):
     """`run` reports a `ProvisionError` in one line; any other exception is a traceback."""
     cfg, project, venv = built
@@ -97,7 +92,6 @@ def test_an_unwritable_record_is_a_clean_error(built, monkeypatch):
     assert (venv / "bin" / "python").read_text(encoding="utf-8") == "old\n"
 
 
-@posix_only
 def test_run_reports_the_failure_in_words(built, monkeypatch):
     cfg, project, _ = built
     _stub(monkeypatch, fail_on="--editable")

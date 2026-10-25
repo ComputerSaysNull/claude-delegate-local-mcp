@@ -48,10 +48,8 @@ except ImportError:  # pragma: no cover -- Windows
 
 UNPROVEN = (
     "ADMISSION FAIRNESS UNPROVEN BY THIS RUN -- this is not a pass. Ordering is enforced "
-    "through a real flock on a shared file, and liveness through /proc. Run it under WSL "
-    "-- see CONTRIBUTING.md: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest "
-    "tests/regression/test_admission_waited_without_queueing.py'"
+    "through a real flock on a shared file, and liveness through /proc, so it needs a "
+    "POSIX host: python -m pytest tests/regression/test_admission_waited_without_queueing.py"
 )
 posix_only = pytest.mark.skipif(
     fcntl is None or not Path("/proc").is_dir(), reason=UNPROVEN

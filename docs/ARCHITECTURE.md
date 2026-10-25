@@ -450,12 +450,8 @@ error saying so, and rewriting separators on a path that was already POSIX corru
 since a backslash is a legal filename character. So a path in no recognised Windows form
 is passed through untouched, and an untranslatable one is refused by name.
 
-Two entry points, because comparing a path and opening one are different. `to_posix`
-translates unconditionally — its callers compare the result against roots translated
-alike, so on a Windows host the rewrite hits both sides and cancels. A path used as a
-*location* has no second side, and rewriting one on the host that wrote it invents a
-directory under the current drive; `to_local` translates only where this process is
-already POSIX. Compare with `to_posix`, open with `to_local`.
+The server runs only on the POSIX side, so one entry point, `to_posix`, serves both a path
+compared against roots and a location opened or written into.
 
 ### Why bubblewrap, and what it does not cover
 

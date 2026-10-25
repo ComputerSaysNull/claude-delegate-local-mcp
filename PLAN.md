@@ -306,7 +306,7 @@ Item 1 was Deferred.7, moved 2026-10-24 with its premise corrected: the reposito
 4. ⬜ **The models file and the security lists resolve against the working directory**, so a server
   started in another project reads that project's `security/*.txt`, or refuses to start.
   `wsl.exe --cd` hid it. Resolve them against the `.env`'s folder; red first
-5. ⬜ Remove what exists only because development ran Windows Python: about 54 POSIX skip
+5. ✅ 2026-10-25 Remove what exists only because development ran Windows Python: about 54 POSIX skip
   guards, the Windows-only tests and branches, the hook's Windows venv. The UTF-8 fixes stay
 6. ⬜ **FastMCP 4**: a session's folders come from `CLAUDE_PROJECT_DIR`, not the deprecated
   roots, superseding that part of ADR-0110. Only the 12 roots tests fail on 4.1.3

@@ -16,24 +16,14 @@ Named after the bug, per the project's convention.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from claude_delegate_local import provision, sandbox, tools
 from claude_delegate_local.config import Config
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason=(
-        "PROVISIONING UNPROVEN BY THIS RUN -- this is not a pass. It builds a POSIX "
-        "virtualenv the sandbox binds, and refuses on Windows by design."
-    ),
-)
 
 
 def cfg(**over) -> Config:
@@ -79,7 +69,6 @@ def make_stale(home: Path, project: Path) -> None:
 # --- stale_for --------------------------------------------------------------------------
 
 
-@posix_only
 def test_stale_for_returns_the_record_when_it_is_stale(tmp_path):
     """The withholding this is for: the record exists but `provisioned_for` refuses it."""
     home = tmp_path / "home"
@@ -92,7 +81,6 @@ def test_stale_for_returns_the_record_when_it_is_stale(tmp_path):
     assert found["project"] == project.as_posix()
 
 
-@posix_only
 def test_stale_for_returns_none_when_the_record_is_current(tmp_path):
     """A current environment is offered, not withheld, so it is not "stale"."""
     home = tmp_path / "home"
@@ -102,7 +90,6 @@ def test_stale_for_returns_none_when_the_record_is_current(tmp_path):
     assert provision.stale_for(cfg(sandbox_home=str(home)), project.as_posix()) is None
 
 
-@posix_only
 def test_stale_for_returns_none_when_nothing_was_provisioned(tmp_path):
     """Absent is a different answer from stale, and only stale is reported."""
     home = tmp_path / "home"
@@ -114,7 +101,6 @@ def test_stale_for_returns_none_when_nothing_was_provisioned(tmp_path):
 # --- stale_env_note ---------------------------------------------------------------------
 
 
-@posix_only
 def test_the_note_names_the_variable_when_stale(tmp_path):
     """The model must be told which name is unset and why, not just that something is wrong."""
     home = tmp_path / "home"
@@ -128,7 +114,6 @@ def test_the_note_names_the_variable_when_stale(tmp_path):
     assert "stale" in note.lower()
 
 
-@posix_only
 def test_the_note_is_none_when_current(tmp_path):
     home = tmp_path / "home"
     project = project_tree(tmp_path)
@@ -137,7 +122,6 @@ def test_the_note_is_none_when_current(tmp_path):
     assert tools.stale_env_note(cfg(sandbox_home=str(home)), project.as_posix()) is None
 
 
-@posix_only
 def test_the_note_is_none_when_nothing_was_provisioned(tmp_path):
     home = tmp_path / "home"
     project = project_tree(tmp_path)
@@ -148,7 +132,6 @@ def test_the_note_is_none_when_nothing_was_provisioned(tmp_path):
 # --- the note reaches the run_bash result ----------------------------------------------
 
 
-@posix_only
 def test_run_bash_appends_the_note_to_the_result_body(tmp_path, monkeypatch):
     """The note is said beside the output, where the model reads the result of its command.
 

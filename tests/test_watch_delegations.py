@@ -4,8 +4,6 @@ Two halves. The first calls the file-reading functions directly -- the cap, the
 ordering and the cache, where a wrong answer is quiet rather than obvious. The second
 drives the whole thing through a real pty, because the interesting failures live in the
 seam between the terminal and the code and are invisible to anything that stubs stdin.
-That half is skipped on Windows, where `pty` does not exist; the viewer runs under WSL
-and CI runs the suite on Linux, so it is exercised in both places the viewer is used.
 """
 
 from __future__ import annotations
@@ -26,7 +24,6 @@ import pytest
 from claude_delegate_local import watch
 
 ROOT = Path(__file__).resolve().parents[1]
-posix_only = pytest.mark.skipif(os.name != "posix", reason="needs a pty")
 
 
 def load_viewer():
@@ -403,7 +400,6 @@ def session(tmp_path):
         os.close(made.fd)
 
 
-@posix_only
 def test_the_list_paints_every_stream_newest_first(session, tmp_path):
     now = datetime.now(UTC)
     ancient = stream(tmp_path, now - timedelta(days=9), "ANCIENT", ended=True)
@@ -420,7 +416,6 @@ def test_the_list_paints_every_stream_newest_first(session, tmp_path):
     assert "r refresh" in screen and "q quit" in screen
 
 
-@posix_only
 def test_the_list_paints_a_duration_and_an_effort(session, tmp_path):
     """The columns as a reader actually meets them, through a real terminal.
 
@@ -454,7 +449,6 @@ def test_the_list_paints_a_duration_and_an_effort(session, tmp_path):
     assert "2.0k" in screen, "the running row lost its saved total"
 
 
-@posix_only
 def test_the_list_refreshes_without_a_keypress(session, tmp_path):
     stream(tmp_path, datetime.now(UTC) - timedelta(minutes=5), "FIRST")
     live = session(tmp_path)
@@ -463,7 +457,6 @@ def test_the_list_refreshes_without_a_keypress(session, tmp_path):
     assert "APPEARED" in live.read(3.5)
 
 
-@posix_only
 def test_an_arrow_key_moves_the_highlight_rather_than_quitting(session, tmp_path):
     """The regression this file was extended for. An arrow key is one escape sequence;
     reading it a character at a time through a buffered stdin left the tail in Python's
@@ -484,7 +477,6 @@ def test_an_arrow_key_moves_the_highlight_rather_than_quitting(session, tmp_path
     assert live.exit_code(0.5) is None, "the arrow key was read as a quit"
 
 
-@posix_only
 def test_a_transcript_is_left_by_hand_and_returns_to_the_list(session, tmp_path):
     """`q` goes back rather than out, and reaching the end does not go back by itself."""
     stream(tmp_path, datetime.now(UTC) - timedelta(minutes=1), "ONLY", turns=1, ended=True)
@@ -503,7 +495,6 @@ def test_a_transcript_is_left_by_hand_and_returns_to_the_list(session, tmp_path)
     assert live.exit_code() == 0, "q from the list did not exit"
 
 
-@posix_only
 def test_a_half_written_line_is_not_dropped(session, tmp_path):
     """The writer appends and the reader may arrive mid-line. Parsing the half loses the
     whole event: the remainder then turns up as its own unparseable fragment."""
@@ -825,8 +816,6 @@ def test_the_highlight_survives_the_rows_own_colour_codes(viewer):
     # Any that is not would end the band there, which is the bug this guards.
     assert out.count(viewer.R) - 1 == out.count(viewer.R + viewer.SELECT), out
     assert "12:00:00" in out and "a task" in out
-
-
 
 
 def test_a_frame_overwrites_rather_than_blanking_first(viewer):
@@ -1253,7 +1242,6 @@ def test_the_state_column_fits_the_widest_state_that_can_occur(viewer):
         f"{word!r} is {len(word)} wide in a column of {viewer.STATE_WIDTH}, gutter included")
 
 
-@posix_only
 def test_the_state_column_keeps_its_gutter_when_the_state_is_widest(session, tmp_path):
     """The unit test above proves the number; this proves the paint uses it.
 
@@ -1333,7 +1321,6 @@ def test_a_second_wait_starts_its_minute_again(viewer):
     assert pacing.admit({"t": "waiting", "waited_seconds": 0.25}) != []
 
 
-@posix_only
 def test_a_queued_transcript_does_not_fill_the_screen_with_itself(session, tmp_path):
     """End to end, because the pacer is only worth anything if `follow` routes through it.
 

@@ -23,7 +23,6 @@ Named after the bug, per the project's convention.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -31,11 +30,6 @@ import pytest
 from claude_delegate_local import tools
 from claude_delegate_local.config import Config
 from claude_delegate_local.tools import UNSCOPED, ToolRefused
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="resolving a real path needs a POSIX filesystem; the server runs in WSL",
-)
 
 
 def cfg(root: Path, **over) -> Config:
@@ -53,7 +47,6 @@ def tree(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@posix_only
 def test_a_search_without_a_path_is_refused(tree):
     """The bug. Today an omitted `path` walks every root and returns results."""
     with pytest.raises(ToolRefused) as caught:
@@ -62,7 +55,6 @@ def test_a_search_without_a_path_is_refused(tree):
     assert "path" in str(caught.value)
 
 
-@posix_only
 def test_the_refusal_hands_over_the_layout_it_was_missing(tree):
     """A refusal that repeats "name a directory" is the thing that already failed.
 
@@ -78,7 +70,6 @@ def test_the_refusal_hands_over_the_layout_it_was_missing(tree):
     assert UNSCOPED in message, "and the escape, or the capability is unreachable"
 
 
-@posix_only
 def test_the_sentinel_still_walks_every_root(tree):
     """Control. The escape must actually escape, or it is decoration.
 
@@ -91,7 +82,6 @@ def test_the_sentinel_still_walks_every_root(tree):
     assert "deep.md" in out
 
 
-@posix_only
 def test_a_scoped_search_is_unaffected(tree):
     """Control. Must pass before the fix as well as after."""
     out = tools._search_files(cfg(tree), {"pattern": "needle", "path": str(tree / "pkg")})
@@ -100,7 +90,6 @@ def test_a_scoped_search_is_unaffected(tree):
     assert "top.md" not in out
 
 
-@posix_only
 def test_a_bad_regex_is_reported_before_the_missing_path(tree):
     """Control on ordering, and it must pass before the fix too.
 
@@ -113,7 +102,6 @@ def test_a_bad_regex_is_reported_before_the_missing_path(tree):
     assert "regular expression" in str(caught.value)
 
 
-@posix_only
 def test_the_layout_names_files_and_directories_distinguishably(tree):
     """Directories carry a trailing slash; files do not.
 
@@ -127,7 +115,6 @@ def test_the_layout_names_files_and_directories_distinguishably(tree):
     assert "top.md/" not in layout
 
 
-@posix_only
 def test_a_dense_directory_is_capped_and_says_so(tmp_path):
     """The listing sits in a cached prefix, so it cannot grow without bound.
 

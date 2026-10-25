@@ -14,24 +14,13 @@ truncated read covers only the lines it actually returned.
 
 from __future__ import annotations
 
-import os
 
-import pytest
 
 from claude_delegate_local import context, loop
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.tools import BashPolicy
 
 from test_agentic_loop import ScriptedTurns, cfg, results_in, run, says, wants
-
-# Every case that reads a real file needs a POSIX filesystem: on Windows the path policy
-# refuses anything under `tmp_path`, so each read fails and a "ran twice" case passes for
-# the wrong reason.
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="LAYER 1 UNPROVEN BY THIS RUN -- this is not a pass. Reading a real file "
-    "needs a POSIX filesystem; run this file in WSL.",
-)
 
 
 def _file(tmp_path, n):
@@ -54,7 +43,6 @@ def _all_results(backend):
 # --- coverage ----------------------------------------------------------------------------
 
 
-@posix_only
 def test_a_range_of_lines_already_returned_is_served_without_running(tmp_path):
     """The bug. Lines 10-20 were part of the 1-100 read already in the history."""
     path = _file(tmp_path, 150)
@@ -75,7 +63,6 @@ def test_a_range_of_lines_already_returned_is_served_without_running(tmp_path):
     assert lines[-1] == " 20\tline 20"
 
 
-@posix_only
 def test_a_range_sticking_out_past_what_was_read_runs_again(tmp_path):
     """The other direction. Coverage that matched too widely answers the wrong question."""
     path = _file(tmp_path, 150)
@@ -92,7 +79,6 @@ def test_a_range_sticking_out_past_what_was_read_runs_again(tmp_path):
     assert " 90\tline 90" in served.content
 
 
-@posix_only
 def test_a_whole_file_read_covers_a_later_range(tmp_path):
     """No `end_line` reads to the end, so a later range is already known."""
     path = _file(tmp_path, 10)
@@ -113,7 +99,6 @@ def test_a_whole_file_read_covers_a_later_range(tmp_path):
 # --- what does not cover -------------------------------------------------------------
 
 
-@posix_only
 def test_a_batch_serves_calls_an_earlier_turn_already_read(tmp_path):
     """`_run_group` applies the same rule: a call in a batch covered by a prior read does
     not run, and the duplicate's sibling is served from it rather than dispatched."""
@@ -133,7 +118,6 @@ def test_a_batch_serves_calls_an_earlier_turn_already_read(tmp_path):
     assert served[2].content.startswith(loop.REPEAT_PREFIX)
 
 
-@posix_only
 def test_a_truncated_read_covers_only_the_lines_it_returned(tmp_path):
     """A read cut short by the character budget knows nothing past where it stopped."""
     path = _file(tmp_path, 150)
@@ -155,7 +139,6 @@ def test_a_truncated_read_covers_only_the_lines_it_returned(tmp_path):
     assert not served.content.startswith(loop.REPEAT_PREFIX)
 
 
-@posix_only
 def test_a_write_between_two_reads_makes_the_second_run_again(tmp_path):
     """Any non-cacheable call clears the cache, since a write invalidates earlier reads."""
     path = _file(tmp_path, 150)

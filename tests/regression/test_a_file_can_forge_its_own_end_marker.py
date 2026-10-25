@@ -19,7 +19,6 @@ is on the marker's shape, never on the entry's own formatted instance.
 
 from __future__ import annotations
 
-import os
 
 import pytest
 
@@ -30,15 +29,6 @@ from claude_delegate_local.context import (
     prefetch,
 )
 from claude_delegate_local.paths import ResolvedPath
-
-UNPROVEN = (
-    "BOUNDARY FORGERY UNPROVEN BY THIS RUN -- this is not a pass. The end-to-end case "
-    "reads a real file through a resolved POSIX path, and the server runs in WSL. Run it "
-    "there -- see CONTRIBUTING.md: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest "
-    "tests/regression/test_a_file_can_forge_its_own_end_marker.py'"
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 
 VICTIM = "/tmp/victim.py"
 OTHER = "/tmp/somewhere/else.py"
@@ -122,7 +112,6 @@ def write(tmp_path, name: str, body: str) -> ResolvedPath:
     return ResolvedPath(given=str(p), posix=p.as_posix())
 
 
-@posix_only
 def test_the_block_has_one_boundary_pair_and_keeps_the_whole_file(tmp_path):
     """The property that matters: everything the file contained stays inside its own
     boundaries, and the model is handed exactly one place where each file ends."""
@@ -151,7 +140,6 @@ def test_the_block_has_one_boundary_pair_and_keeps_the_whole_file(tmp_path):
         assert kept in body
 
 
-@posix_only
 def test_a_second_file_cannot_be_attributed_to_a_path_never_read(tmp_path):
     """A forged BEGIN naming another file would otherwise make the block look as though
     the server had read and vouched for that path."""
