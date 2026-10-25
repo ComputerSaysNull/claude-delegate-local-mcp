@@ -109,6 +109,6 @@ def test_read_only_tools_still_say_they_cannot_write():
     tools = asyncio.run(go())
     for name in ("delegate_readonly", "delegate_to_agent_readonly"):
         annotations = tools[name].annotations
-        assert annotations is not None and annotations.readOnlyHint is True, (
+        assert annotations is not None and annotations.read_only_hint is True, (
             f"{name} cannot write and must say so"
         )

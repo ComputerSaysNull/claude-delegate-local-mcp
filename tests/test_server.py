@@ -937,7 +937,7 @@ def test_the_schema_tells_the_model_not_to_paste_files():
         async with Client(mcp) as client:
             return next(t for t in await client.list_tools() if t.name == "delegate")
 
-    files = asyncio.run(go()).inputSchema["properties"]["files"]
+    files = asyncio.run(go()).input_schema["properties"]["files"]
     # Collapsed, because the text is hard-wrapped and a phrase can straddle a line break.
     described = " ".join((files.get("description") or "").split())
     assert "never enter your own context" in described
@@ -979,7 +979,7 @@ def test_the_three_facts_are_delivered_by_the_channels_that_own_them():
     """
     mcp = _built()
     tools = _tools(mcp)
-    props = tools["delegate"].inputSchema["properties"]
+    props = tools["delegate"].input_schema["properties"]
     files = " ".join((props["files"].get("description") or "").split())
     task = " ".join((props["task"].get("description") or "").split())
     instructions = " ".join((mcp.instructions or "").split())
@@ -1016,7 +1016,7 @@ def test_every_argument_describes_itself_in_the_schema(tool_name):
     description still fits, and the guidance simply is not there. Nothing else notices,
     which is why this is asserted per property rather than per tool.
     """
-    schema = _tools(_built())[tool_name].inputSchema
+    schema = _tools(_built())[tool_name].input_schema
     undescribed = [
         name for name, prop in schema.get("properties", {}).items()
         if not (prop.get("description") or "").strip()
@@ -1033,7 +1033,7 @@ def test_the_effort_enum_is_derived_from_the_configured_vocabulary(tool_name):
     would have accepted, or advertises one it will not. So the assertion compares the wire
     against the constants rather than against a literal list.
     """
-    schema = _tools(_built())[tool_name].inputSchema
+    schema = _tools(_built())[tool_name].input_schema
     assert schema["properties"]["effort"]["enum"] == [
         *config_module.EFFORT_LEVELS, config_module.EFFORT_INHERIT]
 
@@ -1081,6 +1081,23 @@ def test_the_orchestration_resource_carries_the_long_form():
     assert "empty_response" in body        # the failure that reads as success
     assert "admission" in body.lower()     # how many run at once
     assert "read_git" in body              # the only route to history; run_bash cannot see .git
+
+
+def test_the_orchestration_resource_says_it_is_markdown_on_the_wire():
+    """Stated rather than defaulted: a client renders or ignores a resource by its type, and
+    the default is the library's, which a major version is free to change."""
+    mcp = _built()
+
+    async def go():
+        async with Client(mcp) as client:
+            listed = await client.list_resources()
+            read = await client.read_resource("delegate://orchestration")
+            return listed, read
+
+    listed, read = asyncio.run(go())
+    [entry] = [r for r in listed if str(r.uri) == "delegate://orchestration"]
+    assert entry.mime_type == "text/markdown"
+    assert all(c.mime_type == "text/markdown" for c in read)
 
 
 # --- the agentic loop, over a real MCP session ---------------------------------------------
@@ -1131,7 +1148,7 @@ def test_delegate_does_not_expose_the_injected_context_to_the_model():
         async with Client(mcp) as client:
             return next(t for t in await client.list_tools() if t.name == "delegate")
 
-    schema = asyncio.run(go()).inputSchema
+    schema = asyncio.run(go()).input_schema
     assert "ctx" not in schema["properties"]
     assert "allowed_tools" in schema["properties"]
 
@@ -1973,7 +1990,7 @@ def test_delegate_readonly_has_no_argument_that_could_widen_it():
     tools = asyncio.run(go())
 
     for name in ("delegate_readonly", "delegate_to_agent_readonly"):
-        schema = tools[name].inputSchema
+        schema = tools[name].input_schema
         assert "allowed_tools" not in schema.get("properties", {}), (
             f"{name} must not accept allowed_tools; it would let a caller widen "
             "a tool the client has been told is read-only"
@@ -2060,9 +2077,9 @@ def test_no_tool_that_declares_itself_read_only_offers_a_workdir():
 
     for name, tool in tools.items():
         annotations = tool.annotations
-        if not (annotations is not None and annotations.readOnlyHint is True):
+        if not (annotations is not None and annotations.read_only_hint is True):
             continue
-        assert "workdir" not in tool.inputSchema.get("properties", {}), (
+        assert "workdir" not in tool.input_schema.get("properties", {}), (
             f"{name} declares itself read-only and offers a workdir; a workdir is a "
             "read-write sandbox bind, so one of the two claims is false"
         )
@@ -2092,12 +2109,12 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
     can_write = ("delegate", "delegate_to_agent", "cancel_delegation", "answer")
 
     for name in cannot_write:
-        assert seen[name] is not None and seen[name].readOnlyHint is True, (
+        assert seen[name] is not None and seen[name].read_only_hint is True, (
             f"{name} cannot write and must say so"
         )
     for name in can_write:
         annotations = seen[name]
-        claimed = annotations is not None and annotations.readOnlyHint is True
+        claimed = annotations is not None and annotations.read_only_hint is True
         assert not claimed, (
             f"{name} can be given write_file and run_bash, so it must never declare "
             "itself read-only"
@@ -2283,12 +2300,12 @@ def test_only_the_delegating_tools_take_a_title():
     must not accept one, or a caller's title would go to a tool that never writes it."""
     tools = _tools(_built())
     for name in DELEGATING:
-        props = tools[name].inputSchema["properties"]
+        props = tools[name].input_schema["properties"]
         assert "title" in props, f"{name} must accept a title"
         string = next(b for b in props["title"]["anyOf"] if b.get("type") == "string")
         assert string["maxLength"] == 120
     for name in ("collect", "cancel_delegation", "list_agents", "backend_status"):
-        props = tools[name].inputSchema["properties"]
+        props = tools[name].input_schema["properties"]
         assert "title" not in props, f"{name} must not accept a title"
 
 
@@ -2608,7 +2625,7 @@ def test_every_tool_describes_its_result(tool_name):
     model's account of a command. Those lived in prose, and prose is what the client cut.
     """
     tool = _tools(_built())[tool_name]
-    schema = tool.outputSchema or {}
+    schema = tool.output_schema or {}
     props = schema.get("properties", {})
     assert props, f"{tool_name} declares no output properties"
     undescribed = [k for k, v in props.items() if not (v.get("description") or "").strip()]
@@ -2623,7 +2640,7 @@ def test_the_result_schema_can_never_refuse_a_real_result():
     legitimately produces -- trading a new failure mode for documentation.
     """
     for tool in _tools(_built()).values():
-        schema = tool.outputSchema or {}
+        schema = tool.output_schema or {}
         assert not schema.get("required"), f"{tool.name} makes a result key required"
         assert schema.get("additionalProperties") is not False, (
             f"{tool.name} forbids keys it may itself add")
@@ -2644,7 +2661,7 @@ def test_the_result_schema_covers_the_keys_a_delegation_actually_returns():
             result = await client.call_tool(
                 "delegate", {"task": "q", "effort": "low", "diagnostics": True})
             tool = next(t for t in await client.list_tools() if t.name == "delegate")
-            return result.structured_content or result.data, tool.outputSchema or {}
+            return result.structured_content or result.data, tool.output_schema or {}
 
     returned, schema = asyncio.run(go())
     declared = set(schema.get("properties", {}))

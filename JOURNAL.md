@@ -3060,3 +3060,19 @@ address the laptop resolves. The suite peaked at 3.4 GB of 31 machine-wide (the 
 process alone reads 176 MB, which is why a whole-machine sample was needed) and ran in 70 to
 110s. Tailscale SSH sessions have no `XDG_RUNTIME_DIR`, so `systemd-analyze --user verify`
 failed every unit, broken or not, until it was set.
+
+## 2026-10-25 — FastMCP 4 on the host: no slowdown, and what it actually broke
+
+**The suite's slowdown on 4.1.3 belonged to the laptop.** Two fresh venvs on the host,
+identical but for fastmcp, ran the suite one after the other: 82.75s on 3.4.11, 82.07s on
+4.1.3, the slowest tests within a second of each other. The 303s against 130s above was
+taken under WSL2 and does not reproduce here, so nothing was chased.
+
+**Beyond roots, 4.1.3 broke only attribute reads.** SDK v2 renamed camelCase fields to
+snake_case (`input_schema`, `read_only_hint`, ...); the old names still answer, with a
+`FastMCPDeprecationWarning`, and nine test reads used them. Annotations passed as camelCase
+dict keys raise nothing, and strict parameters refused no coercion the suite relied on.
+
+**`CLAUDE_PROJECT_DIR` follows the project.** A throwaway stdio server started by
+`claude -p` recorded it equal to its working directory, from this repository and again from
+a scratch folder, and the calling shell had no such variable: Claude Code set it.

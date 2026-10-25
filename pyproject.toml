@@ -9,9 +9,10 @@ requires-python = ">=3.14"
 license = "MIT"
 authors = [{ name = "ComputerSaysNull" }]
 dependencies = [
-    # Pinned below 4.0 deliberately: 3.4.7 is current stable and 4.0.0 is already
-    # in beta. An unpinned major bump can change tool registration under us.
-    "fastmcp>=3.4.11,<4",
+    # Bounded below the next major: an unpinned major bump can change tool registration
+    # under us. 4.x removed the roots call, which is why sessions are scoped by
+    # CLAUDE_PROJECT_DIR (ADR-0128).
+    "fastmcp>=4.1.3,<5",
     "httpx>=0.28.1,<0.29",
 ]
 
@@ -77,6 +78,9 @@ packages = ["src/claude_delegate_local"]
 addopts = ["-n", "auto", "--maxprocesses", "10"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# A field FastMCP has renamed fails here rather than warning in a summary nobody reads: a
+# test still reading the old name works until the release that removes it.
+filterwarnings = ["error::fastmcp.exceptions.FastMCPDeprecationWarning"]
 testpaths = ["tests"]
 markers = [
     "integration: needs the live cluster or a real bwrap; runs locally, CI deselects it",
