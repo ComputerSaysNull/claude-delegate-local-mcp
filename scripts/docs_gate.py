@@ -461,7 +461,10 @@ def check_body_history() -> list[Finding]:
         base = ROOT / d
         if not base.is_dir():
             continue
-        for p in sorted(base.rglob("*.md")):
+        # Tracked files only, as every other check lists them: an untracked one may be a
+        # sandbox's unreadable placeholder, and is not going to be committed anyway.
+        tracked = (ROOT / f for f in git("ls-files", "--", f"{d}/*.md").splitlines())
+        for p in sorted(p for p in tracked if p.is_file()):
             r = rel(p)
             text = p.read_text(encoding="utf-8", errors="replace")
             for i, line in _body_prose_lines(text):
@@ -965,7 +968,8 @@ def check_budgets() -> list[Finding]:
     """
     out = []
     seen = 0
-    for p in sorted(ROOT.rglob("*.md")):
+    tracked = (ROOT / f for f in git("ls-files", "*.md").splitlines())
+    for p in sorted(p for p in tracked if p.is_file()):
         r = rel(p)
         if (".git" in p.parts or "docs/audits" in r or "docs/reviews" in r
                 or "archive" in p.parts):
