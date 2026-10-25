@@ -49,9 +49,9 @@ def _texts_and_keys():
     declared: set[str] = set()
     for tool in tools:
         texts[tool.name] = tool.description or ""
-        for arg, spec in (tool.inputSchema.get("properties") or {}).items():
+        for arg, spec in (tool.input_schema.get("properties") or {}).items():
             texts[f"{tool.name}.{arg}"] = spec.get("description") or ""
-        declared |= _declared_keys(tool.outputSchema or {})
+        declared |= _declared_keys(tool.output_schema or {})
     return texts, declared
 
 

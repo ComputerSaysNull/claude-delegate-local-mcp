@@ -41,5 +41,5 @@ def test_the_destructive_and_open_world_hints_are_stated_and_true() -> None:
     for name in READ_ONLY + WRITING:
         a = tools[name].annotations
         assert a is not None, name
-        assert a.destructiveHint is (name in WRITING), f"{name}: {a.destructiveHint}"
-        assert a.openWorldHint is (name in OPEN_WORLD), f"{name}: openWorldHint {a.openWorldHint}"
+        assert a.destructive_hint is (name in WRITING), f"{name}: {a.destructive_hint}"
+        assert a.open_world_hint is (name in OPEN_WORLD), f"{name}: {a.open_world_hint}"
