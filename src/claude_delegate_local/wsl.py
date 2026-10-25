@@ -11,8 +11,6 @@ model, where it fails quietly: a guessed `/c/Users/...` is a path that does not 
 the eventual refusal names the wrong layer.
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 

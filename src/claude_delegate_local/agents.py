@@ -24,8 +24,6 @@ anchors and multi-line strings are refused, not guessed at. What it buys is that
 can mean something subtly different from what it looks like.
 """
 
-from __future__ import annotations
-
 import os
 import re
 from dataclasses import dataclass

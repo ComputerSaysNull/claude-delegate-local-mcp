@@ -24,8 +24,6 @@ to a doctor run, so the report goes to stdout and the exit code carries the verd
 decision prevents. Rows are named by their registry key.
 """
 
-from __future__ import annotations
-
 import asyncio
 import os
 import subprocess

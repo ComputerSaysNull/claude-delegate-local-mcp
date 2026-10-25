@@ -6,8 +6,6 @@ on `readOnlyHint` alone, so nothing here broke, but a client that shows or gates
 other two was told something untrue about every tool.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from fastmcp import Client

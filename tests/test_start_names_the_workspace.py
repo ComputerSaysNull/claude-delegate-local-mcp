@@ -12,8 +12,6 @@ takes the result of that would name a different project whenever the session's p
 not the ceiling's first root.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import os

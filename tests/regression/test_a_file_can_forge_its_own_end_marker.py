@@ -17,8 +17,6 @@ the worse case: it attributes what follows to a file the server never read. So t
 is on the marker's shape, never on the entry's own formatted instance.
 """
 
-from __future__ import annotations
-
 
 import pytest
 

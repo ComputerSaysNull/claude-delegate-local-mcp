@@ -10,8 +10,6 @@ live delegation running `readlink /proc/self/fd/0` reported the server's own pip
 is pinned here, and the sandbox case is proven end to end with a real pipe on fd 0.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 from pathlib import Path

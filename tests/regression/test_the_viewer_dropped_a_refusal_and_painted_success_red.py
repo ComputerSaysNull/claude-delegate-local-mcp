@@ -13,8 +13,6 @@ the fifth and sixth check-that-cannot-fire in this repository, and both survived
 renderer for the same reason: colour is looked at, not asserted on. Hence this file.
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 

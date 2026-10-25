@@ -10,8 +10,6 @@ read, `end_line` clamped to the file's last line), while a whole-file entry carr
 key.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import os

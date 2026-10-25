@@ -20,8 +20,6 @@ transcript kept the old divisor.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from pathlib import Path

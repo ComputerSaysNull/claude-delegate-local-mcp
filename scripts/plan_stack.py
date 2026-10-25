@@ -29,8 +29,6 @@ The body is the front branch's newest CHANGELOG section plus a Verification sect
 from `--verification <file>` -- never the commit body, which is shorter on purpose.
 """
 
-from __future__ import annotations
-
 import argparse
 import itertools
 import json

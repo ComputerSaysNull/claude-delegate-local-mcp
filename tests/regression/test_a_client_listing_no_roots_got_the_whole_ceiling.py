@@ -8,8 +8,6 @@ works instead (ADR-0119). The session's project comes from `CLAUDE_PROJECT_DIR`,
 refusal names it.
 """
 
-from __future__ import annotations
-
 import asyncio
 from dataclasses import replace
 

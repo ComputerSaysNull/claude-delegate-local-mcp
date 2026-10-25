@@ -5,8 +5,6 @@ comes out plausible-looking and resolves to nothing, so the refusal the caller e
 sees names the workspace-root layer for what was really a boundary bug.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local.wsl import UntranslatablePath, is_windows_form, to_posix

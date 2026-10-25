@@ -11,8 +11,6 @@ The fix names the kind at the seam. `feed()` returns it, `on_token` carries it, 
 tallies it separately, and the viewer says both numbers.
 """
 
-from __future__ import annotations
-
 import json
 import sys
 from pathlib import Path

@@ -13,8 +13,6 @@ does not consult it, and executes only inside the sandbox.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local import paths

@@ -6,8 +6,6 @@ guard that gives the slot back on the way out, so a cancellation delivered there
 slot counted for the life of the process.
 """
 
-from __future__ import annotations
-
 import asyncio
 import time
 

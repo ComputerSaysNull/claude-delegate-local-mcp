@@ -23,8 +23,6 @@ required to be positive, so every setup carried a bail-out, and 0 was a `ConfigE
 rather than the "off" it is everywhere else in this config.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

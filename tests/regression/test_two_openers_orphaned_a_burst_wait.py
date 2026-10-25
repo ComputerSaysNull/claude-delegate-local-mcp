@@ -6,8 +6,6 @@ then settled whichever future was current, and a call that had joined the first 
 holding its slot, until its client gave up.
 """
 
-from __future__ import annotations
-
 import asyncio
 import time
 

@@ -11,8 +11,6 @@ whose project falls outside the ceiling is refused the same way, still asking fo
 folder rather than the project, and still naming the env file the settings came from.
 """
 
-from __future__ import annotations
-
 import asyncio
 import os
 from dataclasses import replace

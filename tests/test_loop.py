@@ -7,8 +7,6 @@ Both are invisible when broken -- a wrong effort still answers, a dynamic prompt
 answers -- so both are tested directly rather than through their symptoms.
 """
 
-from __future__ import annotations
-
 import asyncio
 import time
 from datetime import datetime, timedelta, UTC

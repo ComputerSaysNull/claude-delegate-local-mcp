@@ -7,8 +7,6 @@ stderr wakes the model. This module is pure and does not import the server or th
 polls the per-handle state file `handles.py` writes and reports back.
 """
 
-from __future__ import annotations
-
 import json
 import os
 

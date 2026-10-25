@@ -17,8 +17,6 @@ than trusted, because a promise about what a script does not do is worth exactly
 enforces it.
 """
 
-from __future__ import annotations
-
 import importlib.util
 from pathlib import Path
 

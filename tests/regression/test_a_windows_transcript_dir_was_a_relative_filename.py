@@ -18,8 +18,6 @@ The server runs only on the POSIX side, so `transcript.py` translates through
 `wsl.to_posix` like every other path setting.
 """
 
-from __future__ import annotations
-
 import os
 from pathlib import PurePosixPath
 

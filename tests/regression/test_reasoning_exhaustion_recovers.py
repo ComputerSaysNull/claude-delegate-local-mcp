@@ -19,8 +19,6 @@ large one, so neither waits out a long generation -- a full-cap max-effort exhau
 for tens of minutes on this deployment (JOURNAL 2026-08-27) and has no place in a suite.
 """
 
-from __future__ import annotations
-
 import dataclasses
 
 import pytest

@@ -11,8 +11,6 @@ heartbeat silently -- and the symptom is an empty list of beats, not a stack tra
 shape is asserted here instead, where a mismatch is a red test rather than a quiet outage.
 """
 
-from __future__ import annotations
-
 import asyncio
 import inspect
 

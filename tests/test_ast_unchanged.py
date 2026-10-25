@@ -8,8 +8,6 @@ seam: a path absent at the base counts as changed, and a git failure is an error
 than a clean pass.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import subprocess
 import sys

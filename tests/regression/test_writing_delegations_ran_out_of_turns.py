@@ -10,8 +10,6 @@ by its turn cap on purpose, so it keeps the smaller default.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local import loop
 from claude_delegate_local.config import Config
 

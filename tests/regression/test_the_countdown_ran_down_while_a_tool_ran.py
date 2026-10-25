@@ -14,8 +14,6 @@ budget), and asserts that the beat recorded during the tool reports the delegati
 deadline, not the stall one.
 """
 
-from __future__ import annotations
-
 import asyncio
 import time
 

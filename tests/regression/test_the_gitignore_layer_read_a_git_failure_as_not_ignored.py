@@ -10,8 +10,6 @@ Git's message is read under `LC_ALL=C`, because the one exit that is not an erro
 recognised by its words and a translated git would otherwise say them differently.
 """
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 from pathlib import Path

@@ -7,8 +7,6 @@ its reply. Measured where the diagnostic is built, beside `reasoning_seconds`, a
 when the turn had no thinking.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from pathlib import Path

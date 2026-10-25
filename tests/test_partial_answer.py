@@ -7,8 +7,6 @@ at most one per `partial_every_seconds` -- and the `turn` event still carries th
 reply, which is the one a reader keeps.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

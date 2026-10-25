@@ -10,8 +10,6 @@ found six of -- so every test here feeds it a real divergence and asserts it is 
 drives it: importing would test a path nothing else uses.
 """
 
-from __future__ import annotations
-
 import pathlib
 import shutil
 import subprocess

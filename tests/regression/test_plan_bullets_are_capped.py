@@ -20,8 +20,6 @@ history leaves.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import subprocess
 import sys
 from pathlib import Path

@@ -16,8 +16,6 @@ Fixing only the first would leave the trap armed for the next person who puts so
 that directory. These tests hold both halves. See ADR-0025.
 """
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 import sys

@@ -6,8 +6,6 @@ re-wrapped its docstring was once wrongly reported unchanged. This test pins a
 `BaseModel` subclass's docstring as behaviour rather than prose.
 """
 
-from __future__ import annotations
-
 import importlib.util
 from pathlib import Path
 

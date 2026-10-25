@@ -21,8 +21,6 @@ repository carrying the keys this project's own checkout carries, which must sti
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess

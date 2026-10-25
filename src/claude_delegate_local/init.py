@@ -45,8 +45,6 @@ second copy of the probe would be a second thing to keep true. This command ends
 saying to run the doctor.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import shutil

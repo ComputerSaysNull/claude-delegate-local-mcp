@@ -11,8 +11,6 @@ WSL, so on Windows they are skipped with a reason that says what is unproven rat
 adding to a green count.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 from pathlib import Path

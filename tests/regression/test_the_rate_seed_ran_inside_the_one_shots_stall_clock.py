@@ -10,8 +10,6 @@ The doubles and the four cases mirror the loop's own regression test, so the two
 held to the same claims.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

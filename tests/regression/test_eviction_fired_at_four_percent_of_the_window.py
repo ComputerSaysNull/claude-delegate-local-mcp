@@ -22,8 +22,6 @@ and that test must pass both before and after.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import pytest
 from test_loop import cfg
 

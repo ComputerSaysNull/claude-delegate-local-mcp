@@ -6,8 +6,6 @@ gate whose git calls all failed reported PASS, which is the fail-open shape this
 treats as its worst kind of check.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess

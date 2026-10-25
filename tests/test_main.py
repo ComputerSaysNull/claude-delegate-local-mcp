@@ -12,8 +12,6 @@ fire on the form that looks like it. A dispatch test that only ever checked the 
 case would pass against a function that dispatched on everything.
 """
 
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 from types import SimpleNamespace

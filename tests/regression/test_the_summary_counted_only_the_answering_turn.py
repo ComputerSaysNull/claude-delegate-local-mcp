@@ -13,8 +13,6 @@ The whole-run figures already exist on the dispatch object (`total_input_tokens`
 them. Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import json
 
 from test_server import cfg

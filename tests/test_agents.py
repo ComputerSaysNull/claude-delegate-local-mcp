@@ -6,8 +6,6 @@ violation and asserts it is refused -- not a test that feeds it something valid 
 nothing went wrong. Four checks in this repository have already been found unable to fail.
 """
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
 

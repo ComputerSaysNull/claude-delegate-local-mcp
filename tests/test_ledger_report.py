@@ -7,8 +7,6 @@ otherwise have read, which is not measured. The report prints the facts and, onl
 touched.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import json
 from datetime import UTC, datetime, timedelta

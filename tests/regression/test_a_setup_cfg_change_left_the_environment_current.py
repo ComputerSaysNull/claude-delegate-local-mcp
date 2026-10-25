@@ -11,8 +11,6 @@ ADR-0007 says to trust. The converse was the other half: a project with no
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import hashlib
 import json
 import tomllib

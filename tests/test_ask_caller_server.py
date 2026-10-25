@@ -7,8 +7,6 @@ offered `ask_caller`, a question pauses the run, and `answer` hands the caller's
 to the paused run.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import time

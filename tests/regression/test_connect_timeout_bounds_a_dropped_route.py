@@ -16,8 +16,6 @@ A closed port would NOT exercise this: it sends RST and the test would pass even
 bug present.
 """
 
-from __future__ import annotations
-
 import asyncio
 import time
 

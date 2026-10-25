@@ -22,8 +22,6 @@ Not a port: when bwrap is missing, running the command unconfined is the one thi
 never happens here.
 """
 
-from __future__ import annotations
-
 import logging
 import os
 import posixpath

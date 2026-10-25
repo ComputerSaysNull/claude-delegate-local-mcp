@@ -7,8 +7,6 @@ business asking. `_resolve_one` has always done it the other way round, for exac
 reason, and now all three agree: the roots first, and existence only inside them.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

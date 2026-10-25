@@ -11,8 +11,6 @@ the adapter the whole stream before the clock can move, so the deadline under te
 fires and the test would pass against the unfixed code.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 

@@ -7,8 +7,6 @@ reaches `bash_failures` without being an error -- so the server now counts `fail
 each call once, and the viewer shows that.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local.backends.base import BashOutcome, ToolResultBlock, ToolUseBlock
 from claude_delegate_local.loop import _Watch
 

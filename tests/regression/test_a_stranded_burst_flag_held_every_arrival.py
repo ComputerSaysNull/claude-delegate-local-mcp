@@ -11,8 +11,6 @@ window it goes on counting. As in the sibling file, scenarios are written to dis
 the file format is the contract two processes agree on.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import time

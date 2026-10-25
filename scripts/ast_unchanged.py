@@ -23,8 +23,6 @@ changed" -- it is an error, because a check that treats an unreachable repositor
 clean is a check that cannot fail.
 """
 
-from __future__ import annotations
-
 import argparse
 import ast
 import subprocess

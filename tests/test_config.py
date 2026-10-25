@@ -4,8 +4,6 @@ The theme: every bad value fails at load time. A malformed timeout discovered th
 minutes into a delegation is far worse than a refusal to boot.
 """
 
-from __future__ import annotations
-
 import os
 
 import dataclasses

@@ -8,8 +8,6 @@ the drift that would make the next wire change cost five edits instead of one.
 nothing here applies to them.
 """
 
-from __future__ import annotations
-
 import json
 
 import httpx

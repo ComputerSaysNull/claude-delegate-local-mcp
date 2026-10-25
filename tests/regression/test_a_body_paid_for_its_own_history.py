@@ -24,8 +24,6 @@ telling the project to delete its own record.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 import sys

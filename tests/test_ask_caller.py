@@ -11,8 +11,6 @@ when the loop was given someone to ask: a model told it may ask when nobody can 
 spends a turn finding that out.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from claude_delegate_local import loop, tools

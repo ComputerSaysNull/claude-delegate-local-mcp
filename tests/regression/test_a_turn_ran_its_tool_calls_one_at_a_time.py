@@ -19,8 +19,6 @@ both run. The cache therefore stays on one thread: read before dispatch, written
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import threading
 import time
 

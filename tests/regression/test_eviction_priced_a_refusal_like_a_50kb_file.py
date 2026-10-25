@@ -12,8 +12,6 @@ cut falls* is driven by size. And `keep_tool_results` stays a floor, so the newe
 which are the ones the model is working from, are never stubbed however large they are.
 """
 
-from __future__ import annotations
-
 from dataclasses import replace
 
 from claude_delegate_local.config import Config

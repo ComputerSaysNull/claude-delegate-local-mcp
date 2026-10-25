@@ -26,8 +26,6 @@ valid response carrying no text blocks, not an error (ADR-0014); mapping `finish
 onto a tidier vocabulary here would be the interpretation this layer must not perform.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable

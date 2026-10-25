@@ -10,8 +10,6 @@ and the server sums those. A turn that ran tools is now exactly as long as its c
 however long the dispatch spent pricing the budget or writing the transcript around them.
 """
 
-from __future__ import annotations
-
 import time
 
 import pytest

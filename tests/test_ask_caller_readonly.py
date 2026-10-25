@@ -8,8 +8,6 @@ leave its caller blocked on it: the call returns early with `status: "question"`
 the inline shape, with no `status` and no `handle` (ADR-0118).
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 

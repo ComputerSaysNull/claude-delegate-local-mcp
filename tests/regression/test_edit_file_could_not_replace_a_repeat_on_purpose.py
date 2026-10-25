@@ -10,8 +10,6 @@ The end-to-end cases carry the same skip marker the existing `edit_file` regress
 use, because resolving a real path needs a POSIX filesystem and the server runs in WSL.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 

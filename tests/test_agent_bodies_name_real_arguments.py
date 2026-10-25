@@ -9,8 +9,6 @@ Each check here builds the *real* surface from the code and names every inline-c
 a body that is not on it, and the planted-violation tests prove each check can fire.
 """
 
-from __future__ import annotations
-
 import ast
 import asyncio
 import dataclasses

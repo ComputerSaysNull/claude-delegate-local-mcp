@@ -21,8 +21,6 @@ inside a directory that is not ignored is not caught by pruning directories.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import subprocess
 from pathlib import Path
 

@@ -23,8 +23,6 @@ about that distinction.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local.loop import RateHistory, RateSampler

@@ -25,8 +25,6 @@ it produced rather than an empty string.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local.backends.base import (
     CanonicalResponse,
     TextBlock,

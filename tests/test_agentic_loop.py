@@ -11,8 +11,6 @@ than mocked around, because both `allowed_tools` sites read that table and a tes
 bypassed it would be testing a table of its own.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

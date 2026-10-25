@@ -32,8 +32,6 @@ message (`server.py` owns that rule). Every failure goes to `logging`, which the
 points at stderr.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import os

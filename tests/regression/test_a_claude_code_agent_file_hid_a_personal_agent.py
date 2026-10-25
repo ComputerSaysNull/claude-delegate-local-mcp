@@ -6,8 +6,6 @@ this one -- was refused as invalid, and the personal `helper.md` behind it was n
 The listing did the same: the foreign file claimed the name, so the usable agent vanished.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

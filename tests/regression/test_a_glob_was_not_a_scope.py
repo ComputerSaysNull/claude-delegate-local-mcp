@@ -30,8 +30,6 @@ six checks that could not fail, because it reads the server's own copy rather th
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

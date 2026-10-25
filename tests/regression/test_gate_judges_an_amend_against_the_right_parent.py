@@ -15,8 +15,6 @@ These tests assert the block still fires where it should. A change that merely s
 blocking amends would satisfy a weaker suite and disarm the check.
 """
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 import sys

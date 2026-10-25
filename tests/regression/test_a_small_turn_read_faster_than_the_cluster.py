@@ -30,8 +30,6 @@ consumer. Average-versus-minimum decides how a bad sample propagates, not whethe
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local.loop import DecodeRate, RateHistory

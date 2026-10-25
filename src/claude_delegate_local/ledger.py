@@ -6,8 +6,6 @@ Every failure is swallowed to `logging`, as `transcript.write` does, and nothing
 touches stdout, which is the MCP wire.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import os

@@ -4,8 +4,6 @@ Every failure mode has its own test, because the caller acts differently on each
 will build retry on that distinction. Each negative test asserts the check *fires*.
 """
 
-from __future__ import annotations
-
 import json
 
 import httpx

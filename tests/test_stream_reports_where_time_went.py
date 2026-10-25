@@ -18,8 +18,6 @@ asserted in both directions: it passes on a real run and fires on a fixture buil
 break it.
 """
 
-from __future__ import annotations
-
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path

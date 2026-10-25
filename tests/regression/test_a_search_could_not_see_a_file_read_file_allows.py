@@ -10,8 +10,6 @@ The fix is one predicate for both, `paths.extension_refusal`, so the two cannot 
 again. Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

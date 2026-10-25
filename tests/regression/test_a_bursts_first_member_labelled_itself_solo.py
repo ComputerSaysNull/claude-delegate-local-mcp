@@ -22,8 +22,6 @@ as before — which is why `admission_idle_hold` is documented as disabling both
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local import admission as adm

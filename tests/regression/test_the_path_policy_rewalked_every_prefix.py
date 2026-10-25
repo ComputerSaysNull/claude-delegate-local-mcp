@@ -20,8 +20,6 @@ one `_resolve_many` call.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
 

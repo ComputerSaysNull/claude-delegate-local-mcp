@@ -12,8 +12,6 @@ guard at the bottom is expected green already, because `security/protected_globs
 covered `.claude/**` since before this feature.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess

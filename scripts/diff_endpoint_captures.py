@@ -13,8 +13,6 @@ Needs no endpoint. That is deliberate and is the half of ADR-0052 that keeps a
 cluster outage from looking like a repository failure.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import sys

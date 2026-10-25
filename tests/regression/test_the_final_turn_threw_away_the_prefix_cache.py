@@ -23,8 +23,6 @@ that must fit a whole answer inside one deadline (ADR-0055), so it paid a full c
 first. ADR-0057.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local.backends.base import (

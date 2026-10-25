@@ -7,8 +7,6 @@ the viewer shows one line a minute, and the age it shows is the event's own cumu
 `waited_seconds`. So the stream is thinned and the wire is not.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from contextlib import asynccontextmanager

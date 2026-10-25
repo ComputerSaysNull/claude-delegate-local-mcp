@@ -11,8 +11,6 @@ The only place that *interprets* a backend's reply, which is why the adapter pas
 prefix cache depends on.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import os

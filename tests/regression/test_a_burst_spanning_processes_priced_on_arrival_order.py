@@ -34,8 +34,6 @@ is a failure here -- which is the point, because the format is the contract.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import json

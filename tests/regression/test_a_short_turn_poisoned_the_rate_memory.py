@@ -25,8 +25,6 @@ mispriced" in the roadmap, and why the fix is here rather than in the concurrenc
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local.loop import DecodeRate, RateHistory

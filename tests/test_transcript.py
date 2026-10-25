@@ -10,8 +10,6 @@ that "on" is not merely non-crashing, that the record carries real usage rather 
 admission estimate, and that a write that fails takes nothing down with it.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from pathlib import Path

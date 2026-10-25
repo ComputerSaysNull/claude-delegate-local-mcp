@@ -10,8 +10,6 @@ developer's: the old `drive`, loaded from the baseline commit by path, fails on 
 new one does not.
 """
 
-from __future__ import annotations
-
 import importlib.util
 from pathlib import Path
 

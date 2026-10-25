@@ -19,8 +19,6 @@ Measured at the time of the fix, on /mnt/c: 10,586 entries and 66s walked, again
 entries and 0.7s with the directory covered. (ADR-0041)
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

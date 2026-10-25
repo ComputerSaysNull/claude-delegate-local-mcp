@@ -7,8 +7,6 @@ sandbox scratch through the environment rather than by unmounting them: the opaq
 stay, keeping the host's caches out of the sandbox and stopping a command writing into them.
 """
 
-from __future__ import annotations
-
 import shutil
 import sys
 from pathlib import Path

@@ -19,8 +19,6 @@ one CI matrix entry and failed on the other, from the same commit. Isolating the
 `TMPDIR` removes the shared namespace instead of trying to time around it.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 import sys

@@ -9,8 +9,6 @@ looked. A failed command in an unbound shell now says so beside the output.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local import sandbox, tools

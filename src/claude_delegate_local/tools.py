@@ -16,8 +16,6 @@ The resolved set is a parameter, never a config field: it is per agent or per ca
 server-wide default would be a config default outside `config.py`.
 """
 
-from __future__ import annotations
-
 import bisect
 import difflib
 import fnmatch

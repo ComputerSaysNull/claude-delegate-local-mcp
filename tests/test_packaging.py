@@ -11,8 +11,6 @@ hatchling, and it answers in hundredths of a second rather than tens of seconds.
 what lets this run in the default suite instead of behind the `integration` marker.
 """
 
-from __future__ import annotations
-
 import pathlib
 
 import pytest

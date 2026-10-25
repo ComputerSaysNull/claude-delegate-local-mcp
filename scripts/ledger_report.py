@@ -19,8 +19,6 @@ never summed as zero: the dispatch is counted under "recorded no tokens" instead
 totals are not read as complete. A line that is not a JSON object is skipped and counted.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import os

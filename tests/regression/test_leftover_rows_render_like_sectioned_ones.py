@@ -19,8 +19,6 @@ only way to assert the second renderer is still correct rather than merely unuse
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import re
 import sys
 from pathlib import Path

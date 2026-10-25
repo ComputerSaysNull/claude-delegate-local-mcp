@@ -8,8 +8,6 @@ last read or the server last wrote them, and refuses an `edit_file` whose curren
 differ from that record, until the file is read again.
 """
 
-from __future__ import annotations
-
 import hashlib
 import os
 from pathlib import Path

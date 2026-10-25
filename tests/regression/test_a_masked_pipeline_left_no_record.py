@@ -10,8 +10,6 @@ the plumbing that carries it from `sandbox.run` through `tools.BashOutcome` and
 must fail today.
 """
 
-from __future__ import annotations
-
 from functools import lru_cache
 from pathlib import Path
 

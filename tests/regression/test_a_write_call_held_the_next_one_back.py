@@ -6,8 +6,6 @@ the last at +688s. The call now answers at once with a handle and the run carrie
 admission wait included, so the next call is released at once (ADR-0103).
 """
 
-from __future__ import annotations
-
 import asyncio
 import time
 from contextlib import asynccontextmanager

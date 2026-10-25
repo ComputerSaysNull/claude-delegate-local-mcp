@@ -9,8 +9,6 @@ It must start fast and never disturb the protocol: this module imports no server
 state, only `slots` for the runtime directory, and any failure returns 0 rather than raising.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import sys

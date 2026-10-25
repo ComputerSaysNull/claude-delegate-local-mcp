@@ -6,8 +6,6 @@ cares about and the whole file's size no longer decides whether any of it is inl
 refusal, not clamping: a bad range is refused for that entry only, never silently fixed.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import os

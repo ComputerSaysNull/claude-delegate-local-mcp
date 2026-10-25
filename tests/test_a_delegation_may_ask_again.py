@@ -5,8 +5,6 @@ put it to the caller rather than answer it with a refusal, and a `collect` that 
 waiting has to wake for it, not only for the run's first question.
 """
 
-from __future__ import annotations
-
 import asyncio
 import time
 

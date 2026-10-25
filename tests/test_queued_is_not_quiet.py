@@ -13,8 +13,6 @@ The highlight is here too, because it is the same screen and the same complaint:
 selected row was losing the colour of the very column these states live in.
 """
 
-from __future__ import annotations
-
 import time
 
 from claude_delegate_local import watch as wd

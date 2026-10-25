@@ -28,8 +28,6 @@ whose matches are *covered* with a tmpfs, so a venv called either would be invis
 root and reads `provision.json`, so no setting has to be kept in step with what was built.
 """
 
-from __future__ import annotations
-
 import difflib
 import hashlib
 import json

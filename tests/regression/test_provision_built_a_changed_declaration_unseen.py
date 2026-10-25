@@ -12,8 +12,6 @@ The build steps are stubbed: what is under test is whether they run.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import io
 import json
 import os

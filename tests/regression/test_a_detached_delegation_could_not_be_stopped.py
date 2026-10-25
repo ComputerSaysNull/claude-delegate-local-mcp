@@ -6,8 +6,6 @@ a stop of its own -- and "stop waiting" has to stay a different thing from "stop
 or abandoning a `collect` would kill what it was waiting for.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

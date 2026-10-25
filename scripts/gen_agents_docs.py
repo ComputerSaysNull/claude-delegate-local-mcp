@@ -20,8 +20,6 @@ Usage:
     python scripts/gen_agents_docs.py --check   # exit 1 if stale, print a diff
 """
 
-from __future__ import annotations
-
 import argparse
 import difflib
 import re

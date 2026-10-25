@@ -15,8 +15,6 @@ The rule this file is written to (CLAUDE.md): a check that cannot fail is worse 
 check. Each check here has a sibling that feeds it a real violation and asserts it fires.
 """
 
-from __future__ import annotations
-
 import pathlib
 
 import pytest

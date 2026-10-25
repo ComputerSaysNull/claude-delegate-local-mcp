@@ -6,8 +6,6 @@ next one start, and needs a second call to collect the answer by. This slice add
 and `collect`; every call still answers inline, so nothing about timing changes yet.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

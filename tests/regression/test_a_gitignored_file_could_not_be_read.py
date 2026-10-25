@@ -13,8 +13,6 @@ output and vendored bulk stay out of what the model finds -- it reads an ignored
 it already knows the path.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 

@@ -17,8 +17,6 @@ the transcript and every refusal behave as they do for the MCP tools. This modul
 argument handling and output shape, and nothing else.
 """
 
-from __future__ import annotations
-
 import argparse
 import asyncio
 import json

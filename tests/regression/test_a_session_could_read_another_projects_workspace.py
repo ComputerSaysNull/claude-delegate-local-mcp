@@ -12,8 +12,6 @@ stdio server it starts (ADR-0128). A client's roots are no longer read at all: a
 lists project B as a root still reaches only the project it was started in.
 """
 
-from __future__ import annotations
-
 import asyncio
 import os
 from pathlib import Path

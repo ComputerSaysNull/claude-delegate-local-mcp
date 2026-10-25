@@ -19,8 +19,6 @@ is the same asymmetry that let the bug exist.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import ast
 import importlib.util
 import subprocess

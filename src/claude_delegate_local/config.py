@@ -12,8 +12,6 @@ Environment prefix is `DELEGATE_`, naming no model, because the registry is mult
 (ADR-0009).
 """
 
-from __future__ import annotations
-
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass, field, fields

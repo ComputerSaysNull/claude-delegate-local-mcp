@@ -26,8 +26,6 @@ to the path that was approved. Reaching for `open()` on a `.posix` reopens the g
 is why no code in this repository does (ADR-0049).
 """
 
-from __future__ import annotations
-
 import errno
 import fnmatch
 import functools

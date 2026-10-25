@@ -5,8 +5,6 @@ shape it is guessing at. A newer *minor* is fine by the versioning rules (ADR-01
 additions, which the viewer ignores. A different *major* gets said, once, at the head.
 """
 
-from __future__ import annotations
-
 from claude_delegate_local import transcript, watch
 
 START = {"t": "start", "at": "2026-10-01T12:00:00+00:00", "tool": "delegate",

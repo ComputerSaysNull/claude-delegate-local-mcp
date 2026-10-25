@@ -10,8 +10,6 @@ Relative file settings now resolve against the folder of the `.env` they were re
 and against the checkout when none was read: one fixed place, whatever the cwd.
 """
 
-from __future__ import annotations
-
 import shutil
 from pathlib import Path
 

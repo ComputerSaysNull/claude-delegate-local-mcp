@@ -20,8 +20,6 @@ file during any run_bash that binds the repo, which is the feature working corre
 suite failing for it.
 """
 
-from __future__ import annotations
-
 
 from pathlib import Path
 

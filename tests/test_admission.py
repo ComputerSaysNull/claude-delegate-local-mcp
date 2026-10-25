@@ -11,8 +11,6 @@ the large-prefill cap; `test_a_blocked_large_prefill_holds_no_other_capacity` is
 fails against that.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

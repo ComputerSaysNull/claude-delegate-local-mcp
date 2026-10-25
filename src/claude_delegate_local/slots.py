@@ -46,8 +46,6 @@ across the Windows drive boundary is not dependable, and every operation there i
 slot.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import logging

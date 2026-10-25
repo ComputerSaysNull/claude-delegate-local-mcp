@@ -6,8 +6,6 @@ ending, driven end to end through a real MCP session and a transport double, plu
 format bump (1.4) the field comes with.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from contextlib import asynccontextmanager

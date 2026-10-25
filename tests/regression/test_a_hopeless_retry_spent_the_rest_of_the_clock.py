@@ -18,8 +18,6 @@ for another attempt. What is never worth retrying is an attempt that cannot fit.
 Named after the bug, per the project's convention.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local.backends.base import BackendRefused, BackendUnavailable

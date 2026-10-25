@@ -16,8 +16,6 @@ at the measured rate. Without it, a bug in the ceiling that returned some number
 like a passing test, and this project has already found four checks that could not fail.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

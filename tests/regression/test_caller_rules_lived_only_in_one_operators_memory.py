@@ -6,8 +6,6 @@ home is `delegate://orchestration`, the long form the model reads on demand. A t
 write-capable calls released one per 120s -- is not here on purpose: ADR-0103 removed it.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from fastmcp import Client

@@ -6,8 +6,6 @@ client is never elicited, and a long question is not refused. The caller passes 
 only the person can decide, in its own words and without a prompt-size cap.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from fastmcp import Client

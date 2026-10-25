@@ -10,8 +10,6 @@ So this reads the gate's own imports rather than running it: whatever this inter
 happens to have installed cannot hide a missing dependency from an AST.
 """
 
-from __future__ import annotations
-
 import ast
 import sys
 from pathlib import Path

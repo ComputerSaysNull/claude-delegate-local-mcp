@@ -13,8 +13,6 @@ This matters because lowering `stall_timeout` is only safe if that is true. The 
 exists to keep it true.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

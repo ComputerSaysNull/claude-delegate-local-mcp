@@ -7,8 +7,6 @@ listed -- the flag was allowlisted and unusable. Found while writing the R21 reg
 test, whose context-width case had to fall back to `--unified=1`.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from claude_delegate_local import tools

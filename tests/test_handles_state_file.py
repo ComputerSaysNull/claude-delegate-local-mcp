@@ -6,8 +6,6 @@ nothing more until the person writes. So each handle carries a tiny JSON file on
 `state_dir=None` nothing is written, which is the behaviour every existing caller relies on.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 

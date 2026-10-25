@@ -11,8 +11,6 @@ exists. A restart leaves the transcript, and an unknown handle is refused with a
 to it.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import math

@@ -12,8 +12,6 @@ nicety: it is what stops this being the `alive` heartbeat all over again, report
 on a timer regardless of whether anything is happening (ADR-0072).
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

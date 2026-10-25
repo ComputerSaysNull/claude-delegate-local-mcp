@@ -17,8 +17,6 @@ Driven against a real repository, and the printed rebases are then run, so the t
 checks the outcome rather than the wording.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import shutil
 import subprocess

@@ -16,8 +16,6 @@ stay silent, and one genuinely short of room must abort. A detector wired to the
 passes exactly one of those.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

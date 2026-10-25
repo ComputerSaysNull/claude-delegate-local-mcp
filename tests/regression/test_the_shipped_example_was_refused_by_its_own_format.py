@@ -17,8 +17,6 @@ asserts it fires -- without it, an extractor that silently found zero examples w
 here forever while the skill said anything it liked.
 """
 
-from __future__ import annotations
-
 import pathlib
 import re
 
