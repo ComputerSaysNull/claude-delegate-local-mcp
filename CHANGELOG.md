@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #490 — 2026-10-25 — fix: the gate reads only tracked documents
+
+### Fixed
+
+- **The gate crashed on a file it could not read that git does not track, so no commit could
+  be made from Claude Code's sandbox.** The sandbox protects paths such as `.claude/loop.md`
+  by binding `/dev/null` over them, creating an empty placeholder when the path does not
+  exist, and inside a sandboxed command that placeholder cannot be read. The body-history
+  check and the budget check listed files with `rglob`, so `--mode pre-commit` died with a
+  `PermissionError` on the placeholder. Both now list `git ls-files`, as every other check
+  in the gate already did; an untracked file is not going to be committed anyway.
+
 ## #489 — 2026-10-24 — docs: development moves to an always-on Linux host
 
 ### Added
