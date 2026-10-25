@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #496 — 2026-10-25 — docs: file the sandbox process cap spent by the rest of the host
+
+### Added
+
+- **PLAN M21.11: the sandbox's process cap is spent by everything else the user runs.**
+  Found when the pre-push hook's real-bwrap tests failed 26 of 44 with "Creating new
+  namespace failed: Resource temporarily unavailable". `sandbox_max_processes` is applied as
+  `RLIMIT_NPROC`, which the kernel counts over every thread the uid owns (ADR-0054). In WSL
+  only the server ran as that uid; on the host a desktop login, an editor's remote server and
+  a few Claude sessions held 851 threads against a cap of 512, so every delegated `run_bash`
+  would fail the same way. With 443 the same 44 tests passed. The fix needs a design
+  decision, so it is filed rather than made here.
+
 ## #495 — 2026-10-25 — refactor: drop from __future__ import annotations
 
 ### Changed
