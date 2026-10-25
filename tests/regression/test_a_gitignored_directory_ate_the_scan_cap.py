@@ -23,7 +23,6 @@ Named after the bug, per the project's convention.
 
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 
@@ -32,13 +31,6 @@ import pytest
 from claude_delegate_local import tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
-
-# The walk resolves real paths and shells out to git; the server runs in WSL, so this is
-# proven there rather than on the Windows run.
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="LAYER 1 UNPROVEN BY THIS RUN -- run it under WSL, where the server lives.",
-)
 
 CAP = 10
 BULK = 30
@@ -96,7 +88,6 @@ def search(scope: Path, **over) -> str:
     return result.content
 
 
-@posix_only
 def test_the_source_is_found_behind_a_gitignored_directory(project):
     """The bug as a user meets it: a search that answers from nothing.
 
@@ -111,7 +102,6 @@ def test_the_source_is_found_behind_a_gitignored_directory(project):
     assert "mod0.py" not in report, "an ignored file reached the results"
 
 
-@posix_only
 def test_the_cap_is_not_reported_as_reached(project):
     """The second half of the symptom, and the half a user actually acts on.
 
@@ -126,7 +116,6 @@ def test_the_cap_is_not_reported_as_reached(project):
         "non-exhaustive when it is complete")
 
 
-@posix_only
 def test_without_gitignore_the_same_tree_is_still_eaten(project):
     """The control.
 

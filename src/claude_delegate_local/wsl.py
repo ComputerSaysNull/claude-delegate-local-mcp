@@ -13,7 +13,6 @@ the eventual refusal names the wrong layer.
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -122,24 +121,6 @@ def file_uri_to_posix(uri: str) -> str | None:
     # A drive-relative `C:foo` passes through untranslated, and `realpath` would resolve it
     # against this process's working directory: a folder the client never named.
     return posix if posix.startswith("/") else None
-
-
-def to_local(given: str) -> str:
-    """`to_posix` where a boundary was really crossed; a pass-through where it was not.
-
-    `to_posix` translates unconditionally, which its comparing callers can afford: roots
-    and the paths checked against them all go through it and then `realpath`, so on a
-    Windows host the mangling applies to both sides of every comparison and cancels.
-
-    A directory the server opens or writes into has no other side to cancel against, and
-    translating it on a Windows host is a mistake: `C:\\Users\\me\\t` is already absolute
-    there, and `/mnt/c/Users/me/t` names something under the current drive. The boundary
-    exists only when this process is on its POSIX side -- always, in production -- so this
-    differs from `to_posix` only under the Windows test suite.
-
-    Use `to_posix` to compare a path. Use this to open one.
-    """
-    return to_posix(given) if os.name == "posix" else given.strip()
 
 
 # `/mnt/c/rest`, the form `to_posix` makes from a drive letter. Only a single-letter mount

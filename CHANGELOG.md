@@ -30,6 +30,35 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #491 — 2026-10-25 — feat: development runs on Linux only
+
+### Changed
+
+- **Removed what existed only so a Windows-native test suite could run.** Development moved
+  to a Linux host (ADR-0127), and CI never ran Windows, so 52 test files' "POSIX only" skip
+  guards never fired anywhere and only made each file harder to read. Gone with them: the
+  `os.name` branch of `wsl.to_local` (which made it a plain alias of `to_posix`, so its two
+  callers now call `to_posix` and it is deleted), `pid_alive`'s non-POSIX answer, the
+  `O_BINARY` terms, and the hook shim's `.venv/Scripts/python.exe` candidate. Everything that
+  serves a *Windows client* reaching the server in WSL stays, and so does every UTF-8 fix.
+- **Two tests that could never run here now can, or are gone.** Provision's Windows refusal
+  was skipped on every POSIX host; it now drives the refusal by giving `provision` its own
+  view of `os` that says "nt" (patching the real module breaks `pathlib`), and it fails when
+  the check is removed. The test that the ambient codec really is cp1252 is deleted, and so is
+  the check that removed skip messages named a venv.
+- **Skip reasons say what a test needs, not "run it under WSL".** The bubblewrap, `flock`
+  and git guards stay, but their reasons named a `wsl -d` command that means nothing here.
+
+### Fixed
+
+- **The gate's decode fix was unguarded on Linux, and a second call had the same bug.**
+  Removing `encoding="utf-8"` from the gate's git call failed no test here, because Linux's
+  codec is already UTF-8 and the test that would notice was Windows-only. A new test parses
+  `docs_gate.py` and fails naming any text-mode `subprocess` call without an encoding. On its
+  first run it found one: the generator check ran `--check` with the locale's codec, so
+  non-ASCII in a generated document could be mis-decoded under a non-UTF-8 locale. That call
+  now names UTF-8.
+
 ## #490 — 2026-10-25 — fix: the gate reads only tracked documents
 
 ### Fixed

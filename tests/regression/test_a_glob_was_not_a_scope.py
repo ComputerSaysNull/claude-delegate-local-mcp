@@ -32,7 +32,6 @@ Named after the bug, per the project's convention.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -40,13 +39,6 @@ import pytest
 from claude_delegate_local import tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
-
-# Resolving a real path needs a POSIX filesystem and the server runs in WSL, so the cases
-# that actually walk a tree are proven there rather than here.
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="LAYER 1 UNPROVEN BY THIS RUN -- run it under WSL, where the server lives.",
-)
 
 
 def cfg(root: Path, **over) -> Config:
@@ -73,7 +65,6 @@ def _search(root: Path, **args) -> str:
     return result.content
 
 
-@posix_only
 def test_an_unscoped_search_says_what_it_scanned(haystack):
     """The half with teeth. The model reads results, so the cost is taught there.
 
@@ -92,14 +83,12 @@ def test_an_unscoped_search_says_what_it_scanned(haystack):
     assert "path" in out
 
 
-@posix_only
 def test_a_scoped_search_is_not_nagged(haystack):
     """The control. A note on every result is noise, and noise is ignored."""
     out = _search(haystack, pattern=r"alpha", path=str(haystack / "pkg"))
     assert str(haystack / "pkg") not in out.split("\n")[-1]
 
 
-@posix_only
 def test_a_refused_path_names_the_roots_instead_of_recommending_the_slow_way(haystack):
     """The chain that turned a 4-second mistake into a 239-second one.
 

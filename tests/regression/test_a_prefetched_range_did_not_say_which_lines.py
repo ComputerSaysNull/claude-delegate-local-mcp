@@ -17,7 +17,6 @@ import json
 import os
 from pathlib import Path
 
-import pytest
 from fastmcp import Client
 
 from claude_delegate_local import context, server
@@ -29,18 +28,8 @@ from test_server import (
     chat_handler,
     entry,
     files_cfg,
-    files_posix_only,
     registry,
 )
-
-UNPROVEN = (
-    "PREFETCH UNPROVEN BY THIS RUN -- this is not a pass. It reads real files through "
-    "resolved POSIX paths, and the server runs in WSL. Run it there -- see "
-    "CONTRIBUTING.md: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest tests/regression/"
-    "test_a_prefetched_range_did_not_say_which_lines.py'"
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 
 
 def cfg(**over) -> Config:
@@ -66,7 +55,6 @@ def lines(n: int) -> str:
 # ---- the accounting says which lines, not merely what it cost ---------------------------
 
 
-@posix_only
 def test_two_ranges_of_one_file_say_which_lines_each_was(tmp_path):
     """Two ranges must not come back as two identical entries (contract #69).
 
@@ -88,7 +76,6 @@ def test_two_ranges_of_one_file_say_which_lines_each_was(tmp_path):
     assert (read[1]["start_line"], read[1]["end_line"]) == (50, 60)
 
 
-@posix_only
 def test_a_range_past_the_end_records_the_last_line_read(tmp_path):
     """`end_line` past the end means the end, so the recorded span is the one actually read."""
     item = write(tmp_path, "a.py", lines(30))
@@ -100,7 +87,6 @@ def test_a_range_past_the_end_records_the_last_line_read(tmp_path):
     assert (row["start_line"], row["end_line"]) == (25, 30)
 
 
-@posix_only
 def test_a_range_ending_on_a_blank_line_counts_that_line(tmp_path):
     """A blank line is still a line, and an inclusive end counts it."""
     item = write(tmp_path, "a.py", "a\nb\n\nc\n")
@@ -112,7 +98,6 @@ def test_a_range_ending_on_a_blank_line_counts_that_line(tmp_path):
     assert (row["start_line"], row["end_line"]) == (2, 3)
 
 
-@posix_only
 def test_a_whole_file_has_no_line_range(tmp_path):
     """A whole-file entry keeps the old shape: no range keys at all, so a reader can tell a
     whole file from a range that happens to cover it."""
@@ -149,7 +134,6 @@ def _starts(directory: Path) -> list[dict]:
     return out
 
 
-@files_posix_only
 def test_the_start_event_carries_the_range(tmp_path):
     """The transcript's `start` event is what an operator sees while a delegation runs.
 

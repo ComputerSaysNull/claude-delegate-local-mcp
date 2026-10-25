@@ -31,7 +31,6 @@ from claude_delegate_local.config import Config
 
 pytestmark = [
     pytest.mark.skipif(shutil.which("git") is None, reason="needs git on PATH"),
-    pytest.mark.skipif(os.name != "posix", reason="layer 1 needs a POSIX filesystem"),
 ]
 
 SECRET = "TOPSECRET-VALUE-7731"

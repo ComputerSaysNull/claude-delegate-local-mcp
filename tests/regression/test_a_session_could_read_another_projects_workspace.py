@@ -20,9 +20,6 @@ from fastmcp import Client
 from claude_delegate_local import server
 from test_server import DoubleCache, answered, entry, files_cfg, recording_handler, registry
 
-posix_only = pytest.mark.skipif(
-    os.name != "posix", reason="the path policy resolves POSIX paths; the server is POSIX-only")
-
 
 def projects(tmp_path: Path) -> tuple[Path, Path]:
     a, b = tmp_path / "a", tmp_path / "b"
@@ -47,7 +44,6 @@ def call(config, tool: str, args: dict, *, roots=None, sent=None) -> dict:
     return asyncio.run(go())
 
 
-@posix_only
 def test_a_file_in_another_project_is_refused_when_the_client_lists_only_this_one(tmp_path):
     a, b = projects(tmp_path)
     sent: list = []
@@ -58,7 +54,6 @@ def test_a_file_in_another_project_is_refused_when_the_client_lists_only_this_on
     assert "workspace root" in str(e.value)
 
 
-@posix_only
 def test_a_file_in_the_sessions_own_project_still_reaches_the_model(tmp_path):
     """The negative control: narrowing refuses what is outside, not everything."""
     a, _ = projects(tmp_path)
@@ -68,7 +63,6 @@ def test_a_file_in_the_sessions_own_project_still_reaches_the_model(tmp_path):
     assert sent, "a file inside the session's own folder was refused"
 
 
-@posix_only
 @pytest.mark.parametrize(("tool", "arg"), [
     ("delegate", "workdir"),
     ("delegate_to_agent_readonly", "project"),
@@ -89,7 +83,6 @@ def test_another_project_is_refused_as_a_workdir_or_a_project(tmp_path, tool, ar
     assert sent == []
 
 
-@posix_only
 def test_a_client_root_wider_than_the_ceiling_is_narrowed_to_the_ceiling(tmp_path):
     """A session opened above the configured roots gets the roots, never the folder."""
     a, b = projects(tmp_path)
@@ -103,7 +96,6 @@ def test_a_client_root_wider_than_the_ceiling_is_narrowed_to_the_ceiling(tmp_pat
     assert sent
 
 
-@posix_only
 def test_a_client_whose_roots_are_all_outside_the_ceiling_is_refused(tmp_path):
     """Fails closed: a session that names only folders the operator never allowed gets
     nothing, rather than falling back to everything the operator did allow."""
@@ -117,7 +109,6 @@ def test_a_client_whose_roots_are_all_outside_the_ceiling_is_refused(tmp_path):
     assert str(os.path.realpath(b)) in str(e.value)
 
 
-@posix_only
 def test_a_client_that_lists_no_roots_falls_back_to_the_configured_ones(tmp_path):
     """`narrow`: a client without roots support has not said where it works, so the
     operator's list applies as it always did. No longer the default (ADR-0119)."""
@@ -128,7 +119,6 @@ def test_a_client_that_lists_no_roots_falls_back_to_the_configured_ones(tmp_path
     assert sent
 
 
-@posix_only
 def test_require_refuses_a_client_that_lists_no_roots(tmp_path):
     _, b = projects(tmp_path)
     sent: list = []

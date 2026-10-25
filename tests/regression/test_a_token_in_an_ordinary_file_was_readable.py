@@ -16,7 +16,6 @@ in this file and the sandbox walk does not cover this test during a run_bash.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -33,11 +32,6 @@ from claude_delegate_local.paths import (
 )
 
 REPO = Path(__file__).resolve().parents[2]
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="THE OPEN-TIME CHECK IS UNPROVEN BY THIS RUN -- layer 1 needs a POSIX filesystem",
-)
 
 # Assembled, never written out. See the module docstring.
 TOKENS = {
@@ -127,7 +121,6 @@ def test_their_ordinary_neighbours_are_not() -> None:
 # ---- layer one: the file the model asked for ---------------------------------------
 
 
-@posix_only
 def test_a_token_in_an_ordinary_file_is_refused_without_echoing_it(tmp_path: Path) -> None:
     token = TOKENS["an Anthropic API key"]
     ordinary = tmp_path / "config.local.json"

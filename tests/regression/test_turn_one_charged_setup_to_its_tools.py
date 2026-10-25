@@ -12,7 +12,6 @@ however long the dispatch spent pricing the budget or writing the transcript aro
 
 from __future__ import annotations
 
-import os
 import time
 
 import pytest
@@ -52,10 +51,6 @@ def test_a_turn_that_ran_no_tools_reports_zero():
     assert tool_ms_for_turn(_Diagnostic(tool_calls=())) == 0
 
 
-@pytest.mark.skipif(
-    os.name != "posix",
-    reason="UNPROVEN ON WINDOWS -- not a pass: layer 1 refuses every path under tmp_path there.",
-)
 def test_a_real_run_records_each_calls_own_ms(tmp_path):
     """Driving `_run_calls` for real over one cheap tool yields a measured `ms`.
 

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import transcript
-from .wsl import to_local
+from .wsl import to_posix
 
 if TYPE_CHECKING:
     from .config import Config
@@ -35,7 +35,7 @@ def path(cfg: Config) -> Path | None:
     configured = cfg.ledger_path.strip()
     if not configured:
         return None
-    return Path(os.path.expanduser(to_local(configured)))
+    return Path(os.path.expanduser(to_posix(configured)))
 
 
 def append(cfg: Config, record: dict[str, Any]) -> None:

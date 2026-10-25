@@ -24,7 +24,6 @@ def _state(path: Path, pid: int) -> None:
     path.write_text(json.dumps({"handle": path.stem, "pid": pid, "status": "done"}))
 
 
-@pytest.mark.skipif(os.name != "posix", reason="Windows os.kill terminates; never probed")
 def test_a_dead_servers_state_file_is_swept(tmp_path):
     dead = subprocess.Popen([sys.executable, "-c", "pass"])
     dead.wait()

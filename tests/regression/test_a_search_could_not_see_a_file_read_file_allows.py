@@ -12,7 +12,6 @@ again. Named after the bug, per the project's convention.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -21,11 +20,6 @@ from claude_delegate_local import tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
 from claude_delegate_local.paths import extension_refusal
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="LAYER 1 UNPROVEN BY THIS RUN -- run it under WSL, where the server lives.",
-)
 
 
 def cfg(root: Path) -> Config:
@@ -53,7 +47,6 @@ def tree(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@posix_only
 @pytest.mark.parametrize("name, needle", [
     ("Makefile", "needle-in-makefile"),
     (".gitignore", "needle-in-gitignore"),
@@ -66,7 +59,6 @@ def test_a_suffixless_name_read_file_allows_is_searched(tree, name, needle):
     assert name in out, out
 
 
-@posix_only
 def test_a_suffixless_name_off_the_allowlist_is_still_skipped(tree):
     """The control. Widening to whole names must not widen past the allowlist: a file named
     `AUTHORS` has no allowlisted suffix and no allowlisted name, so `read_file` refuses it
@@ -79,7 +71,6 @@ def test_a_suffixless_name_off_the_allowlist_is_still_skipped(tree):
     assert NO_MATCH in out, out
 
 
-@posix_only
 def test_a_suffixed_file_is_found_either_way(tree):
     """The case that always worked, so a fix that broke suffix matching fails here."""
     out = _run(tree, "search_files", pattern="needle-in-source", path=str(tree))

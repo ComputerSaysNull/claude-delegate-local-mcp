@@ -75,12 +75,10 @@ whichever delegation happens to reach it ([why](docs/ARCHITECTURE.md)).
 virtualenv outside the workspace — [why there, and what keeps it in
 step](docs/ARCHITECTURE.md). Reading, writing and reviewing files need none of it.
 
-On Windows plus WSL2 the two interpreters cannot share `.venv`: a Linux `python -m venv
-.venv` overwrites a Windows one in place, and it reads as a corrupted install rather than a
-collision. Put the WSL one elsewhere, on the native filesystem rather than `/mnt/c` where
-creating it is ~27x slower (ADR-0020) — `uv venv --seed -p 3.14 ~/.venvs/delegate`, then
-`~/.venvs/delegate/bin/pip install -e /mnt/c/path/to/the/repo`. That is the runtime
-only; [CONTRIBUTING.md](CONTRIBUTING.md) adds `[dev]` to the same venv for tests.
+Put the venv outside the checkout — `uv venv --seed -p 3.14 ~/.venvs/delegate`, then
+`~/.venvs/delegate/bin/pip install -e /path/to/the/repo` — and under WSL on the native
+filesystem rather than `/mnt/c`, where creating it is ~27x slower (ADR-0020). That is the
+runtime only; [CONTRIBUTING.md](CONTRIBUTING.md) adds `[dev]` to the same venv for tests.
 
 `.env` is read by `config.load()` as a fallback: anything already set in the environment
 wins, so an explicit override still works. Point `DELEGATE_ENV_FILE` at another file to use

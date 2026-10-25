@@ -34,9 +34,9 @@ from claude_delegate_local import paths, tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
 
-posix_only = pytest.mark.skipif(
-    os.name != "posix" or shutil.which("git") is None,
-    reason="LAYER 4 UNPROVEN BY THIS RUN -- run it under WSL, where the server lives.",
+needs_git = pytest.mark.skipif(
+    shutil.which("git") is None,
+    reason="LAYER 4 UNPROVEN BY THIS RUN -- it needs git on PATH.",
 )
 
 
@@ -101,7 +101,7 @@ ROUTES = [
 ]
 
 
-@posix_only
+@needs_git
 @pytest.mark.parametrize("kind, command, args, files", ROUTES)
 def test_read_git_does_not_run_a_planted_command(tmp_path, kind, command, args, files):
     repo = _repo(tmp_path / "planted")
@@ -113,7 +113,7 @@ def test_read_git_does_not_run_a_planted_command(tmp_path, kind, command, args, 
     assert "config" in result.content, result.content
 
 
-@posix_only
+@needs_git
 @pytest.mark.parametrize("command, args, files", [(c, a, f) for _, c, a, f in ROUTES])
 def test_read_git_still_works_without_the_planted_key(tmp_path, command, args, files):
     """The control: the same commands in the same shape of repository, nothing planted."""
@@ -123,7 +123,7 @@ def test_read_git_still_works_without_the_planted_key(tmp_path, command, args, f
     assert not result.is_error, result.content
 
 
-@posix_only
+@needs_git
 def test_the_keys_a_real_checkout_carries_are_trusted(tmp_path):
     """What this repository's own config holds, less the values. A check that refused its
     own checkout would be switched off within a day."""
@@ -141,7 +141,7 @@ def test_the_keys_a_real_checkout_carries_are_trusted(tmp_path):
     assert not result.is_error, result.content
 
 
-@posix_only
+@needs_git
 def test_a_planted_submodule_is_not_reached_through_a_clean_top(tmp_path):
     """The top repository's config is clean and trusted; the submodule's is not, and
     `status` recursed into it. `diff.ignoreSubmodules=all` is what stops that."""
@@ -157,7 +157,7 @@ def test_a_planted_submodule_is_not_reached_through_a_clean_top(tmp_path):
     assert not result.is_error, result.content
 
 
-@posix_only
+@needs_git
 def test_the_gitignore_layer_refuses_a_planted_repository(tmp_path):
     """Layer 4 runs `check-ignore` during an ordinary read. It must refuse, not answer."""
     repo = _repo(tmp_path / "planted")
@@ -166,7 +166,7 @@ def test_the_gitignore_layer_refuses_a_planted_repository(tmp_path):
         paths.gitignored([str(repo / "f.txt")])
 
 
-@posix_only
+@needs_git
 def test_repo_status_skips_a_planted_repository(tmp_path):
     """`repo_status` runs `status` for an abort report and swallows failures by design, so
     a planted repository is left out of the report rather than run."""

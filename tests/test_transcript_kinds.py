@@ -23,7 +23,6 @@ from test_server import (
     cfg,
     chat_handler,
     files_cfg,
-    files_posix_only,
     entry,
     registry,
 )
@@ -121,7 +120,6 @@ def test_a_plain_delegation_records_the_tools_it_was_given(tmp_path):
 
 
 
-@files_posix_only
 def test_a_stream_says_which_files_the_delegation_was_given(tmp_path):
     """The record carries this already, and the record is written when the work is over.
     A reader asking what a delegation is chewing on is asking while it runs."""

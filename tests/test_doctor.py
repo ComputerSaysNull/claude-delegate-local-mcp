@@ -16,7 +16,6 @@ reused here on purpose.
 from __future__ import annotations
 
 import json
-import os
 import socket
 import stat
 import sys
@@ -30,17 +29,6 @@ from claude_delegate_local import doctor, provision, sandbox
 from claude_delegate_local.config import Config
 from claude_delegate_local.doctor import FAIL, OK, WARN, Check
 from claude_delegate_local.registry import ModelEntry, Registry
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason=(
-        "DOCTOR BEHAVIOUR UNPROVEN BY THIS RUN -- not a pass. These probe real mounts, real "
-        "permissions, and roots resolved through `to_posix`, which on Windows yields a "
-        "drive-letter path that cannot exist. The doctor refuses to run outside POSIX before "
-        "reaching any of them. Run: wsl -d Ubuntu-24.04 -e bash -lc 'cd <repo> && "
-        "/tmp/vv/bin/python -m pytest tests/test_doctor.py'"
-    ),
-)
 
 
 def cfg(**over) -> Config:
@@ -72,12 +60,10 @@ def one_entry_registry(port: int) -> Registry:
 # --- workspace roots ----------------------------------------------------------------
 
 
-@posix_only
 def test_present_roots_pass(tmp_path):
     assert doctor.check_workspace_roots(cfg(workspace_roots=(str(tmp_path),))).verdict == OK
 
 
-@posix_only
 def test_missing_root_fails(tmp_path):
     """The negative half. config.load never asks whether a root exists."""
     absent = tmp_path / "not-created"
@@ -87,7 +73,6 @@ def test_missing_root_fails(tmp_path):
     assert str(absent) in check.extra["missing"][0]
 
 
-@posix_only
 def test_one_missing_root_among_present_ones_still_fails(tmp_path):
     """A partial failure must not average out to a pass."""
     good = tmp_path / "good"
@@ -108,7 +93,6 @@ def test_missing_bwrap_fails():
     assert "not on PATH" in check.detail
 
 
-@posix_only
 def test_bwrap_present_but_failing_is_still_a_fail(tmp_path):
     """The case `sandbox.available` cannot see.
 
@@ -128,7 +112,6 @@ def test_bwrap_present_but_failing_is_still_a_fail(tmp_path):
     assert "cannot unshare" in check.detail
 
 
-@posix_only
 @pytest.mark.integration
 @pytest.mark.skipif(
     not sandbox.available(Config(workspace_roots=("/tmp",))),  # type: ignore[arg-type]
@@ -138,8 +121,8 @@ def test_bwrap_present_but_failing_is_still_a_fail(tmp_path):
         "`integration`-marked as well: the CI runner installs bubblewrap and still cannot "
         "bring up loopback in a new network namespace (no CAP_NET_ADMIN), where the probe's "
         "`--unshare-all` correctly reports FAIL because `run_bash` would also fail there. "
-        "Run: wsl -d Ubuntu-24.04 -e bash -lc 'cd <repo> && /tmp/vv/bin/python -m pytest "
-        "tests/test_doctor.py -m integration'"
+        "Run it where bubblewrap can create namespaces: "
+        "python -m pytest tests/test_doctor.py -m integration"
     ),
 )
 def test_real_bwrap_passes():
@@ -197,7 +180,6 @@ def declared(tmp_path: Path) -> Path:
     return project
 
 
-@posix_only
 def test_nothing_provisioned_warns_rather_than_fails(tmp_path):
     """The read-heavy majority of delegations needs no interpreter, so this must not block.
 
@@ -208,7 +190,6 @@ def test_nothing_provisioned_warns_rather_than_fails(tmp_path):
     assert doctor.worst(checks) == WARN
 
 
-@posix_only
 def test_a_current_environment_passes(tmp_path):
     home = tmp_path / "home"
     provisioned(home, declared(tmp_path))
@@ -216,7 +197,6 @@ def test_a_current_environment_passes(tmp_path):
     assert [c.verdict for c in checks] == [OK]
 
 
-@posix_only
 def test_a_stale_declaration_fails(tmp_path):
     """A FAIL and not a WARN, which is the opposite call to the absence case above.
 
@@ -235,7 +215,6 @@ def test_a_stale_declaration_fails(tmp_path):
     assert doctor.worst(checks) == FAIL
 
 
-@posix_only
 def test_a_missing_record_fails(tmp_path):
     """A half-built environment is exactly where a test run passes against nothing."""
     home = tmp_path / "home"
@@ -246,7 +225,6 @@ def test_a_missing_record_fails(tmp_path):
     assert [c.verdict for c in checks] == [FAIL]
 
 
-@posix_only
 def test_a_vanished_interpreter_fails(tmp_path):
     home = tmp_path / "home"
     venv = provisioned(home, declared(tmp_path))
@@ -255,7 +233,6 @@ def test_a_vanished_interpreter_fails(tmp_path):
     assert [c.verdict for c in checks] == [FAIL]
 
 
-@posix_only
 def test_a_project_that_has_gone_away_fails(tmp_path):
     home = tmp_path / "home"
     project = declared(tmp_path)
@@ -265,7 +242,6 @@ def test_a_project_that_has_gone_away_fails(tmp_path):
     assert [c.verdict for c in checks] == [FAIL]
 
 
-@posix_only
 def test_an_uncovered_denylist_match_is_reported_as_a_warning(tmp_path):
     """Nothing covers this tree at runtime, so the doctor is where the count is reported.
 
@@ -283,7 +259,6 @@ def test_an_uncovered_denylist_match_is_reported_as_a_warning(tmp_path):
     assert doctor.worst([check]) == WARN
 
 
-@posix_only
 def test_a_clean_provisioned_tree_passes(tmp_path):
     """The control: without it the warning above could fire on any tree at all."""
     home = tmp_path / "home"
@@ -292,7 +267,6 @@ def test_a_clean_provisioned_tree_passes(tmp_path):
     assert check.verdict == OK
 
 
-@posix_only
 def test_nothing_provisioned_is_not_reported_as_uncovered(tmp_path):
     check = doctor.check_provisioned_secrets(cfg(sandbox_home=str(tmp_path / "home")))
     assert check.verdict == OK
@@ -310,7 +284,6 @@ def test_writable_transcript_dir_passes(tmp_path):
     assert check.verdict == OK
 
 
-@posix_only
 def test_unwritable_transcript_dir_fails(tmp_path):
     """Runtime swallows a transcript failure by design, so this is the only report of it."""
     blocker = tmp_path / "a-file"
@@ -328,7 +301,6 @@ def test_ledger_disabled_warns():
     assert doctor.check_ledger(cfg(ledger_path="")).verdict == WARN
 
 
-@posix_only
 def test_ledger_under_mnt_warns(tmp_path):
     """Concurrent appends on the Windows drive lose lines, so this is warned and never OK."""
     check = doctor.check_ledger(cfg(ledger_path="/mnt/c/ledger.jsonl"))
@@ -337,7 +309,6 @@ def test_ledger_under_mnt_warns(tmp_path):
     assert "concurrent appends" in check.detail
 
 
-@posix_only
 def test_unwritable_ledger_dir_fails(tmp_path):
     """Runtime swallows a ledger failure by design, so this is the only report of it."""
     blocker = tmp_path / "a-file"
@@ -391,7 +362,6 @@ def test_non_posix_platform_fails(monkeypatch):
     assert "inside WSL" in check.remedy
 
 
-@posix_only
 def test_posix_platform_passes():
     assert doctor.check_platform().verdict == OK
 

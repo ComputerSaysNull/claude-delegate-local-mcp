@@ -9,15 +9,12 @@ reason, and now all three agree: the roots first, and existence only inside them
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
 from claude_delegate_local import paths
 from claude_delegate_local.config import Config
-
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="layer 1 needs a POSIX filesystem")
 
 MISSING_OUTSIDE = "/nonexistent-delegate-probe/deeper"
 

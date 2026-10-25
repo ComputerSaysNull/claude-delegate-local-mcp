@@ -12,7 +12,6 @@ recognised by its words and a translated git would otherwise say them differentl
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -41,7 +40,6 @@ def damaged_repo(tmp_path: Path) -> Path:
     return r
 
 
-@pytest.mark.skipif(os.name != "posix", reason="realpath under tmp_path needs POSIX")
 def test_a_damaged_repository_refuses_rather_than_reporting_nothing_ignored(damaged_repo):
     target = str(damaged_repo / "build.log")
     with pytest.raises(paths.PathPolicyError):

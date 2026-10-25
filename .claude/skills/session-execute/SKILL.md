@@ -20,8 +20,6 @@ Overlap what is genuinely independent — wall-clock is worth having — but the
 not about compute:
 
 - **Delegations and delegated agents overlap freely**, whether they read or write.
-- **Never the Windows and WSL suites against one checkout.** They share `__pycache__` under
-  `/mnt/c` and it surfaces as an ImportError in an unrelated module.
 - **Never a suite while a fan-out is live.** The server shares this machine.
 - **Every commit edits the top of `CHANGELOG.md`**, so two items built in parallel conflict
   there even when nothing else they touch does.
@@ -29,9 +27,8 @@ not about compute:
 **A worktree lets a suite run while work continues, with `PYTHONPATH` set.** `conftest.py`
 puts the worktree's `src/` first, but a test that starts a subprocess never runs it and
 imports the *main* checkout through the editable install; `PYTHONPATH=<worktree>/src` makes
-both import the worktree. Each worktree has its own `__pycache__`, so the collision above does
-not apply. WSL needs a worktree made by WSL's git, and ignored config files must be copied in
-or tests that need them skip — the notebook has this machine's paths.
+both import the worktree. Ignored config files must be copied in or tests that need them
+skip — the notebook has this machine's paths.
 
 **What spends the window is what enters this conversation**, and that is as true of writing a
 module as of reading one. Quote a suite's tail rather than pasting its whole run.
@@ -40,8 +37,7 @@ module as of reading one. Quote a suite's tail rather than pasting its whole run
 
 In order, every time:
 
-1. **Full suite on both platforms, plus ruff and mypy** — Windows and the WSL venv, never at
-   once against this checkout. Targeted runs are the right tool *while you iterate*; the full
+1. **Full suite, plus ruff and mypy.** Targeted runs are the right tool *while you iterate*; the full
    suite is what closes a commit, because a targeted run cannot see the coupling a change
    creates. What has to be green is what **lands**: a branch is squash-merged, so that is
    its tip rather than every intermediate commit. `ruff format` is not a gate here;

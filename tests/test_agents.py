@@ -38,13 +38,6 @@ def write(path: Path, text: str) -> Path:
 
 MINIMAL = "---\nname: helper\n---\n\nYou help.\n"
 
-UNPROVEN_SYMLINK = (
-    "SYMLINK RESOLUTION UNPROVEN BY THIS RUN -- this is not a pass. Creating a symlink "
-    "needs a privilege Windows withholds by default, and the server runs in WSL. Run it "
-    "there -- see CONTRIBUTING.md."
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN_SYMLINK)
-
 
 # --- the three-tier lookup ----------------------------------------------------------------
 
@@ -481,7 +474,6 @@ def agent_with(c: Config, name: str, frontmatter: str) -> Path:
                  f"---\nname: {name}\n{frontmatter}\n---\nbody\n")
 
 
-@posix_only
 def test_an_agent_bind_inside_a_configured_root_is_accepted(tmp_path):
     """The companion to every refusal below. Without it a policy refusing every bind would
     satisfy all of them."""
@@ -492,7 +484,6 @@ def test_an_agent_bind_inside_a_configured_root_is_accepted(tmp_path):
     assert agents.load_agent(c, "ok").extra_binds == (str(tools),)
 
 
-@posix_only
 def test_an_agent_bind_outside_every_root_is_refused(tmp_path):
     c = bind_cfg(tmp_path)
     loot = os.path.realpath(tmp_path / "elsewhere")
@@ -502,7 +493,6 @@ def test_an_agent_bind_outside_every_root_is_refused(tmp_path):
         agents.load_agent(c, "greedy")
 
 
-@posix_only
 def test_no_configured_roots_permits_no_bind_at_all(tmp_path):
     """The default. `agent_bind_roots` deliberately does not fall back to `workspace_roots`
     the way `workdir_roots` does, so an unconfigured server grants no mount."""
@@ -515,7 +505,6 @@ def test_no_configured_roots_permits_no_bind_at_all(tmp_path):
         agents.load_agent(c, "any")
 
 
-@posix_only
 @pytest.mark.parametrize("target", sorted(base_mount_targets()))
 def test_no_agent_bind_can_end_up_shadowing_a_mount_the_sandbox_makes(tmp_path, target):
     """`extra_binds` are emitted after the base mounts, so a bind *at* one replaces it.
@@ -543,7 +532,6 @@ def test_no_agent_bind_can_end_up_shadowing_a_mount_the_sandbox_makes(tmp_path, 
         assert not shadowed, f"{target} was accepted as {got}, which still shadows {shadowed}"
 
 
-@posix_only
 def test_an_agent_bind_cannot_replace_the_provisioned_root(tmp_path, monkeypatch):
     """The strongest form of substitution this check exists to stop (ADR-0062).
 
@@ -561,7 +549,6 @@ def test_an_agent_bind_cannot_replace_the_provisioned_root(tmp_path, monkeypatch
         agents.load_agent(c, "swap")
 
 
-@posix_only
 def test_a_bind_beside_the_provisioned_root_is_still_allowed(tmp_path):
     """The companion. Reserving the tree must not reserve everything under HOME with it."""
     home = os.path.realpath(tmp_path / "sandbox-home")
@@ -572,7 +559,6 @@ def test_a_bind_beside_the_provisioned_root_is_still_allowed(tmp_path):
     assert agents.load_agent(c, "beside").extra_binds == (beside,)
 
 
-@posix_only
 def test_a_bind_above_a_mount_the_sandbox_makes_itself_is_refused(tmp_path):
     """The ancestor case. Binding `/` shadows every base mount at once, and a rule phrased
     as equality would let it straight through."""
@@ -582,7 +568,6 @@ def test_a_bind_above_a_mount_the_sandbox_makes_itself_is_refused(tmp_path):
         agents.load_agent(c, "everything")
 
 
-@posix_only
 def test_a_bind_inside_a_mount_the_sandbox_makes_itself_is_allowed(tmp_path):
     """The companion, and the whole reason the rule is at-or-above rather than overlapping.
 
@@ -596,7 +581,6 @@ def test_a_bind_inside_a_mount_the_sandbox_makes_itself_is_allowed(tmp_path):
     assert agents.load_agent(c, "tmptool").extra_binds == (str(tools),)
 
 
-@posix_only
 def test_a_bind_at_the_sandbox_home_is_refused(tmp_path):
     """HOME is bound before `extra_binds` too, so it is shadowable in the same way -- but it
     is a config value, so the derived base table cannot know about it."""
@@ -606,7 +590,6 @@ def test_a_bind_at_the_sandbox_home_is_refused(tmp_path):
         agents.load_agent(c, "athome")
 
 
-@posix_only
 def test_a_bind_symlinked_out_of_a_root_is_refused_on_where_it_lands(tmp_path):
     """The bind is emitted at a path bwrap resolves at mount time, so a check that read the
     written name would approve this and mount the target anyway."""
@@ -621,7 +604,6 @@ def test_a_bind_symlinked_out_of_a_root_is_refused_on_where_it_lands(tmp_path):
     assert str(loot) in str(e.value), "the refusal must name where it resolved to"
 
 
-@posix_only
 def test_a_bind_symlinked_within_a_root_is_accepted_as_its_resolved_path(tmp_path):
     """Proves the test above is not passing against a policy that refuses every symlink,
     and that the value carried forward is the one that was checked rather than the one that

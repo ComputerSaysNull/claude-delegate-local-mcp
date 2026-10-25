@@ -28,13 +28,10 @@ gate there scans the *previous* commit's message and carries its waiver into thi
 amend gets judged against its real parent -- see ADR-0028 for why that cannot simply be
 detected, and why a pass relying on it announces itself.
 
-The shim looks for an interpreter in four places — a POSIX venv, a Windows venv (only when
-actually on Windows), `python3`, then `python` — and **refuses the commit saying the gate
-did not run** if it finds none. It used to try the Windows venv and then bare `python`,
-which Ubuntu does not have, so committing from inside WSL failed with
+The shim looks for an interpreter in three places — the checkout's venv, `python3`, then
+`python` — and **refuses the commit saying the gate did not run** if it finds none. It
+used to end at bare `python`, which Ubuntu does not have, so a commit failed with
 `exec: python: not found`: a hook that never ran, reported as though the hook were broken.
-The Windows venv is gated on the platform because `/mnt/c` reports every file as
-executable, so testing for one proves nothing there.
 
 **Amend with the editor, not with `-m`.** Git tells that hook where a message came from,
 and only an amend that *reuses* the existing one reports itself; `git commit --amend -m`

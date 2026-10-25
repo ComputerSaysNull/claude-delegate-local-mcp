@@ -1382,13 +1382,12 @@ def _resolve_many(
 
 # ---- opening what was resolved -----------------------------------------------------
 
-# Absent on Windows, where both are 0 and fold out of the flag word. That platform has no
+# Absent on Windows, where it is 0 and folds out of the flag word. That platform has no
 # `run_bash` -- bubblewrap is not there, so `available_tool_names` subtracts it -- and so
 # has no in-sandbox adversary to race us. It also refuses to unlink a file while a
 # descriptor is open, measured, so the post-open half of the attack cannot be staged there
 # either. Stated rather than glossed: on such a platform the proof below is weaker.
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
-_BINARY = getattr(os, "O_BINARY", 0)
 
 _MODE_FLAGS = {
     "rb": os.O_RDONLY,
@@ -1526,7 +1525,7 @@ def open_resolved(entry: ResolvedPath, mode: str, *, scan_bytes: int = 0) -> Ope
     except KeyError:
         raise ValueError(f"unsupported mode {mode!r}; use 'rb', 'r+b' or 'wb'") from None
 
-    flags |= _NOFOLLOW | _BINARY
+    flags |= _NOFOLLOW
     created = False
     try:
         if mode == "wb":

@@ -27,11 +27,6 @@ from claude_delegate_local import config, paths, server, tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
 
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="the path policy resolves POSIX paths; the server is POSIX-only",
-)
-
 ROOTS = {"DELEGATE_WORKSPACE_ROOTS": "/tmp/proj"}
 
 _REPO = Path(__file__).resolve().parent.parent
@@ -96,7 +91,6 @@ class _Ctx:
 # --- 1. loading ------------------------------------------------------------------------
 
 
-@posix_only
 def test_repo_extras_are_normalised_and_absent_roots_are_omitted(tmp_path):
     a = tmp_path / "a"
     b = tmp_path / "b"
@@ -107,7 +101,6 @@ def test_repo_extras_are_normalised_and_absent_roots_are_omitted(tmp_path):
     assert loaded == ((os.path.realpath(a), (".jsonl", ".foo")),)
 
 
-@posix_only
 @pytest.mark.parametrize(
     "content",
     [
@@ -132,7 +125,6 @@ def test_a_malformed_repo_settings_file_raises_naming_the_file(tmp_path, content
 # --- 2. layer 2 with repo extras --------------------------------------------------------
 
 
-@posix_only
 def test_repo_extras_apply_only_under_the_root_that_carries_them(tmp_path):
     a = tmp_path / "a"
     b = tmp_path / "b"
@@ -148,7 +140,6 @@ def test_repo_extras_apply_only_under_the_root_that_carries_them(tmp_path):
     assert paths.extension_refusal(conf, str(b / "x.foo")) is not None
 
 
-@posix_only
 def test_the_deepest_workspace_root_wins_for_repo_extras(tmp_path):
     a = tmp_path / "a"
     sub = a / "sub"
@@ -168,7 +159,6 @@ def test_the_deepest_workspace_root_wins_for_repo_extras(tmp_path):
 # --- 3. extras cannot override layer 3 ---------------------------------------------------
 
 
-@posix_only
 def test_repo_extras_cannot_override_the_secret_denylist(tmp_path):
     a = tmp_path / "a"
     a.mkdir()
@@ -196,7 +186,6 @@ def test_repo_ext_allowlists_is_derived_and_never_a_setting():
 # --- 5. end to end through session_scope ---------------------------------------------------
 
 
-@posix_only
 def test_session_scope_carries_the_sessions_repo_extras(tmp_path):
     a = tmp_path / "a"
     a.mkdir()
@@ -206,7 +195,6 @@ def test_session_scope_carries_the_sessions_repo_extras(tmp_path):
     assert (os.path.realpath(a), (".foo",)) in scope.cfg.repo_ext_allowlists
 
 
-@posix_only
 def test_a_malformed_repo_settings_file_fails_the_session(tmp_path):
     a = tmp_path / "a"
     a.mkdir()
@@ -217,7 +205,6 @@ def test_a_malformed_repo_settings_file_fails_the_session(tmp_path):
     assert str(repo_file) in str(e.value)
 
 
-@posix_only
 def test_the_run_command_reads_the_repo_extras_too(tmp_path, monkeypatch):
     """`run` has no MCP session, so `session_scope` never fills the extras for it."""
     from claude_delegate_local import run_task
@@ -232,7 +219,6 @@ def test_the_run_command_reads_the_repo_extras_too(tmp_path, monkeypatch):
 # --- 6. the guard that should already hold -------------------------------------------------
 
 
-@posix_only
 def test_write_file_to_a_repo_settings_file_is_refused(tmp_path):
     a = tmp_path / "a"
     a.mkdir()
@@ -265,7 +251,6 @@ def _git(repo: Path, *argv: str) -> str:
     return done.stdout
 
 
-@posix_only
 def test_resolve_files_keeps_a_repo_extra_file_and_refuses_a_sibling(tmp_path):
     a = tmp_path / "a"
     b = tmp_path / "b"
@@ -284,7 +269,6 @@ def test_resolve_files_keeps_a_repo_extra_file_and_refuses_a_sibling(tmp_path):
     assert refusal.layer == paths.LAYER_EXT
 
 
-@posix_only
 def test_search_files_finds_a_repo_extra_file_but_not_in_a_root_without_extras(tmp_path):
     a = tmp_path / "a"
     b = tmp_path / "b"
@@ -312,7 +296,6 @@ def test_search_files_finds_a_repo_extra_file_but_not_in_a_root_without_extras(t
     assert "No line matched" in absent.content
 
 
-@posix_only
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git on PATH")
 def test_read_git_show_obeys_a_repo_extras_for_the_commit(tmp_path):
     a = tmp_path / "a"

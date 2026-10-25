@@ -12,7 +12,6 @@ import asyncio
 import json
 import os
 
-import pytest
 from fastmcp import Client
 
 from claude_delegate_local.config import Config
@@ -20,12 +19,6 @@ from claude_delegate_local import server
 from claude_delegate_local.context import MARKER_LINE
 from test_server import DoubleCache, chat_reply, entry, registry
 from wire_double import as_stream
-
-UNPROVEN = (
-    "PREFETCH UNPROVEN BY THIS RUN -- this is not a pass. It reads real files through "
-    "resolved POSIX paths, and the server runs in WSL. Run it there -- see CONTRIBUTING.md."
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 
 
 def files_cfg(tmp_path, **over) -> Config:
@@ -78,7 +71,6 @@ def dispatched(config, sent: list, files):
     return asyncio.run(go())
 
 
-@posix_only
 def test_a_large_file_named_with_a_range_is_prefetched_in_part(tmp_path):
     target = big_file(tmp_path)
     sent: list = []
@@ -96,7 +88,6 @@ def test_a_large_file_named_with_a_range_is_prefetched_in_part(tmp_path):
     assert result["files_skipped"] == [], f"skipped: {result['files_skipped']}"
 
 
-@posix_only
 def test_a_bad_range_is_refused_while_a_valid_plain_entry_still_prefetches(tmp_path):
     big = big_file(tmp_path, "big.py")
     other = tmp_path / "other.py"
@@ -126,7 +117,6 @@ def test_a_bad_range_is_refused_while_a_valid_plain_entry_still_prefetches(tmp_p
     assert "y = 2" in json.dumps(sent[0])
 
 
-@posix_only
 def test_a_range_that_is_itself_over_the_cap_is_skipped_whole(tmp_path):
     target = big_file(tmp_path)
     sent: list = []
@@ -143,7 +133,6 @@ def test_a_range_that_is_itself_over_the_cap_is_skipped_whole(tmp_path):
     assert "line 20" not in prompt, "an over-cap range must not be inlined"
 
 
-@posix_only
 def test_a_plain_string_entry_renders_exactly_as_before(tmp_path):
     target = tmp_path / "plain.py"
     target.write_text("first\nsecond\nthird\n", encoding="utf-8")
@@ -157,7 +146,6 @@ def test_a_plain_string_entry_renders_exactly_as_before(tmp_path):
     assert "3\\tthird" in prompt
     assert result["files_skipped"] == []
 
-@posix_only
 def test_the_ranged_header_is_a_marker_a_file_cannot_forge_unescaped(tmp_path):
     """A file line shaped like a marker is escaped only if `MARKER_LINE` matches it, and
     that needs the dashes last. So the range goes inside the markers: a suffix after them

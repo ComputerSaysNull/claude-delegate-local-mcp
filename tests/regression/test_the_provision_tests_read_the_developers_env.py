@@ -13,18 +13,12 @@ new one does not.
 from __future__ import annotations
 
 import importlib.util
-import os
 from pathlib import Path
 
 import pytest
 from conftest import BASELINE_MISSING, REPO, baseline_blob
 
 from claude_delegate_local import config
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="UNPROVEN BY THIS RUN -- `provision.main` refuses to run on Windows",
-)
 
 REFUSED_LINE = "DELEGATE_TOOL_CALL_TEMPERATURE=0.2\n"
 
@@ -58,7 +52,6 @@ def test_the_planted_line_is_refused(planted):
         config.load()
 
 
-@posix_only
 def test_the_old_drive_read_the_planted_env(planted, capsys):
     """`main` reports a refused config on stderr and exits 1, the refusal's own code, so
     the tell is which message came back rather than the exit status."""
@@ -74,7 +67,6 @@ def test_the_old_drive_read_the_planted_env(planted, capsys):
     assert "retired" in capsys.readouterr().err
 
 
-@posix_only
 def test_the_new_drive_does_not(planted):
     new = (REPO / "tests" / "test_provision.py").read_text(encoding="utf-8")
     module = _load(new, planted, "new_test_provision")

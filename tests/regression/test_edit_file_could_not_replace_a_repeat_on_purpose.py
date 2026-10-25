@@ -12,23 +12,12 @@ use, because resolving a real path needs a POSIX filesystem and the server runs 
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-import pytest
 
 from claude_delegate_local import tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
-
-UNPROVEN = (
-    "LAYER 1 UNPROVEN BY THIS RUN -- this is not a pass. Resolving a real path needs a "
-    "POSIX filesystem and the server runs in WSL, so every case that actually opens a "
-    "file is proven there. Run: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest "
-    "tests/regression/test_edit_file_could_not_replace_a_repeat_on_purpose.py'"
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 
 
 def cfg(root: Path, **over) -> Config:
@@ -41,7 +30,6 @@ def call(name: str, **args) -> ToolUseBlock:
     return ToolUseBlock(id="call-1", name=name, input=dict(args))
 
 
-@posix_only
 def test_expected_count_replaces_every_occurrence(tmp_path):
     target = tmp_path / "mod.py"
     target.write_text("x = 1\nx = 1\nx = 1\n", encoding="utf-8")
@@ -56,7 +44,6 @@ def test_expected_count_replaces_every_occurrence(tmp_path):
     assert target.read_text(encoding="utf-8") == "x = 2\nx = 2\nx = 2\n"
 
 
-@posix_only
 def test_wrong_expected_count_refuses_and_writes_nothing(tmp_path):
     target = tmp_path / "mod.py"
     original = "x = 1\nx = 1\nx = 1\n"
@@ -74,7 +61,6 @@ def test_wrong_expected_count_refuses_and_writes_nothing(tmp_path):
     assert target.read_text(encoding="utf-8") == original
 
 
-@posix_only
 def test_expected_count_below_one_is_refused(tmp_path):
     target = tmp_path / "mod.py"
     target.write_text("x = 1\n", encoding="utf-8")
@@ -89,7 +75,6 @@ def test_expected_count_below_one_is_refused(tmp_path):
     assert target.read_text(encoding="utf-8") == "x = 1\n"
 
 
-@posix_only
 def test_expected_count_as_a_string_is_refused(tmp_path):
     target = tmp_path / "mod.py"
     target.write_text("x = 1\n", encoding="utf-8")
@@ -104,7 +89,6 @@ def test_expected_count_as_a_string_is_refused(tmp_path):
     assert target.read_text(encoding="utf-8") == "x = 1\n"
 
 
-@posix_only
 def test_without_expected_count_a_repeat_is_still_refused(tmp_path):
     target = tmp_path / "mod.py"
     target.write_text("x = 1\nx = 1\n", encoding="utf-8")

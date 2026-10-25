@@ -36,17 +36,10 @@ needs_bwrap = pytest.mark.skipif(
     shutil.which("bwrap") is None,
     reason=(
         "SANDBOX BEHAVIOUR UNPROVEN BY THIS RUN -- this is not a pass. These need a real "
-        "bubblewrap, which exists in WSL and not on Windows. Run: wsl -d Ubuntu-24.04 -e "
-        "bash -lc 'cd <repo> && ~/.venvs/delegate/bin/python -m pytest tests/test_sandbox.py'"
+        "bubblewrap. Run them where bubblewrap can create namespaces: "
+        "python -m pytest tests/test_sandbox.py"
     ),
 )
-
-SCAN_UNPROVEN = (
-    "SECRET SCAN UNPROVEN BY THIS RUN -- this is not a pass. The walk matches denylist "
-    "patterns against POSIX path suffixes, and os.walk yields backslashes on Windows, so "
-    "it finds nothing here rather than failing. Run it in WSL -- see CONTRIBUTING.md."
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=SCAN_UNPROVEN)
 
 WORKDIR = "/mnt/c/Users/dev/proj"
 HOME = "/home/dev/.cache/sandbox-home"
@@ -250,7 +243,6 @@ def test_ensure_home_creates_the_provisioned_root(tmp_path):
     assert (home / sandbox.PROVISIONED_DIRNAME).is_dir()
 
 
-@posix_only
 def test_a_secret_name_inside_the_provisioned_root_is_pruned_and_not_covered(tmp_path):
     """The one place the walk prunes without covering, and why (ADR-0062).
 
@@ -273,7 +265,6 @@ def test_a_secret_name_inside_the_provisioned_root_is_pruned_and_not_covered(tmp
     assert covered == set()
 
 
-@posix_only
 def test_the_control_the_same_name_outside_it_is_still_covered(tmp_path):
     """The negative half. Without this the test above passes against a scan that stopped
     matching anything at all, which is exactly how a check that cannot fail gets trusted."""
@@ -810,7 +801,6 @@ def test_no_shadows_leaves_the_argv_exactly_as_it_was():
     assert sandbox.build_argv(cfg(), req()) == sandbox.build_argv(cfg(), req(), shadows=())
 
 
-@posix_only
 def test_the_scan_finds_a_secret_file_and_a_secret_directory(tmp_path):
     home = tmp_path / "home"
     (home / ".ssh").mkdir(parents=True)
@@ -826,7 +816,6 @@ def test_the_scan_finds_a_secret_file_and_a_secret_directory(tmp_path):
         f"{home}/.ssh": "dir", f"{home}/id_rsa": "file"}
 
 
-@posix_only
 def test_a_matched_directory_is_not_descended_into(tmp_path):
     """Pruning keeps `.git/**` off every loose object, and stops a shadow being emitted
     inside another one, where the outer tmpfs hides the target the inner op needs."""
@@ -841,7 +830,6 @@ def test_a_matched_directory_is_not_descended_into(tmp_path):
     assert [t.path for t in found] == [f"{home}/.ssh"]
 
 
-@posix_only
 def test_the_workdir_is_scanned_too_not_only_home(tmp_path):
     home, work = tmp_path / "home", tmp_path / "work"
     home.mkdir()
@@ -855,7 +843,6 @@ def test_the_workdir_is_scanned_too_not_only_home(tmp_path):
     assert [t.path for t in found] == [f"{work}/.env"]
 
 
-@posix_only
 def test_extra_binds_are_scanned_now_that_an_agent_file_can_choose_them(tmp_path):
     """This asserts the opposite of what it used to, and the reversal is the point.
 
@@ -884,7 +871,6 @@ def test_extra_binds_are_scanned_now_that_an_agent_file_can_choose_them(tmp_path
     assert [t.path for t in found] == [f"{tools}/id_rsa"]
 
 
-@posix_only
 def test_a_symlink_is_never_shadowed(tmp_path):
     """Measured, not assumed: a shadow op on a symlink node aborts the whole bwrap
     invocation rather than following or creating it. Fail-closed, so nothing leaks, but a
@@ -901,7 +887,6 @@ def test_a_symlink_is_never_shadowed(tmp_path):
     assert found == ()
 
 
-@posix_only
 def test_the_scan_refuses_rather_than_cover_part_of_a_tree(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
@@ -916,7 +901,6 @@ def test_the_scan_refuses_rather_than_cover_part_of_a_tree(tmp_path):
     assert "run_bash is refused" in str(e.value)
 
 
-@posix_only
 def test_a_tree_deeper_than_the_budget_refuses_too(tmp_path):
     home = tmp_path / "home"
     deep = home
@@ -1058,7 +1042,6 @@ def opaque_file(tmp_path: Path, *patterns: str) -> str:
     return str(p)
 
 
-@posix_only
 def test_an_opaque_directory_is_covered_and_not_walked(tmp_path):
     """Both halves in one assertion, because either alone is the wrong feature.
 
@@ -1086,7 +1069,6 @@ def test_an_opaque_directory_is_covered_and_not_walked(tmp_path):
         "would make the security list look like it fired when it did not")
 
 
-@posix_only
 def test_an_opaque_directory_costs_no_budget(tmp_path):
     """The bug this feature exists for: a real project workdir refused outright.
 
@@ -1116,7 +1098,6 @@ def test_an_opaque_directory_costs_no_budget(tmp_path):
             req(home=str(home)))
 
 
-@posix_only
 def test_the_denylist_wins_over_the_opaque_list(tmp_path):
     """A directory on both lists is reported as the secret it is, not as bulk."""
     home = tmp_path / "home"
@@ -1131,7 +1112,6 @@ def test_the_denylist_wins_over_the_opaque_list(tmp_path):
     assert [(t.path, t.matched) for t in found] == [(f"{home}/.ssh", ".ssh/**")]
 
 
-@posix_only
 def test_a_missing_opaque_list_is_not_fatal(tmp_path):
     """Unlike the denylist, whose absence must stop the server.
 
@@ -1382,7 +1362,6 @@ def test_the_file_size_cap_truncates_the_write(tmp_path):
     assert "1048576" in out, "the file should stop at exactly the cap"
 
 
-
 # ---- the configured lists are never covered by their own patterns (ADR-0065) -------
 def self_matching_lists(home: Path) -> tuple[str, str]:
     """A denylist that matches its own name, beside an opaque list, both inside `home`.
@@ -1414,7 +1393,6 @@ def assert_the_walk_got_there(found, home: Path) -> None:
         "examined the files and the assertions below prove nothing")
 
 
-@posix_only
 def test_the_denylist_file_is_not_covered_by_its_own_pattern(tmp_path):
     """`*secret*` matches `secret_globs.txt`, and covering it broke every nested run.
 
@@ -1431,7 +1409,6 @@ def test_the_denylist_file_is_not_covered_by_its_own_pattern(tmp_path):
     assert deny not in [t.path for t in found]
 
 
-@posix_only
 def test_the_opaque_list_file_is_not_covered_either(tmp_path):
     """Both configured lists, not only the one that happens to self-match today.
 
@@ -1448,7 +1425,6 @@ def test_the_opaque_list_file_is_not_covered_either(tmp_path):
     assert opaque not in [t.path for t in found]
 
 
-@posix_only
 def test_a_neighbour_matching_the_same_pattern_is_still_covered(tmp_path):
     """The negative control, and the reason the two tests above mean anything.
 
@@ -1469,7 +1445,6 @@ def test_a_neighbour_matching_the_same_pattern_is_still_covered(tmp_path):
     assert deny not in paths
 
 
-@posix_only
 def test_the_exemption_follows_the_file_through_a_symlinked_root(tmp_path):
     """Realpath on both sides, because the two sides are built differently.
 

@@ -21,7 +21,6 @@ entries and 0.7s with the directory covered. (ADR-0041)
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -33,10 +32,6 @@ from claude_delegate_local.sandbox import SandboxRequest
 ROOT = Path(__file__).resolve().parents[2]
 SHIPPED_OPAQUE = ROOT / "security" / "opaque_globs.txt"
 SHIPPED_SECRETS = ROOT / "security" / "secret_globs.txt"
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix", reason="the scan walks a POSIX tree and is proven under WSL"
-)
 
 
 def project(tmp_path: Path, bulk_files: int) -> Path:
@@ -72,7 +67,6 @@ def req(work: Path) -> SandboxRequest:
     return SandboxRequest(command="true", home=str(work / "nohome"), workdir=str(work))
 
 
-@posix_only
 def test_a_workdir_with_a_virtualenv_scans_within_budget(tmp_path):
     """The bug, as a user meets it: a shell command on an ordinary project.
 
@@ -92,7 +86,6 @@ def test_a_workdir_with_a_virtualenv_scans_within_budget(tmp_path):
         "the real secret stopped being covered -- skipping bulk must never cost coverage")
 
 
-@posix_only
 def test_the_library_source_inside_it_is_never_shadowed(tmp_path):
     """Covering the directory beats walking it, and not only on speed.
 
@@ -111,7 +104,6 @@ def test_the_library_source_inside_it_is_never_shadowed(tmp_path):
     assert str(work / ".venv") in paths
 
 
-@posix_only
 def test_without_the_opaque_list_the_same_project_is_refused(tmp_path):
     """The control. Without it the two tests above pass against a scan that never had a
     budget problem, and would keep passing if the walk stopped being bounded at all."""

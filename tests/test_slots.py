@@ -50,7 +50,7 @@ except ImportError:  # pragma: no cover -- Windows
 
 posix_only = pytest.mark.skipif(
     fcntl is None or not Path("/proc").is_dir(),
-    reason="needs POSIX flock and /proc; run these under WSL, not on the Windows drive",
+    reason="needs POSIX flock and /proc",
 )
 
 

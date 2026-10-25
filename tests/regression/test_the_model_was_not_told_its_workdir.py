@@ -15,18 +15,12 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
 from fastmcp import Client
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from claude_delegate_local import loop, server
 from test_server import DoubleCache, answered, as_stream, cfg, chat_reply, entry, registry
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="a workdir must resolve inside a workspace root, which needs a POSIX path",
-)
 
 
 def test_a_rendered_delegation_names_its_workdir_before_the_task():
@@ -75,7 +69,6 @@ def _user_messages(tmp_path: Path, **args) -> list[str]:
     ]
 
 
-@posix_only
 def test_the_server_names_the_workdir_it_was_given(tmp_path):
     real = os.path.realpath(tmp_path)
     users = _user_messages(tmp_path, workdir=str(tmp_path))
@@ -84,7 +77,6 @@ def test_the_server_names_the_workdir_it_was_given(tmp_path):
     assert real in users[0], users[0]
 
 
-@posix_only
 def test_the_server_names_no_workdir_when_none_was_given(tmp_path):
     """Control: without a workdir the first user message is the task alone."""
     users = _user_messages(tmp_path)

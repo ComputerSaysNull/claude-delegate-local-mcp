@@ -31,11 +31,6 @@ from claude_delegate_local.paths import (
     resolve_permitted,
 )
 
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="LAYER 4 IS UNPROVEN BY THIS RUN -- layer 1 needs a POSIX filesystem",
-)
-
 
 def _repo(tmp_path):
     root = tmp_path / "repo"
@@ -58,7 +53,6 @@ def _cfg(root) -> Config:
 # ---- what changed: a named read ------------------------------------------------------
 
 
-@posix_only
 def test_a_named_ignored_file_can_be_read(tmp_path):
     root = _repo(tmp_path)
     spec = str(root / "handoff" / "spec.md")
@@ -68,7 +62,6 @@ def test_a_named_ignored_file_can_be_read(tmp_path):
     assert len(survivors) == 1 and not refusals, refusals
 
 
-@posix_only
 def test_a_glob_leaves_ignored_matches_out(tmp_path):
     """A glob is a search in shorthand: `**/*.md` must not pull in what git ignores."""
     root = _repo(tmp_path)
@@ -79,7 +72,6 @@ def test_a_glob_leaves_ignored_matches_out(tmp_path):
     assert [os.path.basename(p) for p in named] == ["notes.md"], named
 
 
-@posix_only
 def test_a_glob_matching_only_ignored_files_says_so(tmp_path):
     """Not "matched no files", which would send the caller hunting for a typo."""
     root = _repo(tmp_path)
@@ -95,7 +87,6 @@ def test_a_glob_matching_only_ignored_files_says_so(tmp_path):
 # ---- what did not change ---------------------------------------------------------------
 
 
-@posix_only
 def test_writing_an_ignored_file_is_still_refused(tmp_path):
     root = _repo(tmp_path)
 
@@ -106,7 +97,6 @@ def test_writing_an_ignored_file_is_still_refused(tmp_path):
         assert caught.value.refusals[0].layer == LAYER_GITIGNORE
 
 
-@posix_only
 def test_a_search_still_leaves_ignored_files_out(tmp_path):
     root = _repo(tmp_path)
     candidates = [str(root / "handoff" / "spec.md"), str(root / "notes.md")]
@@ -116,7 +106,6 @@ def test_a_search_still_leaves_ignored_files_out(tmp_path):
     assert [os.path.basename(k.posix) for k in kept] == ["notes.md"]
 
 
-@posix_only
 def test_a_secret_in_an_ignored_folder_is_still_refused_by_name(tmp_path):
     root = _repo(tmp_path)
     secret = root / "handoff" / "deploy_secret.md"

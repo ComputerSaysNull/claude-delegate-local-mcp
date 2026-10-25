@@ -60,11 +60,10 @@ except ImportError:  # pragma: no cover -- Windows
     fcntl = None  # type: ignore[assignment]
 
 # The same guard `tests/test_slots.py` uses, and for the same two reasons: there is no
-# `flock` off POSIX, and a record is only kept while `/proc` says its PID is alive. On
-# Windows layer 1 also refuses everything under `tmp_path`. Run these under WSL.
+# `flock` off POSIX, and a record is only kept while `/proc` says its PID is alive.
 posix_only = pytest.mark.skipif(
     fcntl is None or not Path("/proc").is_dir(),
-    reason="needs POSIX flock and /proc; run these under WSL, not on the Windows drive",
+    reason="needs POSIX flock and /proc",
 )
 
 # The flag as it appears on disk. Written out rather than imported: see the module

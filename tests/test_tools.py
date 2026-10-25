@@ -5,9 +5,6 @@ advisory — a model can call a tool it was never offered — so the execution s
 one doing the work, and a test that only checks an error came back would pass against a
 handler that ran first and failed afterwards. The call-counting stub below is what
 distinguishes "refused" from "ran and then complained".
-
-Layers 1 and 4 of the path policy need a real POSIX filesystem, so the cases that turn on
-them are proven under WSL rather than here; see tests/test_paths.py for the same split.
 """
 
 from __future__ import annotations
@@ -24,15 +21,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from claude_delegate_local import paths, provision, sandbox, tools
 from claude_delegate_local.backends.base import ToolUseBlock
 from claude_delegate_local.config import Config
-
-
-UNPROVEN = (
-    "LAYER 1 UNPROVEN BY THIS RUN -- this is not a pass. Resolving a real path needs a "
-    "POSIX filesystem and the server runs in WSL, so every case that actually opens a "
-    "file is proven there. Run: wsl -d Ubuntu-24.04 -e bash -lc "
-    "'cd <repo> && ~/.venvs/delegate/bin/python -m pytest tests/test_tools.py'"
-)
-posix_only = pytest.mark.skipif(os.name != "posix", reason=UNPROVEN)
 
 
 def cfg(root: Path, **over) -> Config:
@@ -100,7 +88,6 @@ def test_a_tool_outside_the_allowed_set_never_reaches_its_handler(workspace, mon
     assert ran == [], "the handler ran despite the tool being disallowed"
 
 
-@posix_only
 def test_an_allowed_tool_does_reach_its_handler(workspace):
     """Without this, refusing everything would pass the test above."""
     result = tools.execute_tool(
@@ -129,7 +116,6 @@ def test_a_refusal_is_an_error_result_and_keeps_the_call_id(workspace):
 # --- read_file --------------------------------------------------------------------------
 
 
-@posix_only
 def test_read_file_returns_the_whole_file_when_it_fits(workspace):
     """Numbered, and with no truncation footer. The trailing newline is not preserved --
     lines are split and rejoined so a CRLF file reads the same as an LF one, which makes
@@ -140,7 +126,6 @@ def test_read_file_returns_the_whole_file_when_it_fits(workspace):
     assert result.content == "1\tx = 1"
 
 
-@posix_only
 def test_read_file_refuses_a_file_over_the_byte_ceiling(workspace):
     """`max_file_read_bytes` calls itself "checked by stat() BEFORE reading". It was not.
 
@@ -158,7 +143,6 @@ def test_read_file_refuses_a_file_over_the_byte_ceiling(workspace):
     assert "1000-byte ceiling" in result.content
 
 
-@posix_only
 def test_read_file_still_pages_a_file_under_the_ceiling(workspace):
     """The other direction. A ceiling that refused everything would pass the test above."""
     (workspace / "fine.py").write_text("z\n" * 400, encoding="utf-8")
@@ -169,7 +153,6 @@ def test_read_file_still_pages_a_file_under_the_ceiling(workspace):
     assert "of 400" in result.content and "start_line=" in result.content
 
 
-@posix_only
 def test_read_file_numbers_every_line_it_returns(workspace):
     """The whole point of the change. Without a number in the output the model can read a
     range but cannot cite it, which is how one agent file came to be told to quote instead
@@ -182,7 +165,6 @@ def test_read_file_numbers_every_line_it_returns(workspace):
     assert result.content == "1\talpha\n2\tbeta\n3\tgamma"
 
 
-@posix_only
 def test_read_file_starts_where_it_is_asked_to(workspace):
     """The other half: being pointed at a range, rather than paging to it."""
     (workspace / "n.py").write_text("".join(f"line {i}\n" for i in range(1, 11)),
@@ -194,7 +176,6 @@ def test_read_file_starts_where_it_is_asked_to(workspace):
     assert result.content == " 8\tline 8\n 9\tline 9\n10\tline 10"
 
 
-@posix_only
 def test_read_file_pages_on_whole_lines_and_reports_the_next_one(workspace):
     """`max_read_chars` still bounds the reply, but the window now ends on a line boundary.
 
@@ -216,7 +197,6 @@ def test_read_file_pages_on_whole_lines_and_reports_the_next_one(workspace):
         assert rest == f"line {number}"
 
 
-@posix_only
 def test_read_file_continues_from_the_line_it_reported(workspace):
     """The footer is only useful if following it works, and lands exactly where it said."""
     (workspace / "big.py").write_text("".join(f"line {i}\n" for i in range(1, 21)),
@@ -231,7 +211,6 @@ def test_read_file_continues_from_the_line_it_reported(workspace):
     assert tail.content.split("\n")[0].strip().startswith(f"{resume}\tline {resume}")
 
 
-@posix_only
 def test_read_file_stops_where_it_is_asked_to(workspace):
     """The other end of the range. Without it a pass wanting one section takes the rest
     of the file to get it, and a tool result is resent every turn -- so the waste is
@@ -246,7 +225,6 @@ def test_read_file_stops_where_it_is_asked_to(workspace):
     assert result.content == " 3\tline 3\n 4\tline 4\n 5\tline 5"
 
 
-@posix_only
 def test_read_file_end_line_is_inclusive(workspace):
     """Inclusive, and `end_line` rather than `line_count`, because a count's off-by-one
     is silent: the caller gets a plausible window one line short and never learns."""
@@ -259,7 +237,6 @@ def test_read_file_end_line_is_inclusive(workspace):
     assert result.content == " 4\tline 4", "one line asked for, one line back"
 
 
-@posix_only
 def test_read_file_refuses_an_end_line_before_the_start(workspace):
     """Refused rather than returning empty. An empty result reads as "the range is
     blank", which is a fact about the file; this is a fact about the request."""
@@ -273,7 +250,6 @@ def test_read_file_refuses_an_end_line_before_the_start(workspace):
     assert "end_line" in result.content
 
 
-@posix_only
 def test_read_file_end_line_past_the_end_is_the_end_of_the_file(workspace):
     """Not an error, unlike a `start_line` past the end. Asking to read to line 999 of a
     ten-line file is a well-formed request with an obvious answer; asking to *start*
@@ -288,7 +264,6 @@ def test_read_file_end_line_past_the_end_is_the_end_of_the_file(workspace):
     assert result.content == " 9\tline 9\n10\tline 10"
 
 
-@posix_only
 def test_read_file_without_an_end_line_still_reads_to_the_end(workspace):
     """The negative control for the four above: the new argument must be optional, and
     omitting it must not quietly become a one-line read."""
@@ -300,7 +275,6 @@ def test_read_file_without_an_end_line_still_reads_to_the_end(workspace):
     assert result.content == " 8\tline 8\n 9\tline 9\n10\tline 10"
 
 
-@posix_only
 def test_read_file_refuses_a_start_line_past_the_end(workspace):
     result = tools.execute_tool(
         cfg(workspace), call("read_file", path=str(workspace / "a.py"), start_line=999),
@@ -309,7 +283,6 @@ def test_read_file_refuses_a_start_line_past_the_end(workspace):
     assert "past the end" in result.content
 
 
-@posix_only
 def test_read_file_refuses_a_start_line_below_one(workspace):
     """Lines are counted from 1, so 0 is not "the beginning" -- and negative indices would
     silently read from the end, which is the reading nobody meant."""
@@ -320,7 +293,6 @@ def test_read_file_refuses_a_start_line_below_one(workspace):
     assert "counted from 1" in result.content
 
 
-@posix_only
 def test_a_file_without_a_trailing_newline_is_not_one_line_longer(workspace):
     """`split("\n")` would invent an empty final line for every file that ends in a
     newline, and the count reported to the model would be wrong by one for most files."""
@@ -334,7 +306,6 @@ def test_a_file_without_a_trailing_newline_is_not_one_line_longer(workspace):
     assert without.content == withit.content == "1\tone\n2\ttwo"
 
 
-@posix_only
 def test_crlf_lines_are_numbered_the_same_as_lf_ones(workspace):
     """The boundary crosses Windows and WSL, so a file written on one side is read on the
     other. A carriage return left on the end of each line would reach the model as content."""
@@ -345,7 +316,6 @@ def test_crlf_lines_are_numbered_the_same_as_lf_ones(workspace):
     assert result.content == "1\tone\n2\ttwo\n3\tthree"
 
 
-@posix_only
 def test_read_file_refuses_a_binary_file(workspace):
     (workspace / "b.py").write_bytes(b"\x00\x01\x02")
     result = tools.execute_tool(
@@ -365,7 +335,6 @@ def test_read_file_refuses_a_non_string_path(workspace):
 # --- write_file -------------------------------------------------------------------------
 
 
-@posix_only
 def test_write_file_creates_a_new_file(workspace):
     target = workspace / "new.py"
     result = tools.execute_tool(
@@ -376,7 +345,6 @@ def test_write_file_creates_a_new_file(workspace):
     assert "Created" in result.content
 
 
-@posix_only
 def test_write_file_overwrites_and_says_so(workspace):
     result = tools.execute_tool(
         cfg(workspace), call("write_file", path=str(workspace / "a.py"), content="z = 3\n"),
@@ -397,7 +365,6 @@ def test_write_file_refuses_rather_than_truncating(workspace):
     assert not target.exists(), "a refused write must not have happened partially"
 
 
-@posix_only
 def test_write_file_refuses_a_missing_parent_directory(workspace):
     """must_exist=False relaxes the file, never the tree above it."""
     result = tools.execute_tool(
@@ -408,7 +375,6 @@ def test_write_file_refuses_a_missing_parent_directory(workspace):
     assert "does not exist" in result.content
 
 
-@posix_only
 def test_write_file_refuses_an_existing_directory(workspace):
     (workspace / "sub").mkdir()
     result = tools.execute_tool(
@@ -427,9 +393,8 @@ def test_write_file_still_refuses_an_unlisted_extension(workspace):
 
 BWRAP_REASON = (
     "EXIT-CODE CAPTURE UNPROVEN BY THIS RUN -- this is not a pass. Capturing a real "
-    "exit code needs a real bubblewrap, which exists in WSL and not on Windows. Run: "
-    "wsl -d Ubuntu-24.04 -e bash -lc 'cd <repo> && ~/.venvs/delegate/bin/python -m "
-    "pytest tests/test_tools.py'"
+    "exit code needs a real bubblewrap. Run it where bubblewrap can create namespaces: "
+    "python -m pytest tests/test_tools.py"
 )
 
 
@@ -449,7 +414,6 @@ def needs_bwrap(fn):
         pytest.mark.skipif(shutil.which("bwrap") is None, reason=BWRAP_REASON)(fn))
 
 
-
 # --- edit_file ---------------------------------------------------------------------------
 #
 # The refusals are the tool, not the edge cases of it: a quotation that matches nothing or
@@ -466,7 +430,6 @@ def two():
 """
 
 
-@posix_only
 def test_edit_file_replaces_a_unique_occurrence(workspace):
     target = workspace / "mod.py"
     target.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
@@ -479,7 +442,6 @@ def test_edit_file_replaces_a_unique_occurrence(workspace):
     assert "Replaced 1 occurrence" in result.content
 
 
-@posix_only
 def test_edit_file_leaves_the_file_alone_when_the_quotation_is_stale(workspace):
     """Zero matches. The whole reason this addresses text rather than line numbers: a stale
     line number silently overwrites the wrong region, and a stale quotation cannot."""
@@ -494,7 +456,6 @@ def test_edit_file_leaves_the_file_alone_when_the_quotation_is_stale(workspace):
     assert target.read_text(encoding="utf-8") == MODULE
 
 
-@posix_only
 def test_edit_file_refuses_an_ambiguous_quotation_and_says_how_many(workspace):
     """Two matches, which is the case that would corrupt a file quietly if it replaced the
     first one -- the model would be told it succeeded and be looking at the wrong function."""
@@ -509,7 +470,6 @@ def test_edit_file_refuses_an_ambiguous_quotation_and_says_how_many(workspace):
     assert target.read_text(encoding="utf-8") == MODULE
 
 
-@posix_only
 def test_edit_file_deletes_when_new_string_is_empty(workspace):
     target = workspace / "mod.py"
     target.write_text("keep\ndrop\nkeep\n", encoding="utf-8")
@@ -521,7 +481,6 @@ def test_edit_file_deletes_when_new_string_is_empty(workspace):
     assert target.read_text(encoding="utf-8") == "keep\nkeep\n"
 
 
-@posix_only
 def test_edit_file_shrinking_a_file_truncates_what_is_left_over(workspace):
     """The descriptor is reused rather than reopened, so a missing truncate would leave the
     tail of the old contents behind -- a corruption the byte count would not reveal."""
@@ -536,7 +495,6 @@ def test_edit_file_shrinking_a_file_truncates_what_is_left_over(workspace):
     assert target.read_bytes() == b"a\n"
 
 
-@posix_only
 def test_edit_file_refuses_an_empty_old_string(workspace):
     """It matches at every position and identifies nothing, so it is a caller error rather
     than an edit of zero characters."""
@@ -551,7 +509,6 @@ def test_edit_file_refuses_an_empty_old_string(workspace):
     assert target.read_text(encoding="utf-8") == MODULE
 
 
-@posix_only
 def test_edit_file_refuses_a_no_op(workspace):
     """A turn spent changing nothing should say so rather than report a success."""
     target = workspace / "mod.py"
@@ -564,7 +521,6 @@ def test_edit_file_refuses_a_no_op(workspace):
     assert "identical" in result.content
 
 
-@posix_only
 def test_edit_file_refuses_a_result_over_the_write_limit(workspace):
     """The same limit write_file uses, and nothing is written -- the refusal has to come
     before the seek, not after it."""
@@ -579,7 +535,6 @@ def test_edit_file_refuses_a_result_over_the_write_limit(workspace):
     assert target.read_text(encoding="utf-8") == "x = 1\n"
 
 
-@posix_only
 def test_edit_file_refuses_a_file_that_is_not_text(workspace):
     """decode_text, shared with read_file, so a binary file gets one answer from both."""
     target = workspace / "blob.py"
@@ -592,7 +547,6 @@ def test_edit_file_refuses_a_file_that_is_not_text(workspace):
     assert target.read_bytes() == b"\x00\x01binary"
 
 
-@posix_only
 def test_edit_file_obeys_the_path_policy_like_every_other_file_tool(workspace, tmp_path):
     """It goes through `_one_path`, so this asserts the layers reach it rather than
     re-testing them: a path outside every root, and an unlisted extension."""
@@ -615,7 +569,6 @@ def test_edit_file_obeys_the_path_policy_like_every_other_file_tool(workspace, t
     assert blocked.read_text(encoding="utf-8") == "x = 1\n"
 
 
-@posix_only
 def test_edit_file_refuses_a_missing_file_rather_than_creating_one(workspace):
     """`must_exist=True`, unlike write_file: an edit to a file that is not there is a
     mistake about which file, and creating it would hide that."""
@@ -1023,13 +976,11 @@ def _search(root: Path, **args) -> str:
     return result.content
 
 
-@posix_only
 def test_a_match_is_reported_with_its_file_and_line_number(haystack):
     out = _search(haystack, pattern=r"def alpha")
     assert "core.py line 1: def alpha():" in out
 
 
-@posix_only
 def test_the_citation_never_joins_the_name_and_number_with_a_colon(haystack):
     """A name joined to a number by a colon reads as a host and a port once the number
     reaches four digits, and this project refuses that shape wherever text can reach a
@@ -1045,7 +996,6 @@ def test_the_citation_never_joins_the_name_and_number_with_a_colon(haystack):
     assert "core.py:1" not in out
 
 
-@posix_only
 def test_it_searches_the_whole_workspace_when_the_sentinel_is_given(haystack):
     """The point of the tool, and what the sentinel exists to keep reachable.
 
@@ -1059,21 +1009,18 @@ def test_it_searches_the_whole_workspace_when_the_sentinel_is_given(haystack):
     assert "notes.md" in out
 
 
-@posix_only
 def test_a_path_narrows_the_search(haystack):
     out = _search(haystack, pattern=r"alpha", path=str(haystack / "pkg"))
     assert "core.py" in out
     assert "notes.md" not in out
 
 
-@posix_only
 def test_a_glob_narrows_which_files_are_opened(haystack):
     out = _search(haystack, pattern=r"alpha", glob="*.md")
     assert "notes.md" in out
     assert "core.py" not in out
 
 
-@posix_only
 def test_no_match_says_so_rather_than_returning_nothing(haystack):
     """An empty string reads like a broken tool. It also has to avoid implying proof of
     absence, since the policy may simply not allow reading where the answer is."""
@@ -1082,7 +1029,6 @@ def test_no_match_says_so_rather_than_returning_nothing(haystack):
     assert "policy" in out
 
 
-@posix_only
 def test_an_invalid_regex_is_a_refusal_the_model_can_correct(haystack):
     result = tools.execute_tool(
         cfg(haystack), call("search_files", pattern="alpha("), tools.ALL_TOOL_NAMES)
@@ -1090,14 +1036,12 @@ def test_an_invalid_regex_is_a_refusal_the_model_can_correct(haystack):
     assert "regular expression" in result.content
 
 
-@posix_only
 def test_max_results_bounds_the_reply_and_the_reply_says_it_stopped(haystack):
     out = _search(haystack, pattern=r"alpha", max_results=1)
     assert len([ln for ln in out.splitlines() if " line " in ln]) == 1
     assert "Stopped early" in out
 
 
-@posix_only
 def test_a_path_outside_the_workspace_is_refused(haystack, tmp_path_factory):
     """Layer 2, through the new entry point. A search that could be pointed anywhere would
     be a way around the policy that governs every read."""
@@ -1109,7 +1053,6 @@ def test_a_path_outside_the_workspace_is_refused(haystack, tmp_path_factory):
     assert result.is_error
 
 
-@posix_only
 def test_a_refused_tool_path_is_not_reported_as_a_refused_prefetch(haystack):
     """The message is what the model reads to decide what to fix, so it must name the
     argument that was actually wrong.
@@ -1131,7 +1074,6 @@ def test_a_refused_tool_path_is_not_reported_as_a_refused_prefetch(haystack):
     assert "`path` argument" in result.content, result.content
 
 
-@posix_only
 def test_a_refused_read_file_path_says_the_same_thing(haystack):
     """The other handler through `_one_path`, so the fix is the surface and not one call
     site. `write_file` and `edit_file` reach it too."""
@@ -1155,7 +1097,6 @@ def test_a_refused_prefetch_still_names_files_and_the_lost_dispatch():
     assert "nothing was sent to the model" in message, message
 
 
-@posix_only
 def test_an_unlisted_extension_is_never_opened(haystack):
     """Layer 3's neighbour: the extension allowlist. Enumeration must not widen what a
     delegation can see -- a candidate `read_file` would refuse is not a result."""
@@ -1165,7 +1106,6 @@ def test_an_unlisted_extension_is_never_opened(haystack):
     assert "key-material" not in out
 
 
-@posix_only
 def test_a_denylisted_file_is_not_searched(haystack):
     """The secret denylist, which is the same list `read_file` and the sandbox read."""
     (haystack / "pkg" / ".env").write_text("TOKEN=alpha\n", encoding="utf-8")
@@ -1174,7 +1114,6 @@ def test_a_denylisted_file_is_not_searched(haystack):
     assert "TOKEN" not in out
 
 
-@posix_only
 def test_the_two_dispositions_differ_on_the_same_policy(haystack, tmp_path_factory):
     """Why `resolve_permitted` exists beside `resolve_all` rather than as a flag on it.
 
@@ -1197,7 +1136,6 @@ def test_the_two_dispositions_differ_on_the_same_policy(haystack, tmp_path_facto
     assert [k.posix for k in kept] == [os.path.realpath(inside)]
 
 
-@posix_only
 def test_the_scan_cap_is_reported_rather_than_passing_as_exhaustive(haystack):
     """A truncated search that reads like an exhaustive one is the failure worth avoiding:
     the model concludes a symbol does not exist, and says so confidently."""
@@ -1239,7 +1177,6 @@ def test_every_writing_tool_declares_that_it_writes():
     }
 
 
-@posix_only
 def test_a_write_is_refused_at_execution_for_a_read_only_toolset(workspace):
     """Site two, not site one. Filtering the declared list is advisory -- a model can call
     a tool it was never offered, and some do -- so the check that matters is the one at
@@ -1313,7 +1250,6 @@ def git_call(root: Path, **args):
 
 
 @git_only
-@posix_only
 def test_read_git_returns_real_history(repo):
     result = git_call(repo.parent, repo=str(repo), command="log", args=["--oneline"])
     assert not result.is_error, result.content
@@ -1321,7 +1257,6 @@ def test_read_git_returns_real_history(repo):
 
 
 @git_only
-@posix_only
 def test_read_git_accepts_a_path_argument(repo):
     result = git_call(
         repo.parent, repo=str(repo), command="log",
@@ -1332,7 +1267,6 @@ def test_read_git_accepts_a_path_argument(repo):
 
 
 @git_only
-@posix_only
 def test_shortlog_is_given_a_revision_rather_than_reading_stdin(repo):
     """`git shortlog` takes its commits from stdin when stdin is not a terminal, so with
     stdin closed it succeeds and prints nothing. Found by running the tool, not by reading
@@ -1385,7 +1319,6 @@ def test_a_path_after_the_separator_is_path_checked(workspace):
     assert "climbs out" in result.content, result.content
 
 
-@posix_only
 def test_a_repository_outside_the_workspace_is_refused(workspace, tmp_path):
     outside = tmp_path.parent / "outside-the-roots"
     outside.mkdir(exist_ok=True)
@@ -1395,7 +1328,6 @@ def test_a_repository_outside_the_workspace_is_refused(workspace, tmp_path):
 
 
 @git_only
-@posix_only
 def test_a_directory_inside_the_repository_resolves_to_its_root(repo):
     """`-C` makes git discover a repository by walking up, so what it resolves to is
     checked as well as what the caller wrote -- see the handler's docstring for why that
@@ -1410,7 +1342,6 @@ def test_a_directory_inside_the_repository_resolves_to_its_root(repo):
 
 
 @git_only
-@posix_only
 def test_long_output_is_truncated_on_a_line_boundary_and_says_so(repo):
     """A cut-off history that reads like a complete one is how a model concludes a commit
     does not exist."""
@@ -1457,7 +1388,6 @@ def test_a_host_without_git_is_not_offered_the_tool(workspace, monkeypatch):
 
 
 @git_only
-@posix_only
 def test_the_count_shorthand_is_accepted(repo):
     """`git log -1` is what a model reaches for first. A live delegation spent a turn
     being told to write `-n 1` instead, which is a synonym it already knew."""
@@ -1467,7 +1397,6 @@ def test_the_count_shorthand_is_accepted(repo):
 
 
 @git_only
-@posix_only
 def test_commits_can_be_counted(repo):
     """`rev-list --count` is the canonical way, and `log` alone cannot do it -- there is no
     pipe to `wc` here. The same delegation reached for this and was refused."""

@@ -22,7 +22,6 @@ Named after the bug, per the project's convention.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -30,11 +29,6 @@ import pytest
 from claude_delegate_local import tools
 from claude_delegate_local.config import Config
 from claude_delegate_local.tools import UNSCOPED, ToolRefused
-
-posix_only = pytest.mark.skipif(
-    os.name != "posix",
-    reason="resolving a real path needs a POSIX filesystem; the server runs in WSL",
-)
 
 
 def cfg(root: Path, **over) -> Config:
@@ -54,7 +48,6 @@ def tree(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@posix_only
 def test_a_bare_workspace_root_is_answered(tree):
     """Reversed on 2026-09-16, because the cost that justified refusing it is gone.
 
@@ -69,7 +62,6 @@ def test_a_bare_workspace_root_is_answered(tree):
     assert "deep.md" in out, "and answered wholly -- a root scope walks the whole root"
 
 
-@posix_only
 def test_the_answer_still_names_that_roots_own_children(tree):
     """The teaching survives the refusal being dropped, which is the point of the reversal.
 
@@ -84,7 +76,6 @@ def test_the_answer_still_names_that_roots_own_children(tree):
     assert UNSCOPED in out, "and the escape, or the capability becomes unreachable"
 
 
-@posix_only
 def test_a_trailing_slash_is_answered_the_same_way(tree):
     """The spelling that a string compare would have missed still resolves to the root.
 
@@ -98,7 +89,6 @@ def test_a_trailing_slash_is_answered_the_same_way(tree):
     assert UNSCOPED in out, "recognised as a root, so it carried the note"
 
 
-@posix_only
 def test_a_subdirectory_is_still_accepted(tree):
     """Control. Must pass before the fix as well as after."""
     out = tools._search_files(cfg(tree), {"pattern": "needle", "path": str(tree / "pkg")})
@@ -107,7 +97,6 @@ def test_a_subdirectory_is_still_accepted(tree):
     assert "top.md" not in out
 
 
-@posix_only
 def test_a_file_at_the_top_level_is_still_accepted(tree):
     """Control. Pointing at a file is the narrowest scope there is, not the widest.
 
@@ -119,7 +108,6 @@ def test_a_file_at_the_top_level_is_still_accepted(tree):
     assert "top.md" in out
 
 
-@posix_only
 def test_the_sentinel_still_walks_every_root(tree):
     """Control. The deliberate whole-everything search must survive.
 
@@ -132,7 +120,6 @@ def test_the_sentinel_still_walks_every_root(tree):
     assert "deep.md" in out
 
 
-@posix_only
 def test_a_missing_path_is_still_refused_for_being_missing(tree):
     """Control on ordering. The two refusals are different facts and must stay distinct."""
     with pytest.raises(ToolRefused) as caught:

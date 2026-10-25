@@ -14,14 +14,8 @@ remedy called "the only place it is reported", **passed on the exact misconfigur
 exists to catch**, and the advice it carried sat in a `FAIL` branch that failure could never
 reach. That is the fifth check found here that could not fail.
 
-**The fault is POSIX-only, and so are the tests that need a real path.** On Windows
-`C:\Users\me\t` is genuinely absolute and nothing is wrong, which is why `transcript.py`
-opens through `wsl.to_local` rather than `wsl.to_posix`: translating a location on the host
-that wrote it invents a directory under the current drive. An earlier draft of this file
-translated unconditionally, and the full Windows suite caught it -- 23 failures across
-`test_transcript*.py`, every one a record written to `C:\mnt\c\...` instead of the
-directory the caller named. The string-level tests below are host-independent; the ones
-that resolve a location carry `POSIX_ONLY`.
+The server runs only on the POSIX side, so `transcript.py` translates through
+`wsl.to_posix` like every other path setting.
 """
 
 from __future__ import annotations
@@ -33,17 +27,11 @@ import pytest
 
 from claude_delegate_local import doctor, transcript
 from claude_delegate_local.config import Config
-from claude_delegate_local.wsl import UntranslatablePath, to_local, to_posix
+from claude_delegate_local.wsl import UntranslatablePath, to_posix
 
 WINDOWS_FORM = r"C:\Users\me\transcripts"
 POSIX_FORM = "/mnt/c/Users/me/transcripts"
 UNC_FORM = r"\\fileserver\share\transcripts"
-
-POSIX_ONLY = pytest.mark.skipif(
-    os.name != "posix",
-    reason="the fault needs a host where a Windows path is not already absolute",
-)
-
 
 def cfg(**over) -> Config:
     kw = {"workspace_roots": (".",)}
@@ -73,45 +61,38 @@ def test_translation_turns_it_into_a_real_absolute_path():
     assert str(translated) == POSIX_FORM
 
 
-def test_to_local_translates_only_where_the_boundary_is_real():
-    """The distinction the 23-failure Windows run forced, pinned on both hosts."""
-    if os.name == "posix":
-        assert to_local(WINDOWS_FORM) == POSIX_FORM
-    else:
-        assert to_local(WINDOWS_FORM) == WINDOWS_FORM, "already absolute here"
-    assert to_local(POSIX_FORM) == POSIX_FORM, "a POSIX path is never rewritten"
+def test_a_location_translates_a_windows_form_and_keeps_a_posix_one():
+    """A Windows-form location is translated, and a POSIX one left alone."""
+    assert to_posix(WINDOWS_FORM) == POSIX_FORM
+    assert to_posix(POSIX_FORM) == POSIX_FORM, "a POSIX path is never rewritten"
 
 
-def test_surrounding_whitespace_is_stripped_on_either_host():
-    """`to_local` strips on both branches, so dropping the old `.strip()` changed nothing."""
-    assert to_local(f"  {POSIX_FORM}\n") == POSIX_FORM
+def test_surrounding_whitespace_is_stripped():
+    """Surrounding whitespace is stripped before translating."""
+    assert to_posix(f"  {POSIX_FORM}\n") == POSIX_FORM
 
 
-# --- resolving an actual location. POSIX only, because that is where the fault lives. ----
+# --- resolving an actual location. -------------------------------------------------------
 
 
-@POSIX_ONLY
 def test_the_directory_is_translated_rather_than_taken_literally():
     resolved = PurePosixPath(transcript.directory(cfg(transcript_dir=WINDOWS_FORM)).as_posix())
     assert resolved.is_absolute(), "the whole fault was that this was False"
     assert str(resolved) == POSIX_FORM
 
 
-@POSIX_ONLY
 def test_a_posix_transcript_dir_is_untouched():
     """The idempotence `to_posix` claims, tested rather than trusted."""
     resolved = transcript.directory(cfg(transcript_dir=POSIX_FORM)).as_posix()
     assert resolved == POSIX_FORM
 
 
-@POSIX_ONLY
 def test_a_unc_transcript_dir_is_refused_rather_than_invented():
     """There is no mount point for a share here, so a plausible-looking path is worse."""
     with pytest.raises(UntranslatablePath):
         transcript.directory(cfg(transcript_dir=UNC_FORM))
 
 
-@POSIX_ONLY
 def test_open_stream_swallows_an_untranslatable_directory():
     """This module may not raise into a delegation -- the module docstring's own rule.
 
@@ -150,8 +131,7 @@ def test_the_doctor_translates_through_transcript_rather_than_by_hand(tmp_path, 
 
 
 def test_the_doctor_fails_a_unc_directory_with_a_message_not_a_traceback():
-    """FAIL on either host, though for different reasons: `UntranslatablePath` on POSIX,
-    and a real `OSError` from an unreachable share on Windows. Both must carry a remedy."""
+    """A UNC share is `UntranslatablePath` here, and the FAIL must carry a remedy."""
     check = doctor.check_transcripts(cfg(transcript_dir=UNC_FORM))
     assert check.verdict == doctor.FAIL
     assert check.remedy
