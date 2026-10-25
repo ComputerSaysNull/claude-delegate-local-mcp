@@ -38,7 +38,9 @@ Older entries, in the previous flat format, are in
   a protocol era whose roots go away from 2027-07-28 with no way forward. The one break,
   the removed roots call, was answered by the previous section; beyond it only test reads
   of renamed fields changed (`input_schema`, `read_only_hint`, ...). A slowdown seen on 4.1.3
-  under WSL2 does not reproduce on the host (JOURNAL 2026-10-25).
+  under WSL2 does not reproduce on the host (JOURNAL 2026-10-25). CI's pins move with it, and
+  only as far as FastMCP 4 forces: every other pin held, the resolver released `mcp` (now
+  2.3.0, the SDK v2 behind the renames) and `openapi-pydantic`, and nothing else changed.
 - **A FastMCP deprecation fails the suite.** The renamed fields still answer under their
   old names with a warning nobody reads, until the release that removes them; pytest now
   turns `FastMCPDeprecationWarning` into an error, which failed eight tests before the rename.
