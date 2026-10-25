@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #488 — 2026-10-24 — feat: Python 3.14 is the floor
+
+### Changed
+
+- **`requires-python` is `>=3.14` and CI tests 3.14 alone.** 3.12 was the floor because the
+  server ran on Ubuntu 24.04's system interpreter in WSL2; it now runs on a Linux host whose
+  own Python is 3.14, which is also what development uses, so nothing here runs 3.12 any
+  more and a CI leg on it tested a version nobody uses. The tests job stays a matrix of one
+  so its required check keeps the name `tests (3.14)`; `tests (3.12)` leaves the branch
+  ruleset. README and CONTRIBUTING say how to get 3.14 on a release that ships older
+  (`uv venv --seed -p 3.14`), since a plain `python3 -m venv` there now builds an
+  interpreter the package refuses.
+
 ## #487 — 2026-10-24 — fix: take FastMCP's 3.x security backports
 
 ### Fixed

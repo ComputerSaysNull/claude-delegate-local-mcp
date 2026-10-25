@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       # Host literals are never committed -- a file listing what must not be committed is
       # itself the leak -- so CI reads them from a repository secret. Without the secret
@@ -64,7 +64,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       # ruff is pinned in pyproject.toml, and the rule set is written out there rather
       # than inherited. Both matter: with an unbounded version and no `select`, this
@@ -93,15 +93,13 @@ jobs:
       # at once -- applied wherever it can be machine-enforced rather than merely written down.
       max-parallel: 6
       fail-fast: false
-      # Floor and ceiling, not floor and floor+1. 3.12 is what the server runs on --
-      # Ubuntu 24.04's system interpreter, in WSL2 -- and 3.14 is what development
-      # happens on, so between them every interpreter anyone here actually uses is
-      # covered. Testing 3.12 and 3.13 would have bought a second reading of a version
-      # nobody runs while leaving the newest untested. 3.11 was dropped with the floor:
-      # nothing needed it, and it was only ever the floor because the project started
-      # there.
+      # One interpreter, because it is the only one anyone here runs: the server and
+      # development both run on 3.14 now, so 3.12 left the floor with the last machine
+      # that used it. Still a matrix of one, so the job keeps the name `tests (3.14)` that
+      # the branch ruleset requires; a second entry is one line when a second interpreter
+      # is in real use again.
       matrix:
-        python: ["3.12", "3.14"]
+        python: ["3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 

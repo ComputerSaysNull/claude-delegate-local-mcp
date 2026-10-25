@@ -44,7 +44,7 @@ them — each is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)'s or
 
 - A local OpenAI-compatible endpoint (this was built against vLLM serving DeepSeek V4
   Flash on two DGX-Spark-class machines, but nothing depends on that specific stack).
-- Python 3.12+.
+- Python 3.14+ (where the OS ships older, `uv venv --seed -p 3.14` fetches one).
 - **Linux, or WSL2 on Windows** — `bubblewrap` is Linux-only, so the server runs there even
   when Claude Code does not ([why](docs/ARCHITECTURE.md)).
 
@@ -78,7 +78,7 @@ step](docs/ARCHITECTURE.md). Reading, writing and reviewing files need none of i
 On Windows plus WSL2 the two interpreters cannot share `.venv`: a Linux `python -m venv
 .venv` overwrites a Windows one in place, and it reads as a corrupted install rather than a
 collision. Put the WSL one elsewhere, on the native filesystem rather than `/mnt/c` where
-creating it is ~27x slower (ADR-0020) — `python3 -m venv ~/.venvs/delegate`, then
+creating it is ~27x slower (ADR-0020) — `uv venv --seed -p 3.14 ~/.venvs/delegate`, then
 `~/.venvs/delegate/bin/pip install -e /mnt/c/path/to/the/repo`. That is the runtime
 only; [CONTRIBUTING.md](CONTRIBUTING.md) adds `[dev]` to the same venv for tests.
 

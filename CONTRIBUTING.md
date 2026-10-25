@@ -3,14 +3,14 @@
 
 ## Setup
 
-One interpreter, and it is one CI runs: **Python 3.12, in WSL2**. A green run on a version
+One interpreter, and it is one CI runs: **Python 3.14, in WSL2**. A green run on a version
 CI never tests proves less than it appears to, and WSL2 is where the server runs anyway
 (ADR-0002) -- the only place `bubblewrap` and realistic filesystem speed exist. The venv sits
 in the WSL home, not the repository: creating one on `/mnt/c` is far slower (ADR-0020).
 
 ```bash
 wsl -d Ubuntu-24.04 -e bash -lc '
-  python3 -m venv ~/.venvs/delegate
+  uv venv --seed -p 3.14 ~/.venvs/delegate
   ~/.venvs/delegate/bin/pip install -e "/mnt/c/path/to/repo[dev]"'
 
 wsl -d Ubuntu-24.04 -e bash -lc 'cd /mnt/c/path/to/repo && ~/.venvs/delegate/bin/python -m pytest -q'
@@ -124,10 +124,10 @@ Security-sensitive work — `sandbox.py`, `paths.py`, `wsl.py` — gets a short 
 ## CI
 
 `.github/workflows/ci.yml` runs four jobs on every pull request — **gate**, **lint**,
-**tests** (3.12 and 3.14), and **gitleaks**. `pyproject.toml` pins the ruff version *and*
+**tests** (3.14), and **gitleaks**. `pyproject.toml` pins the ruff version *and*
 the rule set, because a lint job on a moving rule set fails builds nobody broke. **lint**
 also runs `mypy` over `src/`, bounded the same way; run it locally beside `ruff check`. `.github/ci-constraints.txt` pins the rest
-for both install steps; refresh it with `pip freeze --exclude-editable` from a clean 3.12
+for both install steps; refresh it with `pip freeze --exclude-editable` from a clean 3.14
 install of `.[dev]`. To bump one package, such as for a security fix, hold every other pin
 (`-c` with its line removed) and move only what the resolver then changes; a full refresh
 would ride unrelated upgrades in on the fix. Pins, not `pip lock`, whose lock holds one interpreter's wheels. Workflow
