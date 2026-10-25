@@ -30,6 +30,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #493 — 2026-10-25 — feat: a session's folder comes from CLAUDE_PROJECT_DIR, not MCP roots
+
+### Changed
+
+- **A session is narrowed to the project its client was started in, read from
+  `CLAUDE_PROJECT_DIR`, and a client's MCP roots are no longer read (ADR-0128).** Roots were
+  how each session was kept out of the other projects under the configured ceiling
+  (ADR-0110), asked per call. The 2026-07-28 protocol deprecates them as access control, and
+  FastMCP 4 removes the call; its replacement costs a round trip per call on a mechanism
+  being retired. Claude Code sets the variable for every stdio server it starts and the
+  model cannot, so the boundary keeps its trust level. `config.load` reads it from the live
+  environment, never from `.env`, translates it like any client path and refuses a relative
+  one, which would otherwise resolve against the server's own working directory and narrow
+  the session to a folder nobody named. The ceiling, the narrowing and the fail-closed refusals
+  are unchanged; `client_roots` now decides a server started without the variable, still
+  refusing it by default. Because roots are not read, a client listing another project as a
+  root does not reach it, which a new test pins. `/add-dir` no longer widens a delegation:
+  the layer-1 refusal now says to delegate from a session opened in the other project,
+  rather than to add the folder. `file_uri_to_posix`, which existed only to read roots, is
+  gone.
+
 ## #492 — 2026-10-25 — fix: settings files resolve beside the .env, not the working directory
 
 ### Fixed

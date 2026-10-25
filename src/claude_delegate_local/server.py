@@ -40,7 +40,7 @@ from .backends.openai_compat import OpenAICompatBackend
 from .admission import Admission, AdmissionError, AdmissionLease, AdmissionTimedOut
 from .agents import AgentError, AgentSpec, load_agent
 from .agents import survey_agents as discover_agents
-from .config import EFFORT_INHERIT, EFFORT_LEVELS, Config, ConfigError
+from .config import EFFORT_INHERIT, EFFORT_LEVELS, PROJECT_DIR_VAR, Config, ConfigError
 from .context import FileEntry, FileRequest, estimate_text_tokens, prefetch, skip_from_refusal
 from .handles import Handles, NotWaitingError, Pause, UnknownHandle
 from .loop import (
@@ -73,7 +73,6 @@ from .paths import (
     resolved_roots,
     resolved_workdir_roots,
 )
-from .wsl import file_uri_to_posix
 from .registry import ModelEntry, Registry, RegistryError
 from .slots import (
     SharedSlots,
@@ -1717,14 +1716,14 @@ failure modes worth knowing, kept there rather than here so it costs nothing unt
 class SessionScope(NamedTuple):
     """The configuration one call runs under, narrowed to its session's folders.
 
-    `workdir_ok` is False when `workdir_roots` is configured and none of the session's
-    folders is inside it: an empty `workdir_roots` means "reuse workspace_roots", so the
-    empty narrowing cannot be written into the config without silently widening it.
+    `workdir_ok` is False when `workdir_roots` is configured and the session's project is
+    not inside it: an empty `workdir_roots` means "reuse workspace_roots", so the empty
+    narrowing cannot be written into the config without silently widening it.
 
     `workspace` is the *name* of the project folder the session runs in -- the last
-    component of the first folder the client lists inside the configured ceiling -- so the
-    stream's `start` event can say which project a delegation was in. None when the client
-    lists no roots, which is when the configured roots apply unchanged.
+    component of its project, narrowed into the configured ceiling -- so the stream's
+    `start` event can say which project a delegation was in. None when the server has no
+    project, which is when the configured roots apply unchanged.
     """
 
     cfg: Config
@@ -1732,45 +1731,9 @@ class SessionScope(NamedTuple):
     workspace: str | None
 
 
-def _workspace_name(ceiling: Sequence[str], roots: Sequence[str]) -> str | None:
-    """The name of the first client-listed root inside the ceiling, or None.
-
-    The client's own order, never `narrow_roots(ceiling, roots)`'s: that re-sorts into the
-    ceiling's order, so its head is the first *configured* root, which is not the same as
-    the first folder the client listed. The name is the last component of the narrowed root
-    -- the folder that actually gets read from -- not the path.
-    """
-    for r in roots:
-        narrowed = narrow_roots(ceiling, (r,))
-        if narrowed:
-            return os.path.basename(narrowed[0].rstrip("/")) or None
-    return None
-
-
-async def _client_roots(ctx: Context | None) -> list[str] | None:
-    """The folders the client lists for this session, resolved; None if it lists none.
-
-    A client that declares the capability and then fails to answer is refused rather than
-    treated as one without it: it has said it knows where it works, so falling back to the
-    configured roots would widen exactly the session that asked to be narrowed.
-    """
-    if ctx is None:
-        return None
-    try:
-        params = ctx.session.client_params
-    except RuntimeError:  # no live request, as when a handler is called directly
-        return None
-    if params is None or params.capabilities.roots is None:
-        return None
-    try:
-        listed = await ctx.list_roots()
-    except Exception as e:
-        raise ToolError(
-            f"This client declares MCP roots but listing them failed ({e}), so the session's "
-            "folders are unknown and nothing is reached. Retry the call."
-        ) from e
-    found = (file_uri_to_posix(str(r.uri)) for r in listed)
-    return [os.path.realpath(p) for p in found if p is not None]
+def _workspace_name(workspace: Sequence[str]) -> str | None:
+    """The last component of the narrowed project -- the folder actually read from."""
+    return os.path.basename(workspace[0].rstrip("/")) or None if workspace else None
 
 
 def _repo_ext_allowlists(cfg: Config) -> tuple[tuple[str, tuple[str, ...]], ...]:
@@ -1786,36 +1749,37 @@ def _repo_ext_allowlists(cfg: Config) -> tuple[tuple[str, tuple[str, ...]], ...]
         raise ToolError(str(e)) from e
 
 
-async def session_scope(cfg: Config, ctx: Context | None) -> SessionScope:
-    """`cfg` with its roots narrowed to the folders this call's client lists (ADR-0110).
+def session_scope(cfg: Config) -> SessionScope:
+    """`cfg` with its roots narrowed to this session's project (ADR-0128).
 
     Before anything reads a path, and in every handler that reads one: a handler left on
     the build-time `cfg` is a session reaching every configured root, which is the bug.
     """
-    roots = await _client_roots(ctx)
-    if roots is None:
+    if cfg.project_dir is None:
         if cfg.client_roots == "require":
             raise ToolError(
-                "This client lists no MCP roots, so it has not said which project this "
-                "session works in, and DELEGATE_CLIENT_ROOTS=require refuses that. Use a "
-                "client that lists roots, or set DELEGATE_CLIENT_ROOTS=narrow to apply "
-                "DELEGATE_WORKSPACE_ROOTS as configured."
+                f"This server was started without {PROJECT_DIR_VAR}, so it does not know "
+                "which project this session works in, and DELEGATE_CLIENT_ROOTS=require "
+                "refuses that. Claude Code sets it for every server it starts; another "
+                "client can set it in the server's environment, or the operator can set "
+                "DELEGATE_CLIENT_ROOTS=narrow to apply DELEGATE_WORKSPACE_ROOTS as configured."
             )
         return SessionScope(
             replace(cfg, repo_ext_allowlists=_repo_ext_allowlists(cfg)), workdir_ok=True,
             workspace=None,
         )
+    roots = (cfg.project_dir,)
     ceiling = resolved_roots(cfg)
     workspace = narrow_roots(ceiling, roots)
     if not workspace:
         raise ToolError(
-            f"None of the folders this session lists ({', '.join(roots) or 'none'}) is "
-            f"inside DELEGATE_WORKSPACE_ROOTS ({', '.join(ceiling)}), so it may reach "
-            "nothing. Open the session in a project under one of those roots, or add the "
-            "folder your projects live in to DELEGATE_WORKSPACE_ROOTS, once, in "
+            f"This session's project ({cfg.project_dir}) is not inside "
+            f"DELEGATE_WORKSPACE_ROOTS ({', '.join(ceiling)}), so it may reach nothing. "
+            "Open the session in a project under one of those roots, or add the folder your "
+            "projects live in to DELEGATE_WORKSPACE_ROOTS, once, in "
             f"{cfg.env_file or 'the environment this server was started with'}."
         )
-    workspace_name = _workspace_name(ceiling, roots)
+    workspace_name = _workspace_name(workspace)
     if not cfg.workdir_roots:
         scope_cfg = replace(cfg, workspace_roots=workspace)
         return SessionScope(
@@ -1964,7 +1928,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         """
         # The roots are asked for while the call is live: the run outlives it, which is why
         # it is handed `ctx=None`.
-        scope = await session_scope(cfg, ctx)
+        scope = session_scope(cfg)
         pause = Pause() if may_ask else None
         ask = _ask_caller(pause, scope.cfg) if pause is not None else None
         run = run_delegation(
@@ -2003,7 +1967,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         turns and can go looking, so name the obvious material and let it find the rest.
         Use `delegate_to_agent_readonly` when an agent file should shape the work.
         """
-        scope = await session_scope(cfg, ctx)
+        scope = session_scope(cfg)
         if not may_ask:
             return await run_delegation(
                 scope.cfg, registry, cache, windows, admission, rates=rates,
@@ -2048,8 +2012,8 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             return None
         if not scope.workdir_ok:
             raise ToolError(
-                f"{given} is outside every workdir root this session has: none of the "
-                "folders the client lists is inside DELEGATE_WORKDIR_ROOTS."
+                f"{given} is outside every workdir root this session has: its project "
+                f"({PROJECT_DIR_VAR}) is not inside DELEGATE_WORKDIR_ROOTS."
             )
         try:
             return resolve_workdir(scope.cfg, given)
@@ -2092,7 +2056,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         """
         # Both checked *before* either is used: the agent lookup reads under `project`, and
         # a root check after that read would not be a check.
-        scope = await session_scope(cfg, ctx)
+        scope = session_scope(cfg)
         resolved_workdir = _rooted(scope, workdir)
         resolved_project = (
             _rooted(scope, project) if project is not None else resolved_workdir)
@@ -2136,7 +2100,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         `search_files` and `read_git` whatever its file says -- so an agent declaring
         `run_bash` does not get it, and one declaring less gains the rest.
         """
-        scope = await session_scope(cfg, ctx)
+        scope = session_scope(cfg)
         resolved_project = _rooted(scope, project)
         agent = _load(scope, agent_name, resolved_project)
         if not may_ask:
@@ -2276,7 +2240,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         and `other_format` are Claude Code's own agent files sharing the directory -- not
         faulty, and not runnable here.
         """
-        scope = await session_scope(cfg, ctx)
+        scope = session_scope(cfg)
         listing = discover_agents(scope.cfg, _rooted(scope, project))
         found, skipped = listing.agents, listing.skipped
         return {

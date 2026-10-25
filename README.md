@@ -134,7 +134,8 @@ Windows, server in WSL2:
 `--cd` and the script's absolute path are both load-bearing: without them the server starts
 in the wrong directory or is not found at all, and neither failure names its own cause —
 [TROUBLESHOOTING](docs/TROUBLESHOOTING.md#startup) has both symptoms. Give `--cd` the
-Windows form of the path; `/mnt/c/...` is rejected.
+Windows form of the path; `/mnt/c/...` is rejected. A session reaches only its project,
+`CLAUDE_PROJECT_DIR`, which Claude Code sets; `wsl.exe` passes it only if `WSLENV` names it.
 
 `timeout` is milliseconds and the wall-clock default is generous. What the per-turn progress
 notification holds off, and what it does not, is [DISPATCH](docs/DISPATCH.md)'s.
