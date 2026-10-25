@@ -44,7 +44,6 @@ from .paths import (
     key_material_marker,
     load_protected_globs,
     load_secret_globs,
-    resolve_configured_path,
     secret_match,
 )
 from .wsl import to_posix
@@ -460,7 +459,7 @@ def load_opaque_globs(cfg: Config) -> tuple[str, ...]:
     raw = cfg.opaque_globs_file.strip()
     if not raw:
         return ()
-    path = resolve_configured_path(raw)
+    path = cfg.resolve_file_setting(raw)
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -489,7 +488,7 @@ def _list_file_exemptions(cfg: Config) -> frozenset[str]:
     for raw in (cfg.secret_globs_file, cfg.opaque_globs_file):
         if not raw.strip():
             continue
-        out.add(os.path.realpath(resolve_configured_path(raw.strip())))
+        out.add(os.path.realpath(cfg.resolve_file_setting(raw.strip())))
     return frozenset(out)
 
 

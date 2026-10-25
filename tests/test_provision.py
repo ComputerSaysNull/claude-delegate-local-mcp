@@ -18,12 +18,14 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from conftest import REPO
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -537,12 +539,15 @@ def test_this_repository_declares_the_tests_that_cannot_run_nested():
 def drive(args: list[str]) -> tuple[int, str]:
     """`provision.main` loads the live config, which discovers `<repo>/.env` unless a file
     is named. An empty one keeps the developer's own settings out, so a line CI never sees
-    cannot fail a test here.
+    cannot fail a test here. The shipped lists go beside it, where a relative setting looks.
     """
     out = io.StringIO()
     with tempfile.TemporaryDirectory() as scratch, pytest.MonkeyPatch.context() as patch:
         empty = Path(scratch) / "empty.env"
         empty.write_text("", encoding="utf-8")
+        (Path(scratch) / "security").mkdir()
+        for name in ("secret_globs.txt", "protected_globs.txt", "opaque_globs.txt"):
+            shutil.copy(REPO / "security" / name, Path(scratch) / "security" / name)
         patch.setenv(ENV_FILE_VAR, str(empty))
         code = provision.main(argv=args, out=out)
     return code, out.getvalue()

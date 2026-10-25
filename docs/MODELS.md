@@ -18,8 +18,8 @@ registered.
 
 ## The file
 
-Copy `models.toml.example` to `models.toml`. It is gitignored, because it names a host, and
-a hostname identifies your machine as surely as an address.
+Copy `models.toml.example` to `models.toml` beside your `.env`. It is gitignored, because it
+names a host, and a hostname identifies your machine as surely as an address.
 
 ```toml
 [models.deepseek-v4-flash]

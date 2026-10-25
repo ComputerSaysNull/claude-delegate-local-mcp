@@ -18,6 +18,10 @@ One variable is **not** in the table and cannot be: `DELEGATE_ENV_FILE` chooses 
 `.env` beside the repository root is used if present; set to a path that does not exist,
 loading fails rather than quietly falling back to defaults. ADR-0027.
 
+A **relative file setting** — the registry and the three security lists — resolves against
+the folder of the `.env` it was read from, or the repository root when none was read, and
+never against the working directory: a stdio server starts in its client's project.
+
 
 <!-- GEN:CONFIG:START -->
 

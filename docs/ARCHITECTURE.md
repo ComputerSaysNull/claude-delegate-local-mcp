@@ -164,10 +164,11 @@ everything else is not asked.
 **A default is read and printed, never written.** An answer equal to the default emits no
 line, because a value in `.env` is a frozen copy — raise the default in `config.py` and
 every generated file silently keeps the old number with nothing to compare it against.
-Which questions were waved through is recorded by name, without their values. `init.py`
-holds no default, help string or validation rule of its own: the prompts come from
-`config.describe()`, the introspection [CONFIGURATION.md](CONFIGURATION.md) is generated
-from, and the rules from calling `registry._validate` and `config.load`.
+Which questions were waved through is recorded by name, without their values. Nor is
+`models_file` written: the registry goes beside the `.env`, where a relative one resolves.
+`init.py` holds no default, help string or validation rule of its own: the prompts come
+from `config.describe()`, the introspection [CONFIGURATION.md](CONFIGURATION.md) is
+generated from, and the rules from calling `registry._validate` and `config.load`.
 
 **Every path it writes is in POSIX form, and the roots are asked one per line.** Not a
 preference: `config.load` splits a tuple setting on `os.pathsep`, which is `:` here, so a

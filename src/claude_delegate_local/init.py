@@ -305,8 +305,7 @@ def _field_problem(key: str, name: str, value: str) -> str | None:
 # Rendering
 
 
-def render_env(answers: Answers, rows: dict[str, dict[str, Any]], *,
-               models_file: str = "") -> str:
+def render_env(answers: Answers, rows: dict[str, dict[str, Any]]) -> str:
     """The `.env` text. Every setting line here is a departure from a default."""
     lines = [
         "# Written by `claude-delegate-local-mcp --init`. Adjust freely; it is gitignored.",
@@ -317,8 +316,6 @@ def render_env(answers: Answers, rows: dict[str, dict[str, Any]], *,
         "",
     ]
     lines += [f"{rows[name]['env']}={value}" for name, value in answers.settings.items()]
-    if models_file:
-        lines.append(f"{config.env_name('models_file')}={models_file}")
     kept = [rows[n]["env"] for n in OFFERED_SETTINGS if n not in answers.settings]
     if kept:
         # Named, not valued: which questions were waved through is worth recording, but
@@ -423,17 +420,10 @@ def write_files(answers: Answers, rows: dict[str, dict[str, Any]], root: Path, *
         if (moved := back_up(path, stamp=stamp)) is not None:
             print(f"  moved aside: {moved.name}", file=out)
 
-    # `models_file` defaults to `./models.toml`, relative to the working directory, while
-    # both files go beside the repository root, where `config.load` discovers `.env`. When
-    # the two differ the default would not find the registry, so the path is written -- a
-    # departure from the default, not a copy of one.
-    #
-    # Translated like every other path here, which matters for `--init` run on Windows,
-    # writing configuration a server in WSL reads: a native `C:\...` would name nothing
-    # there.
-    models_setting = "" if Path.cwd().resolve() == root else to_posix(str(models_path))
-    env_path.write_text(render_env(answers, rows, models_file=models_setting),
-                        encoding="utf-8")
+    # Both files go beside the repository root, where `config.load` discovers `.env`, and a
+    # relative `models_file` resolves against that folder: the default finds the registry
+    # from any working directory, so nothing is written for it.
+    env_path.write_text(render_env(answers, rows), encoding="utf-8")
     models_path.write_text(render_models(answers), encoding="utf-8")
     for path in (env_path, models_path):
         # As for the transcript directory's mode: the contents name a host.

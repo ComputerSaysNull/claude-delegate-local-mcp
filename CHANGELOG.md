@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #492 — 2026-10-25 — fix: settings files resolve beside the .env, not the working directory
+
+### Fixed
+
+- **A server started in another project read that project's security lists, or none.**
+  `models_file` and the three glob lists default to relative paths, which resolved against
+  the working directory. `wsl.exe --cd` used to pin that to this checkout; a stdio server on
+  Linux starts in its client's project instead, so a session in another repository read
+  that repository's `security/*.txt` -- or refused to start without them. This host's `.env`
+  pinned all four absolute to work around it. A relative file setting now resolves against
+  the folder of the `.env` it was read from, or the checkout when none was, through one
+  `Config.resolve_file_setting` shared by the loaders, the registry and the shadow scan. The
+  refusals for a missing list now say to put it beside the `.env` rather than to start the
+  server in the repository, and `--init` no longer writes an absolute `models_file` when run
+  from elsewhere, since the default now finds the registry from any working directory.
+
 ## #491 — 2026-10-25 — feat: development runs on Linux only
 
 ### Changed

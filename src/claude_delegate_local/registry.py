@@ -182,7 +182,7 @@ class Registry:
 
 
 def load(cfg: Config) -> Registry:
-    path = Path(cfg.models_file).expanduser()
+    path = cfg.resolve_file_setting(cfg.models_file)
     if not path.exists():
         raise RegistryError(
             f"Model registry not found at {path}. Copy models.toml.example to "
