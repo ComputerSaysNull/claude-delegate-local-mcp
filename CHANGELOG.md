@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #506 — 2026-10-26 — fix: plan_stack finds the base after a parent gained a commit
+
+### Fixed
+
+- **`plan_stack.py` named a base that would replay a merged commit.** Seen at #499 → #500:
+  the child was branched from the parent's first commit, then the parent gained a second
+  before its squash-merge. `front_base` looks for the newest ancestor whose tree `main`
+  holds, but the squash carries only the parent's final tree, so nothing matched and it
+  fell back to the fork, which replays the parent's first commit. It now asks next which
+  ancestor's changes `main` already contains (`git merge-tree` against `main`, writing its
+  objects to a throwaway directory so the script still changes nothing), which finds that
+  commit on the real history. Not via `gh`: from a script in Claude Code's sandbox it has
+  no login, and a failed call would quietly fall back to the bug. If the parent's later
+  commit rewrote the same lines, `merge-tree` conflicts and the fork is returned as before.
+
 ## #505 — 2026-10-26 — fix: a handle says it comes from a question
 
 ### Fixed

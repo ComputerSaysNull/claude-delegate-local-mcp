@@ -65,7 +65,8 @@ the cause, and the fix. In six months the why is the only part still worth havin
 closes a stacked child unreopenably. `python scripts/plan_stack.py` orders it, refuses a fork,
 checks the number, takes the title and body from the CHANGELOG section plus `--verification
 <file>` (its text, no heading), and prints the commands — **which you run yourself**: a hook cannot see a script's
-subprocess. A branch may hold several commits; each restack keeps them all.
+subprocess. A branch may hold several commits; each restack keeps them all, and drops a
+parent's commit even when the child was cut before the parent gained another.
 
 ## Which document do I update?
 
