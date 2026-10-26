@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #504 — 2026-10-26 — fix: the CI pin file has no owning document
+
+### Fixed
+
+- **A pin refresh no longer needs a `Docs-Gate-Skip`.** `.github/ci-constraints.txt` fell
+  under CONTRIBUTING's `.github/**`, so every refresh was held to CONTRIBUTING though it
+  changes no fact CONTRIBUTING states; two refreshes in a week (#494, #499) each carried a
+  skip, which CLAUDE.md reads as the document being wrong rather than the rule. The file is
+  now declared unowned. On the way, `--owner` looked up owners before `[unowned]` while the
+  gate checks `[unowned]` first, so it would still have named CONTRIBUTING for a file the
+  gate skips. It now uses the gate's order.
+
 ## #503 — 2026-10-26 — fix: the sandbox refuses a folder that ignores case
 
 ### Fixed
