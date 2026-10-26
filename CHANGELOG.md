@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #507 — 2026-10-26 — fix: an agents test no longer writes a fixed folder in /tmp
+
+### Fixed
+
+- **`test_a_bind_inside_a_mount_the_sandbox_makes_itself_is_allowed` made
+  `/tmp/agent-bind-<pid>` and never removed it.** Every run outside a sandbox left one
+  behind, and inside Claude Code's sandbox, where `/tmp` is read-only, the test failed with
+  "Read-only file system" -- the one failure of a sandboxed suite run that was not a real
+  bwrap or the cluster. It needs a folder under `/tmp`, so it now uses its own `tmp_path`,
+  which is under `/tmp` wherever pytest keeps temp folders and is cleaned up, and skips
+  saying why if it is not.
+
 ## #506 — 2026-10-26 — fix: plan_stack finds the base after a parent gained a commit
 
 ### Fixed

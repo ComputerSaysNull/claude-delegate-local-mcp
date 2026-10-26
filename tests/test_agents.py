@@ -572,9 +572,13 @@ def test_a_bind_inside_a_mount_the_sandbox_makes_itself_is_allowed(tmp_path):
     A toolchain under /tmp is the ordinary case -- it is where every temp directory lives --
     and a rule that refused it would be refusing the feature.
     """
+    # Under `tmp_path`, which is under /tmp wherever pytest keeps its temp directories: a
+    # fixed /tmp name was left behind by every run and refused where /tmp is read-only.
+    if not tmp_path.is_relative_to("/tmp"):
+        pytest.skip(f"the temp directory {tmp_path} is not under /tmp")
     c = bind_cfg(tmp_path, agent_bind_roots=("/tmp",))
-    tools = Path("/tmp") / f"agent-bind-{os.getpid()}"
-    tools.mkdir(exist_ok=True)
+    tools = tmp_path / "agent-bind"
+    tools.mkdir()
     agent_with(c, "tmptool", f"extra_binds: [{tools}]")
     assert agents.load_agent(c, "tmptool").extra_binds == (str(tools),)
 
