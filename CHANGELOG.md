@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #497 — 2026-10-26 — fix: a project's .env no longer configures FastMCP
+
+### Fixed
+
+- **A `.env` in the user's project set the server's FastMCP settings.** FastMCP reads
+  `FASTMCP_*` from `.env` in the working directory unless `FASTMCP_ENV_FILE` names another
+  file, and `fastmcp-tasks` does the same for its backend. Claude Code starts a stdio server
+  in the project it works on, so a project's file could set the server's log level, or point
+  a task backend at a Redis of its choosing. Found while planning M21.8, measured with
+  `FASTMCP_LOG_LEVEL` in a throwaway project. The package now sets `FASTMCP_ENV_FILE` to
+  `/dev/null` before FastMCP is imported; an operator who sets it keeps theirs.
+
 ## #496 — 2026-10-25 — docs: file the sandbox process cap spent by the rest of the host
 
 ### Added
