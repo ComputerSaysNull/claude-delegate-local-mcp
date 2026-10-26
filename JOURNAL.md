@@ -3100,3 +3100,28 @@ whose own `ps -eLf` sees five threads where the user held 599.
   command's stderr carried "Invalid environment variable name evaluates to an empty string"
   for the ERR trap's own expansions, and `echo "[${X}]"` printed a value `--clearenv` had
   withheld. A spike that runs only `true` cannot see what the wrapper does to its argv.
+
+## 2026-10-26 — What MCP tasks do in Claude Code and in fastmcp-tasks, measured
+
+For ADR-0130. Two probes, both throwaway.
+
+**Claude Code 2.1.310, against a FastMCP 4.1.3 probe** (2026-10-25, three fresh interactive
+launches). The first call ran as a task in all three: `tasks/get` followed `tools/call`
+within 15ms and every 5s after. An earlier launch, the day before, had run synchronously;
+it did not reproduce. Esc sent `tasks/cancel` (twice) and that task never completed, where
+every uncancelled one finished at exactly 150s; one nobody cancelled ran its full 600s. The
+session saw protocol 2026-07-28, `CLAUDE_PROJECT_DIR` set and the extension in the client
+capabilities. The server never saw a task field on `tools/call`: a task shows only in the
+polling. A task's `input_required` reached the person as a dialog, and `claude -p` strips
+the extension, so headless calls block (2026-10-24).
+
+**fastmcp-tasks 4.1.4 in process**, with a FastMCP `Client`:
+- A run longer than `redelivery_timeout` (3.5s against 1s) started once. With pydocket's
+  `_renew_leases` patched out, the same run started four times, so the lease renewal is
+  what stops a long delegation running twice.
+- `tasks/cancel` raises `CancelledError` inside the tool body. Whatever the body awaits is
+  cancelled with it, but a run the body only waits on is not -- hence the explicit cancel.
+- A `mode="legacy"` client gets an `optional` task tool's body run inline.
+- A `.env` in the working directory with `FASTMCP_DOCKET_URL` re-pointed the backend, and
+  passing only `url` still left `concurrency` to the file (#497).
+- `Client.call_tool` resolves a task transparently; only `call_tool_task` shows the task.

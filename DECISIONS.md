@@ -19,6 +19,44 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0130 — 2026-10-26 — Every delegation is an MCP task, and a question ends the task — Accepted
+
+**Context.** A conversation speaking MCP keeps one write-capable call in flight and gives up
+on a call after 120s, so ADR-0103 answered write calls at once with a handle, `collect` read
+them back, and ADR-0126's hook woke a session that had stopped listening. The 2026-07-28
+protocol's tasks extension does all three in the client: Claude Code (2.1.310) runs a tool
+marked as a task in the background, polls `tasks/get` every 5s and wakes an idle session
+when it ends. Measured (JOURNAL 2026-10-26): the call became a task on every interactive
+launch, Esc sent `tasks/cancel`, and `claude -p` strips the extension, so a headless call
+runs synchronously. A task's `input_required` goes to the *person* as a dialog; the model
+never sees it. FastMCP 4 needs the separate `fastmcp-tasks` engine for any of this.
+
+**Decision.** The four delegating tools and `answer` are `task=True` (`optional`) tools on
+an in-memory `fastmcp-tasks` backend. Each one starts its run in the existing registry
+(`handles.py`) and waits for it to end or ask. A run that asks ends its task with
+`status: question`, the questions and a `handle`; `answer` is a new task that continues the
+same run, so every question still goes to the caller (ADR-0124). Cancelling the task
+cancels the run, which a cancelled wait alone never did. `cancel_delegation` stays for a
+run parked on a question, which has no task left to cancel. A client without the extension
+-- the old protocol, `claude -p` -- gets the body run inline and the finished result:
+accepted rather than refused, because the 120s window is what handles existed for and a
+headless caller already waits. `collect` and `collect_wait_seconds` go.
+
+The backend loses its tasks when the process ends, exactly as handles were lost, and that
+is accepted: the run lives in the server process, so a durable backend would keep the
+record of a run that died anyway -- including at the host's 04:00 reboot. In October about
+2% of runs ended with their client (13 stopped, 2 unended, of 718). The worker's
+concurrency is set far above admission's, so admission stays the only queue.
+
+**Rejected.** `input_required` for questions: it reaches the person, not the model. Keeping
+handles beside tasks: two ways to wait for one run. A Redis backend: durable records of
+runs that cannot survive.
+
+**Consequence.** One dependency, `fastmcp-tasks`, which pins FastMCP's version to its own,
+so the two move together. ADR-0103 is superseded; ADR-0118 and ADR-0125 hold except that
+the call itself, not `collect`, delivers a question. The wake hook (ADR-0126) is spent once
+this lands and retires separately.
+
 ## ADR-0129 — 2026-10-26 — The sandbox's process cap is a cgroup scope per command — Accepted
 
 **Context.** ADR-0054 applied `sandbox_max_processes` as `RLIMIT_NPROC` and kept it despite
@@ -141,7 +179,7 @@ flight per conversation (JOURNAL 2026-09-19), which is why the handle exists.
 before. A wake that fires mid-turn is delivered when the turn ends, possibly after the
 caller collected anyway; the message then costs one redundant `collect`.
 
-## ADR-0125 — 2026-10-18 — A delegation may ask its caller more than once — Accepted
+## ADR-0125 — 2026-10-18 — A delegation may ask its caller more than once — Partially superseded by ADR-0130
 
 **Context.** ADR-0118 allowed one `ask_caller` call per run, so the person would not be
 asked twice. Since ADR-0124 every question goes to the caller, which answered in 4 to 235
@@ -303,7 +341,7 @@ suite's shared helpers set `narrow`, because its clients list none.
 and the refusal names the setting to change. This supersedes ADR-0110's choice of default
 and nothing else in it.
 
-## ADR-0118 — 2026-10-04 — A delegation may ask its caller, and waits in place for the reply — Partially superseded by ADR-0125
+## ADR-0118 — 2026-10-04 — A delegation may ask its caller, and waits in place for the reply — Partially superseded by ADR-0125, ADR-0130
 
 **Context.** Every delegation ran as if nobody were at the other end. Measured over the 94
 streams carrying reasoning (JOURNAL 2026-10-03), 52 weighed two readings of their task, and
@@ -731,7 +769,7 @@ single write is measured sufficient where the ledger is meant to live, and a loc
 second way for a dispatch to wait on bookkeeping. Whether a lock would rescue `/mnt/c` is
 unmeasured, and the ledger does not need it to.
 
-## ADR-0103 — 2026-09-24 — A write-capable delegation returns a handle, and `collect` answers it — Accepted
+## ~~ADR-0103 — 2026-09-24 — A write-capable delegation returns a handle, and `collect` answers it~~ — Superseded by ADR-0130
 
 **Context.** The client runs one write-capable call at a time and releases the next when
 the current one returns or passes 120s, so six `delegate_to_agent` calls in one message

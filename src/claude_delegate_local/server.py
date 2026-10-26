@@ -17,10 +17,12 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
+from datetime import timedelta
 from typing import Annotated, Any, NamedTuple, Protocol
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp_tasks import TasksExtension
 from pydantic import BaseModel, Field
 
 from .backends.base import (
@@ -1230,23 +1232,17 @@ _DELEGATION_RESULT: dict[str, Any] = {
             "token limit with nothing else written."
         )},
         "handle": {"type": "string", "description": (
-            "Set on the write-capable delegations: the name `collect` reads this run back by."
+            "Beside `question`: the run waiting on it, for `answer` or `cancel_delegation`."
         )},
         "status": {"type": "string", "description": (
-            "`running` from a write-capable call, which answers at once; from `collect` "
-            "and `answer`, `done` with the result, `running` while it is still going, "
-            "`question` while it waits on an answer, or `cancelled`."
-        )},
-        "tool": {"type": "string", "description": "Beside `running`: which tool started it."},
-        "running_seconds": {"type": "number", "description": (
-            "From `collect` while it is still going: how long the run has taken so far."
+            "`question` when the run asked its caller and waits on an answer; absent on a "
+            "finished result."
         )},
         "questions": {"type": "array", "items": {"type": "string"}, "description": (
-            "From `collect` while the run waits on an answer: the questions the model "
-            "asked its caller in the call it is waiting on."
+            "Beside `question`: what the model asked its caller."
         )},
         "waiting_seconds": {"type": "number", "description": (
-            "From `collect` while the run waits on an answer: how long it has waited."
+            "Beside `question`: how long the run has waited."
         )},
         "empty_response": {"type": "boolean", "description": (
             "Nothing came back at all -- neither an answer nor reasoning. Reaching this "
@@ -1433,7 +1429,7 @@ _CANCEL_RESULT: dict[str, Any] = {
         )},
         "stopped": {"type": "boolean", "description": (
             "Whether the run has ended. A run inside a shell command can take a few seconds "
-            "longer, and `collect` reports `cancelled` once it has."
+            "longer to stop."
         )},
     },
 }
@@ -1441,6 +1437,13 @@ _CANCEL_RESULT: dict[str, Any] = {
 # How long `cancel_delegation` waits for the run to wind down: a bound, not a promise,
 # since a shell command in its thread cannot be interrupted.
 _CANCEL_SETTLE_SECONDS = 5.0
+
+# The docket worker renews a running task's lease four times per this period, so a task
+# only re-runs one whose worker died; tests shrink it.
+_TASK_REDELIVERY = timedelta(minutes=5)
+# High on purpose, so admission stays the only queue and the task worker never holds a
+# call back.
+_TASK_CONCURRENCY = 1000
 
 _BACKEND_STATUS_RESULT: dict[str, Any] = {
     "type": "object",
@@ -1627,17 +1630,6 @@ HandleArg = Annotated[
     )),
 ]
 
-WaitSeconds = Annotated[
-    float | None,
-    Field(description=(
-        "How long to wait for the run to finish before returning where it has got to. "
-        "Omit for the server's default, which answers within a client's usual patience; "
-        "a client that backgrounds a slow read-only call and notifies on completion, as "
-        "Claude Code does, can pass the whole remaining run instead. A long wait reports "
-        "progress while it waits, so the client's idle timeout does not drop it."
-    )),
-]
-
 AgentName = Annotated[
     str,
     Field(description=(
@@ -1681,7 +1673,7 @@ MayAsk = Annotated[
     bool,
     Field(description=(
         "Offer the model `ask_caller`, for when it cannot tell which reading of the task is "
-        "meant; it may ask more than once. `collect` then reports "
+        "meant; it may ask more than once. The call itself then ends with "
         "`status: \"question\"`, and `answer` replies. False for a caller "
         "that will not answer."
     )),
@@ -1848,29 +1840,19 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         state_dir=(d / "handles") if (d := default_dir_if_available()) is not None else None,
     )
 
-    async def _answered(run: Awaitable[dict[str, Any]], tool: str,
-                        *, pause: Pause | None = None) -> dict[str, Any]:
-        """Start a write-capable delegation and answer with its handle at once (ADR-0103).
-
-        The client releases the next call only when this returns, so answering at once lets
-        several start together. The run carries on in a task this process owns.
-        """
-        handle = handles.start(run, tool=tool, pause=pause)
-        return {"handle": handle, "status": "running", "tool": tool}
-
-    async def _inline_or_question(
-        run: Awaitable[dict[str, Any]], tool: str, pause: Pause, sink: _CallProgress,
+    async def _finish_or_question(
+        handle: str, sink: ProgressSink | None,
     ) -> dict[str, Any]:
-        """Run a read-only delegation inline, except a run that asks answers at once.
+        """Wait for a run to finish or ask again; shape the result like `_inline_or_question`.
 
-        A run that asks must not leave the caller blocked on a run waiting for it: it
-        returns the question with its handle, and `answer` resumes the run later.
+        A cancelled wait -- a client's tasks/cancel -- stops the run itself rather than only
+        the wait, so a delegation never keeps its admission slot with nobody listening.
         """
-        handle = handles.start(run, tool=tool, pause=pause)
         try:
-            result = await _collect_wait(handle, math.inf, sink)
-        finally:
-            sink.close()
+            result = await _wait_for_run(handle, sink)
+        except asyncio.CancelledError:
+            handles.cancel(handle)
+            raise
         if result["status"] == "question":
             return result
         if result["status"] == "cancelled":
@@ -1878,6 +1860,20 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         # "done": keep the inline shape, with no `status` or `handle` (ADR-0118).
         return {key: value for key, value in result.items()
                 if key not in ("status", "handle")}
+
+    async def _inline_or_question(
+        run: Awaitable[dict[str, Any]], tool: str, pause: Pause, sink: _CallProgress,
+    ) -> dict[str, Any]:
+        """Run a delegation inline, except a run that asks answers at once.
+
+        A run that asks must not leave the caller blocked on a run waiting for it: it
+        returns the question with its handle, and `answer` resumes the run later.
+        """
+        handle = handles.start(run, tool=tool, pause=pause)
+        try:
+            return await _finish_or_question(handle, sink)
+        finally:
+            sink.close()
 
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncIterator[dict[str, Any]]:
@@ -1892,9 +1888,12 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         lifespan=lifespan,
         instructions=_server_instructions(cfg),
     )
+    # In-memory, so tasks die with the process exactly as the run itself does.
+    mcp.add_extension(TasksExtension(
+        url="memory://", concurrency=_TASK_CONCURRENCY, redelivery_timeout=_TASK_REDELIVERY))
 
     @mcp.tool(title="Delegate to the local model", annotations=_WRITES,
-              output_schema=_DELEGATION_RESULT)
+              output_schema=_DELEGATION_RESULT, task=True)
     async def delegate(  # noqa: PLR0913 -- one tool's arguments, one dispatch
         task: Task,
         effort: Effort,
@@ -1922,25 +1921,32 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         so a client that gates writes runs it without stopping to ask. Reach for
         `delegate_to_agent` when the work has a *kind* an agent file already shapes.
 
-        Answers at once with a `handle`: `collect` it for the result.
+        Runs as a task; a run that asks ends with `status: "question"` for `answer`.
         """
-        # The roots are asked for while the call is live: the run outlives it, which is why
-        # it is handed `ctx=None`.
         scope = session_scope(cfg)
-        pause = Pause() if may_ask else None
-        ask = _ask_caller(pause, scope.cfg) if pause is not None else None
+        if not may_ask:
+            return await run_delegation(
+                scope.cfg, registry, cache, windows, admission, rates=rates,
+                task=task, title=title, files=files, model=model, effort=effort,
+                allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
+                workdir=_rooted(scope, workdir),
+                diagnostics=diagnostics, ctx=ctx, tool_name="delegate",
+                workspace=scope.workspace,
+            )
+        pause, sink = Pause(), _CallProgress(ctx)
         run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, title=title, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             workdir=_rooted(scope, workdir),
-            diagnostics=diagnostics, ctx=None, tool_name="delegate",
-            ask=ask, workspace=scope.workspace, pause=pause,
+            diagnostics=diagnostics, ctx=sink, tool_name="delegate",
+            ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
+            pause=pause,
         )
-        return await _answered(run, "delegate", pause=pause)
+        return await _inline_or_question(run, "delegate", pause, sink)
 
     @mcp.tool(title="Delegate a read-only task", annotations=_READS,
-              output_schema=_DELEGATION_RESULT)
+              output_schema=_DELEGATION_RESULT, task=True)
     async def delegate_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
         task: Task,
         effort: Effort,
@@ -2022,7 +2028,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
 
     @mcp.tool(title="Delegate to a named agent",
               annotations={**_WRITES, "openWorldHint": True},
-              output_schema=_DELEGATION_RESULT)
+              output_schema=_DELEGATION_RESULT, task=True)
     async def delegate_to_agent(  # noqa: PLR0913 -- ctx is injected, not a caller argument
         agent_name: AgentName,
         task: Task,
@@ -2050,7 +2056,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         Can write and run commands, like `delegate`. Use `delegate_to_agent_readonly` when
         the agent's work is reading.
 
-        Answers at once with a `handle`: `collect` it for the result.
+        Runs as a task; a run that asks ends with `status: "question"` for `answer`.
         """
         # Both checked *before* either is used: the agent lookup reads under `project`, and
         # a root check after that read would not be a check.
@@ -2059,20 +2065,29 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         resolved_project = (
             _rooted(scope, project) if project is not None else resolved_workdir)
         agent = _load(scope, agent_name, resolved_project)
-        pause = Pause() if may_ask else None
-        ask = _ask_caller(pause, scope.cfg) if pause is not None else None
+        if not may_ask:
+            return await run_delegation(
+                scope.cfg, registry, cache, windows, admission, rates=rates,
+                task=task, title=title, files=files, model=model, effort=effort,
+                allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
+                agent=agent, workdir=resolved_workdir,
+                diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent",
+                workspace=scope.workspace,
+            )
+        pause, sink = Pause(), _CallProgress(ctx)
         run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, title=title, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             agent=agent, workdir=resolved_workdir,
-            diagnostics=diagnostics, ctx=None, tool_name="delegate_to_agent",
-            ask=ask, workspace=scope.workspace, pause=pause,
+            diagnostics=diagnostics, ctx=sink, tool_name="delegate_to_agent",
+            ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
+            pause=pause,
         )
-        return await _answered(run, "delegate_to_agent", pause=pause)
+        return await _inline_or_question(run, "delegate_to_agent", pause, sink)
 
     @mcp.tool(title="Delegate a read-only task to a named agent", annotations=_READS,
-              output_schema=_DELEGATION_RESULT)
+              output_schema=_DELEGATION_RESULT, task=True)
     async def delegate_to_agent_readonly(  # noqa: PLR0913 -- one tool's arguments, one dispatch
         agent_name: AgentName,
         task: Task,
@@ -2130,11 +2145,8 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         )
         return await _inline_or_question(run, "delegate_to_agent_readonly", pause, sink)
 
-    async def _collect_wait(
-        handle: str, wait_seconds: float | None, ctx: ProgressSink | None,
-    ) -> dict[str, Any]:
-        """Wait on a delegation's handle and return its result: `collect`'s whole body."""
-        wait = cfg.collect_wait_seconds if wait_seconds is None else wait_seconds
+    async def _wait_for_run(handle: str, ctx: ProgressSink | None) -> dict[str, Any]:
+        """Wait until a run ends or asks, reporting to `ctx` while it runs."""
         notified = 0
 
         async def keepalive(running_seconds: float) -> None:
@@ -2148,42 +2160,26 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
 
         try:
             return await handles.collect(
-                handle, wait, keepalive=keepalive, every=cfg.keepalive_interval)
+                handle, math.inf, keepalive=keepalive, every=cfg.keepalive_interval)
         except UnknownHandle as e:
             raise ToolError(str(e)) from e
-
-    @mcp.tool(title="Collect a delegation", annotations={**_READS, "idempotentHint": True},
-              output_schema=_DELEGATION_RESULT)
-    async def collect(
-        handle: HandleArg, wait_seconds: WaitSeconds = None, ctx: Context | None = None,
-    ) -> dict[str, Any]:
-        """Collect a delegation by the `handle` a delegating call returned.
-
-        Answers with the run's result once it has finished, carrying `status: done`, with
-        `status: question` and the question it is waiting on when a run that asked is
-        paused, or with `status: running` and how long it has run if it is still going
-        when the wait is over. `answer` replies to a question. Waiting never cancels the
-        run, and collecting twice returns the same result until the server forgets it. A
-        run that was stopped says `cancelled`.
-        """
-        return await _collect_wait(handle, wait_seconds, ctx)
 
     @mcp.tool(title="Answer a delegation's question",
               annotations={"readOnlyHint": False, "destructiveHint": False,
                            "idempotentHint": False, "openWorldHint": False},
-              output_schema=_DELEGATION_RESULT)
+              output_schema=_DELEGATION_RESULT, task=True)
     async def answer(
         handle: HandleArg,
         text: AnswerText = None,
         best_reading: BestReading = False,
-        wait_seconds: WaitSeconds = None,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Reply to a delegation that asked a question (`status: "question"`). Give
-        `text`, or set `best_reading` to leave the choice to the model; the run then
-        continues and this waits for it like `collect`. Answer what the task's own meaning
-        settles yourself, and pass on to the person only what only they can decide: the
-        run waits, its clocks paused, until you reply.
+        `text`, or set `best_reading` to leave the choice to the model; this call then
+        runs as a task that continues the same run and ends when it finishes or asks
+        again. Answer what the task's own meaning settles yourself, and pass on to the
+        person only what only they can decide: the run waits, its clocks paused, until
+        you reply.
         """
         if (text is not None) == best_reading:
             raise ToolError(
@@ -2199,7 +2195,11 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             raise ToolError(str(e)) from e
         except NotWaitingError as e:
             raise ToolError(str(e)) from e
-        return await _collect_wait(handle, wait_seconds, ctx)
+        sink = _CallProgress(ctx)
+        try:
+            return await _finish_or_question(handle, sink)
+        finally:
+            sink.close()
 
     # Not read-only -- it stops work -- but it destroys nothing and reaches nothing outside
     # this process, and stopping a run twice is the same as stopping it once.
@@ -2208,12 +2208,12 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                            "idempotentHint": True, "openWorldHint": False},
               output_schema=_CANCEL_RESULT)
     async def cancel_delegation(handle: HandleArg) -> dict[str, Any]:
-        """Stop a running delegation by the `handle` a delegating call returned.
+        """Stop a delegation paused on a question (`status: "question"`).
 
-        The call that started it has already answered, so cancelling that call no longer
-        reaches the work; this does, closing the stream to the model as a cancelled call
-        used to. `cancelled` says whether this stopped anything, `stopped` whether the run
-        has ended. Cancelling a `collect` only stops that wait, never the run.
+        A running delegation is stopped by cancelling its task in the client. A run parked
+        on a question has no task to cancel, so this stops it, closing the stream to the
+        model. `cancelled` says whether this stopped anything, `stopped` whether the run
+        has ended.
         """
         try:
             cancelled = handles.cancel(handle)
@@ -2333,31 +2333,27 @@ file attached.
 Prefetching is a head start, not a limit. The read-only tools have turns and can go
 looking, so name the obvious material and let the delegation find the rest.
 
-## Write-capable calls answer with a handle
+## Every delegation runs as a task
 
-`delegate` and `delegate_to_agent` answer at once with `status: running` and a `handle`, and
-the work carries on, so several start together. Send the calls in one message, then collect
-them in one message: `collect` waits up to `wait_seconds`, and a client that backgrounds a
-slow read-only call and says when it finishes -- Claude Code does -- can pass the whole
-remaining run and be told when it is done. `running` means wait again, never start again. A
-refusal from inside the run arrives from `collect`, not from the call. `cancel_delegation`
-stops a run; cancelling a `collect` only stops waiting. Until a writing run is collected,
-leave its `workdir` alone: it may still be writing there. A reconnect forgets every handle.
-Keep a `collect` open on every run you start. A client that runs the `wait-hook` (README)
-wakes a session that ended its turn when a run finishes uncollected or asks unread; one
-without it never hears from that run again.
+The four delegating calls, and `answer`, run as MCP tasks on a client that supports them --
+Claude Code does. The call returns at once, the client follows the run, and a session that
+ended its turn is woken when the run ends, so several start together: send them in one
+message and carry on. A client without tasks (the old protocol, or `claude -p`) waits for the
+run instead and gets the same result. Cancelling the task -- Esc in Claude Code -- stops the
+run. Until a writing run has ended, leave its `workdir` alone: it may still be writing
+there. A restart of the server ends every run still going.
 
 ## A run may ask you a question
 
 A delegation that cannot tell which reading of its task is meant may ask, as often as it
-needs. Whatever is waiting on the run -- `collect`, `answer`, or a read-only
-call -- then returns at once with `status: question`, the `questions` and a `handle`. Reply
-with `answer`, giving `text`, or set `best_reading` to leave the choice to the model; it then
-waits like `collect`. Answer what the task's own meaning settles yourself, and pass on to the
-person only what only they can decide. Never drop a question: the run keeps its admission
-slot while it waits, every other delegation queues behind it, and only
-`question_wait_limit` ends it. A caller that will not answer passes `may_ask` as false, or
-cancels the run with `cancel_delegation`.
+needs. The call then ends with `status: question`, the `questions` and a `handle`, and the
+run waits. Reply with `answer`, giving `text`, or set `best_reading` to leave the choice to
+the model; `answer` runs like the call itself and ends when the run does or asks again.
+Answer what the task's own meaning settles yourself, and pass on to the person only what
+only they can decide. Never drop a question: the run keeps its admission slot while it
+waits, every other delegation queues behind it, and only `question_wait_limit` ends it. A
+caller that will not answer passes `may_ask` as false, or stops the waiting run with
+`cancel_delegation`.
 
 ## How many run at once
 

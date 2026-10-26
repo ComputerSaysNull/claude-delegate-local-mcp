@@ -1,15 +1,15 @@
-"""The server-level `ask_caller` wiring: `may_ask`, `collect`'s `question` state, `answer`.
+"""The server-level `ask_caller` wiring: `may_ask`, the `question` return, and `answer`.
 
 `tests/test_ask_caller.py` pins the loop's `ask` callback. This pins the layer above it --
 the MCP tools a client actually calls, and the contract those tools expose on the wire.
 `delegate`/`delegate_to_agent` gain `may_ask`; with it true (the default) the model is
-offered `ask_caller`, a question pauses the run, and `answer` hands the caller's reply back
-to the paused run.
+offered `ask_caller`, a question makes the call end with `status: "question"` and a
+`handle`, and `answer` hands the caller's reply back to the paused run. A run that never
+asks returns its result inline, with no `status` and no `handle` (ADR-0118).
 """
 
 import asyncio
 import json
-import time
 
 import pytest
 from fastmcp import Client
@@ -19,7 +19,6 @@ from claude_delegate_local import server
 from test_server import (
     DoubleCache,
     cfg,
-    chat_handler,
     chat_reply,
     delegated,
     entry,
@@ -33,7 +32,7 @@ from wire_double import as_stream
 
 
 def scripted(*replies):
-    """One canned reply per chat request, each request body recorded.
+    """One canned chat reply per request, each request body recorded.
 
     Wrapped in `serves_metrics` so the decode-rate sampler's `/metrics` scrape (ADR-0055)
     cannot consume a queued reply, exactly as test_server's own turn helpers do.
@@ -53,14 +52,14 @@ def _mcp(config, handler):
 
 
 async def _delegate(client, **args):
-    """Start a write-capable delegation and return its `status: running` payload."""
+    """Call a write-capable delegation that asks, and return its `status: question` payload."""
     args.setdefault("effort", "inherit")
-    started = payload(await client.call_tool("delegate", args))
-    assert started["status"] == "running"
-    return started
+    asked = payload(await client.call_tool("delegate", args))
+    assert asked["status"] == "question", asked
+    return asked
 
 
-def test_collect_reports_the_question_and_answer_resumes_the_run():
+def test_a_delegation_that_asks_returns_the_question_and_answer_resumes_the_run():
     config = cfg()
     handler, seen = scripted(
         tool_call_reply("ask_caller", {"questions": ["Which file?"]}),
@@ -70,23 +69,16 @@ def test_collect_reports_the_question_and_answer_resumes_the_run():
 
     async def go():
         async with Client(mcp) as client:
-            started = await _delegate(client, task="q")
-            handle = started["handle"]
-
-            t0 = time.monotonic()
-            q = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 5}))
-            elapsed = time.monotonic() - t0
-            assert q["status"] == "question", q
-            assert q["handle"] == handle
-            assert q["tool"] == "delegate"
-            assert q["questions"] == ["Which file?"]
-            assert isinstance(q["waiting_seconds"], (int, float))
-            assert elapsed < 5, "collect must not wait out its whole wait on a question"
+            asked = await _delegate(client, task="q")
+            handle = asked["handle"]
+            assert asked["tool"] == "delegate"
+            assert asked["questions"] == ["Which file?"]
+            assert isinstance(asked["waiting_seconds"], (int, float))
 
             done = payload(await client.call_tool(
-                "answer", {"handle": handle, "text": "foo.py", "wait_seconds": 5}))
-            assert done["status"] == "done", done
+                "answer", {"handle": handle, "text": "foo.py"}))
+            assert "status" not in done, done
+            assert "handle" not in done, done
             assert done["answer"] == "it is foo.py"
 
     asyncio.run(go())
@@ -107,14 +99,11 @@ def test_best_reading_leaves_the_choice_to_the_model():
 
     async def go():
         async with Client(mcp) as client:
-            started = await _delegate(client, task="q")
-            handle = started["handle"]
-            q = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 5}))
-            assert q["status"] == "question", q
+            asked = await _delegate(client, task="q")
+            handle = asked["handle"]
             done = payload(await client.call_tool(
-                "answer", {"handle": handle, "best_reading": True, "wait_seconds": 5}))
-            assert done["status"] == "done", done
+                "answer", {"handle": handle, "best_reading": True}))
+            assert "status" not in done, done
             assert done["answer"] == "I choose foo.py"
 
     asyncio.run(go())
@@ -149,11 +138,8 @@ def test_answer_needs_exactly_one_of_text_and_best_reading():
 
     async def go():
         async with Client(mcp) as client:
-            started = await _delegate(client, task="q")
-            handle = started["handle"]
-            q = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 5}))
-            assert q["status"] == "question", q
+            asked = await _delegate(client, task="q")
+            handle = asked["handle"]
 
             with pytest.raises(ToolError):
                 await client.call_tool("answer", {"handle": handle})
@@ -161,24 +147,29 @@ def test_answer_needs_exactly_one_of_text_and_best_reading():
                 await client.call_tool(
                     "answer", {"handle": handle, "text": "x", "best_reading": True})
 
-            still = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 1}))
-            assert still["status"] == "question", still
+            # The run is still parked on its question; a valid answer resumes it.
+            done = payload(await client.call_tool(
+                "answer", {"handle": handle, "text": "foo.py"}))
+            assert done["answer"] == "done"
 
     asyncio.run(go())
 
 
 def test_answer_refuses_a_run_that_is_not_waiting():
     config = cfg()
-    mcp = _mcp(config, serves_metrics(chat_handler()))
+    handler, _ = scripted(
+        tool_call_reply("ask_caller", {"questions": ["Which file?"]}),
+        chat_reply(content="it is foo.py"),
+    )
+    mcp = _mcp(config, handler)
 
     async def go():
         async with Client(mcp) as client:
-            started = await _delegate(client, task="q")
-            handle = started["handle"]
+            asked = await _delegate(client, task="q")
+            handle = asked["handle"]
             done = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 5}))
-            assert done["status"] == "done", done
+                "answer", {"handle": handle, "text": "foo.py"}))
+            assert done["answer"] == "it is foo.py"
 
             with pytest.raises(ToolError) as exc:
                 await client.call_tool("answer", {"handle": handle, "text": "x"})
@@ -199,16 +190,12 @@ def test_cancelling_a_paused_run_ends_it(tmp_path):
 
     async def go():
         async with Client(mcp) as client:
-            handle = (await _delegate(client, task="q"))["handle"]
-            asked = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 5}))
-            assert asked["status"] == "question", asked
+            asked = await _delegate(client, task="q")
+            handle = asked["handle"]
             stopped = payload(await client.call_tool(
                 "cancel_delegation", {"handle": handle}))
+            assert stopped["cancelled"] is True, stopped
             assert stopped["stopped"] is True, stopped
-            after = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 1}))
-            assert after["status"] == "cancelled", after
             with pytest.raises(ToolError):
                 await client.call_tool("answer", {"handle": handle, "text": "x"})
 
@@ -218,8 +205,8 @@ def test_cancelling_a_paused_run_ends_it(tmp_path):
     assert lines and lines[-1]["t"] == "end", [e["t"] for e in lines]
 
 
-def test_an_unanswered_question_ends_the_run_after_the_limit():
-    config = cfg(question_wait_limit=0.5)
+def test_an_unanswered_question_ends_the_run_after_the_limit(tmp_path):
+    config = cfg(question_wait_limit=0.5, transcript_dir=str(tmp_path))
     handler, _ = scripted(
         tool_call_reply("ask_caller", {"questions": ["Which file?"]}),
         chat_reply(content="never reached"),
@@ -232,14 +219,13 @@ def test_an_unanswered_question_ends_the_run_after_the_limit():
             handle = started["handle"]
             # Asked, and reported at once; nobody answers, so once the limit has passed
             # the run has ended rather than waiting on a caller who has gone.
-            asked = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 3}))
-            assert asked["status"] == "question", asked
             await asyncio.sleep(1.0)
-            row = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 3}))
-            assert row["status"] == "done", row
-            assert row.get("ok") is False
-            assert "not answered" in row.get("error", "")
+            with pytest.raises(ToolError):
+                await client.call_tool("answer", {"handle": handle, "text": "x"})
 
     asyncio.run(go())
+    lines = [json.loads(line) for path in tmp_path.glob("*.jsonl")
+             for line in path.read_text(encoding="utf-8").splitlines()]
+    end = [e for e in lines if e["t"] == "end"][-1]
+    assert end["ok"] is False
+    assert "not answered" in end.get("error", "")
