@@ -12,27 +12,24 @@ to it.
 """
 
 import asyncio
-import json
 import math
-import os
 import secrets
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 
 class UnknownHandle(LookupError):
-    """No delegation by that handle: never issued here, reaped, or from before a restart."""
+    """No delegation by that handle: never issued here, or from before a restart."""
 
     def __init__(self, handle: str) -> None:
         super().__init__(
             f"unknown_handle: no delegation {handle!r} is known to this server. A handle "
             "lives in the server process that issued it, so a reconnect or restart forgets "
-            "it -- and the run with it -- and a collected result is kept only for "
-            "DELEGATE_HANDLE_TTL_SECONDS after it finished. The transcript directory still "
-            "holds the run's record."
+            "it -- and the run with it -- and a finished run is dropped as soon as its "
+            "result was handed to its caller. The transcript directory still holds the run's "
+            "record."
         )
         self.handle = handle
 
@@ -62,7 +59,6 @@ class Pause:
         self.answer: asyncio.Future[str] | None = None
         self.asked = asyncio.Event()
         self.asked_count = 0
-        self.on_change: Callable[[], None] | None = None
 
     def ask(self, questions: list[str]) -> asyncio.Future[str]:
         """Record the questions the run is waiting on, and return the future it awaits."""
@@ -71,8 +67,6 @@ class Pause:
         self.asked_count += 1
         self.answer = asyncio.get_running_loop().create_future()
         self.asked.set()
-        if self.on_change is not None:
-            self.on_change()
         return self.answer
 
     def waiting(self) -> bool:
@@ -85,50 +79,37 @@ class _Entry:
     task: asyncio.Future[dict[str, Any]]
     tool: str
     started: float
-    finished: float | None = None
     pause: Pause | None = None
-    questions_shown: int = 0
-    collected: bool = False
 
 
 class Handles:
     """Every delegation this process started and has not yet forgotten, by handle.
 
-    With a `state_dir` each handle also carries a small JSON file there, so a wait-hook in
-    another process can poll it and wake the caller when a run finishes or asks and nobody
-    is listening (ADR-0126). Without one, nothing is written.
+    An entry is dropped the moment `collect` returns its finished or cancelled result --
+    the task that ran it already carries that result, so nothing reads it back -- and kept
+    while the run is running or parked on a question.
     """
 
-    def __init__(self, ttl_seconds: float, *, clock: Callable[[], float] = time.monotonic,
-                 state_dir: Path | None = None) -> None:
-        self._ttl = ttl_seconds
+    def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
-        self._state_dir = state_dir
         self._entries: dict[str, _Entry] = {}
-        self._sweep_dead_servers()
 
     def start(self, work: Awaitable[dict[str, Any]], *, tool: str,
               pause: Pause | None = None) -> str:
         """Run `work` as a task of its own and return the handle it can be collected by."""
-        self._reap()
         handle = f"d-{secrets.token_hex(6)}"
         while handle in self._entries:  # pragma: no cover - 48 bits
             handle = f"d-{secrets.token_hex(6)}"
         entry = _Entry(asyncio.ensure_future(work), tool, self._clock(), pause=pause)
-        if pause is not None:
-            pause.on_change = lambda: self._write_state(handle)
 
         def finished(task: asyncio.Future[dict[str, Any]]) -> None:
-            entry.finished = self._clock()
             if not task.cancelled():
                 # Marked as retrieved, so a run nobody collects does not log "exception
                 # was never retrieved" at exit. `collect` still raises it.
                 task.exception()
-            self._write_state(handle)
 
         entry.task.add_done_callback(finished)
         self._entries[handle] = entry
-        self._write_state(handle)
         return handle
 
     def task(self, handle: str) -> asyncio.Future[dict[str, Any]]:
@@ -153,6 +134,7 @@ class Handles:
 
         `keepalive` is called with the run's age every `every` seconds of waiting, because
         a wait that says nothing is dropped by the client at its idle timeout (ADR-0018).
+        A finished or cancelled run is forgotten once this returns it.
         """
         entry = self._entry(handle)
         pause = entry.pause
@@ -186,17 +168,14 @@ class Handles:
             return {"handle": handle, "status": "running", "tool": entry.tool,
                     "running_seconds": round(self._clock() - entry.started, 1)}
         if entry.task.cancelled():
-            entry.collected = True
-            self._write_state(handle)
+            del self._entries[handle]
             return {"handle": handle, "status": "cancelled", "tool": entry.tool}
-        entry.collected = True
-        self._write_state(handle)
-        return {**entry.task.result(), "handle": handle, "status": "done"}
+        result = entry.task.result()
+        del self._entries[handle]
+        return {**result, "handle": handle, "status": "done"}
 
     def _question(self, handle: str, entry: _Entry, pause: Pause) -> dict[str, Any]:
         assert pause.asked_at is not None  # `waiting()` is only true once it asked
-        entry.questions_shown = pause.asked_count
-        self._write_state(handle)
         return {"handle": handle, "status": "question", "tool": entry.tool,
                 "questions": list(pause.questions),
                 "waiting_seconds": round(time.monotonic() - pause.asked_at, 1)}
@@ -213,7 +192,6 @@ class Handles:
             raise NotWaitingError(handle)
         pause.asked.clear()
         pause.answer.set_result(text)
-        self._write_state(handle)
 
     def cancel(self, handle: str) -> bool:
         """Cancel a running delegation. False when it had already finished."""
@@ -224,85 +202,7 @@ class Handles:
         return True
 
     def _entry(self, handle: str) -> _Entry:
-        self._reap()
         entry = self._entries.get(handle)
         if entry is None:
             raise UnknownHandle(handle)
         return entry
-
-    def _reap(self) -> None:
-        """Forget runs that finished more than the TTL ago. Running ones are never reaped."""
-        now = self._clock()
-        for handle in [h for h, e in self._entries.items()
-                       if e.finished is not None and now - e.finished > self._ttl]:
-            del self._entries[handle]
-            self._remove_state(handle)
-
-    def _write_state(self, handle: str) -> None:
-        """Write the handle's state file, best-effort. `None` state_dir means no files."""
-        if self._state_dir is None:
-            return
-        entry = self._entries.get(handle)
-        if entry is None:
-            return
-        try:
-            self._state_dir.mkdir(parents=True, exist_ok=True)
-            path = self._state_dir / f"{handle}.json"
-            tmp = self._state_dir / f"{handle}.json.tmp"
-            tmp.write_text(json.dumps(self._state_dict(handle, entry)))
-            os.replace(tmp, path)
-        except OSError:
-            # A state file must never fail a run or a tool call: the wait-hook just keeps
-            # polling whatever the last good write said.
-            pass
-
-    def _sweep_dead_servers(self) -> None:
-        """Remove state files whose server has exited: nothing else ever would."""
-        if self._state_dir is None:
-            return
-        for path in self._state_dir.glob("d-*.json"):
-            try:
-                pid = json.loads(path.read_text()).get("pid")
-                if isinstance(pid, int) and pid != os.getpid() and not pid_alive(pid):
-                    path.unlink(missing_ok=True)
-            except (OSError, ValueError, AttributeError):
-                pass
-
-    def _remove_state(self, handle: str) -> None:
-        if self._state_dir is None:
-            return
-        try:
-            (self._state_dir / f"{handle}.json").unlink(missing_ok=True)
-        except OSError:
-            pass
-
-    @staticmethod
-    def _state_dict(handle: str, entry: _Entry) -> dict[str, Any]:
-        if entry.task.cancelled():
-            status = "cancelled"
-        elif entry.task.done():
-            status = "done"
-        elif entry.pause is not None and entry.pause.waiting():
-            status = "question"
-        else:
-            status = "running"
-        return {
-            "handle": handle,
-            "pid": os.getpid(),
-            "tool": entry.tool,
-            "status": status,
-            "questions_asked": entry.pause.asked_count if entry.pause is not None else 0,
-            "questions_shown": entry.questions_shown,
-            "collected": entry.collected,
-        }
-
-
-def pid_alive(pid: int) -> bool:
-    """Whether `pid` still runs."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True

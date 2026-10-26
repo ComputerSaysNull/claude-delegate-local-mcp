@@ -79,7 +79,6 @@ from .slots import (
     SlotsUnavailable,
     build_slots,
     cross_process_status,
-    default_dir_if_available,
     rate_history_path,
 )
 from . import ledger, provision, transcript
@@ -688,6 +687,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     ask: Callable[[list[str]], Awaitable[str]] | None = None,
     workspace: str | None = None,
     pause: Pause | None = None,
+    mcp_task: bool | None = None,
 ) -> dict[str, Any]:
     """One delegation, from arguments to the result dict, for every tool that runs one.
 
@@ -921,6 +921,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             tools=allowed, prefetched=prefetched,
             max_turns=resolved_turns,
             workspace=workspace,
+            mcp_task=mcp_task,
         )
 
     waiting_since = _clock()
@@ -1835,10 +1836,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         every=cfg.rate_sample_seconds,
     )
 
-    handles = Handles(
-        cfg.handle_ttl_seconds,
-        state_dir=(d / "handles") if (d := default_dir_if_available()) is not None else None,
-    )
+    handles = Handles()
 
     async def _finish_or_question(
         handle: str, sink: ProgressSink | None,
@@ -1932,6 +1930,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                 workdir=_rooted(scope, workdir),
                 diagnostics=diagnostics, ctx=ctx, tool_name="delegate",
                 workspace=scope.workspace,
+                mcp_task=bool(ctx is not None and ctx.is_background_task),
             )
         pause, sink = Pause(), _CallProgress(ctx)
         run = run_delegation(
@@ -1942,6 +1941,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             diagnostics=diagnostics, ctx=sink, tool_name="delegate",
             ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
             pause=pause,
+            mcp_task=bool(ctx is not None and ctx.is_background_task),
         )
         return await _inline_or_question(run, "delegate", pause, sink)
 
@@ -1984,6 +1984,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                 max_turns=max_turns,
                 diagnostics=diagnostics, ctx=ctx, tool_name="delegate_readonly",
                 workspace=scope.workspace,
+                mcp_task=bool(ctx is not None and ctx.is_background_task),
             )
         pause, sink = Pause(), _CallProgress(ctx)
         run = run_delegation(
@@ -1996,6 +1997,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             diagnostics=diagnostics, ctx=sink, tool_name="delegate_readonly",
             ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
             pause=pause,
+            mcp_task=bool(ctx is not None and ctx.is_background_task),
         )
         return await _inline_or_question(run, "delegate_readonly", pause, sink)
 
@@ -2073,6 +2075,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                 agent=agent, workdir=resolved_workdir,
                 diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent",
                 workspace=scope.workspace,
+                mcp_task=bool(ctx is not None and ctx.is_background_task),
             )
         pause, sink = Pause(), _CallProgress(ctx)
         run = run_delegation(
@@ -2083,6 +2086,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             diagnostics=diagnostics, ctx=sink, tool_name="delegate_to_agent",
             ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
             pause=pause,
+            mcp_task=bool(ctx is not None and ctx.is_background_task),
         )
         return await _inline_or_question(run, "delegate_to_agent", pause, sink)
 
@@ -2128,6 +2132,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                 agent=agent,
                 diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent_readonly",
                 workspace=scope.workspace,
+                mcp_task=bool(ctx is not None and ctx.is_background_task),
             )
         pause, sink = Pause(), _CallProgress(ctx)
         run = run_delegation(
@@ -2142,6 +2147,7 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             diagnostics=diagnostics, ctx=sink, tool_name="delegate_to_agent_readonly",
             ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
             pause=pause,
+            mcp_task=bool(ctx is not None and ctx.is_background_task),
         )
         return await _inline_or_question(run, "delegate_to_agent_readonly", pause, sink)
 

@@ -138,11 +138,10 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_CROSS_PROCESS_SLOTS` | True | Count the four admission rules against every server process on this machine rather than against this one alone. On by default because stdio gives each connected client its own server process: with this off, every rule bounds one editor window, and the cluster sees the configured limit multiplied by however many windows are open. Off is only correct where this is the sole process against the endpoint. Needs a POSIX filesystem lock, so it is inert on Windows (ADR-0040). |
 | `DELEGATE_SLOTS_DIR` | *(empty)* | Directory holding the shared admission counters. Empty means XDG_RUNTIME_DIR, falling back to /dev/shm -- both tmpfs, which is what makes losing the file on reboot correct rather than lossy. Set it only to separate installations that must not share a budget, such as two checkouts pointed at different clusters; two projects sharing one cluster must share one directory. Never put this on /mnt/c, where locking across the Windows drive boundary is not dependable (ADR-0040, ADR-0020). |
 
-### Handles
+### Questions
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_HANDLE_TTL_SECONDS` | 3600.0 seconds | How long a finished delegation stays in the run registry after it finished. A running one is never forgotten; its transcript record outlives this. |
 | `DELEGATE_QUESTION_WAIT_LIMIT` | 1800.0 seconds | How long a delegation that asked its caller a question waits for `answer` before it ends unanswered. The wait does not count against `dispatch_timeout`; this bounds a run whose caller has stopped listening, which holds its admission slot meanwhile. Only the calling model is asked (ADR-0124), so a longer wait means nobody is. |
 
 ### Operator records
@@ -185,6 +184,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting because naming another transport should be an error rather than silence (ADR-0034). |
 
-*81 settings.*
+*80 settings.*
 
 <!-- GEN:CONFIG:END -->

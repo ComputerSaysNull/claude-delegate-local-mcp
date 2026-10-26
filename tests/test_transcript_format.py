@@ -18,7 +18,7 @@ import jsonschema
 import pytest
 
 from claude_delegate_local import transcript
-from test_server import chat_reply
+from test_server import cfg, chat_reply
 from test_transcript_stream import _run, two_turns
 from wire_double import as_stream
 
@@ -52,6 +52,29 @@ def test_the_start_event_names_the_format_it_is_written_in(tmp_path):
     events = _run(tmp_path, two_turns, "delegate", {"task": "explain the retry"})
     assert events[0]["t"] == "start"
     assert events[0]["format"] == transcript.FORMAT
+
+
+def _start_event(tmp_path: Path, **over) -> dict:
+    """One `start` event written through the stream, as the stream records it."""
+    stream = transcript.open_stream(cfg(transcript_dir=str(tmp_path)), None)
+    assert stream is not None
+    stream.start(tool="delegate", task="explain the retry", agent=None,
+                 model_key=None, effort=None, **over)
+    return json.loads(stream.path.read_text(encoding="utf-8").splitlines()[0])
+
+
+def test_a_start_written_as_an_mcp_task_says_so(tmp_path):
+    """A call that ran as an MCP task is recorded as such, and the record validates."""
+    start = _start_event(tmp_path, mcp_task=True)
+    assert start["mcp_task"] is True
+    assert errors(start) == []
+
+
+def test_a_start_with_no_mcp_task_flag_omits_the_key(tmp_path):
+    """A `run`-CLI delegation passes nothing, so the optional field is absent, not false."""
+    start = _start_event(tmp_path)
+    assert "mcp_task" not in start
+    assert errors(start) == []
 
 
 @pytest.mark.parametrize(("tool", "handler"), [

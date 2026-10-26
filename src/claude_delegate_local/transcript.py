@@ -62,7 +62,7 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.11"
+FORMAT = "1.12"
 
 # The fixed values `end.ended` may hold, so a reader can branch on the ending rather than
 # parse the words in `error`. Kept beside FORMAT because it is the same contract.
@@ -160,6 +160,7 @@ class Stream:
         tools: Iterable[str] = (), prefetched: Prefetch | None = None,
         max_turns: int | None = None,
         workspace: str | None = None,
+        mcp_task: bool | None = None,
     ) -> None:
         """The head of the stream: which call this was, and what it was given.
 
@@ -178,6 +179,7 @@ class Stream:
             "max_turns": max_turns,
             **({"title": title} if title else {}),
             **({"workspace": workspace} if workspace else {}),
+            **({"mcp_task": mcp_task} if mcp_task is not None else {}),
             "tools": sorted(tools),
             **_files(prefetched),
         })

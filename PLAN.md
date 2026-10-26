@@ -311,7 +311,7 @@ Item 1 was Deferred.7, moved 2026-10-24 with its premise corrected: the reposito
 6. ✅ 2026-10-25 **FastMCP 4**: a session's folders come from `CLAUDE_PROJECT_DIR`, not the deprecated
   roots, superseding that part of ADR-0110. Only the 12 roots tests fail on 4.1.3
 7. ✅ 2026-10-25 Drop `from __future__ import annotations` now that the floor is 3.14
-8. ⬜ **MCP tasks replace handles, `collect` and the wake hook.** A task's `input_required` reaches
+8. ✅ 2026-10-26 **MCP tasks replace handles, `collect` and the wake hook.** A task's `input_required` reaches
   the person, so a question ends the task and `answer` continues the run; Deferred.10 then lapses
 9. ⬜ Laptop sessions reach the host's server over SSH, a path map replacing `wsl.py`'s fixed
   rule, so one machine counts every run; closes Deferred.3
@@ -488,7 +488,7 @@ On hold for weeks or months. Not cancelled, and not queued.
   eight-wide with real prompt sizes before raising `max_inflight_seqs` and the endpoint's
 9. ⬜ Was M16.9. **Topology** (P4): tensor parallelism spans both machines, an all-reduce every decode
   step. Compare one replica per machine behind one endpoint, if a quantised copy fits
-10. ⬜ **Ship the server as a Claude Code plugin, so the wake hook travels with it.** The hook (ADR-0126) is client settings, which a colleague would have to edit by hand; a plugin can bundle the server and `hooks/hooks.json`, installed from this repo as its own marketplace. Open: one launch command for WSL and native, via `userConfig`; whether `asyncRewake` works in a plugin hook; the tool names become `mcp__plugin_<plugin>_<server>__*`. On hold until the server is shared
+10. ❌ 2026-10-26 (moot: MCP tasks wake the session themselves, so there is no hook to ship; ADR-0130) **Ship the server as a Claude Code plugin, so the wake hook travels with it.** The hook (ADR-0126) is client settings, which a colleague would have to edit by hand; a plugin can bundle the server and `hooks/hooks.json`, installed from this repo as its own marketplace. Open: one launch command for WSL and native, via `userConfig`; whether `asyncRewake` works in a plugin hook; the tool names become `mcp__plugin_<plugin>_<server>__*`. On hold until the server is shared
 
 ## Cancelled
 

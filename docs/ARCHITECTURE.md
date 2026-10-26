@@ -85,7 +85,6 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `transcript.py` | One operator record per dispatch, written outside the response |
 | `watch.py` | `claude-delegate-watch`: the terminal viewer of the stream `transcript.py` writes |
 | `handles.py` | The run registry behind each task: the run a call waits on, the question `answer` replies to, and what `cancel_delegation` stops |
-| `wake.py` | `wait-hook`: wakes a caller that stopped listening, from the state file `handles.py` keeps |
 | `server.py` | MCP wiring, the tool declarations, the backend cache, and each session's roots narrowed to its client's project (ADR-0110, ADR-0128), with the project's own layer-2 additions read in (ADR-0116) |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
@@ -278,9 +277,6 @@ every `keepalive_interval` so the idle timeout (ADR-0018) cannot drop it. Each t
 asks its caller (`ask_caller`, ADR-0125) the call ends with `status: question`; `answer`
 continues the same run, which keeps its slot meanwhile. Cancelling the task cancels the run;
 `cancel_delegation` stops one parked on a question.
-The older route still works beside it: `handles.py` keeps a state file per handle, and a
-client hook running `wait-hook` (setup is the README's) exits 2, waking it, once a run sits
-uncollected or holds an unread question for a three-second grace (ADR-0126).
 What `run` still buys is context — a tool result lands in the caller's window whole,
 where this one is redirected to a file and read back in part.
 

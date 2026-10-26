@@ -17,12 +17,12 @@ from test_server import (
 from wire_double import as_stream
 
 from claude_delegate_local import server
-from claude_delegate_local.handles import Handles
+from claude_delegate_local.handles import Handles, UnknownHandle
 
 
 def test_cancelling_a_handle_stops_its_run_and_collect_says_so() -> None:
     async def go():
-        handles = Handles(60.0)
+        handles = Handles()
         stopped = asyncio.Event()
 
         async def work():
@@ -37,7 +37,11 @@ def test_cancelling_a_handle_stops_its_run_and_collect_says_so() -> None:
         await asyncio.sleep(0)
         assert handles.cancel(handle) is True
         await asyncio.wait_for(stopped.wait(), timeout=2.0)
-        return await handles.collect(handle, wait_seconds=1.0), handles.cancel(handle)
+        again = handles.cancel(handle)
+        collected = await handles.collect(handle, wait_seconds=1.0)
+        with pytest.raises(UnknownHandle):
+            handles.cancel(handle)  # handed over, so forgotten
+        return collected, again
 
     collected, again = asyncio.run(go())
     assert collected["status"] == "cancelled"
@@ -46,7 +50,7 @@ def test_cancelling_a_handle_stops_its_run_and_collect_says_so() -> None:
 
 def test_abandoning_a_collect_leaves_the_run_going() -> None:
     async def go():
-        handles = Handles(60.0)
+        handles = Handles()
         release = asyncio.Event()
 
         async def work():

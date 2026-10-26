@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #500 — 2026-10-26 — feat: retire the wake hook and the handle state files
+
+### Added
+
+- **A transcript's `start` says whether the call ran as an MCP task (`mcp_task`, format
+  1.12).** ADR-0130 accepts that a client without tasks waits inline; this makes that share
+  measurable rather than assumed. Absent for the `run` CLI, which is no MCP call.
+
+### Changed
+
+- **The `wait-hook` subcommand, its README setup and the per-handle state files are gone
+  (ADR-0130 supersedes ADR-0126).** The hook woke a session that ended its turn before its
+  run did; Claude Code now wakes it when the task ends, so nothing reads the files.
+- **`handle_ttl_seconds` is gone.** A finished run's result is the task's result, so the
+  registry drops an entry once it is handed over instead of keeping it to be collected.
+
 ## #499 — 2026-10-26 — feat: every delegation runs as an MCP task
 
 ### Changed

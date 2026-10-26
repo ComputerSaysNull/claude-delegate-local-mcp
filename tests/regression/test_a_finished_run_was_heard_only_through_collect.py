@@ -8,7 +8,9 @@ cancelling the task cancels the run rather than leaving it going.
 """
 
 import asyncio
+import json
 import time
+from pathlib import Path
 
 from fastmcp import Client
 from fastmcp_tasks.client import call_tool_task
@@ -19,6 +21,12 @@ from test_server import DoubleCache, cfg, chat_handler, entry, payload, registry
 
 def _mcp(config, handler):
     return server.build(config, registry(entry()), DoubleCache(config, handler))
+
+
+def _events(directory: Path) -> list[dict]:
+    streams = list(directory.glob("*.jsonl"))
+    assert len(streams) == 1, f"expected one stream, found {[p.name for p in streams]}"
+    return [json.loads(line) for line in streams[0].read_text(encoding="utf-8").splitlines()]
 
 
 async def _terminal(task, timeout=15.0):
@@ -47,3 +55,21 @@ def test_a_finished_run_is_delivered_as_the_task_result():
     result = asyncio.run(go())
     assert result["answer"] == "the answer"
     assert result.get("status") != "running"
+
+
+def test_the_task_runs_transcript_says_it_ran_as_an_mcp_task(tmp_path):
+    """A run delivered as the task's result was itself run as an MCP task (ADR-0130)."""
+    config = cfg(transcript_dir=str(tmp_path))
+    mcp = _mcp(config, chat_handler(content="the answer"))
+
+    async def go():
+        async with Client(mcp) as client:
+            task = await call_tool_task(
+                client, "delegate", {"task": "q", "effort": "inherit"})
+            await _terminal(task)
+            await task.result()
+
+    asyncio.run(go())
+    events = _events(tmp_path)
+    assert events[0]["t"] == "start", [e["t"] for e in events]
+    assert events[0]["mcp_task"] is True

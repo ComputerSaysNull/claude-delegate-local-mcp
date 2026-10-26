@@ -154,7 +154,7 @@ Settings that default to a path relative to the working directory are no longer 
 `wsl.exe --cd`, which is how M21.4 surfaced. ADR-0002 and ADR-0020 are superseded in part:
 their measurements stand, their choice of where development runs does not.
 
-## ADR-0126 — 2026-10-18 — A background hook wakes a caller that stopped listening — Accepted
+## ~~ADR-0126 — 2026-10-18 — A background hook wakes a caller that stopped listening~~ — Superseded by ADR-0130
 
 **Context.** A run started by `delegate` is heard from only while the caller holds `collect`
 or `answer` open (ADR-0103). A caller that ends its turn hears nothing: on 2026-10-18 a

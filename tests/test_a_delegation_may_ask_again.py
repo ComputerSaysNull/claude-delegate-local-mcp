@@ -37,7 +37,7 @@ def test_a_waiting_collect_wakes_for_the_second_question():
     return the second question at once, not when its wait runs out."""
     async def go():
         pause = Pause()
-        handles = Handles(ttl_seconds=600)
+        handles = Handles()
 
         async def work():
             await pause.ask(["first?"])
