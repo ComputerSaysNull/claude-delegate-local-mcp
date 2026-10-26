@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #502 — 2026-10-26 — chore: release 0.14.0
+
+### Changed
+
+- **The version moves to 0.14.0, so an installed wheel carries the move to MCP tasks.** The
+  transcript format is 1.12: `start` may carry `mcp_task` (#500), so the tracker should pin
+  this release. Every delegation is an MCP task and `collect` is gone (#499); `wait-hook`,
+  the handle state files and `handle_ttl_seconds` are gone (#500); the sandbox's process cap
+  counts only its own command (#498); a project's `.env` no longer configures FastMCP
+  (#497); FastMCP 4 (#494) reads a session's folder from `CLAUDE_PROJECT_DIR` (#493); and
+  Python 3.14 is the floor (#488). The release itself is the tag `v0.14.0` on `main`,
+  published by the release workflow (ADR-0115).
+
 ## #501 — 2026-10-26 — docs: file the sandbox covers a case variant gets past
 
 ### Added
