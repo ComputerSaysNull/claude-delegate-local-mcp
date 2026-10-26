@@ -59,7 +59,7 @@ a pinned baseline, a moving `main`, a host where `bwrap` installs but cannot uns
 
 - **`-p no:xdist` is a parse error**: `addopts` carries `-n` and `--maxprocesses`. Run
   serially with `-n 0`.
-- **`--durations` from a parallel run is inflated, sometimes tenfold.** Trust a duration
+- **`--durations` from a parallel run is inflated.** Trust a duration
   only from `-n 0`, or where a band of tests repeats one figure exactly — a constant being
   waited out, not contention.
 - **Run the gate with changes staged.** It diffs against HEAD, so with nothing staged it

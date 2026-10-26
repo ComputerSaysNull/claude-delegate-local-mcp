@@ -2346,10 +2346,10 @@ class _OverflowGuard:
     def pressure_known(self) -> bool:
         """Whether `share()` is measured against a window somebody actually chose.
 
-        The overflow flag ships off because an entry omitting `context_window` inherits a
-        silent default. Only `evict_upto` reads this; tighten, nudge, abort and the plateau
-        check act on a delegation and stay on the flag. Otherwise an unarmed `evict_upto`
-        would stub on count alone and its threshold would never apply as shipped.
+        An entry omitting `context_window` inherits a silent default, and a share of that
+        window measures nothing. Only `evict_upto` reads this; tighten, nudge, abort and the
+        plateau check act on a delegation and stay on the flag. Otherwise an unarmed
+        `evict_upto` would stub on count alone and its threshold would never apply.
         """
         return not self.entry.context_window_defaulted
 
