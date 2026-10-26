@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #501 — 2026-10-26 — docs: file the sandbox covers a case variant gets past
+
+### Added
+
+- **PLAN M21.12: the sandbox's covers miss a case variant on a case-insensitive
+  filesystem.** Found by M21.9's spike on a laptop share mounted over CIFS: `run_bash` read
+  a covered `.env` as `.ENV` and wrote a covered `.claude/settings.json` as
+  `.CLAUDE/settings.json`. The sandbox covers a file by mounting over its exact name, and
+  that filesystem lets another spelling reach the same file. `paths.py` was not affected:
+  it matches the lowercased path. The `nocase` mount option closed both, at about four
+  times the cost of a `git status`. The fix and whether it reaches WSL's `/mnt/c` need a
+  design, so it is filed rather than made here, and it blocks M21.9.
+
 ## #500 — 2026-10-26 — feat: retire the wake hook and the handle state files
 
 ### Added
