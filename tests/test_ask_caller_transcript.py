@@ -47,18 +47,15 @@ def _drive(tmp_path: Path, handler, *, text: str | None = None,
         async with Client(mcp) as client:
             started = payload(await client.call_tool(
                 "delegate", {"effort": "inherit", "task": "q"}))
-            assert started["status"] == "running", started
+            assert started["status"] == "question", started
             handle = started["handle"]
-            asked = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 5}))
-            assert asked["status"] == "question", asked
-            answer = {"handle": handle, "wait_seconds": 5}
+            answer = {"handle": handle}
             if best_reading:
                 answer["best_reading"] = True
             else:
                 answer["text"] = text
             done = payload(await client.call_tool("answer", answer))
-            assert done["status"] == "done", done
+            assert "status" not in done, done
 
     asyncio.run(go())
     return _events(tmp_path)

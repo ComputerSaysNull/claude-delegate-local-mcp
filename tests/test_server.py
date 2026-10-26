@@ -412,16 +412,13 @@ def payload(result):
 
 
 async def answered(client, tool: str, args: dict) -> dict:
-    """Call a delegating tool and return its answer, collecting it if it came as a handle.
+    """Call a delegating tool and return its answer.
 
-    The write-capable tools answer at once with a handle and the run carries on (ADR-0103),
-    so a test that wants the result collects it, exactly as a caller does.
+    Every delegating tool now waits for its run, so a call on the in-memory client
+    resolves the run's task transparently and returns the finished result inline, with
+    no `status` and no `handle` (ADR-0103, ADR-0118).
     """
-    result = payload(await client.call_tool(tool, args))
-    if result.get("status") == "running" and "handle" in result:
-        result = payload(await client.call_tool(
-            "collect", {"handle": result["handle"], "wait_seconds": 600}))
-    return result
+    return payload(await client.call_tool(tool, args))
 
 
 def chat_handler(**over):
@@ -449,7 +446,7 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_exactly_nine_tools_are_declared():
+def test_exactly_eight_tools_are_declared():
     """docs/AGENTS.md promises this exact set, and this is what holds it to that.
 
     The promise is the design: a new *kind* of delegated task is a markdown file, not
@@ -475,10 +472,10 @@ def test_exactly_nine_tools_are_declared():
     lives in the assertion and the name was never updated, so the one thing a reader sees
     first was the one thing nothing checked. Six now, for `delegate_to_agent_readonly` --
     the third application of the same argument, written down in ADR-0059. Seven for
-    `collect`, which a call that returns a handle needs to be answered at all, and eight for
     `cancel_delegation`, because the call a client would cancel is then already over
-    (ADR-0103). Nine for `answer`: a run that asks its caller a question waits on a reply,
-    and `collect` only reads (ADR-0118).
+    (ADR-0103), and eight for `answer`: a run that asks its caller a question waits on a
+    reply. `collect` is gone -- every delegating call waits for its run, so no call needs a
+    second one to hear the answer (ADR-0118).
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -489,7 +486,7 @@ def test_exactly_nine_tools_are_declared():
 
     assert set(asyncio.run(go())) == {
         "delegate", "delegate_readonly", "delegate_to_agent",
-        "delegate_to_agent_readonly", "list_agents", "backend_status", "collect",
+        "delegate_to_agent_readonly", "list_agents", "backend_status",
         "cancel_delegation", "answer",
     }
 
@@ -1340,7 +1337,7 @@ def test_progress_is_notified_to_the_client_once_per_turn(tmp_path):
         seen.append((progress, message))
 
     async def go():
-        async with Client(mcp, progress_handler=on_progress) as client:
+        async with Client(mcp, mode="legacy", progress_handler=on_progress) as client:
             call = client.call_tool(
                 "delegate_readonly", {"task": "read it", "effort": "inherit"})
             return payload(await call)
@@ -1368,7 +1365,7 @@ def test_a_one_turn_delegation_still_notifies(tmp_path):
         seen.append((progress, total))
 
     async def go():
-        async with Client(mcp, progress_handler=on_progress) as client:
+        async with Client(mcp, mode="legacy", progress_handler=on_progress) as client:
             await client.call_tool("delegate_readonly", {"task": "q", "effort": "inherit"})
 
     asyncio.run(go())
@@ -2101,7 +2098,7 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
             return {t.name: t.annotations for t in await client.list_tools()}
 
     seen = asyncio.run(go())
-    cannot_write = ("backend_status", "list_agents", "collect", "delegate_readonly",
+    cannot_write = ("backend_status", "list_agents", "delegate_readonly",
                     "delegate_to_agent_readonly")
     # `answer` resumes a run that may write.
     can_write = ("delegate", "delegate_to_agent", "cancel_delegation", "answer")
@@ -2200,7 +2197,7 @@ def test_the_heartbeat_stops_when_the_dispatch_does():
         seen.append(progress)
 
     async def go():
-        async with Client(mcp, progress_handler=on_progress) as client:
+        async with Client(mcp, mode="legacy", progress_handler=on_progress) as client:
             await client.call_tool("delegate_readonly", {"task": "q", "effort": "inherit"})
             during = len(seen)
             await asyncio.sleep(2.5)
@@ -2247,7 +2244,7 @@ def test_a_failing_heartbeat_does_not_take_the_delegation_with_it():
         raise RuntimeError("the client hung up")
 
     async def go():
-        async with Client(mcp, progress_handler=exploding) as client:
+        async with Client(mcp, mode="legacy", progress_handler=exploding) as client:
             call = client.call_tool(
                 "delegate_readonly", {"task": "q", "effort": "inherit"})
             return payload(await call)
@@ -2302,7 +2299,7 @@ def test_only_the_delegating_tools_take_a_title():
         assert "title" in props, f"{name} must accept a title"
         string = next(b for b in props["title"]["anyOf"] if b.get("type") == "string")
         assert string["maxLength"] == 120
-    for name in ("collect", "cancel_delegation", "list_agents", "backend_status"):
+    for name in ("cancel_delegation", "list_agents", "backend_status"):
         props = tools[name].input_schema["properties"]
         assert "title" not in props, f"{name} must not accept a title"
 
@@ -2439,7 +2436,7 @@ def _loop_progress(config, handler, *, before_call=None):
         seen.append(progress)
 
     async def go():
-        async with Client(mcp, progress_handler=on_progress) as client:
+        async with Client(mcp, mode="legacy", progress_handler=on_progress) as client:
             await client.call_tool(
                 "delegate_readonly", {"task": "q", "effort": "inherit"}
             )
@@ -2525,7 +2522,7 @@ def test_the_loops_heartbeat_stops_when_the_delegation_fails():
         seen.append(progress)
 
     async def go():
-        async with Client(mcp, progress_handler=on_progress) as client:
+        async with Client(mcp, mode="legacy", progress_handler=on_progress) as client:
             try:
                 await client.call_tool(
                     "delegate_readonly", {"task": "q", "effort": "inherit"}

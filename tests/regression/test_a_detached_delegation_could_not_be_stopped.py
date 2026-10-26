@@ -1,9 +1,8 @@
-"""A delegation answered by handle would have had no way to be stopped (ADR-0103).
+"""Stopping a delegation no longer needs the call that started it (ADR-0103).
 
-Stopping a call used to stop its work, because the work ran inside the call. Once a call
-returns a handle at once, the call a client would cancel is already over, so the run needs
-a stop of its own -- and "stop waiting" has to stay a different thing from "stop the work",
-or abandoning a `collect` would kill what it was waiting for.
+A run parked on a question has no task for the client to cancel, so `cancel_delegation`
+stops it. The `Handles`-level tests below pin the internal collector a stopped run reports
+as cancelled, and that abandoning it leaves the run going.
 """
 
 import asyncio
@@ -12,7 +11,9 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from test_server import DoubleCache, cfg, chat_reply, entry, payload, registry
+from test_server import (
+    DoubleCache, cfg, entry, payload, registry, serves_metrics, tool_call_reply,
+)
 from wire_double import as_stream
 
 from claude_delegate_local import server
@@ -65,22 +66,26 @@ def test_abandoning_a_collect_leaves_the_run_going() -> None:
 
 def _mcp(tmp_path):
     config = cfg(slots_dir=str(tmp_path), admission_idle_hold=0)
-    return server.build(config, registry(entry()),
-                        DoubleCache(config, lambda _r: as_stream(chat_reply(content="done"))))
+    handler = serves_metrics(
+        lambda _r: as_stream(tool_call_reply("ask_caller", {"questions": ["Which file?"]})))
+    return server.build(config, registry(entry()), DoubleCache(config, handler))
 
 
-def test_the_tool_refuses_an_unknown_handle_and_reports_a_finished_one(tmp_path) -> None:
+def test_the_tool_refuses_an_unknown_handle_and_stops_a_parked_run(tmp_path) -> None:
+    """`cancel_delegation` refuses an unknown handle, and a run parked on a question is stopped."""
     mcp = _mcp(tmp_path)
 
     async def go():
         async with Client(mcp) as client:
-            done = payload(await client.call_tool("delegate", {"task": "t", "effort": "inherit"}))
-            # Finished first, so "already over" is what is being asked about.
-            await client.call_tool("collect", {"handle": done["handle"], "wait_seconds": 30})
-            late = payload(await client.call_tool("cancel_delegation", {"handle": done["handle"]}))
+            asked = payload(await client.call_tool(
+                "delegate", {"task": "t", "effort": "inherit"}))
+            assert asked["status"] == "question", asked
+            handle = asked["handle"]
+            stopped = payload(await client.call_tool(
+                "cancel_delegation", {"handle": handle}))
             with pytest.raises(ToolError, match=r"unknown_handle"):
                 await client.call_tool("cancel_delegation", {"handle": "d-000000000000"})
-            return late
+            return stopped
 
-    late = asyncio.run(go())
-    assert late["cancelled"] is False and late["stopped"] is True
+    stopped = asyncio.run(go())
+    assert stopped["cancelled"] is True and stopped["stopped"] is True

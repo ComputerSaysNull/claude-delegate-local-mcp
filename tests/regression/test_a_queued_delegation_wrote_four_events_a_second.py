@@ -53,7 +53,8 @@ def test_a_queued_delegation_writes_few_waiting_events_but_notifies_every_tick(
         notified.append(progress)
 
     async def go():
-        async with Client(mcp, progress_handler=on_progress) as client:
+        # Progress is what keeps an inline call alive; a task reports through its status.
+        async with Client(mcp, mode="legacy", progress_handler=on_progress) as client:
             await client.call_tool("delegate_readonly", {"task": "t", "effort": "inherit"})
 
     asyncio.run(go())

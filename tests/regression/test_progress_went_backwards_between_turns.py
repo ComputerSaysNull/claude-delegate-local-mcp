@@ -42,7 +42,8 @@ def test_progress_only_rises_across_queued_ticks_and_turns(tmp_path, monkeypatch
         seen.append((progress, total, message))
 
     async def go():
-        async with Client(mcp, progress_handler=on_progress) as client:
+        # Progress is what keeps an inline call alive; a task reports through its status.
+        async with Client(mcp, mode="legacy", progress_handler=on_progress) as client:
             await client.call_tool("delegate_readonly", {"task": "t", "effort": "inherit"})
 
     asyncio.run(go())

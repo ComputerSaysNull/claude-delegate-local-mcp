@@ -120,7 +120,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_DISPATCH_TIMEOUT` | 14400 seconds | Whole-delegation ceiling, spanning every retry and every empty-answer recovery stage. An absolute bound on work that is still producing, and nothing more: a delegation that has stopped producing is bounded by stall_timeout instead, far below this (ADR-0047). Bounds the wait, not the client's patience. |
 | `DELEGATE_STALL_TIMEOUT` | 900 seconds | No-progress deadline: how long a delegation may run without a frame arriving from the endpoint. Distinct from dispatch_timeout, which bounds total time and cannot tell a merely long delegation from a wedged one (ADR-0047). Silence is the endpoint having stopped, not the model thinking: a running tool cannot trip it, and prefill produces no frame. Refused only above dispatch_timeout, where it could never fire (ADR-0099). Also the httpx read budget, so it bounds silence at the socket too. |
 | `DELEGATE_STATUS_PROBE_TIMEOUT` | 10 seconds | Deadline for one backend_status() probe of /v1/models. Separate from, and far below, stall_timeout: a status check is answered from memory and returns in milliseconds, so waiting a generation-sized budget on it only means one blackholed endpoint stalls the report on every other one. |
-| `DELEGATE_KEEPALIVE_INTERVAL` | 60 seconds | How often a one-shot delegation reports it is still running, to the client as a progress notification and to the transcript as an `alive` event, and how often a `collect` still waiting reports to the client. The loop reports once per turn (ADR-0018), and a one-shot has no turns, so without this it can be abandoned at the client's stdio idle timeout while still holding its admission slot. Refused at startup above half the idle timeout. Not a deadline. |
+| `DELEGATE_KEEPALIVE_INTERVAL` | 60 seconds | How often a one-shot delegation reports it is still running, to the client as a progress notification and to the transcript as an `alive` event, as does a call waiting on its run. The loop reports once per turn (ADR-0018), and a one-shot has no turns, so without this it can be abandoned at the client's stdio idle timeout while still holding its admission slot. Refused at startup above half the idle timeout. Not a deadline. |
 | `DELEGATE_PARTIAL_EVERY_SECONDS` | 2.0 seconds | How often the transcript stream gets a `partial` event: the reply's text since the last one, so a watcher sees it while it generates. A turn's first piece is written at once, then at most one event per this many seconds, and only while tokens arrive. 0 turns them off. The `turn` event carries the whole reply either way. |
 | `DELEGATE_RETRY_MAX_ATTEMPTS` | 3 | Attempts on a retryable backend status. |
 | `DELEGATE_RETRY_BASE_DELAY` | 1.0 seconds | Exponential backoff base. |
@@ -142,8 +142,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DELEGATE_HANDLE_TTL_SECONDS` | 3600.0 seconds | How long a finished delegation's result is kept for `collect` after it finished. A running one is never forgotten; one nobody collects is dropped after this, and its transcript record remains. |
-| `DELEGATE_COLLECT_WAIT_SECONDS` | 110.0 seconds | How long `collect` waits for a running delegation when the caller does not say. Just under the 120s a client commonly waits on one call before giving up or backgrounding it, so the default answers within any client's patience. |
+| `DELEGATE_HANDLE_TTL_SECONDS` | 3600.0 seconds | How long a finished delegation stays in the run registry after it finished. A running one is never forgotten; its transcript record outlives this. |
 | `DELEGATE_QUESTION_WAIT_LIMIT` | 1800.0 seconds | How long a delegation that asked its caller a question waits for `answer` before it ends unanswered. The wait does not count against `dispatch_timeout`; this bounds a run whose caller has stopped listening, which holds its admission slot meanwhile. Only the calling model is asked (ADR-0124), so a longer wait means nobody is. |
 
 ### Operator records
@@ -186,6 +185,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting because naming another transport should be an error rather than silence (ADR-0034). |
 
-*82 settings.*
+*81 settings.*
 
 <!-- GEN:CONFIG:END -->

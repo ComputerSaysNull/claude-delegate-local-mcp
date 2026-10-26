@@ -84,7 +84,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
 | `watch.py` | `claude-delegate-watch`: the terminal viewer of the stream `transcript.py` writes |
-| `handles.py` | A delegation's handle, the task `collect` reads, what `cancel_delegation` stops, and the question `answer` replies to |
+| `handles.py` | The run registry behind each task: the run a call waits on, the question `answer` replies to, and what `cancel_delegation` stops |
 | `wake.py` | `wait-hook`: wakes a caller that stopped listening, from the state file `handles.py` keeps |
 | `server.py` | MCP wiring, the tool declarations, the backend cache, and each session's roots narrowed to its client's project (ADR-0110, ADR-0128), with the project's own layer-2 additions read in (ADR-0116) |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
@@ -270,13 +270,15 @@ answered, 1 if it did not, and 2 on bad usage. Everything between goes through
 as they do for a tool call. This module owns argument handling and an exit code, nothing else.
 
 It answered a limit on the *client*: a conversation speaking MCP keeps one write-capable call
-in flight and releases the next at whichever of completion or 120s comes first. The
-write-capable tools answer at once with a handle instead (ADR-0103), so the run carries on
-in a task the server owns, admission wait included, and `collect` reads it back, reporting
-progress every `keepalive_interval` it waits so the idle timeout (ADR-0018) cannot drop
-it. Each time a run asks its caller (`ask_caller`, ADR-0125), `collect` or a read-only call
-answers at once with `status: question`; `answer` replies, and the run keeps its slot meanwhile.
-A caller that ended its turn hears neither: `handles.py` keeps a state file per handle, and a
+in flight and releases the next at whichever of completion or 120s comes first. Every
+delegating tool, and `answer`, is an MCP task instead (ADR-0130): the call returns at once,
+the run carries on in the server, admission wait included, and the client polls it and wakes
+its session when it ends. A client without tasks waits on the call, which reports progress
+every `keepalive_interval` so the idle timeout (ADR-0018) cannot drop it. Each time a run
+asks its caller (`ask_caller`, ADR-0125) the call ends with `status: question`; `answer`
+continues the same run, which keeps its slot meanwhile. Cancelling the task cancels the run;
+`cancel_delegation` stops one parked on a question.
+The older route still works beside it: `handles.py` keeps a state file per handle, and a
 client hook running `wait-hook` (setup is the README's) exits 2, waking it, once a run sits
 uncollected or holds an unread question for a three-second grace (ADR-0126).
 What `run` still buys is context — a tool result lands in the caller's window whole,
@@ -935,7 +937,7 @@ Each fact goes to the home that owns it, and all four are delivered:
 | What an argument means and costs | property `description` | Own budget, shown beside the argument |
 | What went wrong and how to fix it | the refusal itself | Arrives when it matters, not on every listing |
 | What the result's keys mean | `outputSchema`, described | Read where a caller reads the result |
-| Sizing, fan-out, handles, shaping a pass, failure modes | `delegate://orchestration` | Unbounded, and costs nothing until read |
+| Sizing, fan-out, tasks and questions, shaping a pass, failure modes | `delegate://orchestration` | Unbounded, and costs nothing until read |
 | What must be known before choosing | server `instructions` | Pushed once, server-wide |
 
 **The resource is the one that makes the rest possible.** A prompt could not do this job:

@@ -92,18 +92,14 @@ def test_a_cancelled_run_says_stopped(tmp_path):
 
     async def go():
         async with Client(mcp) as client:
-            started = payload(await client.call_tool(
-                "delegate", {"task": "q", "effort": "inherit"}))
-            handle = started["handle"]
             asked = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 5}))
+                "delegate", {"task": "q", "effort": "inherit"}))
             assert asked["status"] == "question", asked
+            handle = asked["handle"]
             stopped = payload(await client.call_tool(
                 "cancel_delegation", {"handle": handle}))
+            assert stopped["cancelled"] is True, stopped
             assert stopped["stopped"] is True, stopped
-            after = payload(await client.call_tool(
-                "collect", {"handle": handle, "wait_seconds": 1}))
-            assert after["status"] == "cancelled", after
 
     asyncio.run(go())
     assert _end(config)["ended"] == "stopped"

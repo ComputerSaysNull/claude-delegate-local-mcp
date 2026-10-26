@@ -1,11 +1,11 @@
 """The read-only delegating tools' `may_ask`: offered `ask_caller`, a run that asks
 returns early with the question, and a run that never asks keeps today's inline shape.
 
-`tests/test_ask_caller_server.py` pins the write-capable pair, which answer at once with
-a `handle` (ADR-0103). The read-only pair answer inline, so a run that asks must not
-leave its caller blocked on it: the call returns early with `status: "question"` and a
-`handle` that `answer` resumes, while a run that never asks returns its result dict in
-the inline shape, with no `status` and no `handle` (ADR-0118).
+`tests/test_ask_caller_server.py` pins the write-capable pair, which now wait for the run
+like every delegating tool. The read-only pair behave the same way: a run that asks makes
+the call end with `status: "question"` and a `handle` that `answer` resumes, while a run
+that never asks returns its result dict in the inline shape, with no `status` and no
+`handle` (ADR-0118).
 """
 
 import asyncio
@@ -47,8 +47,8 @@ def test_a_read_only_call_returns_early_with_the_question():
             assert isinstance(started["waiting_seconds"], (int, float))
 
             done = payload(await client.call_tool(
-                "answer", {"handle": handle, "text": "foo.py", "wait_seconds": 5}))
-            assert done["status"] == "done", done
+                "answer", {"handle": handle, "text": "foo.py"}))
+            assert "status" not in done, done
             assert done["answer"] == "it is foo.py"
 
     asyncio.run(go())

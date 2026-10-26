@@ -12,7 +12,7 @@ from fastmcp import Client
 
 from test_server import build_default
 
-READ_ONLY = ("backend_status", "list_agents", "collect", "delegate_readonly",
+READ_ONLY = ("backend_status", "list_agents", "delegate_readonly",
              "delegate_to_agent_readonly")
 WRITING = ("delegate", "delegate_to_agent")
 # The sandbox has no network unless an agent asks and is on `agent_network_allowed`, and

@@ -538,8 +538,8 @@ class Config:
     keepalive_interval: int = _f(
         60,
         "How often a one-shot delegation reports it is still running, to the client as a "
-        "progress notification and to the transcript as an `alive` event, and how often a "
-        "`collect` still waiting reports to the client. The loop reports once per turn "
+        "progress notification and to the transcript as an `alive` event, as does a call "
+        "waiting on its run. The loop reports once per turn "
         "(ADR-0018), and a one-shot has no turns, so without this it can be abandoned at "
         "the client's stdio idle timeout while still holding its admission slot. Refused "
         "at startup above half the idle timeout. Not a deadline.",
@@ -795,16 +795,8 @@ class Config:
     # ---- handles -----------------------------------------------------------------
     handle_ttl_seconds: float = _f(
         3600.0,
-        "How long a finished delegation's result is kept for `collect` after it finished. "
-        "A running one is never forgotten; one nobody collects is dropped after this, "
-        "and its transcript record remains.",
-        unit="seconds",
-    )
-    collect_wait_seconds: float = _f(
-        110.0,
-        "How long `collect` waits for a running delegation when the caller does not say. "
-        "Just under the 120s a client commonly waits on one call before giving up or "
-        "backgrounding it, so the default answers within any client's patience.",
+        "How long a finished delegation stays in the run registry after it finished. "
+        "A running one is never forgotten; its transcript record outlives this.",
         unit="seconds",
     )
     question_wait_limit: float = _f(

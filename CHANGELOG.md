@@ -30,6 +30,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #499 — 2026-10-26 — feat: every delegation runs as an MCP task
+
+### Changed
+
+- **The four delegating tools and `answer` are MCP tasks (ADR-0130).** A conversation keeps
+  one write-capable call in flight and gives up on a call after 120s, so write calls used to
+  answer at once with a handle for `collect`, and a client hook woke a session that stopped
+  listening. Claude Code now does all of that for a task: the call returns at once, the
+  client polls it, and an idle session wakes when it ends. Each tool waits for its run to end
+  or ask. A question ends the task with `status: question` and a `handle`, and `answer` is a
+  new task that continues the same run. A client without tasks (the old protocol,
+  `claude -p`) gets the result inline. New dependency `fastmcp-tasks`, which pins FastMCP's
+  version to its own, so the floor moves to 4.1.4 for both.
+- **Cancelling the task cancels the run.** A cancelled wait used to stop only the waiting,
+  which would have left a cancelled task's run holding its admission slot.
+  `cancel_delegation` now stops a run parked on a question, the one case with no task left.
+- **The `delegate://orchestration` resource, the tool descriptions and the result schema
+  describe tasks instead of handles.** Model-facing, so a behaviour change.
+- **`collect`, `answer`'s `wait_seconds` and the `collect_wait_seconds` setting are gone.**
+  No call hands out a running handle any more, so there is nothing left to collect.
+
 ## #498 — 2026-10-26 — fix: the sandbox's process cap counts only its own command
 
 ### Fixed

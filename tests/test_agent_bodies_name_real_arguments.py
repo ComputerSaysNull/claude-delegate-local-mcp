@@ -264,8 +264,8 @@ def test_unknown_names_reports_a_planted_wait_secs() -> None:
 
 
 def test_bad_calls_reports_the_unknown_keyword() -> None:
-    """`collect` takes `wait_seconds`, so `wait_secs` is a keyword it does not have."""
-    body = 'Collect it with `collect(handle="h", wait_secs=5)`.'
+    """`answer` takes `handle` and `text`, so `wait_secs` is a keyword it does not have."""
+    body = 'Answer it with `answer(handle="h", wait_secs=5)`.'
     reports = bad_calls(body, _mcp_tool_schemas())
     assert any("wait_secs" in report for report in reports), reports
 

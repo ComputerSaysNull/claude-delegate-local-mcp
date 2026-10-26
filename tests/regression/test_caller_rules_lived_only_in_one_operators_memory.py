@@ -30,5 +30,5 @@ def test_the_orchestration_resource_carries_both_caller_rules() -> None:
 
 def test_it_no_longer_tells_a_caller_to_budget_for_a_stagger() -> None:
     text = " ".join(_resource().split())
-    assert "answer at once with `status: running`" in text
+    assert "several start together" in text
     assert "one per 120s" not in text
