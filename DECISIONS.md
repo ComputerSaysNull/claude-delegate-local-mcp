@@ -19,6 +19,37 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0131 — 2026-10-26 — A folder that ignores case is refused, not covered — Accepted
+
+**Context.** ADR-0035 covers a secret by mounting over its exact name, and protected paths
+are bound read-only onto themselves the same way. A mount sits on one name. On a filesystem
+that ignores case, another spelling reaches the same file past it: on a laptop share over
+CIFS, `run_bash` read a covered `.env` as `.ENV` and wrote `.claude/settings.json` through
+`.CLAUDE` (JOURNAL 2026-10-26). `paths.py` held, because it matches the lowercased path. The
+`nocase` mount option closed both, but only where an operator chose it. WSL's `/mnt/c`, the
+checkout ADR-0020 supports, folds case by default and is not measured.
+
+**Decision.** After the scan, every folder between a bound root and a cover is probed: the
+next name on the way down, case swapped, is `lstat`ed. A folder that opens a spelling it does
+not list folds case, and the command is refused, naming the folder and the fix (a
+case-sensitive filesystem, or `fsutil.exe file setCaseSensitiveInfo` per folder on Windows).
+Folders on the way count, not only the cover's own: the CIFS write went through one. "Opens
+and is not listed" rather than comparing inodes, which CIFS may number per lookup. Probed on
+every call and never cached: Windows and ext4 set case sensitivity per folder and change it
+without a remount, so a cached verdict can go stale into a hole. Measured, 60 probes cost
+0.16 ms against a 4.4 ms walk that already runs per call.
+
+**Rejected.** Covering every spelling: `settings.json` alone has 4,096. Requiring `nocase`
+on CIFS: it held (measured), but telling a kernel that folds case from a server that does
+needs a second probe nobody needs yet. **Trigger:** M21.9 picks a topology where this host
+mounts a share. Caching per mount: see above.
+
+**Consequence.** A command in a case-folding checkout is refused rather than run with covers
+another spelling walks around; `read_file` and `write_file` are unaffected. A case-folding
+folder that holds no cover is not probed and still runs. The regression stands in a FUSE
+passthrough for CIFS, because FUSE, like CIFS and WSL's 9p, keeps two spellings as separate
+names while its store folds them.
+
 ## ADR-0130 — 2026-10-26 — Every delegation is an MCP task, and a question ends the task — Accepted
 
 **Context.** A conversation speaking MCP keeps one write-capable call in flight and gives up

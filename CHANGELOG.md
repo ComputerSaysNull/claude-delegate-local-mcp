@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #503 — 2026-10-26 — fix: the sandbox refuses a folder that ignores case
+
+### Fixed
+
+- **A different spelling no longer gets past the sandbox's covers (PLAN M21.12).** On a
+  laptop share mounted over CIFS, `run_bash` read a covered `.env` as `.ENV` and wrote
+  `.claude/settings.json` through `.CLAUDE` (#501). A cover is a mount over one exact name,
+  and a filesystem that ignores case reaches the same file under another. After the secret
+  scan, every folder between a bound root and a cover is now probed with the next name's
+  case swapped; a folder that opens a spelling it does not list refuses the command, naming
+  the folder and the fix (ADR-0131). Not cached, because case sensitivity is set per folder
+  and changes without a remount; 60 probes cost 0.16 ms against the 4.4 ms walk that already
+  runs. `read_file` and `write_file` were never affected: `paths.py` matches the lowercased
+  path. The regression runs against a case-folding FUSE folder (`mfusepy`, a new dev
+  dependency, so CI installs `fuse3`): there, before the fix, the secret was printed and
+  the protected file rewritten.
+
 ## #502 — 2026-10-26 — chore: release 0.14.0
 
 ### Changed

@@ -488,6 +488,13 @@ remainder stays to be read, so a nested `pytest` writing bytecode into a covered
 whichever mount is current. File shadows keep `--ro-bind /dev/null`, which is read-only
 already. (ADR-0064)
 
+**A folder that ignores case is refused, not covered.** A cover sits on one exact name, and
+on a case-insensitive filesystem -- a CIFS share, WSL's `/mnt/c` -- another spelling reaches
+the same file past it. So every folder on the way to a cover is probed with the next name's
+case swapped, and one that opens a spelling it does not list refuses the command. Probed on
+every call, because case sensitivity is set per folder and changes without a remount.
+(ADR-0131)
+
 **One tree is pruned from that scan and not covered**, which is the shape ADR-0041 calls
 the hole — and it is forced rather than chosen. A provisioned virtualenv is the first tree
 a command must be able to *read*: the denylist matches files inside one, such as a
