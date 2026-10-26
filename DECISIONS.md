@@ -19,6 +19,38 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0129 — 2026-10-26 — The sandbox's process cap is a cgroup scope per command — Accepted
+
+**Context.** ADR-0054 applied `sandbox_max_processes` as `RLIMIT_NPROC` and kept it despite
+its first defect: the kernel counts it over every thread the uid owns. In WSL only the server
+ran as that uid; on the Linux host (ADR-0127) a desktop login, an editor's server and a few
+Claude sessions hold 600 to 850 threads, so with the cap at 512 every sandboxed command
+failed with "Creating new namespace failed" (#496). ADR-0054 named a cgroup pids cap "the
+better process cap if it were reachable". Here it is: systemd 259 hands the user manager the
+`pids` controller, and its `app.slice` passes it on to transient scopes. Measured
+(JOURNAL 2026-10-26): `systemd-run --user --scope -p TasksMax=64` runs bwrap at 599 user
+threads where `prlimit --nproc=64` fails, a fork loop inside it is stopped at 64, it costs
+about 17 ms a command, and the server's environment reaches the user bus.
+
+**Decision.** Each sandboxed command runs in its own transient user scope, with `TasksMax`
+set to `sandbox_max_processes`, outermost in the argv: scope, then `prlimit` for the other
+rlimits, then bwrap. `systemd-run --scope` execs the command in place, so a timeout still
+kills the command's own pid. It runs with `--expand-environment=no`, or systemd-run fills
+in every `${VAR}` in the argv from the server's environment, around `--clearenv`. Whether a
+user manager answers is probed once per process with a scope around `true`. Where none does -- CI, a host without systemd, a client's sandbox --
+the cap falls back to `RLIMIT_NPROC`, exactly as before, and `--doctor` says it is shared.
+
+**Rejected.** Refusing to run without a user manager: CI and WSL would lose `run_bash` for a
+cap that still works where the uid is the server's alone. Counting the uid's threads and
+setting `RLIMIT_NPROC` above them per command: a race, and a fork bomb still starves its
+neighbours. A separate uid for the sandbox: an install step on every host. `MemoryMax` on the
+same scope, which would replace ADR-0054's `RLIMIT_AS` approximation, is left for its own
+decision.
+
+**Consequence.** On a systemd host the cap means what its name says, one command's
+processes. ADR-0054's first defect is gone where the scope is reachable; the other two (bwrap
+fails below about 64, and a shell cannot fork to report the cap binding) still hold.
+
 ## ADR-0128 — 2026-10-25 — A session's folder is the project its client was started in, not its roots — Accepted
 
 **Context.** ADR-0110 narrowed each session to the folders its client lists as MCP roots,
@@ -3006,7 +3038,7 @@ becomes an outage.
 
 ---
 
-## ADR-0054 — 2026-09-05 — Sandbox resource limits come from a launcher, and the process cap is the compromised one — Accepted
+## ADR-0054 — 2026-09-05 — Sandbox resource limits come from a launcher, and the process cap is the compromised one — Partially superseded by ADR-0129
 
 `build_argv` bounded nothing: a runaway allocation or a fork bomb was held only by
 `run_bash_timeout`, and this machine's page file is capped by choice, so a demand-side OOM

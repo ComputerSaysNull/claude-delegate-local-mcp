@@ -526,17 +526,18 @@ bwrap at all, which is most of what `tests/test_sandbox.py` does.
 Three of the four bound a process; the fourth bounds a mount. Memory is `RLIMIT_AS`, which
 is address space rather than resident memory and therefore an over-count — a Go runtime or
 a sanitiser reserves far more than it uses. The accurate control is a cgroup memory limit,
-and no unprivileged process here can set one: `systemd-run --user` has no bus to talk to,
-though the `pids` controller is present and would be the better process cap if it were
-reachable. What we have is the approximation, and the setting says so.
+and in WSL no unprivileged process could set one: `systemd-run --user` had no bus to talk
+to. What we have is the approximation, and the setting says so.
 
 **The process cap is the awkward one, and its shape is measured rather than chosen.**
-`RLIMIT_NPROC` counts per real uid across the machine, not per sandbox, so concurrent
-delegations share one budget and a fork bomb in one starves the others — still better than
-the alternative, which on a machine with a capped page file is an OOM. Below roughly 64,
-bwrap cannot create its namespaces at all and every command fails at startup. And when the
-cap does bind, the shell cannot fork to say so: the call dies with no output and a bare
-exit code. (ADR-0054)
+As an rlimit, `RLIMIT_NPROC` counts per real uid across the machine, so on a desktop host the
+user's other programs spend it before any delegation runs. Where a systemd user manager
+answers, each command therefore runs in its own transient scope with `TasksMax` set to the
+cap, outermost in the argv, and the cap counts that command's processes alone (ADR-0129).
+Where none answers -- CI, a client's sandbox -- the cap falls back to the rlimit, shared by
+everything the uid runs, and `--doctor` says so. Either way, below roughly 64 bwrap cannot
+create its namespaces, and when the cap binds the shell cannot fork to say so: the call dies
+with no output and a bare exit code. (ADR-0054)
 
 ### The route, now open
 

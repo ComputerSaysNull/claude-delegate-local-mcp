@@ -1,4 +1,4 @@
-<!-- BUDGET: 190 -->
+<!-- BUDGET: 191 -->
 
 # Configuration
 
@@ -159,6 +159,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_BWRAP_BIN` | bwrap | bubblewrap binary name or path. |
 | `DELEGATE_PRLIMIT_BIN` | prlimit | util-linux prlimit binary name or path. Used only when a sandbox resource limit is set; if one is and this is missing, run_bash is refused rather than run unbounded. |
+| `DELEGATE_SYSTEMD_RUN_BIN` | systemd-run | systemd-run binary name or path. Used to put each sandboxed command in a transient user scope whose TasksMax counts only that command's processes. Where no user manager is reachable the process cap falls back to RLIMIT_NPROC (ADR-0054). |
 | `DELEGATE_SANDBOX_HOME` | ~/.cache/claude-delegate-local/sandbox-home | Persistent HOME inside the sandbox. The real HOME is never bound, so credential directories are absent rather than merely unwritable. |
 | `DELEGATE_TOOLCHAIN_BINDS` | *(empty)* | Extra read-only binds so tools resolve inside an empty root. Empty means probe for `uv` and bind it: it lives outside the sandbox HOME, so `uv run pytest` fails with 'not found' without this. The single most likely first-run sandbox failure. |
 | `DELEGATE_ENV_PASSTHROUGH` | *(empty)* | Extra environment names allowed through to a sandboxed command, on top of the built-in allowlist. |
@@ -168,7 +169,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_OPAQUE_GLOBS_FILE` | ./security/opaque_globs.txt | Directories covered and not walked, because they hold machine-generated bulk. Separate from the secret denylist and matched the same way: a hit is covered with the tmpfs a matched secret directory gets, so covering more is never less safe -- what the list buys is the walk, which runs per run_bash call. Unlike the secret denylist a missing file is not fatal, because an empty list only costs time. Never list a directory a sandboxed command needs to read (ADR-0041). |
 | `DELEGATE_SANDBOX_MAX_MEMORY_MB` | 8192 MB | Address space one sandboxed process may reserve, applied as RLIMIT_AS. 0 removes the limit. Address space is not resident memory, so this over-counts: a Go runtime or a sanitiser reserves far more than it uses and will need this raised or turned off. It is the approximation available, because the accurate control is a cgroup memory limit and no unprivileged process here can set one. |
 | `DELEGATE_SANDBOX_MAX_FILE_MB` | 2048 MB | Largest file a sandboxed command may write, applied as RLIMIT_FSIZE. 0 removes the limit. Exceeding it kills the writer with SIGXFSZ and leaves the file truncated at exactly this size. |
-| `DELEGATE_SANDBOX_MAX_PROCESSES` | 512 | Concurrent processes the sandbox's user may hold, applied as RLIMIT_NPROC. 0 removes the limit, and values below roughly 64 stop bwrap starting at all. How the cap is shared between delegations, and how it fails when it binds, are docs/ARCHITECTURE.md's. |
+| `DELEGATE_SANDBOX_MAX_PROCESSES` | 512 | Concurrent processes a sandboxed command may hold, applied as the TasksMax of a transient systemd user scope per command, which counts only that command's processes. Where no user manager is reachable it falls back to RLIMIT_NPROC, which counts every thread the user owns. 0 removes the limit, and values below roughly 64 stop bwrap starting at all. How the cap is shared between delegations, and how it fails when it binds, are docs/ARCHITECTURE.md's. |
 | `DELEGATE_SANDBOX_TMPFS_MB` | 1024 MB | Size of the sandbox's /tmp, applied as bwrap's --size. 0 leaves it unbounded, where filling it is filling RAM. A write that overruns it fails with ENOSPC, which is an ordinary error a command can report. |
 
 ### Agents
@@ -185,6 +186,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting because naming another transport should be an error rather than silence (ADR-0034). |
 
-*81 settings.*
+*82 settings.*
 
 <!-- GEN:CONFIG:END -->

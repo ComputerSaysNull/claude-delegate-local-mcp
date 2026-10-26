@@ -723,6 +723,12 @@ class Config:
         "is set; if one is and this is missing, run_bash is refused rather than run "
         "unbounded.",
     )
+    systemd_run_bin: str = _f(
+        "systemd-run",
+        "systemd-run binary name or path. Used to put each sandboxed command in a transient "
+        "user scope whose TasksMax counts only that command's processes. Where no user "
+        "manager is reachable the process cap falls back to RLIMIT_NPROC (ADR-0054).",
+    )
     sandbox_home: str = _f(
         "~/.cache/claude-delegate-local/sandbox-home",
         "Persistent HOME inside the sandbox. The real HOME is never bound, so credential "
@@ -771,10 +777,12 @@ class Config:
     )
     sandbox_max_processes: int = _f(
         512,
-        "Concurrent processes the sandbox's user may hold, applied as RLIMIT_NPROC. 0 "
-        "removes the limit, and values below roughly 64 stop bwrap starting at all. How "
-        "the cap is shared between delegations, and how it fails when it binds, are "
-        "docs/ARCHITECTURE.md's.",
+        "Concurrent processes a sandboxed command may hold, applied as the TasksMax of a "
+        "transient systemd user scope per command, which counts only that command's "
+        "processes. Where no user manager is reachable it falls back to RLIMIT_NPROC, which "
+        "counts every thread the user owns. 0 removes the limit, and values below roughly "
+        "64 stop bwrap starting at all. How the cap is shared between delegations, and how "
+        "it fails when it binds, are docs/ARCHITECTURE.md's.",
     )
     sandbox_tmpfs_mb: int = _f(
         1024,
