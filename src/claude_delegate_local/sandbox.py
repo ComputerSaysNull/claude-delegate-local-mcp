@@ -262,6 +262,16 @@ class SecretShadowIncomplete(RuntimeError):
     """
 
 
+class CaseFoldingCover(SecretShadowIncomplete):
+    """A folder on the way to a cover ignores case, so another spelling walks around it.
+
+    A cover is a mount over one exact name. Where a folder folds case, `.ENV` or `.CLAUDE`
+    reaches what `.env` or `.claude` covers by a name no mount sits on (measured on CIFS,
+    JOURNAL 2026-10-26). A subclass of the incomplete scan because that is what it is: the
+    covers miss part of what they exist to cover. (ADR-0131)
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class ShadowTarget:
     """One denylist match, and the mount that covers it up.
@@ -706,7 +716,68 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
                     else protect.match(full, is_dir=False)
                 ))
 
+    _refuse_case_folding(roots, found)
     return tuple(found)
+
+
+def _refuse_case_folding(roots: Sequence[str], found: Sequence[ShadowTarget]) -> None:
+    """Refuse when a folder between a bound root and a cover folds case. I/O.
+
+    Every folder on the way down counts, not only the cover's own: the write measured on
+    CIFS went through `.CLAUDE/settings.json`, a different spelling of the folder.
+
+    Never cached. Windows and ext4 set case sensitivity one folder at a time and change it
+    without a remount, so a cached verdict can go stale into a hole. One `lstat` per name
+    on the way down costs a fraction of the walk that found the covers. (ADR-0131)
+    """
+    folding: dict[str, str] = {}
+    checked: set[tuple[str, str]] = set()
+    for target in found:
+        root = max((r for r in roots if _under(target.path, r)), key=len, default=None)
+        if root is None:
+            continue
+        here = root.rstrip("/") or "/"
+        for name in posixpath.relpath(target.path, here).split("/"):
+            if (here, name) not in checked:
+                checked.add((here, name))
+                if _folds(here, name):
+                    folding.setdefault(here, name)
+            here = posixpath.join(here, name)
+    if folding:
+        named = "; ".join(f"{d} (another spelling of {n!r} opens it)"
+                          for d, n in folding.items())
+        raise CaseFoldingCover(
+            f"run_bash is refused: these folders ignore case, so a secret or protected "
+            f"path inside could be reached past its cover by another spelling: {named}. "
+            "Move the checkout to a case-sensitive filesystem, or on Windows make each "
+            "named folder case-sensitive with `fsutil.exe file setCaseSensitiveInfo "
+            "<folder> enable`. read_file and write_file are unaffected."
+        )
+
+
+def _under(path: str, root: str) -> bool:
+    root = root.rstrip("/")
+    return path == root or path.startswith(root + "/")
+
+
+def _folds(folder: str, name: str) -> bool:
+    """Whether `folder` opens `name` under a spelling it does not hold. I/O.
+
+    Not by inode: CIFS may number the same file differently on each lookup. A
+    case-sensitive folder can hold both spellings as real entries, and then the walk covers
+    each by its own name, so "folds" is "opens and is not listed".
+    """
+    other = name.swapcase()
+    if other == name:
+        return False  # no letters, so no other spelling to reach it by
+    try:
+        os.lstat(posixpath.join(folder, other))
+    except OSError:
+        return False
+    try:
+        return other not in os.listdir(folder)
+    except OSError:
+        return True  # it opened but cannot be listed: fail closed
 
 
 def _add(found: list[ShadowTarget], seen: set[str], target: ShadowTarget | None) -> None:

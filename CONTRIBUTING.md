@@ -7,6 +7,8 @@ One interpreter, and it is one CI runs: **Python 3.14, on Linux**. A green run o
 CI never tests proves less than it appears to, and Linux is where the server runs anyway --
 the only place `bubblewrap` exists. Development happens on a native Linux host (ADR-0127),
 with the venv in the home rather than the repository.
+The suite also wants `fuse3`, for the case-folding folder one sandbox regression mounts
+(ADR-0131); without it those tests skip, and in CI they fail.
 
 ```bash
 python3.14 -m venv ~/.venvs/delegate        # or: uv venv --seed -p 3.14 ~/.venvs/delegate

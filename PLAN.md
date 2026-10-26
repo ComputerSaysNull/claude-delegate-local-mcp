@@ -317,7 +317,7 @@ Item 1 was Deferred.7, moved 2026-10-24 with its premise corrected: the reposito
   rule, so one machine counts every run; closes Deferred.3
 10. ⬜ Revisit an HTTP transport only if over 5% of a month's runs end stopped or unfinished
 11. ✅ 2026-10-26 **The sandbox's process cap is spent by everything else the user runs** (CHANGELOG #496)
-12. ⬜ **The sandbox's covers miss a case variant on a case-insensitive filesystem** (CHANGELOG #501); blocks M21.9
+12. ✅ **The sandbox's covers miss a case variant on a case-insensitive filesystem** (CHANGELOG #501); blocks M21.9
 
 ### Unscheduled — open, real, and in no milestone
 Neither queued nor deferred: real work not (yet) ranked against a milestone.
