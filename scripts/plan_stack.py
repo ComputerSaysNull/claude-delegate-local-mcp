@@ -32,6 +32,7 @@ from `--verification <file>` -- never the commit body, which is shorter on purpo
 import argparse
 import itertools
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -46,16 +47,22 @@ MAIN = "main"
 READ_ONLY_GIT = frozenset({"branch", "merge-base", "rev-parse", "log", "show"})
 
 
-def run(cmd: list[str], *, check: bool = True) -> str:
+def run(cmd: list[str], *, check: bool = True,
+        env: dict[str, str] | None = None) -> str:
     """Text output of `cmd`, decoded as UTF-8 whatever the console code page says.
 
     `text=True` alone decodes with the locale encoding, which is cp1252 on this host, and
     an em-dash in a CHANGELOG heading then raises UnicodeDecodeError from a git call that
     otherwise succeeded.
+
+    `env`, when given, is merged over `os.environ`: it names extra variables for this one
+    call only, which is how a subcommand that writes objects is pointed at a throwaway
+    object directory.
     """
     p = subprocess.run(
         cmd, cwd=ROOT, capture_output=True, text=True,
         encoding="utf-8", errors="replace", check=False,
+        env={**os.environ, **(env or {})},
     )
     out = ((p.stdout or "") + (p.stderr or "")).strip()
     if check and p.returncode:
@@ -166,6 +173,35 @@ def claimed_title(branch: str) -> str | None:
     return None
 
 
+def _already_on_main(sha: str) -> bool:
+    """Whether `main` already contains commit `sha`'s changes.
+
+    `git merge-tree --write-tree <main> <sha>` prints, as its first line, the tree a clean
+    merge would produce -- which is `main`'s own tree exactly when `main` already holds the
+    commit's changes. A conflict exits non-zero and prints no such tree, so a match means
+    both.
+
+    merge-tree writes objects, and this script promises to move nothing, so the writes are
+    redirected to a throwaway object directory: the repository's own objects are read
+    through `GIT_ALTERNATE_OBJECT_DIRECTORIES`, and whatever merge-tree creates is discarded
+    when the temporary directory goes away. This subcommand is deliberately not in
+    `READ_ONLY_GIT`, which means "safe with no special environment".
+    """
+    with tempfile.TemporaryDirectory() as objects:
+        git_objects = (
+            git("rev-parse", "--path-format=absolute", "--git-common-dir") + "/objects"
+        )
+        out = run(
+            ["git", "merge-tree", "--write-tree", MAIN, sha],
+            check=False,
+            env={
+                "GIT_OBJECT_DIRECTORY": objects,
+                "GIT_ALTERNATE_OBJECT_DIRECTORIES": git_objects,
+            },
+        )
+        return bool(out) and out.splitlines()[0] == git("rev-parse", f"{MAIN}^{{tree}}")
+
+
 def front_base(branch: str) -> str:
     """Where the front branch's own commits begin: what `--onto main <base>` must name.
 
@@ -174,12 +210,28 @@ def front_base(branch: str) -> str:
     tree is a commit on `main` -- the squash -- so the newest ancestor whose tree `main`
     holds is where this branch's work starts. With nothing merged yet, no ancestor matches
     and the answer is the fork point.
+
+    When the child was cut from the parent's FIRST commit and the parent then gained a
+    second commit before the squash, the squash carries only that later tree and no
+    ancestor matches one on `main`. The same ancestors are then asked, newest first,
+    whether `main` already contains their changes, and the newest such is the base.
+
+    Containment is asked of `git` rather than `gh` because inside the sandbox `gh` has no
+    login and plan_stack ignores that failure, so a `gh`-based answer would silently fall
+    back to the fork -- the bug this replaces. The remaining limit: if the parent's later
+    commit rewrote the same lines, `merge-tree` conflicts and the fork is returned as
+    before.
     """
     fork = git("merge-base", MAIN, branch)
     on_main = set(git("log", "--format=%T", f"{fork}..{MAIN}").split())
-    for line in git("log", "--format=%H %T", f"{fork}..{branch}").splitlines():
+    commits = git("log", "--format=%H %T", f"{fork}..{branch}").splitlines()
+    for line in commits:
         sha, tree = line.split()
         if tree in on_main:
+            return sha
+    for line in commits:
+        sha, _ = line.split()
+        if _already_on_main(sha):
             return sha
     return fork
 

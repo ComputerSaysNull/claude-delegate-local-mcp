@@ -115,6 +115,29 @@ def test_a_front_with_nothing_merged_yet_starts_at_the_fork_point(repo, capsys):
     assert tips["a1"] != fork
 
 
+def test_a_front_branched_before_its_parent_gained_a_commit_starts_after_it(repo):
+    """A front branch cut from the parent's FIRST commit, when the parent then gains a
+    second commit before the squash.
+
+    The squash on main carries only the parent's second commit tree, so no ancestor of the
+    front branch matches a tree on main and the tree-match loop finds nothing. The fork
+    fallback would then replay the parent's first commit, already upstream, and conflict on
+    CHANGELOG.md -- the planner-dropped-a-commit bug for a front whose parent gained a commit
+    after the child was cut.
+    """
+    _git(repo, "checkout", "-q", "-b", "a")
+    a1 = _commit(repo, "a1", "## #10 — 2026-09-23 — fix: the heading of a")
+    _git(repo, "checkout", "-q", "-b", "b", a1)
+    _commit(repo, "b1", "## #11 — 2026-09-23 — feat: the heading of b")
+    _git(repo, "checkout", "-q", "a")
+    _commit(repo, "a2")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "merge", "-q", "--squash", "a")
+    _git(repo, "commit", "-q", "-m", "fix: the heading of a (#10)")
+    _git(repo, "branch", "-q", "-D", "a")
+    assert plan_stack.front_base("b") == a1
+
+
 def test_the_title_is_the_changelog_heading_not_the_tip_subject(repo, capsys):
     _two_commit_stack(repo)
     assert plan_stack.plan(["a", "b"], verification="- ok") == 0
