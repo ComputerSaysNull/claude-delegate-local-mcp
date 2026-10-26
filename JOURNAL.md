@@ -3138,3 +3138,24 @@ task and returned at once.
   `end`, format 1.12, `mcp_task: true`.
 - **Cancel:** stopping the background task mid-`run_bash` ended the run as `stopped` within
   seconds, and admission read zero in flight and no process holding a slot.
+
+## 2026-10-26 — On a laptop's share, the sandbox's covers miss case variants
+
+For M21.9, spike D1: the laptop's `Projects` folder mounted here as CIFS over the overlay VPN
+(SMB 3.1.1, `nounix`), probed with the server's own `paths.py` and `sandbox.run`, the probe
+folder as workdir, against a canary `.env` and `.claude/settings.json` written for the run.
+
+- The share ignores case: `.ENV` and `.Env` open `.env`. Symlinks cannot be made on it
+  ("Operation not permitted").
+- `paths.py` refused `.env`, `.ENV` and `.Env` alike, because the denylist and the protected
+  list both match the lowercased path; a new file resolves for writing.
+- **The sandbox did not.** `cat .env` was refused, `cat .ENV` printed the canary. Writing
+  `.claude/settings.json` failed read-only; writing `.CLAUDE/settings.json` succeeded and
+  changed the file on the share. A cover is a mount over one exact name, and on this
+  filesystem a different spelling reaches the same file past it.
+- **Mounted with `nocase`, both held:** the read was refused for every variant and the write
+  failed read-only. `paths.py`'s last check then refused `NOTES.TXT`, because the descriptor
+  reports `notes.txt`: safe, but a case-variant read fails.
+- Cost against local disk (medians): sandbox start 0.24 s plain, 1.5 s with `nocase`, 0.4 s
+  local; `git status` 5.3 s plain, 22.7 s with `nocase`, 15-21 ms local; 200 file reads
+  4.2 s, 5 ms local.
