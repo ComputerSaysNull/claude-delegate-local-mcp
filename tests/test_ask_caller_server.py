@@ -173,7 +173,8 @@ def test_answer_refuses_a_run_that_is_not_waiting():
 
             with pytest.raises(ToolError) as exc:
                 await client.call_tool("answer", {"handle": handle, "text": "x"})
-            assert "waiting" in str(exc.value).lower()
+            # Its result was handed over, so the handle is forgotten, and the refusal says so.
+            assert "handed to its caller" in str(exc.value)
 
     asyncio.run(go())
 

@@ -8,6 +8,8 @@ answer without a `collect`.
 """
 
 import asyncio
+import json
+from pathlib import Path
 
 from fastmcp import Client
 
@@ -17,6 +19,12 @@ from test_server import DoubleCache, cfg, chat_handler, entry, payload, registry
 
 def _mcp(config, handler):
     return server.build(config, registry(entry()), DoubleCache(config, handler))
+
+
+def _events(directory: Path) -> list[dict]:
+    streams = list(directory.glob("*.jsonl"))
+    assert len(streams) == 1, f"expected one stream, found {[p.name for p in streams]}"
+    return [json.loads(line) for line in streams[0].read_text(encoding="utf-8").splitlines()]
 
 
 def test_a_legacy_client_gets_the_finished_result_inline():
@@ -31,3 +39,19 @@ def test_a_legacy_client_gets_the_finished_result_inline():
     result = asyncio.run(go())
     assert result.get("status") != "running"
     assert result["answer"] == "the answer"
+
+
+def test_the_inline_runs_transcript_says_it_did_not_run_as_an_mcp_task(tmp_path):
+    """A legacy client's run was delivered inline, so it did not run as an MCP task."""
+    config = cfg(transcript_dir=str(tmp_path))
+    mcp = _mcp(config, chat_handler(content="the answer"))
+
+    async def go():
+        async with Client(mcp, mode="legacy") as client:
+            return payload(await client.call_tool(
+                "delegate", {"task": "q", "effort": "inherit"}))
+
+    asyncio.run(go())
+    events = _events(tmp_path)
+    assert events[0]["t"] == "start", [e["t"] for e in events]
+    assert events[0]["mcp_task"] is False

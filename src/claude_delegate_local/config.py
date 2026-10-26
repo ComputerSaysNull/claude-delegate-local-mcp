@@ -792,13 +792,7 @@ class Config:
         unit="MB",
     )
 
-    # ---- handles -----------------------------------------------------------------
-    handle_ttl_seconds: float = _f(
-        3600.0,
-        "How long a finished delegation stays in the run registry after it finished. "
-        "A running one is never forgotten; its transcript record outlives this.",
-        unit="seconds",
-    )
+    # ---- questions ---------------------------------------------------------------
     question_wait_limit: float = _f(
         1800.0,
         "How long a delegation that asked its caller a question waits for `answer` before "

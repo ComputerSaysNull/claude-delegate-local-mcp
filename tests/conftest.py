@@ -42,7 +42,8 @@ def _ledger_stays_out_of_the_real_home(tmp_path_factory):
 def _runtime_dir_stays_out_of_the_real_one(tmp_path_factory):
     """A test that builds a server must never write the operator's runtime directory.
 
-    Handle state files land there (ADR-0126), and a suite run once left hundreds behind.
+    The cross-process slot files and the rate history land there, and the live server
+    reads both, so a suite writing them would skew its admission and its decode rate.
     Set in the environment, so a server a test starts as a subprocess inherits it too.
     The user manager's sockets are linked in, or `systemd-run --user` finds no bus and
     every sandbox test falls back to the host-wide process cap (ADR-0129). A session

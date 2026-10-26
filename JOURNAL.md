@@ -3125,3 +3125,16 @@ the extension, so headless calls block (2026-10-24).
 - A `.env` in the working directory with `FASTMCP_DOCKET_URL` re-pointed the backend, and
   passing only `url` still left `concurrency` to the file (#497).
 - `Client.call_tool` resolves a task transparently; only `call_tool_task` shows the task.
+
+## 2026-10-26 — Tasks wake, ask and cancel in a live session, with the wake hook removed
+
+For ADR-0130, after `pip install -e`, provision and a reconnect, with the `wait-hook` entry
+gone from the client settings. Claude Code moved every call to the background as an MCP
+task and returned at once.
+- **Wake:** a run of about three minutes, the caller's turn ended right after the call. The
+  session woke by itself when the task completed, with the result in the notification.
+- **Question:** the task ended with `status: question` and a handle; `answer` ran as a
+  second task and returned the run's answer. The transcript holds one `start` and one
+  `end`, format 1.12, `mcp_task: true`.
+- **Cancel:** stopping the background task mid-`run_bash` ended the run as `stopped` within
+  seconds, and admission read zero in flight and no process holding a slot.

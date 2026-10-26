@@ -82,7 +82,7 @@ SECTIONS: list[tuple[str, tuple[str, ...]]] = [
                            "admission_starvation_grace", "admission_idle_hold",
                            "admission_wait_timeout", "cross_process_slots",
                            "slots_dir")),
-    ("Handles", ("handle_ttl_seconds", "question_wait_limit")),
+    ("Questions", ("question_wait_limit",)),
     ("Operator records", ("transcript_dir", "ledger_path")),
     ("Sandbox", ("bwrap_bin", "prlimit_bin", "systemd_run_bin", "sandbox_home",
                  "toolchain_binds",
