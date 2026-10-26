@@ -3076,3 +3076,27 @@ dict keys raise nothing, and strict parameters refused no coercion the suite rel
 **`CLAUDE_PROJECT_DIR` follows the project.** A throwaway stdio server started by
 `claude -p` recorded it equal to its working directory, from this repository and again from
 a scratch folder, and the calling shell had no such variable: Claude Code set it.
+
+## 2026-10-26 — A cgroup scope caps one command's processes; RLIMIT_NPROC caps the user's
+
+For ADR-0129. Run from a terminal outside Claude Code's sandbox, which refuses the user bus
+("Failed to connect to user scope bus via local transport: Operation not permitted") and
+whose own `ps -eLf` sees five threads where the user held 599.
+
+- `prlimit --nproc=64 -- bwrap … true` failed, "Creating new namespace failed: Resource
+  temporarily unavailable". `systemd-run --user --scope -q -p TasksMax=64 -- bwrap … true`
+  exited 0.
+- Inside that scope, a Python loop of 100 `os.fork()` calls got 61 children and 39
+  `OSError`s; the scope's `pids.max` read 64. Outside any scope: 100 and 0.
+- **A bash loop showed no refusals at all** (100 `sleep &`, 0 failed): bash retries a fork
+  that fails with EAGAIN, and with its stderr discarded the retries were invisible. Count
+  forks in a language that does not retry.
+- 20 runs each: bare bwrap 0.115 s, behind `prlimit` 0.118 s, behind the scope 0.448 s, so
+  the scope costs about 17 ms a command.
+- The server's environment carries `DBUS_SESSION_BUS_ADDRESS` but not `XDG_RUNTIME_DIR`;
+  the user's systemd manager delegates `cpu memory pids` and its `app.slice` passes on `memory pids`.
+- **`systemd-run --scope` expands `${VAR}` in the command it is given**, from its own
+  environment, unless told `--expand-environment=no`. Seen live, not in the spike: every
+  command's stderr carried "Invalid environment variable name evaluates to an empty string"
+  for the ERR trap's own expansions, and `echo "[${X}]"` printed a value `--clearenv` had
+  withheld. A spike that runs only `true` cannot see what the wrapper does to its argv.

@@ -7,9 +7,11 @@ is the whole reason this module exists rather than a chmod or an allowlist of co
 Two seams, kept apart on purpose. `build_argv` is pure -- config plus a request in, argv
 out, no filesystem, no subprocess, no PATH lookup -- so the bind order that carries the
 security properties can be asserted in tests on a machine with no `bwrap` installed. `run`
-is the only function here that touches the world. A design where argv construction happened
-inside the subprocess call would be testable only by running it, which on Windows means not
-at all, and the ordering rules below are exactly the kind of thing that regresses silently.
+is the only function here that touches the world, including the one probe that decides how
+the process cap is applied (ADR-0129), whose answer it hands `build_argv` as `scoped`. A
+design where argv construction happened inside the subprocess call would be testable only
+by running it, which on Windows means not at all, and the ordering rules below are exactly
+the kind of thing that regresses silently.
 
 This module and `paths.py` are **independent layers, not redundant ones** (ADR-0010).
 `read_file` and `write_file` are governed by the path policy and run in the server process;
@@ -167,7 +169,7 @@ _OP_ARITY: dict[str, int] = {
 _SHADOW_TMPFS_BYTES = 64 * 1024
 
 
-def resource_argv(cfg: Config) -> list[str]:
+def resource_argv(cfg: Config, *, scoped: bool = False) -> list[str]:
     """The `prlimit` prefix that bounds a sandboxed command, or empty if nothing is capped.
 
     A launcher rather than `preexec_fn`, and that is not a style choice. Tool calls run
@@ -188,13 +190,19 @@ def resource_argv(cfg: Config) -> list[str]:
     What none of this bounds is a fork bomb's *memory*: RLIMIT_AS is per process, so sixty
     small children pass a cap that one large child would fail. The process cap is what
     covers that, and it is why the two are separate settings rather than one.
+
+    The process cap is the one limit applied elsewhere. RLIMIT_NPROC is counted by the
+    kernel over every thread the user owns -- desktop, editor, Claude sessions -- so a
+    cap that fits one command starves the rest (ADR-0054). When `scoped`, `scope_argv`
+    applies the cap as a transient user scope's TasksMax instead, and `--nproc` is omitted
+    here (ADR-0129).
     """
     limits: list[str] = []
     if cfg.sandbox_max_memory_mb:
         limits.append(f"--as={cfg.sandbox_max_memory_mb * 1024 * 1024}")
     if cfg.sandbox_max_file_mb:
         limits.append(f"--fsize={cfg.sandbox_max_file_mb * 1024 * 1024}")
-    if cfg.sandbox_max_processes:
+    if cfg.sandbox_max_processes and not scoped:
         limits.append(f"--nproc={cfg.sandbox_max_processes}")
     if not limits:
         return []
@@ -407,6 +415,69 @@ def limiter_available(cfg: Config) -> bool:
     messages have to name different things to install.
     """
     return not resource_argv(cfg) or shutil.which(cfg.prlimit_bin) is not None
+
+
+# How long the scope probe may take. Generous for one `true` in a fresh scope: a machine
+# slow enough to miss it is one where the cap should fall back rather than hang run_bash.
+_SCOPE_PROBE_TIMEOUT = 5.0
+
+
+@lru_cache(maxsize=1)
+def _scope_available_bin(bin_name: str) -> bool:
+    """Whether `bin_name` can create a transient user scope, probed once per process.
+
+    The probe runs `true` in a scope with a tiny TasksMax. A systemd-run present but
+    without a reachable user bus -- the WSL case (ADR-0054) -- fails it, and the process
+    cap then falls back to RLIMIT_NPROC. Cached on the binary name so every run_bash in a
+    process reuses the one answer: it cannot change without systemd or the bus changing
+    underneath this server. `subprocess.SubprocessError` covers the timeout; `OSError`
+    covers a missing binary. It passes the flags the real prefix does, so a systemd too old
+    for `--expand-environment` falls back rather than failing every command.
+    """
+    try:
+        proc = subprocess.run(
+            [bin_name, "--user", "--scope", "-q", "--expand-environment=no", "-p",
+             "TasksMax=8", "--", "true"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=_SCOPE_PROBE_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+def scope_available(cfg: Config) -> bool:
+    """Whether a transient systemd user scope is reachable for this command.
+
+    A transient scope's TasksMax counts only the command's own processes, which is what
+    makes it the right process cap. RLIMIT_NPROC is counted by the kernel over every
+    thread the user owns, so a cap sized for one command starves the desktop, the editor
+    and the other Claude sessions that share the uid (ADR-0054). The probe decides rather
+    than assuming systemd is present: the user manager may be missing, as under WSL, and
+    then the cap has to fall back (ADR-0129).
+    """
+    return _scope_available_bin(cfg.systemd_run_bin)
+
+
+def scope_argv(cfg: Config, *, scoped: bool) -> list[str]:
+    """The `systemd-run --user --scope` prefix that gives the command its own process cap.
+
+    `[]` when the process cap is off or not `scoped` (no user manager answered). The scope is
+    outermost because it must contain bwrap and every process bwrap starts: a TasksMax
+    applied inside the namespace would not cover them, and one outside it is what bounds
+    the whole tree. `--scope` execs the command in place, so the pid a timeout kills is
+    still the command's (ADR-0129). `--expand-environment=no` because systemd-run otherwise
+    fills in every `${VAR}` in the argv from the server's environment, around `--clearenv`.
+    """
+    if not cfg.sandbox_max_processes or not scoped:
+        return []
+    return [
+        cfg.systemd_run_bin, "--user", "--scope", "-q", "--expand-environment=no", "-p",
+        f"TasksMax={cfg.sandbox_max_processes}", "--",
+    ]
 
 
 def _resolv_conf_target() -> str | None:
@@ -845,15 +916,19 @@ def _shadow_argv(shadows: Sequence[ShadowTarget]) -> list[str]:
     return out
 
 
-def build_argv(
+def build_argv(  # noqa: PLR0913 -- every input is a separate fact the argv encodes
     cfg: Config,
     req: SandboxRequest,
     shadows: Sequence[ShadowTarget] = (),
     *,
     status_file: str | None = None,
     stages_file: str | None = None,
+    scoped: bool = False,
 ) -> list[str]:
     """Config plus a request in, the exact bwrap argv out. Pure.
+
+    `scoped` is `run`'s answer to whether a transient systemd user scope is reachable, which
+    decides whether the process cap is the scope's TasksMax or `--nproc` (ADR-0129).
 
     `status_file` picks the shell as well as naming the trap's target: a path runs the
     command under bash with an `ERR` trap prepended, and `None` runs it under `/bin/sh`
@@ -909,7 +984,14 @@ def build_argv(
     Both rules are asserted directly in the tests, because both are invisible until the day
     the paths overlap.
     """
-    argv: list[str] = [*resource_argv(cfg), cfg.bwrap_bin, *_BASE_FLAGS, *_base_mounts_argv(cfg)]
+    # Scope outermost, then the rlimit launcher, then bwrap. The scope must contain the
+    # whole sandbox tree, and `--scope` execs the command in place so the pid a timeout
+    # kills is still the command's (ADR-0129). The scope takes the process cap; prlimit
+    # takes the memory and file caps (ADR-0054).
+    argv: list[str] = [
+        *scope_argv(cfg, scoped=scoped), *resource_argv(cfg, scoped=scoped), cfg.bwrap_bin,
+        *_BASE_FLAGS, *_base_mounts_argv(cfg),
+    ]
 
     # HOME first (rule 1). Note there is no `--dir` here: bwrap creates a bind's mount point
     # inside the sandbox by itself, but it cannot invent the *source*, and `--dir` makes a
@@ -1038,12 +1120,13 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
     stages_file = str(stages_marker) if status_shell_available() else None
     # Before the walk, so a directory created here is found and bound read-only by it.
     made, absent = _prepare_protected(cfg, req)
+    scoped = bool(cfg.sandbox_max_processes) and scope_available(cfg)
     moved: tuple[str, ...] = ()
     stages: tuple[tuple[tuple[str, int], ...], ...] = ()
     try:
         argv = build_argv(
             cfg, req, discover_secret_shadows(cfg, req),
-            status_file=status_file, stages_file=stages_file,
+            status_file=status_file, stages_file=stages_file, scoped=scoped,
         )
         result = _execute(cfg, argv, marker)
         if _lost_a_placeholder(cfg, req, result):
@@ -1054,7 +1137,7 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
             made = [*made, *again]
             argv = build_argv(
                 cfg, req, discover_secret_shadows(cfg, req),
-                status_file=status_file, stages_file=stages_file,
+                status_file=status_file, stages_file=stages_file, scoped=scoped,
             )
             result = _execute(cfg, argv, marker)
         if stages_file is not None:

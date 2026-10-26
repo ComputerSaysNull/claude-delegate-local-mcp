@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #498 — 2026-10-26 — fix: the sandbox's process cap counts only its own command
+
+### Fixed
+
+- **Every sandboxed command failed once the user ran more than 512 threads (PLAN M21.11).**
+  `sandbox_max_processes` was applied as `RLIMIT_NPROC`, which the kernel counts over every
+  thread the uid owns, so on the host a desktop login, an editor's server and a few Claude
+  sessions spent the cap before any delegation ran, and bwrap could not create its
+  namespaces (#496). Each command now runs in its own transient systemd user scope with
+  `TasksMax` set to the cap, which counts only that command's processes (ADR-0129).
+  Measured: at 599 user threads a cap of 64 still runs `true` and still stops a fork loop at
+  64, for about 17 ms a command. Where no user manager answers, the cap falls back to
+  `RLIMIT_NPROC` as before and `--doctor` says it is shared. New setting `systemd_run_bin`.
+  The scope runs with `--expand-environment=no`: by default systemd-run fills in `${VAR}`
+  in the command from the server's environment, which reached past `--clearenv`.
+
 ## #497 — 2026-10-26 — fix: a project's .env no longer configures FastMCP
 
 ### Fixed

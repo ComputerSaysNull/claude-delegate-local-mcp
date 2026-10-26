@@ -173,14 +173,36 @@ def check_bwrap(cfg: Config) -> Check:
 
 
 def check_limiter(cfg: Config) -> Check:
-    """`prlimit` bounds a confined command; missing it is a narrower fault than no bwrap."""
-    if sandbox.limiter_available(cfg):
-        return Check("limiter", OK, "resource limits can be applied")
-    return Check(
-        "limiter", FAIL, "prlimit is not available, so a command cannot be bounded",
-        "Install util-linux. This is separate from bubblewrap: one confines a command, "
-        "the other bounds it.",
-    )
+    """`prlimit` bounds a confined command; the process cap is scoped where it can be.
+
+    Missing prlimit is a narrower fault than no bwrap. The process cap is the one limit
+    applied elsewhere: when a transient systemd user scope is reachable it is the scope's
+    TasksMax, which counts only the command's own processes, instead of RLIMIT_NPROC,
+    which the kernel counts over every thread the user owns (ADR-0054, ADR-0129). The
+    fallback is reported rather than covered, because a shared cap is exactly the fault
+    this project measured failing every command on a desktop host.
+    """
+    if not sandbox.limiter_available(cfg):
+        return Check(
+            "limiter", FAIL, "prlimit is not available, so a command cannot be bounded",
+            "Install util-linux. This is separate from bubblewrap: one confines a command, "
+            "the other bounds it.",
+        )
+    if cfg.sandbox_max_processes and sandbox.scope_available(cfg):
+        return Check(
+            "limiter", OK,
+            "resource limits can be applied; the process cap is a per-command systemd "
+            "user scope (TasksMax)",
+        )
+    if cfg.sandbox_max_processes:
+        return Check(
+            "limiter", WARN,
+            "resource limits can be applied, but the process cap falls back to RLIMIT_NPROC, "
+            "which is shared with every other process the user runs",
+            "No transient systemd user scope was reachable, so the cap counts the whole "
+            "user's threads rather than only this command's.",
+        )
+    return Check("limiter", OK, "resource limits can be applied")
 
 
 def check_toolchain(cfg: Config) -> Check:

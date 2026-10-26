@@ -127,6 +127,29 @@ def test_real_bwrap_passes():
     assert doctor.check_bwrap(cfg()).verdict == OK
 
 
+# --- limiter ------------------------------------------------------------------------
+
+
+def test_limiter_with_a_scope_passes_and_names_it(monkeypatch):
+    """The process cap is the scope's TasksMax when a user manager is reachable."""
+    monkeypatch.setattr(sandbox, "scope_available", lambda _cfg: True)
+    c = cfg(sandbox_max_memory_mb=0, sandbox_max_file_mb=0)
+    check = doctor.check_limiter(c)
+    assert check.verdict == OK
+    assert "scope" in check.detail
+
+
+def test_limiter_falling_back_to_nproc_warns(monkeypatch):
+    """No user manager, so the cap is RLIMIT_NPROC and is shared with the whole user."""
+    monkeypatch.setattr(sandbox, "scope_available", lambda _cfg: False)
+    monkeypatch.setattr(sandbox.shutil, "which",
+                        lambda name: "/usr/bin/prlimit" if name == "prlimit" else None)
+    c = cfg(sandbox_max_memory_mb=0, sandbox_max_file_mb=0)
+    check = doctor.check_limiter(c)
+    assert check.verdict == WARN
+    assert "shared" in check.detail
+
+
 # --- toolchain ----------------------------------------------------------------------
 
 

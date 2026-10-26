@@ -4,6 +4,7 @@ Deliberate: the test suite must run from a bare clone with nothing installed, so
 contributor's first `pytest` works before they have read anything.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -43,9 +44,17 @@ def _runtime_dir_stays_out_of_the_real_one(tmp_path_factory):
 
     Handle state files land there (ADR-0126), and a suite run once left hundreds behind.
     Set in the environment, so a server a test starts as a subprocess inherits it too.
+    The user manager's sockets are linked in, or `systemd-run --user` finds no bus and
+    every sandbox test falls back to the host-wide process cap (ADR-0129). A session
+    started without the variable still has them in its standard place.
     """
+    runtime = tmp_path_factory.mktemp("runtime")
+    real = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    for name in ("systemd", "bus"):
+        if real and os.path.exists(os.path.join(real, name)):
+            (runtime / name).symlink_to(os.path.join(real, name))
     with pytest.MonkeyPatch.context() as patch:
-        patch.setenv("XDG_RUNTIME_DIR", str(tmp_path_factory.mktemp("runtime")))
+        patch.setenv("XDG_RUNTIME_DIR", str(runtime))
         yield
 
 # The commit a negative control compares against: `main` as it stood before the work that

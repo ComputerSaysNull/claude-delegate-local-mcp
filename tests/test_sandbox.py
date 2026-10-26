@@ -110,10 +110,12 @@ def test_the_command_runs_through_sh_at_the_end():
     assert argv[-4:] == ["--", "/bin/sh", "-c", "pytest -q"]
 
 
-def test_the_configured_bwrap_binary_leads_the_sandbox_argv():
+def test_the_configured_bwrap_binary_leads_the_sandbox_argv(monkeypatch):
     """It no longer leads the whole argv: since 2026-09-05 a `prlimit` launcher runs in
-    front of it, because bwrap 0.9.0 has no --rlimit of its own. With the limits off, bwrap
-    is first again, and both halves are asserted so neither can drift unnoticed."""
+    front of it, because bwrap 0.9.0 has no --rlimit of its own, and a transient systemd
+    user scope can run in front of that for the process cap (ADR-0129). With the limits
+    off, bwrap is first again, and both halves are asserted so neither can drift
+    unnoticed."""
     c = cfg(bwrap_bin="/opt/bwrap")
     argv = sandbox.build_argv(c, req())
     assert argv[argv.index("--") + 1] == "/opt/bwrap"
@@ -720,9 +722,11 @@ def test_the_sandbox_dies_with_its_parent(tmp_path):
     """
     work = tmp_path / "work"
     work.mkdir()
+    # Scoped exactly as `run` decides, or the host-wide cap stops bwrap before it starts.
     argv = sandbox.build_argv(cfg(), req(
         command="echo up > started; sleep 8; echo alive > survived",
-        home=str(tmp_path / "home"), workdir=str(work)))
+        home=str(tmp_path / "home"), workdir=str(work)),
+        scoped=sandbox.scope_available(cfg()))
     sandbox.ensure_home(str(tmp_path / "home"))
 
     _orphaned_run(argv, work)
@@ -745,9 +749,11 @@ def test_without_die_with_parent_the_command_does_survive(tmp_path):
     """
     work = tmp_path / "work"
     work.mkdir()
+    # Scoped exactly as `run` decides, or the host-wide cap stops bwrap before it starts.
     argv = sandbox.build_argv(cfg(), req(
         command="echo up > started; sleep 8; echo alive > survived",
-        home=str(tmp_path / "home"), workdir=str(work)))
+        home=str(tmp_path / "home"), workdir=str(work)),
+        scoped=sandbox.scope_available(cfg()))
     argv.remove("--die-with-parent")
     sandbox.ensure_home(str(tmp_path / "home"))
 
@@ -1164,22 +1170,30 @@ def test_a_secret_inside_an_opaque_directory_is_unreadable_from_inside(tmp_path)
 
 
 def limiter(argv: list[str]) -> list[str]:
-    """The prlimit prefix, up to and including its `--` terminator. Empty if there is none."""
-    return argv[:argv.index("--") + 1] if argv and argv[0].endswith("prlimit") else []
+    """The argv up to and including the prlimit launcher's `--` terminator, or [] if there
+    is no prlimit launcher. A systemd scope prefix, when present, precedes it."""
+    start = next((i for i, tok in enumerate(argv) if tok.endswith("prlimit")), None)
+    if start is None:
+        return []
+    return argv[: argv.index("--", start) + 1]
 
 
-def test_the_limits_are_applied_before_bwrap_not_by_it():
-    """bwrap has no --rlimit, so the caps have to come from something that runs first."""
-    argv = sandbox.build_argv(cfg(), req())
+def test_the_limits_are_applied_before_bwrap_not_by_it(monkeypatch):
+    """bwrap has no --rlimit, so the caps have to come from something that runs first.
+
+    Pinned to the fallback (no scope) so the process cap is still on the prlimit side
+    here; the scope case is asserted by the tests below."""
+    argv = sandbox.build_argv(cfg(), req(), scoped=False)
     prefix = limiter(argv)
     assert prefix, "no prlimit prefix, so nothing is bounding the command"
     assert argv[len(prefix)].endswith("bwrap"), "bwrap must run under the limiter, not beside it"
     assert not [a for a in argv if a.startswith("--rlimit")], "bwrap 0.9.0 has no such flag"
 
 
-def test_each_limit_reaches_the_launcher_and_scales_to_bytes():
+def test_each_limit_reaches_the_launcher_and_scales_to_bytes(monkeypatch):
     argv = sandbox.build_argv(cfg(
-        sandbox_max_memory_mb=64, sandbox_max_file_mb=8, sandbox_max_processes=99), req())
+        sandbox_max_memory_mb=64, sandbox_max_file_mb=8, sandbox_max_processes=99),
+        req(), scoped=False)
     prefix = limiter(argv)
     assert f"--as={64 * 1024 * 1024}" in prefix
     assert f"--fsize={8 * 1024 * 1024}" in prefix
@@ -1200,21 +1214,90 @@ def test_core_dumps_are_pinned_off_rather_than_inherited():
     assert "--core=0" in limiter(sandbox.build_argv(cfg(), req()))
 
 
-def test_zero_removes_one_limit_without_removing_the_others():
-    argv = sandbox.build_argv(cfg(sandbox_max_memory_mb=0), req())
+def test_zero_removes_one_limit_without_removing_the_others(monkeypatch):
+    argv = sandbox.build_argv(cfg(sandbox_max_memory_mb=0), req(), scoped=False)
     prefix = limiter(argv)
     assert not [a for a in prefix if a.startswith("--as=")]
     assert [a for a in prefix if a.startswith("--nproc=")], "the others must survive"
 
 
-def test_zeroing_every_limit_removes_the_launcher_entirely():
+def test_zeroing_every_limit_removes_the_launcher_entirely(monkeypatch):
     """The companion. Without it, a build that always emitted the prefix would pass the
     tests above, and an operator who turned everything off would still need prlimit
-    installed to run anything at all."""
+    installed to run anything at all. Pinned with the scope available so a zeroed process
+    cap is shown to remove the scope too, not just the nproc flag."""
     argv = sandbox.build_argv(cfg(
-        sandbox_max_memory_mb=0, sandbox_max_file_mb=0, sandbox_max_processes=0), req())
+        sandbox_max_memory_mb=0, sandbox_max_file_mb=0, sandbox_max_processes=0),
+        req(), scoped=True)
     assert not limiter(argv)
     assert argv[0].endswith("bwrap")
+
+
+# --- the systemd user scope for the process cap (ADR-0129) ---------------------------
+
+
+def test_with_the_scope_available_the_argv_starts_with_the_scope(monkeypatch):
+    """The process cap is a per-command TasksMax, so the scope leads the argv and the
+    nproc flag is gone -- the whole of the fix."""
+    argv = sandbox.build_argv(cfg(sandbox_max_processes=64), req(), scoped=True)
+    assert argv[:7] == ["systemd-run", "--user", "--scope", "-q", "--expand-environment=no",
+                        "-p", "TasksMax=64"]
+    assert argv[7] == "--"
+    assert "--nproc" not in argv
+    # Scope outermost, then prlimit (the memory/file caps), then bwrap.
+    assert argv[argv.index("--") + 1] == "prlimit"
+
+
+def test_the_scope_never_expands_the_commands_variables():
+    """systemd-run expands `${VAR}` in its argv by default, from the server's environment,
+    which would hand the command what `--clearenv` withholds and empty the ERR trap."""
+    argv = sandbox.build_argv(cfg(sandbox_max_processes=64), req(), scoped=True)
+    assert "--expand-environment=no" in argv[:argv.index("--")]
+
+
+def test_without_the_scope_the_process_cap_falls_back_to_nproc(monkeypatch):
+    argv = sandbox.build_argv(cfg(sandbox_max_processes=99), req(), scoped=False)
+    prefix = limiter(argv)
+    assert "--nproc=99" in prefix
+    assert "systemd-run" not in argv
+
+
+def test_zero_processes_gives_no_scope_either_way(monkeypatch):
+    argv = sandbox.build_argv(cfg(sandbox_max_processes=0), req(), scoped=True)
+    assert "systemd-run" not in argv
+    assert "--nproc" not in argv
+    argv = sandbox.build_argv(cfg(sandbox_max_processes=0), req(), scoped=False)
+    assert "systemd-run" not in argv
+
+
+def test_scope_argv_is_empty_without_the_cap_or_the_manager(monkeypatch):
+    assert sandbox.scope_argv(cfg(sandbox_max_processes=0), scoped=True) == []
+    assert sandbox.scope_argv(cfg(sandbox_max_processes=64), scoped=False) == []
+
+
+def test_scope_available_is_false_when_the_probe_fails(monkeypatch):
+    """The probe is the whole function: a non-zero return means no user manager here."""
+    monkeypatch.setattr(sandbox.subprocess, "run",
+                        lambda *a, **k: _completed(returncode=1))
+    assert sandbox.scope_available(cfg(systemd_run_bin="/nonexistent/systemd-run")) is False
+
+
+def test_scope_available_caches_the_probe_per_binary(monkeypatch):
+    """One probe per binary for the life of the process: this is called once per run_bash."""
+    calls = []
+
+    def fake_run(*a, **k):
+        calls.append(a[0])
+        return _completed(returncode=0)
+
+    monkeypatch.setattr(sandbox.subprocess, "run", fake_run)
+    bin_ = "/some/systemd-run"
+    try:
+        assert sandbox.scope_available(cfg(systemd_run_bin=bin_)) is True
+        assert sandbox.scope_available(cfg(systemd_run_bin=bin_)) is True
+    finally:
+        sandbox._scope_available_bin.cache_clear()
+    assert len(calls) == 1
 
 
 def test_the_tmpfs_is_sized_and_the_size_precedes_the_mount_it_applies_to():
