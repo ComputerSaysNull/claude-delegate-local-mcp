@@ -1248,7 +1248,7 @@ def test_the_state_column_keeps_its_gutter_when_the_state_is_widest(session, tmp
     drifted apart before -- which is why they are built from the same widths at all.
     """
     now = datetime.now(UTC)
-    path = stream(tmp_path, now - timedelta(minutes=95), "QUEUED ONE")
+    path = stream(tmp_path, now - timedelta(minutes=95), "QUEUED ONE", tools=["read_file"])
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps({"t": "waiting", "at": now.isoformat(),
                              "waited_seconds": 89 * 60, "of_seconds": 1800}) + "\n")
