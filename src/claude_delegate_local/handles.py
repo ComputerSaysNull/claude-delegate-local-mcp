@@ -1,9 +1,8 @@
-"""A delegation's handle: the name a second call collects its answer by.
+"""A delegation's handle: the name of a run parked on a question.
 
-The client stops *waiting* on a call after 120s and will not issue the next write-capable
-call until the current one returns or is backgrounded, so a fan-out of `delegate` calls
-starts 120s apart. A call that returns a handle at once lets the next one start; the work
-carries on in a task this process owns, and `collect` hands back what it produced.
+A delegating call returns a handle only when the run stops to ask its caller a question
+(`status: "question"`); `answer` continues that run and `cancel_delegation` stops it. A
+run parked on a question has no task alive to cancel, so that is what the handle is for.
 
 In-process on purpose. Every caller is one client talking to one process, and the run
 lives in that process, so a handle that outlived a restart would name work that no longer
@@ -129,8 +128,11 @@ class Handles:
     ) -> dict[str, Any]:
         """The run's result if it finishes within `wait_seconds`, else where it has got to.
 
-        Waiting never cancels the run: `asyncio.wait` leaves what it waits on alone, so a
-        caller that stops waiting -- a timeout, a cancelled `collect` -- stops only itself.
+        Its only caller in the server waits without limit -- until the run ends or asks a
+        question -- so the finite `wait_seconds` exists for tests that need to watch a run
+        still going. Waiting never cancels the run: `asyncio.wait` leaves what it waits on
+        alone, so a caller that stops waiting -- a timeout, a cancelled `collect` -- stops
+        only itself.
 
         `keepalive` is called with the run's age every `every` seconds of waiting, because
         a wait that says nothing is dropped by the client at its idle timeout (ADR-0018).

@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #505 — 2026-10-26 — fix: a handle says it comes from a question
+
+### Fixed
+
+- **`answer` and `cancel_delegation` described their `handle` as one any delegating call
+  returns.** Since every delegation became an MCP task (#499) and `collect` went (#500), a
+  call returns a handle only when its run stops to ask (`status: "question"`), so the
+  parameter now says so, and `handles.py`'s docstrings stop describing a handle collected
+  later. The handle itself stays: a run parked on a question has no task alive to cancel,
+  so it is how that run is continued or stopped. `collect`'s finite wait stays too, and
+  says why: the server always waits without limit, and three regression tests use the
+  bounded wait to watch a run still going.
+
 ## #504 — 2026-10-26 — fix: the CI pin file has no owning document
 
 ### Fixed

@@ -1626,8 +1626,8 @@ Diagnostics = Annotated[
 HandleArg = Annotated[
     str,
     Field(description=(
-        "The `handle` a delegating call returned. It names a run in this server process, "
-        "so a reconnect forgets it."
+        "The `handle` from a result with `status: \"question\"`. It names a run in this "
+        "server process, so a reconnect forgets it."
     )),
 ]
 
