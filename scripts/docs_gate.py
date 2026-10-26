@@ -2468,15 +2468,16 @@ def main() -> int:
             print(f"no manifest at {MANIFEST}")
             return 1
         path = args.owner.replace("\\", "/")
+        # Unowned first, as check_ownership reads it -- an owns glob does not override it.
+        if _matches(path, manifest.get("unowned", {}).get("paths", [])):
+            print(f"{path} is declared unowned in {MANIFEST.name}")
+            return 0
         docs = owners_of(path, manifest)
         if docs:
             for d in docs:
                 gen = (" (generated -- run its generator, do not hand-edit)"
                    if manifest["docs"][d].get("generated") else "")
                 print(f"{d}{gen}")
-            return 0
-        if _matches(path, manifest.get("unowned", {}).get("paths", [])):
-            print(f"{path} is declared unowned in {MANIFEST.name}")
             return 0
         print(f"{path} has no owning document and is not declared unowned -- "
               f"assign it in {MANIFEST.name}")

@@ -238,6 +238,9 @@ paths = [
   "scripts/ast_unchanged.py",
   # A read-only report over the dispatch ledger. Owns no behaviour and documents itself.
   "scripts/ledger_report.py",
+  # A pin refresh changes no fact a document states. CONTRIBUTING's CI section says what
+  # the file is for and how to refresh it, and that does not change when a pin does.
+  ".github/ci-constraints.txt",
   "security/**",
   # Point-in-time evidence, like an ADR body: dated, written once, never edited, and
   # owning no current behaviour. Registering each review as a document would mean a
