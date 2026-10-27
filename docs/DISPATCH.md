@@ -1,4 +1,4 @@
-<!-- BUDGET: 780 -->
+<!-- BUDGET: 782 -->
 # Dispatch and the response state machine
 
 What the server sends to a model, and what it does with what comes back. Everything here
@@ -360,6 +360,8 @@ The cluster's reasoning default is set at boot and is not ours to assume — the
 run against ships one value in its example environment while two of its own documents
 recommend another. So every request states its reasoning level explicitly. Resolution:
 the call argument, then the agent file, then the registry row, then the global default.
+The argument is required, and `inherit` enters that chain rather than skipping it: spent at
+the boundary before the agent merge, refused as a registry or configured default (ADR-0045).
 
 An unrecognised value is refused rather than passed through — but not because the backend
 would ignore it. It does not: it validates `reasoning_effort` and answers a bad one with a

@@ -83,6 +83,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `admission.py` | The capacity gate every delegation passes before it reaches a backend |
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
+| `ledger.py` | The append-only token ledger: one line per dispatch, never pruned |
 | `watch.py` | `claude-delegate-watch`: the terminal viewer of the stream `transcript.py` writes |
 | `handles.py` | The run registry behind each task: the run a call waits on, the question `answer` replies to, and what `cancel_delegation` stops |
 | `server.py` | MCP wiring, the tool declarations, the backend cache, and each session's roots narrowed to its client's project (ADR-0110, ADR-0128), with the project's own layer-2 additions read in (ADR-0116) |
@@ -165,9 +166,11 @@ line, because a value in `.env` is a frozen copy — raise the default in `confi
 every generated file silently keeps the old number with nothing to compare it against.
 Which questions were waved through is recorded by name, without their values. Nor is
 `models_file` written: the registry goes beside the `.env`, where a relative one resolves.
-`init.py` holds no default, help string or validation rule of its own: the prompts come
-from `config.describe()`, the introspection [CONFIGURATION.md](CONFIGURATION.md) is
-generated from, and the rules from calling `registry._validate` and `config.load`.
+`init.py` holds no default of its own and checks only an answer's shape: not blank, a
+whole number, a path it can translate. The settings prompts come from `config.describe()`,
+the introspection [CONFIGURATION.md](CONFIGURATION.md) is generated from, and the rules
+from calling `registry._validate` and `config.load`. Only the model fields' one-line labels
+live here, because `models.toml` carries no metadata to read a prompt from.
 
 **Every path it writes is in POSIX form, and the roots are asked one per line.** Not a
 preference: `config.load` splits a tuple setting on `os.pathsep`, which is `:` here, so a
@@ -323,15 +326,10 @@ The per-turn progress notification is wired here, the only layer holding an MCP 
 per call rises on every turn and heartbeat, the turn in `message`. What that hook protected still holds and is still
 worth stating: withholding the notification is what let a client abandon a call at its idle
 timeout while the server carried on to `dispatch_timeout`, holding the machine-wide budget
-for the remainder. Effort resolves
-explicit argument → agent file → registry row → global default and is always sent, never
-inherited from whatever the cluster was booted with (ADR-0013). The argument is required,
-and `inherit` is how a caller enters that chain rather than skipping it — spent at the
-boundary before the agent merge, refused as a registry or configured default (ADR-0045).
-The reply budget resolves the same way,
-caller first and the configured default last, and is
-[described with the rest of resolution](DISPATCH.md#the-reply-budget-is-resolved-once-most-specific-first). An unlisted effort is refused before dispatch: it has no translation into
-the server's vocabulary, and discovering that mid-call wastes the call.
+for the remainder. Effort and the reply budget both resolve caller first and the
+configured default last, and DISPATCH.md owns both chains:
+[effort](DISPATCH.md#reasoning-is-controlled-per-request-never-inherited) and
+[the reply budget](DISPATCH.md#the-reply-budget-is-resolved-once-most-specific-first).
 
 A dispatch that fails on the way out is retried here rather than surfaced — below, under
 [retry](DISPATCH.md#retry-sits-above-the-adapter-and-honours-what-the-endpoint-asks-for).
@@ -949,7 +947,7 @@ pulled by the *model* — Claude Code exposes listing and reading — so it reac
 unprompted with no length limit at all. That is what lets a description be an index instead
 of a manual.
 
-Descriptions run 392 to 622 characters, and the schemas describe every argument *and every
+Descriptions run 319 to 624 characters, and the schemas describe every argument *and every
 result key* of every tool. The result schema is
 deliberately permissive — nothing `required`, additions allowed — because the one-shot path
 omits the loop ledger and `diagnostics` appears only when asked, so a stricter one would

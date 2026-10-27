@@ -30,6 +30,40 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #508 — 2026-10-27 — docs: the 2026-10-27 audit, and every finding from it that was wording
+
+### Added
+
+- **`docs/audits/2026-10-27-audit.md`.** All sixteen passes returned, none partial, over
+  thirty-three delegations, the first run from the Linux host with Claude Code sandboxed.
+  Three STALE passes were added for what no runbook row pairs ARCHITECTURE.md with:
+  `sandbox.py` and `wsl.py`, the CLI modules, and `ledger.py`, `handles.py`, `registry.py`.
+  Of sixteen candidates, eight were rejected on verification and one reframed. One finding
+  is a code defect and gets its own pull request, red test first: the viewer shows a
+  stream with `tool` but no `tools` as `delegate`, where ARCHITECTURE.md says unknown.
+
+### Fixed
+
+- **`docs/ARCHITECTURE.md`'s module table said it covers every module and had no
+  `ledger.py` row.** It has one now.
+- **`docs/ARCHITECTURE.md` said `init.py` holds no help string or validation rule of its
+  own**, untrue since #141: the model fields' labels live there, because `models.toml` has
+  no metadata to read a prompt from, and it checks an answer's shape. The sentence says so.
+- **`docs/ARCHITECTURE.md` gave tool descriptions as 392 to 622 characters.** The wire
+  descriptions now run 319 (`cancel_delegation`) to 624 (`delegate`), measured through the
+  helpers `test_server.py` uses.
+- **`docs/ARCHITECTURE.md` restated the effort resolution chain**, which
+  `docs_ownership.toml` gives to DISPATCH.md and which DISPATCH.md states too. It links
+  there now, and the `inherit` clause (ADR-0045), which only ARCHITECTURE.md had, moves
+  with it: DISPATCH.md's budget goes from 780 to 782 for those two lines, and
+  ARCHITECTURE.md comes out two lines shorter.
+- **A `loop.py` docstring said the overflow flag "ships off"**, the claim #467 fixed at
+  another line: `context_overflow_enabled` defaults on. It now gives the reason without
+  stating a default, which belongs only in `config.py`.
+- **`tests/README.md` said a parallel run's `--durations` is "sometimes tenfold"
+  inflated**, a factor no JOURNAL, ADR or CHANGELOG entry measured. The factor goes; the
+  rule it decorated stands.
+
 ## #507 — 2026-10-26 — fix: an agents test no longer writes a fixed folder in /tmp
 
 ### Fixed
