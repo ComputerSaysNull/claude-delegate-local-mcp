@@ -32,6 +32,17 @@ Older entries, in the previous flat format, are in
 
 ## #510 — 2026-10-27 — fix: the 2026-10-27 audit's follow-ups
 
+### Changed
+
+- **The audit runbook's pass table names what the last audit had to add by hand.** Pass 3
+  reported "the answer carries no banner" for the third audit running, and each time it was
+  wrong: the banner is `backends/base.py`'s, which the pass was never given. Row 3 now
+  prefetches it. Row 2 now pairs ARCHITECTURE.md with the modules no row reached
+  (`sandbox.py`, `wsl.py`, the CLI modules, `ledger.py`, `handles.py`, `registry.py`), where
+  two of that audit's seven findings were. CLAIMS now says to search a number in every
+  spelling, since a pass that searched `93%` called a figure the ADR writes as `93.0%`
+  unsourced.
+
 ### Fixed
 
 - **`tests/test_repo_ext_allowlist.py` wrote a private-key header as a literal**, against

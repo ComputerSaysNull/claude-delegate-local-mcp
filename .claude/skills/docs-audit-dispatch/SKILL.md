@@ -44,8 +44,8 @@ the repository root or the agent is not found. Generated documents (`docs/CONFIG
 | # | Class | Prefetch in `files[]` | Effort |
 |---|---|---|---|
 | 1 | STALE | `docs/ARCHITECTURE.md` + `context.py`, `admission.py`, `slots.py` | high |
-| 2 | STALE | `docs/ARCHITECTURE.md` + `transcript.py`, `server.py`, `tools.py` | high |
-| 3 | STALE | `docs/DISPATCH.md`, *the turn and history sections* + `loop.py` | high |
+| 2 | STALE | `docs/ARCHITECTURE.md` + `transcript.py`, `server.py`, `tools.py`; split it, and also pair `sandbox.py` + `wsl.py`, the CLI modules (`main.py`, `init.py`, `install_skills.py`, `provision.py`, `run_task.py`), and `ledger.py` + `handles.py` + `registry.py` | high |
+| 3 | STALE | `docs/DISPATCH.md`, *the turn and history sections* + `loop.py`, and `backends/base.py`, which holds the turn-limit banner | high |
 | 4 | STALE | `docs/DISPATCH.md`, *the wire and retry sections* + `backends/*.py`, and `loop.py`, which holds the retry | high |
 | 5 | STALE | `docs/AGENTS.md` + `agents.py`, `paths.py`, `sandbox.py`, `tools.py` | high |
 | 6 | STALE | `docs/MODELS.md`, `docs/TROUBLESHOOTING.md` + `registry.py`, `doctor.py` | high |
