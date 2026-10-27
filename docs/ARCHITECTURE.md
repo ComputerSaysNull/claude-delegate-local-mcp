@@ -1008,8 +1008,8 @@ pair runs one path and `tools` alone cannot say which was called; and `delegate`
 does not say whether a loop ran, because a caller may pass `allowed_tools=[]` and get a
 one-shot. Both are recorded, so a directory of them can be counted by
 kind, which is what the records exist for. **Absent and empty are not interchangeable
-anywhere downstream:** a missing `tools` is a transcript written before the field existed and
-is reported as unknown, while an empty one is a one-shot. The files are in the stream as well
+anywhere downstream:** a `delegate` with no `tools` is a transcript written before the field
+existed and is reported as unknown, while an empty one is a one-shot. The files are in the stream as well
 as the record because the record is written when the work is over, and a reader asking what a
 delegation is chewing on is asking while it runs.
 

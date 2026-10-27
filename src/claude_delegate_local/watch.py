@@ -229,12 +229,13 @@ def kind_of(row: dict) -> str:
     called is in the name, so the shape is worth naming only when a `delegate` was given
     no tools and quietly ran as one. `readonly` used to imply that and no longer does.
 
-    A transcript written before the tool was recorded says `?` rather than `delegate`.
-    Every call used to write `delegate` whether or not it was one, so guessing here would
-    reproduce the exact confusion this column exists to end.
+    A transcript written before the tool was recorded says `?` rather than `delegate`, and
+    so does a `delegate` one written before its tools were: every call used to write
+    `delegate` whether or not it was one, so guessing here would reproduce the exact
+    confusion this column exists to end.
     """
     tool = row.get("tool") or ""
-    if not tool:
+    if not tool or (tool == "delegate" and row.get("tools") is None):
         return "?"
     if tool == "delegate" and row.get("tools") == []:
         return "one-shot"

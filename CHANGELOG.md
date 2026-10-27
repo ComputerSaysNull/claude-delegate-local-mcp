@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #509 — 2026-10-27 — fix: the viewer calls a stream with a tool but no tools unknown
+
+### Fixed
+
+- **`claude-delegate-watch` listed a stream that named its tool but not its tools as
+  `delegate`.** The stream gained `tool` in #48 and `tools` in #56, a day apart, and in
+  between every call wrote `delegate`, a read-only one and a one-shot alike. `kind_of`
+  answered `?` only for a missing `tool`, so a stream from that day claimed a kind nobody
+  recorded, the confusion the column exists to end and the one ARCHITECTURE.md says it
+  avoids. Found by the 2026-10-27 audit (finding 4). A `delegate` row with no `tools` now
+  shows `?`; ARCHITECTURE.md's sentence names the `delegate` case, since an agent row's
+  `tool` alone says its kind. One layout test had built its stream without `tools` and
+  relied on the old answer; it now writes them, as every current stream does.
+
 ## #508 — 2026-10-27 — docs: the 2026-10-27 audit, and every finding from it that was wording
 
 ### Added
