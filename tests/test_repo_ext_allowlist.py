@@ -128,7 +128,9 @@ def test_repo_extras_cannot_override_the_secret_denylist(tmp_path):
     a = tmp_path / "a"
     a.mkdir()
     key = a / "key.pem"
-    key.write_text("-----BEGIN PRIVATE KEY-----\n", encoding="utf-8")
+    # Assembled rather than written out: a literal header here makes this file read as key
+    # material to every scan that looks, `read_git` included (tests/README.md).
+    key.write_text("-" * 5 + "BEGIN PRIVATE" + " KEY" + "-" * 5 + "\n", encoding="utf-8")
     conf = cfg_for(a, repo_ext_allowlists=((os.path.realpath(a), (".pem",)),))
     survivors, refusals = paths.resolve_files(conf, [str(key)])
     assert survivors == ()

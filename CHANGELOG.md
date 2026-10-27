@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #510 — 2026-10-27 — fix: the 2026-10-27 audit's follow-ups
+
+### Fixed
+
+- **`tests/test_repo_ext_allowlist.py` wrote a private-key header as a literal**, against
+  the rule `tests/README.md` states for exactly this: the file then reads as key material
+  to every scan that looks, and `read_git` refuses to show it. Found beside the 2026-10-27
+  audit's notebook pass. The header is now assembled at runtime, as the regression test
+  for renamed keys already does; `key_material_marker` finds nothing in the file where it
+  found the header before, and the test still sees the key refused at the secret layer.
+
 ## #509 — 2026-10-27 — fix: the viewer calls a stream with a tool but no tools unknown
 
 ### Fixed
