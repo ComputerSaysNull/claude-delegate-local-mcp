@@ -30,6 +30,28 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #510 — 2026-10-27 — fix: the 2026-10-27 audit's follow-ups
+
+### Changed
+
+- **The audit runbook's pass table names what the last audit had to add by hand.** Pass 3
+  reported "the answer carries no banner" for the third audit running, and each time it was
+  wrong: the banner is `backends/base.py`'s, which the pass was never given. Row 3 now
+  prefetches it. Row 2 now pairs ARCHITECTURE.md with the modules no row reached
+  (`sandbox.py`, `wsl.py`, the CLI modules, `ledger.py`, `handles.py`, `registry.py`), where
+  two of that audit's seven findings were. CLAIMS now says to search a number in every
+  spelling, since a pass that searched `93%` called a figure the ADR writes as `93.0%`
+  unsourced.
+
+### Fixed
+
+- **`tests/test_repo_ext_allowlist.py` wrote a private-key header as a literal**, against
+  the rule `tests/README.md` states for exactly this: the file then reads as key material
+  to every scan that looks, and `read_git` refuses to show it. Found beside the 2026-10-27
+  audit's notebook pass. The header is now assembled at runtime, as the regression test
+  for renamed keys already does; `key_material_marker` finds nothing in the file where it
+  found the header before, and the test still sees the key refused at the secret layer.
+
 ## #509 — 2026-10-27 — fix: the viewer calls a stream with a tool but no tools unknown
 
 ### Fixed

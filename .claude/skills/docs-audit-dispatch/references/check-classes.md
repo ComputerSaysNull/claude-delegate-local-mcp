@@ -43,7 +43,8 @@ CHANGELOG.md counts, and forgetting it is how this check misfires. A measurement
 the section for the pull request that made it *is* sourced — that is where every change's
 why lives, by CONTRIBUTING's rule — and a pass told to look in two of the three places
 reports it as unsourced. **Search all three before calling a number unsourced.** This is the
-most retracted finding the class produces.
+most retracted finding the class produces. Search a number in every spelling it can
+take — `93%` is written `93.0%` in the ADR that sources it.
 
 **NARRATIVE** — a skill or agent body telling the story of an incident where a rule would
 serve. These files are re-read on every invocation, so a sighting costs on every run and
