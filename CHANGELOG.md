@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #515 — 2026-10-29 — feat: a large image is sent as tiles
+
+### Added
+
+- **A large image is cut into tiles, so its text can be read.** The vision model caps an
+  image at 384 tokens and the server shrinks anything bigger to fit. On a whole 4K
+  screenshot the model read no text under 24 px, and it invented text instead of saying
+  so. The same screenshot cut into 960x1080 tiles read like an unshrunk image from 14 px.
+  An image over about a megapixel now goes to the model as a grid of tiles in its own
+  shape, overlapping by 32 px so a line crossing an edge is whole in one, in reading order,
+  at most 16 (ADR-0133). Each tile counts against `max_images`: `read_file` is refused, and
+  `files[]` skips the file, when not all of its tiles fit. The line the model reads names
+  the grid. Decoding and tiling a 40-megapixel image peaks at 352 MB, which the pixel
+  ceiling's comment now states (JOURNAL 2026-10-29). The loop's refusal past the limit
+  said the conversation held as many images as the limit, true only while every image
+  took one slot; it now names what the image needed and what the conversation holds.
+
 ## #514 — 2026-10-29 — fix: a tool result's images go on the user turn after it
 
 ### Fixed

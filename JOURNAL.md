@@ -3208,3 +3208,32 @@ described its image correctly, and again after the cluster was updated and resta
 and why was not chased. What was measured either way: a `tool` message carrying text and a
 `user` message after it carrying the image is accepted, before the update and after it, and
 the colour comes back right.
+
+## 2026-10-29 — A shrunk screenshot loses its text, and the model makes some up
+
+The vision model's checkpoint caps an image at 384 tokens (`vision_max_n_token`); with
+14 px patches merged 3 by 3, one token covers 42x42 pixels, so the server shrinks anything
+larger than about 820x820. Measured how much text survives: eight random 6-character codes
+(letters and digits that cannot be confused) per image at a fixed pixel size, the model asked
+to list every code it reads at `low` effort, two seeds per cell, so 16 codes per cell.
+Codes read exactly, with codes invented in brackets:
+
+| Font | 800x800, not shrunk | 1080p whole | 4K whole | 4K as 4x2 tiles |
+|---|---|---|---|---|
+| 10 px | 15 (1) | 1 (10) | 0 (11) | 13 (1) |
+| 12 px | 13 (1) | 10 (4) | 0 (19) | 8 (2) |
+| 14 px | 15 (0) | 13 (2) | 0 (9) | 14 (0) |
+| 16 px | 16 (0) | 15 (1) | 0 (12) | 16 (0) |
+| 20 px | 15 (0) | 15 (1) | 3 (9) | 16 (0) |
+| 24 px | 13 (0) | 16 (0) | 14 (2) | 15 (0) |
+| 32 px | 14 (1) | 16 (0) | 16 (0) | 16 (0) |
+| 48 px | 16 (0) | 15 (1) | 16 (0) | 14 (0) |
+
+Prompt tokens: 393, 413, 413 and 2,979 (eight images). The model reads small text when it is
+not shrunk; a whole 4K screenshot reads nothing under 24 px, and the model answers with
+invented codes rather than saying it cannot read them. Tiles of 960x1080 read like the
+unshrunk control from 14 px. ±2 per cell is noise at this sample size (12 px tiled). The
+image limit per request is a serving flag, not the model's, so tiling spends it.
+
+Decoding and tiling cost, solid RGBA PNGs: 4K into 8 tiles 0.17 s and +80 MB peak; 40 MP
+into 15 tiles 0.75 s and +352 MB, the RGB copy for the tiles doubling the decode's own.

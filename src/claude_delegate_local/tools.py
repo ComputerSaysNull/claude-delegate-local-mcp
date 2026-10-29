@@ -118,13 +118,14 @@ class BashResult:
 
 @dataclass(frozen=True, slots=True)
 class ImageRead:
-    """A handler's text plus the image it decoded, on the way to the result block.
+    """A handler's text plus what it decoded, on the way to the result block: the image
+    whole, or its tiles.
 
     Only `read_file` returns one, so one tool's contract widens, not all of them.
     """
 
     text: str
-    image: ImageBlock
+    images: tuple[ImageBlock, ...]
 
 
 
@@ -253,11 +254,7 @@ def _read_image(
     if seen is not None:
         seen.record(entry.posix, sha256(raw).hexdigest())
     return ImageRead(
-        text=(
-            f"{entry.given}: {image.media_type}, "
-            f"{image.width}x{image.height} pixels, {nbytes:,} bytes"
-        ),
-        image=image,
+        text=f"{entry.given}: {image.describe()}, {nbytes:,} bytes", images=image.tiles
     )
 
 
@@ -1981,5 +1978,5 @@ def execute_tool(
         )
     if isinstance(produced, ImageRead):
         return ToolResultBlock(
-            tool_use_id=call.id, content=produced.text, images=(produced.image,))
+            tool_use_id=call.id, content=produced.text, images=produced.images)
     return ToolResultBlock(tool_use_id=call.id, content=produced)

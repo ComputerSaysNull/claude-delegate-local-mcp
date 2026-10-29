@@ -131,10 +131,20 @@ IMAGE_EXTENSIONS: frozenset[str] = frozenset({
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".ico",
 })
 
-# The most pixels one image may decode to, MEASURED (JOURNAL 2026-10-29): a decode peaks at
-# about 3.9 bytes a pixel, 154 MB here. An 8K screenshot is 33.2M, and the backend shrinks
-# every image to ~360 tokens, so a larger one shows the model nothing more.
+# The most pixels one image may decode to, MEASURED (JOURNAL 2026-10-29): decoding and
+# tiling an RGBA image this size peaks at 352 MB. An 8K screenshot is 33.2M, and past the
+# tile cap tiles only grow, so a larger image shows the model nothing more.
 IMAGE_MAX_PIXELS = 40_000_000
+
+# A large image is sent as tiles of about this many pixels, MEASURED (JOURNAL 2026-10-29):
+# the server shrinks every image to 384 tokens, so a 4K screenshot sent whole lost every
+# word under 24 px, while tiles of 960x1080 read like an unshrunk image from 14 px.
+TILE_PIXELS = 1_050_000
+# Past this many tiles they grow instead of multiplying, as each counts against the limit.
+MAX_TILES = 16
+# Pixels a tile reaches past its share on each side: text up to twice this tall that
+# crosses an edge is whole in one tile.
+TILE_OVERLAP = 32
 
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}

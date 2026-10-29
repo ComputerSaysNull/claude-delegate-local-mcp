@@ -25,6 +25,7 @@ cutoff too, or six files in a different order would produce a different five (AD
 """
 
 import io
+import math
 import os
 import re
 import sys
@@ -32,10 +33,19 @@ import threading
 from collections.abc import Callable, Iterable, Iterator
 from itertools import groupby
 from dataclasses import dataclass
+from typing import Any
 from hashlib import sha256
 
 from .backends.base import ImageBlock
-from .config import IMAGE_EXTENSIONS, IMAGE_MAX_PIXELS, TOKENS_PER_IMAGE, Config
+from .config import (
+    IMAGE_EXTENSIONS,
+    IMAGE_MAX_PIXELS,
+    MAX_TILES,
+    TILE_OVERLAP,
+    TILE_PIXELS,
+    TOKENS_PER_IMAGE,
+    Config,
+)
 from .paths import PathRefused, Refusal, ResolvedPath, open_resolved
 
 # How far in to look for a NUL byte. A text file does not contain one, and a binary file
@@ -68,9 +78,7 @@ END = "--- END FILE {path} ---"
 # An image's one line in the files block, in place of numbered lines. The path in the
 # header is the only thing tying the block to which image is which, so the line names the
 # type and the pixels; the bytes themselves ride the user message, never this text.
-IMAGE_DESCRIPTOR = (
-    "({media_type}, {width}x{height} pixels, attached after this message's text)"
-)
+IMAGE_DESCRIPTOR = "({description}, attached after this message's text)"
 
 # A line in a file's own body that would read as one of the boundaries above. Matched by
 # SHAPE and for ANY path, never against the entry's own marker: a forged line naming a
@@ -187,7 +195,7 @@ class FileEntry:
     start_line: int | None = None
     total_lines: int | None = None
     # A decoded raster image, with `text` empty; `None` for a text file.
-    image: ImageBlock | None = None
+    image: DecodedImage | None = None
 
     @property
     def end_line(self) -> int | None:
@@ -289,8 +297,8 @@ class Prefetch:
 
     @property
     def images(self) -> tuple[ImageBlock, ...]:
-        """The kept images, in the files block's order."""
-        return tuple(f.image for f in self.files if f.image is not None)
+        """What is sent for the kept images, tiles included, in the files block's order."""
+        return tuple(tile for f in self.files if f.image is not None for tile in f.image.tiles)
 
     def block(self) -> str:
         """The files section of the prompt. Empty string when there is nothing to say.
@@ -307,11 +315,7 @@ class Prefetch:
                     parts.append(
                         BEGIN.format(path=entry.path)
                         + "\n"
-                        + IMAGE_DESCRIPTOR.format(
-                            media_type=entry.image.media_type,
-                            width=entry.image.width,
-                            height=entry.image.height,
-                        )
+                        + IMAGE_DESCRIPTOR.format(description=entry.image.describe())
                         + "\n"
                         + END.format(path=entry.path)
                     )
@@ -430,13 +434,83 @@ def decode_text(data: bytes) -> tuple[str | None, str]:
     return text.lstrip("﻿"), ""
 
 
-def decode_image(data: bytes) -> tuple[ImageBlock | None, str]:
+@dataclass(frozen=True, slots=True)
+class DecodedImage:
+    """A readable image, and what is sent for it: the file whole, or tiles cut from it."""
+
+    media_type: str
+    width: int
+    height: int
+    data: bytes  # the file's own bytes
+    grid: tuple[int, int]  # (columns, rows); (1, 1) when the file is sent whole
+    tiles: tuple[ImageBlock, ...]
+
+    def describe(self) -> str:
+        """The image in words, for the line the model reads beside it."""
+        whole = f"{self.media_type}, {self.width}x{self.height} pixels"
+        if len(self.tiles) == 1:
+            return whole
+        cols, rows = self.grid
+        return (
+            f"{whole}, sent as {len(self.tiles)} tiles ({cols} columns x {rows} rows, left "
+            "to right then top to bottom, overlapping slightly)"
+        )
+
+
+def tile_grid(width: int, height: int) -> tuple[int, int]:
+    """The columns and rows that keep each tile near `TILE_PIXELS`, in the image's shape.
+
+    Past `MAX_TILES` the tiles grow instead of multiplying: each one counts against the
+    model's image limit.
+    """
+    if width * height <= TILE_PIXELS:
+        return 1, 1
+    n = min(math.ceil(width * height / TILE_PIXELS), MAX_TILES)
+    cols = max(1, min(n, round(math.sqrt(n * width / height))))
+    rows = math.ceil(n / cols)
+    if cols * rows > MAX_TILES:
+        rows = MAX_TILES // cols
+    return cols, rows
+
+
+def tile_boxes(width: int, height: int, cols: int, rows: int) -> list[tuple[int, int, int, int]]:
+    """Each tile's crop box in reading order, reaching `TILE_OVERLAP` past its share."""
+    boxes = []
+    for r in range(rows):
+        for c in range(cols):
+            left, right = width * c // cols, width * (c + 1) // cols
+            top, bottom = height * r // rows, height * (r + 1) // rows
+            boxes.append((
+                max(0, left - TILE_OVERLAP), max(0, top - TILE_OVERLAP),
+                min(width, right + TILE_OVERLAP), min(height, bottom + TILE_OVERLAP),
+            ))
+    return boxes
+
+
+def _crop_tiles(image: Any, cols: int, rows: int, *, photo: bool) -> tuple[ImageBlock, ...]:
+    """The tiles of a decoded image: JPEG for a photograph's, PNG for anything drawn.
+
+    RGB, since the backend converts every image to RGB anyway.
+    """
+    frame = image if image.mode == "RGB" else image.convert("RGB")
+    fmt, media_type = ("JPEG", "image/jpeg") if photo else ("PNG", "image/png")
+    tiles = []
+    for box in tile_boxes(image.width, image.height, cols, rows):
+        tile = frame.crop(box)
+        buf = io.BytesIO()
+        tile.save(buf, format=fmt, **({"quality": 90} if photo else {}))
+        tiles.append(ImageBlock(media_type, buf.getvalue(), tile.width, tile.height))
+    return tuple(tiles)
+
+
+def decode_image(data: bytes) -> tuple[DecodedImage | None, str]:
     """Decode bytes as a raster image, or say why it is not one. ADR-0132.
 
     Every frame is decoded, not just the header or the first: the backend decodes them all
     and rejects the whole request over one broken frame, and the image would stay in the
     history to fail every later turn. Any failure is a reason, never an exception: on
-    damaged input Pillow raises more than `OSError`.
+    damaged input Pillow raises more than `OSError`. An image over `TILE_PIXELS` is cut
+    into tiles, since the server shrinks each image it gets until small text is gone.
     """
     # Here rather than at the top: the docs gate imports this module through `tools` on an
     # interpreter with nothing installed (ci.yml), and only a decode needs Pillow.
@@ -455,18 +529,25 @@ def decode_image(data: bytes) -> tuple[ImageBlock | None, str]:
                 )
             for frame in ImageSequence.Iterator(image):
                 frame.load()
+            # A multi-picture JPEG, as phones write, opens as MPO; the backend reads it as
+            # JPEG.
+            fmt = "JPEG" if fmt == "MPO" else fmt
+            if fmt not in _ACCEPTED_IMAGE_FORMATS:
+                return None, (
+                    f"it is not a readable image: Pillow recognised {fmt}, which is not "
+                    "one of the raster formats the vision backend accepts"
+                )
+            media_type = Image.MIME[fmt]
+            grid = tile_grid(width, height)
+            tiles: tuple[ImageBlock, ...]
+            if grid == (1, 1):
+                tiles = (ImageBlock(media_type, data, width, height),)
+            else:
+                image.seek(0)
+                tiles = _crop_tiles(image, *grid, photo=fmt in ("JPEG", "WEBP"))
     except Exception as e:  # untrusted bytes, and Pillow's errors are no one family
         return None, f"it is not a readable image: {e}"
-    # A multi-picture JPEG, as phones write, opens as MPO; the backend reads it as JPEG.
-    fmt = "JPEG" if fmt == "MPO" else fmt
-    if fmt not in _ACCEPTED_IMAGE_FORMATS:
-        return None, (
-            f"it is not a readable image: Pillow recognised {fmt}, which is not "
-            "one of the raster formats the vision backend accepts"
-        )
-    return ImageBlock(
-        media_type=Image.MIME[fmt], data=data, width=width, height=height
-    ), ""
+    return DecodedImage(media_type, width, height, data, grid, tiles), ""
 
 
 def _request_split(item: ResolvedPath | FileRequest) -> tuple[ResolvedPath, int | None, int | None]:
@@ -604,7 +685,16 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
         image, why = decode_image(data)
         if image is None:
             return Skip(entry.posix, entry.given, SKIP_BINARY, why)
-        est = TOKENS_PER_IMAGE
+        if images_kept + len(image.tiles) > max_images:
+            return Skip(
+                entry.posix,
+                entry.given,
+                SKIP_REFUSED,
+                f"it would be sent as {len(image.tiles)} images, and only "
+                f"{max_images - images_kept} of the model's {max_images} are left in this "
+                "conversation",
+            )
+        est = TOKENS_PER_IMAGE * len(image.tiles)
         if est > cfg.max_file_tokens:
             return Skip(
                 entry.posix,
@@ -791,7 +881,7 @@ def prefetch(
         else:
             total += outcome.est_tokens
             if outcome.image is not None:
-                images_kept += 1
+                images_kept += len(outcome.image.tiles)
         return outcome
 
     # Sorted here, once, before anything accumulates; later, or left to the caller, the
