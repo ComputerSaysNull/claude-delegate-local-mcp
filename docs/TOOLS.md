@@ -26,7 +26,7 @@ Which of them a given delegation actually gets is its resolved `allowed_tools` s
 
 ## `read_file`
 
-Read a UTF-8 text file from the workspace, with every line numbered, so you can cite what you read as a file name and a line number. An image (png, jpeg, gif, webp, bmp, tiff, ico) comes back as the image itself, to a model that can see images. Paths must be absolute. Long files come back one range at a time: the result states the total number of lines and the line to continue from, so read the next range rather than the file again, and use start_line and end_line to go straight to the part you want rather than reading past it. Refused for a path outside the workspace, an unlisted extension, a secret by name or contents, or anything that is not text.
+Read a UTF-8 text file from the workspace, with every line numbered, so you can cite what you read as a file name and a line number. An image (png, jpeg, gif, webp, bmp, tiff, ico) comes back as the image itself, a large one as tiles, to a model that can see images; a conversation holds a limited number of images, and one past it is refused. Paths must be absolute. Long files come back one range at a time: the result states the total number of lines and the line to continue from, so read the next range rather than the file again, and use start_line and end_line to go straight to the part you want rather than reading past it. Refused for a path outside the workspace, an unlisted extension, a secret by name or contents, or anything that is not text.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |

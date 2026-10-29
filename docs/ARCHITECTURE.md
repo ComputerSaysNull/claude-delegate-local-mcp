@@ -362,6 +362,7 @@ An endpoint up and serving *something else* is invisible to every other check â€
 is refused, or answered by a model nobody chose â€” so it reports `status: "ok"` with
 `id_confirmed: false`: healthy endpoint, wrong configuration. `context_window_defaulted` is
 the same class of fact, marking a window this server assumed rather than one an operator set.
+`max_images` is reported because no endpoint advertises it and a caller has no other source.
 
 Each row also carries a **`cluster` block: the serving stack's own numbers**, where the
 `admission` block beside it carries this process's estimates of them. Queue depth, KV cache

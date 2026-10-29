@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #516 — 2026-10-29 — docs: callers are told what images cost and what limits them
+
+### Changed
+
+- **The image limit is stated where each reader looks for it.** A caller could not tell
+  that `files[]` takes images, nor learn a model's `max_images`, until a skip or refusal
+  came back, and the delegated model met the limit only by hitting it. `backend_status`
+  now reports each model's `max_images`, since no endpoint advertises it. `files[]`'s
+  schema says a raster image named whole is attached, tiled when large, each tile one
+  image against the limit. `read_file`'s description says a large image comes back as
+  tiles and that a conversation holds a limited number. That text is the same for every
+  model, so the cached prefix stays byte for byte. The orchestration resource gains an
+  Images section: the limit, why a large image is tiled, and that the model invents text
+  in a shrunk screenshot rather than saying it cannot read it (ADR-0066, ADR-0133).
+
 ## #515 — 2026-10-29 — feat: a large image is sent as tiles
 
 ### Added

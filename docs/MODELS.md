@@ -49,7 +49,7 @@ The table key (`deepseek-v4-flash`) is the handle callers use. It does not have 
 | `default_effort` | no | `off`, `low`, `high`, `max`. Falls back to the global default |
 | `max_tokens_cap` | no | Clamps any larger request. `0` means no cap |
 | `concurrency` | no | *This endpoint's* limit, checked alongside the global in-flight cap. Defaults to the global in-flight cap, [`max_inflight_seqs`](CONFIGURATION.md) as configured rather than as shipped: an entry that says nothing must not bound itself below what the server will admit |
-| `max_images` | no | Images the backend accepts in one conversation; one past it is refused rather than sent, since the backend would reject the whole request. `0` (default) means the model sees none. Servers do not advertise it: for vLLM it is `--limit-mm-per-prompt`'s image count (ADR-0132) |
+| `max_images` | no | Images the backend accepts in one conversation; one past it is refused rather than sent, since the backend would reject the whole request. `0` (default) means the model sees none. Servers do not advertise it, so `backend_status` reports it: for vLLM it is `--limit-mm-per-prompt`'s image count, and a large image's tiles each count (ADR-0132, ADR-0133) |
 | `default` | no | Exactly one entry may set it, unless a single model is registered or the global default names one |
 
 An unknown field is **refused**, not ignored. A typo in a registry key would otherwise cost

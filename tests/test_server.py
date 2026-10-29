@@ -110,13 +110,14 @@ def test_a_healthy_endpoint_serving_the_configured_id_reports_ok_and_confirms_it
 
 
 def test_the_row_carries_the_registry_facts_the_caller_needs_to_act():
-    row = probe(entry(context_window=4096, concurrency=2), ok_handler())
+    row = probe(entry(context_window=4096, concurrency=2, max_images=32), ok_handler())
     assert row["key"] == "flash"
     assert row["is_default"] is True
     assert row["api_format"] == "openai"
     assert row["served_model_id"] == "served-id-1"
     assert row["context_window"] == 4096
     assert row["concurrency"] == 2
+    assert row["max_images"] == 32, "a caller cannot learn a model's image limit otherwise"
 
 
 # --- the mismatch this tool exists to catch -------------------------------------------
@@ -995,6 +996,10 @@ def test_the_schema_tells_the_model_not_to_paste_files():
     described = " ".join((files.get("description") or "").split())
     assert "never enter your own context" in described
     assert "files_skipped" in described
+    # What becomes of an image: sent to a model that sees images, tiled when large, and
+    # bounded by a per-model limit the caller can look up.
+    assert "image" in described and "tiles" in described
+    assert "max_images" in described and "backend_status" in described
 
 
 def _built(config=None):
@@ -1134,6 +1139,8 @@ def test_the_orchestration_resource_carries_the_long_form():
     assert "empty_response" in body        # the failure that reads as success
     assert "admission" in body.lower()     # how many run at once
     assert "read_git" in body              # the only route to history; run_bash cannot see .git
+    assert "## Images" in asyncio.run(go())  # what an image costs, and the limit that bounds it
+    assert "max_images" in body and "tiles" in body
 
 
 def test_the_orchestration_resource_says_it_is_markdown_on_the_wire():
