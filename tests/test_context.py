@@ -663,3 +663,97 @@ def test_a_range_ending_on_text_renders_as_before(tmp_path):
 ])
 def test_merge_spans(spans, merged):
     assert context.merge_spans(spans) == merged
+
+
+# ---- tiles ----------------------------------------------------------------------------
+
+
+def _screenshot(size, colours=None, grid=None) -> bytes:
+    """A white PNG; with `grid`, each core tile's centre is painted its own colour."""
+    import io
+
+    from PIL import Image as PILImage
+    from PIL import ImageDraw
+
+    im = PILImage.new("RGB", size, (255, 255, 255))
+    if grid:
+        cols, rows = grid
+        tw, th = size[0] // cols, size[1] // rows
+        draw = ImageDraw.Draw(im)
+        for i, colour in enumerate(colours):
+            c, r = i % cols, i // cols
+            cx, cy = c * tw + tw // 2, r * th + th // 2
+            draw.rectangle((cx - 20, cy - 20, cx + 20, cy + 20), fill=colour)
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize(("size", "grid"), [
+    ((800, 800), (1, 1)),
+    ((1920, 1080), (2, 1)),
+    ((3840, 2160), (4, 2)),
+    ((1000, 8000), (1, 8)),
+    ((8000, 5000), (5, 3)),
+])
+def test_the_tile_grid_keeps_tiles_near_a_megapixel_and_their_count_bounded(size, grid):
+    """Tiles of about a megapixel read like an unshrunk image (JOURNAL 2026-10-29); past the
+    tile cap the tiles grow instead of multiplying."""
+    assert context.tile_grid(*size) == grid
+
+
+def test_a_small_image_is_sent_whole_and_unchanged():
+    data = _png_bytes()
+    decoded, why = context.decode_image(data)
+    assert why == "" and decoded is not None
+    assert decoded.grid == (1, 1)
+    assert len(decoded.tiles) == 1 and decoded.tiles[0].data == data
+
+
+def test_a_4k_screenshot_is_sent_as_eight_tiles_in_reading_order():
+    import io
+
+    from PIL import Image as PILImage
+
+    from claude_delegate_local.config import TILE_OVERLAP
+
+    colours = [(30 * i, 255 - 30 * i, 100) for i in range(8)]
+    decoded, why = context.decode_image(_screenshot((3840, 2160), colours, grid=(4, 2)))
+    assert why == "" and decoded is not None
+    assert decoded.grid == (4, 2) and (decoded.width, decoded.height) == (3840, 2160)
+    assert len(decoded.tiles) == 8
+    for tile, colour in zip(decoded.tiles, colours, strict=True):
+        assert tile.media_type == "image/png"
+        assert tile.width <= 960 + 2 * TILE_OVERLAP and tile.height <= 1080 + 2 * TILE_OVERLAP
+        with PILImage.open(io.BytesIO(tile.data)) as im:
+            assert colour in {px for _, px in im.convert("RGB").getcolors(1 << 20)}
+
+
+def test_text_crossing_a_tile_edge_is_whole_in_one_tile():
+    """The overlap is the guarantee: any line up to twice it tall that crosses an edge lies
+    inside a single tile."""
+    from claude_delegate_local.config import TILE_OVERLAP
+
+    boxes = context.tile_boxes(3840, 2160, 4, 2)
+    tall = 2 * TILE_OVERLAP
+    for top in range(1080 - tall, 1081):
+        band = (100, top, 300, top + tall)
+        assert any(b[0] <= band[0] and b[1] <= band[1] and band[2] <= b[2] and band[3] <= b[3]
+                   for b in boxes), f"a {tall}px line at y={top} is split by a tile edge"
+    for left in range(960 - tall, 961):
+        band = (left, 100, left + tall, 120)
+        assert any(b[0] <= band[0] and b[1] <= band[1] and band[2] <= b[2] and band[3] <= b[3]
+                   for b in boxes), f"a {tall}px word at x={left} is split by a tile edge"
+
+
+def test_a_tiled_image_is_prefetched_only_if_all_its_tiles_fit(tmp_path):
+    item = write(tmp_path, "shot.png", _screenshot((3840, 2160)))
+    kept = prefetch(cfg(), (item,), max_images=8)
+    assert kept.skips == ()
+    assert len(kept.images) == 8
+    assert kept.files[0].est_tokens == 8 * TOKENS_PER_IMAGE
+    assert "8 tiles" in kept.block()
+    refused = prefetch(cfg(), (item,), max_images=4)
+    assert refused.files == ()
+    assert refused.skips[0].kind == SKIP_REFUSED
+    assert "8 images" in refused.skips[0].reason

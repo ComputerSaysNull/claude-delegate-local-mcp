@@ -1539,3 +1539,21 @@ def test_the_shorthand_is_not_a_hole_for_other_flags(workspace):
         assert result.is_error, f"{args} was accepted"
     assert "-5" not in tools.GIT_SUBCOMMANDS["shortlog"]
     assert "shortlog" not in tools.GIT_COUNT_SHORTHAND
+
+
+def test_read_file_sends_a_4k_screenshot_as_tiles(workspace):
+    """Whole, the server shrinks it until text under 24 px cannot be read and the model
+    invents some instead; as tiles it reads like an unshrunk image (JOURNAL 2026-10-29)."""
+    import io
+
+    from PIL import Image as PILImage
+
+    buf = io.BytesIO()
+    PILImage.new("RGB", (3840, 2160), (255, 255, 255)).save(buf, format="PNG")
+    (workspace / "shot.png").write_bytes(buf.getvalue())
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=IMG_CFG_EXT),
+        call("read_file", path=str(workspace / "shot.png")), tools.ALL_TOOL_NAMES)
+    assert not result.is_error, result.content
+    assert len(result.images) == 8
+    assert "3840x2160" in result.content and "8 tiles" in result.content

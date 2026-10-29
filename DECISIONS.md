@@ -19,6 +19,29 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0133 — 2026-10-29 — A large image is sent as tiles, each counted against the image limit — Accepted
+
+**Context.** The vision checkpoint caps an image at 384 tokens and the server shrinks
+anything larger to fit, about 820x820 pixels. Measured (JOURNAL 2026-10-29): a whole 4K
+screenshot yields no text under 24 px, and the model invents text in its place; the same
+screenshot cut into 960x1080 tiles reads like an unshrunk image from 14 px.
+
+**Decision.** `decode_image` cuts an image over about a megapixel into a grid of tiles in
+its own shape, each reaching 32 px past its share so a line up to 64 px tall that crosses
+an edge is whole in one tile, in reading order, JPEG for a photograph and PNG otherwise.
+Past 16 tiles they grow instead of multiplying. Each tile is one image against
+`max_images`, so the limit counts what the model receives, and an image whose tiles do not
+all fit is refused whole. The line the model reads says how it was cut.
+
+**Rejected.** Raising `vision_max_n_token` on the server: it takes the checkpoint past the
+image sizes it was trained on, untested. A crop argument for the model to zoom with: the
+measurement shows the model does not know it cannot read a shrunk image, so it would not
+ask. Tiling everything: an image under a megapixel loses nothing whole.
+
+**Consequence.** A 4K screenshot costs 8 images and about 3,000 tokens instead of one and
+413, so the serving flag that limits images per request decides how many large images a
+conversation holds.
+
 ## ADR-0132 — 2026-10-29 — Images ride beside a tool result's text, decoded before they are sent — Accepted
 
 **Context.** The served model is a vision model, but every file reached it as UTF-8 text or

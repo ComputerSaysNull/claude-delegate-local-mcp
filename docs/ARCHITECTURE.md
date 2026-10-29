@@ -59,7 +59,9 @@ line cited from one path could not be checked against the other. The numbers cos
 the block's tokens, paid on the cheap path to stop the expensive one re-reading what it has.
 A tab follows each, as spaces were copied back as indentation. `numbered_span` reads it.
 An image is the exception: the block names it and its pixels, the image follows the text in
-the same message, one shot or loop alike, and one past `max_images` is skipped (ADR-0132).
+the same message, one shot or loop alike, and one past `max_images` is skipped (ADR-0132). A
+large one goes as tiles, each counted against that limit, since the server shrinks every
+image until small text is gone (ADR-0133).
 
 A prefetch cap is a **drop** threshold and never a truncation: a file over it is left out
 whole, though a caller may name ranges of it, merged where they meet (ADR-0105, ADR-0106).
@@ -75,7 +77,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `registry.py` | One explicit row per model: URL, format, window, defaults, concurrency |
 | `wsl.py` | The single path-translation boundary |
 | `paths.py` | The four-layer path policy |
-| `context.py` | Prefetch, token budgeting, prompt ordering, and deciding whether bytes are text or a readable image, every frame decoded, one image at a time, under a pixel ceiling (ADR-0132). History eviction is the loop's, in `loop.py` |
+| `context.py` | Prefetch, token budgeting, prompt ordering, and deciding whether bytes are text or a readable image, every frame decoded, one image at a time, under a pixel ceiling, a large one cut into tiles (ADR-0132, ADR-0133). History eviction is the loop's, in `loop.py` |
 | `backends/base.py` | `Backend` protocol and the canonical message shape — [DISPATCH.md](DISPATCH.md) |
 | `backends/openai_compat.py` | The only adapter shipped — [DISPATCH.md](DISPATCH.md) |
 | `loop.py` | The one-shot path, the response state machine and the turn loop — [DISPATCH.md](DISPATCH.md) |

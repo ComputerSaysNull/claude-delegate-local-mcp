@@ -578,7 +578,7 @@ ask for the part needed. Marked and not deleted: deleting re-runs the tool.
 A fourth is images: a result carrying one is never cached, as the cache keeps only text.
 As each call is recorded, one whose images would pass the model's `max_images`, counted
 over the whole history, becomes a refusal and a tool error (ADR-0132), so an identical call
-runs again and meets the limit afresh. Each image costs `TOKENS_PER_IMAGE`.
+runs again and meets the limit afresh. Each image or tile costs `TOKENS_PER_IMAGE`.
 A prefetched image rides the first message from the start, so it counts against the limit.
 
 A `read_file` of lines an earlier read of that path **returned** — its numbered span, not

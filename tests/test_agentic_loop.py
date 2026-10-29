@@ -28,7 +28,7 @@ from claude_delegate_local.backends.base import (
     ToolUseBlock,
 )
 from claude_delegate_local.config import Config, TOKENS_PER_IMAGE
-from claude_delegate_local.context import FileEntry
+from claude_delegate_local.context import DecodedImage, FileEntry
 from claude_delegate_local.registry import ModelEntry
 
 HOST = "http://example.com:8000"  # on the gate's placeholder allowlist
@@ -530,8 +530,8 @@ def test_the_cap_keeps_the_first_image_and_refuses_the_second():
     results = [room.admit(first), room.admit(second)]
     assert results[0] is first, "a result that fits must pass through untouched"
     assert results[1].is_error and results[1].images == ()
-    assert "already holds 2 images" in results[1].content
-    assert "the most the model accepts in one conversation" in results[1].content
+    assert "needs 1 image," in results[1].content
+    assert "holds 2 of the 2 images the model accepts in one conversation" in results[1].content
 
 
 def test_the_cap_leaves_results_without_images_untouched():
@@ -675,10 +675,11 @@ def test_a_refused_image_is_read_again_rather_than_served_from_the_cache(monkeyp
 
 def prefetched_image(path="/x/pic.png") -> FileEntry:
     """One prefetched image, as `prefetch` would produce it: whole, costed per image."""
+    tile = ImageBlock("image/png", b"\x89PNG fake", 64, 48)
     return FileEntry(
         path=path, given=path, text="", nbytes=100,
         est_tokens=TOKENS_PER_IMAGE, sha256="ab" * 32,
-        image=ImageBlock("image/png", b"\x89PNG fake", 64, 48),
+        image=DecodedImage("image/png", 64, 48, tile.data, (1, 1), (tile,)),
     )
 
 
@@ -687,12 +688,12 @@ def test_a_prefetched_image_reaches_the_first_user_message(registered):
     in prefetch order -- so the model is handed the image, not merely a description of it."""
     pre = prefetched_image()
     backend = ScriptedTurns(says("done"))
-    run(backend, prefetched=(pre,), images=(pre.image,), entry=entry(max_images=8))
+    run(backend, prefetched=(pre,), images=pre.image.tiles, entry=entry(max_images=8))
     first = backend.requests[0].messages[0]
     blocks = first.content
     assert isinstance(blocks[0], TextBlock)
     assert len(blocks) == 2
-    assert blocks[1] is pre.image
+    assert blocks[1] is pre.image.tiles[0]
     assert isinstance(blocks[1], ImageBlock)
 
 
@@ -733,14 +734,14 @@ def test_a_prefetched_image_counts_against_the_image_cap(monkeypatch):
         monkeypatch.setattr(loop, "execute_tool", with_image)
         backend = ScriptedTurns(wants(("pic", {})), says("done"))
         run(
-            backend, prefetched=(pre,), images=(pre.image,), allowed=frozenset({"pic"}),
+            backend, prefetched=(pre,), images=pre.image.tiles, allowed=frozenset({"pic"}),
             entry=entry(max_images=1),
         )
     finally:
         tools.REGISTRY.pop("pic", None)
     served = results_in(backend.requests[1])[0]
     assert served.is_error and served.images == ()
-    assert "already holds 1 image" in served.content
+    assert "holds 1 of the 1 images" in served.content
 
 
 # --- the countdown, and the static prefix -------------------------------------------------------
@@ -928,3 +929,15 @@ def test_other_tools_never_touch_the_bash_counters():
         ToolResultBlock(tool_use_id="r", content="text"),
     )
     assert (w.bash_calls, w.bash_failures, w.last_bash_exit) == (0, 0, None)
+
+
+def test_a_refusal_for_tiles_says_how_many_are_needed_and_how_many_are_left():
+    """An image sent as tiles takes several slots, so the refusal names what it needed and
+    what the conversation holds, not just the limit."""
+    history = (Message("user", (ToolResultBlock(
+        tool_use_id="old", content="x", images=(img(), img())),)),)
+    tiled = ToolResultBlock(tool_use_id="t", content="x", images=tuple(img() for _ in range(8)))
+    refused = loop.ImageRoom(8, history).admit(tiled)
+    assert refused.is_error and refused.images == ()
+    assert "8 images" in refused.content
+    assert "holds 2 of the 8" in refused.content

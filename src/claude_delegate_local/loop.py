@@ -1574,8 +1574,8 @@ IMAGE_CAP_REFUSED = (
     "but it cannot be shown here.]"
 )
 IMAGE_LIMIT_REFUSED = (
-    "[not attached: this conversation already holds {limit} images, the most the model "
-    "accepts in one conversation.]"
+    "[not attached: it needs {needed}, and this conversation already holds {held} of the "
+    "{limit} images the model accepts in one conversation.]"
 )
 
 
@@ -1886,7 +1886,10 @@ class ImageRoom:
             return block
         text = (
             IMAGE_CAP_REFUSED if self.max_images <= 0
-            else IMAGE_LIMIT_REFUSED.format(limit=self.max_images)
+            else IMAGE_LIMIT_REFUSED.format(
+                needed=f"{len(block.images)} image{'s' if len(block.images) > 1 else ''}",
+                held=self.held, limit=self.max_images,
+            )
         )
         return ToolResultBlock(tool_use_id=block.tool_use_id, content=text, is_error=True)
 
