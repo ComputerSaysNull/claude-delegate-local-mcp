@@ -1557,3 +1557,11 @@ def test_read_file_sends_a_4k_screenshot_as_tiles(workspace):
     assert not result.is_error, result.content
     assert len(result.images) == 8
     assert "3840x2160" in result.content and "8 tiles" in result.content
+
+
+def test_read_file_says_a_large_image_is_tiled_and_images_are_limited():
+    """The local model meets the image limit only by hitting it unless its own tool says so.
+    Static text: it sits in the cached prefix, so it names no model's number."""
+    described = " ".join(tools.READ_FILE.spec.description.split())
+    assert "tiles" in described
+    assert "limited number of images" in described

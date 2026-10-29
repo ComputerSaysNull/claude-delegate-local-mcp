@@ -486,6 +486,8 @@ async def probe_entry(
         # the registry may still describe wrongly.
         "context_window_defaulted": entry.context_window_defaulted,
         "concurrency": entry.concurrency,
+        # Images one conversation may hold, a large image's tiles each counting; 0 is none.
+        "max_images": entry.max_images,
         "status": STATUS_OK,
         "id_confirmed": None,
         "detail": "",
@@ -1557,7 +1559,11 @@ Files = Annotated[
         "still be prefetched in part. Several entries for one file -- ranges, or the file "
         "whole -- are merged where they overlap or touch, so no line is sent twice; a "
         "merge over the per-file cap falls back to the ranges as named, and what still "
-        "does not fit is skipped with the read_file range that reaches it."
+        "does not fit is skipped with the read_file range that reaches it. A png, jpeg, gif, "
+        "webp, bmp, tiff or ico named whole is attached as an image for a model whose "
+        "`max_images` is above 0 (`backend_status` reports it): a large one goes as tiles, "
+        "each one image against that per-conversation limit, and one that does not fit is "
+        "skipped with the reason."
     )),
 ]
 
@@ -2444,6 +2450,18 @@ somewhere for it, which cannot work anyway if that somewhere is outside the work
 
 Its long output is truncated on a line boundary and says so. Read that line before concluding
 something is absent.
+
+## Images
+
+A png, jpeg, gif, webp, bmp, tiff or ico reaches the model as an image, named whole in
+`files[]` or read with `read_file`, when its registry entry sets `max_images` above 0;
+`backend_status` reports the number. It counts every image in the conversation, and a
+request past it is refused by the backend outright, so the server refuses the image instead.
+
+The serving model shrinks each image to a few hundred tokens. Whole, a large screenshot
+loses its small text, and the model has been measured inventing text in its place rather
+than saying it cannot read it. So an image over about a megapixel goes as tiles, a 4K
+screenshot as eight, each one image against the limit. Budget for the tiles, not the files.
 """.strip()
 
     return mcp
