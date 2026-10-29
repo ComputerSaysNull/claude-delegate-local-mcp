@@ -34,8 +34,6 @@ from itertools import groupby
 from dataclasses import dataclass
 from hashlib import sha256
 
-from PIL import Image, ImageSequence
-
 from .backends.base import ImageBlock
 from .config import IMAGE_MAX_PIXELS, Config
 from .paths import PathRefused, Refusal, ResolvedPath, open_resolved
@@ -413,6 +411,10 @@ def decode_image(data: bytes) -> tuple[ImageBlock | None, str]:
     history to fail every later turn. Any failure is a reason, never an exception: on
     damaged input Pillow raises more than `OSError`.
     """
+    # Here rather than at the top: the docs gate imports this module through `tools` on an
+    # interpreter with nothing installed (ci.yml), and only a decode needs Pillow.
+    from PIL import Image, ImageSequence  # noqa: PLC0415
+
     try:
         with _DECODE_LOCK, Image.open(io.BytesIO(data)) as image:
             fmt, width, height = image.format, image.width, image.height

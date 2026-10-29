@@ -57,6 +57,16 @@ Older entries, in the previous flat format, are in
   saw. An image result is never served from the repeat cache, which keeps only text. Each
   image is estimated at 512 tokens, above the measured ceiling of about 360.
 
+### Fixed
+
+- **The gate's no-dependency test read only the gate.** CI's gate job installs nothing, so
+  anything the gate runs must need only the standard library, and a test reads
+  `docs_gate.py`'s imports to hold that. But the gate also runs the doc generators, which
+  import the package, so Pillow reached the gate through `tools.py` and failed this pull
+  request's first CI run while that test passed. A second test now runs every generator
+  the gate lists without site-packages, as CI does. Pillow is imported inside the one
+  function that decodes.
+
 ## #510 — 2026-10-27 — fix: the 2026-10-27 audit's follow-ups
 
 ### Changed
