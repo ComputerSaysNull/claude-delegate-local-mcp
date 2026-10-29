@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
-from .config import Config, normalise_extensions
+from .config import IMAGE_EXTENSIONS, Config, normalise_extensions
 from .wsl import UntranslatablePath, to_posix
 
 # Layer 0 is not one of the four. It is the boundary crossing itself, named separately so
@@ -550,6 +550,24 @@ def load_protected_globs(cfg: Config) -> tuple[str, ...]:
     return globs
 
 
+def _check_read_only_image(given: str, real: str) -> Refusal | None:
+    """Layer 2's write half: a raster image is read-only, since the write tools write text.
+
+    A scope rule, not a model limit (ADR-0132), held here alone.
+    """
+    if posixpath.splitext(real)[1].lower() not in IMAGE_EXTENSIONS:
+        return None
+    return Refusal(
+        given=given,
+        layer=LAYER_EXT,
+        reason="it is an image, and images are read-only.",
+        remedy=(
+            "write_file and edit_file write text, which would break the image. Read it "
+            "with read_file; to draw something, write an .svg, which is text."
+        ),
+    )
+
+
 def _check_protected(given: str, real: str, globs: Sequence[str]) -> Refusal | None:
     # The same matcher as the secret denylist, so `!` exemptions and suffix matching mean
     # one thing across both lists.
@@ -865,6 +883,7 @@ class _Batch:
     prefixes: dict[str, str]
     # Empty unless the batch is for a write tool, so reading never pays for the list.
     protected: Sequence[str] = ()
+    writing: bool = False
 
 
 def _resolve_one(
@@ -903,6 +922,8 @@ def _resolve_one(
         refusal = _check_exists(raw, real, must_exist)
     if refusal is None:
         refusal = _check_ext(cfg, raw, real)
+    if refusal is None and batch.writing:
+        refusal = _check_read_only_image(raw, real)
     if refusal is None:
         refusal = _check_secret(raw, real, batch.globs)
     if refusal is None and batch.protected:
@@ -1329,7 +1350,9 @@ def _resolve_many(
     survivors: list[ResolvedPath] = []
     seen: set[str] = set()
     # One batch, one cache. See `_realpath` for why it holds prefixes and not whole paths.
-    batch = _Batch(roots=roots, globs=globs, prefixes={}, protected=protected)
+    batch = _Batch(
+        roots=roots, globs=globs, prefixes={}, protected=protected, writing=writing,
+    )
 
     for raw in given:
         outcome = _resolve_one(cfg, raw, batch, must_exist)

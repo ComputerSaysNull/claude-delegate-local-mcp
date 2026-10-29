@@ -198,6 +198,8 @@ class Config:
             # web
             ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".vue",
             ".svelte", ".astro", ".css", ".scss", ".sass", ".less", ".html", ".htm",
+            # images: the raster ones read-only, decoded for a vision model; SVG is text
+            *sorted(IMAGE_EXTENSIONS), ".svg",
             # shells
             ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".bat", ".cmd",
             # general-purpose languages

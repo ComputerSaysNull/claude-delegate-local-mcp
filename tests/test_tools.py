@@ -440,6 +440,43 @@ def test_write_file_overwrites_and_says_so(workspace):
     assert (workspace / "a.py").read_text(encoding="utf-8") == "z = 3\n"
 
 
+def test_write_file_refuses_to_overwrite_an_image(workspace):
+    """write_file writes text, which would break an image, so a raster image is read-only
+    even where its extension is allowed for reading."""
+    image = workspace / "logo.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nrest")
+    allow = (".py", ".png", ".svg")
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=allow),
+        call("write_file", path=str(image), content="not an image\n"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "read-only" in result.content
+    assert image.read_bytes() == b"\x89PNG\r\n\x1a\nrest"
+
+
+def test_edit_file_refuses_an_image_as_read_only(workspace):
+    image = workspace / "logo.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nrest")
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=(".png",)),
+        call("edit_file", path=str(image), old_string="rest", new_string="best"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "read-only" in result.content
+
+
+def test_write_file_still_writes_an_svg(workspace):
+    """SVG is text, so it stays writable: the one image format the model can produce."""
+    target = workspace / "icon.svg"
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=(".svg",)),
+        call("write_file", path=str(target), content="<svg/>\n"),
+        tools.ALL_TOOL_NAMES)
+    assert not result.is_error, result.content
+    assert target.read_text(encoding="utf-8") == "<svg/>\n"
+
+
 def test_write_file_refuses_rather_than_truncating(workspace):
     """A silently shortened file is a corrupted one the model cannot detect."""
     target = workspace / "big.py"

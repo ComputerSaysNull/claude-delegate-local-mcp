@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #513 — 2026-10-29 — feat: images are on the default allowlist, and read-only
+
+### Added
+
+- **The default allowlist reads images.** A vision model could see an image only where the
+  operator had allowlisted its extension. png, jpg, jpeg, gif, webp, bmp, tif, tiff and ico
+  are now on the default list, along with svg, which is XML and is read as text.
+
+### Changed
+
+- **`write_file` and `edit_file` refuse a raster image.** The allowlist gates writes as
+  well as reads, so a project that allowlisted `.png` let `write_file` replace an image
+  with text. That was safe to leave alone while images were off the default list, but not
+  once they are on it. The refusal says why and points to `.svg`, which stays writable.
+  This is the scope of image support so far, not a model limit: no registered model
+  generates images, and PLAN item 124 lifts the rule for one that does (ADR-0132).
+
 ## #512 — 2026-10-29 — feat: files[] hands an image to a vision model
 
 ### Added
