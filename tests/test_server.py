@@ -800,6 +800,64 @@ def test_a_skipped_file_lets_the_call_proceed_and_is_reported(tmp_path):
     assert result["files_skipped"][0]["kind"] == "binary"
 
 
+def _png_bytes(size=(64, 48)) -> bytes:
+    import io
+
+    from PIL import Image as PILImage
+
+    img = PILImage.new("RGB", size, (255, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_a_prefetched_png_reaches_the_wire_after_the_text(tmp_path):
+    """The files block describes the image; the actual bytes ride the first user message
+    as image_url parts, after the text, so the model sees the image rather than only a
+    description of it."""
+    png = tmp_path / "pic.png"
+    png.write_bytes(_png_bytes())
+
+    sent: list = []
+    delegated(
+        recording_handler(sent),
+        config=files_cfg(tmp_path, ext_allowlist=(".png",)),
+        task="review this",
+        files=[str(png)],
+        entries=(entry(max_images=8),),
+    )
+
+    content = sent[0]["messages"][-1]["content"]
+    assert isinstance(content, list), "an image means the message content is parts, not a string"
+    assert content[0]["type"] == "text"
+    assert "review this" in content[0]["text"]
+    assert content[-1]["type"] == "image_url"
+    assert content[-1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_a_one_shot_call_sends_its_prefetched_image_too(tmp_path):
+    """An empty toolset is the cheapest way to ask about a screenshot, so the one-shot
+    request carries the image exactly as the turn loop's first message does."""
+    png = tmp_path / "pic.png"
+    png.write_bytes(_png_bytes())
+
+    sent: list = []
+    delegated(
+        recording_handler(sent),
+        config=files_cfg(tmp_path, ext_allowlist=(".png",)),
+        task="what is in this image?",
+        files=[str(png)],
+        allowed_tools=[],
+        entries=(entry(max_images=8),),
+    )
+
+    assert "tools" not in sent[0], "an empty toolset must take the one-shot path"
+    content = sent[0]["messages"][-1]["content"]
+    assert isinstance(content, list), "an image means the message content is parts, not a string"
+    assert content[-1]["type"] == "image_url"
+    assert content[-1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
 def test_a_refused_path_no_longer_discards_the_files_that_resolved(tmp_path):
     """ADR-0061: a refused path costs the call its file, not the call.
 
