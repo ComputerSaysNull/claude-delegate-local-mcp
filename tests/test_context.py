@@ -160,6 +160,43 @@ def test_valid_utf8_with_multibyte_characters_is_text():
     assert text is not None and "naïve" in text
 
 
+# ---- decode_image -------------------------------------------------------------------
+
+
+def _png_bytes(size=(64, 48)) -> bytes:
+    import io
+    from PIL import Image as PILImage
+
+    img = PILImage.new("RGB", size, (255, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_decode_image_reads_a_png():
+    data = _png_bytes()
+    image, why = context.decode_image(data)
+    assert why == ""
+    assert image is not None
+    assert image.media_type == "image/png"
+    assert (image.width, image.height) == (64, 48)
+    assert image.data == data, "the bytes are returned unchanged, not re-encoded"
+
+
+def test_decode_image_refuses_a_truncated_png():
+    data = _png_bytes()
+    image, why = context.decode_image(data[: len(data) // 2])
+    assert image is None
+    assert "truncated" in why
+
+
+def test_decode_image_refuses_svg():
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'
+    image, why = context.decode_image(svg)
+    assert image is None
+    assert why.startswith("it is not a readable image")
+
+
 # ---- the total budget -------------------------------------------------------------
 
 

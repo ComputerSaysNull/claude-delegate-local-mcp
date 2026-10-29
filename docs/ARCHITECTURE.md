@@ -73,7 +73,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `registry.py` | One explicit row per model: URL, format, window, defaults, concurrency |
 | `wsl.py` | The single path-translation boundary |
 | `paths.py` | The four-layer path policy |
-| `context.py` | Prefetch, token budgeting, prompt ordering. History eviction is the loop's, in `loop.py` |
+| `context.py` | Prefetch, token budgeting, prompt ordering, and deciding whether bytes are text or a readable image (ADR-0132). History eviction is the loop's, in `loop.py` |
 | `backends/base.py` | `Backend` protocol and the canonical message shape — [DISPATCH.md](DISPATCH.md) |
 | `backends/openai_compat.py` | The only adapter shipped — [DISPATCH.md](DISPATCH.md) |
 | `loop.py` | The one-shot path, the response state machine and the turn loop — [DISPATCH.md](DISPATCH.md) |

@@ -35,6 +35,7 @@ from .backends.base import (
     CanonicalRequest,
     CanonicalResponse,
     ContentBlock,
+    ImageBlock,
     Message,
     TextBlock,
     ThinkingBlock,
@@ -48,6 +49,7 @@ from .config import (
     OVERFLOW_EVICT_AT,
     OVERFLOW_NUDGE_AT,
     OVERFLOW_TIGHTEN_AT,
+    TOKENS_PER_IMAGE,
     Config,
 )
 from .context import FileEntry, line_number_width, numbered_line, numbered_lines, numbered_span
@@ -1503,14 +1505,24 @@ async def _keepalive(  # noqa: PLR0913, PLR0917 -- one reading per argument, all
 # --- the turn loop ------------------------------------------------------------------------
 
 
+def _count_images(content: tuple[ContentBlock, ...]) -> int:
+    """Images one message carries: each image in a tool result, each ImageBlock directly."""
+    return sum(
+        len(block.images) if isinstance(block, ToolResultBlock) else 1
+        for block in content
+        if isinstance(block, (ToolResultBlock, ImageBlock))
+    )
+
+
 def _tool_result_sizes(cfg: Config, messages: tuple[Message, ...]) -> list[int]:
     """Estimated tokens of each tool result, in history order, which eviction walks.
 
     Sizes, not a count, because bytes fill a window. Costed at the densest ratio, so it
-    over-counts: under-counting would retain more than fits.
+    over-counts: under-counting would retain more than fits. A result's images cost
+    `TOKENS_PER_IMAGE` each.
     """
     return [
-        cfg.estimate_tokens(len(b.content))
+        cfg.estimate_tokens(len(b.content)) + TOKENS_PER_IMAGE * len(b.images)
         for m in messages
         for b in m.content
         if isinstance(b, ToolResultBlock)
@@ -1548,6 +1560,17 @@ EVICTED_REPEAT = (
     "[identical to an earlier call whose result was dropped from the history to stay "
     "inside the context window. Nothing was run again and the content is not being "
     "restored -- ask for the part of it you need.]"
+)
+
+# A tool result refused because the model cannot see its images. Two wordings: one for a
+# model with no image support at all, one for a conversation already holding its limit.
+IMAGE_CAP_REFUSED = (
+    "[the model this delegation runs on cannot see images. The file is a readable image, "
+    "but it cannot be shown here.]"
+)
+IMAGE_LIMIT_REFUSED = (
+    "[not attached: this conversation already holds {limit} images, the model's limit. "
+    "An image in a tool result dropped from the history frees its slot.]"
 )
 
 
@@ -1838,6 +1861,45 @@ def stub_oldest_tool_results(
     return tuple(rebuilt), len(doomed)
 
 
+def enforce_image_cap(
+    history: tuple[Message, ...],
+    results: list[ContentBlock],
+    *,
+    max_images: int,
+) -> tuple[list[ContentBlock], tuple[str, ...]]:
+    """Refuse tool results whose images would exceed `max_images`, the whole-conversation
+    limit.
+
+    `history` is what the conversation already holds; `results` is one turn's, in order. A
+    result whose images would push the conversation past the limit is replaced by an error
+    result carrying a refusal the model can act on, and its `tool_use_id` is returned so
+    the repeat cache can be told the model never saw it. Results without images pass through
+    untouched, and nothing here mutates the originals.
+
+    `max_images` is 0 when the model sees no images, which refuses every image outright.
+    """
+    seen = sum(_count_images(message.content) for message in history)
+    out: list[ContentBlock] = []
+    refused: list[str] = []
+    for block in results:
+        if not (isinstance(block, ToolResultBlock) and block.images):
+            out.append(block)
+            continue
+        if max_images <= 0 or seen + len(block.images) > max_images:
+            text = (
+                IMAGE_CAP_REFUSED if max_images <= 0
+                else IMAGE_LIMIT_REFUSED.format(limit=max_images)
+            )
+            out.append(ToolResultBlock(
+                tool_use_id=block.tool_use_id, content=text, is_error=True,
+            ))
+            refused.append(block.tool_use_id)
+        else:
+            seen += len(block.images)
+            out.append(block)
+    return out, tuple(refused)
+
+
 def countdown_line(turns_left: int) -> str:
     """What the model is told about its remaining budget, on the message carrying results.
 
@@ -1878,7 +1940,7 @@ def estimate_message_tokens(cfg: Config, message: Message) -> int:
             nbytes += len(block.content)
         elif isinstance(block, ToolUseBlock):
             nbytes += len(block.name) + len(_dedup_key(block))
-    return cfg.estimate_tokens(nbytes)
+    return cfg.estimate_tokens(nbytes) + TOKENS_PER_IMAGE * _count_images(message.content)
 
 
 def overflow_reserve(cfg: Config, entry: ModelEntry) -> int:
@@ -2156,6 +2218,21 @@ def _mark_evicted_in_cache(
     for key, entry in cached.items():
         if not entry.evicted and entry.tool_use_id in gone:
             cached[key] = replace(entry, evicted=True)
+
+
+def _forget_in_cache(
+    cached: dict[tuple[str, str], _CachedResult], refused_ids: tuple[str, ...]
+) -> None:
+    """Delete what the dedup cache copied from results the model was refused.
+
+    Deleted, not marked as evicted: the model never saw the image, so the next identical
+    call runs again and meets the image limit afresh.
+    """
+    if not refused_ids:
+        return
+    refused = set(refused_ids)
+    for key in [k for k, entry in cached.items() if entry.tool_use_id in refused]:
+        del cached[key]
 
 
 def newly_evicted_ids(
@@ -3164,6 +3241,13 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                 # Beside the countdown, never instead (see `WRAP_UP_LINE`).
                 results.append(TextBlock(WRAP_UP_LINE))
                 text_before_nudge = dispatch.response.text
+
+            # Before the results join the history: one image past the limit would fail
+            # this request and every later one (ADR-0132).
+            results, refused_images = enforce_image_cap(
+                tuple(history), results, max_images=entry.max_images,
+            )
+            _forget_in_cache(cached, refused_images)
 
             user_message = Message("user", tuple(results))
             history.append(user_message)

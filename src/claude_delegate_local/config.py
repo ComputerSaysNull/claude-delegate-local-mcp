@@ -122,6 +122,15 @@ BYTES_PER_TOKEN: dict[str, float] = {
 # written down again, so adding a denser entry cannot leave "worst case" behind.
 BYTES_PER_TOKEN_DEFAULT = min(BYTES_PER_TOKEN.values())
 
+# Prompt tokens per image, MEASURED (JOURNAL 2026-10-29): at most ~360 whatever the pixel
+# size, rounded up so the estimate over-counts, as the byte ratios are.
+TOKENS_PER_IMAGE = 512
+
+# Raster formats the vision backend accepts (JOURNAL 2026-10-29); SVG is text, not one.
+IMAGE_EXTENSIONS: frozenset[str] = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".ico",
+})
+
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 

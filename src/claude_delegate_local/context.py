@@ -24,20 +24,30 @@ list is sorted by resolved path before anything is accumulated -- before the tot
 cutoff too, or six files in a different order would produce a different five (ADR-0011).
 """
 
+import io
 import os
 import re
 import sys
+import warnings
 from collections.abc import Callable, Iterable, Iterator
 from itertools import groupby
 from dataclasses import dataclass
 from hashlib import sha256
 
+from PIL import Image
+
+from .backends.base import ImageBlock
 from .config import Config
 from .paths import PathRefused, Refusal, ResolvedPath, open_resolved
 
 # How far in to look for a NUL byte. A text file does not contain one, and a binary file
 # that hides its first NUL past 8 KiB is rarer than the cost of reading further. ADR-0030.
 NUL_SNIFF_BYTES = 8192
+
+# The Pillow format names decode_image accepts: one per IMAGE_EXTENSIONS entry, with
+# `.jpg`/`.jpeg` and `.tif`/`.tiff` sharing a decoder each. The check is on the format
+# name because decoding only has the bytes, never a path, to judge by.
+_ACCEPTED_IMAGE_FORMATS = frozenset({"PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "ICO"})
 
 SKIP_TOO_MANY_BYTES = "too_many_bytes"
 SKIP_OVER_FILE_BUDGET = "over_file_budget"
@@ -389,6 +399,35 @@ def decode_text(data: bytes) -> tuple[str | None, str]:
     # A UTF-8 BOM decodes to U+FEFF, which is invisible and would sit at the top of the
     # first line of a source file for no reason.
     return text.lstrip("﻿"), ""
+
+
+def decode_image(data: bytes) -> tuple[ImageBlock | None, str]:
+    """Decode bytes as a raster image, or say why it is not one. ADR-0132.
+
+    The whole file is decoded, not just its header: a broken image fails the whole backend
+    request, and stays in the history to fail every later turn. Only the formats in
+    `IMAGE_EXTENSIONS` are accepted; anything else Pillow recognises is refused.
+    """
+    try:
+        with warnings.catch_warnings():
+            # Pillow warns, rather than errors, on an image above its soft decompression
+            # limit; a reply that went out anyway would fail the whole request, so the
+            # warning is an error for this call, exactly as the hard-limit error is.
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(data)) as image:
+                image.load()
+                fmt, width, height = image.format, image.width, image.height
+    except (OSError, ValueError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning) as e:
+        return None, f"it is not a readable image: {e}"
+    if fmt not in _ACCEPTED_IMAGE_FORMATS:
+        return None, (
+            f"it is not a readable image: Pillow recognised {fmt}, which is not "
+            "one of the raster formats the vision backend accepts"
+        )
+    return ImageBlock(
+        media_type=Image.MIME[fmt], data=data, width=width, height=height
+    ), ""
 
 
 def _request_split(item: ResolvedPath | FileRequest) -> tuple[ResolvedPath, int | None, int | None]:
