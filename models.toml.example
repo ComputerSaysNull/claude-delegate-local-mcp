@@ -28,6 +28,8 @@ concurrency     = 6
 # the model sees no images; vLLM's own limit is its --limit-mm-per-prompt image
 # count.
 # max_images      = 8
+# The model a delegation gets when it names none. Exactly one entry sets it, unless
+# only one model is registered.
 default         = true
 
 # A second model is a second container on a second port. Uncomment and adjust:
@@ -38,3 +40,5 @@ default         = true
 # context_window  = 131072
 # default_effort  = "off"
 # concurrency     = 2
+# A vision model: its server's per-conversation image limit, as above.
+# max_images      = 4

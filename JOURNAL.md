@@ -3181,6 +3181,12 @@ Raw chat-completions probes against the served vision model, before designing im
   was the same 400. `/v1/models` lists no image or multimodal field.
 - **Cost is capped.** Prompt tokens for one image plus a short question: 125 at 16 px,
   209 at 512, 357 at 2048 and 4096 square, 309 and 349 at 8000x1000 either way round.
+- **Decoding costs memory by pixels, not by file size.** Solid-colour RGBA PNGs through
+  `decode_image`, peak RSS above the process's start: 14.7 MP (a 5K screenshot, 64 KB
+  file) +57 MB in 0.08 s; 33.2 MP (8K, 139 KB) +128 MB, 0.17 s; 40 MP +154 MB, 0.20 s;
+  89.1 MP, just under Pillow's own limit (374 KB) +341 MB, 0.44 s. About 3.9 bytes a
+  pixel, so 8 grouped reads at Pillow's limit would hold ~2.7 GB. Hence a 40 MP ceiling
+  and one decode at a time.
 - **No generation.** `/v1/images/generations` is a 404; a chat request with
   `modalities: ["text","image"]` asking for a picture returns text saying it cannot.
 

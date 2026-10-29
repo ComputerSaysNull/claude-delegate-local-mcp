@@ -235,13 +235,42 @@ def test_decode_image_leaves_the_process_wide_warnings_state_alone(monkeypatch):
 
 
 def test_decode_image_refuses_an_image_over_the_pixel_limit(monkeypatch):
-    """Between Pillow's limit and twice it, Pillow only warns; the decode refuses."""
-    from PIL import Image as PILImage
-
-    monkeypatch.setattr(PILImage, "MAX_IMAGE_PIXELS", 2000)  # 64x48 is 3,072
+    """Memory follows pixels, not file size, so the limit is on pixels and is checked
+    before the decode."""
+    monkeypatch.setattr(context, "IMAGE_MAX_PIXELS", 2000)  # 64x48 is 3,072
     image, why = context.decode_image(_png_bytes())
     assert image is None
-    assert "decode limit" in why
+    assert "pixel limit" in why
+
+
+def test_images_are_decoded_one_at_a_time(monkeypatch):
+    """Grouped reads and prefetch decode from threads; one decode at a time bounds the
+    memory a turn can take to one image's worth."""
+    import threading
+    import time
+
+    from PIL import Image as PILImage
+
+    active, peak, guard = [0], [0], threading.Lock()
+    real_open = PILImage.open
+
+    def slow_open(*args, **kwargs):
+        with guard:
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+        time.sleep(0.05)
+        with guard:
+            active[0] -= 1
+        return real_open(*args, **kwargs)
+
+    monkeypatch.setattr(PILImage, "open", slow_open)
+    data = _png_bytes()
+    threads = [threading.Thread(target=context.decode_image, args=(data,)) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert peak[0] == 1
 
 
 def test_decode_image_reads_a_multi_picture_jpeg_as_jpeg():

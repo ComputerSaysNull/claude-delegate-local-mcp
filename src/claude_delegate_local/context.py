@@ -28,6 +28,7 @@ import io
 import os
 import re
 import sys
+import threading
 from collections.abc import Callable, Iterable, Iterator
 from itertools import groupby
 from dataclasses import dataclass
@@ -36,7 +37,7 @@ from hashlib import sha256
 from PIL import Image, ImageSequence
 
 from .backends.base import ImageBlock
-from .config import Config
+from .config import IMAGE_MAX_PIXELS, Config
 from .paths import PathRefused, Refusal, ResolvedPath, open_resolved
 
 # How far in to look for a NUL byte. A text file does not contain one, and a binary file
@@ -47,6 +48,10 @@ NUL_SNIFF_BYTES = 8192
 # `.jpg`/`.jpeg` and `.tif`/`.tiff` sharing a decoder each. The check is on the format
 # name because decoding only has the bytes, never a path, to judge by.
 _ACCEPTED_IMAGE_FORMATS = frozenset({"PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "ICO"})
+
+# One decode at a time per process: grouped reads and the prefetch decode from threads, and
+# this bounds what a turn can hold to one image's worth, `IMAGE_MAX_PIXELS` at most.
+_DECODE_LOCK = threading.Lock()
 
 SKIP_TOO_MANY_BYTES = "too_many_bytes"
 SKIP_OVER_FILE_BUDGET = "over_file_budget"
@@ -409,16 +414,15 @@ def decode_image(data: bytes) -> tuple[ImageBlock | None, str]:
     damaged input Pillow raises more than `OSError`.
     """
     try:
-        with Image.open(io.BytesIO(data)) as image:
+        with _DECODE_LOCK, Image.open(io.BytesIO(data)) as image:
             fmt, width, height = image.format, image.width, image.height
-            # Pillow only warns between its limit and twice it. Checked here rather than by
-            # making that warning an error, since the warnings filter is process-wide and
-            # decodes run in threads.
-            limit = Image.MAX_IMAGE_PIXELS
-            if limit is not None and width * height > limit:
+            # Before the decode, which is where the memory goes. Not Pillow's own limit:
+            # that one only warns below twice itself, and its warnings filter is
+            # process-wide while decodes run in threads.
+            if width * height > IMAGE_MAX_PIXELS:
                 return None, (
                     f"it is not a readable image: {width}x{height} pixels is over the "
-                    f"{limit:,}-pixel decode limit"
+                    f"{IMAGE_MAX_PIXELS:,}-pixel limit for one image"
                 )
             for frame in ImageSequence.Iterator(image):
                 frame.load()

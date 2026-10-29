@@ -17,7 +17,7 @@ import os
 import random
 import time
 from collections import Counter, deque
-from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
@@ -1861,40 +1861,29 @@ def stub_oldest_tool_results(
     return tuple(rebuilt), len(doomed)
 
 
-def enforce_image_cap(
-    history: tuple[Message, ...],
-    results: list[ContentBlock],
-    *,
-    max_images: int,
-) -> list[ContentBlock]:
-    """Refuse tool results whose images would exceed `max_images`, the whole-conversation
-    limit.
-
-    `history` is what the conversation already holds; `results` is one turn's, in order. A
-    result whose images would push the conversation past the limit is replaced by an error
-    result carrying a refusal the model can act on. Results without images pass through
-    untouched, and nothing here mutates the originals.
-
-    `max_images` is 0 when the model sees no images, which refuses every image outright.
+class ImageRoom:
+    """The images one conversation may still take: the model's `max_images` less those its
+    history holds. The limit counts the whole conversation, and one image past it fails
+    this request and every later one (ADR-0132).
     """
-    seen = sum(_count_images(message.content) for message in history)
-    out: list[ContentBlock] = []
-    for block in results:
+
+    def __init__(self, max_images: int, history: Iterable[Message]) -> None:
+        self.max_images = max_images
+        self.held = sum(_count_images(message.content) for message in history)
+
+    def admit(self, block: ContentBlock) -> ContentBlock:
+        """The block itself if its images fit, else an error result refusing them. Called
+        in the model's call order, so the first images to arrive are the ones kept."""
         if not (isinstance(block, ToolResultBlock) and block.images):
-            out.append(block)
-            continue
-        if max_images <= 0 or seen + len(block.images) > max_images:
-            text = (
-                IMAGE_CAP_REFUSED if max_images <= 0
-                else IMAGE_LIMIT_REFUSED.format(limit=max_images)
-            )
-            out.append(ToolResultBlock(
-                tool_use_id=block.tool_use_id, content=text, is_error=True,
-            ))
-        else:
-            seen += len(block.images)
-            out.append(block)
-    return out
+            return block
+        if self.max_images > 0 and self.held + len(block.images) <= self.max_images:
+            self.held += len(block.images)
+            return block
+        text = (
+            IMAGE_CAP_REFUSED if self.max_images <= 0
+            else IMAGE_LIMIT_REFUSED.format(limit=self.max_images)
+        )
+        return ToolResultBlock(tool_use_id=block.tool_use_id, content=text, is_error=True)
 
 
 def countdown_line(turns_left: int) -> str:
@@ -2804,6 +2793,7 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     policy: BashPolicy,
     seen: SeenFiles | None = None,
     status: list[str] | None = None,
+    images: ImageRoom | None = None,
 ) -> tuple[list[ContentBlock], tuple[ToolCallRecord, ...]]:
     """One turn's tool calls, run in order. Returns the result blocks and their records.
 
@@ -2827,7 +2817,10 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
             else _run_group(cfg, group, allowed, cached, policy, seen=seen)
         )
         # On one thread, in the model's order; a worker appending would reorder the report.
-        for i, (call, (block, outcome, ms)) in enumerate(zip(group, outcomes, strict=True)):
+        for i, (call, (produced, ran_as, ms)) in enumerate(zip(group, outcomes, strict=True)):
+            # Before it is recorded, so the ledger counts the refusal the model is shown.
+            block = images.admit(produced) if images is not None else produced
+            outcome = ran_as if block is produced else "error"
             result = block if isinstance(block, ToolResultBlock) else None
             watch.called(call, outcome, result)
             records.append(tool_call_record(call, outcome, result, ms=ms))
@@ -3161,6 +3154,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             batch_results, batch_records = await asyncio.to_thread(
                 _run_calls, cfg, tuple(c for _, c in batch), allowed, cached, watch,
                 policy=bash_policy, seen=seen, status=batch_status,
+                images=ImageRoom(entry.max_images, history),
             )
             if ask_here:
                 for (idx, _), word in zip(batch, batch_status, strict=True):
@@ -3224,10 +3218,6 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                 # Beside the countdown, never instead (see `WRAP_UP_LINE`).
                 results.append(TextBlock(WRAP_UP_LINE))
                 text_before_nudge = dispatch.response.text
-
-            # Before the results join the history: one image past the limit would fail
-            # this request and every later one (ADR-0132).
-            results = enforce_image_cap(tuple(history), results, max_images=entry.max_images)
 
             user_message = Message("user", tuple(results))
             history.append(user_message)

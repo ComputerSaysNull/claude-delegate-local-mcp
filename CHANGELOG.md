@@ -49,11 +49,13 @@ Older entries, in the previous flat format, are in
   itself. Pillow, a new dependency, first decodes every frame, because the backend decodes
   them all and rejects a whole request over one broken frame, and that image would stay in
   the history to fail every later turn. Any decode failure becomes a refusal, whatever
-  Pillow raised. A multi-picture JPEG, as phones write, is sent as JPEG. The loop enforces
-  `max_images` over the whole conversation before a turn's results join it: an image past
-  the limit, or any image for a model at `0`, becomes a refusal. An image result is never
-  served from the repeat cache, which keeps only text. Each image is estimated at 512
-  tokens, above the measured ceiling of about 360.
+  Pillow raised. A multi-picture JPEG, as phones write, is sent as JPEG. Decoding is one
+  image at a time, up to 40 megapixels, since memory follows pixels rather than file size
+  (an 89-megapixel PNG of 374 KB took 341 MB). The loop enforces `max_images` over the
+  whole conversation as each call is recorded: an image past the limit, or any image for a
+  model at `0`, becomes a refusal, which the ledger counts as the tool error the model
+  saw. An image result is never served from the repeat cache, which keeps only text. Each
+  image is estimated at 512 tokens, above the measured ceiling of about 360.
 
 ## #510 — 2026-10-27 — fix: the 2026-10-27 audit's follow-ups
 

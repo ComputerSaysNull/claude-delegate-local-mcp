@@ -509,7 +509,7 @@ def img() -> ImageBlock:
 def test_the_cap_refuses_an_image_result_when_the_model_cannot_see_images():
     """max_images=0 means the model sees no images, so a result carrying one is refused."""
     result = ToolResultBlock(tool_use_id="t1", content="an image", images=(img(),))
-    results = loop.enforce_image_cap((), [result], max_images=0)
+    results = [loop.ImageRoom(0, ()).admit(result)]
     served = results[0]
     assert isinstance(served, ToolResultBlock)
     assert served.tool_use_id == "t1"
@@ -525,7 +525,8 @@ def test_the_cap_keeps_the_first_image_and_refuses_the_second():
         tool_use_id="old", content="x", images=(img(),)),)),)
     first = ToolResultBlock(tool_use_id="a", content="x", images=(img(),))
     second = ToolResultBlock(tool_use_id="b", content="x", images=(img(),))
-    results = loop.enforce_image_cap(history, [first, second], max_images=2)
+    room = loop.ImageRoom(2, history)
+    results = [room.admit(first), room.admit(second)]
     assert results[0] is first, "a result that fits must pass through untouched"
     assert results[1].is_error and results[1].images == ()
     assert "already holds 2 images" in results[1].content
@@ -536,7 +537,8 @@ def test_the_cap_leaves_results_without_images_untouched():
     """Text-only results and image-less tool results pass through as the same objects."""
     text = TextBlock("done")
     result = ToolResultBlock(tool_use_id="t", content="x")
-    results = loop.enforce_image_cap((), [text, result], max_images=2)
+    room = loop.ImageRoom(2, ())
+    results = [room.admit(text), room.admit(result)]
     assert results[0] is text
     assert results[1] is result
 
@@ -570,6 +572,36 @@ def test_an_image_result_reaches_the_history_as_a_refusal(monkeypatch):
     served = results_in(backend.requests[1])[0]
     assert served.is_error and served.images == ()
     assert "cannot see images" in served.content
+
+
+def test_a_refused_image_is_counted_as_the_error_the_model_saw(monkeypatch):
+    """The ledger and the model must agree: a result the model received as a refusal is a
+    tool error in the server's own count (ADR-0007), not a call that ran."""
+    added = {
+        "pic": tools.RegisteredTool(
+            spec=ToolSpec(name="pic", description="pic", input_schema={"type": "object"}),
+            handler=lambda cfg_, args: "an image",
+            cacheable=True,
+        )
+    }
+    tools.REGISTRY.update(added)
+    try:
+        real = loop.execute_tool
+
+        def with_image(cfg_, call, allowed, policy=None, seen=None):
+            if call.name == "pic":
+                return ToolResultBlock(
+                    tool_use_id=call.id, content="an image", images=(img(),)
+                )
+            return real(cfg_, call, allowed, policy, seen)
+
+        monkeypatch.setattr(loop, "execute_tool", with_image)
+        backend = ScriptedTurns(wants(("pic", {})), says("done"))
+        result = run(backend, allowed=frozenset({"pic"}), entry=entry(max_images=0))
+    finally:
+        tools.REGISTRY.pop("pic", None)
+    assert result.tool_errors == 1
+    assert result.failed_calls == 1
 
 
 def test_an_image_read_is_never_served_from_the_repeat_cache(monkeypatch):

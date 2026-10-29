@@ -131,6 +131,11 @@ IMAGE_EXTENSIONS: frozenset[str] = frozenset({
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".ico",
 })
 
+# The most pixels one image may decode to, MEASURED (JOURNAL 2026-10-29): a decode peaks at
+# about 3.9 bytes a pixel, 154 MB here. An 8K screenshot is 33.2M, and the backend shrinks
+# every image to ~360 tokens, so a larger one shows the model nothing more.
+IMAGE_MAX_PIXELS = 40_000_000
+
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
