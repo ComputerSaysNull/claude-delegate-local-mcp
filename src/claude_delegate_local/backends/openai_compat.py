@@ -16,11 +16,12 @@ boot flag is the wrong one (ADR-0017); and anything derived from a model *name*,
 selection is a registry lookup (ADR-0009).
 """
 
+import base64
 import json
 import re
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import httpx
@@ -35,6 +36,7 @@ from .base import (
     CanonicalResponse,
     CanonicalShapeError,
     ContentBlock,
+    ImageBlock,
     Message,
     TextBlock,
     ThinkingBlock,
@@ -718,10 +720,51 @@ def _wire_messages(request: CanonicalRequest, *, resend_reasoning: bool) -> list
     return out
 
 
+def _image_data_uri(image: ImageBlock) -> str:
+    """One image as the wire's data URI, from base64 of exactly `image.data`."""
+    encoded = base64.b64encode(image.data).decode("ascii")
+    return f"data:{image.media_type};base64,{encoded}"
+
+
+def _image_parts(images: Sequence[ImageBlock]) -> list[dict[str, Any]]:
+    """The wire's content parts for a sequence of images, in order."""
+    return [
+        {"type": "image_url", "image_url": {"url": _image_data_uri(image)}}
+        for image in images
+    ]
+
+
+def _tool_result_content(
+    content: str, images: tuple[ImageBlock, ...]
+) -> str | list[dict[str, Any]]:
+    """A tool result's content: the plain string, or text-plus-image parts."""
+    if not images:
+        return content
+    return [{"type": "text", "text": content}, *_image_parts(images)]
+
+
+def _message_content(
+    texts: list[str], images: list[ImageBlock]
+) -> str | list[dict[str, Any]]:
+    """A user message's content: the joined text, or a text part followed by the images.
+
+    The text part is omitted when there is none, so the array never holds an empty one.
+    """
+    if not images:
+        return "".join(texts)
+    parts: list[dict[str, Any]] = []
+    joined = "".join(texts)
+    if joined:
+        parts.append({"type": "text", "text": joined})
+    parts.extend(_image_parts(images))
+    return parts
+
+
 def _wire_message(message: Message, *, resend_reasoning: bool) -> list[dict[str, Any]]:
     texts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     reasoning: list[str] = []
+    images: list[ImageBlock] = []
     results: list[dict[str, Any]] = []
 
     for block in message.content:
@@ -729,6 +772,8 @@ def _wire_message(message: Message, *, resend_reasoning: bool) -> list[dict[str,
             texts.append(block.text)
         elif isinstance(block, ThinkingBlock):
             reasoning.append(block.text)
+        elif isinstance(block, ImageBlock):
+            images.append(block)
         elif isinstance(block, ToolUseBlock):
             tool_calls.append(
                 {
@@ -748,7 +793,7 @@ def _wire_message(message: Message, *, resend_reasoning: bool) -> list[dict[str,
                 {
                     "role": "tool",
                     "tool_call_id": block.tool_use_id,
-                    "content": block.content,
+                    "content": _tool_result_content(block.content, block.images),
                 }
             )
 
@@ -757,8 +802,11 @@ def _wire_message(message: Message, *, resend_reasoning: bool) -> list[dict[str,
     # user has to say.
     out.extend(results)
 
-    if texts or tool_calls or (reasoning and resend_reasoning):
-        payload: dict[str, Any] = {"role": message.role, "content": "".join(texts)}
+    if texts or tool_calls or images or (reasoning and resend_reasoning):
+        payload: dict[str, Any] = {
+            "role": message.role,
+            "content": _message_content(texts, images),
+        }
         if tool_calls:
             payload["tool_calls"] = tool_calls
         if reasoning and resend_reasoning:

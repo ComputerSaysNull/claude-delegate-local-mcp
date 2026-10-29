@@ -51,6 +51,8 @@ class ModelEntry:
     default_effort: str = ""          # "" means fall back to Config.thinking_default
     max_tokens_cap: int = 0           # 0 means no per-model cap
     concurrency: int = DEFAULT_CONCURRENCY  # this endpoint's own limit, checked with the global one
+    # How many images the backend accepts in one conversation; 0 means the model sees none.
+    max_images: int = 0
     # True when models.toml said nothing and the default above was assumed. The two cases
     # need different advice: a window the operator set wrong is corrected, while one never
     # set was never a claim, and a mismatch report must not say the file gave a number it
@@ -132,7 +134,7 @@ def _validate(key: str, raw: dict, path: Path, *,
             f"the API path itself. Use {base_url[:-3]!r}."
         )
 
-    for num in ("context_window", "max_tokens_cap", "concurrency"):
+    for num in ("context_window", "max_tokens_cap", "concurrency", "max_images"):
         if num in raw and (not isinstance(raw[num], int) or raw[num] < 0):
             raise RegistryError(f"{where} {num} must be a non-negative integer.")
     if raw.get("concurrency") == 0:
@@ -149,6 +151,7 @@ def _validate(key: str, raw: dict, path: Path, *,
         default_effort=effort,
         max_tokens_cap=int(raw.get("max_tokens_cap", 0)),
         concurrency=int(raw.get("concurrency", default_concurrency)),
+        max_images=int(raw.get("max_images", 0)),
         is_default=bool(raw.get("default", False)),
     )
 

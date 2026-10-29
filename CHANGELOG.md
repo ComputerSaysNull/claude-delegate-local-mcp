@@ -30,6 +30,43 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #511 — 2026-10-29 — feat: read_file shows an image to a vision model
+
+### Added
+
+- **Images can reach the backend, and a model's image limit can be declared.** The served
+  model is a vision model, yet nothing could hand it an image: the canonical shape had no
+  image block, and the adapter sent every message as one string. An `ImageBlock` now exists,
+  a tool result carries images beside its text (`content` stays a string, so the loop's
+  accounting, eviction and repeat cache are untouched), and the adapter sends a message or
+  tool result with images as a text part then `image_url` data-URI parts. One without is
+  byte for byte what it was. `models.toml` takes `max_images`, the backend's per-conversation
+  limit, which vLLM enforces but does not advertise; `0`, the default, means the model sees
+  none (ADR-0132; measurements in JOURNAL 2026-10-29).
+- **`read_file` returns an image to a vision model.** A `.png` on a project's allowlist was
+  still refused as "not text", because every read went through the UTF-8 decode. A png,
+  jpeg, gif, webp, bmp, tiff or ico file now comes back as a one-line summary and the image
+  itself. Pillow, a new dependency, first decodes every frame, because the backend decodes
+  them all and rejects a whole request over one broken frame, and that image would stay in
+  the history to fail every later turn. Any decode failure becomes a refusal, whatever
+  Pillow raised. A multi-picture JPEG, as phones write, is sent as JPEG. Decoding is one
+  image at a time, up to 40 megapixels, since memory follows pixels rather than file size
+  (an 89-megapixel PNG of 374 KB took 341 MB). The loop enforces `max_images` over the
+  whole conversation as each call is recorded: an image past the limit, or any image for a
+  model at `0`, becomes a refusal, which the ledger counts as the tool error the model
+  saw. An image result is never served from the repeat cache, which keeps only text. Each
+  image is estimated at 512 tokens, above the measured ceiling of about 360.
+
+### Fixed
+
+- **The gate's no-dependency test read only the gate.** CI's gate job installs nothing, so
+  anything the gate runs must need only the standard library, and a test reads
+  `docs_gate.py`'s imports to hold that. But the gate also runs the doc generators, which
+  import the package, so Pillow reached the gate through `tools.py` and failed this pull
+  request's first CI run while that test passed. A second test now runs every generator
+  the gate lists without site-packages, as CI does. Pillow is imported inside the one
+  function that decodes.
+
 ## #510 — 2026-10-27 — fix: the 2026-10-27 audit's follow-ups
 
 ### Changed

@@ -164,18 +164,36 @@ class BashOutcome:
 
 
 @dataclass(frozen=True, slots=True)
+class ImageBlock:
+    """An image carried with a message or tool result, whole and not as a path.
+
+    `data` is the decoded bytes; the wire wants base64 of exactly these, and a path or an
+    already-encoded string would make that a guess. `width` and `height` are reported, not
+    interpreted: an operator's `max_images` limit is counted in images, and this layer has
+    no policy about what one is worth.
+    """
+
+    media_type: str
+    data: bytes
+    width: int
+    height: int
+
+
+@dataclass(frozen=True, slots=True)
 class ToolResultBlock:
     tool_use_id: str
     content: str
     is_error: bool = False
     # None for every tool but run_bash, so no other construction site changes.
     bash: BashOutcome | None = None
+    # Empty for every result but an image read, so no other construction site changes.
+    images: tuple[ImageBlock, ...] = ()
 
 
-ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock
+ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock | ImageBlock
 
 # isinstance() needs a tuple of runtime classes; the union above is for annotations.
-BLOCK_TYPES = (TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock)
+BLOCK_TYPES = (TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, ImageBlock)
 
 
 # --- messages and requests ------------------------------------------------------------

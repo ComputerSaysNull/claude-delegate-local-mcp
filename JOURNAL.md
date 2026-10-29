@@ -3159,3 +3159,37 @@ folder as workdir, against a canary `.env` and `.claude/settings.json` written f
 - Cost against local disk (medians): sandbox start 0.24 s plain, 1.5 s with `nocase`, 0.4 s
   local; `git status` 5.3 s plain, 22.7 s with `nocase`, 15-21 ms local; 200 file reads
   4.2 s, 5 ms local.
+
+## 2026-10-29 — What the vision backend accepts, and what fails a whole request
+
+Raw chat-completions probes against the served vision model, before designing image reads
+(ADR-0132). Images were generated in memory, sent as `data:` URIs.
+
+- **Placement.** Accepted in a user message, inside a `role: tool` message's content
+  array, and as "attached" text in the tool result plus the image in the next user
+  message. All three answered the colour correctly.
+- **Formats.** png, jpeg, gif, webp, bmp, tiff and ico accepted; a MIME type that names
+  the wrong format is tolerated. SVG is refused, 400 "cannot identify image file": it is
+  XML, and goes to the model as text.
+- **One bad image fails the request.** A corrupt PNG: 400 "Truncated File Read". Pillow,
+  run locally on the same bytes, a half-length real PNG and an SVG, refuses all three with
+  the backend's own messages. A GIF broken only in its last frame is the same 400, "image
+  file is truncated", so the backend decodes every frame, while Pillow's `load()` reads only
+  the first. A multi-picture JPEG, which Pillow names MPO, is accepted as `image/jpeg`.
+- **The limit is per conversation.** 12 images in one message: 400 "At most 8 image(s) may
+  be provided in one prompt". 4 in a user message plus 4 in a tool message passed; 5 plus 4
+  was the same 400. `/v1/models` lists no image or multimodal field.
+- **Cost is capped.** Prompt tokens for one image plus a short question: 125 at 16 px,
+  209 at 512, 357 at 2048 and 4096 square, 309 and 349 at 8000x1000 either way round.
+- **Decoding costs memory by pixels, not by file size.** Solid-colour RGBA PNGs through
+  `decode_image`, peak RSS above the process's start: 14.7 MP (a 5K screenshot, 64 KB
+  file) +57 MB in 0.08 s; 33.2 MP (8K, 139 KB) +128 MB, 0.17 s; 40 MP +154 MB, 0.20 s;
+  89.1 MP, just under Pillow's own limit (374 KB) +341 MB, 0.44 s. About 3.9 bytes a
+  pixel, so 8 grouped reads at Pillow's limit would hold ~2.7 GB. Hence a 40 MP ceiling
+  and one decode at a time.
+- **No generation.** `/v1/images/generations` is a 404; a chat request with
+  `modalities: ["text","image"]` asking for a picture returns text saying it cannot.
+
+A trap on the way: a probe posted to `base_url` plus `/chat/completions`, without `/v1`. An
+image request got a 404, but a text-only one hung past a 280 s timeout instead of failing.
+`openai_compat.py` appends `/v1/chat/completions`; a hand-built probe has to as well.

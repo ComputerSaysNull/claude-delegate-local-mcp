@@ -19,6 +19,8 @@ from claude_delegate_local import loop, sandbox, tools
 from claude_delegate_local.backends.base import (
     BashOutcome,
     CanonicalResponse,
+    ImageBlock,
+    Message,
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
@@ -163,7 +165,7 @@ def run(backend, *, allowed=frozenset({"echo", "poke", "refuse"}), **over):
     return asyncio.run(
         loop.run_agentic_loop(
             kw.pop("cfg", cfg()),
-            entry(),
+            kw.pop("entry", entry()),
             backend,
             loop.Delegation(kw.pop("task", "do the thing")),
             allowed=allowed,
@@ -460,6 +462,17 @@ def test_an_already_evicted_result_is_not_counted_twice():
     assert second == 0, "the count must be work done, not how much history is stubbed"
 
 
+def test_eviction_drops_an_image_result():
+    """An evicted result is rebuilt without its images, so dropping it frees its slot."""
+    image = ImageBlock("image/png", b"\x89PNG fake", 1, 1)
+    history = (Message("user", (ToolResultBlock(
+        tool_use_id="t0", content="result", images=(image,)),)),)
+    kept, dropped = loop.stub_oldest_tool_results(history, upto=1)
+    assert dropped == 1
+    assert kept[0].content[0].images == ()
+    assert kept[0].content[0].content == loop.EVICTED_STUB
+
+
 def test_the_loop_evicts_as_the_history_grows(registered):
     backend = ScriptedTurns(
         wants(("echo", {"what": "a"})),
@@ -483,6 +496,180 @@ def test_a_generous_keep_evicts_nothing(registered):
     """The other direction, through the loop rather than the helper."""
     backend = ScriptedTurns(wants(("echo", {"what": "a"})), says("done"))
     assert run(backend, cfg=cfg(keep_tool_results=50)).evicted == 0
+
+
+# --- image cap ------------------------------------------------------------------------------
+
+
+def img() -> ImageBlock:
+    """One tiny literal image, built from bytes rather than decoded by Pillow."""
+    return ImageBlock("image/png", b"\x89PNG fake", 1, 1)
+
+
+def test_the_cap_refuses_an_image_result_when_the_model_cannot_see_images():
+    """max_images=0 means the model sees no images, so a result carrying one is refused."""
+    result = ToolResultBlock(tool_use_id="t1", content="an image", images=(img(),))
+    results = [loop.ImageRoom(0, ()).admit(result)]
+    served = results[0]
+    assert isinstance(served, ToolResultBlock)
+    assert served.tool_use_id == "t1"
+    assert served.is_error and served.images == ()
+    assert "cannot see images" in served.content
+    assert "readable image" in served.content
+
+
+def test_the_cap_keeps_the_first_image_and_refuses_the_second():
+    """max_images=2 with one image already in history: the first result fits, the second
+    pushes the conversation past the limit and is refused, naming the limit."""
+    history = (Message("user", (ToolResultBlock(
+        tool_use_id="old", content="x", images=(img(),)),)),)
+    first = ToolResultBlock(tool_use_id="a", content="x", images=(img(),))
+    second = ToolResultBlock(tool_use_id="b", content="x", images=(img(),))
+    room = loop.ImageRoom(2, history)
+    results = [room.admit(first), room.admit(second)]
+    assert results[0] is first, "a result that fits must pass through untouched"
+    assert results[1].is_error and results[1].images == ()
+    assert "already holds 2 images" in results[1].content
+    assert "the most the model accepts in one conversation" in results[1].content
+
+
+def test_the_cap_leaves_results_without_images_untouched():
+    """Text-only results and image-less tool results pass through as the same objects."""
+    text = TextBlock("done")
+    result = ToolResultBlock(tool_use_id="t", content="x")
+    room = loop.ImageRoom(2, ())
+    results = [room.admit(text), room.admit(result)]
+    assert results[0] is text
+    assert results[1] is result
+
+
+def test_an_image_result_reaches_the_history_as_a_refusal(monkeypatch):
+    """End to end under max_images=0: the tool ran and produced an image, which the model
+    cannot see, so the result the next turn is handed is the refusal, not the image."""
+    added = {
+        "pic": tools.RegisteredTool(
+            spec=ToolSpec(name="pic", description="pic", input_schema={"type": "object"}),
+            handler=lambda cfg_, args: "an image",
+            cacheable=True,
+        )
+    }
+    tools.REGISTRY.update(added)
+    try:
+        real = loop.execute_tool
+
+        def with_image(cfg_, call, allowed, policy=None, seen=None):
+            if call.name == "pic":
+                return ToolResultBlock(
+                    tool_use_id=call.id, content="an image", images=(img(),)
+                )
+            return real(cfg_, call, allowed, policy, seen)
+
+        monkeypatch.setattr(loop, "execute_tool", with_image)
+        backend = ScriptedTurns(wants(("pic", {})), says("done"))
+        run(backend, allowed=frozenset({"pic"}), entry=entry(max_images=0))
+    finally:
+        tools.REGISTRY.pop("pic", None)
+    served = results_in(backend.requests[1])[0]
+    assert served.is_error and served.images == ()
+    assert "cannot see images" in served.content
+
+
+def test_a_refused_image_is_counted_as_the_error_the_model_saw(monkeypatch):
+    """The ledger and the model must agree: a result the model received as a refusal is a
+    tool error in the server's own count (ADR-0007), not a call that ran."""
+    added = {
+        "pic": tools.RegisteredTool(
+            spec=ToolSpec(name="pic", description="pic", input_schema={"type": "object"}),
+            handler=lambda cfg_, args: "an image",
+            cacheable=True,
+        )
+    }
+    tools.REGISTRY.update(added)
+    try:
+        real = loop.execute_tool
+
+        def with_image(cfg_, call, allowed, policy=None, seen=None):
+            if call.name == "pic":
+                return ToolResultBlock(
+                    tool_use_id=call.id, content="an image", images=(img(),)
+                )
+            return real(cfg_, call, allowed, policy, seen)
+
+        monkeypatch.setattr(loop, "execute_tool", with_image)
+        backend = ScriptedTurns(wants(("pic", {})), says("done"))
+        result = run(backend, allowed=frozenset({"pic"}), entry=entry(max_images=0))
+    finally:
+        tools.REGISTRY.pop("pic", None)
+    assert result.tool_errors == 1
+    assert result.failed_calls == 1
+
+
+def test_an_image_read_is_never_served_from_the_repeat_cache(monkeypatch):
+    """The cache keeps only a result's text. Served for an image, it would hand back a
+    description with no image, or after an eviction an "ask for the part you need" that
+    an image cannot answer, so an identical image read runs again."""
+    added = {
+        "pic": tools.RegisteredTool(
+            spec=ToolSpec(name="pic", description="pic", input_schema={"type": "object"}),
+            handler=lambda cfg_, args: "an image",
+            cacheable=True,
+        )
+    }
+    tools.REGISTRY.update(added)
+    ran = []
+    try:
+        real = loop.execute_tool
+
+        def with_image(cfg_, call, allowed, policy=None, seen=None):
+            if call.name == "pic":
+                ran.append(call.id)
+                return ToolResultBlock(
+                    tool_use_id=call.id, content="an image", images=(img(),)
+                )
+            return real(cfg_, call, allowed, policy, seen)
+
+        monkeypatch.setattr(loop, "execute_tool", with_image)
+        backend = ScriptedTurns(wants(("pic", {})), wants(("pic", {})), says("done"))
+        run(backend, allowed=frozenset({"pic"}), entry=entry(max_images=8))
+    finally:
+        tools.REGISTRY.pop("pic", None)
+    assert len(ran) == 2
+    again = results_in(backend.requests[2])[0]
+    assert len(again.images) == 1
+
+
+def test_a_refused_image_is_read_again_rather_than_served_from_the_cache(monkeypatch):
+    """The model never saw a refused image, so an identical second call runs the tool again
+    and meets the limit afresh; the cache must not answer it as a dropped result."""
+    added = {
+        "pic": tools.RegisteredTool(
+            spec=ToolSpec(name="pic", description="pic", input_schema={"type": "object"}),
+            handler=lambda cfg_, args: "an image",
+            cacheable=True,
+        )
+    }
+    tools.REGISTRY.update(added)
+    ran = []
+    try:
+        real = loop.execute_tool
+
+        def with_image(cfg_, call, allowed, policy=None, seen=None):
+            if call.name == "pic":
+                ran.append(call.id)
+                return ToolResultBlock(
+                    tool_use_id=call.id, content="an image", images=(img(),)
+                )
+            return real(cfg_, call, allowed, policy, seen)
+
+        monkeypatch.setattr(loop, "execute_tool", with_image)
+        backend = ScriptedTurns(wants(("pic", {})), wants(("pic", {})), says("done"))
+        run(backend, allowed=frozenset({"pic"}), entry=entry(max_images=0))
+    finally:
+        tools.REGISTRY.pop("pic", None)
+    assert len(ran) == 2
+    again = results_in(backend.requests[2])[0]
+    assert "cannot see images" in again.content
+    assert "dropped from the history" not in again.content
 
 
 # --- the countdown, and the static prefix -------------------------------------------------------

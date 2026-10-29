@@ -31,9 +31,9 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 
 from . import provision, sandbox
-from .backends.base import BashOutcome, ToolResultBlock, ToolSpec, ToolUseBlock
-from .config import Config
-from .context import decode_text, line_number_width, numbered_line
+from .backends.base import BashOutcome, ImageBlock, ToolResultBlock, ToolSpec, ToolUseBlock
+from .config import IMAGE_EXTENSIONS, Config
+from .context import decode_image, decode_text, line_number_width, numbered_line
 from .paths import (
     PathPolicyError,
     PathRefused,
@@ -70,7 +70,7 @@ class RegisteredTool:
     """
 
     spec: ToolSpec
-    handler: Callable[..., str | BashResult]
+    handler: Callable[..., str | BashResult | ImageRead]
     cacheable: bool = False
     # Whether the handler takes the `BashPolicy` as a third argument; declared here like
     # `cacheable`. Only `run_bash` enters the sandbox, and widening its signature beats an
@@ -114,6 +114,18 @@ class BashResult:
     text: str
     outcome: BashOutcome
     is_error: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ImageRead:
+    """A handler's text plus the image it decoded, on the way to the result block.
+
+    Only `read_file` returns one, so one tool's contract widens, not all of them.
+    """
+
+    text: str
+    image: ImageBlock
+
 
 
 class SeenFiles:
@@ -224,7 +236,34 @@ def _one_path(
 # --- the tools --------------------------------------------------------------------------
 
 
-def _read_file(cfg: Config, args: dict[str, object], seen: SeenFiles | None = None) -> str:
+def _read_image(
+    entry: ResolvedPath, raw: bytes, nbytes: int, ranged: bool,
+    seen: SeenFiles | None,
+) -> ImageRead:
+    """The image half of `_read_file`: refuse a range, decode, and record as read.
+
+    An image has no lines, so the range and the decode are a separate contract from the
+    text path, and keeping them here holds `_read_file` under its branch limit.
+    """
+    if ranged:
+        raise ToolRefused("an image has no lines; read it without a range")
+    image, why = decode_image(raw)
+    if image is None:
+        raise ToolRefused(why)
+    if seen is not None:
+        seen.record(entry.posix, sha256(raw).hexdigest())
+    return ImageRead(
+        text=(
+            f"{entry.given}: {image.media_type}, "
+            f"{image.width}x{image.height} pixels, {nbytes:,} bytes"
+        ),
+        image=image,
+    )
+
+
+def _read_file(
+    cfg: Config, args: dict[str, object], seen: SeenFiles | None = None
+) -> str | ImageRead:
     entry = _one_path(cfg, _text_arg(args, "path"), must_exist=True)
     # 1-based, like an editor. Numbered so the model can cite what it read.
     start = _int_arg(args, "start_line", 1)
@@ -244,10 +283,6 @@ def _read_file(cfg: Config, args: dict[str, object], seen: SeenFiles | None = No
     # measures the file actually held.
     try:
         opened = open_resolved(entry, "rb", scan_bytes=cfg.secret_content_scan_bytes)
-    except OSError as e:
-        raise ToolRefused(f"could not read it: {e.strerror or e}") from e
-
-    try:
         with opened.handle as fh:
             nbytes = os.fstat(fh.fileno()).st_size
             if nbytes > cfg.max_file_read_bytes:
@@ -260,6 +295,9 @@ def _read_file(cfg: Config, args: dict[str, object], seen: SeenFiles | None = No
             raw = fh.read(cfg.max_file_read_bytes)
     except OSError as e:
         raise ToolRefused(f"could not read it: {e.strerror or e}") from e
+
+    if entry.ext in IMAGE_EXTENSIONS:
+        return _read_image(entry, raw, nbytes, start != 1 or end != 0, seen)
 
     text, why = decode_text(raw)
     if text is None:
@@ -1473,7 +1511,9 @@ READ_FILE = RegisteredTool(
         name="read_file",
         description=(
             "Read a UTF-8 text file from the workspace, with every line numbered, so you "
-            "can cite what you read as a file name and a line number. Paths must be "
+            "can cite what you read as a file name and a line number. An image (png, "
+            "jpeg, gif, webp, bmp, tiff, ico) comes back as the image itself, to a model "
+            "that can see images. Paths must be "
             "absolute. Long files come back one range at a time: the result states the "
             "total number of lines and the line to continue from, so read the next range "
             "rather than the file again, and use start_line and end_line to go straight "
@@ -1939,4 +1979,7 @@ def execute_tool(
             is_error=produced.is_error,
             bash=produced.outcome,
         )
+    if isinstance(produced, ImageRead):
+        return ToolResultBlock(
+            tool_use_id=call.id, content=produced.text, images=(produced.image,))
     return ToolResultBlock(tool_use_id=call.id, content=produced)

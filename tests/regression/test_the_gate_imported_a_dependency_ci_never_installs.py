@@ -37,3 +37,26 @@ def test_the_check_sees_a_third_party_import():
     """Negative control: the reader must notice a non-stdlib import, or the test is blind."""
     imported = _imported_top_level_modules("import os\nimport yaml\nfrom httpx import Client\n")
     assert imported - set(sys.stdlib_module_names) == {"yaml", "httpx"}
+
+
+def test_every_generator_the_gate_runs_needs_only_the_standard_library():
+    """The gate also runs each doc generator, and they import the package, so the AST of
+    docs_gate.py alone cannot see a dependency that arrives through them. `-S` leaves out
+    site-packages, as CI's bare interpreter has none; the generators put `src` on the path
+    themselves, as they must there."""
+    import subprocess
+
+    sys.path.insert(0, str(GATE.parent))
+    try:
+        import docs_gate
+    finally:
+        sys.path.remove(str(GATE.parent))
+    failed = {}
+    for script, _ in docs_gate.generator_targets():
+        proc = subprocess.run(
+            [sys.executable, "-S", script, "--check"], cwd=GATE.parents[1],
+            capture_output=True, text=True, check=False,
+        )
+        if proc.returncode != 0:
+            failed[script] = (proc.stderr or proc.stdout).strip().splitlines()[-1:]
+    assert not failed, f"generators that need more than the standard library: {failed}"

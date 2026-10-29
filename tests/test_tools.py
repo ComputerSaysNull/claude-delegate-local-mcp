@@ -7,6 +7,7 @@ handler that ran first and failed afterwards. The call-counting stub below is wh
 distinguishes "refused" from "ran and then complained".
 """
 
+import io
 import os
 import shutil
 import sys
@@ -15,6 +16,8 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from PIL import Image as PILImage
 
 from claude_delegate_local import paths, provision, sandbox, tools
 from claude_delegate_local.backends.base import ToolUseBlock
@@ -321,6 +324,91 @@ def test_read_file_refuses_a_binary_file(workspace):
         tools.ALL_TOOL_NAMES)
     assert result.is_error
     assert "not text" in result.content
+
+
+def _image_bytes(format_name: str, size=(64, 48)) -> bytes:
+    img = PILImage.new("RGB", size, (255, 0, 0))
+    if format_name == "GIF":
+        img = img.convert("P")
+    buf = io.BytesIO()
+    img.save(buf, format=format_name)
+    return buf.getvalue()
+
+
+# read_file's image path needs these extensions admitted, which the default allowlist
+# does not carry; the text controls need .txt beside them.
+IMG_CFG_EXT = (
+    ".txt", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".ico",
+)
+
+
+def test_read_file_returns_a_png_as_an_image(workspace):
+    data = _image_bytes("PNG")
+    (workspace / "pic.png").write_bytes(data)
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=IMG_CFG_EXT),
+        call("read_file", path=str(workspace / "pic.png")), tools.ALL_TOOL_NAMES)
+    assert not result.is_error, result.content
+    (image,) = result.images
+    assert image.media_type == "image/png"
+    assert (image.width, image.height) == (64, 48)
+    assert image.data == data
+    assert "64x48" in result.content
+
+
+@pytest.mark.parametrize(
+    ("fmt", "media"), [("JPEG", "image/jpeg"), ("GIF", "image/gif")])
+def test_read_file_reads_jpeg_and_gif_as_images(workspace, fmt, media):
+    data = _image_bytes(fmt)
+    (workspace / f"pic.{fmt.lower()}").write_bytes(data)
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=IMG_CFG_EXT),
+        call("read_file", path=str(workspace / f"pic.{fmt.lower()}")),
+        tools.ALL_TOOL_NAMES)
+    assert not result.is_error, result.content
+    image = result.images[0]
+    assert image.media_type == media
+    assert image.data == data
+    assert "64x48" in result.content
+
+
+def test_read_file_refuses_a_truncated_image(workspace):
+    data = _image_bytes("PNG")
+    (workspace / "broken.png").write_bytes(data[: len(data) // 2])
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=IMG_CFG_EXT),
+        call("read_file", path=str(workspace / "broken.png")), tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "truncated" in result.content
+
+
+def test_read_file_refuses_a_png_that_is_really_text(workspace):
+    (workspace / "fake.png").write_text("not an image", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=IMG_CFG_EXT),
+        call("read_file", path=str(workspace / "fake.png")), tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "not a readable image" in result.content
+
+
+def test_read_file_refuses_a_range_on_an_image(workspace):
+    (workspace / "pic.png").write_bytes(_image_bytes("PNG"))
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=IMG_CFG_EXT),
+        call("read_file", path=str(workspace / "pic.png"), start_line=2),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "has no lines" in result.content
+
+
+def test_a_txt_file_still_reads_as_text(workspace):
+    (workspace / "note.txt").write_text("hello\nworld\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=IMG_CFG_EXT),
+        call("read_file", path=str(workspace / "note.txt")), tools.ALL_TOOL_NAMES)
+    assert not result.is_error, result.content
+    assert result.content == "1\thello\n2\tworld"
+    assert result.images == ()
 
 
 def test_read_file_refuses_a_non_string_path(workspace):

@@ -122,6 +122,20 @@ BYTES_PER_TOKEN: dict[str, float] = {
 # written down again, so adding a denser entry cannot leave "worst case" behind.
 BYTES_PER_TOKEN_DEFAULT = min(BYTES_PER_TOKEN.values())
 
+# Prompt tokens per image, MEASURED (JOURNAL 2026-10-29): at most ~360 whatever the pixel
+# size, rounded up so the estimate over-counts, as the byte ratios are.
+TOKENS_PER_IMAGE = 512
+
+# Raster formats the vision backend accepts (JOURNAL 2026-10-29); SVG is text, not one.
+IMAGE_EXTENSIONS: frozenset[str] = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".ico",
+})
+
+# The most pixels one image may decode to, MEASURED (JOURNAL 2026-10-29): a decode peaks at
+# about 3.9 bytes a pixel, 154 MB here. An 8K screenshot is 33.2M, and the backend shrinks
+# every image to ~360 tokens, so a larger one shows the model nothing more.
+IMAGE_MAX_PIXELS = 40_000_000
+
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 

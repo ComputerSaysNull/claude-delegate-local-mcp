@@ -17,7 +17,7 @@ import os
 import random
 import time
 from collections import Counter, deque
-from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
@@ -35,6 +35,7 @@ from .backends.base import (
     CanonicalRequest,
     CanonicalResponse,
     ContentBlock,
+    ImageBlock,
     Message,
     TextBlock,
     ThinkingBlock,
@@ -48,6 +49,7 @@ from .config import (
     OVERFLOW_EVICT_AT,
     OVERFLOW_NUDGE_AT,
     OVERFLOW_TIGHTEN_AT,
+    TOKENS_PER_IMAGE,
     Config,
 )
 from .context import FileEntry, line_number_width, numbered_line, numbered_lines, numbered_span
@@ -1503,14 +1505,24 @@ async def _keepalive(  # noqa: PLR0913, PLR0917 -- one reading per argument, all
 # --- the turn loop ------------------------------------------------------------------------
 
 
+def _count_images(content: tuple[ContentBlock, ...]) -> int:
+    """Images one message carries: each image in a tool result, each ImageBlock directly."""
+    return sum(
+        len(block.images) if isinstance(block, ToolResultBlock) else 1
+        for block in content
+        if isinstance(block, (ToolResultBlock, ImageBlock))
+    )
+
+
 def _tool_result_sizes(cfg: Config, messages: tuple[Message, ...]) -> list[int]:
     """Estimated tokens of each tool result, in history order, which eviction walks.
 
     Sizes, not a count, because bytes fill a window. Costed at the densest ratio, so it
-    over-counts: under-counting would retain more than fits.
+    over-counts: under-counting would retain more than fits. A result's images cost
+    `TOKENS_PER_IMAGE` each.
     """
     return [
-        cfg.estimate_tokens(len(b.content))
+        cfg.estimate_tokens(len(b.content)) + TOKENS_PER_IMAGE * len(b.images)
         for m in messages
         for b in m.content
         if isinstance(b, ToolResultBlock)
@@ -1548,6 +1560,17 @@ EVICTED_REPEAT = (
     "[identical to an earlier call whose result was dropped from the history to stay "
     "inside the context window. Nothing was run again and the content is not being "
     "restored -- ask for the part of it you need.]"
+)
+
+# A tool result refused because the model cannot see its images. Two wordings: one for a
+# model with no image support at all, one for a conversation already holding its limit.
+IMAGE_CAP_REFUSED = (
+    "[the model this delegation runs on cannot see images. The file is a readable image, "
+    "but it cannot be shown here.]"
+)
+IMAGE_LIMIT_REFUSED = (
+    "[not attached: this conversation already holds {limit} images, the most the model "
+    "accepts in one conversation.]"
 )
 
 
@@ -1838,6 +1861,31 @@ def stub_oldest_tool_results(
     return tuple(rebuilt), len(doomed)
 
 
+class ImageRoom:
+    """The images one conversation may still take: the model's `max_images` less those its
+    history holds. The limit counts the whole conversation, and one image past it fails
+    this request and every later one (ADR-0132).
+    """
+
+    def __init__(self, max_images: int, history: Iterable[Message]) -> None:
+        self.max_images = max_images
+        self.held = sum(_count_images(message.content) for message in history)
+
+    def admit(self, block: ContentBlock) -> ContentBlock:
+        """The block itself if its images fit, else an error result refusing them. Called
+        in the model's call order, so the first images to arrive are the ones kept."""
+        if not (isinstance(block, ToolResultBlock) and block.images):
+            return block
+        if self.max_images > 0 and self.held + len(block.images) <= self.max_images:
+            self.held += len(block.images)
+            return block
+        text = (
+            IMAGE_CAP_REFUSED if self.max_images <= 0
+            else IMAGE_LIMIT_REFUSED.format(limit=self.max_images)
+        )
+        return ToolResultBlock(tool_use_id=block.tool_use_id, content=text, is_error=True)
+
+
 def countdown_line(turns_left: int) -> str:
     """What the model is told about its remaining budget, on the message carrying results.
 
@@ -1878,7 +1926,7 @@ def estimate_message_tokens(cfg: Config, message: Message) -> int:
             nbytes += len(block.content)
         elif isinstance(block, ToolUseBlock):
             nbytes += len(block.name) + len(_dedup_key(block))
-    return cfg.estimate_tokens(nbytes)
+    return cfg.estimate_tokens(nbytes) + TOKENS_PER_IMAGE * _count_images(message.content)
 
 
 def overflow_reserve(cfg: Config, entry: ModelEntry) -> int:
@@ -2608,9 +2656,10 @@ def _run_one_call(  # noqa: PLR0913 -- the sixth is the per-delegation read reco
     if tool is None or not tool.cacheable:
         # Unknown or side-effecting: any entry may be stale, and none can be singled out.
         cached.clear()
-    elif not result.is_error:
+    elif not result.is_error and not result.images:
         # Errors are not cached: many are transient (a file not yet written), and caching
-        # would make them permanent.
+        # would make them permanent. Nor are images: the cache keeps only text, so a
+        # repeat would hand back a description where the image was.
         path, span, reached_eof = _read_coverage(call, result.content)
         cached[key] = _CachedResult(
             result.content, call.id, path=path, span=span, reached_eof=reached_eof
@@ -2724,7 +2773,7 @@ def _run_group(  # noqa: PLR0913 -- the sixth is the per-delegation read record
             ))
             continue
         result, ms = fetched[key]
-        if isinstance(result, ToolResultBlock) and not result.is_error:
+        if isinstance(result, ToolResultBlock) and not result.is_error and not result.images:
             path, span, reached_eof = _read_coverage(call, result.content)
             cached[key] = _CachedResult(
                 result.content, call.id, path=path, span=span, reached_eof=reached_eof
@@ -2744,6 +2793,7 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     policy: BashPolicy,
     seen: SeenFiles | None = None,
     status: list[str] | None = None,
+    images: ImageRoom | None = None,
 ) -> tuple[list[ContentBlock], tuple[ToolCallRecord, ...]]:
     """One turn's tool calls, run in order. Returns the result blocks and their records.
 
@@ -2767,7 +2817,10 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
             else _run_group(cfg, group, allowed, cached, policy, seen=seen)
         )
         # On one thread, in the model's order; a worker appending would reorder the report.
-        for i, (call, (block, outcome, ms)) in enumerate(zip(group, outcomes, strict=True)):
+        for i, (call, (produced, ran_as, ms)) in enumerate(zip(group, outcomes, strict=True)):
+            # Before it is recorded, so the ledger counts the refusal the model is shown.
+            block = images.admit(produced) if images is not None else produced
+            outcome = ran_as if block is produced else "error"
             result = block if isinstance(block, ToolResultBlock) else None
             watch.called(call, outcome, result)
             records.append(tool_call_record(call, outcome, result, ms=ms))
@@ -3101,6 +3154,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             batch_results, batch_records = await asyncio.to_thread(
                 _run_calls, cfg, tuple(c for _, c in batch), allowed, cached, watch,
                 policy=bash_policy, seen=seen, status=batch_status,
+                images=ImageRoom(entry.max_images, history),
             )
             if ask_here:
                 for (idx, _), word in zip(batch, batch_status, strict=True):

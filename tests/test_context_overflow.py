@@ -18,6 +18,7 @@ import pytest
 from claude_delegate_local import loop, tools
 from claude_delegate_local.backends.base import (
     CanonicalResponse,
+    ImageBlock,
     Message,
     TextBlock,
     ThinkingBlock,
@@ -29,6 +30,7 @@ from claude_delegate_local.config import (
     OVERFLOW_ABORT_AT,
     OVERFLOW_NUDGE_AT,
     OVERFLOW_TIGHTEN_AT,
+    TOKENS_PER_IMAGE,
     Config,
 )
 from claude_delegate_local.registry import ModelEntry
@@ -347,6 +349,19 @@ def test_every_block_type_contributes_to_the_estimate():
 
 def test_an_empty_message_costs_nothing():
     assert loop.estimate_message_tokens(cfg(), Message("user", ())) == 0
+
+
+def test_an_image_in_a_tool_result_counts_toward_the_estimate():
+    """An image costed at zero would hold growth under the floor, the shape this suite
+    keeps finding."""
+    image = ImageBlock("image/png", b"\x89PNG fake", 1, 1)
+    c = cfg()
+    plain = loop.estimate_message_tokens(
+        c, Message("user", (ToolResultBlock(tool_use_id="t", content="x" * 4000),)))
+    with_images = loop.estimate_message_tokens(
+        c, Message("user", (ToolResultBlock(
+            tool_use_id="t", content="x" * 4000, images=(image, image)),)))
+    assert with_images - plain == 2 * TOKENS_PER_IMAGE
 
 
 # --- through the real loop -------------------------------------------------------------------

@@ -24,20 +24,32 @@ list is sorted by resolved path before anything is accumulated -- before the tot
 cutoff too, or six files in a different order would produce a different five (ADR-0011).
 """
 
+import io
 import os
 import re
 import sys
+import threading
 from collections.abc import Callable, Iterable, Iterator
 from itertools import groupby
 from dataclasses import dataclass
 from hashlib import sha256
 
-from .config import Config
+from .backends.base import ImageBlock
+from .config import IMAGE_MAX_PIXELS, Config
 from .paths import PathRefused, Refusal, ResolvedPath, open_resolved
 
 # How far in to look for a NUL byte. A text file does not contain one, and a binary file
 # that hides its first NUL past 8 KiB is rarer than the cost of reading further. ADR-0030.
 NUL_SNIFF_BYTES = 8192
+
+# The Pillow format names decode_image accepts: one per IMAGE_EXTENSIONS entry, with
+# `.jpg`/`.jpeg` and `.tif`/`.tiff` sharing a decoder each. The check is on the format
+# name because decoding only has the bytes, never a path, to judge by.
+_ACCEPTED_IMAGE_FORMATS = frozenset({"PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "ICO"})
+
+# One decode at a time per process: grouped reads and the prefetch decode from threads, and
+# this bounds what a turn can hold to one image's worth, `IMAGE_MAX_PIXELS` at most.
+_DECODE_LOCK = threading.Lock()
 
 SKIP_TOO_MANY_BYTES = "too_many_bytes"
 SKIP_OVER_FILE_BUDGET = "over_file_budget"
@@ -389,6 +401,45 @@ def decode_text(data: bytes) -> tuple[str | None, str]:
     # A UTF-8 BOM decodes to U+FEFF, which is invisible and would sit at the top of the
     # first line of a source file for no reason.
     return text.lstrip("﻿"), ""
+
+
+def decode_image(data: bytes) -> tuple[ImageBlock | None, str]:
+    """Decode bytes as a raster image, or say why it is not one. ADR-0132.
+
+    Every frame is decoded, not just the header or the first: the backend decodes them all
+    and rejects the whole request over one broken frame, and the image would stay in the
+    history to fail every later turn. Any failure is a reason, never an exception: on
+    damaged input Pillow raises more than `OSError`.
+    """
+    # Here rather than at the top: the docs gate imports this module through `tools` on an
+    # interpreter with nothing installed (ci.yml), and only a decode needs Pillow.
+    from PIL import Image, ImageSequence  # noqa: PLC0415
+
+    try:
+        with _DECODE_LOCK, Image.open(io.BytesIO(data)) as image:
+            fmt, width, height = image.format, image.width, image.height
+            # Before the decode, which is where the memory goes. Not Pillow's own limit:
+            # that one only warns below twice itself, and its warnings filter is
+            # process-wide while decodes run in threads.
+            if width * height > IMAGE_MAX_PIXELS:
+                return None, (
+                    f"it is not a readable image: {width}x{height} pixels is over the "
+                    f"{IMAGE_MAX_PIXELS:,}-pixel limit for one image"
+                )
+            for frame in ImageSequence.Iterator(image):
+                frame.load()
+    except Exception as e:  # untrusted bytes, and Pillow's errors are no one family
+        return None, f"it is not a readable image: {e}"
+    # A multi-picture JPEG, as phones write, opens as MPO; the backend reads it as JPEG.
+    fmt = "JPEG" if fmt == "MPO" else fmt
+    if fmt not in _ACCEPTED_IMAGE_FORMATS:
+        return None, (
+            f"it is not a readable image: Pillow recognised {fmt}, which is not "
+            "one of the raster formats the vision backend accepts"
+        )
+    return ImageBlock(
+        media_type=Image.MIME[fmt], data=data, width=width, height=height
+    ), ""
 
 
 def _request_split(item: ResolvedPath | FileRequest) -> tuple[ResolvedPath, int | None, int | None]:

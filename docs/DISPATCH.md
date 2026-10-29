@@ -1,4 +1,4 @@
-<!-- BUDGET: 782 -->
+<!-- BUDGET: 790 -->
 # Dispatch and the response state machine
 
 What the server sends to a model, and what it does with what comes back. Everything here
@@ -59,7 +59,9 @@ text: a heartbeat tells thinking from answering, a `partial` event shows it, and
 one flushes what the interval held back. A consumer that must act once guards that itself.
 
 Built. The seam holds three things the layer above depends on. Flattening lives in the
-adapter and nowhere else, so the canonical side stays block-structured. Failures arrive as
+adapter and nowhere else, so the canonical side stays block-structured. Images are where the
+wire stops being a string: a message or tool result carrying them goes out as a text part
+then `image_url` data-URI parts, and one without is unchanged byte for byte (ADR-0132). Failures arrive as
 four distinguishable kinds — unreachable, refused with its status *and body* intact so a
 specific 400 stays feature-detectable (ADR-0017), a 2xx that is not the promised shape, and
 a malformed canonical request, which is our own bug and must never be retried — because
@@ -572,6 +574,11 @@ after an eviction would hand the whole result back into the window the trim had 
 room in (ADR-0080). The entry carries its `tool_use_id`, eviction marks it through the same
 diff the ledger reads, and a marked entry serves a line saying the result was dropped and to
 ask for the part needed. Marked and not deleted: deleting re-runs the tool.
+
+A fourth is images: a result carrying one is never cached, as the cache keeps only text.
+As each call is recorded, one whose images would pass the model's `max_images`, counted
+over the whole history, becomes a refusal and a tool error (ADR-0132), so an identical call
+runs again and meets the limit afresh. Each image costs `TOKENS_PER_IMAGE`.
 
 A `read_file` of lines an earlier read of that path **returned** — its numbered span, not
 its request, since a budget can cut it short — is a repeat too, served with just those lines

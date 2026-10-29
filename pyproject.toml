@@ -16,6 +16,9 @@ dependencies = [
     # fastmcp-tasks pins fastmcp-slim to its own version, so the two move together.
     "fastmcp-tasks>=4.1.4,<5",
     "httpx>=0.28.1,<0.29",
+    # Decodes an image before it is sent: the backend refuses a whole request over one
+    # broken image, and the image would stay in the history to fail every later turn.
+    "pillow>=13,<14",
 ]
 
 [project.scripts]
