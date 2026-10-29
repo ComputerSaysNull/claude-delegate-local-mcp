@@ -162,6 +162,20 @@ def test_extensions_are_normalised_to_lowercase_with_a_leading_dot():
     assert cfg.ext_allowlist == (".py", ".md", ".ts")
 
 
+def _decodable_on(allowlist) -> set[str]:
+    from PIL import Image as PILImage
+
+    return set(allowlist) & set(PILImage.registered_extensions())
+
+
+def test_the_default_allowlist_reads_exactly_the_images_the_server_decodes():
+    """An image extension allowed but not in IMAGE_EXTENSIONS is read as text and refused;
+    one in it but not allowed is never readable. SVG is text, and allowed as such."""
+    allowed = config.load(ROOTS).ext_allowlist
+    assert _decodable_on(allowed) == config.IMAGE_EXTENSIONS
+    assert ".svg" in allowed
+
+
 # --------------------------------------------------------------- token estimation
 
 

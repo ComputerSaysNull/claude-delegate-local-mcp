@@ -39,7 +39,7 @@ def test_the_default_allows_it(name):
 
 
 @pytest.mark.parametrize("name", [
-    "release.zip", "logo.png", "data.sqlite", "cert.p12", "vault.kdbx",
+    "release.zip", "photo.psd", "data.sqlite", "cert.p12", "vault.kdbx",
     # Left out deliberately: each commonly carries credentials.
     "app.properties", "prod.tfvars", ".npmrc", ".netrc",
 ])
