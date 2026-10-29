@@ -24,6 +24,10 @@ max_tokens_cap  = 131072
 # This endpoint's own concurrent-sequence limit, checked alongside the global
 # DELEGATE_MAX_INFLIGHT_SEQS.
 concurrency     = 6
+# How many images the backend accepts in one conversation. 0 (the default) means
+# the model sees no images; vLLM's own limit is its --limit-mm-per-prompt image
+# count.
+# max_images      = 8
 default         = true
 
 # A second model is a second container on a second port. Uncomment and adjust:

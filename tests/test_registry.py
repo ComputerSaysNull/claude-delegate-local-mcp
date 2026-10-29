@@ -237,6 +237,29 @@ def test_the_concurrency_default_is_one_value_not_three(tmp_path):
     assert reg.resolve(None).concurrency == declared == registry.DEFAULT_CONCURRENCY
 
 
+# ---- max_images -----------------------------------------------------------------------
+
+
+def test_max_images_loads_when_declared(tmp_path):
+    body = ('[models.a]\nbase_url="http://h:1"\nserved_model_id="s"\n'
+            'max_images=8\ndefault=true\n')
+    reg, _ = build(tmp_path, body)
+    assert reg.resolve(None).max_images == 8
+
+
+def test_max_images_defaults_to_zero(tmp_path):
+    """0 is the safe default: the backend accepted no images until the operator says so."""
+    reg, _ = build(tmp_path, MINIMAL)
+    assert reg.resolve(None).max_images == 0
+
+
+def test_a_negative_max_images_is_refused(tmp_path):
+    body = ('[models.a]\nbase_url="http://h:1"\nserved_model_id="s"\n'
+            'max_images=-1\ndefault=true\n')
+    with pytest.raises(registry.RegistryError, match="max_images must be a non-negative integer"):
+        build(tmp_path, body)
+
+
 # ---- the context_window default, and knowing when it was used ------------------------
 
 MINIMAL = """

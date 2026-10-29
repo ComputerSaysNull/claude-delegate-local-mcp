@@ -71,6 +71,13 @@ def test_blocks_are_frozen():
         base.TextBlock("a").text = "b"  # type: ignore[misc]
 
 
+def test_message_accepts_an_image_block():
+    m = base.Message("user", (base.ImageBlock("image/png", b"\x89PNG fake", 1, 1),))
+    assert m.role == "user"
+    assert len(m.content) == 1
+    assert isinstance(m.content[0], base.ImageBlock)
+
+
 # --- CanonicalRequest ------------------------------------------------------------------
 
 

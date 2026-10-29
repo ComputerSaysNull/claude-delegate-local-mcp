@@ -1,4 +1,4 @@
-<!-- BUDGET: 526 -->
+<!-- BUDGET: 530 -->
 # Plan
 
 Open work, status first so the file scans.
@@ -461,6 +461,8 @@ Neither queued nor deferred: real work not (yet) ranked against a milestone.
 120. ❌ 2026-10-18 (made unnecessary by item 122: a hook wakes the caller, so the handle can stay) **`delegate` answers with a handle, so a caller can stop listening.** ADR-0103 chose the handle because Claude Code held one write-capable call in flight per conversation, releasing the next at completion or 120s (JOURNAL 2026-09-19). Re-run that six-arm measurement first; if the queue is gone, let `delegate` wait inline like the read-only tools so the client backgrounds it and reports its end. After item 119
 121. ✅ 2026-10-18 **A question waits up to 24h for an answer** (`question_wait_limit`), holding its admission slot. Every question now goes to the caller (ADR-0124), so a long wait means nobody is listening, as on 2026-10-17. Shorten it to 30 minutes
 122. ✅ 2026-10-18 **A caller that ended its turn is never told a run finished or asked.** Item 119 found a Claude Code hook flag, `asyncRewake`, that wakes an idle session when its command exits 2. Keep a state file per handle and ship a `wait-hook` that waits on it, so the caller is woken when a run sits uncollected or holds an unread question (ADR-0126)
+123. 🔄 **A vision model cannot see an image**, even with `.png` allowlisted: `read_file` and `files[]` decode only UTF-8 text, the canonical shape has no image block, and the registry cannot say a model sees images. Read-only, in four parts: the wire and a per-model `max_images`; `read_file` returns an image; `files[]` carries one; image extensions on the default allowlist, raster ones refused for writing (ADR-0132)
+124. ⬜ **Write images when a model can generate them.** Item 123 refuses `write_file` and `edit_file` on raster images, because both write text. No registered model generates images (JOURNAL 2026-10-29: a 404 on `/v1/images/generations`). **Trigger:** a model whose backend returns image output; lift the refusal for that model
 
 ## Deferred
 

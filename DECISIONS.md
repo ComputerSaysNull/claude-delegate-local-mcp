@@ -19,6 +19,32 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0132 — 2026-10-29 — Images ride beside a tool result's text, decoded before they are sent — Accepted
+
+**Context.** The served model is a vision model, but every file reached it as UTF-8 text or
+not at all, and the canonical shape had no image block. Measured against vLLM
+(JOURNAL 2026-10-29): an image is accepted inside a `role: tool` message; one broken image
+fails the *whole* request with a 400; the image limit counts the whole conversation, is
+not advertised by `/v1/models`, and a request over it is a 400 too; an image costs at most
+~360 prompt tokens whatever its size, because the server shrinks it.
+
+**Decision.** `ToolResultBlock` gains `images` beside `content`, which stays a `str`: the
+loop's accounting, eviction and repeat cache all read `content` as text, and a side field
+leaves every one of them working. A user message may carry an `ImageBlock`. The adapter
+alone turns either into content parts. The limit is declared per model as `max_images`,
+`0` meaning none, and the server refuses an image past it rather than send it. Every image
+is fully decoded with Pillow before it joins the history, since a broken one left there
+would fail every later turn of the delegation.
+
+**Rejected.** `content: str | list`: about ten call sites in `loop.py` would change, for no
+gain over a side field. Checking magic bytes only, with a retry on the backend's 400: it
+misses a truncated file, and recovery cannot tell which image failed. Reading the limit
+from the server: it does not publish one.
+
+**Consequence.** A fourth runtime dependency, Pillow, and the same library the backend
+decodes with, so what passes here passes there. Writing images is out of scope: no
+registered model generates them (measured), and `write_file` writes only text.
+
 ## ADR-0131 — 2026-10-26 — A folder that ignores case is refused, not covered — Accepted
 
 **Context.** ADR-0035 covers a secret by mounting over its exact name, and protected paths

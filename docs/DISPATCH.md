@@ -1,4 +1,4 @@
-<!-- BUDGET: 782 -->
+<!-- BUDGET: 790 -->
 # Dispatch and the response state machine
 
 What the server sends to a model, and what it does with what comes back. Everything here
@@ -59,7 +59,9 @@ text: a heartbeat tells thinking from answering, a `partial` event shows it, and
 one flushes what the interval held back. A consumer that must act once guards that itself.
 
 Built. The seam holds three things the layer above depends on. Flattening lives in the
-adapter and nowhere else, so the canonical side stays block-structured. Failures arrive as
+adapter and nowhere else, so the canonical side stays block-structured. Images are where the
+wire stops being a string: a message or tool result carrying them goes out as a text part
+then `image_url` data-URI parts, and one without is unchanged byte for byte (ADR-0132). Failures arrive as
 four distinguishable kinds — unreachable, refused with its status *and body* intact so a
 specific 400 stays feature-detectable (ADR-0017), a 2xx that is not the promised shape, and
 a malformed canonical request, which is our own bug and must never be retried — because

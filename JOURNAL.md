@@ -3159,3 +3159,29 @@ folder as workdir, against a canary `.env` and `.claude/settings.json` written f
 - Cost against local disk (medians): sandbox start 0.24 s plain, 1.5 s with `nocase`, 0.4 s
   local; `git status` 5.3 s plain, 22.7 s with `nocase`, 15-21 ms local; 200 file reads
   4.2 s, 5 ms local.
+
+## 2026-10-29 — What the vision backend accepts, and what fails a whole request
+
+Raw chat-completions probes against the served vision model, before designing image reads
+(ADR-0132). Images were generated in memory, sent as `data:` URIs.
+
+- **Placement.** Accepted in a user message, inside a `role: tool` message's content
+  array, and as "attached" text in the tool result plus the image in the next user
+  message. All three answered the colour correctly.
+- **Formats.** png, jpeg, gif, webp, bmp, tiff and ico accepted; a MIME type that names
+  the wrong format is tolerated. SVG is refused, 400 "cannot identify image file": it is
+  XML, and goes to the model as text.
+- **One bad image fails the request.** A corrupt PNG: 400 "Truncated File Read". Pillow,
+  run locally on the same bytes, a half-length real PNG and an SVG, refuses all three with
+  the backend's own messages.
+- **The limit is per conversation.** 12 images in one message: 400 "At most 8 image(s) may
+  be provided in one prompt". 4 in a user message plus 4 in a tool message passed; 5 plus 4
+  was the same 400. `/v1/models` lists no image or multimodal field.
+- **Cost is capped.** Prompt tokens for one image plus a short question: 125 at 16 px,
+  209 at 512, 357 at 2048 and 4096 square, 309 and 349 at 8000x1000 either way round.
+- **No generation.** `/v1/images/generations` is a 404; a chat request with
+  `modalities: ["text","image"]` asking for a picture returns text saying it cannot.
+
+A trap on the way: a probe posted to `base_url` plus `/chat/completions`, without `/v1`. An
+image request got a 404, but a text-only one hung past a 280 s timeout instead of failing.
+`openai_compat.py` appends `/v1/chat/completions`; a hand-built probe has to as well.

@@ -4,6 +4,7 @@ Every failure mode has its own test, because the caller acts differently on each
 will build retry on that distinction. Each negative test asserts the check *fires*.
 """
 
+import base64
 import json
 
 import httpx
@@ -690,6 +691,58 @@ async def test_reasoning_is_resent_when_configured():
     await backend(handler, config=cfg(resend_reasoning=True)).complete(req)
     assistant = next(m for m in seen["body"]["messages"] if m["role"] == "assistant")
     assert assistant["reasoning_content"] == "private"
+
+
+# --- images ----------------------------------------------------------------------------
+
+
+async def test_a_tool_result_with_an_image_wires_to_content_parts():
+    """The backend accepts images as content parts, including inside a tool message."""
+    handler, seen = capture()
+    image = base.ImageBlock("image/png", b"\x89PNG fake", 1, 1)
+    req = request(
+        messages=(
+            base.Message(
+                "user",
+                (base.ToolResultBlock("call_1", "a.png: shows a tree", images=(image,)),),
+            ),
+        )
+    )
+    await backend(handler).complete(req)
+    tool_msg = next(m for m in seen["body"]["messages"] if m["role"] == "tool")
+    assert tool_msg["tool_call_id"] == "call_1"
+    assert tool_msg["content"] == [
+        {"type": "text", "text": "a.png: shows a tree"},
+        {"type": "image_url", "image_url": {
+            "url": "data:image/png;base64," + base64.b64encode(b"\x89PNG fake").decode("ascii")
+        }},
+    ]
+
+
+async def test_a_user_message_with_text_and_image_wires_to_content_parts():
+    handler, seen = capture()
+    image = base.ImageBlock("image/png", b"\x89PNG fake", 1, 1)
+    req = request(
+        messages=(base.Message("user", (base.TextBlock("look at this"), image)),)
+    )
+    await backend(handler).complete(req)
+    user = next(m for m in seen["body"]["messages"] if m["role"] == "user")
+    assert user["content"] == [
+        {"type": "text", "text": "look at this"},
+        {"type": "image_url", "image_url": {
+            "url": "data:image/png;base64," + base64.b64encode(b"\x89PNG fake").decode("ascii")
+        }},
+    ]
+
+
+async def test_a_tool_result_without_images_keeps_content_a_plain_string():
+    handler, seen = capture()
+    req = request(
+        messages=(base.Message("user", (base.ToolResultBlock("call_1", "plain text"),)),)
+    )
+    await backend(handler).complete(req)
+    tool_msg = next(m for m in seen["body"]["messages"] if m["role"] == "tool")
+    assert tool_msg["content"] == "plain text"
 
 
 # --- probe ----------------------------------------------------------------------------

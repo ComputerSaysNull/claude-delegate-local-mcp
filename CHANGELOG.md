@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #511 — 2026-10-29 — feat: read_file shows an image to a vision model
+
+### Added
+
+- **Images can reach the backend, and a model's image limit can be declared.** The served
+  model is a vision model, yet nothing could hand it an image: the canonical shape had no
+  image block, and the adapter sent every message as one string. An `ImageBlock` now exists,
+  a tool result carries images beside its text (`content` stays a string, so the loop's
+  accounting, eviction and repeat cache are untouched), and the adapter sends a message or
+  tool result with images as a text part then `image_url` data-URI parts. One without is
+  byte for byte what it was. `models.toml` takes `max_images`, the backend's per-conversation
+  limit, which vLLM enforces but does not advertise; `0`, the default, means the model sees
+  none (ADR-0132; measurements in JOURNAL 2026-10-29).
+
 ## #510 — 2026-10-27 — fix: the 2026-10-27 audit's follow-ups
 
 ### Changed
