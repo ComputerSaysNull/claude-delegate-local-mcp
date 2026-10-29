@@ -17,11 +17,12 @@ import pytest
 
 from claude_delegate_local import context, tools
 from claude_delegate_local.backends.base import ToolUseBlock
-from claude_delegate_local.config import Config
+from claude_delegate_local.config import Config, TOKENS_PER_IMAGE
 from claude_delegate_local.context import (
     SKIP_BINARY,
     SKIP_OVER_FILE_BUDGET,
     SKIP_OVER_TOTAL_BUDGET,
+    SKIP_REFUSED,
     SKIP_TOO_MANY_BYTES,
     prefetch,
 )
@@ -307,6 +308,101 @@ def test_decode_image_refuses_a_gif_broken_only_in_a_later_frame():
     image, why = context.decode_image(bytes(data))
     assert image is None
     assert "broken data stream" in why
+# ---- images in the prefetch ----------------------------------------------------------
+
+
+def test_a_png_is_prefetched_as_an_image(tmp_path):
+    """The point of the whole feature: an image a model can see is kept as an
+    `ImageBlock`, not skipped as a NUL-carrying binary blob the way `decode_text`
+    reads it."""
+    data = _png_bytes()
+    item = write(tmp_path, "pic.png", data)
+    result = prefetch(cfg(), (item,), max_images=8)
+    assert result.skips == ()
+    entry = result.files[0]
+    assert entry.image is not None
+    assert entry.image.media_type == "image/png"
+    assert (entry.image.width, entry.image.height) == (64, 48)
+    assert entry.image.data == data, "the bytes are returned unchanged, not re-encoded"
+    assert entry.est_tokens == TOKENS_PER_IMAGE, "an image is costed per image, not per byte"
+    assert entry.start_line is None, "an image is whole, never ranged"
+    assert "64x48" in result.block()
+    assert "image/png" in result.block()
+    assert f"--- BEGIN FILE {item.posix} ---" in result.block()
+
+
+def test_the_image_descriptor_line_names_the_block_exactly(tmp_path):
+    """The one line the model reads for an image, in place of numbered lines. The path
+    is the only thing tying it to which image is which, so the line carries the type and
+    the pixels."""
+    item = write(tmp_path, "pic.png", _png_bytes())
+    block = prefetch(cfg(), (item,), max_images=8).block()
+    assert "(image/png, 64x48 pixels, attached after this message's text)" in block
+
+
+def test_a_model_that_cannot_see_images_skips_the_png_as_binary(tmp_path):
+    item = write(tmp_path, "pic.png", _png_bytes())
+    result = prefetch(cfg(), (item,), max_images=0)
+    assert result.files == ()
+    assert result.skips[0].kind == SKIP_BINARY
+    assert "cannot see images" in result.skips[0].reason
+
+
+def test_an_image_with_no_room_for_it_is_never_decoded(tmp_path, monkeypatch):
+    """A glob over a folder of screenshots names many images; one the model cannot be
+    shown is skipped before the decode, which is the expensive part."""
+    decoded = []
+    real = context.decode_image
+    monkeypatch.setattr(context, "decode_image", lambda data: decoded.append(1) or real(data))
+    items = [write(tmp_path, f"pic{i}.png", _png_bytes()) for i in range(3)]
+    prefetch(cfg(), tuple(items), max_images=0)
+    assert decoded == []
+    prefetch(cfg(), tuple(items), max_images=1)
+    assert decoded == [1]
+
+
+def test_images_beyond_the_limit_are_skipped_as_refused(tmp_path):
+    """The order images are kept in is the prefetch's sorted order, so the two that fit
+    are the first two by resolved path and the third is the one named as over the
+    model's limit."""
+    items = [write(tmp_path, f"pic{i}.png", _png_bytes()) for i in range(3)]
+    result = prefetch(cfg(), tuple(items), max_images=2)
+    assert [e.path for e in result.files] == [items[0].posix, items[1].posix]
+    assert [s.kind for s in result.skips] == [SKIP_REFUSED]
+    assert result.skips[0].path == items[2].posix
+    assert "2" in result.skips[0].reason
+    assert "image" in result.skips[0].reason.lower()
+
+
+def test_a_truncated_png_is_skipped_as_binary(tmp_path):
+    data = _png_bytes()
+    item = write(tmp_path, "pic.png", data[: len(data) // 2])
+    result = prefetch(cfg(), (item,), max_images=8)
+    assert result.files == ()
+    assert result.skips[0].kind == SKIP_BINARY
+    assert "truncated" in result.skips[0].reason
+
+
+def test_a_text_file_beside_an_image_renders_exactly_as_before(tmp_path):
+    """Adding images must not touch the text-file rendering: the text block is still
+    numbered in `read_file`'s format, byte for byte."""
+    text = write(tmp_path, "a.py", "x = 1\n")
+    baseline = prefetch(cfg(), (text,), max_images=8).block()
+    img = write(tmp_path, "b.png", _png_bytes())
+    block = prefetch(cfg(), (text, img), max_images=8).block()
+    assert baseline in block, "the text file's block changed because an image joined it"
+    assert "1\tx = 1" in block
+    assert "64x48" in block
+
+
+def test_a_range_on_an_image_is_refused_rather_than_sliced(tmp_path):
+    """An image has no lines, so a range on one names nothing. Refused, not clamped."""
+    item = write(tmp_path, "pic.png", _png_bytes())
+    result = prefetch(cfg(), (context.FileRequest(entry=item, start_line=1, end_line=2),),
+                      max_images=8)
+    assert result.files == ()
+    assert result.skips[0].kind == SKIP_REFUSED
+    assert "no lines" in result.skips[0].reason
 
 
 # ---- the total budget -------------------------------------------------------------

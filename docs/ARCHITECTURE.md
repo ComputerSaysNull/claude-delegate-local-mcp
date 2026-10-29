@@ -58,6 +58,8 @@ given and ask for a range, not the file again. One format: when only the tool nu
 line cited from one path could not be checked against the other. The numbers cost 10% of
 the block's tokens, paid on the cheap path to stop the expensive one re-reading what it has.
 A tab follows each, as spaces were copied back as indentation. `numbered_span` reads it.
+An image is the exception: the block names it and its pixels, the image follows the text in
+the same message, one shot or loop alike, and one past `max_images` is skipped (ADR-0132).
 
 A prefetch cap is a **drop** threshold and never a truncation: a file over it is left out
 whole, though a caller may name ranges of it, merged where they meet (ADR-0105, ADR-0106).

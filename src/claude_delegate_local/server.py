@@ -806,7 +806,9 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     if refusals and not requests:
         raise ToolError(str(PathRefused(list(refusals), total=len(files or []))))
 
-    prefetched = await asyncio.to_thread(prefetch, cfg, tuple(requests))
+    prefetched = await asyncio.to_thread(
+        prefetch, cfg, tuple(requests), max_images=entry.max_images
+    )
     if refusals:
         # Ahead of the budget skips: the caller's own error, and the list is read top-down.
         prefetched = replace(
@@ -824,6 +826,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         files_block=prefetched.block(),
         agent_body=agent.body if agent else "",
         workdir=workdir,
+        images=prefetched.images,
     )
     allowed = resolve_allowed(allowed_tools, cfg)
     policy = BashPolicy(

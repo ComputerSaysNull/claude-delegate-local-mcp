@@ -219,6 +219,12 @@ class Delegation:
     files_block: str = ""
     agent_body: str = ""
     workdir: str | None = None
+    # The prefetched images, which the files block only describes.
+    images: tuple[ImageBlock, ...] = ()
+
+    def first_message(self) -> Message:
+        """The opening user message: the rendered text, then the images it describes."""
+        return Message("user", (TextBlock(self.render()), *self.images))
 
     def render(self) -> str:
         """The user message: agent body, then files, then the workdir, then the task.
@@ -783,10 +789,9 @@ def build_one_shot_request(
 
     The order lives on `Delegation`, so this and the turn loop cannot disagree. ADR-0011.
     """
-    body = delegation.render()
     return CanonicalRequest(
         system=SYSTEM_PROMPT_ONE_SHOT,
-        messages=(Message("user", (TextBlock(body),)),),
+        messages=(delegation.first_message(),),
         max_tokens=max_tokens,
         effort=effort,
         temperature=temperature,
@@ -2189,6 +2194,18 @@ class RereadAfterEviction:
     reread_at_turn: int
 
 
+def _seeded_cache(
+    prefetched: tuple[FileEntry, ...]
+) -> dict[tuple[str, str], _CachedResult]:
+    """The read cache's entries for the prefetch. An image has no lines, so it is never
+    seeded and a `read_file` of one runs."""
+    return {
+        _prefetch_key(pre): _prefetched_cache_entry(pre)
+        for pre in prefetched
+        if pre.image is None
+    }
+
+
 def _mark_evicted_in_cache(
     cached: dict[tuple[str, str], _CachedResult], dropped_ids: tuple[str, ...]
 ) -> None:
@@ -2944,7 +2961,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
 
     bash_policy = policy or BashPolicy()
 
-    history: list[Message] = [Message("user", (TextBlock(delegation.render()),))]
+    history: list[Message] = [delegation.first_message()]
 
     cached: dict[tuple[str, str], _CachedResult] = {}
     # What the model last saw, for `edit_file`'s changed-file refusal. Seeded from the
@@ -2956,8 +2973,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     # The read cache is seeded from the prefetch too, so a read of lines the files block
     # already holds is answered from it rather than run -- the measured re-read waste. A
     # write still clears the cache, seeded entries included, so a read after one is fresh.
-    for pre in prefetched:
-        cached[_prefetch_key(pre)] = _prefetched_cache_entry(pre)
+    cached.update(_seeded_cache(prefetched))
     watch = _Watch(diagnostics=diagnostics)
     guard = _OverflowGuard(cfg, entry)
     dispatch: Dispatch | None = None

@@ -27,7 +27,8 @@ from claude_delegate_local.backends.base import (
     ToolSpec,
     ToolUseBlock,
 )
-from claude_delegate_local.config import Config
+from claude_delegate_local.config import Config, TOKENS_PER_IMAGE
+from claude_delegate_local.context import FileEntry
 from claude_delegate_local.registry import ModelEntry
 
 HOST = "http://example.com:8000"  # on the gate's placeholder allowlist
@@ -167,7 +168,7 @@ def run(backend, *, allowed=frozenset({"echo", "poke", "refuse"}), **over):
             kw.pop("cfg", cfg()),
             kw.pop("entry", entry()),
             backend,
-            loop.Delegation(kw.pop("task", "do the thing")),
+            loop.Delegation(kw.pop("task", "do the thing"), images=kw.pop("images", ())),
             allowed=allowed,
             **kw,
         )
@@ -670,6 +671,76 @@ def test_a_refused_image_is_read_again_rather_than_served_from_the_cache(monkeyp
     again = results_in(backend.requests[2])[0]
     assert "cannot see images" in again.content
     assert "dropped from the history" not in again.content
+
+
+def prefetched_image(path="/x/pic.png") -> FileEntry:
+    """One prefetched image, as `prefetch` would produce it: whole, costed per image."""
+    return FileEntry(
+        path=path, given=path, text="", nbytes=100,
+        est_tokens=TOKENS_PER_IMAGE, sha256="ab" * 32,
+        image=ImageBlock("image/png", b"\x89PNG fake", 64, 48),
+    )
+
+
+def test_a_prefetched_image_reaches_the_first_user_message(registered):
+    """The prefetch's images join the first user message as ImageBlocks, after the text,
+    in prefetch order -- so the model is handed the image, not merely a description of it."""
+    pre = prefetched_image()
+    backend = ScriptedTurns(says("done"))
+    run(backend, prefetched=(pre,), images=(pre.image,), entry=entry(max_images=8))
+    first = backend.requests[0].messages[0]
+    blocks = first.content
+    assert isinstance(blocks[0], TextBlock)
+    assert len(blocks) == 2
+    assert blocks[1] is pre.image
+    assert isinstance(blocks[1], ImageBlock)
+
+
+def test_a_prefetched_image_is_not_seeded_into_the_read_cache():
+    """An image has no lines, so the prefetch's read coverage must not answer a `read_file`
+    of it; a text file prefetched beside it still seeds the cache."""
+    image = prefetched_image()
+    text = FileEntry(
+        path="/x/a.py", given="/x/a.py", text="x = 1\n", nbytes=6, est_tokens=2,
+        sha256="cd" * 32, start_line=1, total_lines=1,
+    )
+    seeded = loop._seeded_cache((image, text))
+    assert [entry.path for entry in seeded.values()] == ["/x/a.py"]
+
+
+def test_a_prefetched_image_counts_against_the_image_cap(monkeypatch):
+    """The prefetched image is in the history from the first turn, so a later read_file
+    image under max_images=1 is refused by the cap, exactly as a tool-result image is."""
+    pre = prefetched_image()
+    added = {
+        "pic": tools.RegisteredTool(
+            spec=ToolSpec(name="pic", description="pic", input_schema={"type": "object"}),
+            handler=lambda cfg_, args: "an image",
+            cacheable=True,
+        )
+    }
+    tools.REGISTRY.update(added)
+    try:
+        real = loop.execute_tool
+
+        def with_image(cfg_, call, allowed, policy=None, seen=None):
+            if call.name == "pic":
+                return ToolResultBlock(
+                    tool_use_id=call.id, content="an image", images=(img(),)
+                )
+            return real(cfg_, call, allowed, policy, seen)
+
+        monkeypatch.setattr(loop, "execute_tool", with_image)
+        backend = ScriptedTurns(wants(("pic", {})), says("done"))
+        run(
+            backend, prefetched=(pre,), images=(pre.image,), allowed=frozenset({"pic"}),
+            entry=entry(max_images=1),
+        )
+    finally:
+        tools.REGISTRY.pop("pic", None)
+    served = results_in(backend.requests[1])[0]
+    assert served.is_error and served.images == ()
+    assert "already holds 1 image" in served.content
 
 
 # --- the countdown, and the static prefix -------------------------------------------------------

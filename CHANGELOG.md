@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #512 — 2026-10-29 — feat: files[] hands an image to a vision model
+
+### Added
+
+- **`files[]` prefetches an image, for the one-shot path as well as the loop.** Naming a
+  screenshot in `files[]` is the cheap way to ask about it, above all with an empty
+  toolset, but the prefetch skipped every image as `binary`. A png, jpeg, gif, webp, bmp,
+  tiff or ico file named whole is now decoded like `read_file`'s. The files block names it
+  and its pixels, and the image itself follows the text in the first message, which
+  `Delegation` builds for both paths, so neither can drop it. Up to the model's
+  `max_images` are kept in the prefetch's sorted order, and the rest are skipped as
+  `refused`. A model at `0`, or a broken image, gets `binary` with the reason, so the
+  transcript format is unchanged. Each image is costed at 512 tokens against both
+  prefetch budgets. It counts against the limit for later `read_file` images, and it never
+  seeds the read cache, since an image has no lines to cover (ADR-0132).
+
 ## #511 — 2026-10-29 — feat: read_file shows an image to a vision model
 
 ### Added
