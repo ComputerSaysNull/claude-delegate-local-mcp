@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #514 — 2026-10-29 — fix: a tool result's images go on the user turn after it
+
+### Fixed
+
+- **An image inside a `tool` message breaks on a patch that enforces DeepSeek's rule.** #511
+  sent a `read_file` image as a content part of the tool result. The serving stack's vision
+  patch is written to refuse an image anywhere but a `user` message, with a 400 that leaves
+  the image in the history to fail every later turn. The live cluster accepted one all the
+  same, before and after an update, so this is the shape that works on both rather than a
+  fix for a failure seen here. A tool result is now always plain text, ending with a line saying the image
+  follows, and its images go in the `user` message sent after the results, each labelled
+  with the call it answers. A message with no images is byte for byte what it was
+  (JOURNAL 2026-10-29).
+
 ## #513 — 2026-10-29 — feat: images are on the default allowlist, and read-only
 
 ### Added

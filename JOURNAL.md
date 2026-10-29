@@ -3193,3 +3193,18 @@ Raw chat-completions probes against the served vision model, before designing im
 A trap on the way: a probe posted to `base_url` plus `/chat/completions`, without `/v1`. An
 image request got a 404, but a text-only one hung past a 280 s timeout instead of failing.
 `openai_compat.py` appends `/v1/chat/completions`; a hand-built probe has to as well.
+
+## 2026-10-29 — The vision patch is written to refuse a tool message's image; ours took one
+
+The serving stack's vision patch, read at its current version, raises "Images are supported in
+user messages only" for structured image parts in any `system`, `assistant`, `tool` or
+`function` message, which the server returns as a 400. Its changelog states the `tool` case
+and says a vision tool's result must go on a `user` turn, as DeepSeek's own API rule has it.
+
+The live cluster accepted an `image_url` part inside a `tool` message all the same, and the
+model answered from the image: in the probes in the entry above, in a live `read_file` that
+described its image correctly, and again after the cluster was updated and restarted (200,
+"Blue"). So the check, as written, does not fire on the path this server's requests take,
+and why was not chased. What was measured either way: a `tool` message carrying text and a
+`user` message after it carrying the image is accepted, before the update and after it, and
+the colour comes back right.

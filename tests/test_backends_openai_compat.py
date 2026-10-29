@@ -696,29 +696,6 @@ async def test_reasoning_is_resent_when_configured():
 # --- images ----------------------------------------------------------------------------
 
 
-async def test_a_tool_result_with_an_image_wires_to_content_parts():
-    """The backend accepts images as content parts, including inside a tool message."""
-    handler, seen = capture()
-    image = base.ImageBlock("image/png", b"\x89PNG fake", 1, 1)
-    req = request(
-        messages=(
-            base.Message(
-                "user",
-                (base.ToolResultBlock("call_1", "a.png: shows a tree", images=(image,)),),
-            ),
-        )
-    )
-    await backend(handler).complete(req)
-    tool_msg = next(m for m in seen["body"]["messages"] if m["role"] == "tool")
-    assert tool_msg["tool_call_id"] == "call_1"
-    assert tool_msg["content"] == [
-        {"type": "text", "text": "a.png: shows a tree"},
-        {"type": "image_url", "image_url": {
-            "url": "data:image/png;base64," + base64.b64encode(b"\x89PNG fake").decode("ascii")
-        }},
-    ]
-
-
 async def test_a_user_message_with_text_and_image_wires_to_content_parts():
     handler, seen = capture()
     image = base.ImageBlock("image/png", b"\x89PNG fake", 1, 1)

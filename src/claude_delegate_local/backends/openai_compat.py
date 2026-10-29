@@ -734,25 +734,30 @@ def _image_parts(images: Sequence[ImageBlock]) -> list[dict[str, Any]]:
     ]
 
 
-def _tool_result_content(
-    content: str, images: tuple[ImageBlock, ...]
-) -> str | list[dict[str, Any]]:
-    """A tool result's content: the plain string, or text-plus-image parts."""
-    if not images:
-        return content
-    return [{"type": "text", "text": content}, *_image_parts(images)]
+def _attached_note(count: int) -> str:
+    """The line ending a tool result whose images ride the user message after it."""
+    if count == 1:
+        return "\n[The image is attached to the user message that follows.]"
+    return f"\n[The {count} images are attached to the user message that follows.]"
 
 
 def _message_content(
-    texts: list[str], images: list[ImageBlock]
+    texts: list[str],
+    images: list[ImageBlock],
+    attached: list[tuple[str, tuple[ImageBlock, ...]]],
 ) -> str | list[dict[str, Any]]:
-    """A user message's content: the joined text, or a text part followed by the images.
+    """A user message's content: the joined text, or parts once there is an image.
 
-    The text part is omitted when there is none, so the array never holds an empty one.
+    Images the tool results returned come first, each group labelled with the call it
+    answers, then the message's own text and images. A text part is never empty.
     """
-    if not images:
+    if not images and not attached:
         return "".join(texts)
     parts: list[dict[str, Any]] = []
+    for tool_use_id, group in attached:
+        label = "Image" if len(group) == 1 else "Images"
+        parts.append({"type": "text", "text": f"{label} from the tool call {tool_use_id}:"})
+        parts.extend(_image_parts(group))
     joined = "".join(texts)
     if joined:
         parts.append({"type": "text", "text": joined})
@@ -765,6 +770,7 @@ def _wire_message(message: Message, *, resend_reasoning: bool) -> list[dict[str,
     tool_calls: list[dict[str, Any]] = []
     reasoning: list[str] = []
     images: list[ImageBlock] = []
+    attached: list[tuple[str, tuple[ImageBlock, ...]]] = []
     results: list[dict[str, Any]] = []
 
     for block in message.content:
@@ -788,13 +794,15 @@ def _wire_message(message: Message, *, resend_reasoning: bool) -> list[dict[str,
         elif isinstance(block, ToolResultBlock):
             # OpenAI carries a tool result as its own message, with nowhere for
             # `is_error`. That flag is the server's bookkeeping (ADR-0007) and stays
-            # canonical; the model sees the error text, the part it can act on.
+            # canonical; the model sees the error text, the part it can act on. Always
+            # text: the vision patch is written to refuse an image anywhere but a user
+            # message, so a result's images go in the one sent after the results.
+            content = block.content
+            if block.images:
+                content += _attached_note(len(block.images))
+                attached.append((block.tool_use_id, block.images))
             results.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": block.tool_use_id,
-                    "content": _tool_result_content(block.content, block.images),
-                }
+                {"role": "tool", "tool_call_id": block.tool_use_id, "content": content}
             )
 
     out: list[dict[str, Any]] = []
@@ -802,10 +810,10 @@ def _wire_message(message: Message, *, resend_reasoning: bool) -> list[dict[str,
     # user has to say.
     out.extend(results)
 
-    if texts or tool_calls or images or (reasoning and resend_reasoning):
+    if texts or tool_calls or images or attached or (reasoning and resend_reasoning):
         payload: dict[str, Any] = {
             "role": message.role,
-            "content": _message_content(texts, images),
+            "content": _message_content(texts, images, attached),
         }
         if tool_calls:
             payload["tool_calls"] = tool_calls
