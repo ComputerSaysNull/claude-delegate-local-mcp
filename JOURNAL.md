@@ -3173,7 +3173,9 @@ Raw chat-completions probes against the served vision model, before designing im
   XML, and goes to the model as text.
 - **One bad image fails the request.** A corrupt PNG: 400 "Truncated File Read". Pillow,
   run locally on the same bytes, a half-length real PNG and an SVG, refuses all three with
-  the backend's own messages.
+  the backend's own messages. A GIF broken only in its last frame is the same 400, "image
+  file is truncated", so the backend decodes every frame, while Pillow's `load()` reads only
+  the first. A multi-picture JPEG, which Pillow names MPO, is accepted as `image/jpeg`.
 - **The limit is per conversation.** 12 images in one message: 400 "At most 8 image(s) may
   be provided in one prompt". 4 in a user message plus 4 in a tool message passed; 5 plus 4
   was the same 400. `/v1/models` lists no image or multimodal field.

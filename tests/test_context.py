@@ -197,6 +197,89 @@ def test_decode_image_refuses_svg():
     assert why.startswith("it is not a readable image")
 
 
+def test_decode_image_refuses_a_png_with_a_broken_chunk_rather_than_raising():
+    """Pillow raises SyntaxError, not OSError, for a damaged chunk; it must still come back
+    as a reason, or one bad file fails the whole call instead of one read."""
+    import io
+    from PIL import Image as PILImage
+
+    data = bytearray(_png_bytes())
+    data[86], data[129] = 228, 64  # a damaged IDAT byte, and IEND's type made "I@ND"
+    with pytest.raises(SyntaxError):  # the specimen still exercises the case
+        with PILImage.open(io.BytesIO(bytes(data))) as image:
+            image.load()
+    image, why = context.decode_image(bytes(data))
+    assert image is None
+    assert why.startswith("it is not a readable image")
+
+
+def test_decode_image_leaves_the_process_wide_warnings_state_alone(monkeypatch):
+    """Decodes run in threads, and the warnings filter is one per process, so a decode
+    that edits it can leak its filter into every other thread."""
+    import warnings
+
+    calls: list[str] = []
+    for name in ("catch_warnings", "simplefilter", "filterwarnings"):
+        real = getattr(warnings, name)
+
+        def recording(*args, _name=name, _real=real, **kwargs):
+            calls.append(_name)
+            return _real(*args, **kwargs)
+
+        monkeypatch.setattr(warnings, name, recording)
+    image, why = context.decode_image(_png_bytes())
+    recorded = list(calls)
+    monkeypatch.undo()
+    assert why == "" and image is not None
+    assert recorded == [], f"decode_image called warnings.{recorded}"
+
+
+def test_decode_image_refuses_an_image_over_the_pixel_limit(monkeypatch):
+    """Between Pillow's limit and twice it, Pillow only warns; the decode refuses."""
+    from PIL import Image as PILImage
+
+    monkeypatch.setattr(PILImage, "MAX_IMAGE_PIXELS", 2000)  # 64x48 is 3,072
+    image, why = context.decode_image(_png_bytes())
+    assert image is None
+    assert "decode limit" in why
+
+
+def test_decode_image_reads_a_multi_picture_jpeg_as_jpeg():
+    """Phones and cameras write .jpg files that Pillow opens as MPO; the backend takes them
+    as JPEG (JOURNAL 2026-10-29)."""
+    import io
+    from PIL import Image as PILImage
+
+    buf = io.BytesIO()
+    PILImage.new("RGB", (32, 32), (0, 200, 0)).save(
+        buf, "MPO", save_all=True, append_images=[PILImage.new("RGB", (32, 32))])
+    image, why = context.decode_image(buf.getvalue())
+    assert why == ""
+    assert image is not None and image.media_type == "image/jpeg"
+
+
+def test_decode_image_refuses_a_gif_broken_only_in_a_later_frame():
+    """The backend decodes every frame and rejects the request over a broken one
+    (JOURNAL 2026-10-29), so every frame is checked, not just the first."""
+    import io
+    from PIL import Image as PILImage
+
+    frames = []
+    for seed in range(4):
+        frame = PILImage.frombytes("P", (64, 64), random.Random(seed).randbytes(64 * 64))
+        frame.putpalette(list(range(256)) * 3)
+        frames.append(frame)
+    buf = io.BytesIO()
+    frames[0].save(buf, "GIF", save_all=True, append_images=frames[1:])
+    data = bytearray(buf.getvalue())
+    data[-5] ^= 0xFF
+    with PILImage.open(io.BytesIO(bytes(data))) as image:
+        image.load()  # the specimen still exercises the case: frame 0 is intact
+    image, why = context.decode_image(bytes(data))
+    assert image is None
+    assert "broken data stream" in why
+
+
 # ---- the total budget -------------------------------------------------------------
 
 

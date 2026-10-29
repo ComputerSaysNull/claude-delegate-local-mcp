@@ -28,13 +28,12 @@ import io
 import os
 import re
 import sys
-import warnings
 from collections.abc import Callable, Iterable, Iterator
 from itertools import groupby
 from dataclasses import dataclass
 from hashlib import sha256
 
-from PIL import Image
+from PIL import Image, ImageSequence
 
 from .backends.base import ImageBlock
 from .config import Config
@@ -404,22 +403,29 @@ def decode_text(data: bytes) -> tuple[str | None, str]:
 def decode_image(data: bytes) -> tuple[ImageBlock | None, str]:
     """Decode bytes as a raster image, or say why it is not one. ADR-0132.
 
-    The whole file is decoded, not just its header: a broken image fails the whole backend
-    request, and stays in the history to fail every later turn. Only the formats in
-    `IMAGE_EXTENSIONS` are accepted; anything else Pillow recognises is refused.
+    Every frame is decoded, not just the header or the first: the backend decodes them all
+    and rejects the whole request over one broken frame, and the image would stay in the
+    history to fail every later turn. Any failure is a reason, never an exception: on
+    damaged input Pillow raises more than `OSError`.
     """
     try:
-        with warnings.catch_warnings():
-            # Pillow warns, rather than errors, on an image above its soft decompression
-            # limit; a reply that went out anyway would fail the whole request, so the
-            # warning is an error for this call, exactly as the hard-limit error is.
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(io.BytesIO(data)) as image:
-                image.load()
-                fmt, width, height = image.format, image.width, image.height
-    except (OSError, ValueError, Image.DecompressionBombError,
-            Image.DecompressionBombWarning) as e:
+        with Image.open(io.BytesIO(data)) as image:
+            fmt, width, height = image.format, image.width, image.height
+            # Pillow only warns between its limit and twice it. Checked here rather than by
+            # making that warning an error, since the warnings filter is process-wide and
+            # decodes run in threads.
+            limit = Image.MAX_IMAGE_PIXELS
+            if limit is not None and width * height > limit:
+                return None, (
+                    f"it is not a readable image: {width}x{height} pixels is over the "
+                    f"{limit:,}-pixel decode limit"
+                )
+            for frame in ImageSequence.Iterator(image):
+                frame.load()
+    except Exception as e:  # untrusted bytes, and Pillow's errors are no one family
         return None, f"it is not a readable image: {e}"
+    # A multi-picture JPEG, as phones write, opens as MPO; the backend reads it as JPEG.
+    fmt = "JPEG" if fmt == "MPO" else fmt
     if fmt not in _ACCEPTED_IMAGE_FORMATS:
         return None, (
             f"it is not a readable image: Pillow recognised {fmt}, which is not "

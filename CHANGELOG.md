@@ -46,12 +46,14 @@ Older entries, in the previous flat format, are in
 - **`read_file` returns an image to a vision model.** A `.png` on a project's allowlist was
   still refused as "not text", because every read went through the UTF-8 decode. A png,
   jpeg, gif, webp, bmp, tiff or ico file now comes back as a one-line summary and the image
-  itself. Pillow, a new dependency, decodes it whole first, because the backend rejects a
-  whole request over one broken image, and that image would stay in the history to fail
-  every later turn. The loop enforces `max_images` over the whole conversation before a
-  turn's results join it: an image past the limit, or any image for a model at `0`, becomes
-  a refusal. Its repeat-cache entry is deleted, so an identical call runs again. Each image
-  is estimated at 512 tokens, above the measured ceiling of about 360.
+  itself. Pillow, a new dependency, first decodes every frame, because the backend decodes
+  them all and rejects a whole request over one broken frame, and that image would stay in
+  the history to fail every later turn. Any decode failure becomes a refusal, whatever
+  Pillow raised. A multi-picture JPEG, as phones write, is sent as JPEG. The loop enforces
+  `max_images` over the whole conversation before a turn's results join it: an image past
+  the limit, or any image for a model at `0`, becomes a refusal. An image result is never
+  served from the repeat cache, which keeps only text. Each image is estimated at 512
+  tokens, above the measured ceiling of about 360.
 
 ## #510 — 2026-10-27 — fix: the 2026-10-27 audit's follow-ups
 

@@ -1569,8 +1569,8 @@ IMAGE_CAP_REFUSED = (
     "but it cannot be shown here.]"
 )
 IMAGE_LIMIT_REFUSED = (
-    "[not attached: this conversation already holds {limit} images, the model's limit. "
-    "An image in a tool result dropped from the history frees its slot.]"
+    "[not attached: this conversation already holds {limit} images, the most the model "
+    "accepts in one conversation.]"
 )
 
 
@@ -1866,21 +1866,19 @@ def enforce_image_cap(
     results: list[ContentBlock],
     *,
     max_images: int,
-) -> tuple[list[ContentBlock], tuple[str, ...]]:
+) -> list[ContentBlock]:
     """Refuse tool results whose images would exceed `max_images`, the whole-conversation
     limit.
 
     `history` is what the conversation already holds; `results` is one turn's, in order. A
     result whose images would push the conversation past the limit is replaced by an error
-    result carrying a refusal the model can act on, and its `tool_use_id` is returned so
-    the repeat cache can be told the model never saw it. Results without images pass through
+    result carrying a refusal the model can act on. Results without images pass through
     untouched, and nothing here mutates the originals.
 
     `max_images` is 0 when the model sees no images, which refuses every image outright.
     """
     seen = sum(_count_images(message.content) for message in history)
     out: list[ContentBlock] = []
-    refused: list[str] = []
     for block in results:
         if not (isinstance(block, ToolResultBlock) and block.images):
             out.append(block)
@@ -1893,11 +1891,10 @@ def enforce_image_cap(
             out.append(ToolResultBlock(
                 tool_use_id=block.tool_use_id, content=text, is_error=True,
             ))
-            refused.append(block.tool_use_id)
         else:
             seen += len(block.images)
             out.append(block)
-    return out, tuple(refused)
+    return out
 
 
 def countdown_line(turns_left: int) -> str:
@@ -2218,21 +2215,6 @@ def _mark_evicted_in_cache(
     for key, entry in cached.items():
         if not entry.evicted and entry.tool_use_id in gone:
             cached[key] = replace(entry, evicted=True)
-
-
-def _forget_in_cache(
-    cached: dict[tuple[str, str], _CachedResult], refused_ids: tuple[str, ...]
-) -> None:
-    """Delete what the dedup cache copied from results the model was refused.
-
-    Deleted, not marked as evicted: the model never saw the image, so the next identical
-    call runs again and meets the image limit afresh.
-    """
-    if not refused_ids:
-        return
-    refused = set(refused_ids)
-    for key in [k for k, entry in cached.items() if entry.tool_use_id in refused]:
-        del cached[key]
 
 
 def newly_evicted_ids(
@@ -2685,9 +2667,10 @@ def _run_one_call(  # noqa: PLR0913 -- the sixth is the per-delegation read reco
     if tool is None or not tool.cacheable:
         # Unknown or side-effecting: any entry may be stale, and none can be singled out.
         cached.clear()
-    elif not result.is_error:
+    elif not result.is_error and not result.images:
         # Errors are not cached: many are transient (a file not yet written), and caching
-        # would make them permanent.
+        # would make them permanent. Nor are images: the cache keeps only text, so a
+        # repeat would hand back a description where the image was.
         path, span, reached_eof = _read_coverage(call, result.content)
         cached[key] = _CachedResult(
             result.content, call.id, path=path, span=span, reached_eof=reached_eof
@@ -2801,7 +2784,7 @@ def _run_group(  # noqa: PLR0913 -- the sixth is the per-delegation read record
             ))
             continue
         result, ms = fetched[key]
-        if isinstance(result, ToolResultBlock) and not result.is_error:
+        if isinstance(result, ToolResultBlock) and not result.is_error and not result.images:
             path, span, reached_eof = _read_coverage(call, result.content)
             cached[key] = _CachedResult(
                 result.content, call.id, path=path, span=span, reached_eof=reached_eof
@@ -3244,10 +3227,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
 
             # Before the results join the history: one image past the limit would fail
             # this request and every later one (ADR-0132).
-            results, refused_images = enforce_image_cap(
-                tuple(history), results, max_images=entry.max_images,
-            )
-            _forget_in_cache(cached, refused_images)
+            results = enforce_image_cap(tuple(history), results, max_images=entry.max_images)
 
             user_message = Message("user", tuple(results))
             history.append(user_message)

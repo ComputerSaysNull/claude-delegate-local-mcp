@@ -509,8 +509,7 @@ def img() -> ImageBlock:
 def test_the_cap_refuses_an_image_result_when_the_model_cannot_see_images():
     """max_images=0 means the model sees no images, so a result carrying one is refused."""
     result = ToolResultBlock(tool_use_id="t1", content="an image", images=(img(),))
-    results, refused = loop.enforce_image_cap((), [result], max_images=0)
-    assert refused == ("t1",)
+    results = loop.enforce_image_cap((), [result], max_images=0)
     served = results[0]
     assert isinstance(served, ToolResultBlock)
     assert served.tool_use_id == "t1"
@@ -526,20 +525,18 @@ def test_the_cap_keeps_the_first_image_and_refuses_the_second():
         tool_use_id="old", content="x", images=(img(),)),)),)
     first = ToolResultBlock(tool_use_id="a", content="x", images=(img(),))
     second = ToolResultBlock(tool_use_id="b", content="x", images=(img(),))
-    results, refused = loop.enforce_image_cap(history, [first, second], max_images=2)
-    assert refused == ("b",)
+    results = loop.enforce_image_cap(history, [first, second], max_images=2)
     assert results[0] is first, "a result that fits must pass through untouched"
     assert results[1].is_error and results[1].images == ()
     assert "already holds 2 images" in results[1].content
-    assert "frees its slot" in results[1].content
+    assert "the most the model accepts in one conversation" in results[1].content
 
 
 def test_the_cap_leaves_results_without_images_untouched():
     """Text-only results and image-less tool results pass through as the same objects."""
     text = TextBlock("done")
     result = ToolResultBlock(tool_use_id="t", content="x")
-    results, refused = loop.enforce_image_cap((), [text, result], max_images=2)
-    assert refused == ()
+    results = loop.enforce_image_cap((), [text, result], max_images=2)
     assert results[0] is text
     assert results[1] is result
 
@@ -573,6 +570,40 @@ def test_an_image_result_reaches_the_history_as_a_refusal(monkeypatch):
     served = results_in(backend.requests[1])[0]
     assert served.is_error and served.images == ()
     assert "cannot see images" in served.content
+
+
+def test_an_image_read_is_never_served_from_the_repeat_cache(monkeypatch):
+    """The cache keeps only a result's text. Served for an image, it would hand back a
+    description with no image, or after an eviction an "ask for the part you need" that
+    an image cannot answer, so an identical image read runs again."""
+    added = {
+        "pic": tools.RegisteredTool(
+            spec=ToolSpec(name="pic", description="pic", input_schema={"type": "object"}),
+            handler=lambda cfg_, args: "an image",
+            cacheable=True,
+        )
+    }
+    tools.REGISTRY.update(added)
+    ran = []
+    try:
+        real = loop.execute_tool
+
+        def with_image(cfg_, call, allowed, policy=None, seen=None):
+            if call.name == "pic":
+                ran.append(call.id)
+                return ToolResultBlock(
+                    tool_use_id=call.id, content="an image", images=(img(),)
+                )
+            return real(cfg_, call, allowed, policy, seen)
+
+        monkeypatch.setattr(loop, "execute_tool", with_image)
+        backend = ScriptedTurns(wants(("pic", {})), wants(("pic", {})), says("done"))
+        run(backend, allowed=frozenset({"pic"}), entry=entry(max_images=8))
+    finally:
+        tools.REGISTRY.pop("pic", None)
+    assert len(ran) == 2
+    again = results_in(backend.requests[2])[0]
+    assert len(again.images) == 1
 
 
 def test_a_refused_image_is_read_again_rather_than_served_from_the_cache(monkeypatch):

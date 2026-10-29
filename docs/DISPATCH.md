@@ -575,10 +575,10 @@ room in (ADR-0080). The entry carries its `tool_use_id`, eviction marks it throu
 diff the ledger reads, and a marked entry serves a line saying the result was dropped and to
 ask for the part needed. Marked and not deleted: deleting re-runs the tool.
 
-A fourth is an image the model was refused. Before a turn's results join the history, one
-whose images would pass the model's `max_images`, counted over the whole history, becomes a
-refusal (ADR-0132). Its entry is deleted, not marked: the model never saw the image, so an
-identical call runs again and meets the limit afresh. Each image costs `TOKENS_PER_IMAGE`.
+A fourth is images: a result carrying one is never cached, as the cache keeps only text.
+Before a turn's results join the history, one whose images would pass the model's
+`max_images`, counted over the whole history, becomes a refusal (ADR-0132), so an identical
+call runs again and meets the limit afresh. Each image costs `TOKENS_PER_IMAGE`.
 
 A `read_file` of lines an earlier read of that path **returned** — its numbered span, not
 its request, since a budget can cut it short — is a repeat too, served with just those lines
