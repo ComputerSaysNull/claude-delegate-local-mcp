@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #517 — 2026-10-30 — docs: plan transcript image counts, and saying what the shell can see
+
+### Changed
+
+- **Two items filed in PLAN.md.** Item 128: a call's images are invisible in its
+  transcript, so the viewer shows a `read_file` that sent 8 images as "1 lines · 212 B";
+  the record gains image counts, as a minor format bump to 1.13, with the viewer's half
+  filed as a contract card. Item 129: `run_bash` sees only the workdir, but its
+  description, the prompt's workdir line and the caller's `workdir` description all leave
+  that unsaid, and a delegation whose source file sat one folder above its workdir spent
+  five turns searching for it.
+
 ## #516 — 2026-10-29 — docs: callers are told what images cost and what limits them
 
 ### Changed
