@@ -75,6 +75,8 @@ whichever delegation happens to reach it ([why](docs/ARCHITECTURE.md)).
 virtualenv outside the workspace from the project's declaration — `pyproject.toml`,
 `setup.cfg`, `setup.py`, or `requirements.txt` when none is — [why there, and what keeps it
 in step](docs/ARCHITECTURE.md). Reading, writing and reviewing files need none of it.
+Claude Code can rebuild it itself with the `provision` tool, built to be allowlisted
+(`mcp__delegate-local__provision` in `permissions.allow`) so nobody has to be there.
 
 Put the venv outside the checkout — `uv venv --seed -p 3.14 ~/.venvs/delegate`, then
 `~/.venvs/delegate/bin/pip install -e /path/to/the/repo` — and under WSL on the native

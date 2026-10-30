@@ -19,6 +19,23 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0136 — 2026-10-30 — The caller may provision unattended — Accepted
+
+**Context.** Only an operator could run `provision`: the caller's own shell is usually
+sandboxed with no network and cannot write the sandbox home, so every stale interpreter
+waited for a person. The point of rebuilding from the caller is that work continues while
+nobody is watching, so a design that leans on a per-call approval prompt defeats it.
+
+**Decision.** An MCP tool, `provision`, runs the same build for a project inside the
+session's folder, checked exactly as `workdir` is, and passes `--yes`: the declaration's diff
+is returned in its output rather than awaited. Its safety argument is ADR-0135's alone, which
+is what makes it fit to allowlist. It is the caller's tool, never the delegated model's: it
+is not in the delegated toolset, and the stale note tells the model its caller can rebuild.
+
+**Consequence.** A stale or missing interpreter costs one tool call instead of a person. A
+delegation can still steer what is installed by editing the declaration; what it installs
+runs only where the delegation's own code already could.
+
 ## ADR-0135 — 2026-10-30 — A build runs no project code while the network is on — Accepted
 
 **Context.** `provision` ran `pip install --editable` on the host, with the network, so the

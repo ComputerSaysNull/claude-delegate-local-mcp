@@ -1002,8 +1002,9 @@ def stale_env_note(cfg: Config, workdir: str | None) -> str | None:
         return None
     return (
         "$DELEGATE_PYTHON is unset because the environment provisioned for this project is "
-        "stale: its dependency declaration changed after it was built, and nothing here can "
-        "rebuild it -- say so rather than testing without it."
+        "stale: its dependency declaration changed after it was built. Nothing here can "
+        "rebuild it, but your caller can, with its `provision` tool -- say so rather than "
+        "testing without it."
     )
 
 

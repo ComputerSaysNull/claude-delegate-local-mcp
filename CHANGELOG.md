@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #524 — 2026-10-30 — feat: Claude Code can provision a project itself
+
+### Added
+
+- **A stale or missing interpreter waited for a person.** `provision` was a command only the
+  operator could run: Claude Code's own shell is sandboxed, with no network and no write to
+  the sandbox home, so a delegation reporting `provisioning_stale` stopped the work until
+  someone came back. A `provision` MCP tool now runs the same build for a project inside the
+  session's folder, as a background task, and returns the exit code, the output (with any
+  declaration diff, built from anyway) and the interpreter path (ADR-0136). It is safe to
+  allowlist because the build runs no project code where the network is (ADR-0135), and it
+  is never offered to the delegated model. `provisioning_stale` and the stale note now point
+  at it, the note telling the model that its caller can rebuild.
+
 ## #523 — 2026-10-30 — feat: provision runs no project code while the network is on
 
 ### Changed
