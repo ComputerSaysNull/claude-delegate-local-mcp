@@ -3237,3 +3237,21 @@ image limit per request is a serving flag, not the model's, so tiling spends it.
 
 Decoding and tiling cost, solid RGBA PNGs: 4K into 8 tiles 0.17 s and +80 MB peak; 40 MP
 into 15 tiles 0.75 s and +352 MB, the RGB copy for the tiles doubling the decode's own.
+
+## 2026-10-30 — A wheels-only build covers both known projects; an editable build needs one more round
+
+Before moving `provision`'s build into the sandbox (ADR-0135), two questions: do the projects
+in use install from wheels alone, and does an offline install work inside the run_bash
+profile?
+
+`pip install --dry-run --only-binary :all: --report`, Python 3.14.4: a script project's
+three top-level packages resolve to 46, all wheels; this repository's
+dependencies, `dev` extra and build backend to 92, all wheels, `dynamic` unset.
+
+A delegation then ran `pip install --no-index --find-links <wheels>` inside its own
+run_bash, with `pip download six` failing on name resolution as the control. numpy installed
+and imported. `-e .` with hatchling failed: `No matching distribution found for
+editables~=0.3`. That requirement is not in `pyproject.toml`; the backend returns it from
+`get_requires_for_build_editable()`, which is code. With `editables` staged the same command
+built and imported, exit 0. So the host cannot know every wheel by reading, and the build
+asks the backend inside the sandbox first.

@@ -33,13 +33,15 @@ def setup(tmp_path: Path, monkeypatch):
     cfg = Config(workspace_roots=(str(tmp_path),), sandbox_home=str(home))  # type: ignore[arg-type]
     builds: list[str] = []
 
-    def fake_run(argv, *, out):
+    def fake_run(argv, *, out, cwd=None):
         if "venv" in argv:
             builds.append(argv[-1])
             os.makedirs(os.path.join(argv[-1], "bin"), exist_ok=True)
             Path(argv[-1], "bin", "python").write_text("", encoding="utf-8")
 
     monkeypatch.setattr(provision, "_run", fake_run)
+    monkeypatch.setattr(provision.sandbox, "run", lambda cfg, req: provision.sandbox.SandboxResult(
+        "DELEGATE_BUILD_REQUIRES=[]\n", "", 0, False))
     monkeypatch.setattr(provision.paths, "resolve_workdir", lambda cfg, given: given)
     monkeypatch.setattr(provision, "denylist_matches", lambda cfg, venv: [])
     return cfg, project, builds

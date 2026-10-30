@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #523 — 2026-10-30 — feat: provision runs no project code while the network is on
+
+### Changed
+
+- **A build ran the project's own code on the host, with the network.** `provision` ran
+  `pip install --editable` server-side, so a build backend or `setup.py` anyone who can edit
+  the project controls ran unsandboxed and online, and only `--yes` stood between a changed
+  declaration and that. The build is now two phases (ADR-0135): the host reads the
+  declaration with `tomllib` and downloads wheels only, from an empty staging directory;
+  the install and the backend run inside the run_bash sandbox, network denied, writing only
+  the venv, through a new `SandboxRequest.writable_binds` that refuses anything outside the
+  provisioned root. A backend's dynamic build requirements, which reading cannot see
+  (hatchling's `editables`), are asked for in the sandbox and come back as names. Every name
+  must be plain: a URL, path, option or archive name is refused. A dynamic or
+  `setup.py`-only declaration is refused, since reading it means running it. A second build
+  of one project while the first runs is refused by a lock.
+
 ## #522 — 2026-10-30 — feat: provision builds a project that declares only requirements.txt
 
 ### Added

@@ -278,6 +278,84 @@ def test_the_control_the_same_name_outside_it_is_still_covered(tmp_path):
     assert str(elsewhere / "credentials.py") in {t.path for t in found}
 
 
+# --- writable binds under the provisioned root (provision's one exception) ----------------
+#
+# `build_argv` binds the provisioned root read-only, which is the control that replaces the
+# secret cover there (ADR-0062). `provision` is the only caller that may override that for
+# a subtree, so it can `pip install` into exactly one venv; these tests pin both the order
+# and the fact that nothing else reaches the field.
+
+
+def test_a_writable_bind_is_bound_read_write_after_the_provisioned_root():
+    """The one escape from the read-only bind, and it must land on top of it.
+
+    Emitted immediately after the provisioned root's own `--ro-bind`, so it wins the
+    subtree it names, and before the extra binds and workdir, whose order the rules above
+    already pin.
+    """
+    provisioned = sandbox.provisioned_root(HOME)
+    venv = f"{provisioned}/proj-abc123"
+    argv = sandbox.build_argv(cfg(), req(workdir=WORKDIR, writable_binds=(venv,)))
+    assert (venv, venv) in pairs(argv, "--bind")
+    assert (venv, venv) not in pairs(argv, "--ro-bind")
+    assert index_of(argv, "--ro-bind", provisioned) < index_of(argv, "--bind", venv)
+    assert index_of(argv, "--bind", venv) < index_of(argv, "--bind", WORKDIR)
+
+
+def test_a_writable_bind_outside_the_provisioned_root_is_refused():
+    """The field must never widen what a command can write.
+
+    A path outside the provisioned root -- even one still under HOME -- would hand the
+    sandboxed command write access to a tree the read-only bind was the only control for.
+    """
+    outside = f"{HOME}/notvenvs/proj"
+    with pytest.raises(ValueError, match="notvenvs"):
+        req(writable_binds=(outside,))
+
+
+def test_the_provisioned_root_itself_cannot_be_writable():
+    """Only a proper subdirectory is allowed, not the root.
+
+    A writable bind at the root would un-do the read-only bind entirely, leaving the tree
+    the scan skips without covering to stand behind a bind that no longer protects it.
+    """
+    provisioned = sandbox.provisioned_root(HOME)
+    with pytest.raises(ValueError, match=provisioned):
+        req(writable_binds=(provisioned,))
+
+
+def test_no_writable_binds_leaves_the_argv_exactly_as_it_was():
+    """The default must cost nothing: absent the field, no new bind appears."""
+    assert sandbox.build_argv(cfg(), req()) == sandbox.build_argv(
+        cfg(), req(writable_binds=()))
+
+
+def test_a_writable_bind_is_not_a_scan_root(tmp_path, monkeypatch):
+    """The provisioned root is pruned without being covered, and a writable bind under it
+    must not become a root of the walk.
+
+    Asserted on the walk's roots directly rather than on the covering, because the prune
+    makes the tree invisible to the home walk: a writable bind slipped into `roots` would
+    be walked as a root of its own, and the prune that hides the provisioned root would not
+    apply to it.
+    """
+    home = tmp_path / "home"
+    provisioned = sandbox.provisioned_root(str(home))
+    venv = f"{provisioned}/proj-abc123"
+    os.makedirs(venv, exist_ok=True)
+    roots_seen: list[str] = []
+    real_walk = os.walk
+
+    def spy(top, *a, **k):
+        roots_seen.append(top)
+        return real_walk(top, *a, **k)
+
+    monkeypatch.setattr(sandbox.os, "walk", spy)
+    sandbox.discover_secret_shadows(cfg(), req(home=str(home), writable_binds=(venv,)))
+    assert str(home) in roots_seen
+    assert venv not in roots_seen
+
+
 # --- bind order rule 2a ------------------------------------------------------------------
 
 

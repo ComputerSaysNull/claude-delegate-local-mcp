@@ -12,6 +12,12 @@ here, once, as an operator action. `uv` is no substitute: the sandbox binds only
 binary and leaves its cache outside, so in an empty root with no network it resolves
 nothing.
 
+**Two phases, so no project code runs where the network is.** The host keeps the network
+and downloads the declared wheels with `pip download`, reading the declaration with
+`tomllib` and never running the project's own backend; that backend runs later, inside the
+sandbox where the network is denied, so anything anyone who can write the project controls
+cannot exfiltrate during the build.
+
 **Outside the workspace, and under `venvs/` rather than `.venv/`.** Both are forced.
 Inside a workspace root the secret scan walks the virtualenv and covers `certifi/cacert.pem`,
 `keyring/credentials.py` and all of `secretstorage/` with `/dev/null`, breaking the
@@ -33,15 +39,22 @@ import hashlib
 import json
 import os
 import posixpath
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tomllib
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+try:  # POSIX only. Absent on Windows, where the test suite runs but the server never does.
+    import fcntl
+except ImportError:  # pragma: no cover -- exercised by the Windows leg of CI
+    fcntl = None  # type: ignore[assignment]
 
 from . import config, paths, sandbox
 from .config import Config, ConfigError
@@ -77,6 +90,40 @@ SANDBOX_ENV_NAME = "DELEGATE_PYTHON"
 # network takes minutes on a cold cache.
 _BUILD_TIMEOUT = 1800.0
 
+# What a PEP 517 backend is asked for, and the requirement list that installs it, when
+# `[build-system]` names neither. Mirrored by `static_requirements`'s default, so the query
+# installs the same thing phase 1 already downloaded.
+_DEFAULT_BUILD_REQUIRES = ("setuptools>=40.8.0",)
+_DEFAULT_BACKEND = "setuptools.build_meta:__legacy__"
+
+# The marker line the backend query prints, and the script that runs inside the sandbox to
+# produce it. A PEP 517 backend reports extra build requirements dynamically from
+# `get_requires_for_build_editable()` -- code the host must not run -- so the query is the
+# only way to learn them without running project code where the network is.
+_BACKEND_REQUIRES_MARKER = "DELEGATE_BUILD_REQUIRES="
+_BACKEND_QUERY_SCRIPT = """\
+import importlib, json, os, sys
+backend = json.loads(sys.argv[1])
+paths = json.loads(sys.argv[2])
+for entry in paths:
+    sys.path.insert(0, entry if os.path.isabs(entry) else os.path.join(os.getcwd(), entry))
+if ":" in backend:
+    module, _, attrs = backend.partition(":")
+    obj = importlib.import_module(module)
+    for attr in attrs.split('.'):
+        if attr:
+            obj = getattr(obj, attr)
+else:
+    obj = importlib.import_module(backend)
+if hasattr(obj, "get_requires_for_build_editable"):
+    reqs = obj.get_requires_for_build_editable({})
+elif hasattr(obj, "get_requires_for_build_wheel"):
+    reqs = obj.get_requires_for_build_wheel({})
+else:
+    reqs = []
+print("DELEGATE_BUILD_REQUIRES=" + json.dumps(list(reqs)))
+"""
+
 
 class ProvisionError(RuntimeError):
     """Anything that stops a build, reported to the operator rather than raised at a caller."""
@@ -106,6 +153,43 @@ def interpreter_path(venv: str) -> str:
     `bwrap --unshare-all` with no PATH change.
     """
     return posixpath.join(venv, "bin", "python")
+
+
+def staging_dir(home: str, project_real: str) -> str:
+    """The staging directory one build downloads wheels into, derived not configured.
+
+    A hidden sibling of the venv, so the sandbox's read-only bind of the provisioned root
+    already covers it: the wheels need no bind of their own, and `pip install --no-index
+    --find-links` reads them from there. The dot-prefix is what keeps it out of a casual
+    listing of the provisioned root.
+    """
+    return posixpath.join(provisioned_root(home), "." + venv_name(project_real) + ".staging")
+
+
+def build_lock_path(home: str, project_real: str) -> str:
+    """The lock file one project's build holds, derived like the venv name."""
+    return posixpath.join(provisioned_root(home), "." + venv_name(project_real) + ".lock")
+
+
+def acquire_build_lock(home: str, project_real: str) -> int:
+    """A non-blocking exclusive lock over one project's build, or refuse.
+
+    Returns the open file descriptor; closing it releases the lock. A second build of the
+    same project while one holds the lock is refused rather than queued -- a build is
+    minutes long, and an operator is better told the first one is still running than left to
+    wonder why a second is stacking behind it.
+    """
+    if fcntl is None:
+        raise ProvisionError("build locking needs fcntl, which is not available here")
+    path = build_lock_path(home, project_real)
+    os.makedirs(posixpath.dirname(path), exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise ProvisionError("a build for this project is already running") from None
+    return fd
 
 
 def _pyproject_bytes(raw: bytes) -> bytes:
@@ -212,26 +296,131 @@ def _declaration_names(project_real: str) -> tuple[str, ...]:
     return ()
 
 
-def install_args(project_real: str) -> list[str]:
-    """The `pip install` arguments for one project, the `--quiet` flag aside.
+def static_requirements(project_real: str) -> list[str]:
+    """The dependency list, read without running any project code.
 
-    Package metadata wins: a project declaring it is installed editable -- carrying `[dev]`
-    when it declares the extra -- and a stray requirements.txt is ignored, exactly as the
-    hash ignores it. A project declaring none is installed from its requirements.txt
-    instead, which must not carry an option line (see `_validate_requirements`). A project
-    declaring neither keeps the editable form, which pip refuses, because a requirements
-    install would be just as wrong.
+    This is what makes the two-phase build possible: the host reads the declaration with
+    `tomllib` and keeps the network only for downloading wheels, and the project's own build
+    backend never runs where the network is. A requirements-only project's non-blank,
+    non-comment lines; a package project's `[project].dependencies`, plus the `dev` extra
+    when `install_target` adds it, plus `[build-system].requires`.
     """
-    target = install_target(project_real)
     if _declaration_names(project_real) == (REQUIREMENTS_NAME,):
-        requirements = Path(project_real) / REQUIREMENTS_NAME
-        _validate_requirements(requirements)
-        return ["-r", str(requirements)]
-    return ["--editable", target]
+        reqs = _validate_requirements(Path(project_real) / REQUIREMENTS_NAME)
+        for req in reqs:
+            _refuse_unverifiable(req)
+        return reqs
+    return _package_requirements(project_real)
 
 
-def _validate_requirements(requirements: Path) -> None:
-    """Refuse a pip option line in requirements.txt, naming it.
+def _package_requirements(project_real: str) -> list[str]:
+    """A package project's requirements, read statically from its `pyproject.toml`.
+
+    Refused when the declaration cannot be read statically: a `[project].dynamic` entry for
+    a dependency table, or setup.py/setup.cfg with no `[project]` table -- either way the
+    build would have to run the project's own code to learn what to install, which is
+    exactly what phase 1 exists to avoid.
+    """
+    source = Path(project_real) / "pyproject.toml"
+    try:
+        data = tomllib.loads(source.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        data = {}
+    if _declares_via_setup(project_real) and "project" not in data:
+        raise ProvisionError(
+            f"{project_real} declares its dependencies in setup.py/setup.cfg, which phase 1 "
+            "would have to run to read. Declare them statically in pyproject.toml's "
+            "[project] table or in requirements.txt."
+        )
+    project = data.get("project", {})
+    if not isinstance(project, dict):
+        project = {}
+    dynamic = project.get("dynamic", ())
+    if isinstance(dynamic, list) and any(
+        name in ("dependencies", "optional-dependencies") for name in dynamic
+    ):
+        raise ProvisionError(
+            f"{project_real} declares dependencies as dynamic, which phase 1 cannot read "
+            "without running the project's own code. Declare them statically in "
+            "pyproject.toml's [project] table or in requirements.txt."
+        )
+    reqs: list[str] = []
+    deps = project.get("dependencies", ())
+    if isinstance(deps, list):
+        reqs.extend(str(dep) for dep in deps)
+    if "dev" in _extras(project_real):
+        optional = project.get("optional-dependencies", {})
+        dev = optional.get("dev", ()) if isinstance(optional, dict) else ()
+        if isinstance(dev, list):
+            reqs.extend(str(dep) for dep in dev)
+    build = data.get("build-system")
+    requires: tuple[str, ...] = _DEFAULT_BUILD_REQUIRES
+    if isinstance(build, dict):
+        listed = build.get("requires")
+        if isinstance(listed, list):
+            requires = tuple(str(req) for req in listed)
+    reqs.extend(requires)
+    for req in reqs:
+        _refuse_unverifiable(req)
+    return reqs
+
+
+def _declares_via_setup(project_real: str) -> bool:
+    """Does the project declare itself in setup.py/setup.cfg rather than `[project]`?"""
+    return (Path(project_real) / "setup.py").exists() or (
+        Path(project_real) / "setup.cfg"
+    ).exists()
+
+
+def _build_system(project_real: str) -> dict[str, Any]:
+    """The `[build-system]` table, or {} when it is absent or unreadable."""
+    source = Path(project_real) / "pyproject.toml"
+    try:
+        data = tomllib.loads(source.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    build = data.get("build-system")
+    return build if isinstance(build, dict) else {}
+
+
+def _build_requires(build: dict[str, Any]) -> tuple[str, ...]:
+    """The build-system requires, or the default when the table names none."""
+    listed = build.get("requires")
+    if isinstance(listed, list):
+        return tuple(str(req) for req in listed)
+    return _DEFAULT_BUILD_REQUIRES
+
+
+_ARCHIVE_SUFFIXES = (
+    ".whl", ".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tar.xz", ".txz"
+)
+
+
+def _refuse_unverifiable(requirement: str) -> None:
+    """Refuse a requirement the build cannot download and record as one thing.
+
+    Only a plain name, optional extras, version specifiers and a marker are acceptable. A
+    URL or path -- a leading `-`/`.`/`/`/`~`, or `@`/`://`/`file:` -- is a way to send data
+    out of the sandbox or to install what the dependency hash does not cover, so it is
+    refused rather than downloaded on the host's network. So is a name ending like an
+    archive: pip reads one that exists as a local file, and builds a local sdist on the
+    host.
+    """
+    if (
+        requirement.startswith(("-", ".", "/", "~"))
+        or "@" in requirement
+        or "://" in requirement
+        or "file:" in requirement
+        or requirement.lower().endswith(_ARCHIVE_SUFFIXES)
+    ):
+        raise ProvisionError(
+            f"refused requirement {requirement!r}: a URL or path is a way to send data out "
+            "or to install what the dependency hash does not cover"
+        )
+
+
+def _validate_requirements(requirements: Path) -> list[str]:
+    """A requirements file's requirement lines, refusing a pip option line.
 
     An option line pulls in what the hash does not cover -- `-r`/`-c` another file, `-e` a
     checkout -- or points pip at an index the operator's configuration cut-out was meant to
@@ -245,6 +434,7 @@ def _validate_requirements(requirements: Path) -> None:
         raise ProvisionError(
             f"could not read {REQUIREMENTS_NAME}: {e.strerror or e}"
         ) from e
+    lines: list[str] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -255,6 +445,112 @@ def _validate_requirements(requirements: Path) -> None:
                 "(an included file would escape the dependency hash, and an index option "
                 "would bypass the cut-out of the operator's pip configuration)"
             )
+        lines.append(stripped)
+    return lines
+
+
+def install_request(
+    cfg: Config, project_real: str, venv: str, staging: str
+) -> sandbox.SandboxRequest:
+    """The sandboxed install for one build, as a request, so tests check it without bwrap.
+
+    The command installs into `venv` from `staging` only, with no index and no network. For a
+    package project the workdir is the project, since the editable build may write into it;
+    for a requirements project there is no project code, so no workdir is bound.
+    """
+    python = interpreter_path(venv)
+    if _declaration_names(project_real) == (REQUIREMENTS_NAME,):
+        args = ["-r", posixpath.join(staging, REQUIREMENTS_NAME)]
+        workdir = None
+    else:
+        args = ["--editable", install_target(project_real)]
+        workdir = project_real
+    command = shlex.join([
+        python, "-m", "pip", "install",
+        "--no-index", "--no-cache-dir", "--find-links", staging, *args,
+    ])
+    return sandbox.SandboxRequest(
+        command=command,
+        home=sandbox.resolve_home(cfg),
+        workdir=workdir,
+        network=False,
+        writable_binds=(venv,),
+        env={**sandbox.resolve_env(cfg), "PIP_CONFIG_FILE": os.devnull},
+    )
+
+
+def backend_query_request(
+    cfg: Config, project_real: str, staging: str, venv: str
+) -> sandbox.SandboxRequest:
+    """The sandboxed query that asks the build backend for its extra build requirements.
+
+    A PEP 517 backend reports extra build requirements dynamically from
+    `get_requires_for_build_editable()` -- code the host must not run -- so the query runs
+    here, in the sandbox with the network denied, and only the requirement names cross back
+    to the host, past the same plain-name check as the declaration. The command first
+    installs `[build-system].requires` into a scratch target with the venv's own
+    interpreter, then runs a script that imports the backend and asks it.
+    """
+    build = _build_system(project_real)
+    requires = _build_requires(build)
+    backend = str(build.get("build-backend") or _DEFAULT_BACKEND)
+    listed = build.get("backend-path")
+    backend_path = tuple(str(p) for p in listed) if isinstance(listed, list) else ()
+    python = interpreter_path(venv)
+    install = shlex.join([
+        python, "-m", "pip", "install",
+        "--no-index", "--no-cache-dir", "--find-links", staging,
+        "--target", "/tmp/delegate-backend", *requires,
+    ])
+    query = shlex.join([
+        python, "-c", _BACKEND_QUERY_SCRIPT,
+        json.dumps(backend), json.dumps(list(backend_path)),
+    ])
+    return sandbox.SandboxRequest(
+        command=f"{install} && {query}",
+        home=sandbox.resolve_home(cfg),
+        workdir=project_real,
+        network=False,
+        env={
+            **sandbox.resolve_env(cfg),
+            "PIP_CONFIG_FILE": os.devnull,
+            "PYTHONPATH": "/tmp/delegate-backend",
+        },
+    )
+
+
+def parse_backend_requires(stdout: str) -> list[str]:
+    """The extra build requirements the backend reported, from its one marker line.
+
+    Anything else -- no marker, unparseable JSON, not a list of strings -- is refused with
+    what came back, because a build cannot verify what it cannot read as a requirement list.
+    """
+    for line in stdout.splitlines():
+        if not line.startswith(_BACKEND_REQUIRES_MARKER):
+            continue
+        payload = line[len(_BACKEND_REQUIRES_MARKER):]
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            raise ProvisionError(
+                f"the backend query reported requirements it could not parse: "
+                f"{_truncate(payload)}"
+            ) from None
+        if not isinstance(parsed, list) or not all(isinstance(x, str) for x in parsed):
+            raise ProvisionError(
+                f"the backend query reported requirements that are not a list of strings: "
+                f"{_truncate(payload)}"
+            )
+        return parsed
+    raise ProvisionError(
+        f"the backend query printed no {_BACKEND_REQUIRES_MARKER!r} line; got: "
+        f"{_truncate(stdout)}"
+    )
+
+
+def _truncate(text: str, limit: int = 300) -> str:
+    """Shorten what came back so a refusal names it without flooding the build log."""
+    return text if len(text) <= limit else text[:limit] + "..."
 
 
 def read_record(venv: str) -> dict[str, Any] | None:
@@ -429,11 +725,11 @@ def build_env() -> dict[str, str]:
     return env
 
 
-def _run(argv: list[str], *, out) -> None:
+def _run(argv: list[str], *, out, cwd: str | None = None) -> None:
     """One build step, with its real exit code honoured and its output shown on failure."""
     proc = subprocess.run(
         argv, capture_output=True, stdin=subprocess.DEVNULL, text=True,
-        timeout=_BUILD_TIMEOUT, env=build_env(), check=False,
+        timeout=_BUILD_TIMEOUT, env=build_env(), check=False, cwd=cwd,
     )
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-8:]
@@ -483,28 +779,34 @@ def build(cfg: Config, project_real: str, *, out) -> str:
     sandbox.ensure_home(home)
     venv = venv_dir(home, project_real)
 
-    # The working environment is moved aside, never deleted first, so a failed rebuild --
-    # network down, a bad pin -- puts it back rather than leaving no interpreter. The old one
-    # moves, not the new one: a virtualenv writes its absolute path into its scripts, so a
-    # tree built at one path and renamed is broken.
-    previous: str | None = None
-    if os.path.exists(venv):
-        previous = f"{venv}.previous"
-        if os.path.exists(previous):
-            _remove(previous)  # left by an interrupted run; the live one is `venv`
-        print(f"  moving the existing environment aside while {venv} is rebuilt", file=out)
-        _move(venv, previous)
+    # One build per project at a time. Non-blocking, so a second operator action fails fast
+    # rather than stacking behind a build that may take minutes.
+    lock = acquire_build_lock(home, project_real)
     try:
-        _build_into(project_real, venv, out=out)
-    except BaseException:
+        # The working environment is moved aside, never deleted first, so a failed rebuild --
+        # network down, a bad pin -- puts it back rather than leaving no interpreter. The old
+        # one moves, not the new one: a virtualenv writes its absolute path into its scripts,
+        # so a tree built at one path and renamed is broken.
+        previous: str | None = None
         if os.path.exists(venv):
-            _remove(venv)
+            previous = f"{venv}.previous"
+            if os.path.exists(previous):
+                _remove(previous)  # left by an interrupted run; the live one is `venv`
+            print(f"  moving the existing environment aside while {venv} is rebuilt", file=out)
+            _move(venv, previous)
+        try:
+            _build_into(cfg, project_real, venv, home, out=out)
+        except BaseException:
+            if os.path.exists(venv):
+                _remove(venv)
+            if previous is not None:
+                _move(previous, venv)
+                print("  the build failed, so the previous environment is back in place", file=out)
+            raise
         if previous is not None:
-            _move(previous, venv)
-            print("  the build failed, so the previous environment is back in place", file=out)
-        raise
-    if previous is not None:
-        _remove(previous)
+            _remove(previous)
+    finally:
+        os.close(lock)
     return venv
 
 
@@ -522,34 +824,164 @@ def _move(src: str, dst: str) -> None:
         raise ProvisionError(f"could not move {src} to {dst}: {e.strerror or e}") from e
 
 
-def _build_into(project_real: str, venv: str, *, out) -> None:
-    """The build steps and the record, into `venv`. Raises `ProvisionError` on any failure."""
+def _build_into(cfg: Config, project_real: str, venv: str, home: str, *, out) -> None:
+    """The two-phase build and the record, into `venv`. Raises `ProvisionError` on failure.
+
+    Phase 1 runs on the host, with the network, but never runs project code: it makes the
+    venv and downloads wheels. Phase 2 runs inside the sandbox, where the network is denied,
+    and is where the project's own build backend finally runs.
+    """
     print(f"  building {venv}", file=out)
-    _run([sys.executable, "-m", "venv", venv], out=out)
-
-    python = interpreter_path(venv)
-    args = install_args(project_real)
-    print(f"  installing {' '.join(args)}", file=out)
-    _run([python, "-m", "pip", "install", "--quiet", "--upgrade", "pip"], out=out)
-    _run([python, "-m", "pip", "install", "--quiet", *args], out=out)
-
-    record = {
-        "project": project_real,
-        "interpreter": python,
-        "dependency_hash": dependency_hash(project_real),
-        # A copy, so the next rebuild can show what changed rather than only that it did.
-        "declarations": declarations(project_real),
-        "hash_sources": list(_declaration_names(project_real)),
-        "install_target": args[1],
-        "base_python": sys.executable,
-        "provisioned": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
+    staging = staging_dir(home, project_real)
     try:
-        (Path(venv) / RECORD_NAME).write_text(
-            json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        _run([sys.executable, "-m", "venv", venv], out=out)
+        _download_wheels(project_real, staging, out=out)
+
+        # A package project's backend may report extra build requirements dynamically, so
+        # they are queried and staged before the install; a requirements-only project has no
+        # backend to ask and skips this round entirely.
+        if _declaration_names(project_real) != (REQUIREMENTS_NAME,):
+            _backend_round(cfg, project_real, venv, staging, out=out)
+
+        _install_in_sandbox(
+            cfg, install_request(cfg, project_real, venv, staging), out=out
         )
-    except OSError as e:
-        raise ProvisionError(f"could not write the build record: {e.strerror or e}") from e
+
+        python = interpreter_path(venv)
+        record = {
+            "project": project_real,
+            "interpreter": python,
+            "dependency_hash": dependency_hash(project_real),
+            # A copy, so the next rebuild can show what changed rather than only that it did.
+            "declarations": declarations(project_real),
+            "hash_sources": list(_declaration_names(project_real)),
+            "install_target": (
+                install_target(project_real)
+                if _declaration_names(project_real) != (REQUIREMENTS_NAME,)
+                else str(Path(project_real) / REQUIREMENTS_NAME)
+            ),
+            "base_python": sys.executable,
+            "provisioned": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        try:
+            (Path(venv) / RECORD_NAME).write_text(
+                json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+        except OSError as e:
+            raise ProvisionError(f"could not write the build record: {e.strerror or e}") from e
+    finally:
+        _remove_staging(staging)
+
+
+def _download_wheels(project_real: str, staging: str, *, out) -> None:
+    """Phase 1: download every requirement's wheels, on the host, with no project code.
+
+    `--only-binary :all:` so nothing needs the project's own backend or a source build on
+    the host -- a wheel is the one shape `pip install --no-index` inside the sandbox can
+    consume. `build_env()` cuts the operator's pip configuration out, so an index URL with
+    credentials cannot be recorded in what the sandbox then reads.
+    """
+    if os.path.exists(staging):
+        _remove(staging)
+    os.makedirs(staging)
+    reqs = static_requirements(project_real)
+    if _declaration_names(project_real) == (REQUIREMENTS_NAME,):
+        (Path(staging) / REQUIREMENTS_NAME).write_text(
+            "\n".join(reqs) + "\n", encoding="utf-8"
+        )
+    _download_requirements(staging, reqs, out=out)
+
+
+def _download_requirements(staging: str, reqs: Sequence[str], *, out) -> None:
+    """Download the given requirements' wheels into the existing staging directory.
+
+    Shared by the declaration round and the backend round, so the second set of wheels lands
+    beside the first in the one `--find-links` source phase 2 reads. Run from inside the
+    staging directory, so no argument can name a file pip would read as a local archive and
+    build on the host.
+    """
+    if not reqs:
+        return
+    print(f"  downloading wheels into {staging}", file=out)
+    _run([sys.executable, "-m", "pip", "download",
+          "--only-binary", ":all:", "--dest", staging, *reqs], out=out, cwd=staging)
+
+
+def _requirement_name(requirement: str) -> str:
+    """A requirement's distribution name, up to its first extra, marker or version bound."""
+    m = re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", requirement)
+    return m.group(0) if m else requirement
+
+
+def _static_names(project_real: str) -> frozenset[str]:
+    """The distribution names phase 1 already downloaded, for the backend round's dedup."""
+    return frozenset(_requirement_name(r) for r in static_requirements(project_real))
+
+
+def _backend_round(cfg: Config, project_real: str, venv: str, staging: str, *, out) -> None:
+    """Ask the build backend for its dynamic build requirements, then stage them.
+
+    The backend runs only in the sandbox with the network denied; what crosses back to the
+    host is a list of requirement names that pass the same plain-name check as the
+    declaration, so only the package index sees them. A name already staged from the
+    declaration is not downloaded twice.
+    """
+    print("  asking the build backend for its extra requirements", file=out)
+    result = _run_sandbox(
+        cfg, backend_query_request(cfg, project_real, staging, venv),
+        out=out, what="backend query",
+    )
+    dynamic = parse_backend_requires(result.stdout)
+    for req in dynamic:
+        _refuse_unverifiable(req)
+    remaining = [
+        req for req in dynamic
+        if _requirement_name(req) not in _static_names(project_real)
+    ]
+    if remaining:
+        _download_requirements(staging, remaining, out=out)
+
+
+def _run_sandbox(
+    cfg: Config, req: sandbox.SandboxRequest, *, out, what: str
+) -> sandbox.SandboxResult:
+    """Run one sandboxed build step, with its real exit code honoured and its tail shown.
+
+    Shared by the install and the backend query: both run project-controlled code only in
+    the sandbox where the network is denied, and both fail the build on a non-zero or
+    timed-out run rather than on a message.
+    """
+    try:
+        result = sandbox.run(
+            replace(cfg, run_bash_timeout=int(_BUILD_TIMEOUT)), req
+        )
+    except (sandbox.SandboxUnavailable, sandbox.SecretShadowIncomplete) as e:
+        raise ProvisionError(str(e)) from e
+    if result.timed_out or result.exit_code != 0:
+        tail = (result.stderr or result.stdout or "").strip().splitlines()[-8:]
+        print("\n".join(f"      {line}" for line in tail), file=out)
+        if result.timed_out:
+            raise ProvisionError(
+                f"the sandboxed {what} exceeded {_BUILD_TIMEOUT:.0f}s and was abandoned"
+            )
+        raise ProvisionError(f"the {what} inside the sandbox exited {result.exit_code}")
+    return result
+
+
+def _install_in_sandbox(cfg: Config, req: sandbox.SandboxRequest, *, out) -> None:
+    """Phase 2: the install, inside the sandbox with the network denied.
+
+    The project's own build backend -- the code anyone who can write the project controls --
+    runs here, where it cannot reach the network, rather than on the host where phase 1's
+    download just happened.
+    """
+    _run_sandbox(cfg, req, out=out, what="pip install")
+
+
+def _remove_staging(staging: str) -> None:
+    """Remove the staging directory, whether the build succeeded or not."""
+    if os.path.exists(staging):
+        _remove(staging)
 
 
 def declarations(project_real: str) -> dict[str, str]:
@@ -567,9 +999,10 @@ def declarations(project_real: str) -> dict[str, str]:
 def declaration_change(project_real: str, record: dict[str, Any] | None) -> str | None:
     """What changed in the declaration since `record` was built, or None if nothing did.
 
-    The build runs the project's own backend on the host, and a delegation can edit the
-    declaration, so a rebuild from a changed one is shown before it runs. A record keeping
-    no copy can only say *that* it changed.
+    The build reads the declaration on the host and runs the project's own backend only
+    inside the sandbox, and a delegation can edit the declaration, so a rebuild from a
+    changed one is shown before it runs. A record keeping no copy can only say *that* it
+    changed.
     """
     if record is None or dependency_hash(project_real) == record.get("dependency_hash"):
         return None
@@ -608,8 +1041,8 @@ def run(cfg: Config, given: str, *, out, yes: bool = False) -> int:
         print(change, file=out)
         if not yes:
             print(
-                "Building runs the project's own build backend on this machine, outside the "
-                "sandbox, and a delegation can edit these files. Read the change above, then "
+                "A delegation can edit these files, and the build installs what they name "
+                "into the interpreter every delegation here runs. Read the change above, then "
                 "re-run with --yes to build from it.",
                 file=out,
             )
