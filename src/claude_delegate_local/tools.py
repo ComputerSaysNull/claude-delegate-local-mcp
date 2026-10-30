@@ -45,10 +45,12 @@ from .paths import (
     key_material_marker,
     load_secret_globs,
     open_resolved,
+    path_within_roots,
     resolve_all,
     resolve_permitted,
     resolve_search_root,
     resolved_roots,
+    resolved_workdir_roots,
     secret_match,
     untrusted_git_config,
 )
@@ -1008,32 +1010,71 @@ def stale_env_note(cfg: Config, workdir: str | None) -> str | None:
     )
 
 
+def _declaring_folder(cfg: Config, workdir: str) -> str | None:
+    """The nearest folder that declares Python dependencies, or None.
+
+    Walks from the workdir upward, stopping at the first folder that is a workdir root and
+    never going above one, because a declaration above the root belongs to a different
+    project. A workdir outside every root yields None: the walk could otherwise escape the
+    workspace entirely. A folder declares when `_declaration_names` is non-empty, which
+    already ranks pyproject.toml / setup.cfg / setup.py above requirements.txt.
+    """
+    roots = resolved_workdir_roots(cfg)
+    if not path_within_roots(workdir, roots):
+        return None
+    folder = workdir
+    while True:
+        if provision._declaration_names(folder):
+            return folder
+        if folder in roots:
+            return None
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            return None
+        folder = parent
+
+
 def missing_env_note(
     cfg: Config, workdir: str | None, covered_venvs: Sequence[str]
 ) -> str | None:
-    """One sentence saying `$DELEGATE_PYTHON` is unset because a venv was covered.
+    """One sentence saying `$DELEGATE_PYTHON` is unset because nothing is provisioned.
 
     A virtualenv hidden by the secret scan looks exactly like nothing provisioned, so the
-    model falls back to the standard library instead of asking for a build. Silent beside a
-    current or a stale environment: the former sets the variable, and the stale note covers
-    the latter.
+    model falls back to the standard library instead of asking for a build; a project that
+    declares dependencies but was never built looks the same. This names the covered
+    environments and the nearest declaring folder, so the caller is told which folder to
+    build. Silent beside a current or a stale environment: the former sets the variable, and
+    the stale note covers the latter.
     """
     if workdir is None:
         return None
     # Only the workdir's own: the scan also walks the sandbox home, which is not the project.
     inside = [v for v in covered_venvs if v.startswith(workdir.rstrip("/") + "/")]
-    if not inside:
+    declaring = _declaring_folder(cfg, workdir)
+    if not inside and declaring is None:
         return None
     if provision.provisioned_for(cfg, workdir) is not None:
         return None
     if provision.stale_for(cfg, workdir) is not None:
         return None
     names = ", ".join(os.path.relpath(v, workdir) for v in inside)
-    return (
-        f"Hidden from this shell as Python environments: {names}. Nothing is provisioned "
-        "for this workdir, so $DELEGATE_PYTHON is unset. Your caller can build one with its "
-        "`provision` tool -- say so rather than working without the project's packages."
-    )
+    hidden = f"Hidden from this shell as Python environments: {names}. " if inside else ""
+    if declaring is not None:
+        unset = (
+            f"Nothing is provisioned for this workdir, so $DELEGATE_PYTHON is unset, though "
+            f"{declaring} declares Python dependencies."
+        )
+        ending = (
+            "Your caller can build one with its `provision` tool for that folder -- say so "
+            "rather than working without the project's packages."
+        )
+    else:
+        unset = "Nothing is provisioned for this workdir, so $DELEGATE_PYTHON is unset."
+        ending = (
+            "Your caller can build one with its `provision` tool -- say so rather than "
+            "working without the project's packages."
+        )
+    return f"{hidden}{unset} {ending}"
 
 
 # Beside a failed command in a shell with nothing of the caller's bound. The file tools

@@ -1754,6 +1754,9 @@ def test_a_hidden_venv_with_nothing_provisioned_is_reported_to_the_caller(
         ),
         config=config, task="t", workdir=str(project),
     )
+    # The declaration would fire the note on its own now, so the negative control drops it:
+    # with no venv and no declaration there really is nothing missing.
+    (project / "pyproject.toml").unlink()
     state["covered"] = False
     not_fired = delegated(
         turn_handler(

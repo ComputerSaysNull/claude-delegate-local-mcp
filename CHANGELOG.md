@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #527 — 2026-10-30 — fix: a never-provisioned project with no venv is reported too
+
+### Fixed
+
+- **A project that declared dependencies but had no venv got no note.** #526's note and
+  `provisioning_missing` fired only for a virtualenv the scan hid, so a script project with
+  just a `requirements.txt`, never provisioned, still showed nothing but an `ImportError`
+  and the model fell back to the standard library. Both now also fire when the workdir, or
+  a parent up to the workspace root, declares Python dependencies; the note names that
+  folder's absolute path, the one the caller passes to `provision`.
+
 ## #526 — 2026-10-30 — feat: a delegation is told why its project's interpreter is missing
 
 ### Added
