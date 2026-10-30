@@ -246,17 +246,17 @@ It is the first command here that reads an argument rather than testing for one,
 matched on `sys.argv[1]` and not by membership — matched the way `--doctor` is, a project
 path containing the word would start building a virtualenv instead of a server.
 
-**`run_bash` is told where the interpreter is through the environment**, as
-`$DELEGATE_PYTHON`, matched against the workdir. Not by widening PATH, and not by appending
-to the command: `run_bash` takes an opaque shell string, so adding arguments would mean
-parsing shell. The `--setenv` lands in the argv the transcript records, so what was offered
-is answerable from the record. **A stale environment is withheld rather than offered** —
-an interpreter built from a declaration that has moved on would produce a passing suite at
-exit 0 against the wrong versions. Withheld is not hidden: every `run_bash` result then
-carries a line naming the stale build, and the delegation result `provisioning_stale`, so
-it never reads as never provisioned; the caller's `provision` tool rebuilds it, unattended
-(ADR-0136). Absent rather than empty, too: a shell expands an unset
-name to nothing, and `$DELEGATE_PYTHON -m pytest` would then run `-m pytest`.
+**`run_bash` is told where the interpreter is through the environment**, as `$DELEGATE_PYTHON`,
+matched against the workdir. Not by widening PATH, and not by appending to the command:
+`run_bash` takes an opaque shell string, so adding arguments would mean parsing shell. The
+`--setenv` lands in the argv the transcript records, so what was offered is answerable from the
+record. **A stale environment is withheld rather than offered** — an interpreter built from a
+declaration that has moved on would produce a passing suite at exit 0 against the wrong
+versions. Withheld is not hidden: every `run_bash` result then carries a line naming the stale
+build, and the delegation result `provisioning_stale`, so it never reads as never provisioned,
+nor does a venv the scan hid (`provisioning_missing`); the caller's `provision` tool fixes both
+(ADR-0136). Absent rather than empty, too: a shell expands an unset name to nothing, and
+`$DELEGATE_PYTHON -m pytest` would then run `-m pytest`.
 
 **Tests that cannot run nested travel the same way**, as `PYTEST_ADDOPTS`. A project lists
 them under `[tool.delegate-local] nested-deselect` in its `pyproject.toml`, read at call

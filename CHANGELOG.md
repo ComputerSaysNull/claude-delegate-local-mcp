@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #526 — 2026-10-30 — feat: a delegation is told why its project's interpreter is missing
+
+### Added
+
+- **A hidden virtualenv read as an empty folder.** In a workdir whose `.venv` the scan covers
+  and with nothing provisioned, a delegation saw an empty directory and no `$DELEGATE_PYTHON`,
+  with nothing saying why, and fell back to the standard library for a whole run instead of
+  asking for a build. Every `run_bash` result there now carries a line naming the hidden
+  environments and saying the caller can build one with its `provision` tool, and the
+  delegation result carries `provisioning_missing`, so the caller learns it from the server
+  rather than from the model's account. Silent when the workdir is provisioned, beside the
+  stale note, and for a venv covered outside the workdir.
+
 ## #525 — 2026-10-30 — fix: the secret scan covers a virtualenv whatever its name
 
 ### Fixed

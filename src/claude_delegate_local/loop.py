@@ -2294,6 +2294,9 @@ class _Watch:
         # Calls that failed at all, each once. `tool_errors` and `bash_failures` overlap,
         # and neither contains the other, so neither nor their sum gives this.
         self.failed_calls = 0
+        # Bash calls whose "nothing provisioned" note fired: a covered virtualenv and no
+        # environment for the workdir, so the model was told to ask for a build.
+        self.bash_missing_env = 0
         self.last_bash_exit: int | None = None
         self._paths: dict[str, str] = {}  # tool_use_id -> the path argument it carried
         self._evicted_at: dict[str, int] = {}  # path -> the turn its result was dropped
@@ -2329,6 +2332,7 @@ class _Watch:
         trustworthy and a zero ambiguous (ADR-0007).
         """
         self.bash_calls += 1
+        self.bash_missing_env += bash.missing_env_note
         masked = bash.ran and bash.masked_failure
         failed = bool(is_error or bash.timed_out or bash.exit_code != 0 or masked)
         self.bash_failures += failed
@@ -2614,6 +2618,9 @@ class AgenticDispatch:
     bash_failures: int = 0
     # Also inside `bash_failures`; apart, it says how many failures the exit code hid.
     bash_masked_failures: int = 0
+    # Bash calls whose "nothing provisioned" note fired, so `$DELEGATE_PYTHON` was unset and
+    # the model was told to ask for a build (reported as `provisioning_missing`).
+    bash_missing_env: int = 0
     failed_calls: int = 0
     last_bash_exit: int | None = None
     # Zero is never (turns count from one). A tightened or nudged answer was written under
@@ -3272,6 +3279,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             bash_calls=watch.bash_calls,
             bash_failures=watch.bash_failures,
             bash_masked_failures=watch.bash_masked_failures,
+            bash_missing_env=watch.bash_missing_env,
             failed_calls=watch.failed_calls,
             last_bash_exit=watch.last_bash_exit,
             overflow_tightened_at=guard.tightened_at,

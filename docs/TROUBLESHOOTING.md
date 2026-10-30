@@ -219,10 +219,10 @@ seeing this from the server itself means the path is genuinely unwritable. ADR-0
 The empty root contains only what is bound, and `uv` lives outside it. Add toolchains via
 `extra_binds` — see [AGENTS.md](AGENTS.md#extra_binds-for-toolchains).
 
-### `python: not found`, or `import pytest` fails, inside the sandbox
+### `python: not found`, `import pytest` fails, or the project's `.venv` is empty, inside the sandbox
 
 The empty root has no interpreter with the project's dependencies in it, and no network to
-install one. Run `claude-delegate-local-mcp provision <project>`, then `--doctor` — see
+install one. Call the `provision` tool, or run `claude-delegate-local-mcp provision <project>`; see
 [ARCHITECTURE.md](ARCHITECTURE.md#provision-builds-the-interpreter-a-delegation-verifies-with).
 
 ### A test run passes but the dependencies are old

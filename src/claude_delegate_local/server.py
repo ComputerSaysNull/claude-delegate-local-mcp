@@ -1211,6 +1211,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         **({"provisioning_stale": True}
            if workdir is not None and provision.stale_for(cfg, workdir) is not None
            else {}),
+        # A run_bash found a hidden virtualenv and nothing provisioned, so the note that
+        # said so is what the model read; to the caller it must not read as "never
+        # provisioned" either.
+        **({"provisioning_missing": True}
+           if getattr(dispatched, "bash_missing_env", 0) else {}),
         # Only when armed and declined; absent otherwise, since then there is no decision.
         **({"overflow_disarmed": overflow_off_because} if overflow_off_because else {}),
         **_diagnostics_block(dispatched, requested=diagnostics),
@@ -1385,6 +1390,11 @@ _DELEGATION_RESULT: dict[str, Any] = {
             "Present and true when the workdir's provisioned environment is stale, so "
             "$DELEGATE_PYTHON was withheld from run_bash. Call the `provision` tool to "
             "rebuild it."
+        )},
+        "provisioning_missing": {"type": "boolean", "description": (
+            "Present and true when a run_bash found a hidden virtualenv and nothing "
+            "provisioned, so $DELEGATE_PYTHON was unset. Call the `provision` tool for the "
+            "workdir."
         )},
     },
 }

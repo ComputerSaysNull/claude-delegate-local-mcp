@@ -1008,6 +1008,34 @@ def stale_env_note(cfg: Config, workdir: str | None) -> str | None:
     )
 
 
+def missing_env_note(
+    cfg: Config, workdir: str | None, covered_venvs: Sequence[str]
+) -> str | None:
+    """One sentence saying `$DELEGATE_PYTHON` is unset because a venv was covered.
+
+    A virtualenv hidden by the secret scan looks exactly like nothing provisioned, so the
+    model falls back to the standard library instead of asking for a build. Silent beside a
+    current or a stale environment: the former sets the variable, and the stale note covers
+    the latter.
+    """
+    if workdir is None:
+        return None
+    # Only the workdir's own: the scan also walks the sandbox home, which is not the project.
+    inside = [v for v in covered_venvs if v.startswith(workdir.rstrip("/") + "/")]
+    if not inside:
+        return None
+    if provision.provisioned_for(cfg, workdir) is not None:
+        return None
+    if provision.stale_for(cfg, workdir) is not None:
+        return None
+    names = ", ".join(os.path.relpath(v, workdir) for v in inside)
+    return (
+        f"Hidden from this shell as Python environments: {names}. Nothing is provisioned "
+        "for this workdir, so $DELEGATE_PYTHON is unset. Your caller can build one with its "
+        "`provision` tool -- say so rather than working without the project's packages."
+    )
+
+
 # Beside a failed command in a shell with nothing of the caller's bound. The file tools
 # resolve against the workspace roots, so a model can write a file its shell then cannot
 # find, and "No such file" alone sends it probing a path that exists.
@@ -1078,14 +1106,15 @@ def _run_bash(cfg: Config, args: dict[str, object], policy: BashPolicy) -> BashR
     )
     failed = result.exit_code != 0 or result.masked_failure
     unbound = NO_WORKDIR_NOTE if policy.workdir is None and failed else None
+    missing = missing_env_note(cfg, policy.workdir, result.covered_venvs)
     note_part = "".join(
-        f"\n\n{n}" for n in (stale_env_note(cfg, policy.workdir), unbound) if n
+        f"\n\n{n}" for n in (stale_env_note(cfg, policy.workdir), missing, unbound) if n
     )
     return BashResult(
         f"exit {result.exit_code}{masked}{moved}\n\n{body}{note_part}",
         BashOutcome(
             exit_code=result.exit_code, ran=True, masked_failure=result.masked_failure,
-            stages=result.stages,
+            stages=result.stages, missing_env_note=missing is not None,
         ),
         is_error=result.exit_code != 0,
     )
