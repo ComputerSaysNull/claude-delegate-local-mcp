@@ -440,10 +440,10 @@ A delegation is a loop, and one turn is one model reply plus any tools it called
 ends on the first reply that carries no tool calls — that reply *is* the answer — or when
 the turn budget runs out. [`max_turns_default`](CONFIGURATION.md) sets the budget, and
 [`max_turns_default_writing`](CONFIGURATION.md) the larger one a toolset that can write gets,
-since writing work iterates. [`max_turns_hard_cap`](CONFIGURATION.md) bounds both; the cap is
-applied silently rather than refused, because the work is legitimate and only the number is
-not. The resolved figure is written to the stream, so a reader sees "turn 3 of 25" rather
-than a count with nothing to measure it against.
+since writing work iterates. [`max_turns_hard_cap`](CONFIGURATION.md) bounds both, applied
+rather than refused, since the work is legitimate and only the number is not; the result says
+so, `max_turns` beside `max_turns_requested`, and the `max_turns` argument names the cap. The
+figure is in the stream too, so a reader sees "turn 3 of 25", not a bare count.
 
 An **agent file** asking for more than the cap is refused instead, at load. The asymmetry is
 deliberate: a call argument is transient, so clamping it costs nobody anything, while a file

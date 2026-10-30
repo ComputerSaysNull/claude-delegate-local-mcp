@@ -440,7 +440,7 @@ class Config:
         "500 turns and occupying the cluster for hours. Raised from 40 once max_turns "
         "became overridable per call: the cap exists to refuse an absurd number, not to "
         "decide what a hard case may ask for, and 40 was low enough to be the second. A "
-        "caller's number is clamped here silently; an agent file's is refused, so the "
+        "caller's number is clamped and reported; an agent file's is refused, so the "
         "file is fixed rather than quietly ignored.",
     )
     keep_tool_results: int = _f(

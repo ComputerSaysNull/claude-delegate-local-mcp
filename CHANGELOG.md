@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #530 — 2026-10-30 — feat: a delegation reports the turn limit it ran under
+
+### Added
+
+- **A clamped `max_turns` was invisible to the caller.** A caller asked for 200 turns, got
+  the server's ceiling, and the result carried no field for the limit the run had; the
+  argument said only "clamped to an operator ceiling", without the number. The result now
+  carries `max_turns`, the budget the run actually had, and `max_turns_requested` when the
+  caller asked for more. The `max_turns` argument names the running server's ceiling, read
+  from its config, so the caller knows the limit before it asks.
+
 ## #529 — 2026-10-30 — feat: a delegation may run 300 turns and 12 hours
 
 ### Changed
