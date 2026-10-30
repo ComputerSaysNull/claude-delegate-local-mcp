@@ -58,6 +58,11 @@ RECORD_NAME = "provision.json"
 # `pyproject.toml` alone would be a false fresh for a project declaring in `setup.cfg`.
 HASH_SOURCES = ("pyproject.toml", "setup.cfg", "setup.py")
 
+# The one file a project with no package metadata declares its dependencies in. Consulted
+# only then: package metadata wins, and a stray requirements.txt is ignored, for the hash
+# and the install alike -- the build reads only what the hash covers.
+REQUIREMENTS_NAME = "requirements.txt"
+
 # Tool tables the build backend never reads, dropped before `pyproject.toml` is hashed, so
 # rewording a pytest marker does not withhold a sound interpreter. `delegate-local` is ours:
 # `nested-deselect` is read at call time and must not need a re-provision. A denylist, so an
@@ -138,6 +143,11 @@ def dependency_hash(project_real: str) -> str | None:
     the answer None -- "cannot tell" -- since leaving it out would be a false fresh. A
     project declaring only `pyproject.toml` gets the plain digest of that file alone, so its
     recorded environments stay current.
+
+    A project declaring no package metadata reads `requirements.txt` instead, hashed the
+    same way -- newlines normalised, since that is what its build installs from. Package
+    metadata always wins: a stray requirements.txt beside it is not read at all, so it
+    cannot make a package project look stale.
     """
     parts: list[tuple[str, bytes]] = []
     for name in HASH_SOURCES:
@@ -153,7 +163,13 @@ def dependency_hash(project_real: str) -> str | None:
             raw = raw.replace(b"\r\n", b"\n")
         parts.append((name, raw))
     if not parts:
-        return None
+        # No package metadata: requirements.txt is the declaration, and it alone is hashed,
+        # since that is what the build reads. Missing it means there is no declaration.
+        try:
+            raw = (Path(project_real) / REQUIREMENTS_NAME).read_bytes()
+        except OSError:
+            return None
+        parts.append((REQUIREMENTS_NAME, raw.replace(b"\r\n", b"\n")))
     if [name for name, _ in parts] == ["pyproject.toml"]:
         return hashlib.sha256(parts[0][1]).hexdigest()
     digest = hashlib.sha256()
@@ -177,6 +193,68 @@ def _extras(project_real: str) -> tuple[str, ...]:
 def install_target(project_real: str) -> str:
     """The editable-install argument, carrying `[dev]` only when the project declares it."""
     return f"{project_real}[dev]" if "dev" in _extras(project_real) else project_real
+
+
+def _declaration_names(project_real: str) -> tuple[str, ...]:
+    """The declaration files this build reads from, package metadata first.
+
+    Package metadata outranks requirements.txt: a project declaring any of the package
+    sources is a package project, and a stray requirements.txt is not read. A project
+    declaring none reads requirements.txt when it exists, and nothing when it does not.
+    """
+    found = tuple(
+        name for name in HASH_SOURCES if (Path(project_real) / name).exists()
+    )
+    if found:
+        return found
+    if (Path(project_real) / REQUIREMENTS_NAME).exists():
+        return (REQUIREMENTS_NAME,)
+    return ()
+
+
+def install_args(project_real: str) -> list[str]:
+    """The `pip install` arguments for one project, the `--quiet` flag aside.
+
+    Package metadata wins: a project declaring it is installed editable -- carrying `[dev]`
+    when it declares the extra -- and a stray requirements.txt is ignored, exactly as the
+    hash ignores it. A project declaring none is installed from its requirements.txt
+    instead, which must not carry an option line (see `_validate_requirements`). A project
+    declaring neither keeps the editable form, which pip refuses, because a requirements
+    install would be just as wrong.
+    """
+    target = install_target(project_real)
+    if _declaration_names(project_real) == (REQUIREMENTS_NAME,):
+        requirements = Path(project_real) / REQUIREMENTS_NAME
+        _validate_requirements(requirements)
+        return ["-r", str(requirements)]
+    return ["--editable", target]
+
+
+def _validate_requirements(requirements: Path) -> None:
+    """Refuse a pip option line in requirements.txt, naming it.
+
+    An option line pulls in what the hash does not cover -- `-r`/`-c` another file, `-e` a
+    checkout -- or points pip at an index the operator's configuration cut-out was meant to
+    exclude (`-i`, `--index-url`, `--extra-index-url`, `-f`, `--find-links`). Either breaks
+    the guarantee the build makes, so the build is refused rather than made against
+    something it will not record. Comments and blank lines are fine.
+    """
+    try:
+        text = requirements.read_text(encoding="utf-8")
+    except OSError as e:
+        raise ProvisionError(
+            f"could not read {REQUIREMENTS_NAME}: {e.strerror or e}"
+        ) from e
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("-"):
+            raise ProvisionError(
+                f"{REQUIREMENTS_NAME}:{lineno}: option line refused: {stripped}\n"
+                "(an included file would escape the dependency hash, and an index option "
+                "would bypass the cut-out of the operator's pip configuration)"
+            )
 
 
 def read_record(venv: str) -> dict[str, Any] | None:
@@ -450,10 +528,10 @@ def _build_into(project_real: str, venv: str, *, out) -> None:
     _run([sys.executable, "-m", "venv", venv], out=out)
 
     python = interpreter_path(venv)
-    target = install_target(project_real)
-    print(f"  installing {target}", file=out)
+    args = install_args(project_real)
+    print(f"  installing {' '.join(args)}", file=out)
     _run([python, "-m", "pip", "install", "--quiet", "--upgrade", "pip"], out=out)
-    _run([python, "-m", "pip", "install", "--quiet", "--editable", target], out=out)
+    _run([python, "-m", "pip", "install", "--quiet", *args], out=out)
 
     record = {
         "project": project_real,
@@ -461,10 +539,8 @@ def _build_into(project_real: str, venv: str, *, out) -> None:
         "dependency_hash": dependency_hash(project_real),
         # A copy, so the next rebuild can show what changed rather than only that it did.
         "declarations": declarations(project_real),
-        "hash_sources": [
-            n for n in HASH_SOURCES if os.path.exists(posixpath.join(project_real, n))
-        ],
-        "install_target": target,
+        "hash_sources": list(_declaration_names(project_real)),
+        "install_target": args[1],
         "base_python": sys.executable,
         "provisioned": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
@@ -479,7 +555,7 @@ def _build_into(project_real: str, venv: str, *, out) -> None:
 def declarations(project_real: str) -> dict[str, str]:
     """The text of each dependency declaration the project has, newlines normalised."""
     found: dict[str, str] = {}
-    for name in HASH_SOURCES:
+    for name in _declaration_names(project_real):
         try:
             raw = (Path(project_real) / name).read_bytes()
         except OSError:
@@ -505,7 +581,7 @@ def declaration_change(project_real: str, record: dict[str, Any] | None) -> str 
         )
     now = declarations(project_real)
     lines: list[str] = []
-    for name in HASH_SOURCES:
+    for name in sorted(set(before) | set(now)):
         old, new = str(before.get(name, "")), now.get(name, "")
         if old != new:
             lines += difflib.unified_diff(

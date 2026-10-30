@@ -226,9 +226,9 @@ provisioning: no `python` on `PATH` inside the sandbox, `import pytest` raising,
 network to install either. [`sandbox_home`](CONFIGURATION.md) can hold an interpreter:
 bound read-write, persistent, and outside the workspace.
 
-`provision <project>` builds a virtualenv under it from the project's own declaration, every
-one of `pyproject.toml`, `setup.cfg` and `setup.py` present, and records what it built from
-beside it, so [`--doctor`](#--doctor-asks-what-startup-does-not) finds it with no setting to
+`provision <project>` builds a virtualenv under it from the project's own declaration (every one of
+`pyproject.toml`, `setup.cfg` and `setup.py` present, else `requirements.txt`: ADR-0134) and records
+what it built from beside it, so [`--doctor`](#--doctor-asks-what-startup-does-not) finds it with no setting to
 keep in step and **fails** on a stale dependency hash — stale dependencies do not error, they
 pass against the wrong versions and return 0. Newlines are normalised out of the digest first,
 and that is not tidiness: on a Windows checkout a `git reset --hard` rewrites CRLF to LF, which
