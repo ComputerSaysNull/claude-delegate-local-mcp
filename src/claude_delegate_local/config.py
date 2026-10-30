@@ -435,7 +435,7 @@ class Config:
         "Clamped to max_turns_hard_cap, so lowering the cap lowers this too.",
     )
     max_turns_hard_cap: int = _f(
-        100,
+        300,
         "Ceiling no agent file or caller may exceed. Stops an agent definition asking for "
         "500 turns and occupying the cluster for hours. Raised from 40 once max_turns "
         "became overridable per call: the cap exists to refuse an absurd number, not to "
@@ -543,7 +543,7 @@ class Config:
         unit="seconds",
     )
     dispatch_timeout: int = _f(
-        14400,
+        43200,
         "Whole-delegation ceiling, spanning every retry and every empty-answer recovery "
         "stage. An absolute bound on work that is still producing, and nothing more: a "
         "delegation that has stopped producing is bounded by stall_timeout instead, far "
