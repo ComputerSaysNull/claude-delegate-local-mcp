@@ -181,6 +181,96 @@ def test_an_unparseable_declaration_falls_back_rather_than_raising(tmp_path):
     assert provision.install_target(str(root)) == str(root)
 
 
+# --- requirements.txt --------------------------------------------------------------------
+
+
+def test_a_requirements_only_project_has_a_digest(tmp_path):
+    """For a project with no package metadata, its declaration is requirements.txt."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "requirements.txt").write_text("httpx>=0.28\n", encoding="utf-8")
+
+    assert provision.dependency_hash(str(root)) is not None
+
+
+def test_the_requirements_digest_moves_when_the_file_changes(tmp_path):
+    """A changed requirements.txt must not read as current, for the same reason any
+    declaration change must not: stale dependencies pass against the wrong versions and
+    return 0, the one exit code ADR-0007 says to believe."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "requirements.txt").write_text("httpx>=0.28\n", encoding="utf-8")
+    before = provision.dependency_hash(str(root))
+    (root / "requirements.txt").write_text("httpx>=0.29\n", encoding="utf-8")
+
+    assert provision.dependency_hash(str(root)) != before
+
+
+def test_a_requirements_file_in_crlf_and_lf_hashes_the_same(tmp_path):
+    """A line-ending flip must not read as a changed declaration, on a Windows checkout."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    body = "httpx>=0.28\n"
+    (root / "requirements.txt").write_bytes(body.encode())
+    lf = provision.dependency_hash(str(root))
+    (root / "requirements.txt").write_bytes(body.replace("\n", "\r\n").encode())
+
+    assert lf is not None
+    assert provision.dependency_hash(str(root)) == lf
+
+
+def test_a_package_project_ignores_a_stray_requirements_txt_for_the_digest(tmp_path):
+    """Package metadata wins: a stray requirements.txt must not make the project stale."""
+    root = project_tree(tmp_path, extras="")
+    before = provision.dependency_hash(str(root))
+    (root / "requirements.txt").write_text("httpx>=0.28\n", encoding="utf-8")
+
+    assert provision.dependency_hash(str(root)) == before
+
+
+def test_a_requirements_only_project_installs_from_the_file(tmp_path):
+    """The install step reads the file, not the project directory."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "requirements.txt").write_text("httpx>=0.28\n", encoding="utf-8")
+
+    assert provision.install_args(str(root)) == ["-r", str(root / "requirements.txt")]
+
+
+def test_a_package_project_keeps_editable_arguments_with_a_stray_requirements_txt(tmp_path):
+    root = project_tree(tmp_path, extras="")
+    (root / "requirements.txt").write_text("httpx>=0.28\n", encoding="utf-8")
+
+    assert provision.install_args(str(root)) == ["--editable", str(root)]
+
+
+def test_an_option_line_in_requirements_is_refused(tmp_path):
+    """`-r` and friends would escape the hash or the pip-configuration cut-out, so the
+    build is refused rather than made against something it will not record."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "requirements.txt").write_text(
+        "-r other.txt\nhttpx>=0.28\n", encoding="utf-8"
+    )
+
+    with pytest.raises(provision.ProvisionError) as exc:
+        provision.install_args(str(root))
+
+    assert "-r other.txt" in str(exc.value)
+    assert "requirements.txt" in str(exc.value)
+
+
+def test_comments_and_blank_lines_are_fine(tmp_path):
+    """The control for the refusal above: only an option line is refused."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "requirements.txt").write_text(
+        "# a comment\n\nhttpx>=0.28\n", encoding="utf-8"
+    )
+
+    assert provision.install_args(str(root)) == ["-r", str(root / "requirements.txt")]
+
+
 # --- the build environment ---------------------------------------------------------------
 
 

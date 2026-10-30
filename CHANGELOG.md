@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #522 — 2026-10-30 — feat: provision builds a project that declares only requirements.txt
+
+### Added
+
+- **A script project could never be provisioned.** `provision` read only `pyproject.toml`,
+  `setup.cfg` and `setup.py`, so a folder of Python scripts with no package metadata had no
+  declaration to build from: `$DELEGATE_PYTHON` stayed unset and a whole delegation fell back
+  to the standard library. A project declaring no package metadata now reads `requirements.txt`
+  instead — hashed on it and installed with `pip install -r` — while package metadata still
+  wins, so a stray `requirements.txt` beside it is ignored for the hash and the install alike.
+  A line starting with `-` is refused, because an included file (`-r`, `-c`, `-e`) escapes the
+  dependency hash and an index option (`-i`, `--index-url`, `--extra-index-url`, `-f`,
+  `--find-links`) bypasses the cut-out of the operator's pip configuration.
+
 ## #521 — 2026-10-30 — chore: release 0.15.0
 
 ### Changed

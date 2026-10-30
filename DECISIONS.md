@@ -19,6 +19,25 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0134 — 2026-10-30 — A project with no package metadata declares its dependencies in requirements.txt — Accepted
+
+**Context.** Provisioning read only `pyproject.toml`, `setup.cfg` and `setup.py`, so a script
+project — a folder of Python scripts with no package metadata — could never be provisioned:
+`$DELEGATE_PYTHON` stayed unset, so delegations working there had no third-party packages and a
+whole run fell back to the standard library.
+
+**Decision.** A project declaring no package metadata reads `requirements.txt` instead: hashed
+on that file and installed with `pip install -r`. Package metadata always wins, so a stray
+`requirements.txt` beside it is ignored for the hash and the install alike. An option line is
+refused, since an included file (`-r`, `-c`, `-e`) escapes the dependency hash and an index
+option (`-i`, `--index-url`, `--extra-index-url`, `-f`, `--find-links`) bypasses the cut-out of
+the operator's pip configuration (ADR-0062). Provisioning still runs server-side, where the
+network is (ADR-0063).
+
+**Consequence.** A script project is provisioned like any other, so `$DELEGATE_PYTHON` is set
+and its third-party packages are installed. The refusal keeps the build's record honest: an
+option line would install what the hash does not cover.
+
 ## ADR-0133 — 2026-10-29 — A large image is sent as tiles, each counted against the image limit — Accepted
 
 **Context.** The vision checkpoint caps an image at 384 tokens and the server shrinks
