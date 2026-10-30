@@ -250,8 +250,10 @@ AliveCallback = Callable[[float, int, float, int, int, float | None, RunningCall
 
 # Rendered just before the task when a workdir is bound.
 WORKDIR_LINE = (
-    "Your workdir is {path}. `run_bash` starts there, and a relative path in the task "
-    "below is relative to it; the file tools take the absolute path."
+    "Your workdir is {path}. `run_bash` starts there and sees only that folder of yours: "
+    "a file elsewhere in the workspace is absent from the shell, not missing, so read it "
+    "with the file tools. A relative path in the task below is relative to the workdir; "
+    "the file tools take the absolute path."
 )
 
 

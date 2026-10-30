@@ -1619,7 +1619,9 @@ Workdir = Annotated[
         "A directory to bind into the sandbox read-write, so `run_bash` can build or test "
         "in it. Writing never needed one -- `write_file` and `edit_file` run against the "
         "workspace roots -- so what this adds is the *running* half of a write-then-verify "
-        "loop. Omit it to leave the shell nothing of yours at all."
+        "loop. The shell sees only this folder of yours, so name the one holding everything "
+        "a command needs: a subfolder hides its parent's files from the shell, though the "
+        "file tools still reach them. Omit it to leave the shell nothing of yours at all."
     )),
 ]
 

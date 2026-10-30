@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #518 — 2026-10-30 — fix: the model is told the shell sees only its workdir
+
+### Fixed
+
+- **A file outside the workdir was taken for a missing one.** `run_bash` binds only the
+  caller's `workdir`, but nothing the model or the caller reads said so: `run_bash`'s
+  description promised an empty filesystem apart from a scratch HOME and a toolchain, and
+  the prompt's workdir line said only that the shell starts there. Given a file one folder
+  above its workdir, two delegations in three listed the parent, found it empty, searched
+  the whole filesystem for 8 and 9 turns, and reported the file missing; none tried the
+  file tools, which could read it. The workdir line now says the shell sees only that
+  folder and that a file elsewhere is absent from it, not missing; `run_bash`'s
+  description names the workdir and says a file outside it is invisible to the shell;
+  and the caller's `workdir` description says a subfolder hides its parent's files.
+
 ## #517 — 2026-10-30 — docs: plan transcript image counts, and saying what the shell can see
 
 ### Changed

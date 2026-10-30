@@ -972,6 +972,22 @@ def test_a_denylist_hit_is_skipped_rather_than_fatal(tmp_path):
     assert result["files_read"] and "client_secret" not in json.dumps(result["files_read"])
 
 
+def test_the_workdir_argument_warns_that_a_subfolder_hides_its_parent():
+    """The shell sees only the workdir, so a caller binding a subfolder hides from it the
+    files one level up, which the task may name."""
+    config = cfg()
+    mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
+
+    async def go():
+        async with Client(mcp) as client:
+            return next(t for t in await client.list_tools() if t.name == "delegate")
+
+    workdir = asyncio.run(go()).input_schema["properties"]["workdir"]
+    described = " ".join((workdir.get("description") or "").split())
+    assert "sees only this folder" in described
+    assert "subfolder hides" in described
+
+
 def test_the_schema_tells_the_model_not_to_paste_files():
     """The contract that buys this tool's whole purpose, asserted where it now lives.
 
