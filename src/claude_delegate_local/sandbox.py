@@ -360,6 +360,10 @@ class SandboxResult:
     # transcript only. Empty when none failed this way; a record that could not be read
     # reads the same, which is an accounting aid and not a security property.
     stages: tuple[tuple[tuple[str, int], ...], ...] = ()
+    # Covered directories that are virtualenvs, for the caller to name in the "missing"
+    # note: the scan covered them, so a project keeping its own `.venv` sees an empty
+    # directory and no `$DELEGATE_PYTHON`. Empty when nothing virtualenv-shaped was covered.
+    covered_venvs: tuple[str, ...] = ()
 
 
 def probe_toolchain_binds(cfg: Config) -> tuple[str, ...]:
@@ -1206,6 +1210,24 @@ def scratch_cache_env(env: Mapping[str, str]) -> dict[str, str]:
     return out
 
 
+def _covered_venvs(shadows: Sequence[ShadowTarget]) -> tuple[str, ...]:
+    """The covered directories that are virtualenvs, for the caller to name.
+
+    A `venv:` match is a venv by definition (the marker fired); any other covered directory
+    is one only if it carries the marker, which is one `isfile` per directory shadow and
+    never per file shadow -- a bulk directory such as `node_modules` is not a venv.
+    """
+    out: list[str] = []
+    for shadow in shadows:
+        if shadow.matched.startswith("venv:"):
+            out.append(shadow.path)
+        elif shadow.kind == "dir" and os.path.isfile(
+            posixpath.join(shadow.path, _VENV_MARKER)
+        ):
+            out.append(shadow.path)
+    return tuple(out)
+
+
 def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
     """Run one command inside the sandbox, or refuse. The only function here with I/O.
 
@@ -1248,9 +1270,11 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
     scoped = bool(cfg.sandbox_max_processes) and scope_available(cfg)
     moved: tuple[str, ...] = ()
     stages: tuple[tuple[tuple[str, int], ...], ...] = ()
+    shadows: tuple[ShadowTarget, ...] = ()
     try:
+        shadows = discover_secret_shadows(cfg, req)
         argv = build_argv(
-            cfg, req, discover_secret_shadows(cfg, req),
+            cfg, req, shadows,
             status_file=status_file, stages_file=stages_file, scoped=scoped,
         )
         result = _execute(cfg, argv, marker)
@@ -1260,8 +1284,9 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
             # prepare again, which now makes the directory ours, and start once more.
             again, _ = _prepare_protected(cfg, req)
             made = [*made, *again]
+            shadows = discover_secret_shadows(cfg, req)
             argv = build_argv(
-                cfg, req, discover_secret_shadows(cfg, req),
+                cfg, req, shadows,
                 status_file=status_file, stages_file=stages_file, scoped=scoped,
             )
             result = _execute(cfg, argv, marker)
@@ -1273,19 +1298,18 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
         with suppress(OSError):
             stages_marker.unlink(missing_ok=True)
         moved = _settle_protected(made, absent)
-    if stages or moved:
-        return replace(
-            result,
-            stages=stages,
-            protected_moved=moved,
-            masked_failure=result.masked_failure
-            or (
-                result.exit_code == 0
-                and not result.timed_out
-                and pipeline_hid_a_failure(stages)
-            ),
-        )
-    return result
+    return replace(
+        result,
+        stages=stages,
+        protected_moved=moved,
+        covered_venvs=_covered_venvs(shadows),
+        masked_failure=result.masked_failure
+        or (
+            result.exit_code == 0
+            and not result.timed_out
+            and pipeline_hid_a_failure(stages)
+        ),
+    )
 
 
 def _execute(cfg: Config, argv: list[str], marker: Path) -> SandboxResult:

@@ -161,6 +161,9 @@ class BashOutcome:
     # Pipelines (2+ stages) in which a stage exited non-zero, recorded for the operator
     # transcript only; the model-facing text carries none of it.
     stages: tuple[tuple[tuple[str, int], ...], ...] = ()
+    # The "nothing provisioned" note fired: a covered virtualenv and no environment for the
+    # workdir, so `$DELEGATE_PYTHON` was unset and the model was told to ask for a build.
+    missing_env_note: bool = False
 
 
 @dataclass(frozen=True, slots=True)

@@ -692,7 +692,8 @@ otherwise read as a fifth repeated. A turn's thinking is measured apart, the sam
 `bash_calls`, `bash_failures` and `last_bash_exit` are the subject ADR-0007 was written
 about, and are now counted the same way. The exit code reaches the ledger as a field on the
 result block, never parsed back out of the text the model also reads: a trailer regex over
-prose stops firing the day the wording changes, and nothing reports that it stopped.
+prose stops firing the day the wording changes, and nothing reports that it stopped. A field
+too: `bash_missing_env`, calls told nothing is provisioned, reported as `provisioning_missing`.
 
 `bash_masked_failures` counts calls where a command failed before the last one and the
 status does not say so, and is added to `bash_failures` too, since that field accumulates
@@ -721,12 +722,11 @@ everything in view. `context_overflow_enabled` turns on two checks that notice, 
 model whose window survives the check below.
 
 Every threshold is a share of `ModelEntry.context_window` and of nothing else. A threshold
-computed against the wrong denominator is the bug this guards against, so the window is read
-in exactly one function,
-`loop.projected_fraction`, and the reserve held back for the reply is a **fraction** of it
-rather than a token count. That is not tidiness: a flat reserve large enough to matter on a
-million-token window is more than 95% of an 8K one, so the same constant that is prudent for
-one model reports the other as full before it has done anything.
+computed against the wrong denominator is the bug this guards against, so the window is read in
+exactly one function, `loop.projected_fraction`, and the reserve held back for the reply is a
+**fraction** of it rather than a token count. That is not tidiness: a flat reserve large enough
+to matter on a million-token window is more than 95% of an 8K one, so the same constant that is
+prudent for one model reports the other as full before it has done anything.
 
 **Preventively**, projected use is compared against three points on one escalation:
 retention tightens, then the model is told to wrap up, then the delegation aborts. The

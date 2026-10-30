@@ -1723,6 +1723,50 @@ def test_a_stale_environment_for_the_workdir_is_reported_to_the_caller(tmp_path)
     assert "provisioning_stale" not in absent
 
 
+def test_a_hidden_venv_with_nothing_provisioned_is_reported_to_the_caller(
+    tmp_path, monkeypatch
+):
+    """A virtualenv covered by the scan, with nothing provisioned, must not read as a silent
+    standard-library fallback. The note is recorded from the real run_bash result, so the
+    caller sees it only when a run_bash actually fired it."""
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "pyproject.toml").write_text('[project]\nname = "p"\n', encoding="utf-8")
+    home = tmp_path / "home"
+    monkeypatch.setattr(sandbox, "available", lambda cfg: True)
+    monkeypatch.setattr(provision, "provisioned_for", lambda cfg, wd: None)
+    monkeypatch.setattr(provision, "stale_for", lambda cfg, wd: None)
+    state = {"covered": True}
+
+    def fake_run(c, r):
+        return sandbox.SandboxResult(
+            stdout="", stderr="", exit_code=0, timed_out=False,
+            covered_venvs=(str(project / ".venv"),) if state["covered"] else (),
+        )
+
+    monkeypatch.setattr(sandbox, "run", fake_run)
+    config = cfg(workspace_roots=(str(tmp_path),), sandbox_home=str(home))
+
+    fired = delegated(
+        turn_handler(
+            tool_call_reply("run_bash", {"command": "ls"}),
+            chat_reply(content="done"),
+        ),
+        config=config, task="t", workdir=str(project),
+    )
+    state["covered"] = False
+    not_fired = delegated(
+        turn_handler(
+            tool_call_reply("run_bash", {"command": "ls"}),
+            chat_reply(content="done"),
+        ),
+        config=config, task="t", workdir=str(project),
+    )
+
+    assert fired.get("provisioning_missing") is True
+    assert "provisioning_missing" not in not_fired
+
+
 def test_delegates_workdir_is_root_checked_before_anything_is_sent(tmp_path):
     """The negative half, and the one that matters. `delegate` reuses the same `_workdir`
     helper `delegate_to_agent` does, so a workdir outside every root must be refused on the
