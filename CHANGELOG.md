@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #520 — 2026-10-30 — feat: claude-delegate-watch shows the images a call sent
+
+### Added
+
+- **The terminal viewer showed an image read as a short text one.** #519 put the image
+  counts in the transcript, but `claude-delegate-watch` still rendered a `read_file` of a
+  4K screenshot as "212 B · 1 line" and a prefetched image as its token estimate alone, so
+  a person watching a run could not see that the model had been handed eight images
+  against its `max_images`. A call's size note now ends with "8 images" (or "1 image"),
+  and a prefetched image's row carries its count; a record without the field renders
+  exactly as before.
+
 ## #519 — 2026-10-30 — feat: the transcript says how many images a call sent
 
 ### Added

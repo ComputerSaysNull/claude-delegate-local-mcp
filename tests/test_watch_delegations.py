@@ -1882,3 +1882,40 @@ def test_a_stream_without_a_stamp_still_sorts_by_its_start(viewer, tmp_path):
     rows, _ = viewer.scan(tmp_path)
 
     assert rows[0]["path"] == unstamped
+
+
+# --- defect 9: the images a call or a prefetched file sent --------------------------
+
+
+def test_the_size_note_counts_how_many_images_a_result_handed_back(viewer):
+    """`result_images` says how many images that result gave the model, and a reader
+    accounting for the call needs it beside the bytes and lines."""
+    note = viewer._size_note({"result_bytes": 212, "result_lines": 1, "result_images": 8})
+    assert "8 images" in note
+    note = viewer._size_note({"result_bytes": 212, "result_lines": 1, "result_images": 1})
+    assert "1 image" in note
+    assert "1 images" not in note
+
+
+def test_a_size_note_without_image_counts_is_unchanged(viewer):
+    """Absent is not zero: a record with no `result_images` renders exactly as before."""
+    assert viewer._size_note({"result_bytes": 212, "result_lines": 1}) == "212 B · 1 line"
+
+
+def test_a_files_read_entry_says_how_many_images_it_sent(viewer):
+    """A file handed to the model as tiles is worth naming on its own row, while a text
+    file beside it stays silent."""
+    lines = viewer.render({
+        "t": "start", "at": "2026-01-01T00:00:00+00:00", "tool": "delegate",
+        "task": "look", "model_key": "m",
+        "files_read": [
+            {"path": "/mnt/c/w/shot.png", "given": r"C:\w\shot.png",
+             "est_tokens": 1200, "images": 8},
+            {"path": "/mnt/c/w/notes.txt", "given": r"C:\w\notes.txt", "est_tokens": 400},
+        ],
+        "prefetch_tokens": 1600,
+    }, 100)
+    image_line = next(line for line in lines if r"C:\w\shot.png" in line)
+    text_line = next(line for line in lines if r"C:\w\notes.txt" in line)
+    assert "8 images" in image_line
+    assert "image" not in text_line

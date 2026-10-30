@@ -1044,7 +1044,7 @@ the same words mean the same quantities in the two records a reader compares.
 `watch.py`, installed as `claude-delegate-watch`, reads that stream: it lists the transcript
 directory, follows the one you pick, and renders turns as a conversation — passing over a
 line that is not an event, and surviving a pipe. It is owned here because a renderer and the
-format it renders are one decision; a reader elsewhere has the schema instead (ADR-0111).
+format it renders are one decision; a reader elsewhere has the schema instead (ADR-0111). A call's and a prefetched file's image count sit beside their size, which cannot show one.
 
 **It states what it knows and no more.** A `priced` row's `requests_running` is the
 concurrency the turn was priced for — the lease's grant-time figure on turn one, the shared
