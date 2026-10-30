@@ -261,8 +261,10 @@ def _given(event: dict) -> list[str]:
         out.append(f"{DIM}          files: {head}{R}")
         for item in read:
             est = item.get("est_tokens")
+            shown = item.get("images")
             out.append(f"{DIM}            {item.get('given') or item.get('path', '?')}"
-                       f"{'  ' + _tokens(est) if isinstance(est, int) else ''}{R}")
+                       f"{'  ' + _tokens(est) if isinstance(est, int) else ''}"
+                       f"{' · ' + _images(shown) if isinstance(shown, int) else ''}{R}")
     for item in event.get("files_skipped") or []:
         # Loud, in a block that is otherwise dim. A file the caller believes it passed and
         # the model never saw is the one thing here worth interrupting a reader for.
@@ -278,6 +280,11 @@ def _given(event: dict) -> list[str]:
 _GOOD_OUTCOMES = frozenset({"ran", "repeat"})
 
 
+def _images(n: int) -> str:
+    """Bytes cannot show an image, and each tile counts against the model's `max_images`."""
+    return f"{n} image{'' if n == 1 else 's'}"
+
+
 def _size_note(call: dict) -> str:
     """How much a call returned, and the exit code if a process produced one.
 
@@ -290,6 +297,8 @@ def _size_note(call: dict) -> str:
         rows = call.get("result_lines")
         rows_note = f" · {rows} line{'' if rows == 1 else 's'}" if isinstance(rows, int) else ""
         bits.append(f"{size:,} B{rows_note}")
+    if isinstance(shown := call.get("result_images"), int):
+        bits.append(_images(shown))
     if isinstance(code := call.get("exit_code"), int):
         bits.append(f"exit {code}")
     return " · ".join(bits)
