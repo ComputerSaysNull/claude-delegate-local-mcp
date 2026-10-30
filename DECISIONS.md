@@ -19,6 +19,23 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0138 — 2026-10-30 — A missing interpreter is asked for during the run, not reported after it — Accepted
+
+**Context.** The stale and missing notes told the model to "say so", and it did, in its final
+answer: a whole run worked without the project's packages before the caller heard. Nothing
+said the model could stop and ask, and `ask_caller` described itself as only for telling two
+readings of the task apart.
+
+**Decision.** Both notes end the same way: if the task needs the project's packages, call
+`ask_caller` now, naming the folder for the caller's `provision` tool, and continue once it
+answers. `ask_caller` also covers what only the caller can do; `run_bash`, the `provision`
+tool and the orchestration resource say the same from their side. `$DELEGATE_PYTHON` is
+computed per command, so the waiting run's next command finds it set.
+
+**Consequence.** One waiting question replaces a degraded run. The run holds its admission
+slot while the caller builds, which can take minutes; a task that needs no packages, such as
+a search, is told not to ask.
+
 ## ADR-0137 — 2026-10-30 — A virtualenv is covered by its marker, whatever its name — Accepted
 
 **Context.** ADR-0041 covers bulk directories by name, from the opaque list. A virtualenv

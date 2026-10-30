@@ -254,9 +254,9 @@ record. **A stale environment is withheld rather than offered** — an interpret
 declaration that has moved on would produce a passing suite at exit 0 against the wrong
 versions. Withheld is not hidden: every `run_bash` result then carries a line naming the stale
 build, and the delegation result `provisioning_stale`, so it never reads as never provisioned,
-nor does a hidden venv or a never-built declaration (`provisioning_missing`); the caller's
-`provision` tool fixes both (ADR-0136). Absent rather than empty, too: a shell expands an unset
-name to nothing, and `$DELEGATE_PYTHON -m pytest` would then run `-m pytest`.
+nor does a hidden venv or a never-built declaration (`provisioning_missing`); the model asks
+its caller to `provision` mid-run (ADR-0138). Absent rather than empty, too: a shell expands an
+unset name to nothing, and `$DELEGATE_PYTHON -m pytest` would then run `-m pytest`.
 
 **Tests that cannot run nested travel the same way**, as `PYTEST_ADDOPTS`. A project lists
 them under `[tool.delegate-local] nested-deselect` in its `pyproject.toml`, read at call

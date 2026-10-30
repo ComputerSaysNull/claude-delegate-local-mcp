@@ -2267,8 +2267,9 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
     ) -> dict[str, Any]:
         """Build or rebuild a project's sandbox interpreter, unattended.
 
-        Call it when a delegation result carries `provisioning_stale`, or when a project's
-        `$DELEGATE_PYTHON` is missing. It reads pyproject.toml's [project] table or
+        Call it when a delegation result carries `provisioning_stale` or
+        `provisioning_missing`, or a waiting delegation asks for it: then `answer` it, and the
+        run carries on with `$DELEGATE_PYTHON` set. It reads pyproject.toml's [project] table or
         requirements.txt. Project code runs only inside the offline sandbox (ADR-0135), so
         it is safe without a person approving each call; it may take minutes. A changed
         declaration is shown in `output` and built anyway.
@@ -2439,6 +2440,8 @@ the model; `answer` runs like the call itself and ends when the run does or asks
 Answer what the task's own meaning settles yourself, and pass on to the person only what
 only they can decide. Never drop a question: the run keeps its admission slot while it
 waits, every other delegation queues behind it, and only `question_wait_limit` ends it. A
+question asking for a project's interpreter is answered by calling `provision` for the folder
+it names, then `answer`: the run's next command finds `$DELEGATE_PYTHON` set. A
 caller that will not answer passes `may_ask` as false, or stops the waiting run with
 `cancel_delegation`.
 
