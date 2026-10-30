@@ -2081,6 +2081,8 @@ class ToolCallRecord:
     # drift. None when no result reached us.
     result_bytes: int | None = None
     result_lines: int | None = None
+    # Images the result handed the model, a tile each; bytes cannot show them. 0 is left out.
+    result_images: int = 0
     # Only when a process exited. None is both "no shell command" and "killed first"
     # (`bash_failures` tells them apart); 0 is a real exit code (see `BashOutcome`).
     exit_code: int | None = None
@@ -2103,6 +2105,8 @@ class ToolCallRecord:
         if self.result_bytes is not None:
             row["result_bytes"] = self.result_bytes
             row["result_lines"] = self.result_lines
+        if self.result_images:
+            row["result_images"] = self.result_images
         if self.exit_code is not None:
             row["exit_code"] = self.exit_code
         if self.ms is not None:
@@ -2142,6 +2146,7 @@ def tool_call_record(
         result_bytes=None if result is None else len(result.content),
         # Zero for empty, or an empty `search_files` reads as one match.
         result_lines=None if result is None else _output_line_count(call.name, result.content),
+        result_images=0 if result is None else len(result.images),
         exit_code=exit_code,
         ms=ms,
         stages=() if result is None or result.bash is None else result.bash.stages,

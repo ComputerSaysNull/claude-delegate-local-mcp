@@ -386,6 +386,11 @@ class Prefetch:
                         if e.start_line is None
                         else {"start_line": e.start_line, "end_line": e.end_line}
                     ),
+                    **(
+                        {}
+                        if e.image is None
+                        else {"images": len(e.image.tiles)}
+                    ),
                 }
                 for e in self.files
             ],

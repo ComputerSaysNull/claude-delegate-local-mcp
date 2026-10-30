@@ -62,7 +62,7 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.12"
+FORMAT = "1.13"
 
 # The fixed values `end.ended` may hold, so a reader can branch on the ending rather than
 # parse the words in `error`. Kept beside FORMAT because it is the same contract.

@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #519 — 2026-10-30 — feat: the transcript says how many images a call sent
+
+### Added
+
+- **The images a call sent were invisible in its transcript.** Since #511 a `read_file` or
+  a `files[]` entry can hand the model an image, and since #515 a large one goes as tiles,
+  each counted against the model's `max_images`. The record kept only bytes and lines, so
+  a `read_file` of a 4K screenshot that sent 8 images read as "212 B · 1 line": which calls
+  sent images, how many, and how close a run came to the limit could not be seen. A tool
+  call's record now carries `result_images` and an image's `files_read` entry carries
+  `images`, its tile count; both are absent when nothing was sent, and an image refused
+  for the limit records none because the model never saw it. Transcript format 1.13, an
+  addition under ADR-0111; the tracker's half is a contract card on the planning board.
+
 ## #518 — 2026-10-30 — fix: the model is told the shell sees only its workdir
 
 ### Fixed
