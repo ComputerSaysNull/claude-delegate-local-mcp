@@ -405,6 +405,27 @@ def test_an_opaque_directory_is_pruned_so_the_count_matches_the_scans(tmp_path):
     assert [Path(p).name for p in found] == ["credentials.py"]
 
 
+def test_a_nested_virtualenv_is_pruned_so_the_count_matches_the_scans(tmp_path):
+    """A venv directory is covered whole by the scan, so the count must not descend.
+
+    The scan recognises a venv by its `pyvenv.cfg` marker whatever it is called, and covers
+    the directory without matching anything inside it. This count walk has to prune the
+    same directories, or it reports matches the scan would never have reached and the two
+    counts stop being comparable -- the compiled-twin problem this section exists for,
+    one marker over.
+    """
+    nested = tmp_path / "prov" / "lib" / "site-packages" / "pyenv"
+    (nested / "lib" / "site-packages").mkdir(parents=True)
+    (nested / "pyvenv.cfg").write_text("home = /usr\n", encoding="utf-8")
+    (nested / "lib" / "site-packages" / "credentials.py").write_text(
+        "x", encoding="utf-8")
+    (nested / "lib" / "site-packages" / "ordinary.py").write_text("x", encoding="utf-8")
+
+    found = provision.denylist_matches(cfg(), str(tmp_path / "prov"))
+
+    assert found == []
+
+
 # --- handing the interpreter to run_bash -------------------------------------------------
 
 
