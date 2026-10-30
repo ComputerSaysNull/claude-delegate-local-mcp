@@ -254,7 +254,8 @@ is answerable from the record. **A stale environment is withheld rather than off
 an interpreter built from a declaration that has moved on would produce a passing suite at
 exit 0 against the wrong versions. Withheld is not hidden: every `run_bash` result then
 carries a line naming the stale build, and the delegation result `provisioning_stale`, so
-it never reads as never provisioned. Absent rather than empty, too: a shell expands an unset
+it never reads as never provisioned; the caller's `provision` tool rebuilds it, unattended
+(ADR-0136). Absent rather than empty, too: a shell expands an unset
 name to nothing, and `$DELEGATE_PYTHON -m pytest` would then run `-m pytest`.
 
 **Tests that cannot run nested travel the same way**, as `PYTEST_ADDOPTS`. A project lists
@@ -264,9 +265,8 @@ sandbox, not about the installed dependencies. This repository has one entry: a 
 asserting the network is reachable, which `--unshare-all` denies. Applied by the server
 rather than left to the model because forgetting it produces a **real** non-zero exit from
 a test that cannot pass, and a false failure looks exactly as trustworthy as a true one.
-A `--deselect` naming a node id outside the collected
-subset, or one that does not exist at all, is tolerated at exit 0 — so the list costs
-nothing on a targeted run.
+A `--deselect` naming a node id outside the collected subset, or one that does not exist at
+all, is tolerated at exit 0 — so the list costs nothing on a targeted run.
 
 ### `run` is the same delegation without the protocol
 

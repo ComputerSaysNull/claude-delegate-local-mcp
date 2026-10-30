@@ -10,6 +10,7 @@ message, so diagnostics go to stderr (`main.py` holds the other half of that rul
 """
 
 import asyncio
+import io
 import json
 import math
 import os
@@ -1382,7 +1383,8 @@ _DELEGATION_RESULT: dict[str, Any] = {
         )},
         "provisioning_stale": {"type": "boolean", "description": (
             "Present and true when the workdir's provisioned environment is stale, so "
-            "$DELEGATE_PYTHON was withheld from run_bash. Re-run provision."
+            "$DELEGATE_PYTHON was withheld from run_bash. Call the `provision` tool to "
+            "rebuild it."
         )},
     },
 }
@@ -1443,6 +1445,22 @@ _CANCEL_RESULT: dict[str, Any] = {
 # How long `cancel_delegation` waits for the run to wind down: a bound, not a promise,
 # since a shell command in its thread cannot be interrupted.
 _CANCEL_SETTLE_SECONDS = 5.0
+
+_PROVISION_RESULT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "built": {"type": "boolean", "description": "Whether the build succeeded."},
+        "exit_code": {"type": "integer",
+                      "description": "The build's real exit code; 0 means success."},
+        "output": {"type": "string", "description": (
+            "The build's captured output, including the dependency-change diff that was "
+            "built from anyway.")},
+        "interpreter": {"type": ["string", "null"], "description": (
+            "The absolute interpreter path now current for the project, or null when the "
+            "build failed.")},
+    },
+}
 
 # The docket worker renews a running task's lease four times per this period, so a task
 # only re-runs one whose worker died; tests shrink it.
@@ -1655,6 +1673,15 @@ Project = Annotated[
     Field(description=(
         "Where to look for the agent file. Binds nothing, and defaults to `workdir`. Pass "
         "it separately only to run one project's agent against another."
+    )),
+]
+
+ProvisionProject = Annotated[
+    str,
+    Field(description=(
+        "The project directory to build for. Resolved and checked exactly like `workdir`: "
+        "it must be inside this session's project and must exist. Pass the same folder a "
+        "delegation runs that project's tests from."
     )),
 ]
 
@@ -2217,6 +2244,39 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             return await _finish_or_question(handle, sink)
         finally:
             sink.close()
+
+    # The function is not named `provision`: that would shadow the module throughout
+    # `build()`. The tool's name is given to the decorator instead.
+    @mcp.tool(name="provision", title="Provision a project's interpreter",
+              annotations={"readOnlyHint": False, "destructiveHint": False,
+                           "idempotentHint": True, "openWorldHint": True},
+              output_schema=_PROVISION_RESULT, task=True)
+    async def provision_project(
+        project: ProvisionProject,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        """Build or rebuild a project's sandbox interpreter, unattended.
+
+        Call it when a delegation result carries `provisioning_stale`, or when a project's
+        `$DELEGATE_PYTHON` is missing. It reads pyproject.toml's [project] table or
+        requirements.txt. Project code runs only inside the offline sandbox (ADR-0135), so
+        it is safe without a person approving each call; it may take minutes. A changed
+        declaration is shown in `output` and built anyway.
+        """
+        scope = session_scope(cfg)
+        resolved = _rooted(scope, project)
+        if resolved is None:  # `project` is required, so only a schema bypass gets here
+            raise ToolError("provision needs a project directory")
+        out = io.StringIO()
+        exit_code = await asyncio.to_thread(
+            provision.run, scope.cfg, resolved, out=out, yes=True
+        )
+        return {
+            "built": exit_code == 0,
+            "exit_code": exit_code,
+            "output": out.getvalue(),
+            "interpreter": provision.interpreter_for(scope.cfg, resolved) or None,
+        }
 
     # Not read-only -- it stops work -- but it destroys nothing and reaches nothing outside
     # this process, and stopping a run twice is the same as stopping it once.

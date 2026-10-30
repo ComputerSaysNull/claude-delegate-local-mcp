@@ -447,7 +447,7 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_exactly_eight_tools_are_declared():
+def test_exactly_nine_tools_are_declared():
     """docs/AGENTS.md promises this exact set, and this is what holds it to that.
 
     The promise is the design: a new *kind* of delegated task is a markdown file, not
@@ -488,7 +488,7 @@ def test_exactly_eight_tools_are_declared():
     assert set(asyncio.run(go())) == {
         "delegate", "delegate_readonly", "delegate_to_agent",
         "delegate_to_agent_readonly", "list_agents", "backend_status",
-        "cancel_delegation", "answer",
+        "cancel_delegation", "answer", "provision",
     }
 
 
@@ -1033,7 +1033,7 @@ def _tools(mcp):
 
 DELEGATING = ["delegate", "delegate_readonly", "delegate_to_agent",
               "delegate_to_agent_readonly"]
-EVERY_TOOL = [*DELEGATING, "list_agents", "backend_status"]
+EVERY_TOOL = [*DELEGATING, "list_agents", "backend_status", "provision"]
 
 
 def test_the_three_facts_are_delivered_by_the_channels_that_own_them():
@@ -2182,7 +2182,7 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
     cannot_write = ("backend_status", "list_agents", "delegate_readonly",
                     "delegate_to_agent_readonly")
     # `answer` resumes a run that may write.
-    can_write = ("delegate", "delegate_to_agent", "cancel_delegation", "answer")
+    can_write = ("delegate", "delegate_to_agent", "cancel_delegation", "answer", "provision")
 
     for name in cannot_write:
         assert seen[name] is not None and seen[name].read_only_hint is True, (
@@ -2743,3 +2743,159 @@ def test_the_result_schema_covers_the_keys_a_delegation_actually_returns():
     declared = set(schema.get("properties", {}))
     missing = sorted(set(returned) - declared)
     assert not missing, f"the result carries keys the schema does not describe: {missing}"
+
+
+# --- provision ---------------------------------------------------------------------
+
+
+def provision_cfg(root, project, **over):
+    """A config whose session is `project` under `root`, for the provision tool."""
+    kw = {"workspace_roots": (os.path.realpath(root),),
+          "project_dir": os.path.realpath(project),
+          "admission_idle_hold": 0.0,
+          "context_overflow_enabled": False,
+          "client_roots": "narrow"}
+    kw.update(over)
+    return Config(**kw)  # type: ignore[arg-type]
+
+
+def _provision_mcp(config):
+    return server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
+
+
+async def test_provision_is_listed_with_task_support_and_its_annotations():
+    config = cfg()
+    mcp = _provision_mcp(config)
+    async with Client(mcp) as client:
+        tool = next(t for t in await client.list_tools() if t.name == "provision")
+    assert tool.annotations is not None
+    assert tool.annotations.read_only_hint is False
+    assert tool.annotations.destructive_hint is False
+    assert tool.annotations.idempotent_hint is True
+    assert tool.annotations.open_world_hint is True
+
+    registered = next(t for t in await mcp.list_tools() if t.name == "provision")
+    assert registered.task_config is not None
+    assert registered.task_config.mode != "forbidden"
+
+
+def test_provision_runs_the_build_with_yes_and_reports_the_result(tmp_path, monkeypatch):
+    root = tmp_path
+    project = root / "proj"
+    project.mkdir()
+    (project / "pyproject.toml").write_text("[project]\nname = 'p'\n", encoding="utf-8")
+    config = provision_cfg(root, project)
+
+    calls = []
+
+    def fake_run(cfg, given, *, out, yes):
+        calls.append((cfg, given, yes))
+        out.write("  downloading wheels into staging\n")
+        return 0
+
+    monkeypatch.setattr(provision, "run", fake_run)
+    monkeypatch.setattr(provision, "interpreter_for",
+                        lambda cfg, given: "/srv/venvs/p/bin/python")
+
+    mcp = _provision_mcp(config)
+
+    async def go():
+        async with Client(mcp) as client:
+            return payload(await client.call_tool("provision", {"project": str(project)}))
+
+    result = asyncio.run(go())
+    assert result["built"] is True
+    assert result["exit_code"] == 0
+    assert "downloading wheels" in result["output"]
+    assert result["interpreter"] == "/srv/venvs/p/bin/python"
+    (_cfg, call_given, call_yes) = calls[0]
+    assert call_yes is True
+    assert call_given == os.path.realpath(project)
+
+
+def test_a_failed_build_is_built_false_rather_than_an_exception(tmp_path, monkeypatch):
+    root = tmp_path
+    project = root / "proj"
+    project.mkdir()
+    (project / "pyproject.toml").write_text("[project]\nname = 'p'\n", encoding="utf-8")
+    config = provision_cfg(root, project)
+    monkeypatch.setattr(provision, "run", lambda cfg, given, *, out, yes: 1)
+    monkeypatch.setattr(provision, "interpreter_for", lambda cfg, given: None)
+
+    mcp = _provision_mcp(config)
+
+    async def go():
+        async with Client(mcp) as client:
+            return payload(await client.call_tool("provision", {"project": str(project)}))
+
+    result = asyncio.run(go())
+    assert result["built"] is False
+    assert result["exit_code"] == 1
+    assert result["interpreter"] is None
+
+
+def test_a_project_outside_the_session_roots_is_refused_before_the_build(
+        tmp_path, monkeypatch):
+    root = tmp_path
+    project = root / "proj"
+    project.mkdir()
+    elsewhere = root / "elsewhere"
+    elsewhere.mkdir()
+    config = provision_cfg(root, project)
+    called = []
+    monkeypatch.setattr(
+        provision, "run", lambda cfg, given, *, out, yes: called.append(given))
+
+    mcp = _provision_mcp(config)
+
+    async def go():
+        async with Client(mcp) as client:
+            await client.call_tool("provision", {"project": str(elsewhere)})
+
+    with pytest.raises(Exception, match="outside every workdir root"):
+        asyncio.run(go())
+    assert called == []
+
+
+def test_a_missing_project_directory_is_refused_before_the_build(tmp_path, monkeypatch):
+    root = tmp_path
+    project = root / "proj"
+    project.mkdir()
+    config = provision_cfg(root, project)
+    called = []
+    monkeypatch.setattr(
+        provision, "run", lambda cfg, given, *, out, yes: called.append(given))
+
+    mcp = _provision_mcp(config)
+
+    async def go():
+        async with Client(mcp) as client:
+            await client.call_tool("provision", {"project": str(project / "nope")})
+
+    with pytest.raises(Exception, match="does not exist"):
+        asyncio.run(go())
+    assert called == []
+
+
+def test_provision_is_not_offered_to_the_delegated_model():
+    assert "provision" not in tools_module.REGISTRY
+
+
+def test_the_stale_note_points_at_the_provision_tool(tmp_path):
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "pyproject.toml").write_text('[project]\nname = "p"\n', encoding="utf-8")
+    home = tmp_path / "home"
+    venv = Path(provision.venv_dir(home.as_posix(), project.as_posix()))
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "python").write_text("", encoding="utf-8")
+    (venv / provision.RECORD_NAME).write_text(json.dumps({
+        "project": project.as_posix(),
+        "interpreter": (venv / "bin" / "python").as_posix(),
+        "dependency_hash": "a declaration that has since moved on",
+    }), encoding="utf-8")
+    config = cfg(workspace_roots=(str(tmp_path),), sandbox_home=str(home))
+    note = tools_module.stale_env_note(config, str(project))
+    assert note is not None
+    assert "provision" in note
+    assert "say so rather than testing without it" in note
