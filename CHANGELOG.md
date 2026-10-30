@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #528 — 2026-10-30 — feat: a delegation asks for a missing interpreter instead of reporting it
+
+### Changed
+
+- **A missing interpreter was reported only after the run.** The stale and missing notes
+  said "say so", so the model said so in its final answer, having worked the whole run
+  without the project's packages; `ask_caller` claimed to be only for ambiguous tasks. Both
+  notes now tell the model, when its task needs the packages, to call `ask_caller` at once
+  and name the folder for the caller's `provision` tool, then continue: `$DELEGATE_PYTHON`
+  is computed per command, so the waiting run picks it up (ADR-0138). `ask_caller` now
+  covers what only the caller can do, `run_bash` no longer says nothing can be done, and
+  the `provision` tool and `delegate://orchestration` tell the caller to answer such a
+  question by building, then answering.
+
 ## #527 — 2026-10-30 — fix: a never-provisioned project with no venv is reported too
 
 ### Fixed

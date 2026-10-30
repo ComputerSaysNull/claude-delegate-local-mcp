@@ -995,18 +995,33 @@ def _protected_note(moved: Sequence[str]) -> str:
     )
 
 
+def _ask_for_provision(folder: str) -> str:
+    """The ending both interpreter notes share: ask now, so the run waits for the build.
+
+    Asking straight away is the point. Told only to "say so", a model said so in its final
+    answer, after a whole run without the project's packages; a run that asks waits while
+    the caller builds, and its next command finds `$DELEGATE_PYTHON` set.
+    """
+    return (
+        "If your task needs the project's packages, call ask_caller now asking your caller "
+        f"to run its `provision` tool for {folder}, and continue once it answers: "
+        "$DELEGATE_PYTHON is then set. If you cannot ask, say so rather than working "
+        "without them."
+    )
+
+
 def stale_env_note(cfg: Config, workdir: str | None) -> str | None:
     """One sentence saying `$DELEGATE_PYTHON` is unset because the environment is stale.
 
     A stale environment otherwise looks exactly like one never provisioned.
     """
-    if provision.stale_for(cfg, workdir) is None:
+    stale = provision.stale_for(cfg, workdir)
+    if stale is None:
         return None
     return (
         "$DELEGATE_PYTHON is unset because the environment provisioned for this project is "
-        "stale: its dependency declaration changed after it was built. Nothing here can "
-        "rebuild it, but your caller can, with its `provision` tool -- say so rather than "
-        "testing without it."
+        "stale: its dependency declaration changed after it was built. "
+        + _ask_for_provision(str(stale.get("project") or workdir))
     )
 
 
@@ -1064,17 +1079,9 @@ def missing_env_note(
             f"Nothing is provisioned for this workdir, so $DELEGATE_PYTHON is unset, though "
             f"{declaring} declares Python dependencies."
         )
-        ending = (
-            "Your caller can build one with its `provision` tool for that folder -- say so "
-            "rather than working without the project's packages."
-        )
     else:
         unset = "Nothing is provisioned for this workdir, so $DELEGATE_PYTHON is unset."
-        ending = (
-            "Your caller can build one with its `provision` tool -- say so rather than "
-            "working without the project's packages."
-        )
-    return f"{hidden}{unset} {ending}"
+    return f"{hidden}{unset} {_ask_for_provision(declaring or workdir)}"
 
 
 # Beside a failed command in a shell with nothing of the caller's bound. The file tools
@@ -1659,7 +1666,8 @@ RUN_BASH = RegisteredTool(
             "other tools the same way, e.g. \"$DELEGATE_PYTHON\" -m ruff: they are not on "
             "PATH. It is unset when "
             "nothing current is provisioned for this workdir, including when the project's "
-            "dependencies have changed since; there is no way to install one from here. "
+            "dependencies have changed since. Nothing here can install one, but your caller "
+            "can: a note in the result says when, and how to ask. "
             "Tests the project declares as unable to run nested are already deselected via "
             "PYTEST_ADDOPTS, so a report of them is a deselection rather than a failure. "
             "The exit code is recorded for you and reported to whoever asked, so you do not "
@@ -1858,7 +1866,9 @@ ASK_CALLER_SPEC = ToolSpec(
     name="ask_caller",
     description=(
         "Ask whoever gave you this task, when you cannot tell which of two or more readings "
-        "of it is meant and the readings lead to different results. Put every question you "
+        "of it is meant and the readings lead to different results, or for what only your "
+        "caller can do, such as building the project's interpreter when a run_bash note says "
+        "one is missing. Put every question you "
         "have now into one call; ask again if a new one comes up. The answer comes back as "
         "this call's "
         "result; if it leaves the choice to you, proceed on your best reading. Do not ask "

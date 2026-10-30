@@ -2945,4 +2945,4 @@ def test_the_stale_note_points_at_the_provision_tool(tmp_path):
     note = tools_module.stale_env_note(config, str(project))
     assert note is not None
     assert "provision" in note
-    assert "say so rather than testing without it" in note
+    assert "ask_caller" in note
