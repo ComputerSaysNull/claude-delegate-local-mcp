@@ -1575,8 +1575,10 @@ RUN_BASH = RegisteredTool(
         name="run_bash",
         description=(
             "Run a shell command, confined: no network, an empty filesystem apart from a "
-            "scratch HOME and a read-only toolchain, and your real home directory absent "
-            "rather than merely unreadable. .git is hidden too, so git fails here: use "
+            "scratch HOME, a read-only toolchain and the workdir, and your real home "
+            "directory absent rather than merely unreadable. A file outside the workdir is "
+            "invisible to the shell even where the file tools can read it. .git is hidden "
+            "too, so git fails here: use "
             "read_git for history. Commands time out and are killed. The server "
             "reports the real exit code it observed, so do not describe a command as having "
             "succeeded when the result says otherwise. To change a file's text, prefer "

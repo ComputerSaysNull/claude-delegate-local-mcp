@@ -941,3 +941,12 @@ def test_a_refusal_for_tiles_says_how_many_are_needed_and_how_many_are_left():
     assert refused.is_error and refused.images == ()
     assert "8 images" in refused.content
     assert "holds 2 of the 8" in refused.content
+
+
+def test_the_workdir_line_says_the_shell_sees_nothing_else():
+    """A delegation whose file sat one folder above its workdir listed the parent, found it
+    empty and reported the file missing; it never tried the file tools, which could read it."""
+    rendered = loop.Delegation("count the rows", workdir="/w/proj/work").render()
+    line = " ".join(rendered.split())
+    assert "sees only that folder" in line
+    assert "not missing" in line and "file tools" in line

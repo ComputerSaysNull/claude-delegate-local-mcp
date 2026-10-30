@@ -1565,3 +1565,9 @@ def test_read_file_says_a_large_image_is_tiled_and_images_are_limited():
     described = " ".join(tools.READ_FILE.spec.description.split())
     assert "tiles" in described
     assert "limited number of images" in described
+
+
+def test_run_bash_says_the_workdir_is_all_of_yours_it_sees():
+    described = " ".join(tools.RUN_BASH.spec.description.split())
+    assert "and the workdir" in described
+    assert "invisible to the shell" in described
