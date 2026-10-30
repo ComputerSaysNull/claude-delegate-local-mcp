@@ -237,9 +237,9 @@ project changed. `pyproject.toml` is hashed parsed, less the tool tables no buil
 (pytest, ruff, mypy, coverage, pyright and `delegate-local`), so rewording a marker is not a
 changed declaration. It is a denylist: a table nobody listed still counts, and a mistake
 costs a rebuild rather than a false fresh. A rebuild moves the working environment aside and puts it back if the build
-fails, and a rebuild from a changed declaration prints the diff and needs `--yes`, because the
-build runs the project's own backend on the host. It runs server-side, where the network is, which is why a test run needs none
-(ADR-0063). The interpreter is reached by absolute path: `SANDBOX_PATH` stays
+fails, and a rebuild from a changed declaration prints the diff and needs `--yes`. The host only
+downloads wheels; the project's own backend runs in the sandbox, offline, so a test run never needs
+the network either (ADR-0135). The interpreter is reached by absolute path: `SANDBOX_PATH` stays
 `/usr/bin:/usr/sbin`, since widening it would put one project's tools on every command's PATH.
 
 It is the first command here that reads an argument rather than testing for one, so it is

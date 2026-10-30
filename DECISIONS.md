@@ -19,6 +19,25 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0135 — 2026-10-30 — A build runs no project code while the network is on — Accepted
+
+**Context.** `provision` ran `pip install --editable` on the host, with the network, so the
+project's build backend or `setup.py` ran there unsandboxed. A delegation can edit the
+declaration, so letting a caller provision unattended would hand model-written code the
+host and its network. `--yes` was the only guard, and it needs a person.
+
+**Decision — two phases.** The host reads the declaration statically (`tomllib`, or
+requirements lines) and runs `pip download --only-binary :all:` from an empty staging
+directory: installing a wheel runs no code. The install, and the backend's own build, run
+in the run_bash sandbox with `--unshare-all`, writing only the one venv. A backend's dynamic
+build requirements are asked for in the sandbox too, and come back as names. Every name
+passes one plain-name check: no URL, path, option or archive name. Dynamic or `setup.py`-only
+dependency declarations are refused, since reading them means running them. One build per
+project at a time, by lock. Supersedes ADR-0063's host-side build, not its network rule.
+
+**Consequence.** What reaches the host's network is package names, seen by the index alone.
+Disk use is bounded only by the build timeout: pip reports no size before it downloads.
+
 ## ADR-0134 — 2026-10-30 — A project with no package metadata declares its dependencies in requirements.txt — Accepted
 
 **Context.** Provisioning read only `pyproject.toml`, `setup.cfg` and `setup.py`, so a script
@@ -2742,7 +2761,7 @@ needs to write where a cover sits now fails loudly instead of appearing to work,
 the point: ADR-0007 says to trust the captured exit code, and until now that code was 0 for
 a write that never happened.
 
-## ADR-0063 — 2026-09-08 — The sandbox that runs a test suite never gets the network — Accepted
+## ADR-0063 — 2026-09-08 — The sandbox that runs a test suite never gets the network — Partially superseded by ADR-0135
 
 **Context.** M9 gives a delegation an interpreter it can run a project's tests with, and the
 obvious next question is whether that command needs the network. A test suite often does:

@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from claude_delegate_local import provision
+from claude_delegate_local import provision, sandbox
 from claude_delegate_local.config import Config
 
 
@@ -32,13 +32,26 @@ def _cfg(home: Path) -> Config:
 
 def _stub(monkeypatch, *, fail_on: str | None):
     """`_run` that makes the venv directory and fails on the step naming `fail_on`."""
-    def fake_run(argv, *, out):
+    def fake_run(argv, *, out, cwd=None):
         if "venv" in argv:
             os.makedirs(os.path.join(argv[-1], "bin"), exist_ok=True)
             Path(argv[-1], "bin", "python").write_text("new\n", encoding="utf-8")
         if fail_on is not None and fail_on in argv:
             raise provision.ProvisionError(f"{argv[0]} exited 1")
     monkeypatch.setattr(provision, "_run", fake_run)
+    # The install, `--editable` included, runs in the sandbox since the two-phase build.
+    _fake_sandbox(monkeypatch, fail_on=fail_on)
+
+
+def _fake_sandbox(monkeypatch, *, fail_on: str | None = None):
+    """`sandbox.run` that answers the backend query and fails the install naming `fail_on`."""
+    def fake(cfg, req):
+        if "DELEGATE_BUILD_REQUIRES" in req.command or "delegate-backend" in req.command:
+            return sandbox.SandboxResult("DELEGATE_BUILD_REQUIRES=[]\n", "", 0, False)
+        if fail_on is not None and fail_on in req.command:
+            return sandbox.SandboxResult("", "pip failed\n", 1, False)
+        return sandbox.SandboxResult("", "", 0, False)
+    monkeypatch.setattr(provision.sandbox, "run", fake)
 
 
 @pytest.fixture

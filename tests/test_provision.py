@@ -16,6 +16,8 @@ would be the fourth check in this repository that could not fail.
 import io
 import json
 import os
+import posixpath
+import shlex
 import shutil
 import sys
 import tempfile
@@ -228,20 +230,29 @@ def test_a_package_project_ignores_a_stray_requirements_txt_for_the_digest(tmp_p
     assert provision.dependency_hash(str(root)) == before
 
 
-def test_a_requirements_only_project_installs_from_the_file(tmp_path):
-    """The install step reads the file, not the project directory."""
+def test_a_requirements_only_project_installs_from_the_staged_file(tmp_path):
+    """The install step reads the staged file, not the project directory."""
+    home = tmp_path / "home"
     root = tmp_path / "proj"
     root.mkdir()
     (root / "requirements.txt").write_text("httpx>=0.28\n", encoding="utf-8")
+    venv, staging = install_env(home, root)
 
-    assert provision.install_args(str(root)) == ["-r", str(root / "requirements.txt")]
+    req = provision.install_request(cfg(sandbox_home=str(home)), root.as_posix(), venv, staging)
+
+    assert f"-r {posixpath.join(staging, provision.REQUIREMENTS_NAME)}" in req.command
 
 
 def test_a_package_project_keeps_editable_arguments_with_a_stray_requirements_txt(tmp_path):
+    home = tmp_path / "home"
     root = project_tree(tmp_path, extras="")
     (root / "requirements.txt").write_text("httpx>=0.28\n", encoding="utf-8")
+    venv, staging = install_env(home, root)
 
-    assert provision.install_args(str(root)) == ["--editable", str(root)]
+    req = provision.install_request(cfg(sandbox_home=str(home)), root.as_posix(), venv, staging)
+
+    argv = shlex.split(req.command)
+    assert argv[argv.index("--editable") + 1] == root.as_posix()
 
 
 def test_an_option_line_in_requirements_is_refused(tmp_path):
@@ -254,7 +265,7 @@ def test_an_option_line_in_requirements_is_refused(tmp_path):
     )
 
     with pytest.raises(provision.ProvisionError) as exc:
-        provision.install_args(str(root))
+        provision.static_requirements(str(root))
 
     assert "-r other.txt" in str(exc.value)
     assert "requirements.txt" in str(exc.value)
@@ -268,7 +279,7 @@ def test_comments_and_blank_lines_are_fine(tmp_path):
         "# a comment\n\nhttpx>=0.28\n", encoding="utf-8"
     )
 
-    assert provision.install_args(str(root)) == ["-r", str(root / "requirements.txt")]
+    assert provision.static_requirements(str(root)) == ["httpx>=0.28"]
 
 
 # --- the build environment ---------------------------------------------------------------
@@ -676,6 +687,415 @@ def test_it_refuses_on_windows_rather_than_building_something_unusable(capsys, m
     code, _ = drive([PROJECT])
     assert code == 2
     assert "cannot run" in capsys.readouterr().err
+
+
+# --- static requirements ---------------------------------------------------------------
+
+
+def install_env(home: Path, project: Path) -> tuple[str, str]:
+    """The venv and staging dirs one build uses, as POSIX strings."""
+    return (
+        provision.venv_dir(home.as_posix(), project.as_posix()),
+        provision.staging_dir(home.as_posix(), project.as_posix()),
+    )
+
+
+def test_static_requirements_reads_a_requirements_file(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "requirements.txt").write_text(
+        "# a comment\n\nhttpx>=0.28\nrequests[security]>=2.31\n", encoding="utf-8"
+    )
+
+    assert provision.static_requirements(str(root)) == [
+        "httpx>=0.28", "requests[security]>=2.31"]
+
+
+def test_static_requirements_includes_the_dev_extra_when_declared(tmp_path):
+    root = project_tree(tmp_path)  # declares dev = ["pytest>=8"]
+    assert provision.static_requirements(str(root)) == [
+        "pytest>=8", "setuptools>=40.8.0"]
+
+
+def test_static_requirements_without_a_dev_extra(tmp_path):
+    root = project_tree(tmp_path, extras="")
+    assert provision.static_requirements(str(root)) == ["setuptools>=40.8.0"]
+
+
+def test_static_requirements_reads_the_build_system_requires(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["hatchling"]\n'
+        '[project]\nname = "demo"\nversion = "0.0.0"\n', encoding="utf-8"
+    )
+
+    assert provision.static_requirements(str(root)) == ["hatchling"]
+
+
+def test_dynamic_dependencies_are_refused(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\ndynamic = ["dependencies"]\n', encoding="utf-8"
+    )
+
+    with pytest.raises(provision.ProvisionError) as exc:
+        provision.static_requirements(str(root))
+
+    assert "dynamic" in str(exc.value)
+    assert "pyproject.toml" in str(exc.value)
+
+
+def test_dynamic_optional_dependencies_are_refused(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\ndynamic = ["optional-dependencies"]\n', encoding="utf-8"
+    )
+
+    with pytest.raises(provision.ProvisionError):
+        provision.static_requirements(str(root))
+
+
+def test_a_setup_py_only_project_is_refused(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "setup.py").write_text(
+        "from setuptools import setup\nsetup()\n", encoding="utf-8"
+    )
+
+    with pytest.raises(provision.ProvisionError) as exc:
+        provision.static_requirements(str(root))
+
+    assert "setup.py" in str(exc.value)
+    assert "pyproject.toml" in str(exc.value)
+
+
+def test_a_setup_cfg_only_project_is_refused(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "setup.cfg").write_text("[metadata]\nname = demo\n", encoding="utf-8")
+
+    with pytest.raises(provision.ProvisionError):
+        provision.static_requirements(str(root))
+
+
+def test_a_url_requirement_is_refused(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\ndependencies = ["pkg @ https://x/y.whl"]\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(provision.ProvisionError) as exc:
+        provision.static_requirements(str(root))
+
+    assert "pkg @ https://x/y.whl" in str(exc.value)
+    assert "hash" in str(exc.value)
+
+
+@pytest.mark.parametrize("name", ["evil.zip", "evil.tar.gz", "evil.whl", "Evil.TGZ"])
+def test_a_requirement_named_like_an_archive_is_refused(tmp_path, name):
+    """pip reads an argument naming an existing archive as a local file, and a local sdist
+    is built on the spot -- the project's own code, on the host, with the network. Refused
+    by name, whatever the working directory holds."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "requirements.txt").write_text(f"{name}\n", encoding="utf-8")
+
+    with pytest.raises(provision.ProvisionError) as exc:
+        provision.static_requirements(str(root))
+
+    assert name in str(exc.value)
+
+
+def test_a_dotted_plain_name_is_still_accepted(tmp_path):
+    """The control for the archive refusal: a dotted distribution name is ordinary."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "requirements.txt").write_text("zope.interface>=6\n", encoding="utf-8")
+
+    assert provision.static_requirements(str(root)) == ["zope.interface>=6"]
+
+
+def test_wheels_are_downloaded_from_inside_the_empty_staging_directory(tmp_path, monkeypatch):
+    """So no requirement name can resolve to a file pip would build on the host."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "requirements.txt").write_text("httpx>=0.28\n", encoding="utf-8")
+    staging = tmp_path / "staging"
+    seen = {}
+
+    def fake_run(argv, *, out, cwd=None):
+        seen["cwd"] = cwd
+        seen["listing"] = sorted(p.name for p in staging.iterdir())
+
+    monkeypatch.setattr(provision, "_run", fake_run)
+    provision._download_wheels(str(root), str(staging), out=io.StringIO())
+
+    assert seen["cwd"] == str(staging)
+    assert seen["listing"] == ["requirements.txt"]
+
+
+def test_a_path_requirement_is_refused(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\ndependencies = ["./local"]\n', encoding="utf-8"
+    )
+
+    with pytest.raises(provision.ProvisionError):
+        provision.static_requirements(str(root))
+
+
+def test_a_plain_name_with_extra_version_and_marker_is_accepted(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\ndependencies = '
+        '["name[extra]>=1; python_version>\'3\'"]\n',
+        encoding="utf-8",
+    )
+
+    assert provision.static_requirements(str(root)) == [
+        "name[extra]>=1; python_version>'3'", "setuptools>=40.8.0"]
+
+
+# --- the two-phase install request -----------------------------------------------------
+
+
+def test_the_install_request_for_a_package_project(tmp_path):
+    home = tmp_path / "home"
+    project = project_tree(tmp_path)  # declares the dev extra
+    venv, staging = install_env(home, project)
+
+    req = provision.install_request(
+        cfg(sandbox_home=str(home)), project.as_posix(), venv, staging)
+
+    assert req.network is False
+    assert req.writable_binds == (venv,)
+    assert req.workdir == project.as_posix()
+    assert req.home == home.as_posix()
+    assert req.env["PIP_CONFIG_FILE"] == os.devnull
+    argv = shlex.split(req.command)
+    assert "--no-index" in argv
+    assert "--no-cache-dir" in argv
+    assert argv[argv.index("--find-links") + 1] == staging
+    assert argv[argv.index("--editable") + 1] == f"{project.as_posix()}[dev]"
+
+
+def test_the_install_request_for_a_requirements_project(tmp_path):
+    home = tmp_path / "home"
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "requirements.txt").write_text("httpx>=0.28\n", encoding="utf-8")
+    venv, staging = install_env(home, project)
+
+    req = provision.install_request(
+        cfg(sandbox_home=str(home)), project.as_posix(), venv, staging)
+
+    assert req.network is False
+    assert req.writable_binds == (venv,)
+    assert req.workdir is None
+    argv = shlex.split(req.command)
+    assert argv[argv.index("--find-links") + 1] == staging
+    assert argv[argv.index("-r") + 1] == posixpath.join(staging, "requirements.txt")
+
+
+# --- the backend round -----------------------------------------------------------------
+
+
+def test_the_backend_query_installs_build_requires_and_queries(tmp_path):
+    """The query installs `[build-system].requires` into a scratch target with the venv's
+    own interpreter, then runs a script that imports the backend and asks it."""
+    home = tmp_path / "home"
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n'
+        '[project]\nname = "demo"\nversion = "0.0.0"\n', encoding="utf-8"
+    )
+    venv, staging = install_env(home, project)
+
+    req = provision.backend_query_request(
+        cfg(sandbox_home=str(home)), project.as_posix(), staging, venv)
+
+    assert req.network is False
+    assert req.workdir == project.as_posix()
+    assert req.writable_binds == ()
+    assert req.home == home.as_posix()
+    assert req.env["PIP_CONFIG_FILE"] == os.devnull
+    assert req.env["PYTHONPATH"] == "/tmp/delegate-backend"
+    argv = shlex.split(req.command)
+    assert "--no-index" in argv and "--no-cache-dir" in argv
+    assert argv[argv.index("--target") + 1] == "/tmp/delegate-backend"
+    assert argv[argv.index("--find-links") + 1] == staging
+    assert "hatchling" in argv
+    assert "hatchling.build" in req.command
+    assert provision.interpreter_path(venv) in req.command
+    assert "&&" in req.command
+
+
+def test_the_backend_query_defaults_the_backend_and_requires(tmp_path):
+    """No `[build-system]` table means the setuptools legacy backend, which is the one
+    `static_requirements` already downloads, so the query can be answered."""
+    home = tmp_path / "home"
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.0.0"\n', encoding="utf-8"
+    )
+    venv, staging = install_env(home, project)
+
+    req = provision.backend_query_request(
+        cfg(sandbox_home=str(home)), project.as_posix(), staging, venv)
+
+    assert "setuptools.build_meta:__legacy__" in req.command
+    assert "setuptools>=40.8.0" in req.command
+
+
+def test_the_backend_requires_are_parsed_from_the_marker_line():
+    got = provision.parse_backend_requires(
+        'some preamble\nDELEGATE_BUILD_REQUIRES=["editables~=0.3", "pathspec>=0.9"]\n')
+    assert got == ["editables~=0.3", "pathspec>=0.9"]
+
+
+def test_a_missing_marker_is_refused():
+    with pytest.raises(provision.ProvisionError, match="DELEGATE_BUILD_REQUIRES"):
+        provision.parse_backend_requires("no marker here")
+
+
+def test_bad_json_in_the_marker_is_refused():
+    with pytest.raises(provision.ProvisionError):
+        provision.parse_backend_requires('DELEGATE_BUILD_REQUIRES=[oops\n')
+
+
+def test_a_payload_that_is_not_a_list_of_strings_is_refused():
+    with pytest.raises(provision.ProvisionError):
+        provision.parse_backend_requires('DELEGATE_BUILD_REQUIRES=["editables", 3]\n')
+
+
+def backend_fixture(tmp_path: Path) -> tuple[Path, Path, str]:
+    """A package project and the venv/staging a build would use, as POSIX strings."""
+    home = tmp_path / "home"
+    (home / "venvs").mkdir(parents=True)
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n'
+        '[project]\nname = "demo"\nversion = "0.0.0"\n', encoding="utf-8"
+    )
+    venv = provision.venv_dir(home.as_posix(), project.as_posix())
+    Path(venv).mkdir(parents=True)
+    return home, project, venv
+
+
+def test_the_build_sequence_orders_venv_download_query_dynamic_download_install(
+    tmp_path, monkeypatch
+):
+    """The backend round sits between the static download and the install, in that order."""
+    home, project, venv = backend_fixture(tmp_path)
+    steps = []
+
+    def fake_run(argv, *, out, cwd=None):
+        steps.append(("run", list(argv)))
+
+    def fake_sandbox_run(cfg, req):
+        steps.append(("sandbox", req.command))
+        if "--editable" in req.command:
+            return sandbox.SandboxResult(stdout="", stderr="", exit_code=0, timed_out=False)
+        return sandbox.SandboxResult(
+            stdout='DELEGATE_BUILD_REQUIRES=["editables~=0.3"]\n',
+            stderr="", exit_code=0, timed_out=False)
+
+    monkeypatch.setattr(provision, "_run", fake_run)
+    monkeypatch.setattr(provision.sandbox, "run", fake_sandbox_run)
+    provision._build_into(
+        cfg(sandbox_home=str(home)), project.as_posix(), venv, home.as_posix(),
+        out=io.StringIO())
+
+    assert [label for label, _ in steps] == ["run", "run", "sandbox", "run", "sandbox"]
+    assert steps[0][1][1:] == ["-m", "venv", venv]
+    assert "hatchling" in steps[1][1]
+    assert "--editable" not in steps[2][1]
+    assert "DELEGATE_BUILD_REQUIRES" in steps[2][1]
+    assert "editables~=0.3" in steps[3][1]
+    assert "--editable" in steps[4][1]
+
+
+def test_a_returned_backend_url_requirement_is_refused_before_any_second_download(
+    tmp_path, monkeypatch
+):
+    """A URL is a way to send data out or install what the hash does not cover, so the
+    build is refused before any wheel for it is downloaded."""
+    home, project, venv = backend_fixture(tmp_path)
+    runs = []
+
+    def fake_run(argv, *, out, cwd=None):
+        runs.append(list(argv))
+
+    def fake_sandbox_run(cfg, req):
+        return sandbox.SandboxResult(
+            stdout='DELEGATE_BUILD_REQUIRES=["pkg @ https://x/y.whl"]\n',
+            stderr="", exit_code=0, timed_out=False)
+
+    monkeypatch.setattr(provision, "_run", fake_run)
+    monkeypatch.setattr(provision.sandbox, "run", fake_sandbox_run)
+
+    with pytest.raises(provision.ProvisionError):
+        provision._build_into(
+            cfg(sandbox_home=str(home)), project.as_posix(), venv, home.as_posix(),
+            out=io.StringIO())
+
+    # Only the venv creation and the static download ran; no second download for the URL.
+    assert len(runs) == 2
+    assert runs[0][1:] == ["-m", "venv", venv]
+    assert "pip" in runs[1] and "hatchling" in runs[1]
+
+
+def test_a_requirements_only_project_makes_no_backend_query(tmp_path, monkeypatch):
+    """There is no build backend to ask, so the query is skipped entirely."""
+    home = tmp_path / "home"
+    (home / "venvs").mkdir(parents=True)
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "requirements.txt").write_text("httpx>=0.28\n", encoding="utf-8")
+    venv = provision.venv_dir(home.as_posix(), project.as_posix())
+    Path(venv).mkdir(parents=True)
+    sandbox_calls = []
+
+    def fake_run(argv, *, out, cwd=None):
+        return None
+
+    def fake_sandbox_run(cfg, req):
+        sandbox_calls.append(req.command)
+        return sandbox.SandboxResult(stdout="", stderr="", exit_code=0, timed_out=False)
+
+    monkeypatch.setattr(provision, "_run", fake_run)
+    monkeypatch.setattr(provision.sandbox, "run", fake_sandbox_run)
+    provision._build_into(
+        cfg(sandbox_home=str(home)), project.as_posix(), venv, home.as_posix(),
+        out=io.StringIO())
+
+    # One sandbox run -- the install -- and none of it a backend query.
+    assert len(sandbox_calls) == 1
+    assert "DELEGATE_BUILD_REQUIRES" not in sandbox_calls[0]
+
+
+# --- the build lock --------------------------------------------------------------------
+
+
+@pytest.mark.skipif(provision.fcntl is None, reason="fcntl is POSIX-only")
+def test_the_build_lock_refuses_a_second_holder(tmp_path):
+    home = tmp_path / "home"
+    first = provision.acquire_build_lock(home.as_posix(), PROJECT)
+    try:
+        with pytest.raises(provision.ProvisionError, match="already running"):
+            provision.acquire_build_lock(home.as_posix(), PROJECT)
+    finally:
+        os.close(first)
 
 
 # --- one real build ----------------------------------------------------------------------

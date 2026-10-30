@@ -299,6 +299,11 @@ class SandboxRequest:
 
     No timeout field: that is `cfg.run_bash_timeout`, and a default here would be a config
     default living outside `config.py`, which is the one thing that file exists to prevent.
+
+    `writable_binds` is the one exception to the provisioned root being read-only: exactly
+    one venv directory under it, made writable for the single run that installs into it.
+    Only `provision` sets it; agents and `run_bash` never do, and nothing else widens what
+    a command may write.
     """
 
     command: str
@@ -307,6 +312,24 @@ class SandboxRequest:
     network: bool = False
     extra_binds: tuple[str, ...] = ()
     env: Mapping[str, str] = field(default_factory=dict)
+    writable_binds: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        # Every writable bind must sit strictly inside the provisioned root, realpath-
+        # normalised on both sides, so the field can never widen what a command writes.
+        # Refused here, at construction, rather than in `build_argv`: the bind would then
+        # already be in the argv that gets asserted, and the refusal would come later than
+        # the caller's own check that this path is a venv it just made.
+        if not self.writable_binds:
+            return
+        provisioned = posixpath.realpath(provisioned_root(self.home))
+        for bind in self.writable_binds:
+            real = posixpath.realpath(bind)
+            if real == provisioned or not real.startswith(provisioned.rstrip("/") + "/"):
+                raise ValueError(
+                    f"writable_binds path {bind!r} is not a directory strictly inside the "
+                    f"provisioned root {provisioned!r}"
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1025,6 +1048,8 @@ def build_argv(  # noqa: PLR0913 -- every input is a separate fact the argv enco
        the workdir so that a workdir somehow nested under it is still writable. This is the
        one tree the secret scan skips without covering, so the read-only bind is the control
        that replaces the cover rather than a second opinion about it (ADR-0062).
+    1b. A writable bind, only ever one venv `provision` is installing into, comes straight
+       after the provisioned root so it wins for its own subtree and nothing wider.
     2. Read-only toolchain binds come before the read-write workdir. If an operator's
        toolchain bind overlaps the workdir, the workdir must still be writable -- otherwise
        a build fails with a read-only-filesystem error inside the very directory the
@@ -1080,6 +1105,13 @@ def build_argv(  # noqa: PLR0913 -- every input is a separate fact the argv enco
     # delegation and a planted file in an interpreter that later runs a test suite.
     provisioned = provisioned_root(req.home)
     argv += ["--ro-bind", provisioned, provisioned]
+
+    # Rule 1b: writable binds, immediately after the provisioned root's read-only bind, so
+    # each overrides it for the subtree it names. Only `provision` sets these -- one venv
+    # under the provisioned root -- and `SandboxRequest.__post_init__` has already refused
+    # anything that is not strictly inside it.
+    for bind in req.writable_binds:
+        argv += ["--bind", bind, bind]
 
     # Read-only toolchain binds before the workdir (rule 2) and after the base mounts
     # (rule 2a). Nothing here resolves the path: `build_argv` is pure, and a realpath call
