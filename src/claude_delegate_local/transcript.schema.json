@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "One line of a delegation's .jsonl transcript stream",
   "description": "Format 1.x. Every line is one event, discriminated by `t`. Readers ignore fields and kinds they do not know: a minor version only adds, a major version removes, renames or changes a meaning (ADR-0111).",
-  "x-transcript-format": "1.12",
+  "x-transcript-format": "1.13",
   "type": "object",
   "required": ["t", "at"],
   "properties": {
@@ -183,6 +183,7 @@
         "message": {"type": "string"},
         "result_bytes": {"$ref": "#/$defs/int_or_null"},
         "result_lines": {"$ref": "#/$defs/int_or_null"},
+        "result_images": {"type": "integer", "minimum": 1, "description": "How many images the result handed the model, a tile each, every one counted against the model's max_images. Absent when it carried none (format 1.13)."},
         "exit_code": {"$ref": "#/$defs/int_or_null"},
         "ms": {"$ref": "#/$defs/int_or_null"},
         "stages": {"type": "array"}
@@ -219,6 +220,7 @@
         "given": {"type": "string"},
         "bytes": {"type": "integer"},
         "est_tokens": {"type": "integer"},
+        "images": {"type": "integer", "minimum": 1, "description": "How many images the file was sent as: 1 when whole, its tile count when tiled. Absent for a file read as text (format 1.13)."},
         "start_line": {"type": "integer", "minimum": 1, "description": "The first line read, 1-based, when files[] named a range of this file. Ranges that overlap or touch are read as one, so one entry may cover several the caller named. Absent when the whole file was read (format 1.11)."},
         "end_line": {"type": "integer", "minimum": 1, "description": "The last line actually read, inclusive: a range named past the end of the file ends at its last line. Present exactly when start_line is (format 1.11)."}
       }

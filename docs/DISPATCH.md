@@ -681,7 +681,7 @@ this for exit codes and the same argument covers the loop's economics: a model's
 its own work is a claim, these are observations. All are absent rather than zeroed on the
 one-shot path, where `tool_calls: 0` would read as a model that chose not to use its tools.
 Each call's record sizes its result: `result_bytes` as sent, `result_lines` as the tool's
-own output, without the note a cut result carries, which is the server's and not the file's.
+own output without the server's note on a cut, and `result_images` the images it carried.
 
 `duplicate_line_share` is the only field that tells a loop from a long answer, which are
 identical everywhere else: both end at a length stop having spent the ceiling exactly, so
