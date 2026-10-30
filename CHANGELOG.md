@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #521 — 2026-10-30 — chore: release 0.15.0
+
+### Changed
+
+- **The version moves to 0.15.0, so an installed wheel carries images.** The transcript
+  format is 1.13: a tool call may carry `result_images` and a `files_read` entry `images`
+  (#519), so the tracker should pin this release. `read_file` and `files[]` hand a vision
+  model images (#511, #512), on the default allowlist and read-only (#513), on the user
+  turn after the tool result (#514), a large one as tiles (#515); the viewer shows the
+  counts (#520); Pillow is a new dependency. The shell is described as seeing only its
+  workdir (#518), and a folder that ignores case is refused (#503). The release itself is
+  the tag `v0.15.0` on `main`, published by the release workflow (ADR-0115).
+
 ## #520 — 2026-10-30 — feat: claude-delegate-watch shows the images a call sent
 
 ### Added
