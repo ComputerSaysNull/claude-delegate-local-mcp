@@ -1392,9 +1392,9 @@ _DELEGATION_RESULT: dict[str, Any] = {
             "rebuild it."
         )},
         "provisioning_missing": {"type": "boolean", "description": (
-            "Present and true when a run_bash found a hidden virtualenv and nothing "
-            "provisioned, so $DELEGATE_PYTHON was unset. Call the `provision` tool for the "
-            "workdir."
+            "Present and true when a run_bash found a hidden virtualenv or a dependency "
+            "declaration, and nothing provisioned, so $DELEGATE_PYTHON was unset. Call the "
+            "`provision` tool for the workdir."
         )},
     },
 }
