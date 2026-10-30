@@ -19,6 +19,25 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0137 — 2026-10-30 — A virtualenv is covered by its marker, whatever its name — Accepted
+
+**Context.** ADR-0041 covers bulk directories by name, from the opaque list. A virtualenv
+named anything the list does not hold is walked entry by entry: one of 17,352 entries
+exhausted the 10,000-entry budget, and every run_bash in that workdir was refused. The
+refusal's advice, list it as opaque, would have hidden the interpreter that venv was made
+for without saying so.
+
+**Decision.** The walk covers a directory whose files include `pyvenv.cfg`, the marker every
+virtualenv carries, as it covers an opaque match: covered, pruned, its files not matched.
+It costs no syscall, since the walk has already listed them. A scan root is never covered
+whole, and the provisioned root is pruned before it is visited, so its venvs stay bound
+(ADR-0062). `provision`'s count walk applies the same rule. The refusal now says a covered
+directory is hidden from the command too, and that an interpreter belongs in `provision`.
+
+**Consequence.** A workspace venv of any name costs a handful of entries and is hidden from
+commands, as a `.venv` already was. Covering is the safe direction: nothing is exposed that
+was hidden before.
+
 ## ADR-0136 — 2026-10-30 — The caller may provision unattended — Accepted
 
 **Context.** Only an operator could run `provision`: the caller's own shell is usually

@@ -539,6 +539,13 @@ def _resolv_conf_target() -> str | None:
 # through the probe also matches the directory's own path, which the direct check catches.
 _DIR_PROBE = "delegate-probe"
 
+# The one file every virtualenv carries whatever it is called. The opaque list matches a
+# bulk directory by NAME, so a venv named anything not on it is walked entry by entry and
+# exhausts the scan budget; this marker is how the scan recognises a venv by content
+# instead. Shared with `provision`'s count walk, which prunes the same directories so the
+# two counts stay equal.
+_VENV_MARKER = "pyvenv.cfg"
+
 
 def _dir_match(path: str, globs: Sequence[str]) -> str | None:
     """A directory is a secret if it matches, or if the list says its contents are."""
@@ -640,7 +647,9 @@ def _charge(cfg: Config, root: str, depth: int, entries: int, budget: int) -> in
             "run with a denylist that covered only part of the tree. Usually the "
             "tree carries a machine-generated directory nobody needs to scan: name "
             "it in the opaque list (DELEGATE_OPAQUE_GLOBS_FILE) and it is covered "
-            "and skipped, which is both faster and no less safe. Raising "
+            "and skipped, which is both faster and no less safe -- but a covered "
+            "directory is hidden from the command too, so never list one a command "
+            "needs to read; an interpreter belongs in `provision` instead. Raising "
             "DELEGATE_SECRET_SHADOW_MAX_ENTRIES makes every call walk it instead."
         )
     return remaining
@@ -702,6 +711,19 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
         for dirpath, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
             depth = dirpath.rstrip("/").count("/") - base_depth
             budget = _charge(cfg, root, depth, len(dirnames) + len(filenames), budget)
+
+            # A virtualenv is covered whole however it is named. The opaque list matches a
+            # bulk directory by NAME, so a venv called `pyenv` or anything not on it is
+            # walked entry by entry and exhausts the budget. `pyvenv.cfg` is the marker
+            # every venv carries, so this matches by content. Never a scan root itself --
+            # the workdir, home or an extra bind -- even one holding the marker: covering
+            # a root would hide everything the command was given. (ADR-0137)
+            if dirpath not in roots and _VENV_MARKER in filenames:
+                _add(found, seen, ShadowTarget(
+                    path=dirpath, kind="dir", matched=f"venv:{_VENV_MARKER}",
+                ))
+                dirnames[:] = []
+                continue
 
             kept: list[str] = []
             for name in dirnames:

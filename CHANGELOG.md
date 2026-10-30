@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #525 — 2026-10-30 — fix: the secret scan covers a virtualenv whatever its name
+
+### Fixed
+
+- **A virtualenv with an unlisted name refused every `run_bash` in its workdir.** The scan
+  covers bulk directories by name from the opaque list, so a venv called anything else was
+  walked entry by entry: 17,352 entries against the 10,000-entry budget, and every command
+  was refused. The walk now covers any directory carrying `pyvenv.cfg`, matched by content
+  rather than name, at no extra syscall, and `provision`'s count walk matches it (ADR-0137).
+  The refusal used to advise listing such a directory as opaque without saying that this
+  hides it from the command too; it now says so, and points an interpreter at `provision`.
+
 ## #524 — 2026-10-30 — feat: Claude Code can provision a project itself
 
 ### Added

@@ -754,6 +754,13 @@ def denylist_matches(cfg: Config, venv: str) -> list[str]:
     opaque = sandbox.load_opaque_globs(cfg)
     found: list[str] = []
     for dirpath, dirnames, filenames in os.walk(venv, followlinks=False):
+        # A venv directory is covered whole by the scan, so the count must prune it too.
+        # The scan matches by content -- `pyvenv.cfg`, the marker every venv carries --
+        # where the opaque list matches by name. Never the walk root itself, which is the
+        # venv being reported on.
+        if dirpath != venv and sandbox._VENV_MARKER in filenames:
+            dirnames[:] = []
+            continue
         kept: list[str] = []
         for name in dirnames:
             full = posixpath.join(dirpath.replace(os.sep, "/"), name)

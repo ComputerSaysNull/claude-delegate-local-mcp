@@ -587,12 +587,12 @@ it removed it first; a root-level protected file is moved aside and named ([why]
 
 **Bulk directories are covered and not walked.** The walk is per `run_bash` call, on a
 workspace that lives on `/mnt/c`, and the budget above is what a project's own installed
-dependencies exhaust (ADR-0041). So a second list, `opaque_globs_file`, names
-machine-generated directories, and a match is covered with the same tmpfs a matched
-secret directory gets and pruned from the walk for the same reason. The covers are read-only,
-so the caches that list names are pointed at `/tmp` through the environment instead
-(`RUFF_CACHE_DIR`, `PYTHONPYCACHEPREFIX`, and pytest's `cache_dir` appended to
-`PYTEST_ADDOPTS`); without that, `ruff check` exits 2 on its own cache.
+dependencies exhaust (ADR-0041). So a second list, `opaque_globs_file`, names machine-generated
+directories, and a match is covered with the same tmpfs a matched secret directory gets and
+pruned from the walk for the same reason, and so is any virtualenv, by its `pyvenv.cfg`
+(ADR-0137). The covers are read-only, so the caches that list names are pointed at `/tmp`
+through the environment instead (`RUFF_CACHE_DIR`, `PYTHONPYCACHEPREFIX`, and pytest's
+`cache_dir` appended to `PYTEST_ADDOPTS`); without that, `ruff check` exits 2 on its own cache.
 
 Covering is what makes skipping safe: a secret inside such a directory is hidden by the
 mount over its parent whether or not the walk ever looked inside it. Pruning *without*
