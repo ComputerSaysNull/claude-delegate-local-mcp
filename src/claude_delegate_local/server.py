@@ -843,7 +843,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     async def progress(turn: int, of: int, message: str | None = None) -> None:
         """ADR-0018: what stops the client abandoning a running delegation.
 
-        The client's idle timer is 1800s against a 3600s default `dispatch_timeout`.
+        The client's idle timer is 1800s, far below a delegation's `dispatch_timeout`.
         Nothing renders it or cancels through it; resetting the timer is its job. One
         counter for turns and heartbeats, because MCP requires the value to rise each time.
         No `total`: the turn cap is a ceiling, not a count, and `0` reads as "zero of

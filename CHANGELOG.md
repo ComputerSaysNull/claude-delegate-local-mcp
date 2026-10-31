@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #529 — 2026-10-30 — feat: a delegation may run 300 turns and 12 hours
+
+### Changed
+
+- **A long build-and-check run was cut at 100 turns and 4 hours.** A caller asked for 150
+  and then 200 turns and got 100, the operator ceiling, without being told; a run that
+  long also needs more than four hours of wall clock. `max_turns_hard_cap` is now 300 and
+  `dispatch_timeout` 12 hours. A run that stops producing is still cut by `stall_timeout`,
+  so the higher ceiling only lengthens work that is progressing. A docstring that restated
+  an old `dispatch_timeout` default now names the setting instead.
+
 ## #528 — 2026-10-30 — feat: a delegation asks for a missing interpreter instead of reporting it
 
 ### Changed
