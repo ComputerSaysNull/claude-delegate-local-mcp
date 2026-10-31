@@ -2738,6 +2738,52 @@ def test_zero_turns_is_refused_rather_than_clamped_up():
     assert "at least 1" in str(e.value)
 
 
+# --- a clamped max_turns is reported to the caller, not swallowed ----------------------
+
+
+def test_a_max_turns_above_the_cap_reports_the_cap_and_the_asked_number():
+    """The clamp still happens -- the work is legitimate and only the number is not -- but
+    the caller learns both the number it got and the number it asked for, so it is not
+    silently given less than it asked."""
+    config = cfg(max_turns_default=2, max_turns_hard_cap=7)
+    result = delegated(
+        chat_handler(content="the answer"), config=config, task="q", max_turns=50,
+    )
+    assert result["max_turns"] == config.max_turns_hard_cap
+    assert result["max_turns_requested"] == 50
+
+
+def test_a_max_turns_within_the_cap_reports_it_and_no_requested_key():
+    """The negative control for the key above: no clamp, so nothing to report."""
+    config = cfg(max_turns_default=2, max_turns_hard_cap=7)
+    result = delegated(
+        chat_handler(content="the answer"), config=config, task="q", max_turns=4,
+    )
+    assert result["max_turns"] == 4
+    assert "max_turns_requested" not in result
+
+
+def test_no_max_turns_reports_the_default_it_got():
+    """Neither the caller nor the agent said a number, so the run got the default and there
+    is nothing the server clamped on the caller's behalf."""
+    config = cfg(max_turns_default=3, max_turns_default_writing=3)
+    result = delegated(chat_handler(content="the answer"), config=config, task="q")
+    assert result["max_turns"] == 3
+    assert "max_turns_requested" not in result
+
+
+@pytest.mark.parametrize("cap", [5, 13])
+def test_the_max_turns_description_names_the_configured_cap(cap):
+    """The description names the live ceiling, so two servers with two caps must name two
+    different numbers -- which a literal could not do."""
+    config = cfg(max_turns_default=1, max_turns_hard_cap=cap)
+    tool = _tools(_built(config))["delegate"]
+    described = " ".join(
+        (tool.input_schema["properties"]["max_turns"]["description"] or "").split()
+    )
+    assert f"ceiling of {cap}" in described
+
+
 # ---- the result describes itself too (ADR-0066) -------------------------------------
 @pytest.mark.parametrize("tool_name", EVERY_TOOL)
 def test_every_tool_describes_its_result(tool_name):

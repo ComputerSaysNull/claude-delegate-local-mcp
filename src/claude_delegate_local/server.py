@@ -198,7 +198,8 @@ def _partial_result(
     }
 
 
-def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
+def _loop_ledger(dispatched: Dispatch | AgenticDispatch,
+                 requested_max_turns: int | None = None) -> dict[str, Any]:
     """The turn-loop counters, present only when a loop actually ran.
 
     Absent on the one-shot path, not zero: `tool_calls: 0` would read as a model that
@@ -206,7 +207,7 @@ def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
     """
     if not isinstance(dispatched, AgenticDispatch):
         return {}
-    return {
+    ledger = {
         "turns": dispatched.turns,
         "tool_calls": dispatched.tool_calls,
         # Split by tool, since a total cannot tell two reads from two overwrites, and with
@@ -222,6 +223,9 @@ def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
         # None where the endpoint reports no caching at all, which is not a measured zero.
         "total_cached_tokens": dispatched.total_cached_tokens,
         "hit_turn_limit": dispatched.hit_turn_limit,
+        # The budget the run actually had, so a caller can tell "six turns" from "six of
+        # six" without reading the transcript.
+        "max_turns": dispatched.max_turns,
         # Zero, not absent, once a loop ran: offered `run_bash` and unused is a real answer.
         "bash_calls": dispatched.bash_calls,
         "bash_failures": dispatched.bash_failures,
@@ -231,6 +235,11 @@ def _loop_ledger(dispatched: Dispatch | AgenticDispatch) -> dict[str, Any]:
         # (ADR-0007)
         "last_bash_exit": dispatched.last_bash_exit,
     }
+    # Only when the caller asked for more than the run got, holding the caller's number: a
+    # clamped request is exactly the one that must not read as if it were granted.
+    if requested_max_turns is not None and requested_max_turns > dispatched.max_turns:
+        ledger["max_turns_requested"] = requested_max_turns
+    return ledger
 
 
 def _diagnostics_block(
@@ -699,6 +708,9 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     arrives loaded and validated, and `workdir` resolved and root-checked; this applies
     them.
     """
+    # The caller's own number, before the agent merge: `max_turns` below can come from the
+    # agent file, and only what the caller asked for is worth reporting back as clamped.
+    caller_max_turns = max_turns
     # The only place `"inherit"` exists, spent before the agent merge: that merge is
     # `effort or agent.effort`, and the truthy string would skip the tier it defers to.
     # Refused here, where the message can name it (ADR-0045).
@@ -1193,7 +1205,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         "attempts": dispatched.attempts,
         # Only when a loop ran: `turns: 1` on a one-shot would invite comparison with a
         # budget that never applied (ADR-0007).
-        **_loop_ledger(dispatched),
+        **_loop_ledger(dispatched, caller_max_turns),
         # "" must never read as success. From `answer`, not `response.text`, so it means
         # "nothing came back"; a reply that reasoned its budget away is
         # `answer_is_reasoning`.
@@ -1294,6 +1306,14 @@ _DELEGATION_RESULT: dict[str, Any] = {
         "turns": _num(
             "Round trips the loop took. Absent on the one-shot path, where a turn budget "
             "never applied."
+        ),
+        "max_turns": _num(
+            "The turn budget this delegation actually ran under, when it was an agentic "
+            "loop; absent on a one-shot, which has no turn budget."
+        ),
+        "max_turns_requested": _num(
+            "What you asked for, present only when the server clamped it to the ceiling in "
+            "max_turns above; absent otherwise."
         ),
         "partial": {"type": ["boolean", "null"], "description": (
             "The delegation was abandoned at a deadline *after* the model had decoded "
@@ -1631,16 +1651,6 @@ MaxTokens = Annotated[
     )),
 ]
 
-MaxTurns = Annotated[
-    int | None,
-    Field(description=(
-        "Cap on round trips. Omitted, a toolset that can write gets a larger default than "
-        "one that only reads. Raise it for work that genuinely iterates, and read "
-        "`hit_turn_limit` as the sign you should have. Clamped to an operator ceiling, so "
-        "asking for more than that is not an error."
-    )),
-]
-
 Workdir = Annotated[
     str | None,
     Field(description=(
@@ -1885,6 +1895,19 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
     )
 
     handles = Handles()
+
+    # Built here rather than at module level so the description can name the ceiling the
+    # caller's number will be clamped to -- the number is a property of this server's config,
+    # not a constant, so a literal would lie as soon as the operator changes the cap.
+    MaxTurns = Annotated[
+        int | None,
+        Field(description=(
+            "Cap on round trips. Omitted, a toolset that can write gets a larger default "
+            "than one that only reads. Raise it for work that genuinely iterates, and read "
+            "`hit_turn_limit` as the sign you should have. Clamped to this server's ceiling "
+            f"of {cfg.max_turns_hard_cap}, so asking for more than that is not an error."
+        )),
+    ]
 
     async def _finish_or_question(
         handle: str, sink: ProgressSink | None,
