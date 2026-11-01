@@ -19,6 +19,33 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0139 — 2026-11-01 — Planning lives on a board outside the repository — Accepted
+
+**Context.** The web viewer and the operator's other projects plan from one board kept in a
+private repository, and the viewer's requests for changes to the transcript format were
+already filed there. This repository alone still ranked `PLAN.md`, so a session here read
+two sources, and one of them could not be linked from a tracked file. `PLAN.md` itself was
+down to two open items outside **Deferred**; the rest was history.
+
+**Decision — the board is the plan.** `session-plan` triages, ranks and sizes the board's
+items for this repository; `session-execute` files a larger bug there and closes an item by
+hand after its merge. The board's location stays out of every tracked file and every pull
+request: the skills point at the gitignored `CLAUDE.local.md`, which holds the commands, and
+a pull request body carries no closing keyword. `PLAN.md` moves verbatim to
+`archive/PLAN-2026-11.md`, so the item ids that `CHANGELOG.md`, this file and the tests cite
+still resolve; the open items still wanted were carried over as board items.
+
+**Decision — retire the three roadmap checks.** `roadmap-marker`, `roadmap-id` and
+`roadmap-budget` read `ROOT/PLAN.md` and SKIP without it. Kept, they would report SKIP on
+every run and guard nothing — a check that cannot fail — so they go with their regression
+tests. The board's own fields replace what they enforced: an id is the issue number, and a
+status is a single-select value rather than a glyph a line could get wrong.
+
+**Consequences.** No document in the repository says where open work is listed; README and
+`docs/` stop linking a roadmap, and an agent told to check what is not yet built reads the
+two archives. ADR-0044's review clause, which kept completed items in `PLAN.md` as a record,
+lapses with the file.
+
 ## ADR-0138 — 2026-10-30 — A missing interpreter is asked for during the run, not reported after it — Accepted
 
 **Context.** The stale and missing notes told the model to "say so", and it did, in its final
@@ -3752,7 +3779,7 @@ this repository was choosing effort by silence. They were fixed by passing `inhe
 which preserves the old behaviour exactly, so the diff is honest about which calls were
 never really decisions.
 
-## ADR-0044 — 2026-09-02 — A generated status file stops earning its place once the plan is short — Accepted
+## ADR-0044 — 2026-09-02 — A generated status file stops earning its place once the plan is short — Partially superseded by ADR-0139
 
 **Context.** `STATUS.md` was rendered from `PLAN.md` plus git from the first week, and it
 answered a real question: `PLAN.md` reached 477 lines, and a fixed-size snapshot of where

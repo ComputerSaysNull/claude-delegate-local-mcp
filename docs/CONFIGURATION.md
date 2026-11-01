@@ -32,7 +32,7 @@ never against the working directory: a stdio server starts in its client's proje
 
 All settings are environment variables. Prefix `DELEGATE_`. List-valued settings are shown comma-separated for readability, but are **parsed on `os.pathsep`** — `;` on Windows, `:` elsewhere. The rendering is deliberately platform-independent so this file is byte-identical wherever it is generated.
 
-A description marked **Inert** means no code outside `config.py` reads that setting yet: it is validated at startup and otherwise does nothing, because the subsystem it controls is not built. See [PLAN.md](../PLAN.md) for what is where. The marker is computed by the generator from the source, not maintained by hand, so it disappears in the commit that starts using the setting. **Retired** is the opposite and never appears with it: the setting is gone, and setting it stops the server rather than doing nothing.
+A description marked **Inert** means no code outside `config.py` reads that setting yet: it is validated at startup and otherwise does nothing, because the subsystem it controls is not built. The marker is computed by the generator from the source, not maintained by hand, so it disappears in the commit that starts using the setting. **Retired** is the opposite and never appears with it: the setting is gone, and setting it stops the server rather than doing nothing.
 
 ### Backend selection
 

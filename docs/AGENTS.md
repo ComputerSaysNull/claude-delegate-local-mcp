@@ -8,8 +8,7 @@ Tool internals are in [TOOLS.md](TOOLS.md), generated from `tools.py`; sandbox
 mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md). Settings are in
 [CONFIGURATION.md](CONFIGURATION.md).
 
-**Status: built and enforced.** Everything below describes behaviour. The roadmap is
-[../PLAN.md](../PLAN.md).
+**Status: built and enforced.** Everything below describes behaviour.
 
 ## Why agents are files
 

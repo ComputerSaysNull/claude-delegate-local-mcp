@@ -10,7 +10,7 @@ values in three places. Add the link instead.
 
 **Everything below is reachable.** An entry written ahead of its subsystem is marked
 *(not built)* — there are none right now — and such a marker outlasting its milestone is a
-defect in itself. [PLAN.md](../PLAN.md) has the roadmap.
+defect in itself.
 
 ---
 

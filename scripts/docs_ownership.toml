@@ -63,14 +63,6 @@ covers_not = """
 Setting up and running the suite, which is CONTRIBUTING's, and rules a machine cannot
 check, which are CLAUDE.md's. It holds the traps met in writing and proving a test."""
 
-[docs."PLAN.md"]
-audience = ["contributor", "agent"]
-plane = "project"
-owns = []
-covers_not = """
-Why a decision was taken -- that is DECISIONS.md. PLAN records what is intended, done or
-dropped, and points at the decision that explains it."""
-
 [docs."DECISIONS.md"]
 audience = ["contributor", "agent"]
 plane = "project"
