@@ -30,6 +30,25 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #533 — 2026-11-01 — feat: a caller can message a running delegation
+
+### Added
+
+- **A running delegation could be cancelled but not corrected.** `answer` reaches a run
+  only while it waits on its own question, and the handle it takes is handed out only then,
+  so a caller who saw a run searching the wrong folder could cancel it or wait. The new
+  `message_delegation` tool names the run by the task id its call returned and queues a
+  message the run reads before its next request, in one fixed wrapper on the unsent
+  tool-result message. A run waiting on a question is refused with a pointer to `answer`.
+  Anything never read, because the run ended first or had no tools, is listed under
+  `messages.undelivered` in the result rather than dropped. The stream gains a `message`
+  event, written when it is read; format 1.14 (ADR-0140).
+
+### Changed
+
+- **A `may_ask: false` run now goes through the run registry like every other**, so it can
+  be messaged; the four delegating tools lose their duplicated second path.
+
 ## #532 — 2026-11-01 — docs: PLAN.md is archived and its three gate checks retired
 
 ### Changed

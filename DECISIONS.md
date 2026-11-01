@@ -19,6 +19,30 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0140 — 2026-11-01 — A caller may message a running delegation, read at its next turn boundary — Accepted
+
+**Context.** `answer` reaches a run only while it waits on its own question (ADR-0118,
+ADR-0125). A caller watching a run head the wrong way could cancel it or wait and hope it
+asked; the handle `answer` takes is handed out only inside a question, so a running run had
+no name the caller held. What the caller does hold is the MCP task id each delegating call
+returns (ADR-0130): FastMCP sets a tool's `ctx.task_id` to the id it returns to the client.
+
+**Decision.** `message_delegation(task_id, text)` queues a message on the run and returns at
+once. Every delegating run registers under its call's task id, a `may_ask: false` run
+included, and an `answer` call's own task id joins it. The loop reads the queue at the top of
+each turn, after the trim and before the request is built, and adds each message as a text
+block in one fixed wrapper on the unsent tool-result message: never a second user message in
+a row, and never mid-turn or mid-tool, which is this decision's scope rather than a limit
+anyone measured. A run parked on a question refuses with a pointer to `answer`, so a reply
+and a steer cannot cross. The run closes its queue when it ends and reports what it never
+read under `messages.undelivered`: a one-shot has no next turn, so its messages always land
+there. The stream gains a `message` event, written when the message is read, so a watcher
+sees it before the run ends; format 1.14.
+
+**Consequences.** A message costs the run tokens on its next turn and nothing else: no
+admission, no new slot. The caller learns the outcome from the result rather than an
+acknowledgement from the model.
+
 ## ADR-0139 — 2026-11-01 — Planning lives on a board outside the repository — Accepted
 
 **Context.** The web viewer and the operator's other projects plan from one board kept in a

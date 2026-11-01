@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "One line of a delegation's .jsonl transcript stream",
   "description": "Format 1.x. Every line is one event, discriminated by `t`. Readers ignore fields and kinds they do not know: a minor version only adds, a major version removes, renames or changes a meaning (ADR-0111).",
-  "x-transcript-format": "1.13",
+  "x-transcript-format": "1.14",
   "type": "object",
   "required": ["t", "at"],
   "properties": {
@@ -19,6 +19,7 @@
     {"if": {"properties": {"t": {"const": "partial"}}}, "then": {"$ref": "#/$defs/partial"}},
     {"if": {"properties": {"t": {"const": "question"}}}, "then": {"$ref": "#/$defs/question"}},
     {"if": {"properties": {"t": {"const": "answer"}}}, "then": {"$ref": "#/$defs/answer"}},
+    {"if": {"properties": {"t": {"const": "message"}}}, "then": {"$ref": "#/$defs/message"}},
     {"if": {"properties": {"t": {"const": "end"}}}, "then": {"$ref": "#/$defs/end"}}
   ],
   "$defs": {
@@ -124,6 +125,17 @@
         "text": {"type": "string"},
         "best_reading": {"type": "boolean", "description": "The caller left the choice to the model, so `text` is the best-reading sentence it was told to proceed on."},
         "by": {"enum": ["caller", "person"], "description": "Who supplied the answer. Always `caller` since ADR-0124; `person` appears only in streams written while a question could go to the person by MCP elicitation (ADR-0120). Format 1.10."}
+      }
+    },
+    "message": {
+      "description": "Since 1.14. A message the caller sent while the run worked, and what became of it: read before the turn it names, or never read (`delivered` false, `turn` null) because the run ended first.",
+      "required": ["text", "turn", "queued_seconds", "delivered"],
+      "properties": {
+        "text": {"type": "string"},
+        "by": {"enum": ["caller"], "description": "Who sent the message. Always `caller`."},
+        "turn": {"$ref": "#/$defs/int_or_null"},
+        "queued_seconds": {"type": "number"},
+        "delivered": {"type": "boolean"}
       }
     },
     "waiting": {
