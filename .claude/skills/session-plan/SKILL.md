@@ -1,6 +1,6 @@
 ---
 name: session-plan
-description: "Plan this session's work from PLAN.md — rank the open items, size them, fill the session from that ranking, argue against the resulting plan and settle what it rests on by measuring, then stop for approval. Use at the start of a working session, or when asked to plan, re-plan or pick up the next milestone item."
+description: "Plan this session's work from the planning board — triage the Inbox, re-check what is Blocked, rank and size the Ready items, fill the session from that ranking, argue against the resulting plan and settle what it rests on by measuring, then stop for approval. Use at the start of a working session, or when asked to plan, re-plan or pick up the next item."
 ---
 
 # Session plan
@@ -9,23 +9,40 @@ Five steps. Step 4 is not optional and step 5 is where you stop. Execution is a 
 skill — [session-execute](../session-execute/SKILL.md) — and nothing here starts work. Read
 it to understand what it needs from the plan you are about to write.
 
-## 1. Read. Do not edit.
+## In plan mode
 
-`PLAN.md` is the contract. **If it is not there, stop and say so** rather than planning from
-memory or from another document: there is no fallback, and a session planned against the
-wrong source is worse than one not planned at all. **`STATUS.md` was retired — it does not
-exist, do not look for it.**
+Plan mode allows no changes until the plan is approved, so three things work differently:
+
+- **Board edits are proposals.** No `gh issue create`, `gh issue close`,
+  `gh issue comment` or `gh project item-edit`. List each one in the plan under "Board changes to apply first";
+  they are the first thing done after approval, before any item starts.
+- **Only read-only measurements.** Board reads, file reads and `delegate_readonly` are fine.
+  A measurement with a side effect goes in the plan as "to measure right after approval",
+  and the claim it settles stays **assumed** until then.
+- **Approval goes through `ExitPlanMode`**, never through `AskUserQuestion`.
+
+## 1. Read the board
+
+The planning board is the contract. It lives in a private repository shared with other
+projects: `CLAUDE.local.md` names it and holds the commands with the board's ids. Its name
+never goes into a tracked file or a pull request. **If the board cannot be read, stop and
+say so** rather than planning from memory or from another document. There is no fallback.
+
+List this repository's items — Code repo "server" — with number, Status, Size, Rank and
+title. Run each command bare, so it keeps its login.
+
+- **Triage the Inbox.** Set each item's Size and Rank and move it to Ready, or close it
+  with a reason. A "contract" item is the web viewer asking for a change to the transcript
+  format or the feed; it is triaged and ranked like any other.
+- **Re-check each Blocked item.** Its first body line says `Blocked by: <what>; check:
+  <how to tell it's over>`, or it carries a "blocked by" link. Run the check; a closed
+  blocker means the block is over. If it is over, move the item to Ready at its old Rank.
+  Blocked with neither is a mistake to fix.
+- Nothing else on the board changes before approval.
 
 For why an item exists: `DECISIONS.md`. For what shipped and why: `CHANGELOG.md`. For what
 was measured recently: the last few `JOURNAL.md` entries. For what an upcoming session needs
 and no tracked document holds: the hand-off notebook in the plans directory.
-
-**Requests from the web viewer's repository are input too**: changes it needs in the
-transcript format or the feed, filed as open issues labelled "contract" in the planning
-repository `CLAUDE.local.md` names. List them with `gh issue list --label contract --state
-open` and that repository passed as `-R`, and rank each with the `⬜` items, named in the
-plan by its issue number. Never write that repository's name into a tracked file: it is
-private.
 
 Delegate the reading. `delegate_readonly`, one question per call, and name the documents in
 `files[]`. Do not read them in the main conversation to answer what a delegation could
@@ -34,27 +51,32 @@ the Explore agent.
 
 ## 2. Rank, then fill
 
-`🔄` outranks everything: finish before starting. Then rank the `⬜` items under **Open** by
-blocking impact ÷ effort. `✅`, `❌` and **Deferred** are out of scope for the ranking.
+In-progress items outrank everything: finish before starting. Then rank the Ready items by
+blocking impact ÷ effort. The board's Rank field holds that order, lower first. Done and
+Blocked items are out of scope for the ranking.
 
+- **A ranked item moves only when something about it changed.** Update its Rank and say why
+  in a comment on its issue.
 - **An item resting on a claim nobody has measured is a spike, not an item.** Rank the spike
   first, and say what would be run to settle it.
 - **Settle that spike now if its answer would move anything else.** Ask: if the measurement
   came back the other way, would another item's viability or its order change? If yes,
   measure before the ranking is finished, or this step and the next are built on the very
   claim they exist to catch. If it only changes its own item's design, step 4 is soon enough.
-- Rank every `⬜` item. Ranking stops when the items run out, not when the list starts to
+- Rank every Ready item. Ranking stops when the items run out, not when the list starts to
   look long enough.
 
 ### Size each item, then fill to the budget
 
-**Small 0** — a line or two in one file, no design decision. Rides along free.
-**Medium 1** — two or more files, or one file plus its test and its owning document.
-**Large 2** — several files, or a design decision, or a measurement pass.
+The board's Size field: **S = 0**, **M = 1**, **L = 2**.
+
+**S** — a line or two in one file, no design decision. Rides along free.
+**M** — two or more files, or one file plus its test and its owning document.
+**L** — several files, or a design decision, or a measurement pass.
 
 **A session is 12 units.** It is a budget in units of work and **never a number of items**:
 the count falls out of it and is never chosen. **There is still no right number of items**,
-and a count you could have named before opening `PLAN.md` is a habit, not a plan. Show the
+and a count you could have named before reading the board is a habit, not a plan. Show the
 total beside the budget so both numbers are visible.
 
 **12 is the default, and only the operator changes it.** "Plan a short session" or "plan a
@@ -66,13 +88,13 @@ reason to **delegate the reading**, not a reason to re-price the budget yourself
 too many blocked behind one measurement. Report the shortfall; never pad the session to
 reach 12.
 
-- **Reasoning beats file count.** Medium by files but carrying a design decision is Large.
+- **Reasoning beats file count.** M by files but carrying a design decision is L.
 - **Size by what must be reasoned about, not by lines changed.** A 900-line mechanical
-  migration a delegation performs is cheap; it is Large only if the rules governing it need
+  migration a delegation performs is cheap; it is L only if the rules governing it need
   designing.
 - **A spike is sized by what the measurement costs**, never by what it unblocks.
-- **Nothing is bigger than Large.** An item that feels heavier is not one item; split it
-  before ranking it.
+- **Nothing is bigger than L.** An item that feels heavier is not one item: say so in the
+  plan and ask how to split it.
 
 ### Then look down the ranking for a passenger
 
@@ -85,8 +107,7 @@ branch still holds, so it is its own commit, and its own branch if it is its own
 
 One plan, not a menu. Per item, name:
 
-- **which `PLAN.md` item it is**, by its id — `M11.10`, `Unscheduled.29` — never by quoting a
-  title, which changes;
+- **which board item it is**, by its issue number, never by quoting a title, which changes;
 - **a clear title, and what it changes and why**, written for the person approving it. They
   cannot approve what they cannot follow, and that is the only bar this description has;
 - **the branch and the commits it splits into** — `feat/`, `fix/` or `docs/`, one feature per
@@ -97,9 +118,8 @@ One plan, not a menu. Per item, name:
   a budget header, a generator re-run whose diff must come back empty. If nothing mechanical
   can fail, say so and name the line a reviewer has to read instead;
 - the owning document — `python scripts/docs_gate.py --owner <path>`, never from memory;
-- **that it is a whole item.** If what you are proposing is a fragment of a PLAN entry — a
-  precondition you measured out of it, a first half — say so, and plan the rest of the entry
-  too.
+- **that it is a whole item.** If what you are proposing is a fragment of a board item — a
+  precondition you measured out of it, a first half — say so, and plan the rest of it too.
 
 The CHANGELOG entry is not drafted here. Its *why* is the description above; the entry
 itself is written when the work lands, by [session-execute](../session-execute/SKILL.md).
@@ -150,8 +170,8 @@ network are measured. Plausible inference about those has been wrong here repeat
 
 ## 5. Present, then STOP
 
-Output the plan and stop. No implementation, no edit to `PLAN.md`, no commit, no push until
-approval lands.
+Output the plan and stop. No implementation, no board edit beyond step 1's, no commit, no
+push until approval lands.
 
 What approval buys is [session-execute](../session-execute/SKILL.md)'s to state, and that is
 what this plan should be judged against.
