@@ -53,6 +53,7 @@ from .config import (
     Config,
 )
 from .context import FileEntry, line_number_width, numbered_line, numbered_lines, numbered_span
+from .handles import InboxMessage
 from .paths import repo_status
 from .registry import ModelEntry
 from .tools import (
@@ -113,6 +114,28 @@ SYSTEM_PROMPT_AGENTIC = (
     "Answer the task as asked. Do not restate it, do not narrate your approach, and do not "
     "close by summarising what you just said."
 )
+
+
+# One message from the caller, wrapped so the model can tell it from the task and its own
+# tool results. Not in the system prompt, which must stay byte-static (ADR-0011); and not
+# a reply to a question, which `ask_caller` already delivers in order.
+CALLER_MESSAGE_TEMPLATE = (
+    "Message from your caller, sent while you worked (not a reply to a question):\n{text}"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class MessageRecord:
+    """One caller message and what became of it: read at a turn boundary, or never read.
+
+    `turn` is the turn the message was read before, `None` when the run ended first;
+    `queued_seconds` is how long it sat in the queue; `delivered` says which of the two.
+    """
+
+    text: str
+    turn: int | None
+    queued_seconds: float
+    delivered: bool
 
 
 class InvalidDelegation(ValueError):
@@ -2633,6 +2656,30 @@ class AgenticDispatch:
     rereads: tuple[RereadAfterEviction, ...] = ()
 
 
+def _deliver_caller_message(
+    history: list[Message],
+    guard: _OverflowGuard,
+    message: InboxMessage,
+    turn: int,
+    clock: Callable[[], float],
+) -> MessageRecord:
+    """Hand one caller message to the conversation, and say when it was read.
+
+    Wrapped in the fixed template, so a caller's words cannot be mistaken for the task or
+    a tool result. Appended to the last user message when one is still unsent, else a new
+    user message; `guard.added` is given only the added block, so a message appended to an
+    already-counted user message is not counted twice.
+    """
+    text = CALLER_MESSAGE_TEMPLATE.format(text=message.text)
+    if history and history[-1].role == "user":
+        last = history[-1]
+        history[-1] = Message("user", (*last.content, TextBlock(text)))
+    else:
+        history.append(Message("user", (TextBlock(text),)))
+    guard.added(Message("user", (TextBlock(text),)))
+    return MessageRecord(message.text, turn, clock() - message.queued_at, True)
+
+
 def _assistant_blocks(cfg: Config, response: CanonicalResponse) -> tuple[ContentBlock, ...]:
     """The model's own turn, as it goes back into the history.
 
@@ -2918,6 +2965,8 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     tick_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
     ask: Callable[[list[str]], Awaitable[str]] | None = None,
+    inbox: Callable[[], list[InboxMessage]] | None = None,
+    on_message: Callable[[MessageRecord], None] | None = None,
 ) -> AgenticDispatch:
     """Turns, until the model answers or the budget runs out.
 
@@ -3069,6 +3118,19 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             # Or a repeat would hand an evicted result straight back into the room just made
             # (ADR-0080). The ledger reads the same diff, so they cannot disagree.
             _mark_evicted_in_cache(cached, newly_evicted_ids(before, trimmed))
+
+            # Caller messages the run is owed, read before this turn's request is built: a
+            # message never interrupts a turn or a running tool, it is simply in the
+            # conversation for the request that follows. Appended to the last user message
+            # when one is still unsent (the tool results of the turn before), otherwise a
+            # new user message, so the model reads it where it would read any other input.
+            # Reported as each is read, so a watcher sees the steer when the run does; what
+            # is still queued when the run ends is the caller's to report (ADR-0140).
+            if inbox is not None:
+                for message in inbox():
+                    record = _deliver_caller_message(history, guard, message, turn, clock)
+                    if on_message is not None:
+                        on_message(record)
 
             def build(
                 level: str, budget: int, *, _msgs: tuple[Message, ...] = tuple(history),

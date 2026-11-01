@@ -1,4 +1,4 @@
-<!-- BUDGET: 478 -->
+<!-- BUDGET: 480 -->
 # Agents and the path policy
 
 Two things a user actually touches: the agent files that shape a delegation, and the rules
@@ -12,10 +12,11 @@ mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md). Settings are in
 
 ## Why agents are files
 
-There are eight MCP tools: `delegate`, `delegate_readonly`, `delegate_to_agent`,
-`delegate_to_agent_readonly`, `answer`, `cancel_delegation`, `list_agents` and `backend_status`. A new *kind* of delegated task — review, test-writing,
-refactoring, migration — is a markdown file, not a new tool. A test asserts the exact set,
-so another cannot arrive unargued.
+There are ten MCP tools: `delegate`, `delegate_readonly`, `delegate_to_agent`,
+`delegate_to_agent_readonly`, `answer`, `message_delegation`, `cancel_delegation`,
+`provision`, `list_agents` and `backend_status`. A new *kind* of delegated task — review,
+test-writing, refactoring, migration — is a markdown file, not a new tool. A test asserts
+the exact set, so another cannot arrive unargued.
 
 `delegate_readonly` is one argument ADR-0005 asked for and not an exception to it. That rule
 is about task *kinds*, and this is not: it is `delegate` with the tool set fixed, existing

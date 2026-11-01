@@ -43,7 +43,16 @@ from .agents import AgentError, AgentSpec, load_agent
 from .agents import survey_agents as discover_agents
 from .config import EFFORT_INHERIT, EFFORT_LEVELS, PROJECT_DIR_VAR, Config, ConfigError
 from .context import FileEntry, FileRequest, estimate_text_tokens, prefetch, skip_from_refusal
-from .handles import Handles, NotWaitingError, Pause, UnknownHandle
+from .handles import (
+    Handles,
+    Inbox,
+    InboxMessage,
+    NotWaitingError,
+    Pause,
+    UnknownHandle,
+    UnknownTask,
+    WaitingForAnswer,
+)
 from .loop import (
     AgenticDispatch,
     AliveCallback,
@@ -53,6 +62,7 @@ from .loop import (
     Dispatch,
     DispatchTimedOut,
     InvalidDelegation,
+    MessageRecord,
     RateHistory,
     RateSampler,
     resolve_max_turns,
@@ -280,6 +290,18 @@ def _diagnostics_block(
     }
 
 
+def _message_summary(records: list[MessageRecord]) -> dict[str, Any]:
+    """What the caller's messages became: how many the run read, what it never read.
+
+    Present only when a message was sent. `undelivered` lists the texts, since a caller
+    steering a run wants to know what it never acted on.
+    """
+    return {
+        "delivered": sum(1 for r in records if r.delivered),
+        "undelivered": [r.text for r in records if not r.delivered],
+    }
+
+
 class BackendCache:
     """One backend -- and so one httpx connection pool -- per registry entry.
 
@@ -426,6 +448,8 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     on_token: Callable[[], None] | None = None,
     on_partial: Callable[[int, str, str, bool], None] | None = None,
     ask: Callable[[list[str]], Awaitable[str]] | None = None,
+    inbox: Callable[[], list[InboxMessage]] | None = None,
+    on_message: Callable[[MessageRecord], None] | None = None,
 ) -> Dispatch | AgenticDispatch:
     """Run the delegation on whichever path the toolset implies, and translate its failures.
 
@@ -445,7 +469,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 rate_history=rate_history, expected_concurrency=expected_concurrency,
                 concurrency_now=concurrency_now,
                 on_token=on_token, on_partial=on_partial,
-                ask=ask,
+                ask=ask, inbox=inbox, on_message=on_message,
             )
         # An explicitly empty toolset: the one-shot prompt tells the model it can open
         # nothing and has no second turn, true only here. `on_alive`, since a one-shot has
@@ -699,6 +723,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     ask: Callable[[list[str]], Awaitable[str]] | None = None,
     workspace: str | None = None,
     pause: Pause | None = None,
+    inbox: Inbox | None = None,
     mcp_task: bool | None = None,
 ) -> dict[str, Any]:
     """One delegation, from arguments to the result dict, for every tool that runs one.
@@ -1007,6 +1032,16 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     lease: AdmissionLease | None = None
     dispatched: Dispatch | AgenticDispatch | None = None
     failure: BaseException | None = None
+    # Caller messages and what became of each, written to the stream as they happen so a
+    # watcher sees a steer when the run reads it, not when the run ends.
+    messages: list[MessageRecord] = []
+
+    def heard(record: MessageRecord) -> None:
+        messages.append(record)
+        if stream is not None:
+            stream.message(text=record.text, turn=record.turn,
+                           queued_seconds=record.queued_seconds, delivered=record.delivered)
+
     try:
         async with admission.admit(
             tokens_estimate,
@@ -1070,6 +1105,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 expected_concurrency=expected,
                 concurrency_now=concurrency_now,
                 ask=loop_ask,
+                inbox=None if inbox is None else inbox.drain,
+                on_message=heard,
             )
     except AdmissionError as e:
         # Not `_refuse`, which blames an endpoint; nothing here reached one.
@@ -1103,6 +1140,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         return partial
     finally:
         # A side effect only: no value here for the return to merge into the response.
+        # Whatever the run never read: it ended first, failed, or was a one-shot with no
+        # turn boundary to read it at. Reported, never dropped silently (ADR-0140).
+        if inbox is not None:
+            for left in inbox.close():
+                heard(MessageRecord(left.text, None, inbox.age(left), False))
         if stream is not None:
             # A one-shot streamed no turns, and a start and end with nothing between would
             # look exactly like a delegation that produced nothing.
@@ -1230,6 +1272,9 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
            if getattr(dispatched, "bash_missing_env", 0) else {}),
         # Only when armed and declined; absent otherwise, since then there is no decision.
         **({"overflow_disarmed": overflow_off_because} if overflow_off_because else {}),
+        # Only when the caller sent the run a message; absent otherwise, so an ordinary run
+        # is not asked to read a block about messages it never had.
+        **({"messages": _message_summary(messages)} if messages else {}),
         **_diagnostics_block(dispatched, requested=diagnostics),
     }
 
@@ -1416,6 +1461,12 @@ _DELEGATION_RESULT: dict[str, Any] = {
             "declaration, and nothing provisioned, so $DELEGATE_PYTHON was unset. Call the "
             "`provision` tool for the workdir."
         )},
+        "messages": {"type": ["object", "null"], "additionalProperties": True,
+                     "description": (
+            "Present only when the caller sent the run a message. `delivered` is how many "
+            "the run read at a turn boundary; `undelivered` lists what it never read before "
+            "it ended."
+        )},
     },
 }
 
@@ -1468,6 +1519,20 @@ _CANCEL_RESULT: dict[str, Any] = {
         "stopped": {"type": "boolean", "description": (
             "Whether the run has ended. A run inside a shell command can take a few seconds "
             "longer to stop."
+        )},
+    },
+}
+
+_MESSAGE_RESULT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "status": {"type": "string", "description": (
+            "Always `queued`: the run reads the message at its next turn boundary, never "
+            "mid-turn or mid-tool."
+        )},
+        "pending": {"type": "integer", "description": (
+            "How many messages are now queued for the run, this one included."
         )},
     },
 }
@@ -1738,6 +1803,22 @@ MayAsk = Annotated[
     )),
 ]
 
+MessageTaskId = Annotated[
+    str,
+    Field(description=(
+        "The `task_id` a delegating call or an `answer` call returned in its CreateTaskResult. "
+        "It names a run in this server process, so a reconnect forgets it."
+    )),
+]
+
+MessageText = Annotated[
+    str,
+    Field(description=(
+        "What to tell the run. It reads it at its next turn boundary -- never mid-turn or "
+        "mid-tool -- so steer a run going the wrong way, or add a fact it lacks."
+    )),
+]
+
 
 def _server_instructions(cfg: Config) -> str:
     """The few rules that decide a call before the caller has chosen a tool.
@@ -1930,15 +2011,17 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         return {key: value for key, value in result.items()
                 if key not in ("status", "handle")}
 
-    async def _inline_or_question(
+    async def _inline_or_question(  # noqa: PLR0913 -- one run plus its inbox and task id
         run: Awaitable[dict[str, Any]], tool: str, pause: Pause, sink: _CallProgress,
+        *, inbox: Inbox | None = None, task_id: str | None = None,
     ) -> dict[str, Any]:
         """Run a delegation inline, except a run that asks answers at once.
 
         A run that asks must not leave the caller blocked on a run waiting for it: it
-        returns the question with its handle, and `answer` resumes the run later.
+        returns the question with its handle, and `answer` resumes the run later. `task_id`
+        registers the run so `message_delegation` can find it by the id the caller holds.
         """
-        handle = handles.start(run, tool=tool, pause=pause)
+        handle = handles.start(run, tool=tool, pause=pause, inbox=inbox, task_id=task_id)
         try:
             return await _finish_or_question(handle, sink)
         finally:
@@ -1993,28 +2076,21 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         Runs as a task; a run that asks ends with `status: "question"` for `answer`.
         """
         scope = session_scope(cfg)
-        if not may_ask:
-            return await run_delegation(
-                scope.cfg, registry, cache, windows, admission, rates=rates,
-                task=task, title=title, files=files, model=model, effort=effort,
-                allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
-                workdir=_rooted(scope, workdir),
-                diagnostics=diagnostics, ctx=ctx, tool_name="delegate",
-                workspace=scope.workspace,
-                mcp_task=bool(ctx is not None and ctx.is_background_task),
-            )
+        task_id = ctx.task_id if ctx is not None else None
         pause, sink = Pause(), _CallProgress(ctx)
+        inbox = Inbox()
         run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, title=title, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             workdir=_rooted(scope, workdir),
             diagnostics=diagnostics, ctx=sink, tool_name="delegate",
-            ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
-            pause=pause,
+            ask=_ask_caller(pause, scope.cfg) if may_ask else None, workspace=scope.workspace,
+            pause=pause, inbox=inbox,
             mcp_task=bool(ctx is not None and ctx.is_background_task),
         )
-        return await _inline_or_question(run, "delegate", pause, sink)
+        return await _inline_or_question(
+            run, "delegate", pause, sink, inbox=inbox, task_id=task_id)
 
     @mcp.tool(title="Delegate a read-only task", annotations=_READS,
               output_schema=_DELEGATION_RESULT, task=True)
@@ -2043,21 +2119,9 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         Use `delegate_to_agent_readonly` when an agent file should shape the work.
         """
         scope = session_scope(cfg)
-        if not may_ask:
-            return await run_delegation(
-                scope.cfg, registry, cache, windows, admission, rates=rates,
-                task=task, title=title, files=files, model=model, effort=effort,
-                # Fixed and intersected (`resolve_allowed`), so no caller can widen it: that
-                # is what makes readOnlyHint a property of the tool, not a claim a caller
-                # could falsify. Derived from which tools declare `writes`, since a list
-                # here would silently go stale when a writing tool is added. Why: ADR-0048.
-                allowed_tools=sorted(READ_ONLY_TOOL_NAMES), max_tokens=max_tokens,
-                max_turns=max_turns,
-                diagnostics=diagnostics, ctx=ctx, tool_name="delegate_readonly",
-                workspace=scope.workspace,
-                mcp_task=bool(ctx is not None and ctx.is_background_task),
-            )
+        task_id = ctx.task_id if ctx is not None else None
         pause, sink = Pause(), _CallProgress(ctx)
+        inbox = Inbox()
         run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, title=title, files=files, model=model, effort=effort,
@@ -2066,11 +2130,12 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             allowed_tools=sorted(READ_ONLY_TOOL_NAMES), max_tokens=max_tokens,
             max_turns=max_turns,
             diagnostics=diagnostics, ctx=sink, tool_name="delegate_readonly",
-            ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
-            pause=pause,
+            ask=_ask_caller(pause, scope.cfg) if may_ask else None, workspace=scope.workspace,
+            pause=pause, inbox=inbox,
             mcp_task=bool(ctx is not None and ctx.is_background_task),
         )
-        return await _inline_or_question(run, "delegate_readonly", pause, sink)
+        return await _inline_or_question(
+            run, "delegate_readonly", pause, sink, inbox=inbox, task_id=task_id)
 
     def _load(scope: SessionScope, agent_name: str, workdir: str | None) -> AgentSpec:
         try:
@@ -2138,28 +2203,21 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         resolved_project = (
             _rooted(scope, project) if project is not None else resolved_workdir)
         agent = _load(scope, agent_name, resolved_project)
-        if not may_ask:
-            return await run_delegation(
-                scope.cfg, registry, cache, windows, admission, rates=rates,
-                task=task, title=title, files=files, model=model, effort=effort,
-                allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
-                agent=agent, workdir=resolved_workdir,
-                diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent",
-                workspace=scope.workspace,
-                mcp_task=bool(ctx is not None and ctx.is_background_task),
-            )
+        task_id = ctx.task_id if ctx is not None else None
         pause, sink = Pause(), _CallProgress(ctx)
+        inbox = Inbox()
         run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, title=title, files=files, model=model, effort=effort,
             allowed_tools=allowed_tools, max_tokens=max_tokens, max_turns=max_turns,
             agent=agent, workdir=resolved_workdir,
             diagnostics=diagnostics, ctx=sink, tool_name="delegate_to_agent",
-            ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
-            pause=pause,
+            ask=_ask_caller(pause, scope.cfg) if may_ask else None, workspace=scope.workspace,
+            pause=pause, inbox=inbox,
             mcp_task=bool(ctx is not None and ctx.is_background_task),
         )
-        return await _inline_or_question(run, "delegate_to_agent", pause, sink)
+        return await _inline_or_question(
+            run, "delegate_to_agent", pause, sink, inbox=inbox, task_id=task_id)
 
     @mcp.tool(title="Delegate a read-only task to a named agent", annotations=_READS,
               output_schema=_DELEGATION_RESULT, task=True)
@@ -2191,21 +2249,9 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         scope = session_scope(cfg)
         resolved_project = _rooted(scope, project)
         agent = _load(scope, agent_name, resolved_project)
-        if not may_ask:
-            return await run_delegation(
-                scope.cfg, registry, cache, windows, admission, rates=rates,
-                task=task, title=title, files=files, model=model, effort=effort,
-                # Fixed, derived from `writes`, as in `delegate_readonly` (ADR-0042).
-                allowed_tools=sorted(READ_ONLY_TOOL_NAMES),
-                max_tokens=max_tokens, max_turns=max_turns,
-                # No `workdir`: `resolved_project` is a lookup path, and passing it would
-                # bind it read-write and make the readOnlyHint a lie.
-                agent=agent,
-                diagnostics=diagnostics, ctx=ctx, tool_name="delegate_to_agent_readonly",
-                workspace=scope.workspace,
-                mcp_task=bool(ctx is not None and ctx.is_background_task),
-            )
+        task_id = ctx.task_id if ctx is not None else None
         pause, sink = Pause(), _CallProgress(ctx)
+        inbox = Inbox()
         run = run_delegation(
             scope.cfg, registry, cache, windows, admission, rates=rates,
             task=task, title=title, files=files, model=model, effort=effort,
@@ -2216,11 +2262,12 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             # it read-write and make the readOnlyHint a lie.
             agent=agent,
             diagnostics=diagnostics, ctx=sink, tool_name="delegate_to_agent_readonly",
-            ask=_ask_caller(pause, scope.cfg), workspace=scope.workspace,
-            pause=pause,
+            ask=_ask_caller(pause, scope.cfg) if may_ask else None, workspace=scope.workspace,
+            pause=pause, inbox=inbox,
             mcp_task=bool(ctx is not None and ctx.is_background_task),
         )
-        return await _inline_or_question(run, "delegate_to_agent_readonly", pause, sink)
+        return await _inline_or_question(
+            run, "delegate_to_agent_readonly", pause, sink, inbox=inbox, task_id=task_id)
 
     async def _wait_for_run(handle: str, ctx: ProgressSink | None) -> dict[str, Any]:
         """Wait until a run ends or asks, reporting to `ctx` while it runs."""
@@ -2272,11 +2319,42 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             raise ToolError(str(e)) from e
         except NotWaitingError as e:
             raise ToolError(str(e)) from e
+        # This `answer` call is a new task following the same run, so its own task id must
+        # reach the run too: a caller that holds the `answer` task id can then message it.
+        if ctx is not None and ctx.task_id:
+            handles.bind(ctx.task_id, handle)
         sink = _CallProgress(ctx)
         try:
             return await _finish_or_question(handle, sink)
         finally:
             sink.close()
+
+    @mcp.tool(title="Send a message to a running delegation",
+              annotations={"readOnlyHint": False, "destructiveHint": False,
+                           "idempotentHint": False, "openWorldHint": False},
+              output_schema=_MESSAGE_RESULT)
+    async def message_delegation(
+        task_id: MessageTaskId, text: MessageText,
+    ) -> dict[str, Any]:
+        """Steer a running delegation: a message it reads at its next turn boundary.
+
+        Unlike `answer`, no question has to come first. The run reads the message before
+        its next model request -- never mid-turn or mid-tool -- so a message sent during a
+        long tool call is read on the turn after it. Use it to correct a run going the
+        wrong way, or to hand it a fact it lacks. A run parked on a question is not
+        running; reply with `answer`.
+        """
+        if not text.strip():
+            raise ToolError(
+                "message text is empty. Say what you want the run to know; the message is "
+                "read at its next turn boundary.")
+        try:
+            pending = handles.message(task_id, text)
+        except UnknownTask as e:
+            raise ToolError(str(e)) from e
+        except WaitingForAnswer as e:
+            raise ToolError(str(e)) from e
+        return {"status": "queued", "pending": pending}
 
     # The function is not named `provision`: that would shadow the module throughout
     # `build()`. The tool's name is given to the decorator instead.
@@ -2467,6 +2545,16 @@ question asking for a project's interpreter is answered by calling `provision` f
 it names, then `answer`: the run's next command finds `$DELEGATE_PYTHON` set. A
 caller that will not answer passes `may_ask` as false, or stops the waiting run with
 `cancel_delegation`.
+
+## You may message a run that did not ask
+
+`message_delegation` reaches a running delegation by the task id its call returned (or its
+`answer` call's), and returns at once. The run reads the message before its next model
+request, never mid-turn or mid-tool, so a message sent during a long command is read after
+it. Use it to correct a run heading the wrong way or to hand it a fact it lacks; it is
+cheaper than cancelling and starting again. A run waiting on a question takes `answer`
+instead. One the run never read -- it ended first, or had no tools and so no next turn --
+is listed under `messages.undelivered` in its result.
 
 ## How many run at once
 

@@ -1,4 +1,4 @@
-<!-- BUDGET: 1250 -->
+<!-- BUDGET: 1260 -->
 # Architecture
 
 How the pieces fit, and why they are arranged this way. For someone who has never seen the
@@ -88,7 +88,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `transcript.py` | One operator record per dispatch, written outside the response |
 | `ledger.py` | The append-only token ledger: one line per dispatch, never pruned |
 | `watch.py` | `claude-delegate-watch`: the terminal viewer of the stream `transcript.py` writes |
-| `handles.py` | The run registry behind each task: the run a call waits on, the question `answer` replies to, and what `cancel_delegation` stops |
+| `handles.py` | The run registry behind each task: the run a call waits on, the question `answer` replies to, the messages `message_delegation` queues, and what `cancel_delegation` stops |
 | `server.py` | MCP wiring, the tool declarations, the backend cache, and each session's roots narrowed to its client's project (ADR-0110, ADR-0128), with the project's own layer-2 additions read in (ADR-0116) |
 | `main.py` | The console-script entrypoint: load, build, run over stdio |
 | `doctor.py` | `--doctor`: the environment checks startup does not make |
@@ -282,7 +282,8 @@ its session when it ends. A client without tasks waits on the call, which report
 every `keepalive_interval` so the idle timeout (ADR-0018) cannot drop it. Each time a run
 asks its caller (`ask_caller`, ADR-0125) the call ends with `status: question`; `answer`
 continues the same run, which keeps its slot meanwhile. Cancelling the task cancels the run;
-`cancel_delegation` stops one parked on a question.
+`cancel_delegation` stops one parked on a question. `message_delegation` reaches a run that
+did not ask, named by the task id the caller holds; one not read before the end is reported.
 What `run` still buys is context — a tool result lands in the caller's window whole,
 where this one is redirected to a file and read back in part.
 
@@ -978,7 +979,8 @@ before the answer began, and each tool call's own. And it says how much of its r
 number that tells a loop from a long answer while it is still running. `start` also carries
 the caller's `title`, if any, so a viewer need not name the run from its task's first line,
 and `workspace`: the name of the session's project, narrowed into the ceiling (ADR-0128).
-A run that asks writes `question`, then `answer` with how long the reply took and who gave it.
+A run that asks writes `question`, then `answer` with how long the reply took and who gave it;
+a caller's unasked message writes `message` when it is read, or `delivered: false` at the end.
 `end.ended` says how a run ended as a fixed value, so a reader need not parse `error`. Bytes cannot show an image, so a tool call and a prefetched file count the images they sent.
 
 The stream carries the model's reply text, which the record does not: whole in `turn`, and

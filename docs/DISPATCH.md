@@ -1,4 +1,4 @@
-<!-- BUDGET: 790 -->
+<!-- BUDGET: 800 -->
 # Dispatch and the response state machine
 
 What the server sends to a model, and what it does with what comes back. Everything here
@@ -444,6 +444,8 @@ since writing work iterates. [`max_turns_hard_cap`](CONFIGURATION.md) bounds bot
 rather than refused, since the work is legitimate and only the number is not; the result says
 so, `max_turns` beside `max_turns_requested`, and the `max_turns` argument names the cap. The
 figure is in the stream too, so a reader sees "turn 3 of 25", not a bare count.
+A caller's unasked message (`message_delegation`) is read at the top of a turn, never mid-turn
+or mid-tool, as a text block on the unsent tool-result message (ADR-0140).
 
 An **agent file** asking for more than the cap is refused instead, at load. The asymmetry is
 deliberate: a call argument is transient, so clamping it costs nobody anything, while a file

@@ -62,7 +62,7 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.13"
+FORMAT = "1.14"
 
 # The fixed values `end.ended` may hold, so a reader can branch on the ending rather than
 # parse the words in `error`. Kept beside FORMAT because it is the same contract.
@@ -353,6 +353,21 @@ class Stream:
         if best_reading:
             event["best_reading"] = True
         self._put(event)
+
+    def message(self, *, text: str, turn: int | None, queued_seconds: float,
+                delivered: bool, by: str = "caller") -> None:
+        """A message the caller sent while the run worked, and what became of it.
+
+        Written when the run ends: once per delivered message with the turn it was read
+        before, and once for each one it never read (`delivered: false`, `turn: null`). A
+        watcher can then see what the run was told, and what arrived too late to act on.
+        """
+        self._put({
+            "t": "message", "at": datetime.now(UTC).isoformat(),
+            "text": text, "by": by, "turn": turn,
+            "queued_seconds": round(queued_seconds, 1),
+            "delivered": delivered,
+        })
 
     def waiting(self, *, waited_seconds: float, of_seconds: int) -> None:
         """Still queued at the admission gate, having reached no backend at all.

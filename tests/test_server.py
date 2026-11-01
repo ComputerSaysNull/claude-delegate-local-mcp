@@ -447,7 +447,7 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_exactly_nine_tools_are_declared():
+def test_exactly_ten_tools_are_declared():
     """docs/AGENTS.md promises this exact set, and this is what holds it to that.
 
     The promise is the design: a new *kind* of delegated task is a markdown file, not
@@ -475,8 +475,9 @@ def test_exactly_nine_tools_are_declared():
     the third application of the same argument, written down in ADR-0059. Seven for
     `cancel_delegation`, because the call a client would cancel is then already over
     (ADR-0103), and eight for `answer`: a run that asks its caller a question waits on a
-    reply. `collect` is gone -- every delegating call waits for its run, so no call needs a
-    second one to hear the answer (ADR-0118).
+    reply. Nine for `message_delegation`, the one call that reaches a run that never
+    stopped to ask. `collect` is gone -- every delegating call waits for its run, so no
+    call needs a second one to hear the answer (ADR-0118).
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -488,7 +489,7 @@ def test_exactly_nine_tools_are_declared():
     assert set(asyncio.run(go())) == {
         "delegate", "delegate_readonly", "delegate_to_agent",
         "delegate_to_agent_readonly", "list_agents", "backend_status",
-        "cancel_delegation", "answer", "provision",
+        "cancel_delegation", "answer", "provision", "message_delegation",
     }
 
 
@@ -2229,7 +2230,8 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
     cannot_write = ("backend_status", "list_agents", "delegate_readonly",
                     "delegate_to_agent_readonly")
     # `answer` resumes a run that may write.
-    can_write = ("delegate", "delegate_to_agent", "cancel_delegation", "answer", "provision")
+    can_write = ("delegate", "delegate_to_agent", "cancel_delegation", "answer", "provision",
+                 "message_delegation")
 
     for name in cannot_write:
         assert seen[name] is not None and seen[name].read_only_hint is True, (
