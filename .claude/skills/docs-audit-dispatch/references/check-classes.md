@@ -29,8 +29,8 @@ that point and links to the owner with a bracketed `why`. Both are the prescribe
 sentence including the clause that follows it**, and check whether it names its owner before
 reporting it — otherwise every invariant in the project plane reads as a duplicate.
 
-**MISSING** — a module or behaviour with no documentation coverage at all. Check `PLAN.md`
-and `archive/PLAN-milestones.md` first: not-yet-built is not undocumented. And check
+**MISSING** — a module or behaviour with no documentation coverage at all. Check the two
+`archive/PLAN-*.md` files first: not-yet-built is not undocumented. And check
 `scripts/docs_ownership.toml`: a file **declared unowned** was decided to need no document,
 so it is an answered question rather than a gap. Without that file the pass reasons from the
 absence of prose and reports the declaration as an oversight.
@@ -56,7 +56,7 @@ pointer is not a finding. Neither is a *measured number* that calibrates a decis
 a threshold or a benchmark; a number doing work stays, a number telling a story goes.
 
 **FILED ALREADY** — a notebook line whose fact now lives in `CHANGELOG.md`, `DECISIONS.md`,
-`JOURNAL.md` or `PLAN.md`. The notebook holds what an upcoming session needs and nothing a
+`JOURNAL.md` or a planning-board item. The notebook holds what an upcoming session needs and nothing a
 tracked document already has, so anything filed is dead weight on every session that reads
 it. Quote the line and name the document that now owns it. Two neighbours of this class are
 worth reporting in the same pass: a line whose claim is no longer true, and a war story where

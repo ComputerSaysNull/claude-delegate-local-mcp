@@ -41,10 +41,10 @@ Before reporting that something is missing or duplicated, check whether it is de
 - `scripts/docs_ownership.toml` maps code to its owning document. `python
   scripts/docs_gate.py --owner <path>` answers ownership questions directly; prefer it to
   reading the manifest.
-- Several modules named in documentation are not built yet. `PLAN.md` marks what is open
-  and `archive/PLAN-milestones.md` what was built; check both before reporting a module as
-  missing — "not built yet, listed under Open in PLAN.md" is the useful answer, not
-  "missing", and a module that appears in neither was never planned.
+- A module named in documentation may not be built yet. `archive/PLAN-milestones.md` and
+  `archive/PLAN-2026-11.md` record what was planned and built; check both before reporting
+  a module as missing — "planned, never built" is the useful answer, not "missing". Open
+  work is tracked outside the repository.
 
 ## Scope
 

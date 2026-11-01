@@ -89,9 +89,9 @@ What each kind of text may hold. These rules live here; everything else links to
   each reason. History goes to `CHANGELOG.md` or `JOURNAL.md`; a design's reason to an ADR,
   linked in one line. `paths.py` and `sandbox.py` trim their security reasoning only
   conservatively. A `Config` description says what the setting does and links its ADR.
-  CHANGELOG, JOURNAL, DECISIONS, PLAN, `archive/`, `docs/audits/`, `docs/reviews/` own history.
+  CHANGELOG, JOURNAL, DECISIONS, `archive/`, `docs/audits/`, `docs/reviews/` own history.
   Tool descriptions and schema text are contract: editing them is a behaviour change.
-- **A TODO is a `PLAN.md` item**, never a comment.
+- **A TODO is a planning-board item**, never a comment.
 - **A new ADR needs a structural decision.** A tuned value's reason is a JOURNAL measurement.
 - **A BUDGET header holds only its number.** Exceeding it blocks and **never means
   delete**: trim your own additions first, split for a valid reason (ADR-0022), or, last,

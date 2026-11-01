@@ -53,7 +53,7 @@ the repository root or the agent is not found. Generated documents (`docs/CONFIG
 | 8 | TOO VERBOSE | every hand-written `docs/*.md` | high |
 | 9 | WRONG DOCUMENT | every document, plus `config.py` | high |
 | 10 | CROSS-PLANE LEAK | every document | high |
-| 11 | MISSING | every document, plus `PLAN.md`, `archive/PLAN-milestones.md` and `scripts/docs_ownership.toml` | high |
+| 11 | MISSING | every document, plus `archive/PLAN-milestones.md`, `archive/PLAN-2026-11.md` and `scripts/docs_ownership.toml` | high |
 | 12 | CLAIMS | every document; the task names `DECISIONS.md`, `JOURNAL.md` and `CHANGELOG.md` to *search*, not prefetch | high |
 | 13 | ESCAPE ABUSE | nothing | low |
 | 14 | FILED ALREADY | the hand-off notebook — **not delegable**, see below | — |

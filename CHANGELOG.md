@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #532 — 2026-11-01 — docs: PLAN.md is archived and its three gate checks retired
+
+### Changed
+
+- **`PLAN.md` was a plan nobody read any more.** Once sessions planned from the board
+  (#531), it held two open items outside **Deferred** and a history of the rest. It moves
+  verbatim to `archive/PLAN-2026-11.md`, beside the milestone archive, so the item ids that
+  CHANGELOG, DECISIONS and the tests cite still resolve. README, `docs/`, CONTRIBUTING, the
+  agents and the docs-audit runbook stop pointing at it, and none of them names where open
+  work now lives, because that location is private (ADR-0139).
+- **Three gate checks that could no longer fail.** `roadmap-marker`, `roadmap-id` and
+  `roadmap-budget` read `PLAN.md` at the repository root and report SKIP without it, so
+  kept they would have looked like checks while guarding nothing. They go with their three
+  regression tests; the board's issue numbers and Status field replace the ids and glyphs
+  they policed.
+
 ## #531 — 2026-11-01 — docs: sessions plan from the board, not PLAN.md
 
 ### Changed

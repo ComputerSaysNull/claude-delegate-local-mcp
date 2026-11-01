@@ -9,8 +9,7 @@ generated) and not a list of traps (see [../CLAUDE.md](../CLAUDE.md)). Decisions
 own record in [../DECISIONS.md](../DECISIONS.md); this explains the shape they produced.
 
 Sections marked **not built** describe intended design; in the module table the marker
-says whether it scopes to the whole module or only the clause before it. The roadmap is
-[../PLAN.md](../PLAN.md).
+says whether it scopes to the whole module or only the clause before it.
 
 ## The shape of a delegation
 

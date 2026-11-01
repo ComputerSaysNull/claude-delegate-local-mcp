@@ -9,8 +9,8 @@ refactors, first-pass review — costs cloud tokens even when the reasoning requ
 modest. This moves that class of work onto your own hardware, where it is effectively
 free, and keeps Claude for the parts that need it.
 
-See [PLAN.md](PLAN.md) for what is open, and
-[archive/PLAN-milestones.md](archive/PLAN-milestones.md) for the roadmap that closed.
+The roadmaps that closed are in [archive/PLAN-milestones.md](archive/PLAN-milestones.md)
+and [archive/PLAN-2026-11.md](archive/PLAN-2026-11.md).
 
 ## How it works
 

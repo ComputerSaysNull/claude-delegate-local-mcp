@@ -245,7 +245,7 @@ def render() -> str:
         "",
         ("A description marked **Inert** means no code outside `config.py` reads that "
          "setting yet: it is validated at startup and otherwise does nothing, because the "
-         "subsystem it controls is not built. See [PLAN.md](../PLAN.md) for what is where. "
+         "subsystem it controls is not built. "
          "The marker is computed by the generator from the source, not maintained by hand, "
          "so it disappears in the commit that starts using the setting. **Retired** is the "
          "opposite and never appears with it: the setting is gone, and setting it stops "

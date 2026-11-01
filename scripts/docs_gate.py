@@ -746,7 +746,7 @@ def conventional_subject_finding(where: str, subject: str) -> Finding | None:
         BLOCK, "conventional-subject",
         f"{where} is not a Conventional Commit: {subject[:60]!r}. Expected one of "
         f"{', '.join(CONVENTIONAL_TYPES)} followed by ': '. The milestone belongs in the "
-        f"body or in PLAN.md, not in the subject -- 'M1: ...' reached main twice before "
+        f"body, not in the subject -- 'M1: ...' reached main twice before "
         f"this check existed.")
 
 
@@ -1020,228 +1020,6 @@ def check_budgets() -> list[Finding]:
                 f"commit message rather than the header (CONTRIBUTING.md, \"Prose\")."))
     if not seen:
         out.append(Finding(SKIP, "budget", "no document declares a budget header yet."))
-    return out
-
-
-# Ways a roadmap item declares itself closed in its own words. Matched only against an
-# item's marker line, never its body: a sub-bullet may answer one question while the item
-# it sits under stays genuinely open, which the streaming entry does, and reading bodies
-# would call those closed.
-ROADMAP_CLOSED = (
-    re.compile(r"\*\*Spike answered\*\*"),
-    re.compile(r"\*\*Answered \d{4}-\d{2}-\d{2}"),
-)
-
-
-def check_roadmap_markers() -> list[Finding]:
-    """An item that declares itself closed while marked open is a marker nobody flipped.
-
-    PLAN.md drifts quietly, because nothing forces a commit to touch it: six in a row,
-    #155 to #160, changed it not at all, and the work in #159 that finished an item never
-    reached the roadmap. A spike then sat `⬜` for four days with its own first line
-    reading "Spike answered".
-
-    Only the marker line is read, for the reason in ROADMAP_CLOSED. What this cannot see
-    is the other half of the same drift -- an item finished by work its text never
-    mentions, which needs a reader who knows what shipped, not a pattern.
-    """
-    path = ROOT / "PLAN.md"
-    if not path.exists():
-        return [Finding(SKIP, "roadmap-marker", "there is no PLAN.md to check.")]
-    out = []
-    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        # Items are numbered (`1.` / `a.`) with the marker after the number, so a pattern
-        # anchored on the old dash would match nothing and report a clean roadmap forever.
-        if not re.match(r"^ *(?:\d+|[a-z]+)\. (⬜|🔄) ", line):
-            continue
-        for pat in ROADMAP_CLOSED:
-            hit = pat.search(line)
-            if hit:
-                out.append(Finding(
-                    BLOCK, "roadmap-marker",
-                    f"PLAN.md line {n} is marked open but says {hit.group(0)!r}. A closed "
-                    f"item takes the done marker and the date the work completed, and its "
-                    f"body is frozen -- flip the marker and change nothing else."))
-                break
-    return out
-
-
-ROADMAP_MARKERS = "⬜🔄✅❌"
-# The id *is* the list marker: `1.` at the top level, `a.` beneath it, with the status
-# marker after it. So an item still wearing a `-` is an item with no id, which is the whole
-# of the missing-id case and needs no separate absence test.
-# A child keeps a real list bullet and carries its letter as the bullet's first word:
-# `   - a. ⬜ ...`. A bare `a.` is not list syntax -- an ordered list needs digits -- so a
-# child written that way renders as a continuation of its parent rather than nested under it.
-#
-# An id is owed by every indented bullet, and by a top-level one that carries a marker. A
-# top-level dash with no marker is a note kept beside an item -- a struck original, or a
-# correction filed next to a frozen body it may not be edited into -- and owes nothing.
-ROADMAP_UNNUMBERED = re.compile(
-    rf"^(?:(?P<indent> +)- (?![a-z]+\. )|- (?P<marker>[{ROADMAP_MARKERS}]) )")
-ROADMAP_TOP = re.compile(rf"^(?P<id>\d+)\. (?P<marker>[{ROADMAP_MARKERS}]) ")
-ROADMAP_CHILD = re.compile(
-    rf"^(?P<indent> +)- (?P<id>[a-z]+)\. (?P<marker>[{ROADMAP_MARKERS}]) ")
-
-
-def check_roadmap_ids(text: str | None = None) -> list[Finding]:
-    """An item nobody can name is an item a plan has to quote.
-
-    A session plan referring to roadmap work used to paste the item's title and hope it
-    still matched; a reworded title silently broke the reference. Items carry an id --
-    `1.` at the top level, `1a.` beneath -- scoped to the `###` section above them, so
-    `M11.1b` names one thing for as long as it exists.
-
-    Only *marked* bullets are items. An unmarked child is a note recorded beside the work
-    (a correction, a trap, the evidence for a re-rank) and is deliberately exempt:
-    requiring an id there would push prose into carrying a task's shape.
-
-    The parent rule is the reason children take markers at all. A parent ticked while
-    something under it is outstanding is the drift `check_roadmap_markers` catches one
-    line at a time, one level up.
-
-    `text` is injectable so a test can drive this function directly rather than
-    reimplementing the rule -- a second copy of a rule is how the rule and its check
-    stop agreeing.
-    """
-    if text is None:
-        path = ROOT / "PLAN.md"
-        if not path.exists():
-            return [Finding(SKIP, "roadmap-id", "there is no PLAN.md to check.")]
-        text = path.read_text(encoding="utf-8")
-
-    out: list[Finding] = []
-    seen: dict[str, int] = {}          # full id -> line it was first used on, per section
-    parent: tuple[str, str, int] | None = None   # id, marker, line
-    children: list[tuple[str, str, int]] = []    # full id, marker, line
-
-    def close_parent() -> None:
-        """A done parent may not stand over an unfinished marked child."""
-        if parent is None:
-            return
-        _, pmarker, pline = parent
-        if pmarker != "✅":
-            return
-        for cid, cmarker, cline in children:
-            if cmarker not in ("✅", "❌"):
-                out.append(Finding(
-                    BLOCK, "roadmap-id",
-                    f"PLAN.md line {pline} is done while its child {cid!r} on line {cline} "
-                    f"is still {cmarker}. A parent takes the done marker once every marked "
-                    f"child has one, so that a half-finished item cannot read as closed."))
-
-    def claim(ident: str, n: int) -> None:
-        if ident in seen:
-            out.append(Finding(
-                BLOCK, "roadmap-id",
-                f"PLAN.md line {n} repeats the id {ident!r}, already used on line "
-                f"{seen[ident]} of this section. An id names one item."))
-        seen[ident] = n
-
-    for n, line in enumerate(text.splitlines(), 1):
-        if line.startswith("#"):
-            close_parent()
-            parent, children = None, []
-            seen = {}                   # ids are scoped to their section
-            continue
-
-        if m := ROADMAP_UNNUMBERED.match(line):
-            title = line[m.end():].strip()
-            out.append(Finding(
-                BLOCK, "roadmap-id",
-                f"PLAN.md line {n} is a roadmap item with no id: {title[:50]!r}. Number it "
-                f"{'`1.`' if not m.group('indent') else '`a.`'} in place of the dash, with "
-                f"the marker after it, so a plan can cite it instead of quoting it."))
-            if not m.group("indent"):
-                close_parent()
-                parent, children = None, []
-            continue
-
-        if m := ROADMAP_TOP.match(line):
-            close_parent()
-            ident = m.group("id")
-            claim(ident, n)
-            parent, children = (ident, m.group("marker"), n), []
-            continue
-
-        if m := ROADMAP_CHILD.match(line):
-            # Four spaces, not three. `1. ` puts its content at column 3 and `19. ` at
-            # column 4, so a three-space child nests under single-digit items and falls
-            # outside double-digit ones, rendering as a separate list beside its parent.
-            # Four clears both, and keeps clearing them when an item goes from 9 to 10.
-            if len(m.group("indent")) != 4:
-                out.append(Finding(
-                    BLOCK, "roadmap-id",
-                    f"PLAN.md line {n} indents a child {len(m.group('indent'))} spaces; it "
-                    f"takes 4. Three nests under `1.` but not under `19.`, whose content "
-                    f"starts a column further in, so the child renders beside its parent."))
-            # A child's id is read with its parent's, because `a.` alone names nothing.
-            ident = f"{parent[0] if parent else '?'}{m.group('id')}"
-            claim(ident, n)
-            children.append((ident, m.group("marker"), n))
-
-    close_parent()
-    return out
-
-
-ROADMAP_ANY_BULLET = re.compile(r"^(?P<indent> *)(?:- |\d+\. |[a-z]+\. )")
-ROADMAP_CAP = 3
-
-
-def check_roadmap_budget(text: str | None = None) -> list[Finding]:
-    """Three lines a bullet, so the roadmap says what is to be done rather than what was.
-
-    PLAN.md grew by accretion: each correction was appended to the bullet it corrected until
-    half the items ran past ten lines. The history is not wrong, it is just filed in the
-    wrong document -- CHANGELOG, JOURNAL and DECISIONS own it, and the hand-off notebook
-    takes a partial observation that fits none of them.
-
-    Sub-bullets carry their own three, which is what makes this a splitting rule rather than
-    a deletion order: a long item becomes a short parent with short children.
-
-    Two boundaries, both of which were wrong in a draft of this:
-
-    - **A bullet ends at the first blank line.** Running it to the next bullet instead
-      swallows the prose paragraphs sitting between items and charges them to whichever
-      bullet came before.
-    - **A frozen body is exempt.** `✅` and `❌` bodies may not be reworded, and most of the
-      excess sits inside them; a cap applying there would be one rule contradicting another.
-      Only live subtrees are measured.
-    """
-    if text is None:
-        path = ROOT / "PLAN.md"
-        if not path.exists():
-            return [Finding(SKIP, "roadmap-budget", "there is no PLAN.md to check.")]
-        text = path.read_text(encoding="utf-8")
-
-    lines = text.splitlines()
-    starts = [i for i, ln in enumerate(lines) if ROADMAP_ANY_BULLET.match(ln)]
-    out: list[Finding] = []
-    live = False
-
-    for k, i in enumerate(starts):
-        # Only a *marked* top-level item opens a subtree. An unmarked one -- the struck
-        # original kept beside a ticked item -- inherits whichever subtree it sits in.
-        if top := ROADMAP_TOP.match(lines[i]):
-            live = top.group("marker") in ("⬜", "🔄")
-
-        limit = starts[k + 1] if k + 1 < len(starts) else len(lines)
-        end = limit
-        for j in range(i + 1, limit):
-            if not lines[j].strip() or lines[j].startswith("#"):
-                end = j
-                break
-
-        n = end - i
-        if live and n > ROADMAP_CAP:
-            title = lines[i].strip()[:60]
-            out.append(Finding(
-                BLOCK, "roadmap-budget",
-                f"PLAN.md line {i + 1} is {n} lines against a cap of {ROADMAP_CAP}: "
-                f"{title!r}. Split it — a sub-bullet carries its own three — or move the "
-                f"history to whichever of CHANGELOG, JOURNAL, DECISIONS or the hand-off "
-                f"notebook owns it."))
-
     return out
 
 
@@ -2187,7 +1965,7 @@ def check_prose_regrowth(mode: str, diff_range: str | None) -> list[Finding]:
                 out.append(Finding(
                     WARN, "prose-regrowth",
                     f"{path} line {n}: {what} in a comment -- history belongs in "
-                    f"CHANGELOG/JOURNAL, future work in PLAN.md (CONTRIBUTING.md, "
+                    f"CHANGELOG/JOURNAL, future work on the planning board (CONTRIBUTING.md, "
                     f"\"Prose\")"))
         nonblank = sum(1 for ln in lines if ln.strip())
         new_ratio = round(len(prose) * 100 / nonblank) if nonblank else 0
@@ -2216,9 +1994,6 @@ CHECKS = {
     "generated-doc": check_generated_docs,
     "generated-coverage": check_generated_docs_are_all_checked,
     "budget": check_budgets,
-    "roadmap-marker": check_roadmap_markers,
-    "roadmap-id": check_roadmap_ids,
-    "roadmap-budget": check_roadmap_budget,
     "adr": check_adr_format,
     "owning-doc": check_ownership,
     "orphan-doc": check_orphan_docs,
