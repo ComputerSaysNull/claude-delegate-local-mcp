@@ -53,12 +53,9 @@ In order, every time:
    is staged first — `git diff --cached --name-only` must print at least one path. With
    nothing staged the gate prints `0 file(s) changed` and then PASS, having run no ownership
    check at all, and that pass is indistinguishable from a real one.
-5. **`PLAN.md`: flip the marker and change nothing else in that document.** A `✅` body is
-   frozen — no rewording, no line added or removed. A parent goes `✅` only once all its
-   children are.
-6. **The hand-off notebook: delete before you add.** Remove every line this commit just
-   filed into `CHANGELOG.md`, `DECISIONS.md`, `JOURNAL.md` or `PLAN.md`, then add only what
-   is still unfiled. The notebook holds what an upcoming session needs and nothing a tracked
+5. **The hand-off notebook: delete before you add.** Remove every line this commit just
+   filed into `CHANGELOG.md`, `DECISIONS.md`, `JOURNAL.md` or a board item, then add only
+   what is still unfiled. The notebook holds what an upcoming session needs and nothing a tracked
    document already has, so it shrinks as work lands.
 
 One feature per commit: code, tests, documentation and CHANGELOG together. That is what
@@ -75,9 +72,9 @@ invisible to review and to the owning-document check.
 this session, with its own commit, its own check and its own CHANGELOG entry. *Quick*
 describes the fix, not the rigour.
 
-**A bug, anything larger** — a `⬜` item in `PLAN.md`, under the milestone it belongs to or
-under `### Unscheduled` if it belongs to none. Record the symptom and what you were doing
-when it appeared. Do not fix it now: it has not been ranked against anything, and doing it
+**A bug, anything larger** — a new board item in the Inbox, Code repo "server"
+(`CLAUDE.local.md` has the commands). Record the symptom and what you were doing when it
+appeared. Do not fix it now: it has not been ranked against anything, and doing it
 anyway is how a session quietly becomes a different session.
 
 **A partial observation** that is neither a bug nor a plan item — something noticed, not yet
@@ -122,6 +119,11 @@ before anything is pushed. If the issued number differs anyway, correct the head
 again **before merging**; `docs_gate.py --pr-event` refuses a mismatch, so a forgotten
 correction cannot reach `main`.
 
+**A board item closes by hand, after its merge.** A pull request body carries no closing
+keyword, because it would publish the planning repository's name. Once the branch is on
+`main`: comment on the item what landed — for a "contract" item, the shape and the format
+version — close it, and set its Status to Done. Closing an issue does not move its card.
+
 **Nothing is published unscanned.** A pull request's text is a public surface no commit hook
 sees, and CI only reads it once it is already published — for a leak that makes CI a
 backstop rather than a gate, so the scan happens before `gh pr create` rather than after it.
@@ -151,8 +153,9 @@ progress. The plan is the mandate.
 
 ## 6. When the work is done
 
-The session ends with the plan's items ticked, the notebook reconciled, and anything the
+The session ends with the plan's items Done on the board, the notebook reconciled, and anything the
 session learned filed where it belongs: a decision in `DECISIONS.md`, a measurement that
 cost real time in `JOURNAL.md`, everything else either in the notebook or deliberately cut.
 
-Nothing is archived mid-roadmap. An over-budget Done item is **reported**, not rewritten.
+A Done item's body is frozen: an item that ran over budget is **reported** in a comment, not
+rewritten.

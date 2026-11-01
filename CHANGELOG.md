@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #531 — 2026-11-01 — docs: sessions plan from the board, not PLAN.md
+
+### Changed
+
+- **Two planning sources for one operator.** The web viewer and the other projects plan
+  from a board kept outside their repositories, while this one ranked `PLAN.md`, so a
+  session here read one source and the viewer's requests arrived in another. The
+  `session-plan` skill now reads the board: it triages the Inbox, re-checks what is
+  Blocked, ranks by the board's Rank and sizes by its Size, with the budget and the
+  argue-against-the-plan step unchanged. `session-execute` files a larger bug as an Inbox
+  item and closes an item by hand after its merge, since a closing keyword in a pull request
+  body would publish the board's private location.
+
 ## #530 — 2026-10-30 — feat: a delegation reports the turn limit it ran under
 
 ### Added
