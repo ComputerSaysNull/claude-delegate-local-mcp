@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #534 — 2026-11-01 — chore: release 0.16.0
+
+### Changed
+
+- **The version moves to 0.16.0, so an installed wheel can be messaged mid-run.** The
+  transcript format is 1.14: a stream may carry a `message` event, written when the run
+  reads a caller's unasked message (#533), so the tracker should pin this release.
+  `message_delegation` steers a running delegation by the task id its call returned
+  (#533). Planning moved out of the repository: the session skills read a board (#531)
+  and `PLAN.md` went to `archive/` with the three gate checks that read it (#532). The
+  release itself is the tag `v0.16.0` on `main`, published by the release workflow
+  (ADR-0115).
+
 ## #533 — 2026-11-01 — feat: a caller can message a running delegation
 
 ### Added
