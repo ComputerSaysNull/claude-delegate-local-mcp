@@ -62,7 +62,7 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.14"
+FORMAT = "1.15"
 
 # The fixed values `end.ended` may hold, so a reader can branch on the ending rather than
 # parse the words in `error`. Kept beside FORMAT because it is the same contract.
@@ -135,6 +135,10 @@ class Stream:
         self._broken = False
         # Turns whose calls a `tools` event already named, so their `turn` event can say so.
         self._announced: set[int] = set()
+        # The model the call asked for, and whether any turn was answered by another: an
+        # engine that answers a name it does not serve leaves no other trace (format 1.15).
+        self._requested: str | None = None
+        self._mismatch: bool | None = None
 
     def _put(self, event: dict[str, Any]) -> None:
         if self._broken:
@@ -157,6 +161,7 @@ class Stream:
         self, *, tool: str, task: str, title: str | None = None,
         agent: str | None,
         model_key: str | None, effort: str | None,
+        served_model_id: str | None = None,
         tools: Iterable[str] = (), prefetched: Prefetch | None = None,
         max_turns: int | None = None,
         workspace: str | None = None,
@@ -171,9 +176,11 @@ class Stream:
         The files are here, not only in the record, because the record is written when
         the work is over, and "what is this delegation chewing on" is asked while it runs.
         """
+        self._requested = served_model_id
         self._put({
             "t": "start", "at": datetime.now(UTC).isoformat(), "format": FORMAT, "tool": tool,
             "task": task, "agent": agent, "model_key": model_key, "effort": effort,
+            **({"served_model_id": served_model_id} if served_model_id else {}),
             # Beside `effort`, the same kind of fact: a resolved setting this run is held
             # to. None for a one-shot, which runs no loop.
             "max_turns": max_turns,
@@ -193,9 +200,14 @@ class Stream:
         exists nowhere else (ADR-0043).
         """
         retries = getattr(diagnostic, "retries", ()) or ()
+        model = getattr(diagnostic, "model", None)
+        if model and self._requested:
+            self._mismatch = bool(self._mismatch) or model != self._requested
         self._put({
             "t": "turn", "at": datetime.now(UTC).isoformat(),
             "turn": getattr(diagnostic, "turn", None),
+            # What the engine says answered, which `start.model_key` only names a wish for.
+            "model": model,
             # A `tools` event already named this turn's calls, so a reader shows results.
             "announced": getattr(diagnostic, "turn", None) in self._announced,
             # On every turn, not only the head: a reader deep in a long transcript cannot
@@ -476,6 +488,8 @@ class Stream:
             "cached_tokens": cached_tokens,
             "backend_ms": backend_ms,
             "out_tok_s": _rate(output_tokens, backend_ms),
+            # Null when no turn named its model or the call named none to compare against.
+            "model_mismatch": self._mismatch,
             # The turn events' split, summed. With `elapsed_seconds` these account for
             # the delegation -- prefill, decode, tools, admission wait -- so a reader can
             # say where a slow run spent its time.

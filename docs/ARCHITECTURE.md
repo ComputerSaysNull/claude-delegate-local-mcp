@@ -981,7 +981,10 @@ the caller's `title`, if any, so a viewer need not name the run from its task's 
 and `workspace`: the name of the session's project, narrowed into the ceiling (ADR-0128).
 A run that asks writes `question`, then `answer` with how long the reply took and who gave it;
 a caller's unasked message writes `message` when it is read, or `delivered: false` at the end.
-`end.ended` says how a run ended as a fixed value, so a reader need not parse `error`. Bytes cannot show an image, so a tool call and a prefetched file count the images they sent.
+`end.ended` says how a run ended as a fixed value, so a reader need not parse `error`.
+A turn names the model the engine says answered it, which `start.model_key` only asked for:
+an engine that answers a name it does not serve leaves no other trace, so `end.model_mismatch`
+flags a run answered by a model other than the entry's `served_model_id`. Bytes cannot show an image, so a tool call and a prefetched file count the images they sent.
 
 The stream carries the model's reply text, which the record does not: whole in `turn`, and
 as it generates in `partial` (ADR-0114), the turn's last one marked `final` and holding the

@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #537 — 2026-11-07 — feat: the transcript names the model that answered
+
+### Added
+
+- **Each turn names the model the engine says answered it, and `end` flags a mismatch.**
+  Symptom: after the head node switched engines, the tracker labelled runs with the
+  previous model while the new one answered them. Cause: the stream recorded only
+  `start.model_key`, the registry key, and the new engine answers a request naming a
+  model it does not serve where the old one refused, so a stale entry left no trace. Fix:
+  format 1.15 adds `start.served_model_id` (what was asked for), `turn.model` (what the
+  response says answered, one-shots included) and `end.model_mismatch`, true when any
+  turn differs, null when there is nothing to compare. The tracker should pin this
+  release to read them.
+
 ## #535 — 2026-11-07 — fix: a dotted registry key is refused with the quoting fix
 
 ### Fixed
