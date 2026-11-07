@@ -231,7 +231,8 @@ def test_a_pasted_windows_root_is_translated_before_it_is_written(tmp_path: Path
 
 def test_the_example_file_no_longer_ships_a_root_that_cannot_load():
     """The same defect in the fallback path --init replaces. Found by the test above."""
-    text = Path(".env.example").read_text(encoding="utf-8")
+    # By the repository's path: relative, it read whatever the worker's cwd held.
+    text = (Path(__file__).resolve().parents[1] / ".env.example").read_text(encoding="utf-8")
     line = next(ln for ln in text.splitlines()
                 if ln.startswith(config.env_name("workspace_roots") + "="))
     value = line.partition("=")[2]
