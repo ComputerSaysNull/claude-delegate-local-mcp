@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #538 — 2026-11-07 — feat: a registry entry sets what an image costs on its model
+
+### Added
+
+- **`tokens_per_image` in a registry entry, for a model that bills images differently.**
+  Symptom: the newer model on the head node charged ~760 prompt tokens for a 1-megapixel
+  tile, while every estimate costed it at 512. Cause: `TOKENS_PER_IMAGE` was one constant
+  for all models, measured on a checkpoint that caps every image; this one bills by
+  resolution (JOURNAL 2026-11-07). An under-count is the unsafe direction for the
+  prefetch budget, the admission estimate, eviction and the overflow guard. Fix: an entry
+  may set `tokens_per_image`, which all four read; it defaults to the constant and `0` is
+  refused, since an image costing nothing would hide growth.
+
 ## #537 — 2026-11-07 — feat: the transcript names the model that answered
 
 ### Added

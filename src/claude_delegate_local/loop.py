@@ -1544,15 +1544,16 @@ def _count_images(content: tuple[ContentBlock, ...]) -> int:
     )
 
 
-def _tool_result_sizes(cfg: Config, messages: tuple[Message, ...]) -> list[int]:
+def _tool_result_sizes(cfg: Config, messages: tuple[Message, ...], *,
+                       tokens_per_image: int = TOKENS_PER_IMAGE) -> list[int]:
     """Estimated tokens of each tool result, in history order, which eviction walks.
 
     Sizes, not a count, because bytes fill a window. Costed at the densest ratio, so it
     over-counts: under-counting would retain more than fits. A result's images cost
-    `TOKENS_PER_IMAGE` each.
+    `tokens_per_image` each, the entry's figure.
     """
     return [
-        cfg.estimate_tokens(len(b.content)) + TOKENS_PER_IMAGE * len(b.images)
+        cfg.estimate_tokens(len(b.content)) + tokens_per_image * len(b.images)
         for m in messages
         for b in m.content
         if isinstance(b, ToolResultBlock)
@@ -1944,7 +1945,8 @@ WRAP_UP_LINE = (
 )
 
 
-def estimate_message_tokens(cfg: Config, message: Message) -> int:
+def estimate_message_tokens(cfg: Config, message: Message, *,
+                            tokens_per_image: int = TOKENS_PER_IMAGE) -> int:
     """Rough size of one history message, in the same estimated tokens as everything else.
 
     Ours, not the backend's: the plateau check holds our number against theirs, and two
@@ -1959,7 +1961,7 @@ def estimate_message_tokens(cfg: Config, message: Message) -> int:
             nbytes += len(block.content)
         elif isinstance(block, ToolUseBlock):
             nbytes += len(block.name) + len(_dedup_key(block))
-    return cfg.estimate_tokens(nbytes) + TOKENS_PER_IMAGE * _count_images(message.content)
+    return cfg.estimate_tokens(nbytes) + tokens_per_image * _count_images(message.content)
 
 
 def overflow_reserve(cfg: Config, entry: ModelEntry) -> int:
@@ -2492,7 +2494,8 @@ class _OverflowGuard:
         return self.evicted_upto
 
     def added(self, message: Message) -> None:
-        self.pending_tokens += estimate_message_tokens(self.cfg, message)
+        self.pending_tokens += estimate_message_tokens(
+            self.cfg, message, tokens_per_image=self.entry.tokens_per_image)
 
     def begin_turn(self, *, turn: int, turns: int, ledger: _Ledger) -> None:
         """Abort if there is no room left, tighten retention if there is nearly none.
@@ -3114,7 +3117,8 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             guard.begin_turn(turn=turn, turns=turns, ledger=watch.calls)
             before = tuple(history)
             trimmed, dropped = stub_oldest_tool_results(
-                before, guard.evict_upto(_tool_result_sizes(cfg, before))
+                before, guard.evict_upto(_tool_result_sizes(
+                    cfg, before, tokens_per_image=entry.tokens_per_image))
             )
             history = list(trimmed)
             watch.evicted(before, trimmed, dropped)

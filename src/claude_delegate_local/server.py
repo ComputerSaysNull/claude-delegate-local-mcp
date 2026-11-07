@@ -849,7 +849,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         raise ToolError(str(PathRefused(list(refusals), total=len(files or []))))
 
     prefetched = await asyncio.to_thread(
-        prefetch, cfg, tuple(requests), max_images=entry.max_images
+        prefetch, cfg, tuple(requests), max_images=entry.max_images,
+        tokens_per_image=entry.tokens_per_image,
     )
     if refusals:
         # Ahead of the budget skips: the caller's own error, and the list is read top-down.

@@ -16,7 +16,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import cast
 
-from .config import EFFORT_LEVELS, Config, ConfigError
+from .config import EFFORT_LEVELS, TOKENS_PER_IMAGE, Config, ConfigError
 
 API_FORMATS = ("openai", "anthropic")
 
@@ -53,6 +53,9 @@ class ModelEntry:
     concurrency: int = DEFAULT_CONCURRENCY  # this endpoint's own limit, checked with the global one
     # How many images the backend accepts in one conversation; 0 means the model sees none.
     max_images: int = 0
+    # Prompt tokens one image (or tile) costs on this model. Models differ: one caps every
+    # image, another bills by resolution, so a shared figure under-counts one of them.
+    tokens_per_image: int = TOKENS_PER_IMAGE
     # True when models.toml said nothing and the default above was assumed. The two cases
     # need different advice: a window the operator set wrong is corrected, while one never
     # set was never a claim, and a mismatch report must not say the file gave a number it
@@ -140,11 +143,14 @@ def _validate(key: str, raw: dict, path: Path, *,
             f"the API path itself. Use {base_url[:-3]!r}."
         )
 
-    for num in ("context_window", "max_tokens_cap", "concurrency", "max_images"):
+    for num in ("context_window", "max_tokens_cap", "concurrency", "max_images",
+                "tokens_per_image"):
         if num in raw and (not isinstance(raw[num], int) or raw[num] < 0):
             raise RegistryError(f"{where} {num} must be a non-negative integer.")
     if raw.get("concurrency") == 0:
         raise RegistryError(f"{where} concurrency must be at least 1.")
+    if raw.get("tokens_per_image") == 0:
+        raise RegistryError(f"{where} tokens_per_image must be at least 1.")
 
     return ModelEntry(
         key=key,
@@ -158,6 +164,7 @@ def _validate(key: str, raw: dict, path: Path, *,
         max_tokens_cap=int(raw.get("max_tokens_cap", 0)),
         concurrency=int(raw.get("concurrency", default_concurrency)),
         max_images=int(raw.get("max_images", 0)),
+        tokens_per_image=int(raw.get("tokens_per_image", TOKENS_PER_IMAGE)),
         is_default=bool(raw.get("default", False)),
     )
 

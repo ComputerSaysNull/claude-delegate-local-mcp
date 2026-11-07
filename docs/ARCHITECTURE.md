@@ -60,7 +60,8 @@ A tab follows each, as spaces were copied back as indentation. `numbered_span` r
 An image is the exception: the block names it and its pixels, the image follows the text in
 the same message, one shot or loop alike, and one past `max_images` is skipped (ADR-0132). A
 large one goes as tiles, each counted against that limit, since the server shrinks every
-image until small text is gone (ADR-0133).
+image until small text is gone (ADR-0133). Each is budgeted at the entry's
+`tokens_per_image`: one model caps what an image costs, another bills it by size.
 
 A prefetch cap is a **drop** threshold and never a truncation: a file over it is left out
 whole, though a caller may name ranges of it, merged where they meet (ADR-0105, ADR-0106).

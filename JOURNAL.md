@@ -3255,3 +3255,41 @@ editables~=0.3`. That requirement is not in `pyproject.toml`; the backend return
 `get_requires_for_build_editable()`, which is code. With `editables` staged the same command
 built and imported, exit 0. So the host cannot know every wheel by reading, and the build
 asks the backend inside the sandbox first.
+
+## 2026-11-07 — The second engine bills an image by its size, and answers any model name
+
+The head node moved from vLLM to another engine serving a newer model on the same port.
+Probed through the delegation tools themselves, one turn each at effort `off`, with the
+task "reply OK" and one generated image of random text in `files[]`; the delegation's
+`input_tokens` less a no-image baseline of 264 is the image plus its one-line description.
+
+| Image | Sent as | Tokens over baseline |
+|---|---|---|
+| 64x64 | 1 image | 289 |
+| 512x512 | 1 image | 289 |
+| 1400x700 | 1 image | 709 |
+| 1024x1024 | 1 image | 761 |
+| 3840x2160 | 8 tiles | 5664 (708 a tile) |
+
+So it bills by resolution above a floor of about 289, and a tile near `TILE_PIXELS` costs
+~1.5x the shared `TOKENS_PER_IMAGE`. That constant held for the previous checkpoint, which
+caps every image (2026-10-29), and under-counts this one. Its entry now sets
+`tokens_per_image`; 800 covers the largest tile measured with room.
+
+The rest of what the server assumed about vLLM, against this engine:
+
+- **A request naming a model it does not serve is answered, not refused.** The response's
+  `model` says what really answered; until format 1.15 nothing wrote it to the stream.
+- **`reasoning_effort` is honoured.** A counting question at `off` took 2 output tokens
+  and was wrong; at `high`, 1223 and right.
+- **A token-limit stop is spelled `length`**, so the empty-answer recovery still fires.
+- **Its metrics carry a `tensorfold:` prefix**, at `/metrics` (and `/v1/metrics`), so
+  `backend_status` reports `cluster: null` and the queue and KV gauges are gone. Read by
+  the operator, since the sandbox cannot reach the address: seven scraped names exist
+  with the prefix swapped (requests running and waiting, KV-cache usage, prefix-cache
+  hits and queries, generation tokens, time per output token); preemptions are
+  `preemptions_total`; there is no `num_requests_waiting_by_reason` and no
+  `cache_config_info`, so the KV-pool size admission caps itself at is not published.
+  Both `kv_cache_usage_perc` and `kv_cache_usage_ratio` exist; which scale each uses
+  was not read.
+- Usage and `prompt_tokens_details.cached_tokens` are reported as before.
