@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #536 — 2026-11-07 — fix: a test reads .env.example by the repository's path
+
+### Fixed
+
+- **`test_init` no longer depends on the worker's working directory.** Symptom: CI failed
+  it with `FileNotFoundError: '.env.example'` once, then on every run of #535. Cause: it
+  read `Path(".env.example")`, relative to wherever the process stood. What moved the
+  worker is still unknown: a search of the suite and the source found only reverted or
+  forked `chdir`s, and no other relative read. Fix: the file is read by the test module's
+  own path, and a regression test runs the check from another directory.
+
 ## #534 — 2026-11-01 — chore: release 0.16.0
 
 ### Changed
