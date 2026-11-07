@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "One line of a delegation's .jsonl transcript stream",
   "description": "Format 1.x. Every line is one event, discriminated by `t`. Readers ignore fields and kinds they do not know: a minor version only adds, a major version removes, renames or changes a meaning (ADR-0111).",
-  "x-transcript-format": "1.14",
+  "x-transcript-format": "1.15",
   "type": "object",
   "required": ["t", "at"],
   "properties": {
@@ -35,6 +35,7 @@
         "task": {"type": "string"},
         "agent": {"$ref": "#/$defs/str_or_null"},
         "model_key": {"$ref": "#/$defs/str_or_null"},
+        "served_model_id": {"type": "string", "description": "The model the registry entry asked the engine for (format 1.15)."},
         "effort": {"$ref": "#/$defs/str_or_null"},
         "max_turns": {"$ref": "#/$defs/int_or_null"},
         "tools": {"type": "array", "items": {"type": "string"}},
@@ -53,6 +54,7 @@
       "properties": {
         "turn": {"$ref": "#/$defs/int_or_null"},
         "announced": {"type": "boolean"},
+        "model": {"$ref": "#/$defs/str_or_null", "description": "The model the engine's response says answered this turn; null when it named none (format 1.15)."},
         "of_turns": {"$ref": "#/$defs/int_or_null"},
         "input_tokens": {"$ref": "#/$defs/int_or_null"},
         "output_tokens": {"$ref": "#/$defs/int_or_null"},
@@ -172,6 +174,7 @@
         "input_tokens": {"$ref": "#/$defs/int_or_null"},
         "output_tokens": {"$ref": "#/$defs/int_or_null"},
         "finish_reason": {"$ref": "#/$defs/str_or_null"},
+        "model_mismatch": {"type": ["boolean", "null"], "description": "True when any turn's `model` differs from `start.served_model_id`; null when there was nothing to compare (format 1.15)."},
         "cached_tokens": {"$ref": "#/$defs/int_or_null"},
         "backend_ms": {"$ref": "#/$defs/int_or_null"},
         "out_tok_s": {"$ref": "#/$defs/num_or_null"},

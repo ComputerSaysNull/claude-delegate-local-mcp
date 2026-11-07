@@ -636,8 +636,9 @@ class _OneShotTurn:
     """
 
     __slots__ = ("answered_decode_seconds", "attempts", "cached_tokens", "decode_seconds",
-                 "effort", "evicted", "input_tokens", "output_tokens", "prefill_seconds",
-                 "reasoning_duplicate_line_share", "reasoning_seconds", "tool_calls", "turn")
+                 "effort", "evicted", "input_tokens", "model", "output_tokens",
+                 "prefill_seconds", "reasoning_duplicate_line_share", "reasoning_seconds",
+                 "tool_calls", "turn")
 
     def __init__(self, dispatched: Any) -> None:
         self.turn = 1
@@ -646,6 +647,7 @@ class _OneShotTurn:
         self.input_tokens = dispatched.response.input_tokens
         self.output_tokens = dispatched.response.output_tokens
         self.cached_tokens = dispatched.response.cached_tokens
+        self.model = dispatched.response.reported_model
         self.effort = dispatched.effort
         self.attempts = dispatched.attempts
         self.tool_calls = ()
@@ -961,6 +963,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             tool=tool_name,
             task=task, title=title, agent=agent.name if agent else None,
             model_key=entry.key, effort=effort,
+            served_model_id=entry.served_model_id,
             tools=allowed, prefetched=prefetched,
             max_turns=resolved_turns,
             workspace=workspace,
