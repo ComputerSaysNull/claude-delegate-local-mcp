@@ -647,7 +647,7 @@ class _OneShotTurn:
         self.input_tokens = dispatched.response.input_tokens
         self.output_tokens = dispatched.response.output_tokens
         self.cached_tokens = dispatched.response.cached_tokens
-        self.model = dispatched.response.model or None
+        self.model = dispatched.response.reported_model
         self.effort = dispatched.effort
         self.attempts = dispatched.attempts
         self.tool_calls = ()

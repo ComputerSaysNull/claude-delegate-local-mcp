@@ -361,6 +361,8 @@ class CanonicalResponse:
     # when the model did not reason or nothing streamed. Per response, unlike the loop's
     # chunk counters, which run across retries.
     reasoning_seconds: float | None = None
+    # What the engine itself named, or `None`; `model` falls back to the entry's id.
+    reported_model: str | None = None
 
     @property
     def text(self) -> str:

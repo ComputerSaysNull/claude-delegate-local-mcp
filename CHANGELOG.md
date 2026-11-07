@@ -41,8 +41,9 @@ Older entries, in the previous flat format, are in
   model it does not serve where the old one refused, so a stale entry left no trace. Fix:
   format 1.15 adds `start.served_model_id` (what was asked for), `turn.model` (what the
   response says answered, one-shots included) and `end.model_mismatch`, true when any
-  turn differs, null when there is nothing to compare. The tracker should pin this
-  release to read them.
+  turn differs, null when there is nothing to compare. `turn.model` is the engine's own
+  word, null when it names none: the adapter's `model` falls back to the entry's id, and
+  reading that would report a match nobody observed. The tracker should pin this release.
 
 ## #535 — 2026-11-07 — fix: a dotted registry key is refused with the quoting fix
 

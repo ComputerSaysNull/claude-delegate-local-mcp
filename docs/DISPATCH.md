@@ -772,7 +772,8 @@ itself, and one we could not reach has not.
 ### Diagnostics, per call
 
 `diagnostics=true` adds a per-turn breakdown to the reply: what each turn's prompt cost,
-what it evicted, the model its response says answered, and a `ToolCallRecord` per call — the arguments the model sent, capped per
+what it evicted, the model its response names (null if none), and a `ToolCallRecord` per
+call — the arguments the model sent, capped per
 field with a marker saying how much was dropped; a refusal message, on an error outcome
 only; and on success accounting rather than content, since a diagnostic that embedded what
 it was measuring would become the expensive payload it exists to explain. Built in

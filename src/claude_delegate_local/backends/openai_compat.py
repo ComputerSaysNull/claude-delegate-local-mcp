@@ -459,12 +459,14 @@ class OpenAICompatBackend:
         total = usage.get("total_tokens")
         stop = choice.get("stop_reason")
         fingerprint = payload.get("system_fingerprint")
+        named = payload.get("model")
         return CanonicalResponse(
             content=tuple(blocks),
             finish_reason=str(choice.get("finish_reason") or ""),
             input_tokens=int(usage.get("prompt_tokens") or 0),
             output_tokens=int(usage.get("completion_tokens") or 0),
             model=str(payload.get("model") or self._entry.served_model_id),
+            reported_model=named if isinstance(named, str) and named else None,
             cached_tokens=int(cached) if isinstance(cached, (int, float)) else None,
             total_tokens=int(total) if isinstance(total, (int, float)) else None,
             stop_reason=str(stop) if stop is not None else None,

@@ -2212,7 +2212,7 @@ class TurnDiagnostic:
     # the reply uses. `None` when the turn did not reason (empty thinking), which is not a
     # zero: no thinking cannot repeat a line.
     reasoning_duplicate_line_share: float | None = None
-    # The model the engine says answered, as its response names it.
+    # The model the engine says answered; `None` when its response named none.
     model: str | None = None
 
 
@@ -2412,7 +2412,7 @@ class _Watch:
                     duplicate_line_share(dispatch.response.thinking)
                     if dispatch.response.thinking else None
                 ),
-                model=dispatch.response.model or None,
+                model=dispatch.response.reported_model,
             )
         )
 

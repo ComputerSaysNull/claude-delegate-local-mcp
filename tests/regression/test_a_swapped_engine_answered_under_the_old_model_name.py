@@ -57,3 +57,15 @@ def test_the_schema_refuses_a_model_that_is_not_a_string():
     assert errors({**start, "served_model_id": 5})
     assert not errors({**turn, "model": "m"})
     assert not errors({**end, "model_mismatch": None})
+
+
+def test_a_reply_naming_no_model_is_not_reported_as_the_requested_one(tmp_path):
+    """The adapter fills `response.model` from the entry when the engine names none, so
+    reading that field would invent a match nobody observed."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        reply = chat_reply(content="sum")
+        del reply["model"]
+        return as_stream(reply)
+    events = _run(tmp_path, handler, "delegate", {"task": "t", "allowed_tools": []})
+    assert [t["model"] for t in _turns(events)] == [None]
+    assert events[-1]["model_mismatch"] is None
