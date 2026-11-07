@@ -123,7 +123,8 @@ BYTES_PER_TOKEN: dict[str, float] = {
 BYTES_PER_TOKEN_DEFAULT = min(BYTES_PER_TOKEN.values())
 
 # Prompt tokens per image, MEASURED (JOURNAL 2026-10-29): at most ~360 whatever the pixel
-# size, rounded up so the estimate over-counts, as the byte ratios are.
+# size, rounded up so the estimate over-counts, as the byte ratios are. The default for a
+# registry entry's `tokens_per_image`, since a model billing by resolution costs more.
 TOKENS_PER_IMAGE = 512
 
 # Raster formats the vision backend accepts (JOURNAL 2026-10-29); SVG is text, not one.

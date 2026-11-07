@@ -570,9 +570,10 @@ def _request_given(item: ResolvedPath | FileRequest) -> str:
     return item.entry.given if isinstance(item, FileRequest) else item.given
 
 
-def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is left out
+def _prefetch_one(  # noqa: PLR0911, PLR0912, PLR0913 -- one return per reason a file is left
+    # out; the image limit and the image cost are two facts about the model, not one
     cfg: Config, item: ResolvedPath | FileRequest, total: int,
-    images_kept: int, max_images: int,
+    images_kept: int, max_images: int, *, tokens_per_image: int,
 ) -> FileEntry | Skip:
     """One file: open it once, and account for whatever stops it being included.
 
@@ -589,7 +590,7 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
     checks first, so a file too big for the budget is never read at all.
 
     A raster image named whole is decoded instead of decoded as text, after the same open
-    and byte-ceiling checks. It is costed per image (`TOKENS_PER_IMAGE`), not per byte, and
+    and byte-ceiling checks. It is costed per image (`tokens_per_image`), not per byte, and
     `images_kept` against `max_images` decides whether there is room for it in the
     conversation. A range on an image is refused, since an image has no lines.
     """
@@ -699,7 +700,7 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912 -- one return per reason a file is 
                 f"{max_images - images_kept} of the model's {max_images} are left in this "
                 "conversation",
             )
-        est = TOKENS_PER_IMAGE * len(image.tiles)
+        est = tokens_per_image * len(image.tiles)
         if est > cfg.max_file_tokens:
             return Skip(
                 entry.posix,
@@ -835,7 +836,8 @@ def _one_file(
 
 
 def prefetch(
-    cfg: Config, resolved: tuple[ResolvedPath | FileRequest, ...], *, max_images: int = 0
+    cfg: Config, resolved: tuple[ResolvedPath | FileRequest, ...], *, max_images: int = 0,
+    tokens_per_image: int = TOKENS_PER_IMAGE,
 ) -> Prefetch:
     """Read what fits, skip what does not, and account for both.
 
@@ -853,7 +855,7 @@ def prefetch(
     A raster image is the one exception to the "text" reading: it is decoded as an image
     instead, and `max_images` is the model's whole-conversation image limit, so only that
     many survive the prefetch and the rest are skipped as `refused`. An image is costed
-    per image (`TOKENS_PER_IMAGE`), and the order they are kept in is this function's
+    per image (the entry's `tokens_per_image`), and the order they are kept in is this function's
     sorted order, so the choice is stable.
 
     A ranged `FileRequest` is the other exception, because it must be: the whole file is
@@ -880,7 +882,8 @@ def prefetch(
                 f"the {cfg.max_total_prefetch_tokens}-token budget for this call was "
                 "already spent by an earlier file in the list",
             )
-        outcome = _prefetch_one(cfg, item, total, images_kept, max_images)
+        outcome = _prefetch_one(cfg, item, total, images_kept, max_images,
+                                tokens_per_image=tokens_per_image)
         if isinstance(outcome, Skip):
             exhausted = exhausted or outcome.kind == SKIP_OVER_TOTAL_BUDGET
         else:
