@@ -53,7 +53,8 @@ The table key (`deepseek-v4-flash`) is the handle callers use. It does not have 
 | `default` | no | Exactly one entry may set it, unless a single model is registered or the global default names one |
 
 An unknown field is **refused**, not ignored. A typo in a registry key would otherwise cost
-you the setting in silence, which is the class of bug this file exists to remove.
+you the setting in silence, which is the class of bug this file exists to remove. A key with
+a dot in it must be quoted, `[models."name-v4.1"]`: unquoted, TOML reads it as nested tables.
 
 ## Choosing `default_effort`
 

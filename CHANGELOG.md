@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #535 — 2026-11-07 — fix: a dotted registry key is refused with the quoting fix
+
+### Fixed
+
+- **A dotted registry key now says to quote it, instead of naming a field nobody wrote.**
+  Symptom: a new entry `[models.Name-V4.1-X]` stopped every session's server from
+  starting, refused with "unknown field(s) ['1-X']". Cause: TOML reads each unquoted dot
+  in a table name as nesting, so the registry saw an entry `Name-V4` holding a table. Fix:
+  when an unknown field's value is a table, the refusal adds the quoted form,
+  `[models."Name-V4.1-X"]`. A misspelt plain field is refused exactly as before.
+
 ## #536 — 2026-11-07 — fix: a test reads .env.example by the repository's path
 
 ### Fixed

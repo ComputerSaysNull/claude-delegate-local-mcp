@@ -94,10 +94,16 @@ def _validate(key: str, raw: dict, path: Path, *,
 
     unknown = set(raw) - set(ModelEntry.__dataclass_fields__) - {"default"}
     if unknown:
+        # A table where a field belongs is a dotted key: TOML nests `[models.a.b]`.
+        nested = sorted(f"{key}.{u}" for u in unknown if isinstance(raw[u], dict))
+        hint = "".join(
+            f' A dot in a table name nests it: quote the name, [models."{name}"].'
+            for name in nested
+        )
         raise RegistryError(
             f"{where} has unknown field(s) {sorted(unknown)}. Refusing rather than "
             "ignoring them: a typo in a registry key would otherwise cost you the "
-            "setting silently."
+            f"setting silently.{hint}"
         )
     for field_name in _REQUIRED:
         if not raw.get(field_name):
