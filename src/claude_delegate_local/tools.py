@@ -1520,15 +1520,23 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
     paths = _checked_paths(raw_paths)
     scope = _git_toplevel(cfg, _text_arg(args, "repo"))
     _require_trusted_config(scope)
+    dropped: list[str] = []
     if command in GIT_CONTENT_COMMANDS:
         _require_commits(scope, command, _revisions(checked))
-        for rel in paths:
-            reason = _path_refusal(cfg, scope, rel)
-            if reason is not None:
-                raise ToolRefused(
-                    f"{rel!r} is refused by the path policy: {reason} 'git {command}' "
-                    f"would return its contents, which read_file refuses too."
-                )
+        refusals = [(rel, _path_refusal(cfg, scope, rel)) for rel in paths]
+        dropped = [f"{rel!r} ({reason})" for rel, reason in refusals if reason is not None]
+        # A refused path is dropped and the rest read, so one costs the call nothing. None
+        # left must refuse: git given no path reads every path.
+        if dropped and len(dropped) == len(paths):
+            raise ToolRefused(
+                f"{'; '.join(dropped)} refused by the path policy. 'git {command}' would "
+                f"return the contents, which read_file refuses too."
+            )
+        paths = [rel for rel, reason in refusals if reason is None]
+    note = (
+        f"[left out of paths, refused by the path policy: {'; '.join(dropped)}]\n\n"
+        if dropped else ""
+    )
 
     fixed = [
         *(["--no-textconv"] if command in GIT_NO_TEXTCONV else []),
@@ -1548,7 +1556,7 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
             f"git {command} exited {code}: {err.strip() or out.strip() or 'no output'}"
         )
     if not out.strip():
-        return (
+        return note + (
             f"git {command} produced no output and succeeded, so the answer is empty "
             f"rather than missing -- no commits, no changes, or nothing matched."
         )
@@ -1572,13 +1580,13 @@ def _read_git(cfg: Config, args: dict[str, object]) -> str:
     for index, line in enumerate(lines):
         if kept and used + len(line) + 1 > cfg.max_read_chars:
             return (
-                "\n".join(kept)
+                note + "\n".join(kept)
                 + f"\n\n[truncated: {index} of {len(lines)} lines. Narrow it with a "
                 f"revision range, a path, or --max-count.]"
             )
         kept.append(line)
         used += len(line) + 1
-    return "\n".join(kept)
+    return note + "\n".join(kept)
 
 
 READ_FILE = RegisteredTool(
@@ -1843,7 +1851,9 @@ READ_GIT = RegisteredTool(
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "File paths to limit the command to, relative to the "
-                                   "repository root. A path deleted long ago is fine.",
+                                   "repository root. A path deleted long ago is fine. "
+                                   "For show, diff and blame, a path read_file would "
+                                   "refuse is left out and named, and the rest are read.",
                 },
             },
             "required": ["repo", "command"],
