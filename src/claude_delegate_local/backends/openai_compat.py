@@ -58,10 +58,15 @@ _METRICS_PATH = "/metrics"
 #
 # The counters are denominated in TOKENS, not requests; read as request counts they would
 # understate the denominator by four orders.
+#
+# One engine serves at a time, so each engine's names sit side by side: TensorFold's carry
+# its own prefix, one renamed, and publish no `cache_config_info` (JOURNAL 2026-11-07).
 _GAUGES = {
     "vllm:num_requests_running": "requests_running",
     "vllm:num_requests_waiting": "requests_waiting",
     "vllm:kv_cache_usage_perc": "kv_cache_used_fraction",
+    "tensorfold:num_requests_running": "requests_running",
+    "tensorfold:num_requests_waiting": "requests_waiting",
 }
 _COUNTERS = {
     "vllm:prefix_cache_hits_total": "prefix_cache_hit_tokens",
@@ -73,6 +78,11 @@ _COUNTERS = {
     # stall it should help detect: a turn producing nothing moves neither its sum nor its
     # count.
     "vllm:generation_tokens_total": "generation_tokens",
+    # Tokens here too: its queries equal its `prompt_tokens_total` (JOURNAL 2026-11-07).
+    "tensorfold:prefix_cache_hits_total": "prefix_cache_hit_tokens",
+    "tensorfold:prefix_cache_queries_total": "prefix_cache_query_tokens",
+    "tensorfold:preemptions_total": "preemptions",
+    "tensorfold:generation_tokens_total": "generation_tokens",
 }
 # The one histogram read, only its `_sum`/`_count` pair. Each observation is one request's
 # mean seconds per output token, so `count / sum` is tokens per second since the engine
@@ -80,6 +90,8 @@ _COUNTERS = {
 _HISTOGRAM_PAIRS = {
     "vllm:request_time_per_output_token_seconds_sum": "_decode_seconds_sum",
     "vllm:request_time_per_output_token_seconds_count": "_decode_requests",
+    "tensorfold:request_time_per_output_token_seconds_sum": "_decode_seconds_sum",
+    "tensorfold:request_time_per_output_token_seconds_count": "_decode_requests",
 }
 
 # From `vllm:cache_config_info`, whose values live in its labels. Numeric configuration

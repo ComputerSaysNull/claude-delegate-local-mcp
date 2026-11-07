@@ -3290,6 +3290,7 @@ The rest of what the server assumed about vLLM, against this engine:
   hits and queries, generation tokens, time per output token); preemptions are
   `preemptions_total`; there is no `num_requests_waiting_by_reason` and no
   `cache_config_info`, so the KV-pool size admission caps itself at is not published.
-  Both `kv_cache_usage_perc` and `kv_cache_usage_ratio` exist; which scale each uses
-  was not read.
+  Its prefix-cache counters are tokens: queries equalled `prompt_tokens_total` exactly
+  (5,575,805). `kv_cache_usage_perc` and `kv_cache_usage_ratio` both read 0 at idle and
+  carry a `stream` or `pool` label, so their scale and how pools combine are unread.
 - Usage and `prompt_tokens_details.cached_tokens` are reported as before.

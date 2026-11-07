@@ -93,7 +93,9 @@ as *the cluster says it is doing nothing* rather than *the cluster did not say*.
 `enable_prefix_caching` from `vllm:cache_config_info`. The risk is labels rather than names —
 `http_request_*` carry handler paths, and `backend_status` promises never to name an endpoint
 — so the four are named one by one. A metric appearing upstream therefore cannot widen what
-is reported: noticing a new name is what `diff_endpoint_captures.py` is for.
+is reported: noticing a new name is what `diff_endpoint_captures.py` is for. Each engine's
+names are listed beside the others, since one serves at a time; TensorFold publishes no
+`cache_config_info`, so on it admission keeps the configured KV budget.
 
 **The counters are denominated in tokens, not requests.** Reading them as request counts
 understates the denominator by four orders and
