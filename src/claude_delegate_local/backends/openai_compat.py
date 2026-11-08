@@ -67,7 +67,11 @@ _GAUGES = {
     "vllm:kv_cache_usage_perc": "kv_cache_used_fraction",
     "tensorfold:num_requests_running": "requests_running",
     "tensorfold:num_requests_waiting": "requests_waiting",
+    "tensorfold:kv_cache_usage_perc": "kv_cache_used_fraction",
 }
+# Gauges published once per pool, read as the fullest: that pool is what stops new work.
+# TensorFold labels each `stream`; its `_ratio` twin carries the same values, so is unread.
+_GAUGES_MAX_OVER_SERIES = frozenset({"tensorfold:kv_cache_usage_perc"})
 _COUNTERS = {
     "vllm:prefix_cache_hits_total": "prefix_cache_hit_tokens",
     "vllm:prefix_cache_queries_total": "prefix_cache_query_tokens",
@@ -909,6 +913,10 @@ def read_metrics(text: str) -> dict[str, float | int | str | None]:
             continue
         if name in _HISTOGRAM_PAIRS:
             out[_HISTOGRAM_PAIRS[name]] = value
+        elif name in _GAUGES_MAX_OVER_SERIES:
+            key = _GAUGES[name]
+            seen = out.get(key)
+            out[key] = value if not isinstance(seen, (int, float)) else max(seen, value)
         elif name in _GAUGES:
             out[_GAUGES[name]] = value
         elif name in _COUNTERS:

@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #541 — 2026-11-08 — feat: TensorFold's KV-cache usage is read, as its fullest pool
+
+### Added
+
+- **`backend_status` shows the TensorFold engine's KV-cache usage.** Symptom: after #540
+  the cluster figures came back on that engine, but `kv_cache_used_fraction` stayed absent.
+  Cause: its `kv_cache_usage_perc` comes once per pool, and neither its scale nor how to
+  combine pools had been read, so #540 left it out. Fix: measured under load (JOURNAL
+  2026-11-08), it is 0-1 like vLLM's, and the server now reports the fullest pool, since
+  that pool is what stops new work; a sum or the last line parsed would misreport it.
+
 ## #540 — 2026-11-07 — feat: the cluster figures are read from TensorFold too
 
 ### Added
