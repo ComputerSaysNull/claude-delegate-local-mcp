@@ -788,7 +788,8 @@ held. A positive value still caps it, which is a judgement about latency rather 
 safety (ADR-0093). The number itself lives in [CONFIGURATION.md](CONFIGURATION.md).
 
 One number sizes a request: its KV footprint, the prompt plus the reply it is permitted to
-generate, which is what the token budget counts. A second one, the prompt alone, went with
+generate, which is what the token budget counts. The reply is the first turn's own budget,
+the high-effort floor included, because that is what the engine books too. A second one, the prompt alone, went with
 the large-cold-prefill cap that was its only reader.
 
 The estimate is fixed when a slot is granted and never grows, so for a long agentic
