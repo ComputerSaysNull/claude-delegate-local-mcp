@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #543 — 2026-11-08 — fix: TensorFold's per-request KV fill is no longer reported as pool fill
+
+### Fixed
+
+- **`backend_status` no longer shows one request's fill as the TensorFold pool's.**
+  Symptom: `kv_cache_used_fraction` read 15% while the engine's pool was full enough to
+  throw out every saved prompt, and later turns rebuilt 70-110k-token prompts from scratch.
+  Cause: #541 read `tensorfold:kv_cache_usage_perc{stream=N}` as one series per pool, but
+  the engine's help text says it is "tokens in a stream cache divided by that stream's
+  context window": one per running request (JOURNAL 2026-11-08, "kept prompt states").
+  TensorFold publishes no pool fill at all. Fix: the maximum is reported as
+  `kv_cache_fullest_request_fraction`, and `kv_cache_used_fraction` is absent on that
+  engine; vLLM's pool-wide figure is unchanged. Nothing decided on the old key.
+
 ## #542 — 2026-11-08 — chore: release 0.17.0
 
 ### Changed

@@ -3314,3 +3314,34 @@ the operator sampling `/metrics` every 3 s for 3 minutes, from outside the sandb
 - **Its since-boot decode rate reads ~8 tok/s** where delegations measured ~26 at three
   concurrent. It prices nothing (`rate_fallback_tok_s` comes first), so its meaning was
   not chased; read it as unreliable on this engine.
+
+## 2026-11-08 — TensorFold caches whole prompts, and a full pool throws them out
+
+Corrects the entry above: its "one series per pool" is one series per **running request**.
+The engine's `/metrics` help text says `kv_cache_usage_perc` is "tokens in a stream cache
+divided by that stream's context window"; the `_ratio{pool=N}` twin has the same values
+despite its label. No pool-fill metric exists.
+
+What the cache misses were, read from transcripts and the model server's documentation:
+
+- **Hits are whole saved prompts or nothing.** After a turn the engine keeps a snapshot of
+  the prompt (a "kept prompt state"); the next turn restores it whole or recomputes it. Each
+  turn's `cached_tokens` was either the full previous prompt or 0 (2,048 on a first turn).
+- **Running requests and snapshots share one pool**, sized to `CONTEXT` (1,048,576) when
+  the engine's `POOL` is unset. A running request books prompt plus its whole
+  `max_tokens`, and the oldest snapshots go when bookings need the room.
+- **At 131,072 per request that filled the pool.** Four running requests of 79-165k
+  booked ~983k; from then on every later turn of the waiting delegations read
+  `cached_tokens` 0 and spent 135-233 s re-prefilling, which kept the queue long enough to
+  repeat it. Yesterday's three ~285k delegations never ran more than two: a third booking
+  did not fit.
+- **The fix was the engine's.** `KV_SHARD=1` doubles the pool to 2,101,248 at about the same
+  memory, and `SPILL_GIB` restores evicted snapshots from disk. After the restart, four
+  parallel high-effort delegations of 60-90k hit 94.7% on turns 2 and later (95-98% on
+  Nov 5-7), with 1-6 s prefills.
+- **A since-boot hit rate cannot be compared across workloads.** First turns always miss;
+  at five turns a job they were 18% of input against 1-2% at 18-33 turns, so the overall
+  rate read 78% while later turns hit as before. Compare the turn-2+ rate.
+- **Its token counters count finished requests only**: prefix hits and queries, cached
+  prompt tokens, MTP drafts and acceptances. A window spanning one long request sees no
+  change in any of them.

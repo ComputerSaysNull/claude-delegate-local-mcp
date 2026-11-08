@@ -67,10 +67,11 @@ _GAUGES = {
     "vllm:kv_cache_usage_perc": "kv_cache_used_fraction",
     "tensorfold:num_requests_running": "requests_running",
     "tensorfold:num_requests_waiting": "requests_waiting",
-    "tensorfold:kv_cache_usage_perc": "kv_cache_used_fraction",
+    "tensorfold:kv_cache_usage_perc": "kv_cache_fullest_request_fraction",
 }
-# Gauges published once per pool, read as the fullest: that pool is what stops new work.
-# TensorFold labels each `stream`; its `_ratio` twin carries the same values, so is unread.
+# Gauges published once per running request, read as the fullest. TensorFold's series is one
+# stream's tokens over its own context window, not pool fill, which it does not publish; its
+# `_ratio{pool=N}` twin carries the same per-stream values despite the label, so is unread.
 _GAUGES_MAX_OVER_SERIES = frozenset({"tensorfold:kv_cache_usage_perc"})
 _COUNTERS = {
     "vllm:prefix_cache_hits_total": "prefix_cache_hit_tokens",
