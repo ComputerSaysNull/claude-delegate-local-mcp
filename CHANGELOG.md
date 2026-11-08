@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #539 — 2026-11-07 — fix: one refused path no longer fails a whole read_git call
+
+### Fixed
+
+- **A `read_git` content call drops a refused path and reads the rest.** Symptom: a
+  delegation asked `git show` for a commit and four paths, one of them an extensionless
+  `VERSION` file the path policy refuses, and the whole call was refused, so the three
+  readable paths cost another turn. Cause: the per-path check raised on the first refusal.
+  Fix: refused paths are left out and named at the head of the result; with every path
+  refused the call is still refused, because git given no path would read them all.
+  The `paths` schema says so.
+
 ## #538 — 2026-11-07 — feat: a registry entry sets what an image costs on its model
 
 ### Added
