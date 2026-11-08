@@ -95,7 +95,8 @@ as *the cluster says it is doing nothing* rather than *the cluster did not say*.
 — so the four are named one by one. A metric appearing upstream therefore cannot widen what
 is reported: noticing a new name is what `diff_endpoint_captures.py` is for. Each engine's
 names are listed beside the others, since one serves at a time; TensorFold publishes no
-`cache_config_info`, so on it admission keeps the configured KV budget.
+`cache_config_info`, so on it admission keeps the configured KV budget, and publishes its
+KV usage once per pool, read as the fullest pool.
 
 **The counters are denominated in tokens, not requests.** Reading them as request counts
 understates the denominator by four orders and

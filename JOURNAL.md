@@ -3294,3 +3294,23 @@ The rest of what the server assumed about vLLM, against this engine:
   (5,575,805). `kv_cache_usage_perc` and `kv_cache_usage_ratio` both read 0 at idle and
   carry a `stream` or `pool` label, so their scale and how pools combine are unread.
 - Usage and `prompt_tokens_details.cached_tokens` are reported as before.
+
+## 2026-11-08 — TensorFold's KV usage is per pool, and lags a prefill
+
+Settles what 2026-11-07 left unread. Three delegations of ~285k prefetched tokens each,
+the operator sampling `/metrics` every 3 s for 3 minutes, from outside the sandbox.
+
+- **Scale 0-1, and the two names are one figure.** `kv_cache_usage_perc{stream=N}` and
+  `kv_cache_usage_ratio{pool=N}` were equal in every sample.
+- **One series per pool.** With two requests running, pool 0 read 0.157 and rose by about
+  0.00003 every 3 s, while pool 1 held at 0.294 throughout. The fullest pool is what stops
+  new work, so the server reports the maximum.
+- **It lags a prefill.** For the first 75 s, one request running and two waiting, usage
+  read 0.0: a request in prefill is not counted yet.
+- **Requests running never passed two, which is not a limit.** Cold prefills run one at a
+  time, and the third ~285k-token request was most likely still queued for its prefill
+  when sampling stopped. Whether a prefilling request counts as running or waiting, and
+  the engine's real concurrency, were not read.
+- **Its since-boot decode rate reads ~8 tok/s** where delegations measured ~26 at three
+  concurrent. It prices nothing (`rate_fallback_tok_s` comes first), so its meaning was
+  not chased; read it as unreliable on this engine.
