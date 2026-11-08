@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #542 — 2026-11-08 — chore: release 0.17.0
+
+### Changed
+
+- **The version moves to 0.17.0, so an installed wheel runs on the TensorFold engine.**
+  The transcript format is 1.15: `start.served_model_id`, `turn.model` and
+  `end.model_mismatch` say which model really answered (#537), so the tracker should pin
+  this release to label runs by it. A registry entry may set `tokens_per_image` (#538);
+  `backend_status` reads TensorFold's metrics (#540) and its KV-cache usage (#541); a
+  dotted registry key is refused with the quoting fix (#535); `read_git` drops a refused
+  path rather than failing the call (#539); and a test no longer reads by a relative path
+  (#536). The release itself is the tag `v0.17.0` on `main`, published by the release
+  workflow (ADR-0115).
+
 ## #541 — 2026-11-08 — feat: TensorFold's KV-cache usage is read, as its fullest pool
 
 ### Added
