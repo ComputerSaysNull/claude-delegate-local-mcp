@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #540 — 2026-11-07 — feat: the cluster figures are read from TensorFold too
+
+### Added
+
+- **`backend_status` and the decode-rate estimate read the TensorFold engine's metrics.**
+  Symptom: on the head node's newer engine, `backend_status` reported `cluster: null`,
+  so queue depth, prefix-cache reuse, preemptions and the live decode rate disappeared.
+  Cause: the engine publishes them as `tensorfold:*`, one renamed (`preemptions_total`),
+  and the allowlist knew only `vllm:*` (JOURNAL 2026-11-07). Fix: its names sit on the
+  allowlist beside vLLM's; nothing else it publishes is read. Not covered: it publishes
+  no KV-pool size, so admission keeps the configured budget, and its KV-cache usage is
+  left out until its scale and its per-pool series are read under load.
+
 ## #539 — 2026-11-07 — fix: one refused path no longer fails a whole read_git call
 
 ### Fixed
