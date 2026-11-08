@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #544 — 2026-11-08 — fix: admission books the reply budget a high-effort delegation sends
+
+### Fixed
+
+- **Admission books the reply a high-effort delegation really sends.** Symptom: at
+  effort high or max the gate counted 65,536 reply tokens per delegation while 131,072 went
+  out, so it let in more than its token budget allowed for. Cause: `run_delegation` sized
+  the reservation from `max_tokens` alone, while the send goes through
+  `resolve_max_tokens`, which raises it to `thinking_max_tokens_floor` at those levels; that
+  setting's own help already said admission must use its size. Fix: the reservation's reply
+  half is `resolve_max_tokens` at the delegation's resolved effort, with no clock ceiling,
+  which is not known at admission. An explicit `max_tokens` books as given, as before.
+
 ## #543 — 2026-11-08 — fix: TensorFold's per-request KV fill is no longer reported as pool fill
 
 ### Fixed

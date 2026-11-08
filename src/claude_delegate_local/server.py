@@ -65,6 +65,8 @@ from .loop import (
     MessageRecord,
     RateHistory,
     RateSampler,
+    resolve_effort,
+    resolve_max_tokens,
     resolve_max_turns,
     run_agentic_loop,
     run_one_shot,
@@ -907,8 +909,10 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         + estimate_text_tokens(cfg, task)
         + (estimate_text_tokens(cfg, agent.body) if agent else 0)
     )
-    tokens_estimate = prefill_estimate + entry.cap_tokens(
-        cfg.max_tokens if max_tokens is None else max_tokens
+    # The reply half is what the first turn sends, floor included, so the gate books what
+    # the engine will (`thinking_max_tokens_floor`). No clock ceiling: none is known yet.
+    tokens_estimate = prefill_estimate + resolve_max_tokens(
+        cfg, entry, resolve_effort(cfg, entry, effort), max_tokens
     )
 
     stream = transcript.open_stream(cfg, agent.name if agent else None)
