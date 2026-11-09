@@ -3345,3 +3345,38 @@ What the cache misses were, read from transcripts and the model server's documen
 - **Its token counters count finished requests only**: prefix hits and queries, cached
   prompt tokens, MTP drafts and acceptances. A window spanning one long request sees no
   change in any of them.
+
+## 2026-11-09 — The TensorFold model shrinks a large image too, so tiling stays
+
+The 2026-10-29 legibility probe, rebuilt and rerun straight against the TensorFold model's
+chat endpoint at effort `low`: eight random 6-character codes per image, two seeds per cell,
+so 16 codes; tiles cut by the server's own `tile_grid` and `tile_boxes`. "Big tiles" is
+`TILE_PIXELS` patched to 1.6 MP. Codes read exactly, with codes invented in brackets:
+
+| Font | 800x800 | 4K whole | 4K, 8 tiles | 4K, 6 big tiles | 8K whole | 8K, 16 tiles |
+|---|---|---|---|---|---|---|
+| 10 px | 15 (1) | 0 (8) | 13 (3) | 13 (1) | 0 (7) | 10 (5) |
+| 12 px | 16 (0) | 0 (11) | 15 (1) | 13 (3) | 0 (10) | 8 (0) |
+| 14 px | 16 (0) | 1 (12) | 16 (0) | 14 (1) | 0 (16) | 14 (2) |
+| 16 px | 16 (0) | 7 (8) | 16 (0) | 15 (0) | 0 (8) | 14 (2) |
+| 20 px | 16 (0) | 14 (2) | 16 (0) | — | 0 (13) | 16 (0) |
+| 24 px | 16 (0) | 15 (1) | 16 (0) | — | 1 (12) | 16 (0) |
+| 32 px | 16 (0) | 16 (0) | 16 (0) | — | 5 (8) | 16 (0) |
+
+Prompt tokens: 506, 1,052, 5,615, 5,447, 1,052 and 14,918.
+
+What one image costs, with "OK" as the text at effort `off`: 190 at 16 px square, 428 at
+800, 632 at 960x1080, 878 at 1200, then 1,000 at 1300 and every larger square; 974 at
+1920x1080 and at 2560x1440, 987 at 8000x1000. So the model bills by resolution up to a cap
+near 1.6 MP and shrinks anything larger, as the previous checkpoint did at 384 tokens: a
+whole 4K or 8K screenshot costs the same, reads nothing under 16 px, and the model invents
+codes rather than saying it cannot read them. The production tiles, about 1.05 MP, sit
+under the cap and read like the unshrunk control from 12 px.
+
+Bigger tiles bought nothing. Under the cap the cost follows pixels, not images, so six tiles
+instead of eight saved 3% of the tokens, and they read 55 of 64 codes at 10-16 px against
+60, within the noise but not better. `TILE_PIXELS` stays.
+
+Past `MAX_TILES` tiles grow instead: an 8K screenshot's 16 tiles are about 2 MP each, over
+the cap, and read 10 and 8 of 16 at 10 and 12 px. They also cost 932 tokens a tile, over the
+800 its registry entry budgets (2026-11-07), which measured only a 4K screenshot's tiles.

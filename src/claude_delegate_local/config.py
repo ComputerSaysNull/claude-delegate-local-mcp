@@ -137,9 +137,10 @@ IMAGE_EXTENSIONS: frozenset[str] = frozenset({
 # tile cap tiles only grow, so a larger image shows the model nothing more.
 IMAGE_MAX_PIXELS = 40_000_000
 
-# A large image is sent as tiles of about this many pixels, MEASURED (JOURNAL 2026-10-29):
-# the server shrinks every image to 384 tokens, so a 4K screenshot sent whole lost every
-# word under 24 px, while tiles of 960x1080 read like an unshrunk image from 14 px.
+# A large image is sent as tiles of about this many pixels, MEASURED (JOURNAL 2026-10-29
+# and its rerun): each model served so far shrinks an image to a fixed token cap, so a 4K
+# screenshot sent whole lost every word under 20-24 px, while tiles of 960x1080 read like
+# an unshrunk image from 14 px. Larger tiles saved 3% of tokens and read no better.
 TILE_PIXELS = 1_050_000
 # Past this many tiles they grow instead of multiplying, as each counts against the limit.
 MAX_TILES = 16

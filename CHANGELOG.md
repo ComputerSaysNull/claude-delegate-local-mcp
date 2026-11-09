@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #545 — 2026-11-09 — docs: measure tiling again on the TensorFold model, and keep it
+
+### Changed
+
+- **`TILE_PIXELS` rests on a measurement of the model now served.** Its reason was the
+  previous checkpoint's 384-token image cap, and the TensorFold model bills by resolution
+  (JOURNAL 2026-11-07), so whether it still needed tiles was open. The 2026-10-29 probe,
+  rerun on it (JOURNAL 2026-11-09), says yes: it caps an image near 1.6 MP and shrinks
+  anything larger, so a whole 4K screenshot reads no text under 16 px and the model invents
+  some, while today's tiles read like an unshrunk image from 12 px. Tiles of 1.6 MP saved 3%
+  of the tokens and read no better. No behaviour changes; the constant's comment now cites
+  both measurements.
+
 ## #544 — 2026-11-08 — fix: admission books the reply budget a high-effort delegation sends
 
 ### Fixed
