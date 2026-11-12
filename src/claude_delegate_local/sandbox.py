@@ -1321,7 +1321,11 @@ def _execute(cfg: Config, argv: list[str], marker: Path) -> SandboxResult:
             # Closed, never inherited: under stdio the server's fd 0 is the MCP stream,
             # and a `cat` with no file would eat the client's messages.
             stdin=subprocess.DEVNULL,
+            # Replaced, not strict, as `_as_text` decodes a timed-out run: a command that
+            # cuts by bytes can split a character, and one bad byte must not end the run.
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=cfg.run_bash_timeout,
             start_new_session=True,
             check=False,
