@@ -1,7 +1,6 @@
 ---
 name: docs-audit-local
 description: "Audits this repository's documentation against its code and reports findings, never edits. One check class per pass, named and defined by the task. Dispatch it with the docs-audit-dispatch skill, which holds the pass list and the check definitions."
-model: deepseek-v4-flash
 effort: high
 max_turns: 5
 allowed_tools: [read_file, search_files, read_git]
