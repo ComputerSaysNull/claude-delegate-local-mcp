@@ -923,6 +923,9 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     # Summed, since every turn resends the history. `None` until reported, so an endpoint
     # without caching reads absent, not "measured, saved nothing".
     streamed_cached_tokens: int | None = None
+    # Prompt tokens, summed likewise and `None` until reported: the one figure `end` has
+    # when no `AgenticDispatch` carries a total -- a one-shot, or a run that failed.
+    streamed_in_tokens: int | None = None
     # Backend time, summed likewise; `None` means the adapter cannot time itself.
     streamed_prefill_seconds: float | None = None
     streamed_decode_seconds: float | None = None
@@ -936,7 +939,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         included, not the backend call alone.
         """
         nonlocal turns_streamed, turn_clock, streamed_out_tokens, streamed_backend_ms
-        nonlocal streamed_cached_tokens
+        nonlocal streamed_cached_tokens, streamed_in_tokens
         nonlocal streamed_prefill_seconds, streamed_decode_seconds
         nonlocal streamed_tool_ms
         now = _clock()
@@ -948,6 +951,9 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         cached = getattr(diagnostic, "cached_tokens", None)
         if cached is not None:
             streamed_cached_tokens = (streamed_cached_tokens or 0) + cached
+        prompt = getattr(diagnostic, "input_tokens", None)
+        if prompt is not None:
+            streamed_in_tokens = (streamed_in_tokens or 0) + prompt
         prefill = getattr(diagnostic, "prefill_seconds", None)
         if prefill is not None:
             streamed_prefill_seconds = (streamed_prefill_seconds or 0.0) + prefill
@@ -1165,6 +1171,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 streamed_out_tokens = dispatched.response.output_tokens or 0
                 streamed_backend_ms = int((_clock() - turn_clock) * 1000)
                 streamed_cached_tokens = dispatched.response.cached_tokens
+                streamed_in_tokens = dispatched.response.input_tokens
                 # `getattr`: an `AgenticDispatch` keeps these per turn, though that path
                 # streamed its turns and never reaches here.
                 streamed_prefill_seconds = getattr(dispatched, "prefill_seconds", None)
@@ -1184,7 +1191,11 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 # A one-shot or a failure may have no budget; 0 means "not a loop" and is
                 # sent as None, not rendered "6 of 0 turns".
                 max_turns=getattr(dispatched, "max_turns", 0) or None,
-                input_tokens=getattr(dispatched, "total_input_tokens", 0) or None,
+                # The loop's own total when it has one; else what the streamed turns
+                # reported, so a one-shot or a failed run is not written as unmeasured.
+                input_tokens=(
+                    getattr(dispatched, "total_input_tokens", None) or streamed_in_tokens
+                ),
                 output_tokens=streamed_out_tokens or None,
                 cached_tokens=streamed_cached_tokens,
                 backend_ms=streamed_backend_ms or None,
