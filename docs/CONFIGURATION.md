@@ -149,6 +149,7 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DELEGATE_TRANSCRIPT_DIR` | *(empty)* | Directory to write one record per dispatch into. Empty disables it. Independent of the caller's `diagnostics` argument, and setting it must not change a single byte of any response. Records carry the task, files, accounting, token usage and the ledger, but never file contents, which are recoverable by path (ADR-0039). Where they land is a trade: a synchronised directory sends the task text off this machine, while one inside the WSL distribution dies with it (ADR-0024, ADR-0086). |
+| `DELEGATE_TRANSCRIPT_IMAGE_CAP_BYTES` | 67108864 bytes | Total bytes of image copies one stream may keep, under the `<stem>.images/` folder beside it. A call whose images would cross it keeps none of them, and its `result_image_files`/`image_files` field is left out rather than listing a subset -- a reader would take three names for the five the model was shown. Zero keeps no copies at all. |
 | `DELEGATE_LEDGER_PATH` | ~/.cache/claude-delegate-local/ledger.jsonl | Append-only token ledger: one JSON line per dispatch, the running total that is never pruned. Must be on the Linux filesystem (not under /mnt/, where concurrent appends lose lines); empty disables it. |
 
 ### Sandbox
@@ -184,6 +185,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting because naming another transport should be an error rather than silence (ADR-0034). |
 
-*80 settings.*
+*81 settings.*
 
 <!-- GEN:CONFIG:END -->

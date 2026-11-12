@@ -2111,6 +2111,10 @@ class ToolCallRecord:
     result_lines: int | None = None
     # Images the result handed the model, a tile each; bytes cannot show them. 0 is left out.
     result_images: int = 0
+    # The blocks those images are, as sent: after `ImageRoom.admit`, so one swapped for a
+    # refusal is not here. Not in `as_json`, which carries their count; the stream keeps a
+    # copy of the bytes and names it there.
+    sent_images: tuple[ImageBlock, ...] = ()
     # Only when a process exited. None is both "no shell command" and "killed first"
     # (`bash_failures` tells them apart); 0 is a real exit code (see `BashOutcome`).
     exit_code: int | None = None
@@ -2175,6 +2179,7 @@ def tool_call_record(
         # Zero for empty, or an empty `search_files` reads as one match.
         result_lines=None if result is None else _output_line_count(call.name, result.content),
         result_images=0 if result is None else len(result.images),
+        sent_images=() if result is None else result.images,
         exit_code=exit_code,
         ms=ms,
         stages=() if result is None or result.bash is None else result.bash.stages,
