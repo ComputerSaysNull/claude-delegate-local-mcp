@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #552 — 2026-11-12 — feat: a later turn's reply budget follows what the run's turns wrote
+
+### Changed
+
+- **A later turn no longer books a 131k reply it will not write.** Every high- or max-effort
+  turn asked for the 131,072-token floor, and the engine holds KV room for all of it while
+  the request runs, room that saved prompt states share: four parallel requests once booked
+  most of a 1M pool, and every waiting delegation's next turn re-prefilled cold. Later turns
+  write p99 16k (high) and 25k (max). From turn 2 a delegation now asks for twice its
+  largest earlier reply, at least `later_turn_reply_min_tokens`, never more than before;
+  replayed over a month of turns that books 38k instead of 128k, and 0.13% of turns would
+  have needed more (ADR-0143). A caller's explicit `max_tokens` is unchanged.
+- **Transcript format 1.18: `turn.retries[].kind` gains `LengthUnderShrunkBudget`.** A reply
+  cut at the shrunk budget with content in it — half a tool call — is retried once at the
+  full budget, and listed like every other extra attempt.
+
 ## #551 — 2026-11-12 — fix: a one-shot or failed run's end event reports its prompt tokens
 
 ### Fixed

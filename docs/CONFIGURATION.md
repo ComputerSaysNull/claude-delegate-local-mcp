@@ -1,4 +1,4 @@
-<!-- BUDGET: 191 -->
+<!-- BUDGET: 193 -->
 
 # Configuration
 
@@ -81,6 +81,8 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | `DELEGATE_THINKING_MAX_TOKENS_FLOOR` | 131072 tokens | Floor applied to max_tokens when effort is high or max, and the size retried after an empty answer. Admission accounting must use the retry's size. |
 | `DELEGATE_REPLY_BUDGET_MARGIN` | 0.6 | Share of the delegation's remaining time a single reply may spend generating, multiplied by the decode rate measured at runtime, so the model is never handed more tokens than the clock can pay for (ADR-0055). stall_timeout measures silence and a reply being generated is not silent (ADR-0099). Below 1.0 to absorb error in the rate, not the cost of prefilling. The rate was the thing to fix, not this value: failure tracks the rate's source (JOURNAL 2026-09-18). |
 | `DELEGATE_REPLY_BUDGET_FLOOR` | 4096 tokens | Lower bound on that derived cap, so a slow or misread decode rate cannot shrink the budget to nothing. Sized from measurement: a reply whose entire visible answer was one word still cost 697 output tokens, because reasoning is charged here too (ADR-0014). |
+| `DELEGATE_LATER_TURN_REPLY_MIN_TOKENS` | 32768 tokens | Lower bound on the reply budget a later turn of a delegation is shrunk to. Turn 1 keeps the full budget, because it is where the long reasoning happens; later turns write far less, and the engine books KV room for the whole budget while a request runs, so asking again for 131,072 holds room a turn never uses. A floor rather than a new budget: it never raises what max_tokens and the thinking floor resolve to (ADR-0143). |
+| `DELEGATE_LATER_TURN_REPLY_FACTOR` | 2 | Multiplier on the largest reply an earlier turn of the same delegation actually wrote, which sizes that later-turn budget: one run's turns resemble each other more than they resemble another run's, so its own history is the estimate. Below the measured p99 it truncates, which is why a cut reply with content is retried at the full budget (ADR-0143). |
 | `DELEGATE_RATE_HISTORY_DIR` | ~/.cache/claude-delegate-local | Directory holding the persisted decode-rate memory. Durable on purpose, unlike slots_dir: losing it is a cold start rather than a clean slate, and the since-boot mean it falls back to left 37.0% of turns unable to meet their budget against 16.4% for an observed rate. A stale rate is self-correcting, a cold start is not. Blank restores the old tmpfs behaviour (ADR-0094). |
 | `DELEGATE_RATE_FALLBACK_TOK_S` | 10.0 tokens/second | Decode rate assumed when the rate memory has nothing at this concurrency or busier. Only the empty case: a bucket with samples always answers from them. It replaces the endpoint's since-boot figure, a blend over every regime the engine has served, and optimistic is the dangerous direction -- it authorises a reply the clock cannot deliver, where under-pricing truncates. It is a floor to start from, not an estimate to keep. Zero restores the since-boot fallthrough (ADR-0101, ADR-0094). |
 | `DELEGATE_RATE_SAMPLE_SECONDS` | 10.0 seconds | How often the decode rate is sampled from the cluster while anything is in flight. On a ticker rather than once per completed turn, because a per-turn sample files one reading per stream: six streams put six samples on one moment, so a six-wide bucket would remember a sixth as long in wall-clock terms as a narrow one and the buckets stop being comparable. 0 disables sampling and leaves the memory fed by completed turns alone. |
@@ -185,6 +187,6 @@ A description marked **Inert** means no code outside `config.py` reads that sett
 | --- | --- | --- |
 | `DELEGATE_TRANSPORT` | stdio | One of ('stdio',), and anything else is refused at load rather than starting a server. Adding the HTTP transport is a real integration task, not a flag flip: session handling and content serialisation differ, and nothing here issues or checks a token, so it would serve unauthenticated. Kept as a setting because naming another transport should be an error rather than silence (ADR-0034). |
 
-*81 settings.*
+*83 settings.*
 
 <!-- GEN:CONFIG:END -->

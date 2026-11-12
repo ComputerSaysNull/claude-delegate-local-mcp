@@ -279,7 +279,8 @@ effort the floor is a `max()` over the configured value rather than an alternati
 A caller's own number is *not* raised to that floor — it is the most specific instruction
 there is, and multiplying it by thirty would make the argument advisory. Guessing too low
 still gets the recovery below, which retries at the floor, so being wrong costs one extra
-dispatch. The per-model cap applies last everywhere: it is what the wire accepts.
+dispatch. The per-model cap applies last everywhere: it is what the wire accepts. From turn
+2 it is also capped by the run's own largest reply, scaled, unless the caller set it (ADR-0143).
 
 **Then a ceiling the clock can pay for, binding the caller's number too** (ADR-0055). The
 asymmetry with the floor is deliberate: a floor is a preference about how much room
@@ -394,8 +395,8 @@ A retired name is refused. (ADR-0098)
 The signature is narrow on purpose: empty text **and** a length stop, together. Either
 alone is a different thing — an empty answer at `finish_reason: "stop"` is a model that
 genuinely had nothing to say, and a length stop with text in it is ordinary truncation
-where an answer exists and is merely cut short. Both must be left alone, because every
-mitigation below costs a full generation at the largest budget the model allows.
+where an answer exists and is merely cut short. Both are left alone, as every mitigation
+below costs a full generation at the largest budget, unless that budget was shrunk (ADR-0143).
 
 Three stages, and deliberately not a cascade through every level. Send. If the signature
 appears, retry once at the larger of double the budget and
@@ -436,8 +437,8 @@ back at all.
 them, and across every turn when this runs inside the loop. ADR-0014 requires the retry not
 to charge the turn budget, so a turn is charged for the answer it got rather than for what
 recovering it cost. A count cannot say which failure it was, so each retried attempt is
-also kept as a `retries` entry: the error's kind and HTTP status, or `EmptyAtLength` for a
-stage, its seconds and the wait. The stream's turn event and the summary carry them.
+also kept as a `retries` entry: the error's kind and HTTP status, or `EmptyAtLength` or
+`LengthUnderShrunkBudget` for a stage, its seconds and the wait. The stream's turn event and the summary carry them.
 
 ## Turns, and what ends them
 

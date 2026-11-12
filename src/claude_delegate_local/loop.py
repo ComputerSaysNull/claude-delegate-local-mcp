@@ -806,6 +806,24 @@ def resolve_max_tokens(
     return entry.cap_tokens(budget)
 
 
+def later_turn_budget(
+    cfg: Config, turn: int, explicit: int | None, full: int, largest_earlier: int,
+) -> int:
+    """What a turn asks for: the caller's number, turn 1's full budget, or a shrink.
+
+    Turn 1 keeps `full`, since that is where the long reasoning happens; later turns write
+    far less and the engine books KV room for the whole budget while the request runs, so
+    asking for it again holds room the turn never uses. A shrink is a `min()` over `full`,
+    so a configured budget below the floor stays where it is, and an explicit `max_tokens`
+    is the caller's number and is left alone. `full` already carries the deadline ceiling
+    (ADR-0055, ADR-0143).
+    """
+    if explicit is not None or turn == 1:
+        return full
+    return min(full, max(cfg.later_turn_reply_min_tokens,
+                         cfg.later_turn_reply_factor * largest_earlier))
+
+
 def build_one_shot_request(
     *, delegation: Delegation, effort: str, max_tokens: int, temperature: float,
     top_p: float,
@@ -966,6 +984,7 @@ async def _until_deadline(
 # `transcript.schema.json` (kept in lockstep by tests/test_every_retry_says_why.py).
 RETRY_KINDS = (
     "BackendUnavailable", "BackendRefused", "EmptyAtLength", "FinalTurnToolCall",
+    "LengthUnderShrunkBudget",
 )
 
 
@@ -975,9 +994,10 @@ class RetryRecord:
 
     `attempts` cannot say which failure it was, and a dropped route and a 503 have
     different remedies. `kind` is the exception class for a transport retry,
-    `EmptyAtLength` for a recovery stage, or `FinalTurnToolCall` for the final turn's
-    fallback; `status` a refusal's HTTP status, `seconds` the failed attempt's run, `wait`
-    the sleep chosen.
+    `EmptyAtLength` for a recovery stage, `FinalTurnToolCall` for the final turn's
+    fallback, or `LengthUnderShrunkBudget` for a reply the shrunk later-turn budget cut
+    with content still in it; `status` a refusal's HTTP status, `seconds` the failed
+    attempt's run, `wait` the sleep chosen.
     """
 
     kind: str
@@ -2964,6 +2984,22 @@ def _plus(was: float | None, now: float | None) -> float | None:
     return None if now is None else (was or 0.0) + now
 
 
+def cut_by_the_shrink(dispatch: Dispatch, asked: int, full: int) -> bool:
+    """Whether this reply is the shrunk budget's truncation, and so wants the full budget.
+
+    Content is what separates it from an empty answer at a length stop: that is
+    `dispatch_with_recovery`'s signature, and its ladder already lifts the budget, so
+    resending such a reply would be a stage it has spent. A reply the ladder returned was
+    sent at a raised budget, which is why an `EmptyAtLength` record rules this out -- the
+    two mitigations cannot both fire for one reply (ADR-0143).
+    """
+    if asked >= full or dispatch.response.finish_reason != "length":
+        return False
+    if not (dispatch.response.text or dispatch.response.tool_uses):
+        return False
+    return not any(r.kind == "EmptyAtLength" for r in dispatch.retries)
+
+
 async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the nine are test
     # seams; the statements are the turn lifecycle, and splitting would reorder it.
     cfg: Config,
@@ -3075,6 +3111,10 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     text_before_nudge = ""
     nudge_pending = False
     turn = 0
+    # The largest reply any earlier turn of this delegation reported, which sizes the next
+    # turn's shrink (ADR-0143). Read after the turn's own reply, fallback included, so the
+    # number is what the engine actually wrote rather than what was asked for.
+    largest_reply = 0
 
     async def turn_done(text: str, backend_seconds: float) -> None:
         """One finished turn, for anything watching this delegation as it runs.
@@ -3188,8 +3228,11 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             ))
             # Priced before the call, since a turn killed at a deadline writes no `turn`
             # event; resolved once and passed down so the row and the send agree.
-            asked_budget = resolve_max_tokens(
+            full_budget = resolve_max_tokens(
                 cfg, entry, resolved_effort, max_tokens, ceiling=ceiling
+            )
+            asked_budget = later_turn_budget(
+                cfg, turn, max_tokens, full_budget, largest_reply
             )
             if on_priced is not None:
                 await on_priced({
@@ -3210,6 +3253,32 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                 sleep=sleep, deadline=deadline, stall_left=stall_left,
                 on_token=token_arrived, tick_sleep=tick_sleep, clock=clock,
             )
+            # A reply the shrunk budget cut with content still in it -- half a tool call --
+            # is a wrong answer rather than a saving, so the same turn goes out once more
+            # at the full budget, folded in as the final turn's fallback below is.
+            if cut_by_the_shrink(dispatch, asked_budget, full_budget):
+                discarded = dispatch.answered_seconds
+                cut_moved: list[RetryRecord] = []
+                reply, spent, answered = await complete_with_retry(
+                    cfg, backend, build(resolved_effort, full_budget),
+                    sleep=sleep, deadline=deadline, stall_left=stall_left,
+                    on_token=token_arrived, on_retry=cut_moved.append,
+                    tick_sleep=tick_sleep, clock=clock,
+                )
+                dispatch = replace(
+                    dispatch,
+                    response=reply,
+                    attempts=dispatch.attempts + spent,
+                    retries=(
+                        *dispatch.retries,
+                        RetryRecord(kind="LengthUnderShrunkBudget", status=None,
+                                    seconds=discarded, wait=0.0),
+                        *cut_moved,
+                    ),
+                    answered_seconds=answered,
+                    prefill_seconds=_plus(dispatch.prefill_seconds, reply.prefill_seconds),
+                    decode_seconds=_plus(dispatch.decode_seconds, reply.decode_seconds),
+                )
             # The last turn is offered the tools like any other, because `tool_choice:
             # "none"` makes the engine drop the tool block and every earlier reasoning
             # (ADR-0141). One that still calls a tool has nothing to run its result for --
@@ -3240,6 +3309,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                     prefill_seconds=_plus(dispatch.prefill_seconds, reply.prefill_seconds),
                     decode_seconds=_plus(dispatch.decode_seconds, reply.decode_seconds),
                 )
+            largest_reply = max(largest_reply, dispatch.response.output_tokens or 0)
             # The backend call alone: over the whole turn, tools and retry waits would make
             # the cluster look slower, a wrong number that gets believed.
             backend_seconds = max(clock() - backend_started, 0.0)
