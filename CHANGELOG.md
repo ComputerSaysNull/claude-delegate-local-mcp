@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #547 — 2026-11-12 — fix: the two local agents use the default model
+
+### Fixed
+
+- **`test-writer-local` and `docs-audit-local` no longer pin a model the endpoint stopped
+  serving.** Both named the registry key `deepseek-v4-flash`, whose `served_model_id` is no
+  longer listed (`backend_status`: `id_confirmed: false`). Runs still landed on the served
+  model, so nothing failed outright, but every one was recorded under the wrong key with
+  `model_mismatch: true`. They now carry no pin and run on the configured default, which is
+  what the engine was answering as anyway.
+
 ## #546 — 2026-11-12 — fix: the final turn keeps its reasoning and its prompt cache
 
 ### Fixed

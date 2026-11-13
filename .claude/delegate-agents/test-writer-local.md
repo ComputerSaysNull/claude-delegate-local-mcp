@@ -1,7 +1,6 @@
 ---
 name: test-writer-local
 description: "Writes and extends pytest tests for this repository, on the local model. Use after a bug fix, when adding a module, or when a check needs proving it can actually fail. The server-format twin of test-writer."
-model: deepseek-v4-flash
 effort: high
 max_turns: 12
 allowed_tools: [read_file, search_files, read_git, write_file, edit_file, run_bash]

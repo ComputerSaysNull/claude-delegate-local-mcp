@@ -229,10 +229,10 @@ underneath. Read the pair yourself for that.
 | Agent | Model | Effort | For |
 |---|---|---|---|
 | `code-reviewer` | sonnet | high | Reviews a diff for correctness and for regressions in this pr… |
-| `docs-audit-local` | deepseek-v4-flash | high | Audits this repository's documentation against its code and r… |
+| `docs-audit-local` | -- missing -- | high | Audits this repository's documentation against its code and r… |
 | `docs-audit` | haiku | medium | Audits documentation for staleness, verbosity, misplaced fact… |
 | `researcher` | haiku | low | Read-only exploration of this repository |
-| `test-writer-local` | deepseek-v4-flash | high | Writes and extends pytest tests for this repository, on the l… |
+| `test-writer-local` | -- missing -- | high | Writes and extends pytest tests for this repository, on the l… |
 | `test-writer` | sonnet | medium | Writes and extends pytest tests for this repository |
 
 <!-- GEN:AGENTS:END -->
