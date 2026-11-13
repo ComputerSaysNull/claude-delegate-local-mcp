@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #550 — 2026-11-12 — fix: a command's undecodable output no longer ends the delegation
+
+### Fixed
+
+- **One invalid byte in a command's output ended the whole run.** A delegation listed a
+  file's lines with `awk substr`, which cuts by bytes, so it split a multi-byte character;
+  `run_bash` decoded the output strictly, and the `UnicodeDecodeError` escaped and stopped
+  the delegation as an error, losing its work. The output is now decoded the way the
+  timeout path already decoded it: an invalid byte becomes U+FFFD, and the command's exit
+  code and the rest of its output are kept.
+
 ## #549 — 2026-11-12 — feat: the feed serves the image copies a stream kept
 
 ### Added
