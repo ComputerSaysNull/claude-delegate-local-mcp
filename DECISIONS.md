@@ -19,6 +19,40 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0143 — 2026-11-12 — A later turn's reply budget follows what the run's own turns wrote — Accepted
+
+Every turn at high or max effort asked for a 131,072-token reply (the floor ADR-0014 set so
+reasoning cannot spend the whole allowance and return nothing), and the engine books KV room
+for the whole budget while the request runs. Saved prompt states share that pool, and the
+engine evicts them first; four running requests once booked about 983k of a 1M pool between
+them, and every waiting delegation's next turn re-prefilled 70–110k cold.
+
+Measured over a month of streams (18,850 turns), output tokens per turn:
+
+                         p50     p90      p99      max
+    high, turn 1         354  14,612   79,867  118,838
+    high, later turns    453   3,479   15,698   67,119
+    max, later turns     946   6,468   24,956   81,835
+
+The empty-answer retry ADR-0014 relies on never fired. Replayed against those turns,
+`max(32k, 2 × the run's largest earlier reply)`, never above today's budget, books 38k per
+later turn instead of 128k on average; 22 of 17,213 later turns (0.13%) would have run past
+it. ×2 with a 16k minimum booked 28k but overflowed 0.56%; ×4 with 32k, 53k and 0.09%.
+
+**Decision.** Turn 1 keeps today's budget, since it is where long reasoning happens. A later
+turn asks for that rule (`later_turn_reply_min_tokens`, `later_turn_reply_factor`), and the
+clock ceiling of ADR-0055 still applies on top. A caller's explicit `max_tokens` is honoured
+as given. The existing ladder already lifts an empty reply cut at the limit to the full
+floor; a reply cut *with* content — half a tool call — was never retried, because under the
+old budget it did not happen. Under the shrunk one it is retried once at the full budget,
+listed as `LengthUnderShrunkBudget` (format 1.18).
+
+**Not chosen.** A smaller fixed floor for later turns ignores that one run's turns resemble
+each other more than they resemble the month's. Documenting the pool size each parallel
+delegation needs leaves the waste in place.
+
+---
+
 ## ADR-0142 — 2026-11-12 — A stream keeps a copy of every image the model was sent, beside it — Accepted
 
 The stream said how many images a call sent and from which path. Scripts often rewrite that

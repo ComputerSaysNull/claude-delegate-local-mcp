@@ -262,4 +262,4 @@ def test_a_cap_too_small_for_the_image_keeps_nothing(tmp_path):
 
 def test_the_transcript_format_is_the_one_that_carries_image_copies():
     """A reader branching on the format has to be told that `*_image_files` exists."""
-    assert transcript.FORMAT == "1.17"
+    assert transcript.FORMAT == "1.18"

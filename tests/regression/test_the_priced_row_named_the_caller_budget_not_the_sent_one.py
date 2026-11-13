@@ -11,7 +11,8 @@ given.
 `max_tokens` stays, so existing readers keep working; `max_tokens_sent` is added beside it,
 carrying the resolved budget of the first attempt. Recovery stages that enlarge the budget
 on a retry happen *after* pricing, so `max_tokens_sent` is the first attempt's budget, and
-`max_tokens` remains the caller's raw argument.
+`max_tokens` remains the caller's raw argument. A later turn's first attempt is the shrunk
+one (ADR-0143), so what it names is that turn's budget, not the run's first.
 """
 
 import asyncio
@@ -71,16 +72,19 @@ def _priced(events: list[dict]) -> list[dict]:
     return [e for e in events if e.get("t") == "priced"]
 
 
-def _sent_budget(config, entry, row: dict) -> int:
-    """What `resolve_max_tokens` returns for the configuration the row describes.
+def _sent_budget(config, entry, row: dict, largest_earlier: int = 0) -> int:
+    """What the loop resolves for the configuration the row describes.
 
     Read from the row itself rather than assumed: the effort and the ceiling are resolved
     inside the loop, and re-deriving them here would be the second computation the record
-    exists to prevent disagreeing with.
+    exists to prevent disagreeing with. `largest_earlier` is the largest reply an earlier
+    turn of the run reported, which is what a later turn's budget is shrunk to (ADR-0143);
+    it comes from the stream rather than from this test's idea of the run.
     """
-    return loop.resolve_max_tokens(
+    full = loop.resolve_max_tokens(
         config, entry, row["effort"], None, ceiling=row["budget_ceiling"]
     )
+    return loop.later_turn_budget(config, row["turn"], None, full, largest_earlier)
 
 
 def test_a_one_shot_priced_row_names_the_budget_actually_sent(tmp_path: Path):
@@ -116,6 +120,10 @@ def test_an_agentic_priced_row_names_the_budget_actually_sent(tmp_path: Path):
 
     for row, body in zip(rows, sent, strict=True):
         assert row["max_tokens"] is None, row
-        expected = _sent_budget(config, the_entry, row)
+        # A later turn asks for a shrunk budget, sized from what the run's own earlier
+        # turns wrote (ADR-0143), so that history is read from the stream too.
+        wrote = [e.get("output_tokens") or 0 for e in events
+                 if e["t"] == "turn" and e["turn"] < row["turn"]]
+        expected = _sent_budget(config, the_entry, row, max(wrote, default=0))
         assert row["max_tokens_sent"] == expected, row
         assert body["max_tokens"] == expected, body

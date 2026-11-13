@@ -92,6 +92,13 @@ OVERFLOW_TIGHTEN_AT = 0.70
 OVERFLOW_NUDGE_AT = 0.85
 OVERFLOW_ABORT_AT = 0.95
 
+# The later-turn reply budget (ADR-0143). Measured later turns write p99 ~16k at high and
+# ~25k at max, against ~80k on turn 1, while the engine books KV room for the whole budget
+# for as long as a request runs. Both are settings; the defaults are named here so the
+# shrink rule in `loop.py` reads one pair rather than restating the numbers.
+LATER_TURN_REPLY_MIN_TOKENS = 32768
+LATER_TURN_REPLY_FACTOR = 2
+
 # Bytes per token, MEASURED (ADR-0019). These vary by more than 2x across file types,
 # which is why the prefetch budget is in tokens rather than bytes -- 128 KiB is 33K tokens
 # of Python but 72K of JSON.
@@ -394,6 +401,24 @@ class Config:
         "answer was one word still cost 697 output tokens, because reasoning is charged "
         "here too (ADR-0014).",
         unit="tokens",
+    )
+    later_turn_reply_min_tokens: int = _f(
+        LATER_TURN_REPLY_MIN_TOKENS,
+        "Lower bound on the reply budget a later turn of a delegation is shrunk to. "
+        "Turn 1 keeps the full budget, because it is where the long reasoning happens; "
+        "later turns write far less, and the engine books KV room for the whole budget "
+        "while a request runs, so asking again for 131,072 holds room a turn never uses. "
+        "A floor rather than a new budget: it never raises what max_tokens and the "
+        "thinking floor resolve to (ADR-0143).",
+        unit="tokens",
+    )
+    later_turn_reply_factor: int = _f(
+        LATER_TURN_REPLY_FACTOR,
+        "Multiplier on the largest reply an earlier turn of the same delegation actually "
+        "wrote, which sizes that later-turn budget: one run's turns resemble each other "
+        "more than they resemble another run's, so its own history is the estimate. "
+        "Below the measured p99 it truncates, which is why a cut reply with content is "
+        "retried at the full budget (ADR-0143).",
     )
     resend_reasoning: bool = _f(
         True,
@@ -1021,6 +1046,10 @@ class Config:
             # takes" (ADR-0093).
             "max_inflight_seqs",
             "kv_token_budget",
+            # The later-turn shrink's two numbers: a floor of nothing and a factor below 1
+            # would ask a turn for less than it wrote, which is truncation by policy.
+            "later_turn_reply_min_tokens",
+            "later_turn_reply_factor",
         ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"DELEGATE_{name.upper()} must be positive.")
