@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #551 — 2026-11-12 — fix: a one-shot or failed run's end event reports its prompt tokens
+
+### Fixed
+
+- **`end.input_tokens` was null on every one-shot run, and on a run that failed after
+  turns had streamed**, though each `turn` event reported its own figure (40 one-shot
+  streams on formats 1.14–1.15, and two failed ones). The server took the figure only from
+  the agentic loop's run total, which a one-shot dispatch does not have and a failed run
+  never returns. `end.output_tokens` already fell back to the streamed turns; the prompt
+  figure now does the same, and stays null only when no turn reported one.
+
 ## #550 — 2026-11-12 — fix: a command's undecodable output no longer ends the delegation
 
 ### Fixed
