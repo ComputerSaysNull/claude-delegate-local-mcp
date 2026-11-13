@@ -2681,7 +2681,12 @@ def test_the_loops_heartbeat_stops_when_the_delegation_fails():
 
 
 def _turns_spent(**called_kwargs) -> int:
-    """Drive a delegation that never finishes and return how many turns it actually got."""
+    """Drive a delegation that never finishes and return how many turns it actually got.
+
+    A turn is one request allowed to call: this handler always calls a tool, so the final
+    turn's fallback -- forbidden to call, sent only because of that -- is not a turn of its
+    own.
+    """
     seen: list[dict] = []
 
     def handler(request):
@@ -2690,7 +2695,7 @@ def _turns_spent(**called_kwargs) -> int:
 
     result = called(handler, allowed_tools=["read_file"], **called_kwargs)
     assert result["hit_turn_limit"], "the handler must exhaust the budget for this to measure it"
-    return len(seen)
+    return sum(1 for body in seen if body.get("tool_choice") != "none")
 
 
 def test_a_per_call_max_turns_overrules_the_agent_file(tmp_path):

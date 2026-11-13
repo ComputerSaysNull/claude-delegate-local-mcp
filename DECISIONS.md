@@ -19,6 +19,54 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0141 — 2026-11-12 — The final turn allows tool calls, and only a call it makes earns a forbidding request — Accepted
+
+ADR-0057 sent `tool_choice: "none"` on the final turn because, on the engine of the time, it
+left the prompt byte-identical to a turn that allowed calls. It named the one way that could
+break: a template that drops the tool block under `none`. The engine now served does that,
+and drops every earlier turn's reasoning with it. Measured over one fixed history,
+`max_tokens` 1, nothing else varying:
+
+    tools, tool_choice auto             prompt 3,054   cached 2,048
+    tools, tool_choice none             prompt    99   cached     0
+    auto, plus a trailing user line     prompt 3,069   cached 2,048
+    none, plus a trailing user line     prompt   114   cached     0
+    tools, tool_choice required         prompt 3,102   cached 2,048
+    tools, one tool named               prompt 3,060   cached     0
+
+`none` gave 99 three times in a row. What it drops is the tool definitions — 254 tokens with
+a large tool result or a small one alike — and every earlier turn's reasoning; tool calls
+and their results stay. The definitions sit at the front, so nothing after them is cached.
+
+On this engine, then, a final turn re-prefilled its whole prompt and answered without its
+own reasoning. Final turns are rare: 43 were streamed before the model change, every one
+with its cache intact, and only two runs have reached one since. Both were stopped, because
+the plateau check (`plateaued_without_eviction`) read the shrink as history lost upstream,
+on the one turn meant to produce the answer: 217,625 → 125,327 on one, 52,416 → 44,336 on
+the other.
+
+**Decision.** The final turn sends `auto` with the same tools, and keeps the line telling the
+model its tools are withdrawn, so its prompt is the same prefix as every other turn's. A
+tool call it makes anyway is not run. Only then does the turn send one more request, with
+`none`, for a text answer: ADR-0057's guarantee, that a delegation never ends on a call
+nobody will run, is kept, and the cold prefill is paid only by a model that ignored the line.
+That request is exempt from the plateau check, because its shrink is the engine's and
+expected; every other request keeps the check. It is an extra attempt of the final turn, so
+`turn.retries` lists it as `FinalTurnToolCall` (format 1.16).
+
+**What it rests on.** The saving needs the model to heed the line. One that calls a tool
+anyway gets what every final turn got before, plus the reply discarded: never worse by more
+than that, and `FinalTurnToolCall` counts how often. No server-side form is both certain
+and cache-keeping — `required` keeps the prompt but forces some call, and naming the one
+tool to call loses the cache. The certain fix is the engine's: render the tools under
+`none`, as the previous engine did, and the final turn can go back to `none` alone.
+
+**Not chosen.** Teaching the plateau check to expect the shrink would have kept the cold
+prefill and the lost reasoning, which are the costs that matter. A per-model flag for
+engines that keep the prompt under `none` buys nothing while `auto` is right on both.
+
+---
+
 ## ADR-0140 — 2026-11-01 — A caller may message a running delegation, read at its next turn boundary — Accepted
 
 **Context.** `answer` reaches a run only while it waits on its own question (ADR-0118,
@@ -3130,7 +3178,7 @@ up final turns.
 
 ---
 
-## ADR-0057 — 2026-09-06 — The final turn forbids tool calls instead of withdrawing the tools — Accepted
+## ADR-0057 — 2026-09-06 — The final turn forbids tool calls instead of withdrawing the tools — Partially superseded by ADR-0141
 
 `final = turn == turns` sent `tools=()` on the last turn, so the only thing left to produce
 was an answer. The intent is right and is kept: a model that ends on a tool call nobody will

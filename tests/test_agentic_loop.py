@@ -230,40 +230,48 @@ def test_the_configured_default_is_used_when_the_caller_names_no_budget():
 # --- the final-turn short-circuit -----------------------------------------------------------
 
 
-def test_the_final_turn_forbids_tool_calls_without_withdrawing_the_tools(registered):
-    """ADR-0057. The intent is unchanged and the mechanism is not.
+def test_the_final_turn_keeps_its_tools_and_only_the_fallback_forbids_calls(registered):
+    """ADR-0057 and ADR-0141. The tools stay in the prompt; the forbidding moved to a second
+    request, because `tool_choice: "none"` makes the engine drop the tool block and every
+    earlier turn's reasoning along with it.
 
     Withdrawing `tools` changed the front of the prompt, and the stack caches prefixes.
     Measured on the cluster: dropping the tool block to save 321 tokens re-prefilled all
     36,018 of them -- a 99.3% hit falling to 0.0% -- on the one turn that must also fit a
-    whole answer inside one deadline. Offering them and forbidding calls is byte-identical
-    to the turn before it, and measured at the same 99.3%.
+    whole answer inside one deadline. Offering them is byte-identical to the turn before
+    it, and measured at the same 99.3%.
     """
-    backend = ScriptedTurns(wants(("echo", {})), wants(("echo", {})))
+    backend = ScriptedTurns(wants(("echo", {})), wants(("echo", {})), says("done"))
     result = run(backend, max_turns=2)
-    final = backend.requests[-1]
-    assert final.tool_choice == "none", "the last turn must forbid calls"
+    final = backend.requests[1]
+    assert final.tool_choice == "auto", (
+        "the last turn must allow a call: `none` costs it the tool block and its reasoning"
+    )
     assert final.tools != (), (
         "tools must stay in the prompt: withdrawing them moves the first difference to the "
         "front and costs the whole prefix cache"
     )
-    assert final.tools == backend.requests[-2].tools, (
+    assert final.tools == backend.requests[0].tools, (
         "and they must be the same tools, or the prefix diverges anyway"
     )
+    fallback = backend.requests[-1]
+    assert fallback.tool_choice == "none", "the fallback is what forbids calls"
+    assert fallback.tools == final.tools, "and forbids them without withdrawing them"
     assert result.hit_turn_limit is True
+    assert result.response.text == "done"
 
 
 def test_the_turn_before_the_last_one_leaves_tool_calls_allowed(registered):
     """The other direction: a `tool_choice` stuck on "none" would silently end every
     delegation after one turn, which reads as a model with nothing to do."""
-    backend = ScriptedTurns(wants(("echo", {})), wants(("echo", {})))
+    backend = ScriptedTurns(wants(("echo", {})), wants(("echo", {})), says("done"))
     run(backend, max_turns=2)
     assert backend.requests[0].tool_choice == "auto"
 
 
 def test_the_turn_before_the_last_one_does_declare_them(registered):
     """The other direction. A loop that never declares tools would pass the test above."""
-    backend = ScriptedTurns(wants(("echo", {})), wants(("echo", {})))
+    backend = ScriptedTurns(wants(("echo", {})), wants(("echo", {})), says("done"))
     run(backend, max_turns=2)
     names = [spec.name for spec in backend.requests[0].tools]
     assert "echo" in names and "poke" in names

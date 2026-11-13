@@ -464,11 +464,12 @@ server-wide default for it would be a config default living outside `config.py`.
 delegation that names none gets a sandbox that can reach nothing of the caller's, which is
 the right way for the default to fail.
 
-The last turn is declared with its tools **forbidden, not withdrawn** — see "The history is
-resent every turn, and trimmed in steps" for why that distinction is a cache one (ADR-0057),
-where the measurement is. Without that short-circuit a
-delegation can end on a tool call nobody will run, having spent its whole budget and returned
-nothing readable. The result reports `hit_turn_limit`, **and the answer carries a banner
+The last turn is offered its tools like every other, and a reply that still calls one is
+answered by one extra request forbidding calls, the call itself never run — nothing would
+read its result. That request is the one exempt from the plateau check, the shrink it causes
+being the engine's documented behaviour rather than lost history (ADR-0141); "The history is
+resent every turn, and trimmed in steps" has why the tools stay in the prompt at all. Without
+that short-circuit a delegation can end on a tool call nobody will run and return nothing. The result reports `hit_turn_limit`, **and the answer carries a banner
 saying so** — the flag is for whoever branches on it and the banner for whoever does
 not, as reasoning already is. It is exactly "the loop reached its last
 turn". It does not require a tool call on that final reply — a model forbidden to make one
@@ -546,13 +547,12 @@ the figure is in, and its presence is what asks for the scrape. (ADR-0081) The p
 is a hardware fact, so that settles at one extra read per process. What admission does with
 it is [ARCHITECTURE.md](ARCHITECTURE.md)'s.
 
-**The final turn keeps its tools and is forbidden to call them** (ADR-0057). The loop
-breaks on the last turn whether or not the model asked for anything, so the intent — leave it
-nothing to produce but an answer — is unchanged. Withdrawing `tools` would achieve that by
-changing the front of the prompt, which is the one edit the prefix cache cannot absorb.
-`tool_choice` is our own two-word vocabulary, `auto` and `none`,
-translated per adapter as `effort` is; `auto` is omitted from the body so an ordinary turn's
-bytes do not move.
+**The final turn keeps its tools and may call them; the fallback is what forbids** (ADR-0057,
+ADR-0141). The loop breaks on the last turn whether or not the model asked for anything, so
+the intent — leave it nothing to produce but an answer — is unchanged. Withdrawing `tools`
+changes the front of the prompt, and so does forbidding calls with them present: both are the
+edit the prefix cache cannot absorb. `tool_choice` is our own two-word vocabulary, `auto` and
+`none`, translated per adapter as `effort` is; `auto` is omitted so ordinary bytes do not move.
 
 **The loop counts what the whole run cost, not only the turn that answered** (ADR-0058).
 `_Watch` sums input, output and cached tokens across every turn, outside the `diagnostics`

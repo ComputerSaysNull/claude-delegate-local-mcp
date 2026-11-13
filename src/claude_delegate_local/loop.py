@@ -964,7 +964,9 @@ async def _until_deadline(
 
 # The kinds a `RetryRecord.kind` may hold, mirrored as the `retry.kind` enum in
 # `transcript.schema.json` (kept in lockstep by tests/test_every_retry_says_why.py).
-RETRY_KINDS = ("BackendUnavailable", "BackendRefused", "EmptyAtLength")
+RETRY_KINDS = (
+    "BackendUnavailable", "BackendRefused", "EmptyAtLength", "FinalTurnToolCall",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -972,9 +974,10 @@ class RetryRecord:
     """One failed attempt the turn tried again after, and why.
 
     `attempts` cannot say which failure it was, and a dropped route and a 503 have
-    different remedies. `kind` is the exception class for a transport retry, or
-    `EmptyAtLength` for a recovery stage; `status` a refusal's HTTP status, `seconds` the
-    failed attempt's run, `wait` the sleep chosen.
+    different remedies. `kind` is the exception class for a transport retry,
+    `EmptyAtLength` for a recovery stage, or `FinalTurnToolCall` for the final turn's
+    fallback; `status` a refusal's HTTP status, `seconds` the failed attempt's run, `wait`
+    the sleep chosen.
     """
 
     kind: str
@@ -2519,7 +2522,7 @@ class _OverflowGuard:
             self.tightened_at = turn
             self.keep = self.cfg.overflow_tightened_keep_tool_results
 
-    def observe(
+    def observe(  # noqa: PLR0913 -- one argument per fact the check reads
         self,
         response: CanonicalResponse,
         *,
@@ -2527,12 +2530,17 @@ class _OverflowGuard:
         turn: int,
         turns: int,
         ledger: _Ledger,
+        exempt: bool = False,
     ) -> None:
         """Record what the prompt actually cost, and abort if it stopped growing.
 
-        Only an eviction made *this* turn can explain this turn's plateau.
+        Only an eviction made *this* turn can explain this turn's plateau. `exempt` is the
+        final turn's fallback request: the engine drops the tool block on `tool_choice:
+        "none"`, so its prompt shrinks without anything having been lost (ADR-0141). The
+        figures are still recorded, since `evicted_this_turn` and the next turn's baseline
+        are facts about the request rather than about the check.
         """
-        if self.armed and turn > 1 and plateaued_without_eviction(
+        if not exempt and self.armed and turn > 1 and plateaued_without_eviction(
             self.cfg,
             prev_input_tokens=self.prev_input_tokens,
             this_input_tokens=response.input_tokens,
@@ -2942,6 +2950,15 @@ async def _reread_concurrency(
     return current, DecodeRate(remembered, float(current), source="observed_at_concurrency")
 
 
+def _plus(was: float | None, now: float | None) -> float | None:
+    """One more attempt's interval added to a turn's running total.
+
+    `None` when the attempt could not be timed, since a sum is only as measured as its
+    parts; the caller already treats an untimed turn as the pessimistic case.
+    """
+    return None if now is None else (was or 0.0) + now
+
+
 async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the nine are test
     # seams; the statements are the turn lifecycle, and splitting would reorder it.
     cfg: Config,
@@ -2977,8 +2994,9 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     """Turns, until the model answers or the budget runs out.
 
     A turn is one reply plus the tools it called. The loop ends on a reply with no tool
-    calls (the answer) or at the last turn, where tools are forbidden so the model cannot
-    end on a call nobody runs. `hit_turn_limit` is `turn == turns` and nothing else:
+    calls (the answer) or at the last turn, whose calls are not run and which gets one more
+    request forbidden to call, so it cannot end on a call nobody runs (ADR-0141).
+    `hit_turn_limit` is `turn == turns` and nothing else:
     requiring a tool call on that reply would leave it false in exactly the case it
     reports, and true only when a backend ignores the withdrawal. A run that would have
     stopped there anyway costs a reader one look at `max_turns`; the other way costs a
@@ -3140,8 +3158,8 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                         on_message(record)
 
             def build(
-                level: str, budget: int, *, _msgs: tuple[Message, ...] = tuple(history),
-                _final: bool = final,
+                level: str, budget: int, *, forbid: bool = False,
+                _msgs: tuple[Message, ...] = tuple(history),
             ) -> CanonicalRequest:
                 return CanonicalRequest(
                     system=SYSTEM_PROMPT_AGENTIC,
@@ -3150,10 +3168,11 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                     effort=level,
                     temperature=cfg.temperature,
                     top_p=cfg.top_p,
-                    # Forbidden, not withdrawn, on the final turn (ADR-0057): dropping the
-                    # tool block changes the prompt's front and re-prefills all of it.
+                    # Offered on every turn including the last, and only the fallback forbids
+                    # calls: withdrawing the block, or forbidding calls with it present,
+                    # changes the prompt's front and re-prefills all of it (ADR-0141).
                     tools=specs,
-                    tool_choice="none" if _final else "auto",
+                    tool_choice="none" if forbid else "auto",
                 )
 
             backend_started = clock()
@@ -3186,6 +3205,36 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                 sleep=sleep, deadline=deadline, stall_left=stall_left,
                 on_token=token_arrived, tick_sleep=tick_sleep, clock=clock,
             )
+            # The last turn is offered the tools like any other, because `tool_choice:
+            # "none"` makes the engine drop the tool block and every earlier reasoning
+            # (ADR-0141). One that still calls a tool has nothing to run its result for --
+            # the loop ends here -- so one more request, forbidden, answers in its place.
+            # The same turn's second attempt, so `attempts` and the records cover it as the
+            # recovery stages' are covered.
+            fallback = final and bool(dispatch.response.tool_uses)
+            if fallback:
+                discarded = dispatch.answered_seconds
+                moved_on: list[RetryRecord] = []
+                reply, spent, answered = await complete_with_retry(
+                    cfg, backend, build(resolved_effort, asked_budget, forbid=True),
+                    sleep=sleep, deadline=deadline, stall_left=stall_left,
+                    on_token=token_arrived, on_retry=moved_on.append,
+                    tick_sleep=tick_sleep, clock=clock,
+                )
+                dispatch = replace(
+                    dispatch,
+                    response=reply,
+                    attempts=dispatch.attempts + spent,
+                    retries=(
+                        *dispatch.retries,
+                        RetryRecord(kind="FinalTurnToolCall", status=None,
+                                    seconds=discarded, wait=0.0),
+                        *moved_on,
+                    ),
+                    answered_seconds=answered,
+                    prefill_seconds=_plus(dispatch.prefill_seconds, reply.prefill_seconds),
+                    decode_seconds=_plus(dispatch.decode_seconds, reply.decode_seconds),
+                )
             # The backend call alone: over the whole turn, tools and retry waits would make
             # the cluster look slower, a wrong number that gets believed.
             backend_seconds = max(clock() - backend_started, 0.0)
@@ -3211,6 +3260,9 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             guard.observe(
                 dispatch.response, evicted_this_turn=dropped, turn=turn, turns=turns,
                 ledger=watch.calls,
+                # The engine shrinks the prompt on the fallback's `tool_choice: "none"`, so
+                # the plateau check would read its own documented behaviour as lost history.
+                exempt=fallback,
             )
 
             calls = dispatch.response.tool_uses
