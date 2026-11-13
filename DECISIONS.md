@@ -19,6 +19,29 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0142 — 2026-11-12 — A stream keeps a copy of every image the model was sent, beside it — Accepted
+
+The stream said how many images a call sent and from which path. Scripts often rewrite that
+file afterwards, so a reader following a long run on rendered views saw the file as it is
+now, not what the model looked at. Only the server holds the exact bytes at the moment it
+sends them; a reader learns of a `read_file` at turn end, minutes later.
+
+**Decision.** `Stream` writes each image as sent — the `ImageBlock` bytes, so a tile rather
+than the file when tiled — into `<stem>.images/` beside the stream, named by the sha256 of
+those bytes, and names them in `tool_call.result_image_files` and
+`files_read[].image_files` (format 1.17). The loop only hands the blocks along, after image
+admission, so a refused image is never kept.
+
+- **Named by content**, so a file read many times is stored once (413 of 935 image paths
+  over six weeks were read more than once).
+- **All or nothing per call**, so a name list always lines up with the images it describes.
+  A call that does not fit under `transcript_image_cap_bytes`, or whose write fails, has no
+  field: absent is not zero, and a reader falls back to the path.
+- **The cap is per stream.** Measured over every stream to date: 1,911 image reads, median
+  48 KB, the largest single delegation 18 MB; the default leaves room above that.
+
+---
+
 ## ADR-0141 — 2026-11-12 — The final turn allows tool calls, and only a call it makes earns a forbidding request — Accepted
 
 ADR-0057 sent `tool_choice: "none"` on the final turn because, on the engine of the time, it

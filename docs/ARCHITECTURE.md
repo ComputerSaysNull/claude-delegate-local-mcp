@@ -988,6 +988,8 @@ A turn names the model the engine says answered it, null if it names none, which
 `start.model_key` only asked for: an engine that answers a name it does not serve leaves no
 other trace, so `end.model_mismatch` flags a run answered by a model other than the entry's
 `served_model_id`. Bytes cannot show an image, so a tool call and a prefetched file count the images they sent.
+Each one sent is also kept in `<stem>.images/`, named by its sha256 and listed in
+`result_image_files`/`image_files`; past the cap the key is absent (ADR-0142).
 
 The stream carries the model's reply text, which the record does not: whole in `turn`, and
 as it generates in `partial` (ADR-0114), the turn's last one marked `final` and holding the

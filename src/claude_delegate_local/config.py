@@ -148,6 +148,11 @@ MAX_TILES = 16
 # crosses an edge is whole in one tile.
 TILE_OVERLAP = 32
 
+# Total bytes of image copies one transcript stream may keep. A delegation sends a handful
+# of screenshots, each a tile at most `IMAGE_MAX_PIXELS` decoded; 64 MiB covers that many
+# times over while still bounding what one run can put on disk.
+TRANSCRIPT_IMAGE_CAP_BYTES = 67108864
+
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
@@ -736,6 +741,16 @@ class Config:
         "machine, while one inside the WSL distribution dies with it (ADR-0024, ADR-0086).",
     )
 
+    transcript_image_cap_bytes: int = _f(
+        TRANSCRIPT_IMAGE_CAP_BYTES,
+        "Total bytes of image copies one stream may keep, under the `<stem>.images/` "
+        "folder beside it. A call whose images would cross it keeps none of them, and its "
+        "`result_image_files`/`image_files` field is left out rather than listing a subset "
+        "-- a reader would take three names for the five the model was shown. Zero keeps "
+        "no copies at all.",
+        unit="bytes",
+    )
+
     ledger_path: str = _f(
         "~/.cache/claude-delegate-local/ledger.jsonl",
         "Append-only token ledger: one JSON line per dispatch, the running total that "
@@ -924,6 +939,16 @@ class Config:
                 "reached is not a loose bound but an absent one."
             )
 
+    def _check_off_or_positive(self) -> None:
+        """Settings where 0 is a choice and only a negative value is refused.
+
+        Partial answers off, and image copies not kept. Split out as `_validate_retry` is,
+        for the branch limit `__post_init__` is held to.
+        """
+        for name in ("partial_every_seconds", "transcript_image_cap_bytes"):
+            if getattr(self, name) < 0:
+                raise ConfigError(f"DELEGATE_{name.upper()} must be 0 (off) or positive.")
+
     def __post_init__(self) -> None:
         if not self.workspace_roots:
             raise ConfigError(
@@ -999,8 +1024,7 @@ class Config:
         ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"DELEGATE_{name.upper()} must be positive.")
-        if self.partial_every_seconds < 0:
-            raise ConfigError("DELEGATE_PARTIAL_EVERY_SECONDS must be 0 (off) or positive.")
+        self._check_off_or_positive()
         self._check_retired()
         self._check_deadlines_nest()
         self._check_sampling()

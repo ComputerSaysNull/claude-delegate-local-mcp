@@ -39,12 +39,14 @@ import re
 import time
 from collections.abc import Iterable
 from datetime import datetime, UTC
-from hashlib import blake2s
+from hashlib import blake2s, sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from .backends.base import ImageBlock
 from .backends.base import answer_of as _answer_of
 from .backends.base import duplicate_line_share
+from .config import TRANSCRIPT_IMAGE_CAP_BYTES
 # The server's one notion of "this process". The module, not the name, so the call below
 # reads through `slots` when it runs: a bound alias would freeze a second definition of
 # process identity at import, which is what the import exists to avoid.
@@ -62,7 +64,7 @@ log = logging.getLogger(__name__)
 
 # Written on `start`; `transcript.schema.json` beside this file defines it and moves with
 # it. Minor for an addition, major for a removal, rename or changed meaning (ADR-0111).
-FORMAT = "1.16"
+FORMAT = "1.17"
 
 # The fixed values `end.ended` may hold, so a reader can branch on the ending rather than
 # parse the words in `error`. Kept beside FORMAT because it is the same contract.
@@ -117,6 +119,24 @@ def _ms(seconds: float | None) -> int | None:
     return None if seconds is None else int(seconds * 1000)
 
 
+# Where image copies go, and what their suffix says: a reader opens them, so the extension
+# has to name a format. `bin` for a media type this module does not recognise, which is
+# honest about what it knows rather than a guess at a suffix.
+_IMAGE_DIR = ".images"
+_IMAGE_EXT = {
+    "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp",
+}
+
+
+def image_name(image: ImageBlock) -> str:
+    """The copy's name: the sha256 of the bytes sent, so the file verifies itself.
+
+    From `ImageBlock.data`, the bytes on the wire -- a tile's re-encoded ones when the
+    image was tiled -- and not the file on disk, which may be rewritten afterwards.
+    """
+    return f"{sha256(image.data).hexdigest()}.{_IMAGE_EXT.get(image.media_type, 'bin')}"
+
+
 class Stream:
     """The same dispatch, written as it happens rather than once it is over.
 
@@ -128,9 +148,16 @@ class Stream:
     Append-only, one JSON object per line, flushed per line, so a reader tailing it sees a
     turn the moment it lands and never parses a half-written line. Every method swallows
     its own errors, as `write` does: a transcript must never fail a delegation.
+
+    Images are the exception to "paths, never contents": a screenshot read during a run
+    can be overwritten afterwards, and then the stream's count of images cannot say what
+    the model saw. Each one sent is copied under `<stem>.images/` and named from the call
+    or `files_read` row that sent it.
     """
 
-    def __init__(self, path: Path) -> None:
+    def __init__(
+        self, path: Path, *, image_cap_bytes: int = TRANSCRIPT_IMAGE_CAP_BYTES,
+    ) -> None:
         self.path = path
         self._broken = False
         # Turns whose calls a `tools` event already named, so their `turn` event can say so.
@@ -139,6 +166,62 @@ class Stream:
         # engine that answers a name it does not serve leaves no other trace (format 1.15).
         self._requested: str | None = None
         self._mismatch: bool | None = None
+        # Image copies kept so far: bytes charged against the cap, and the names already
+        # stored, so the same bytes sent twice are written once and listed twice.
+        self._image_cap = image_cap_bytes
+        self._image_bytes = 0
+        self._kept: set[str] = set()
+
+    @property
+    def images_dir(self) -> Path:
+        """`<stem>.images/`, beside the stream: one folder per dispatch, named from it."""
+        return self.path.with_name(self.path.stem + _IMAGE_DIR)
+
+    def _keep(self, images: Iterable[ImageBlock]) -> tuple[str, ...]:
+        """Copy the images a call sent, and return their names; () when none are kept.
+
+        All or nothing: a cap that admits three of five images, or a write that fails
+        partway, leaves the field out rather than naming a subset a reader would take for
+        the whole. Empty means "not measured", never "no image was sent" -- the caller
+        knows which it is.
+        """
+        blocks = tuple(images)
+        if not blocks:
+            return ()
+        names = tuple(image_name(block) for block in blocks)
+        pending = [(name, block) for name, block in zip(names, blocks, strict=True)
+                   if name not in self._kept]
+        needed = sum(len(block.data) for _, block in pending)
+        if self._image_bytes + needed > self._image_cap:
+            return ()
+        try:
+            folder = self.images_dir
+            folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+            for name, block in pending:
+                self._write_image(folder / name, block.data)
+        except OSError:
+            return ()
+        self._image_bytes += needed
+        self._kept.update(names)
+        return names
+
+    def _write_image(self, path: Path, data: bytes) -> None:
+        """One copy, at 0o600 by the creating syscall, skipped when already stored.
+
+        `O_EXCL`, not a `exists()` test: the name is the digest of the bytes, so a file
+        already there holds exactly these, and the check and the write stay one call.
+        """
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            return
+        try:
+            with open(fd, "wb") as fh:
+                fh.write(data)
+        except OSError:
+            # A half-written copy would not match the digest its own name promises.
+            path.unlink(missing_ok=True)
+            raise
 
     def _put(self, event: dict[str, Any]) -> None:
         if self._broken:
@@ -177,6 +260,16 @@ class Stream:
         the work is over, and "what is this delegation chewing on" is asked while it runs.
         """
         self._requested = served_model_id
+        # The images a prefetched file put in the first user message: its `files_read` row
+        # is the only place naming them, since no tool call sent them.
+        # Rows and entries pair up only while `accounting` lists every file; a mismatch
+        # keeps no copies rather than raise, since a transcript must never fail a delegation.
+        files = _files(prefetched)
+        if prefetched is not None and len(files["files_read"]) == len(prefetched.files):
+            for row, entry in zip(files["files_read"], prefetched.files, strict=True):
+                names = self._keep(() if entry.image is None else entry.image.tiles)
+                if names:
+                    row["image_files"] = list(names)
         self._put({
             "t": "start", "at": datetime.now(UTC).isoformat(), "format": FORMAT, "tool": tool,
             "task": task, "agent": agent, "model_key": model_key, "effort": effort,
@@ -188,7 +281,7 @@ class Stream:
             **({"workspace": workspace} if workspace else {}),
             **({"mcp_task": mcp_task} if mcp_task is not None else {}),
             "tools": sorted(tools),
-            **_files(prefetched),
+            **files,
         })
 
     def turn(self, diagnostic: Any, text: str, *, ms: int | None = None,
@@ -226,7 +319,8 @@ class Stream:
             # including this one, which is watched rather than asserted on and would be
             # the one to drift.
             "tool_calls": [
-                call.as_json() for call in getattr(diagnostic, "tool_calls", ()) or ()
+                _call_row(call, self._keep(getattr(call, "sent_images", ()) or ()))
+                for call in getattr(diagnostic, "tool_calls", ()) or ()
             ],
             "ms": ms,
             "backend_ms": backend_ms,
@@ -539,7 +633,10 @@ def open_stream(cfg: Config, agent_name: str | None) -> Stream | None:
     try:
         target = directory(cfg)
         target.mkdir(parents=True, exist_ok=True, mode=0o700)
-        return Stream(target / _filename(agent_name, ".jsonl"))
+        return Stream(
+            target / _filename(agent_name, ".jsonl"),
+            image_cap_bytes=cfg.transcript_image_cap_bytes,
+        )
     except (OSError, UntranslatablePath):
         return None
 
@@ -575,6 +672,18 @@ def _slug(name: str | None) -> str:
         # naming it like one whose identity was lost would make that loss invisible.
         return "no-agent"
     return _UNSAFE.sub("-", name).strip("-") or "no-agent"
+
+
+def _call_row(call: Any, names: tuple[str, ...]) -> dict[str, Any]:
+    """One call's record, plus the copies kept of the images it sent.
+
+    On the call, not the turn: a turn can hold several calls and only one of them showed
+    the model a picture. Absent, not empty, when nothing was kept -- see `_keep`.
+    """
+    row = call.as_json()
+    if names:
+        row["result_image_files"] = list(names)
+    return row
 
 
 def _files(prefetched: Prefetch | None) -> dict[str, Any]:

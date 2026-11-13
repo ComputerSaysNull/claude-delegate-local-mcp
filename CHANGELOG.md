@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #548 — 2026-11-12 — feat: a stream keeps a copy of every image the model was sent
+
+### Added
+
+- **The images a delegation was shown survive the file being rewritten.** A reader
+  following a long run on rendered views saw each image as it is on disk now, because the
+  stream held only a count and a path, and scripts rewrite those files. The stream now keeps
+  each image as sent — a tile's bytes when tiled — in `<stem>.images/` beside it, named by
+  content hash so a re-read stores once, and lists the names in
+  `tool_call.result_image_files` and `files_read[].image_files` (format 1.17). An image
+  admission refused is not kept. Past `transcript_image_cap_bytes` per stream, or on a
+  failed write, a call keeps none and has no field, so a reader falls back to the path
+  (ADR-0142).
+
 ## #547 — 2026-11-12 — fix: the two local agents use the default model
 
 ### Fixed
