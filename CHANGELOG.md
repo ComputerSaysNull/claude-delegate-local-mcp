@@ -30,6 +30,32 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #546 — 2026-11-12 — fix: the final turn keeps its reasoning and its prompt cache
+
+### Fixed
+
+- **A delegation that reached its final turn could be stopped instead of answering.** The
+  symptom was "Stopped on turn N of N: … Something upstream is dropping history silently",
+  on the turn meant to produce the answer (twice, the second a test-writing delegation that
+  lost its report). The cause is the engine now served: under `tool_choice: "none"`, which
+  the final turn sent (ADR-0057), it drops the tool block and every earlier turn's reasoning
+  from the prompt (3,054 → 99 tokens, cache hit 2,048 → 0, ADR-0141 has the measurement).
+  Tool calls and results stay. So on this engine a final turn re-prefilled cold and answered
+  without its own reasoning, and the plateau check read the shrink as lost history whenever
+  it outweighed what the turn before had added: both runs that have reached a final turn
+  since the model change were stopped. The final turn now sends `auto` with the same tools
+  and still tells the model they are withdrawn; a call it makes anyway is not run, and only
+  then one request with `none`, exempt from the plateau check, fetches the text answer. The
+  saving rests on the model heeding that line; when it does not, the turn costs what every
+  final turn cost before plus the discarded reply. The certain fix is the engine keeping
+  the tools under `none`.
+
+### Changed
+
+- **Transcript format 1.16: `turn.retries[].kind` gains `FinalTurnToolCall`**, the extra
+  request above. Every extra attempt is listed with its reason, so this one is too; a reader
+  that rejects unknown kinds needs the new value.
+
 ## #545 — 2026-11-09 — docs: measure tiling again on the TensorFold model, and keep it
 
 ### Changed
