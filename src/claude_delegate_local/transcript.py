@@ -120,12 +120,13 @@ def _ms(seconds: float | None) -> int | None:
 
 
 # Where image copies go, and what their suffix says: a reader opens them, so the extension
-# has to name a format. `bin` for a media type this module does not recognise, which is
-# honest about what it knows rather than a guess at a suffix.
+# has to name a format. `IMAGE_EXT_UNKNOWN` for a media type this module does not
+# recognise, which is honest about what it knows rather than a guess at a suffix.
 _IMAGE_DIR = ".images"
-_IMAGE_EXT = {
+IMAGE_EXT = {
     "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp",
 }
+IMAGE_EXT_UNKNOWN = "bin"
 
 
 def image_name(image: ImageBlock) -> str:
@@ -134,7 +135,18 @@ def image_name(image: ImageBlock) -> str:
     From `ImageBlock.data`, the bytes on the wire -- a tile's re-encoded ones when the
     image was tiled -- and not the file on disk, which may be rewritten afterwards.
     """
-    return f"{sha256(image.data).hexdigest()}.{_IMAGE_EXT.get(image.media_type, 'bin')}"
+    suffix = IMAGE_EXT.get(image.media_type, IMAGE_EXT_UNKNOWN)
+    return f"{sha256(image.data).hexdigest()}.{suffix}"
+
+
+def images_dir(stream: Path) -> Path:
+    """`<stem>.images/`, beside the stream: one folder per dispatch, named from it.
+
+    A function rather than a property alone, because the feed serves these copies and must
+    find them by the same rule that wrote them: a second derivation would be a second
+    answer to "where did the images go".
+    """
+    return stream.with_name(stream.stem + _IMAGE_DIR)
 
 
 class Stream:
@@ -175,7 +187,7 @@ class Stream:
     @property
     def images_dir(self) -> Path:
         """`<stem>.images/`, beside the stream: one folder per dispatch, named from it."""
-        return self.path.with_name(self.path.stem + _IMAGE_DIR)
+        return images_dir(self.path)
 
     def _keep(self, images: Iterable[ImageBlock]) -> tuple[str, ...]:
         """Copy the images a call sent, and return their names; () when none are kept.

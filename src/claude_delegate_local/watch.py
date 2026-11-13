@@ -16,10 +16,10 @@ everything you have watched -- including after you return to the list. That is w
 nothing here uses the alternate screen buffer or `ESC[3J`, both of which would throw
 that away.
 
-With `--feed` the same directory's events are served as JSON, for a viewer on another
-machine that renders them itself. Bound to `localhost` only, and a request whose `Host`
-header names neither a loopback nor a name the operator allowed is refused, so a page on
-another origin cannot read transcripts through it.
+With `--feed` the same directory's events are served as JSON, and the images a stream kept,
+for a viewer on another machine that renders them itself. Bound to `localhost` only, and a
+request whose `Host` header names neither a loopback nor a name the operator allowed is
+refused, so a page on another origin cannot read transcripts through it.
 """
 
 import argparse
@@ -39,7 +39,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from .config import ENV_FILE_VAR, REPO_ROOT, parse_env_file
-from .transcript import FORMAT
+from .transcript import FORMAT, IMAGE_EXT, IMAGE_EXT_UNKNOWN, images_dir
 
 try:
     import termios
@@ -1481,6 +1481,19 @@ FEED_CHUNK_BYTES = 1 << 20
 _LOOPBACK_V4 = "127.0.0.1"
 _LOOPBACK_V6 = "::1"
 
+# A kept image's name is the sha256 of the bytes sent plus the suffix `image_name` gives
+# it. Both halves come from `transcript` rather than a second list here, which would fall
+# behind the first the moment a media type was added.
+_IMAGE_NAME = re.compile(
+    "[0-9a-f]{64}\\.(?:" + "|".join(
+        re.escape(suffix)
+        for suffix in sorted({*IMAGE_EXT.values(), IMAGE_EXT_UNKNOWN})) + ")")
+
+# What a reader is told it is fetching, inverted from the same table: the suffix is the
+# promise, and one this module does not know is served as the opaque bytes it is.
+_IMAGE_MEDIA = {suffix: media_type for media_type, suffix in IMAGE_EXT.items()}
+_IMAGE_MEDIA[IMAGE_EXT_UNKNOWN] = "application/octet-stream"
+
 
 def host_allowed(host_header: str, extra: Iterable[str] = ()) -> bool:
     """Whether a request's `Host` header names this server.
@@ -1534,6 +1547,35 @@ def transcript_path(directory: Path, name: str) -> Path | None:
     except ValueError:
         return None
     return path if path.is_file() else None
+
+
+def image_path(directory: Path, stream_name: str, file_name: str) -> Path | None:
+    """The kept image `file_name` names in `stream_name`'s folder, or None.
+
+    Both names arrive from a URL. `stream_name` goes through `transcript_path`, so the
+    stream is the same bare `.jsonl` `/events` serves, resolved the same way; `file_name`
+    must be a digest with a suffix `image_name` writes before any path is built, which is
+    what keeps `..`, separators and absolute paths out without a second traversal guard.
+    The folder is the stream's sibling `<stem>.images/`, by `transcript`'s own rule, and the
+    resolved file must still be inside it: a copy replaced by a symlink pointing elsewhere
+    keeps its name, so only resolving catches it. `strict=True`, so a broken link is a
+    miss rather than a path that looks fine and fails later.
+    """
+    stream = transcript_path(directory, stream_name)
+    if stream is None:
+        return None
+    if _IMAGE_NAME.fullmatch(file_name) is None:
+        return None
+    try:
+        folder = images_dir(stream).resolve(strict=True)
+        image = (folder / file_name).resolve(strict=True)
+    except (OSError, ValueError):  # ValueError: an embedded null byte
+        return None
+    try:
+        image.relative_to(folder)
+    except ValueError:
+        return None
+    return image if image.is_file() else None
 
 
 def complete_events(path: Path, offset: int) -> tuple[list[dict], int, bool]:
@@ -1607,6 +1649,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if url.path == "/events":
             self._events(server.directory, url)
             return
+        if url.path == "/image":
+            self._image(server.directory, url)
+            return
         self.send_error(404)
 
     def _events(self, directory: Path, url) -> None:
@@ -1623,6 +1668,33 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return
         events, offset, more = complete_events(path, offset)
         self._respond({"events": events, "offset": offset, "more": more})
+
+    def _image(self, directory: Path, url) -> None:
+        query = parse_qs(url.query)
+        stream_name = (query.get("stream") or [""])[0]
+        file_name = (query.get("file") or [""])[0]
+        path = image_path(directory, stream_name, file_name)
+        if path is None:
+            self.send_error(404)
+            return
+        try:
+            data = path.read_bytes()
+        except OSError:
+            self.send_error(404)
+            return
+        # The suffix the name was checked against, not the resolved file's: the name is
+        # what promised the reader a format, and it is what they asked for.
+        self._respond_bytes(data, _IMAGE_MEDIA[file_name.rsplit(".", 1)[-1]])
+
+    def _respond_bytes(self, body: bytes, media_type: str) -> None:
+        """One kept image, as it was stored: the digest in its name verifies it."""
+        self.send_response(200)
+        self.send_header("Content-Type", media_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _respond(self, payload: dict) -> None:
         body = json.dumps(payload, default=str, ensure_ascii=False).encode("utf-8")

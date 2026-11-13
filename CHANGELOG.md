@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #549 — 2026-11-12 — feat: the feed serves the image copies a stream kept
+
+### Added
+
+- **A tracker on another machine can show what the model was shown.** The copies #548 keeps
+  sit on the server's disk, and a tracker elsewhere reads through the feed, which served
+  only `/list` and `/events`. `GET /image?stream=<stem>.jsonl&file=<name>` now returns one
+  copy with its Content-Type, behind the same host check. The stream name passes the
+  existing `.jsonl` check; the file name must be exactly a sha256 and a known suffix, so no
+  separator or `..` can reach a path; and the resolved file must sit inside that stream's
+  `.images/` folder, so a symlink out of it is refused like any other bad name, with a 404.
+
 ## #548 — 2026-11-12 — feat: a stream keeps a copy of every image the model was sent
 
 ### Added
