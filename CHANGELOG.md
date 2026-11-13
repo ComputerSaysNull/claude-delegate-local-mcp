@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #553 — 2026-11-13 — chore: release 0.18.0
+
+### Changed
+
+- **The version moves to 0.18.0, so the tracker can pin transcript format 1.18.** Since
+  0.17.0 the stream gained `turn.retries[].kind` values `FinalTurnToolCall` (#546) and
+  `LengthUnderShrunkBudget` (#552), and `tool_call.result_image_files` and
+  `files_read[].image_files`, the copies of every image the model was sent (#548), which the
+  feed serves at `/image` (#549). The final turn keeps its reasoning and cache (#546); the
+  local agents use the default model (#547); undecodable command output no longer ends a
+  delegation (#550); `end.input_tokens` is filled on one-shot and failed runs (#551); and
+  later turns book a reply budget sized from the run's own (#552). The release itself is
+  the tag `v0.18.0` on `main`, published by the release workflow (ADR-0115).
+
 ## #552 — 2026-11-12 — feat: a later turn's reply budget follows what the run's turns wrote
 
 ### Changed
