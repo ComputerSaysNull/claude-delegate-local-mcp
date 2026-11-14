@@ -105,12 +105,29 @@ class AdmissionImpossible(AdmissionError):
     Not a timeout: a request larger than the whole token budget does not fit an empty
     gate, so queueing it would spend the whole wait on a failure knowable at once, and
     report it as congestion, which is the one thing it is not.
+
+    Two ceilings can be that whole budget, so the message names whichever binds. When the
+    engine's KV pool is below the operator's setting it is the hardware that refuses, and
+    raising `DELEGATE_KV_TOKEN_BUDGET` cannot lift it -- the budget is already the lower
+    of the two, so pointing at the setting would send an operator to the wrong knob.
     """
 
-    def __init__(self, tokens: int, budget: int) -> None:
+    def __init__(self, tokens: int, limit: int, *, pool_bound: bool = False) -> None:
+        self.tokens = tokens
+        self.limit = limit
+        self.pool_bound = pool_bound
+        if pool_bound:
+            super().__init__(
+                f"admission_impossible: this delegation is estimated at {tokens} tokens, "
+                f"which is above the whole KV pool this endpoint reports: {limit} tokens "
+                f"of kv_cache_size_tokens. It would not fit even against an idle cluster. "
+                f"Send less context; raising DELEGATE_KV_TOKEN_BUDGET cannot help, since "
+                f"the budget is already capped by the pool the hardware has."
+            )
+            return
         super().__init__(
             f"admission_impossible: this delegation is estimated at {tokens} tokens, "
-            f"which is above the whole DELEGATE_KV_TOKEN_BUDGET of {budget}. It would "
+            f"which is above the whole DELEGATE_KV_TOKEN_BUDGET of {limit}. It would "
             f"not fit even against an idle cluster. Send less context, or raise the "
             f"budget if the measured KV pool actually supports it."
         )
@@ -433,8 +450,21 @@ class Admission:
         deadline: float | None = None,
         on_wait: Callable[[], Awaitable[None]] | None = None,
     ) -> AdmissionLease:
-        if tokens > self._token_budget:
-            raise AdmissionImpossible(tokens, self._token_budget)
+        # Against the ceiling this gate actually admits on, not the configured setting: once
+        # `observe_pool` records a smaller pool, a request between the two would pass a test
+        # of `_token_budget` and then never satisfy the token rule -- waiting out the whole
+        # deadline, or for ever with none, and reporting saturation for a size no cluster
+        # here could ever hold.
+        budget = self.effective_token_budget
+        if tokens > budget:
+            # Which of the two ceilings binds decides the message: the pool is the hardware's
+            # limit, and the setting cannot be raised past it.
+            raise AdmissionImpossible(
+                tokens,
+                budget,
+                pool_bound=self._pool_tokens is not None
+                and self._pool_tokens < self._token_budget,
+            )
 
         started = time.monotonic()
         # Beside `started`: that measures this wait and must not jump if the clock is set,

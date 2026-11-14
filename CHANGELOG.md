@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #560 — 2026-11-14 — fix: admission refuses at once what the KV pool can never hold
+
+### Fixed
+
+- **A request the engine's pool could never hold waited out the whole admission wait.**
+  The gate admits against the smaller of the configured token budget and the KV pool the
+  engine reports, but the up-front "can this ever fit" test compared against the budget
+  alone. A request between the two was never refused: it queued until the wait expired and
+  was then reported as congestion, or, with no deadline set, waited for ever. The test now
+  uses the same ceiling the gate admits on, and when the pool is what binds the refusal
+  names the pool rather than `DELEGATE_KV_TOKEN_BUDGET`, which raising could not help.
+
 ## #559 — 2026-11-14 — fix: a transcript write never fails a finished delegation
 
 ### Fixed
