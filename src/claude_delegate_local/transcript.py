@@ -211,7 +211,10 @@ class Stream:
             folder.mkdir(parents=True, exist_ok=True, mode=0o700)
             for name, block in pending:
                 self._write_image(folder / name, block.data)
-        except OSError:
+        except Exception:
+            # Broad, for `_put`'s reason: a transcript must never fail a delegation, and
+            # the failures here are not all `OSError` -- `mkdir`, the copy and whatever
+            # names it may raise anything. All or nothing, so the field is left out.
             return ()
         self._image_bytes += needed
         self._kept.update(names)
@@ -244,9 +247,15 @@ class Stream:
             # allowed, and this stream carries full model replies (ADR-0043). umask only
             # clears bits, so 0o600 is a ceiling, not a target.
             fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-            with open(fd, "a", encoding="utf-8") as fh:
+            # `backslashreplace`, so a lone surrogate in a reply is written escaped rather
+            # than raising: `ensure_ascii=False` below is what puts it on this write, and
+            # an escaped `\ud800` parses back to the character the model produced.
+            with open(fd, "a", encoding="utf-8", errors="backslashreplace") as fh:
                 fh.write(json.dumps(event, default=str, ensure_ascii=False) + "\n")
-        except OSError:
+        except Exception:
+            # Broad, not `OSError`: `json.dumps` refuses a non-string dict key with
+            # `TypeError`, and the write can raise more than a full disk, and either
+            # escaping would fail a delegation whose work is already done.
             # Once, not per turn: an unwritable directory will not start working
             # mid-delegation, and a failing write per turn is its own problem.
             self._broken = True
