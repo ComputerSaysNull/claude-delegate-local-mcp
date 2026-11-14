@@ -32,12 +32,14 @@ import shlex
 import shutil
 import stat
 import subprocess
+import threading
 import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
+from typing import IO
 
 from .config import Config
 from .paths import (
@@ -364,6 +366,10 @@ class SandboxResult:
     # note: the scan covered them, so a project keeping its own `.venv` sees an empty
     # directory and no `$DELEGATE_PYTHON`. Empty when nothing virtualenv-shaped was covered.
     covered_venvs: tuple[str, ...] = ()
+    # How many bytes the command wrote to stdout and stderr in total, which is more than the
+    # length of `stdout` and `stderr` whenever only their tails were kept. 0 where nothing
+    # measured it, such as a result built by hand: then the strings are all there is.
+    output_bytes: int = 0
 
 
 def probe_toolchain_binds(cfg: Config) -> tuple[str, ...]:
@@ -1359,41 +1365,120 @@ def run(cfg: Config, req: SandboxRequest) -> SandboxResult:
     )
 
 
-def _execute(cfg: Config, argv: list[str], marker: Path) -> SandboxResult:
-    """Run the built argv once, and say what the process actually did."""
+# How much of a stream's tail is held while a command runs. Four bytes per character the cap
+# allows, so that decoding cannot shrink the kept tail below the character cap `tools._capped`
+# applies afterwards, plus a margin for the character a cut can split at the front of it.
+_TAIL_MARGIN_BYTES = 64
+# Read in chunks, so a command emitting gigabytes costs a fixed buffer rather than its output.
+_READ_CHUNK_BYTES = 64 * 1024
+# How long the readers get to reach EOF once the process is gone. A grandchild that outlived
+# the kill can hold a pipe open indefinitely, so the wait is bounded: the tail is then what
+# had arrived, and the thread that owns the pipe is left to finish on its own.
+_READER_JOIN_SECONDS = 5.0
+
+
+def _tail_bytes(cfg: Config) -> int:
+    """The most bytes of one stream kept in memory, sized from the character cap."""
+    return 4 * max(cfg.max_bash_output_chars, 0) + _TAIL_MARGIN_BYTES
+
+
+class _Tail:
+    """The last `limit` bytes of one stream, and how many bytes went past it.
+
+    Dropped as the bytes arrive, so the peak is the limit plus one read whatever the command
+    writes. `total` is the true size, which is what the truncation note reports.
+    """
+
+    __slots__ = ("_buf", "_limit", "total")
+
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._buf = bytearray()
+        self.total = 0
+
+    def add(self, chunk: bytes) -> None:
+        self.total += len(chunk)
+        self._buf.extend(chunk)
+        over = len(self._buf) - self._limit
+        if over > 0:
+            del self._buf[:over]
+
+    def text(self) -> str:
+        """The tail as text. Replaced, never strict: a cut can split a character."""
+        return bytes(self._buf).decode("utf-8", "replace")
+
+
+def _drain(stream: IO[bytes], tail: _Tail) -> None:
+    """Read one pipe to EOF into its tail. Never raises: it runs as a daemon thread."""
     try:
-        proc = subprocess.run(
-            argv,
-            capture_output=True,
-            # Closed, never inherited: under stdio the server's fd 0 is the MCP stream,
-            # and a `cat` with no file would eat the client's messages.
-            stdin=subprocess.DEVNULL,
-            # Replaced, not strict, as `_as_text` decodes a timed-out run: a command that
-            # cuts by bytes can split a character, and one bad byte must not end the run.
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=cfg.run_bash_timeout,
-            start_new_session=True,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as e:
+        fd = stream.fileno()
+        while True:
+            chunk = os.read(fd, _READ_CHUNK_BYTES)
+            if not chunk:
+                return
+            tail.add(chunk)
+    except (OSError, ValueError):
+        # Closed from the main thread, or the read failed: the tail is what had arrived,
+        # which is the whole point of keeping one.
+        return
+
+
+def _execute(cfg: Config, argv: list[str], marker: Path) -> SandboxResult:
+    """Run the built argv once, and say what the process actually did.
+
+    stdout and stderr are drained concurrently, one reader thread each, keeping only a
+    bounded tail and a count of the bytes that went past it. Holding the whole output in the
+    server's memory is what let `yes` or `find /` reach hundreds of MB before the timeout,
+    and a server killed for it takes every delegation running beside it with it; the
+    sandbox's memory cap bounds the command, never this process.
+    """
+    limit = _tail_bytes(cfg)
+    out, err = _Tail(limit), _Tail(limit)
+    proc = subprocess.Popen(
+        argv,
+        # Closed, never inherited: under stdio the server's fd 0 is the MCP stream,
+        # and a `cat` with no file would eat the client's messages.
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        # Its own session, as before, so the process group can be signalled as one.
+        start_new_session=True,
+    )
+    out_stream, err_stream = proc.stdout, proc.stderr
+    assert out_stream is not None and err_stream is not None  # both asked for as PIPE
+    streams = [out_stream, err_stream]
+    readers = [
+        threading.Thread(target=_drain, args=(stream, tail), daemon=True)
+        for stream, tail in zip(streams, (out, err), strict=True)
+    ]
+    for reader in readers:
+        reader.start()
+    timed_out = False
+    try:
+        proc.wait(timeout=cfg.run_bash_timeout)
+    except subprocess.TimeoutExpired:
         log.warning("sandboxed command exceeded %ss and was killed", cfg.run_bash_timeout)
-        return SandboxResult(
-            stdout=_as_text(e.stdout),
-            stderr=_as_text(e.stderr),
-            exit_code=None,
-            timed_out=True,
-        )
+        timed_out = True
+        with suppress(OSError):
+            proc.kill()
+        proc.wait()
+    for reader in readers:
+        reader.join(_READER_JOIN_SECONDS)
+    for reader, stream in zip(readers, streams, strict=True):
+        if reader.is_alive():
+            continue  # a grandchild still holds the pipe; that thread owns it now
+        with suppress(OSError, ValueError):
+            stream.close()
     return SandboxResult(
-        stdout=proc.stdout,
-        stderr=proc.stderr,
-        exit_code=proc.returncode,
+        stdout=out.text(),
+        stderr=err.text(),
+        exit_code=None if timed_out else proc.returncode,
+        timed_out=timed_out,
         # Only where the status disagrees with the trap. A non-zero exit already
         # reports the failure, and the trap fired for that same command, so counting
         # it here would double-count the ordinary case and call it hidden.
-        masked_failure=proc.returncode == 0 and _trap_fired(marker),
-        timed_out=False,
+        masked_failure=not timed_out and proc.returncode == 0 and _trap_fired(marker),
+        output_bytes=out.total + err.total,
     )
 
 
@@ -1542,14 +1627,3 @@ def pipeline_hid_a_failure(stages: Sequence[Sequence[tuple[str, int]]]) -> bool:
                 continue
             return True
     return False
-
-
-def _as_text(raw: str | bytes | None) -> str:
-    """Whatever the process managed to emit before it was killed.
-
-    `TimeoutExpired` carries bytes even when the call asked for text, so this is not the
-    redundant branch it looks like.
-    """
-    if raw is None:
-        return ""
-    return raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
