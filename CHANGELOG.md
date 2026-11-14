@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #559 — 2026-11-14 — fix: a transcript write never fails a finished delegation
+
+### Fixed
+
+- **An odd value in a transcript event could fail a delegation whose work was done.** The
+  stream writer caught only `OSError`, but `json.dumps` raises `TypeError` on a non-string
+  key and the UTF-8 write raises `UnicodeEncodeError` on a lone surrogate in a model's
+  reply; either escaped into the dispatch, against the module's own rule that nothing there
+  may. A lone surrogate is now written escaped, so the event survives, and any other
+  failure — there or while keeping an image copy — is the existing "broken stream" case.
+
 ## #558 — 2026-11-14 — fix: a stream that ends without finishing is a failure, not an answer
 
 ### Fixed
