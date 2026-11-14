@@ -30,6 +30,16 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #561 — 2026-11-14 — fix: a timed-out run's end event records the turns it reached
+
+### Fixed
+
+- **Every timed-out or stalled run's `end` event said `turns: null`**, though its error
+  text named the turn it reached, so a tracker read a run that had done nothing. The event
+  took the count only from a `DispatchTimedOut`, but the server had already converted that
+  into a `ToolError` carrying the count as an attribute, so the test never matched. It now
+  reads the attribute, the way `ended` beside it already did.
+
 ## #560 — 2026-11-14 — fix: admission refuses at once what the KV pool can never hold
 
 ### Fixed
