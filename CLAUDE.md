@@ -47,7 +47,8 @@ Rules a machine cannot check, so they land here:
 - Blocked by the gate and genuinely right anyway? Add a trailer:
   `Docs-Gate-Skip: owning-doc -- pure rename, no behaviour change`. It is echoed in every
   run and audited, so it is visible rather than quiet. Two skips on one document in ninety
-  days is a signal that something is wrong with the document, not with the rule.
+  days is a signal that something is wrong with the document, not with the rule. The leak
+  checks (`UNWAIVABLE_CHECKS`) refuse a trailer: a pushed leak cannot be taken back.
 
 ## Invariants
 

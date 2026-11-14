@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #554 — 2026-11-14 — fix: the gate refuses a waiver for a leak check
+
+### Fixed
+
+- **One `Docs-Gate-Skip` trailer could silence a leak check for a whole branch.** A waiver
+  matched by check name alone and was read from every commit on the branch, so naming
+  `host-identifier`, `email-content`, `commit-message`, `public-text`, `identity`,
+  `secret-path` or `never-track` let an address, a forged author or a secret through a gate
+  that had seen it — and a pushed leak cannot be taken back. Those seven are now
+  `UNWAIVABLE_CHECKS`: a trailer naming one waives nothing and blocks the run itself. A
+  trailer naming no check at all used to waive nothing silently, so a typo read like a
+  waiver that worked; it is now reported as a warning.
+
 ## #553 — 2026-11-13 — chore: release 0.18.0
 
 ### Changed
