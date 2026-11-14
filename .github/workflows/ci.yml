@@ -53,8 +53,22 @@ jobs:
       # TOML -- tomllib is stdlib, PyYAML is not.
       # GITHUB_EVENT_PATH carries the pull request title and body, which are a
       # public surface written outside git -- no hook or file check can see them.
+      # The range is the commits this run is about: a pull request's own, or the ones a push
+      # to main brought. `origin/main...HEAD` on a push is empty, because the checkout is
+      # main, and the range-walking checks would then pass having read nothing. The gate
+      # blocks an empty range too. Event values go through `env:`, never into the script.
       - name: Run the gate
-        run: python scripts/docs_gate.py --mode ci --diff origin/${{ github.base_ref || 'main' }}...HEAD --pr-event "$GITHUB_EVENT_PATH"
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = "push" ]; then
+            range="$BEFORE...$GITHUB_SHA"
+          else
+            range="origin/$BASE_REF...HEAD"
+          fi
+          python scripts/docs_gate.py --mode ci --diff "$range" --pr-event "$GITHUB_EVENT_PATH"
 
   lint:
     name: lint

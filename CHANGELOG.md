@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #555 — 2026-11-14 — fix: CI's gate checks the commits a push to main brought
+
+### Fixed
+
+- **On a push to `main` the gate checked no commits and passed.** CI ran it on
+  `origin/main...HEAD`, which is empty once the checkout *is* `main`, so the author,
+  commit-message, split-dodge and prose-regrowth checks read nothing and reported clean. A
+  squash merge had already passed its pull request run; a direct push had not. A push now
+  hands the gate `<before>...<sha>`, the commits it brought, and a new `empty-range` check
+  blocks any CI range holding no commits instead of passing it. The event values reach the
+  shell through `env:` rather than being pasted into the script.
+- **Waivers were read from a different range than the checks walked.** `waivers()` always
+  read `origin/main...HEAD`, whatever `--diff` said, so a trailer inside the range under
+  review could be missed and one outside it obeyed. It now reads the same range.
+
 ## #554 — 2026-11-14 — fix: the gate refuses a waiver for a leak check
 
 ### Fixed

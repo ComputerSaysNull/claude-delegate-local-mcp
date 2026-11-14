@@ -121,8 +121,9 @@ Security-sensitive work — `sandbox.py`, `paths.py`, `wsl.py` — gets a short 
 
 ## CI
 
-`.github/workflows/ci.yml` runs four jobs on every pull request — **gate**, **lint**,
-**tests** (3.14), and **gitleaks**. `pyproject.toml` pins the ruff version *and*
+`.github/workflows/ci.yml` runs four jobs on every pull request and every push to `main` —
+**gate**, **lint**, **tests** (3.14), and **gitleaks**. On a push the gate reads the pushed
+commits (`before...sha`), and it blocks a range holding no commits rather than pass it. `pyproject.toml` pins the ruff version *and*
 the rule set, because a lint job on a moving rule set fails builds nobody broke. **lint**
 also runs `mypy` over `src/`, bounded the same way; run it locally beside `ruff check`. `.github/ci-constraints.txt` pins the rest
 for both install steps; refresh it with `pip freeze --exclude-editable` from a clean 3.14
