@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #562 — 2026-11-14 — fix: search_files says which files it searched only in part
+
+### Fixed
+
+- **A file larger than `max_file_read_bytes` was searched only up to the cap, and a miss
+  past it read as an absence.** `search_files` read each file up to the cap without noting
+  the cut, so a pattern living further down came back as "absent from everything the path
+  policy lets you read". And a cut through a multi-byte character made the whole file fail
+  to decode, so it was dropped, matches before the cut included. The result now names the
+  files searched only in part, with the byte limit, and a no-match no longer claims
+  absence when any file was cut; a cut character is trimmed rather than losing the file.
+  Rare here — one of 1,717 checkable past calls reached a file over the default cap — but
+  a false "absent" is wrong however rare.
+
 ## #561 — 2026-11-14 — fix: a timed-out run's end event records the turns it reached
 
 ### Fixed
