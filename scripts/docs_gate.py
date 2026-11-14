@@ -1984,7 +1984,40 @@ def check_prose_regrowth(mode: str, diff_range: str | None) -> list[Finding]:
     return out
 
 
+def check_range_is_not_empty(mode: str, diff_range: str | None) -> list[Finding]:
+    """A CI range holding no commits checked nothing, so it cannot report a pass.
+
+    `pr_range()` treats a range it is handed as authoritative, which is right for a pull
+    request: CI always passes one, and a bad one should block. But the range CI builds for
+    a push to main is `origin/<base>...HEAD`, and on that push the checkout IS the base, so
+    the range holds no commits. Every range-walking check -- identity, commit-message,
+    split-dodge, prose-regrowth -- then read zero commits and reported a clean pass: check
+    nothing and still report success, which CLAUDE.md names as worse than no check at all,
+    because it is trusted.
+
+    Counted with `rev-list` rather than inferred from an empty diff, because `changed_files`
+    reads an empty diff as "no upstream yet" and falls back to every tracked file -- a
+    whole-repo audit wearing the costume of a per-commit check, which is a different thing
+    from having checked nothing and calling it clean.
+
+    CI only. At pre-commit and commit-msg the index is the change under consideration and
+    there is no range to be empty.
+    """
+    if mode != "ci" or not diff_range:
+        return []
+    count = run("git", "rev-list", "--count", diff_range, required=True).strip()
+    if count != "0":
+        return []
+    return [Finding(
+        BLOCK, "empty-range",
+        f"the range {diff_range!r} contains no commits, so every check that walks it read "
+        f"nothing and its clean result means nothing. On a push to main "
+        f"`origin/main...HEAD` is empty because the checkout IS main; pass the range the "
+        f"push brought (`<before>...<sha>`), or any range resolving to at least one commit.")]
+
+
 CHECKS = {
+    "empty-range": check_range_is_not_empty,
     "identity": check_commit_identity,
     "email-content": check_emails_in_files,
     "conflict-marker": check_conflict_markers,
@@ -2079,11 +2112,19 @@ def waiver_findings(w: Waivers) -> list[Finding]:
     return out
 
 
-def waivers(mode: str, message_file: str | None = None) -> Waivers:
+def waivers(mode: str, message_file: str | None = None,
+            diff_range: str | None = None) -> Waivers:
     """Find the `Docs-Gate-Skip` text and parse it.
 
     Waivers are echoed in the output on purpose. An escape hatch nobody can see becomes
     the default route; one that leaves a visible trail in every run does not.
+
+    In ci mode the trailers are read from the range the checks were given, never from a
+    second opinion about it. A hard-coded `origin/main...HEAD` here disagreed with the
+    range the checks walked: a trailer written inside the range under review was invisible,
+    so the block it was meant to answer stood, and a trailer from a range the run never
+    looked at was the one acted on. The default survives only as the fallback for a run
+    with no `--diff`, which is the same guess `pr_range()` makes.
     """
     if mode == "commit-msg":
         f = Path(message_file) if message_file else None
@@ -2094,7 +2135,7 @@ def waivers(mode: str, message_file: str | None = None) -> Waivers:
         # firing on a commit that never asked for it.
         text = ""
     else:
-        text = run("git", "log", "--format=%B", "origin/main...HEAD")
+        text = run("git", "log", "--format=%B", diff_range or DEFAULT_RANGE)
     return parse_waivers(text)
 
 
@@ -2288,7 +2329,7 @@ def _run_checks(args: argparse.Namespace) -> tuple[list[str], list[Finding]]:
         try:
             if name == "commit-message":
                 findings += fn(args.mode, args.diff_range, args.message_file)
-            elif name in ("identity", "split-dodge", "prose-regrowth"):
+            elif name in ("identity", "split-dodge", "prose-regrowth", "empty-range"):
                 findings += fn(args.mode, args.diff_range)
             elif name in ("public-text", "changelog-number"):
                 findings += fn(args.pr_event)
@@ -2341,7 +2382,7 @@ def main() -> int:
         return 1
 
     changed, findings = _run_checks(args)
-    parsed = waivers(args.mode, args.message_file)
+    parsed = waivers(args.mode, args.message_file, args.diff_range)
     findings += waiver_findings(parsed)
 
     blocks, waived_hits, warns, skips = partition_findings(findings, parsed.accepted)
