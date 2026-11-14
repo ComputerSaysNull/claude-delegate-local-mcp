@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #556 — 2026-11-14 — fix: a secret file bound by name in extra_binds is covered
+
+### Fixed
+
+- **A `.env` named directly in an agent's `extra_binds` was readable by every command.**
+  The secret scan walks each bound root with `os.walk`, which yields nothing for a file, so
+  a denylisted file bound by its own name was mounted read-only with no cover, while the
+  same file one level inside a bound folder was covered. A root that is a regular file now
+  gets the same name, content and protected-path checks as a file found by the walk,
+  through one helper both paths call.
+
 ## #555 — 2026-11-14 — fix: CI's gate checks the commits a push to main brought
 
 ### Fixed

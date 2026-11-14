@@ -682,6 +682,14 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
     by its real path anyway, or outside every bound root, where the sandbox never bound it
     and the link simply dangles.
 
+    **A root that is a regular file is checked as a file, not walked.** `os.walk` on a file
+    yields nothing at all -- no error, no entries -- so a denylisted file named directly in
+    `extra_binds`, `/some/project/.env`, was bound read-only with no cover over it and every
+    command could read it. Read-only means readable, which is the whole threat for a secret,
+    so such a root goes through the same name, content and protected-path checks the walk's
+    file loop runs. It is kept out of `roots` for the case-folding check, which measures from
+    the folder a cover sits in.
+
     What this leaves uncovered, stated rather than discovered later: a link whose *name*
     matches the denylist but whose *target* does not -- `.ssh` pointing at `realssh`. That
     is the same gap `paths.py` has, because it also resolves before matching, and the two
@@ -696,6 +704,13 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
     if req.workdir is not None and req.workdir != req.home:
         roots.append(req.workdir)
     roots.extend(b for b in req.extra_binds if b not in roots)
+    # Split out before the walk, because `os.walk` on a regular file yields nothing at all:
+    # a denylisted file named directly in `extra_binds` was bound read-only and never
+    # covered, so every command could read it. It is checked as a file below, by the same
+    # helper the walk's file loop calls, and it stays out of `roots` so the case-folding
+    # check still measures from the folder the file sits in rather than from the file.
+    file_roots = [r for r in roots if _is_regular_file(r)]
+    roots = [r for r in roots if r not in file_roots]
 
     globs = load_secret_globs(cfg)
     opaque = load_opaque_globs(cfg)
@@ -758,12 +773,13 @@ def discover_secret_shadows(cfg: Config, req: SandboxRequest) -> tuple[ShadowTar
                 full = posixpath.join(dirpath, name)
                 if os.path.islink(full):
                     continue
-                glob = _file_match(full, globs, exempt, scan_bytes)
-                # A secret is covered; only a file that is not one can be kept readable.
-                _add(found, seen, (
-                    ShadowTarget(path=full, kind="file", matched=glob) if glob is not None
-                    else protect.match(full, is_dir=False)
-                ))
+                _add(found, seen, _file_shadow(full, globs, exempt, scan_bytes, protect))
+
+    for path in file_roots:
+        # The same verdict a file inside a walked root gets, which is the point: a `.env`
+        # named in `extra_binds` must not be judged differently from the same `.env` one
+        # level inside a bound folder.
+        _add(found, seen, _file_shadow(path, globs, exempt, scan_bytes, protect))
 
     _refuse_case_folding(roots, found)
     return tuple(found)
@@ -954,6 +970,37 @@ def _settle_protected(made: Sequence[str], absent: Sequence[str]) -> tuple[str, 
         with suppress(OSError):
             os.rmdir(path)  # refuses a directory that is no longer empty, which is right
     return tuple(moved)
+
+
+def _is_regular_file(root: str) -> bool:
+    """Whether this bound root is a regular file, which `os.walk` would silently skip.
+
+    A symlink is not one even when it points at a file: a shadow op on a link node aborts
+    the whole bwrap invocation, so a link root is left alone here exactly as the walk leaves
+    one. Anything else that is not a directory -- a fifo, a device -- is left to the walk,
+    which does see it as a filename and checks it there.
+    """
+    return not os.path.islink(root) and os.path.isfile(root)
+
+
+def _file_shadow(
+    full: str,
+    globs: Sequence[str],
+    exempt: frozenset[str],
+    scan_bytes: int,
+    protect: _Protect,
+) -> ShadowTarget | None:
+    """The cover for one file: a secret, a protected path, or nothing at all.
+
+    Called from the walk's file loop and from a root that is a file rather than a directory,
+    so one file gets one verdict however it was reached -- a `.env` named in `extra_binds`
+    cannot be judged differently from the same `.env` found inside a bound folder.
+    """
+    glob = _file_match(full, globs, exempt, scan_bytes)
+    if glob is not None:
+        return ShadowTarget(path=full, kind="file", matched=glob)
+    # A secret is covered; only a file that is not one can be kept readable.
+    return protect.match(full, is_dir=False)
 
 
 def _file_match(
