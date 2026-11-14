@@ -507,6 +507,68 @@ class _Hits:
     lines: tuple[str, ...]
     files: int
     truncated: bool
+    # Files searched only up to `max_file_read_bytes`, so a match past that point was never
+    # looked at. Reported, never silently dropped: see `_partial_note`.
+    cut: tuple[str, ...] = ()
+
+
+def _decode_cut(blob: bytes) -> str | None:
+    """Decode a blob that stopped at the byte cap, dropping one character it cut in half.
+
+    A cut inside a multi-byte UTF-8 character leaves the lead byte and some of its
+    continuations behind, so the blob fails a strict decode and `decode_text` returns None
+    -- which dropped the whole file, losing every match *before* the cap as well. Trimming
+    at most three bytes, and only when those bytes are an incomplete sequence, keeps the
+    rest readable. Anything else that fails to decode is still binary, and still skipped.
+    """
+    trimmed = blob
+    for missing in (1, 2, 3):
+        if len(blob) <= missing:
+            break
+        tail = blob[len(blob) - missing:]
+        lead = tail[0]
+        if not 0xC0 <= lead <= 0xF7:
+            continue
+        total = 2 if lead < 0xE0 else 3 if lead < 0xF0 else 4
+        if total - 1 != missing or any(not 0x80 <= b <= 0xBF for b in tail[1:]):
+            continue
+        trimmed = blob[: len(blob) - missing]
+        break
+    text, _ = decode_text(trimmed)
+    return text
+
+
+def _read_for_search(cfg: Config, item) -> tuple[str, bool] | None:
+    """One candidate's text, and whether the byte cap cut it. None if it is not text.
+
+    The cut is decided from the descriptor's own size, so a file that happens to be exactly
+    the cap is whole and a file one byte over it is not.
+    """
+    try:
+        with open_resolved(
+            item, "rb", scan_bytes=cfg.secret_content_scan_bytes
+        ).handle as fh:
+            try:
+                nbytes: int | None = os.fstat(fh.fileno()).st_size
+            except OSError:
+                # No size to compare against. A read that filled the cap is the only sign
+                # left, and calling that file partly searched when it was whole is the
+                # harmless direction.
+                nbytes = None
+            blob = fh.read(cfg.max_file_read_bytes)
+    except (OSError, PathRefused):
+        # Changed since the walk: dropped, not refused, since nobody named this path.
+        return None
+
+    over_cap = (
+        nbytes > cfg.max_file_read_bytes
+        if nbytes is not None
+        else len(blob) >= cfg.max_file_read_bytes
+    )
+    text = _decode_cut(blob) if over_cap else decode_text(blob)[0]
+    if text is None:
+        return None
+    return text, over_cap
 
 
 def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
@@ -514,26 +576,26 @@ def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
 
     By `max_results`, as asked, and `max_read_chars`, or a pattern matching every line
     would return the file.
+
+    A file over `max_file_read_bytes` is read in part, and the paths that happened to are
+    returned with the hits: a match past the cap is not a match that does not exist, and
+    the result has to say which files were never looked at past that point.
     """
     lines: list[str] = []
     files = 0
     used = 0
     truncated = False
+    cut: list[str] = []
 
     for item in paths:
         if len(lines) >= max_results:
-            return _Hits(tuple(lines), files, True)
-        try:
-            with open_resolved(
-                item, "rb", scan_bytes=cfg.secret_content_scan_bytes
-            ).handle as fh:
-                blob = fh.read(cfg.max_file_read_bytes)
-        except (OSError, PathRefused):
-            # Changed since the walk: dropped, not refused, since nobody named this path.
+            return _Hits(tuple(lines), files, True, tuple(cut))
+        read = _read_for_search(cfg, item)
+        if read is None:
             continue
-        text, _ = decode_text(blob)
-        if text is None:
-            continue
+        text, over_cap = read
+        if over_cap:
+            cut.append(item.posix)
 
         hits = 0
         for number, line in enumerate(text.splitlines(), start=1):
@@ -553,7 +615,19 @@ def _search_hits(cfg: Config, paths, needle, max_results: int) -> _Hits:
         if truncated:
             break
 
-    return _Hits(tuple(lines), files, truncated)
+    return _Hits(tuple(lines), files, truncated, tuple(cut))
+
+
+def _partial_note(cfg: Config, cut: Sequence[str]) -> str:
+    """Which files were searched only up to the byte cap, and where that cap is.
+
+    Named in the result rather than the schema, for the same reason the scan cap is: an
+    answer that reads as exhaustive is what makes the model deny a symbol exists.
+    """
+    return (
+        f"Only the first {cfg.max_file_read_bytes} bytes of each of these were searched, "
+        "so a match past that point is not in this result: " + ", ".join(cut) + "."
+    )
 
 
 def _unscoped_note(cfg: Config) -> str:
@@ -594,7 +668,54 @@ def _search_report(
             f"Only the first {cfg.search_max_files_scanned} files were opened, so this is "
             "not exhaustive. Narrow it with path or glob."
         )
+    if hits.cut:
+        tail.append(_partial_note(cfg, hits.cut))
     return "\n".join(hits.lines) + "\n\n" + " ".join(tail)
+
+
+@dataclass(frozen=True, slots=True)
+class _SearchCall:
+    """What the caller named, so a no-match can be rendered without re-running the policy."""
+
+    raw: str
+    given: str
+    name_glob: str
+    root_scope: str | None
+
+
+def _no_match(cfg: Config, call: _SearchCall, hits: _Hits, capped: bool) -> str:
+    """The no-match result, with every reason it may not be an absence stated in it.
+
+    "No line matched" is a claim about the bytes read, not about the files: a file over the
+    byte cap was read in part, and a no-match that reads as exhaustive is what makes the
+    model deny a symbol exists.
+    """
+    unscoped = call.given == UNSCOPED
+    where = "every workspace root" if unscoped else call.given
+    scope_note = f" among files matching {call.name_glob!r}" if call.name_glob else ""
+    reasons: list[str] = []
+    if capped:
+        reasons.append(
+            "The scan cap was reached first, so this is not exhaustive -- narrow it "
+            "with path or glob."
+        )
+    if hits.cut:
+        # Not "the pattern is absent": the rest of these files was never looked at.
+        reasons.append(
+            "Every byte that was read is free of the pattern, but some files were read "
+            "only in part, so it may still be past that point."
+        )
+    if not reasons:
+        reasons.append(
+            "The pattern is absent from everything the path policy lets you read "
+            "there; it may still exist in a file that policy declines."
+        )
+    note = f" {_unscoped_note(cfg)}" if unscoped else ""
+    if call.root_scope is not None:
+        note = f" {_root_scope_note(cfg, call.root_scope)}"
+    if hits.cut:
+        note += f" {_partial_note(cfg, hits.cut)}"
+    return f"No line matched {call.raw!r} in {where}{scope_note}. {' '.join(reasons)}{note}"
 
 
 def _search_files(cfg: Config, args: dict[str, object]) -> str:
@@ -656,19 +777,12 @@ def _search_files(cfg: Config, args: dict[str, object]) -> str:
     hits = _search_hits(cfg, permitted, needle, max_results)
 
     if not hits.lines:
-        where = "every workspace root" if given == UNSCOPED else given
-        scope_note = f" among files matching {name_glob!r}" if name_glob else ""
-        why = (
-            "The scan cap was reached first, so this is not exhaustive -- narrow it with "
-            "path or glob."
-            if capped
-            else "The pattern is absent from everything the path policy lets you read "
-                 "there; it may still exist in a file that policy declines."
+        return _no_match(
+            cfg,
+            _SearchCall(raw=raw, given=given, name_glob=name_glob, root_scope=root_scope),
+            hits,
+            capped,
         )
-        note = f" {_unscoped_note(cfg)}" if given == UNSCOPED else ""
-        if root_scope is not None:
-            note = f" {_root_scope_note(cfg, root_scope)}"
-        return f"No line matched {raw!r} in {where}{scope_note}. {why}{note}"
 
     return _search_report(
         cfg, hits, capped=capped, unscoped=given == UNSCOPED, root_scope=root_scope
