@@ -150,6 +150,12 @@ ignore = [
 "scripts/docs_gate.py" = ["PLR0912"]
 
 [tool.mypy]
-files = ["src"]
+# `scripts/` is checked too. The gate every commit passes through lives there, and leaving
+# it out meant the one file nobody can skip was the one file no type checker read.
+files = ["src", "scripts"]
+# The scripts import the package by putting `src` on `sys.path` at runtime, so mypy has to
+# be told where it is: without this the package resolves through site-packages, which has
+# no `py.typed`, and every import of it is reported as untyped.
+mypy_path = "src"
 # The server is POSIX-only, so a Windows run checks what CI checks, not `fcntl`'s absence.
 platform = "linux"

@@ -23,7 +23,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -98,7 +98,7 @@ def _group_key(record: dict, by: str) -> str:
     return record.get("tool") or "(none)"
 
 
-def _in_range(record: dict, since: object) -> bool:
+def _in_range(record: dict, since: date | None) -> bool:
     """True when `--since` does not exclude the record.
 
     A record whose `at` is missing or unparseable is kept rather than dropped: filtering
@@ -166,7 +166,7 @@ def _print_saving(total: dict[str, int]) -> None:
           "did, which is not measured.")
 
 
-def report(path: str, by: str, since: object, saving: bool) -> int:
+def report(path: str, by: str, since: date | None, saving: bool) -> int:
     if not os.path.isfile(path):
         print(f"ledger not found: {path}", file=sys.stderr)
         return 1

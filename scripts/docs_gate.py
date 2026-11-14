@@ -35,6 +35,7 @@ import sys
 import tempfile
 import tokenize
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -504,7 +505,8 @@ def _word_pattern(literal: str) -> str:
 
 def split_literals(literals: list[str]) -> tuple[list[str], list[str]]:
     """Into (loose, word-boundary). Loose is the default and covers hostnames."""
-    loose, words = [], []
+    loose: list[str] = []
+    words: list[str] = []
     for lit in literals:
         (words if lit.startswith(WORD_PREFIX) else loose).append(
             lit[len(WORD_PREFIX):].strip() if lit.startswith(WORD_PREFIX) else lit)
@@ -1155,11 +1157,11 @@ def check_ownership(changed: list[str], exempt: frozenset[str] = frozenset()) ->
         if not any(d in changed_set for d in docs):
             stale_pairs.setdefault(", ".join(docs), []).append(path)
 
-    for docs, paths in stale_pairs.items():
+    for doc_key, paths in stale_pairs.items():
         shown = ", ".join(paths[:3]) + (f" (+{len(paths)-3} more)" if len(paths) > 3 else "")
         out.append(Finding(
             BLOCK, "owning-doc",
-            f"{shown} changed but {docs} was not updated in the same commit. Update it, "
+            f"{shown} changed but {doc_key} was not updated in the same commit. Update it, "
             f"or add a trailer: 'Docs-Gate-Skip: owning-doc -- <reason>'."))
     return out
 
@@ -2015,6 +2017,18 @@ def check_range_is_not_empty(mode: str, diff_range: str | None) -> list[Finding]
         f"`origin/main...HEAD` is empty because the checkout IS main; pass the range the "
         f"push brought (`<before>...<sha>`), or any range resolving to at least one commit.")]
 
+
+# Every check takes some subset of (mode, diff_range, message_file, pr_event) and returns
+# findings; `_run_checks` picks the arguments by name. A dict cannot hold one type per key,
+# so the value type says what is common to all of them -- `Callable[..., list[Finding]]` --
+# and the arity is checked where the call is written rather than here. Unannotated, the
+# dict's inferred value type was a union of 26 signatures mypy could not call at all.
+#
+# The annotation is a separate statement because `CHECKS = {` is a literal string that
+# tests/regression/test_gate_checks_can_fail.py splits the registry out of, to check every
+# check is named by some test. Annotating the assignment would change that line and the
+# meta-test would find nothing to parse.
+CHECKS: dict[str, Callable[..., list[Finding]]]
 
 CHECKS = {
     "empty-range": check_range_is_not_empty,

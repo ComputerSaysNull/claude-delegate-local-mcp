@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #564 — 2026-11-14 — fix: mypy checks scripts/ as well as src/
+
+### Fixed
+
+- **`scripts/` was never type-checked, `docs_gate.py` included.** `[tool.mypy] files` named
+  only `src`, so the gate every commit passes through, and the planner and generators
+  beside it, ran unchecked while ruff covered them. Adding `scripts` found 14 errors in 6
+  files, all fixed without a new `# type: ignore`: a `str + None` path in `ast_unchanged.py`
+  (now typed by overloads on `required`), an optional verification text in `plan_stack.py`,
+  a `date` compared with `object` in `ledger_report.py`, a loop in `docs_gate.py` that
+  rebound a list name to a string, and an untyped check registry. `mypy_path = "src"`
+  lets the scripts that import the package resolve it from source. `tests/` stays out for
+  now: mypy stops there on test modules importing scripts by bare name.
+
 ## #563 — 2026-11-14 — fix: run_bash keeps only a bounded tail of a command's output
 
 ### Fixed
