@@ -333,7 +333,9 @@ because resolving that is what catches a link pointing out of the root.
 
 So the policy hands back an open descriptor and never a path. The open refuses a link at
 the final component outright, then proves the descriptor still refers to the approved
-path, which catches a swapped parent directory too. What it deliberately does not treat
+path, which catches a swapped parent directory too. It opens non-blocking and refuses a
+descriptor no longer on a regular file, so a FIFO swapped in cannot hang the open or slip
+past the key-material scan. What it deliberately does not treat
 as a breach is a different *regular* file at an approved path — layers 1, 2 and 4 are
 functions of the path, so those bytes could have arrived through `write_file` anyway.
 Refused as `layer 5, the opened file`, with nothing read and nothing written. (ADR-0049)
