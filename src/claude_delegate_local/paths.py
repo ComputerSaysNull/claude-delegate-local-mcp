@@ -42,6 +42,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
+try:  # POSIX only. Absent on Windows, where `O_NONBLOCK` folds out and there is no FIFO.
+    import fcntl
+except ImportError:  # pragma: no cover -- exercised by the Windows leg of CI
+    fcntl = None  # type: ignore[assignment]
+
 from .config import IMAGE_EXTENSIONS, Config, normalise_extensions
 from .wsl import UntranslatablePath, to_posix
 
@@ -1396,6 +1401,13 @@ def _resolve_many(
 # either. Stated rather than glossed: on such a platform the proof below is weaker.
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
+# Folds out on Windows for the same reason: no FIFO is swapped in there, so nothing waits.
+# Everywhere else this is what stops `os.open` blocking on a FIFO that has taken the place
+# of an approved regular file -- `run_bash` can do that in the workdir between approval and
+# the open. Cleared again once the descriptor is proven, so a caller's handle blocks
+# exactly as it did before (ADR-0049).
+_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+
 _MODE_FLAGS = {
     "rb": os.O_RDONLY,
     "r+b": os.O_RDWR,
@@ -1426,6 +1438,101 @@ def _opened_path(fd: int) -> str | None:
     if not os.path.islink(link):
         return None
     return os.path.realpath(link)
+
+
+def _not_regular_refusal(entry: ResolvedPath, reason: str) -> PathRefused:
+    """The refusal for a path that is no longer a regular file.
+
+    Layer 1's verdict, given at open time instead. `_check_exists` refuses a non-regular file
+    before any descriptor exists; this is the same answer for the case it cannot see, which
+    is the path changing after it ran.
+    """
+    return PathRefused(
+        [
+            Refusal(
+                given=entry.given,
+                layer=LAYER_OPENED,
+                reason=reason,
+                remedy=(
+                    "It was a regular file when it was approved and is not one now. "
+                    "Nothing was read or written. Resolve it again; a FIFO, a socket or a "
+                    "device is not a thing to read as a file."
+                ),
+            )
+        ],
+        1,
+        surface="opened file",
+    )
+
+
+def _kind_of(mode: int) -> str:
+    """What the mode says it is, so a refusal can name it rather than shrug."""
+    for test, name in (
+        (stat_module.S_ISFIFO, "a FIFO"),
+        (stat_module.S_ISSOCK, "a socket"),
+        (stat_module.S_ISDIR, "a directory"),
+        (stat_module.S_ISCHR, "a character device"),
+        (stat_module.S_ISBLK, "a block device"),
+        (stat_module.S_ISLNK, "a symbolic link"),
+    ):
+        if test(mode):
+            return name
+    return "something else"
+
+
+def _prove_regular(entry: ResolvedPath, fd: int) -> None:
+    """Refuse unless the descriptor is on a regular file.
+
+    The half `_prove_descriptor` does not cover. That one proves the descriptor is *at* the
+    approved path; this proves *what* is at it. Layer 1 makes the same check at resolve time
+    and is a function of the path, so it cannot see a FIFO planted afterwards -- which
+    `run_bash` can do in the workdir. Measured without it: "rb" and "wb" both waited on the
+    FIFO until something opened the other end, and the key-material scan was silently
+    skipped too, because `pread` fails on a pipe and `_refuse_key_material` reads that
+    `OSError` as "no key".
+
+    Runs before the proof rather than after, because there is nothing to prove about the
+    identity of a descriptor that is not on a file at all.
+    """
+    try:
+        st = os.fstat(fd)
+    except OSError as e:
+        raise PathRefused(
+            [
+                Refusal(
+                    given=entry.given,
+                    layer=LAYER_OPENED,
+                    reason=f"the file it opened could not be checked ({e.strerror or e}).",
+                    remedy="Nothing was read or written. Resolve the path again.",
+                )
+            ],
+            1,
+            surface="opened file",
+        ) from e
+
+    if stat_module.S_ISREG(st.st_mode):
+        return
+    raise _not_regular_refusal(
+        entry,
+        f"it is no longer a regular file -- it is {_kind_of(st.st_mode)} now, though it was "
+        "a regular file when the path was approved.",
+    )
+
+
+def _clear_nonblock(fd: int) -> None:
+    """Undo the `O_NONBLOCK` the open needed, so the caller's handle behaves as it always did.
+
+    A no-op where `O_NONBLOCK` folds out or `fcntl` is absent, and best effort even where it
+    is not: the descriptor is already proven to be on an approved regular file, where
+    `O_NONBLOCK` changes nothing -- a regular file never returns `EAGAIN`. Swallowing an
+    error here keeps this a tidy-up rather than a second policy.
+    """
+    if _NONBLOCK == 0 or fcntl is None:
+        return
+    try:
+        fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) & ~_NONBLOCK)
+    except OSError:
+        return
 
 
 def _prove_descriptor(entry: ResolvedPath, fd: int) -> None:
@@ -1512,7 +1619,7 @@ def open_resolved(entry: ResolvedPath, mode: str, *, scan_bytes: int = 0) -> Ope
     descriptor for the whole operation and never opens twice against one check, which is
     what makes `edit_file` safe by construction rather than by review.
 
-    Two things are load-bearing and neither is obvious.
+    Three things are load-bearing and none is obvious.
 
     **`O_NOFOLLOW`, despite the usual objection.** The objection is that it refuses
     legitimate symlinked checkouts, and it would -- on the path a *caller* wrote. This flag
@@ -1526,13 +1633,23 @@ def open_resolved(entry: ResolvedPath, mode: str, *, scan_bytes: int = 0) -> Ope
     truncation after the proof is a guard; a check after `O_TRUNC` is a report of what was
     already lost. `O_EXCL` is tried first so `created` can be reported without a second
     `stat` on the same string, which was itself a second use of an unvalidated path.
+
+    **`O_NONBLOCK`, and the type check that follows it.** Layer 1 refuses a non-regular
+    file, and it is a function of the path, so it cannot see a FIFO that took the path's
+    place after approval -- `run_bash` can do that in the workdir. Opening `O_NONBLOCK`
+    makes that open return instead of waiting for a peer; `_prove_regular` then refuses the
+    descriptor, which is the answer layer 1 would have given. It also restores the content
+    check, whose `pread` would otherwise fail on a pipe and read as "no key material". The
+    flag is cleared once the descriptor is proven, so the handle a caller receives blocks
+    exactly as it did before, and `ENXIO` from a write-only open of a readerless FIFO is
+    that same refusal rather than a raw `OSError`.
     """
     try:
         flags = _MODE_FLAGS[mode]
     except KeyError:
         raise ValueError(f"unsupported mode {mode!r}; use 'rb', 'r+b' or 'wb'") from None
 
-    flags |= _NOFOLLOW
+    flags |= _NOFOLLOW | _NONBLOCK
     created = False
     try:
         if mode == "wb":
@@ -1561,9 +1678,20 @@ def open_resolved(entry: ResolvedPath, mode: str, *, scan_bytes: int = 0) -> Ope
                 1,
                 surface="opened file",
             ) from e
+        if e.errno == errno.ENXIO:
+            # A write-only open of a FIFO nobody is reading. `O_NONBLOCK` turns the wait
+            # into this errno, so it is the refusal below rather than a raw OSError.
+            raise _not_regular_refusal(
+                entry,
+                "it is no longer a regular file -- opening it for writing found no reader "
+                "on the other end, which is what a FIFO does and a file never does.",
+            ) from e
         raise
 
     try:
+        # Type before identity: there is nothing to prove about where a descriptor that is
+        # not on a regular file points.
+        _prove_regular(entry, fd)
         _prove_descriptor(entry, fd)
         if mode == "wb":
             if not created:
@@ -1571,6 +1699,8 @@ def open_resolved(entry: ResolvedPath, mode: str, *, scan_bytes: int = 0) -> Ope
                 os.ftruncate(fd, 0)
         elif scan_bytes > 0:
             _refuse_key_material(entry, fd, scan_bytes)
+        # Proven regular, so the flag that kept the open from waiting has no further job.
+        _clear_nonblock(fd)
     except BaseException:
         os.close(fd)
         raise

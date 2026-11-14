@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #557 — 2026-11-14 — fix: opening an approved path refuses anything not a regular file
+
+### Fixed
+
+- **A FIFO swapped in after approval hung the read and skipped the key scan.** The open
+  re-proved that the descriptor was at the approved path but not what it was, and opened
+  without `O_NONBLOCK`; the regular-file check ran only when the path was resolved. A
+  `run_bash` command could replace an approved file with a FIFO in the workdir, and
+  `read_file` (or a `wb` write) then blocked its worker thread until something opened the
+  other end, while `pread` failing on the pipe read as "no key material". The open is now
+  non-blocking, the descriptor's type is checked before anything else, and a write-only
+  open finding no reader is the same refusal; the flag is cleared again on a proven file.
+
 ## #556 — 2026-11-14 — fix: a secret file bound by name in extra_binds is covered
 
 ### Fixed
