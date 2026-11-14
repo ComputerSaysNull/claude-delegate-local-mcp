@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #563 — 2026-11-14 — fix: run_bash keeps only a bounded tail of a command's output
+
+### Fixed
+
+- **A noisy command could take the whole server down.** `run_bash` captured a command's
+  entire stdout and stderr in the server's own memory until it exited or timed out, and
+  `max_bash_output_chars` cut the text only afterwards; the sandbox's memory cap bounds the
+  command, not the server. Measured, 50 MB of output peaked at 100 MB, so `yes` or
+  `find /` could grow until the server was killed, and every delegation running beside it
+  died too. Both pipes are now drained as the command runs, each keeping only a tail sized
+  from the character cap, so the peak stays near that cap whatever the command prints. The
+  truncation note now states the true size in bytes, counted as the output went past.
+
 ## #562 — 2026-11-14 — fix: search_files says which files it searched only in part
 
 ### Fixed

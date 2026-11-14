@@ -1081,7 +1081,10 @@ def _capped(cfg: Config, result: sandbox.SandboxResult) -> str:
 
     Labelled, since printing nothing and printing to stderr are different facts. Cut, not
     refused like a write, because a truncated log is still evidence; the tail is kept, as a
-    build says what went wrong last.
+    build says what went wrong last. The true length is the number of bytes the command
+    wrote -- `result.output_bytes` -- not the length of the tail kept for it, which is all
+    `result.stdout` and `result.stderr` hold once the command outran the tail. Where nothing
+    measured it, the strings are all there is and the count is in characters.
     """
     parts = []
     if result.stdout:
@@ -1092,8 +1095,12 @@ def _capped(cfg: Config, result: sandbox.SandboxResult) -> str:
     if len(text) <= cfg.max_bash_output_chars:
         return text
     kept = text[-cfg.max_bash_output_chars:]
+    if result.output_bytes:
+        size, unit = result.output_bytes, "bytes"
+    else:
+        size, unit = len(text), "characters"
     return (
-        f"[truncated: {len(text)} characters of output, showing the last "
+        f"[truncated: {size} {unit} of output, showing the last "
         f"{len(kept)}.]\n{kept}"
     )
 
