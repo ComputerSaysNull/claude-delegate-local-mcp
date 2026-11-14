@@ -13,6 +13,10 @@ commit-message trailer, which is deliberately visible rather than silent:
 
     Docs-Gate-Skip: owning-doc -- pure rename, no behaviour change
 
+Not every check can be waived: one that reports something already pushed -- a leaked
+address, a forged author, a secret in the history -- is refused, and the refusal is itself
+a block. A trailer naming nothing the gate runs waives nothing and is reported as unknown.
+
 Checks are added as the artefacts they police arrive. A check whose input does not exist
 yet reports SKIP with the reason, rather than passing silently -- an invisible no-op
 check is worse than an absent one, because it is trusted.
@@ -2009,8 +2013,74 @@ CHECKS = {
 }
 
 
-def waivers(mode: str, message_file: str | None = None) -> dict[str, str]:
-    """Parse `Docs-Gate-Skip: <check> -- <reason>` trailers.
+# A trailer may not waive these, and the refusal is reported as a block of its own.
+# Each one reports something that has already left the repository -- an address in a
+# pushed commit, a forged author, a secret in the history -- and none of it can be taken
+# back. A waiver silences its check for the whole branch, so one trailer could let a leak
+# through a gate that had seen it.
+UNWAIVABLE_CHECKS = frozenset({
+    "identity", "email-content", "commit-message", "host-identifier",
+    "public-text", "secret-path", "never-track",
+})
+
+# What a trailer may name. `changed-files` stands for the git call `_run_checks` makes
+# rather than for an entry in CHECKS, so it is known without being a check.
+KNOWN_NAMES = frozenset(CHECKS) | UNWAIVABLE_CHECKS | {"changed-files"}
+
+
+@dataclass
+class Waivers:
+    """The three verdicts a trailer can get: accepted, refused, and not a check at all."""
+
+    accepted: dict[str, str]
+    refused: dict[str, str]
+    unknown: dict[str, str]
+
+
+def parse_waivers(text: str) -> Waivers:
+    """Sort `Docs-Gate-Skip: <check> -- <reason>` trailers by what they are worth.
+
+    Pure, so the rule can be tested without git: `waivers()` is the wrapper that finds the
+    text. A name is refused when the check it names can never be waived, and unknown when
+    it names nothing the gate runs. Both waive nothing -- the blocking finding the trailer
+    was meant to silence still stands -- and both are reported, because a typo that
+    silently waives nothing reads exactly like a waiver that worked.
+    """
+    out = Waivers({}, {}, {})
+    for m in re.finditer(r"^Docs-Gate-Skip:\s*([a-z-]+)\s*(?:--|—)\s*(.+)$", text, re.MULTILINE):
+        name, reason = m.group(1).strip(), m.group(2).strip()
+        if name in UNWAIVABLE_CHECKS:
+            out.refused[name] = reason
+        elif name in KNOWN_NAMES:
+            out.accepted[name] = reason
+        else:
+            out.unknown[name] = reason
+    return out
+
+
+def waiver_findings(w: Waivers) -> list[Finding]:
+    """The trailer's own findings: a refused waiver blocks, an unknown name warns.
+
+    The refusal is reported under the name it was written with, which is never in
+    `accepted`, so the block it raises cannot be waived by the trailer that caused it.
+    """
+    out: list[Finding] = []
+    for name in w.refused:
+        out.append(Finding(
+            BLOCK, name,
+            f"Docs-Gate-Skip: {name} is refused. It reports something already published "
+            f"-- a leak, a forged author, a secret in the history -- and cannot be waived, "
+            f"because a pushed leak cannot be undone. Its blocking finding stands."))
+    for name in w.unknown:
+        out.append(Finding(
+            WARN, "waiver",
+            f"Docs-Gate-Skip names an unknown check '{name}'. There is no such check in "
+            f"this gate, so the trailer waives nothing -- check the spelling."))
+    return out
+
+
+def waivers(mode: str, message_file: str | None = None) -> Waivers:
+    """Find the `Docs-Gate-Skip` text and parse it.
 
     Waivers are echoed in the output on purpose. An escape hatch nobody can see becomes
     the default route; one that leaves a visible trail in every run does not.
@@ -2025,10 +2095,22 @@ def waivers(mode: str, message_file: str | None = None) -> dict[str, str]:
         text = ""
     else:
         text = run("git", "log", "--format=%B", "origin/main...HEAD")
-    out = {}
-    for m in re.finditer(r"^Docs-Gate-Skip:\s*([a-z-]+)\s*(?:--|—)\s*(.+)$", text, re.MULTILINE):
-        out[m.group(1).strip()] = m.group(2).strip()
-    return out
+    return parse_waivers(text)
+
+
+def partition_findings(findings: list[Finding], accepted: dict[str, str]) -> tuple[
+        list[Finding], list[Finding], list[Finding], list[Finding]]:
+    """Split findings the way the verdict counts them: blocks, waived, warnings, skips.
+
+    Factored out of `main()` so that the filtering the verdict rests on is one function,
+    driven by the same call in the test as in the run. A waiver removes a BLOCK and
+    nothing else: a warning is advice, and a skip is a check that has not applied yet.
+    """
+    blocks = [f for f in findings if f.level == BLOCK and f.check not in accepted]
+    waived_hits = [f for f in findings if f.level == BLOCK and f.check in accepted]
+    warns = [f for f in findings if f.level == WARN]
+    skips = [f for f in findings if f.level == SKIP]
+    return blocks, waived_hits, warns, skips
 
 
 def amend_hint(mode: str) -> str:
@@ -2259,12 +2341,10 @@ def main() -> int:
         return 1
 
     changed, findings = _run_checks(args)
-    waived = waivers(args.mode, args.message_file)
+    parsed = waivers(args.mode, args.message_file)
+    findings += waiver_findings(parsed)
 
-    blocks = [f for f in findings if f.level == BLOCK and f.check not in waived]
-    waived_hits = [f for f in findings if f.level == BLOCK and f.check in waived]
-    warns = [f for f in findings if f.level == WARN]
-    skips = [f for f in findings if f.level == SKIP]
+    blocks, waived_hits, warns, skips = partition_findings(findings, parsed.accepted)
 
     # Says what was counted, not just how many. An amend stages only its increment, so
     # "1 changed file(s)" on a commit holding six is accurate and reads as a bug report;
@@ -2276,7 +2356,7 @@ def main() -> int:
         print("  " + str(f))
     for f in waived_hits:
         print(f"  WAIVED [{f.check}] {f.message}")
-        print(f"         reason given: {waived[f.check]}")
+        print(f"         reason given: {parsed.accepted[f.check]}")
     for f in skips:
         print("  " + str(f))
 
