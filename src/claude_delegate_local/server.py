@@ -1184,8 +1184,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 # every other failure, where nothing counted.
                 turns=(
                     getattr(dispatched, "turns", 1) if dispatched
-                    else failure.turns if isinstance(failure, DispatchTimedOut)
-                    else None
+                    else getattr(failure, "turns", None)
                 ),
                 elapsed_seconds=_clock() - started,
                 # A one-shot or a failure may have no budget; 0 means "not a loop" and is
