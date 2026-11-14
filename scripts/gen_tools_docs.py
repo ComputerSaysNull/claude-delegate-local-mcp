@@ -73,7 +73,13 @@ def render() -> str:
     for name, tool in tools.REGISTRY.items():
         schema = tool.spec.input_schema
         props: dict[str, object] = schema.get("properties", {})  # type: ignore[assignment]
-        required = set(schema.get("required", []))  # type: ignore[arg-type]
+        raw_required = schema.get("required", [])
+        # JSON Schema spells `required` as an array of names, and that is what every entry
+        # in the registry writes. Narrowing to the list is the check the `type: ignore` here
+        # used to stand in for; a non-list is not a schema this generator can render, and
+        # `set()` of it would raise anyway.
+        required = ({str(item) for item in raw_required}
+                    if isinstance(raw_required, list) else set())
         out += [f"## `{name}`", "", tool.spec.description, ""]
         if props:
             out += ["| Argument | Type | Required | Description |",

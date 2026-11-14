@@ -28,6 +28,7 @@ import ast
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, Literal, overload
 
 
 def normalised(source: str) -> str:
@@ -85,7 +86,21 @@ def _strip_docstrings(node: ast.AST) -> None:
         _strip_docstrings(child)
 
 
-def _git(*args: str, required: bool = True) -> str | None:
+# `required` decides whether a failure exits or returns None, so the return type depends on
+# it. Spelled as overloads rather than one `str | None`, because a caller that passed
+# `required=True` has no None to handle -- pretending otherwise is what made `main`'s
+# `listing += _git(...)` an addition of `str` and `None`. The implementation returns `Any`
+# because mypy requires one return type compatible with every overload; the overloads are
+# what callers see.
+@overload
+def _git(*args: str, required: Literal[True] = True) -> str: ...
+
+
+@overload
+def _git(*args: str, required: Literal[False]) -> str | None: ...
+
+
+def _git(*args: str, required: bool = True) -> Any:
     """Run `git` and return stdout; a required failure is an error.
 
     The repository is the current working directory, so this works both when run from

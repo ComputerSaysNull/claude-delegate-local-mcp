@@ -288,7 +288,8 @@ def plan(stack: list[str], verification: str | None = None) -> int:
         print(f"\nREFUSED: {branch}'s newest CHANGELOG section is empty, and it is the pull "
               f"request body.")
         return 1
-    if not (verification or "").strip():
+    verification_text = verification or ""
+    if not verification_text.strip():
         print(
             f"\nREFUSED: no verification for {branch}. The pull request body is the CHANGELOG "
             f"section plus how the change was verified -- the red-before-green result or the "
@@ -296,7 +297,7 @@ def plan(stack: list[str], verification: str | None = None) -> int:
             f"again with --verification <file>."
         )
         return 1
-    if _OWN_HEADING.search(verification or ""):
+    if _OWN_HEADING.search(verification_text):
         # Refused rather than stripped: the file is the author's text, and rewriting it
         # quietly would hide that it was written for a different contract.
         print(
@@ -306,7 +307,10 @@ def plan(stack: list[str], verification: str | None = None) -> int:
             f"and run again."
         )
         return 1
-    body = pr_body(section, verification)
+    # `verification_text` is `verification` when there is one and "" when there is not; the
+    # emptiness check above has already returned for the empty case, and `pr_body` strips
+    # the text anyway, so this publishes exactly what `verification` would have.
+    body = pr_body(section, verification_text)
 
     issued = next_number()
     if issued is not None and int(claimed) != issued:
