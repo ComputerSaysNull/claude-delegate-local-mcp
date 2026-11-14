@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #558 — 2026-11-14 — fix: a stream that ends without finishing is a failure, not an answer
+
+### Fixed
+
+- **A reply cut off mid-stream came back as a finished answer.** When the endpoint's stream
+  ended cleanly but early — no `finish_reason`, no usage, no `[DONE]`, as when a worker dies
+  after flushing or a proxy closes an idle connection — the adapter returned what it had
+  with an empty finish reason and zero tokens. The caller got half an answer that read as
+  whole, the ledger booked the turn as free, and the adapter broke its own contract that
+  `complete()` never returns a partial. Such a stream now raises `BackendUnavailable`
+  carrying the partial, exactly as a read timeout does; either end marker on its own still
+  counts as finished. A 200 with an empty body is now this failure too, retried as a
+  transport fault rather than sent down the empty-answer ladder.
+
 ## #557 — 2026-11-14 — fix: opening an approved path refuses anything not a regular file
 
 ### Fixed
