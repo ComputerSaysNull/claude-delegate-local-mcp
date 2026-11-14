@@ -248,6 +248,9 @@ class OpenAICompatBackend:
         # When the first chunk of kind "answer" arrived: reasoning_seconds is this minus
         # `first`, measured beside prefill and decode, in the same pass.
         answer_first: float | None = None
+        # Whether the endpoint closed the stream with its own end marker. Its absence is
+        # one half of the check after the loop; the accumulator holds the other.
+        saw_done = False
 
         def decoded() -> CanonicalResponse | None:
             """What the stream had produced, or `None` if it never produced anything.
@@ -288,6 +291,7 @@ class OpenAICompatBackend:
                 async for line in r.aiter_lines():
                     frame = _sse_frame(line, path)
                     if frame is _SSE_DONE:
+                        saw_done = True
                         break
                     if frame is None:
                         continue
@@ -326,6 +330,27 @@ class OpenAICompatBackend:
             # `except Exception` would look right and miss the one path that matters most.
             _attach(e, decoded)
             raise
+        # A stream that stopped without saying so is a transport failure, not an answer.
+        # `[DONE]` is the protocol's own end marker and a `finish_reason` is the model's;
+        # either one is the endpoint reporting the turn is whole, so either one is enough.
+        # Neither means it stopped talking mid-turn -- a worker killed after flushing its
+        # buffers, a proxy closing an idle stream, a load balancer recycling a connection --
+        # and returning the accumulator there hands the caller half an answer shaped
+        # exactly like a finished one: an empty finish reason and zero tokens, which the
+        # ledger books as a free turn. base.py says `complete()` never returns a partial,
+        # and this was the path that made it one.
+        #
+        # `while_generating` is `first is not None` for the reason the timeout path gives
+        # it: tokens had arrived, so the request was delivered and its allowance was being
+        # spent, which is a different fact from one that never reached the endpoint.
+        if not saw_done and not acc.finished:
+            unavailable = BackendUnavailable(
+                f"{path} stream ended without a finish reason or [DONE] on model "
+                f"{self._entry.key!r}.",
+                while_generating=first is not None,
+            )
+            _attach(unavailable, decoded)
+            raise unavailable
         # `None`, not 0.0, when one frame carried every token: the interval is unknown,
         # not instantaneous, and a zero would be divided by downstream.
         span = None if first is None or last is None or last <= first else last - first
@@ -585,6 +610,15 @@ class _StreamAccumulator:
     def piece(self) -> str:
         """The text the last frame carried: its answer if it had one, else its reasoning."""
         return self._piece
+
+    @property
+    def finished(self) -> bool:
+        """Whether the model said the turn was over, by sending a `finish_reason`.
+
+        `[DONE]` is the protocol's other way of saying so, and the frame loop watches for
+        that one itself. This is the half a stream that simply stops talking does not have.
+        """
+        return self._finish is not None
 
     def feed(self, frame: dict[str, Any]) -> str | None:
         """Absorb one frame. What it carried: `"reasoning"`, `"answer"`, or None.
