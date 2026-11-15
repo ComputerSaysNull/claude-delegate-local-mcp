@@ -42,8 +42,8 @@ The second of those is in force. The chat call streams (ADR-0070) and a
 *succeeding* `complete()` is unchanged by it: frames accumulate inside the adapter into the
 payload the non-streaming parser already reads, and the whole response returns once the
 stream ends, so no tool result changes shape. A **failing** one does not discard what it
-decoded (ADR-0078) — the tokens ride out on the exception as a whole `CanonicalResponse`,
-cancellation included, and no token still means no partial.
+decoded (ADR-0078) — the tokens ride out on the exception as a whole `CanonicalResponse`, a
+stall or cancellation included, its last partial flushed, and no token still means none.
 The call runs as a task that `_until_deadline` cancels and awaits on any exit, not only its
 own deadline, so a caller's cancel closes the stream and the engine stops generating.
 Two things follow that a reader would otherwise be caught by. `stream_options.include_usage`
