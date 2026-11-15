@@ -2028,7 +2028,8 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
         try:
             result = await _wait_for_run(handle, sink)
         except asyncio.CancelledError:
-            handles.cancel(handle)
+            # Nobody waits after this, so nothing would ever collect the run.
+            handles.cancel(handle, forget=True)
             raise
         if result["status"] == "question":
             return result
@@ -2336,6 +2337,10 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
             raise ToolError(
                 "answer takes exactly one of `text` and `best_reading: true` -- not "
                 "neither, and not both.")
+        if text is not None and not text.strip():
+            raise ToolError(
+                "answer text is empty. Say what you want the run to know; it resumes with "
+                "the answer.")
         reply = (
             BEST_READING_REPLY
             if best_reading else str(text)
@@ -2428,17 +2433,21 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
 
         A running delegation is stopped by cancelling its task in the client. A run parked
         on a question has no task to cancel, so this stops it, closing the stream to the
-        model. `cancelled` says whether this stopped anything, `stopped` whether the run
-        has ended.
+        model, and forgets it. `cancelled` says whether this stopped anything, `stopped`
+        whether the run has ended.
+
+        A handle this server has already handed over or stopped answers `cancelled: false`,
+        `stopped: true` rather than refusing -- that is what the result schema promises.
+        One it never issued is still refused, with the pointer to the transcript.
         """
         try:
-            cancelled = handles.cancel(handle)
-            task = handles.task(handle)
+            cancelled, stopped = await handles.stop(
+                handle, settle_seconds=_CANCEL_SETTLE_SECONDS)
         except UnknownHandle as e:
+            if handles.forgotten(handle):
+                return {"handle": handle, "cancelled": False, "stopped": True}
             raise ToolError(str(e)) from e
-        if not task.done():
-            await asyncio.wait({task}, timeout=_CANCEL_SETTLE_SECONDS)
-        return {"handle": handle, "cancelled": cancelled, "stopped": task.done()}
+        return {"handle": handle, "cancelled": cancelled, "stopped": stopped}
 
     @mcp.tool(title="List agents", annotations={**_READS, "idempotentHint": True},
               output_schema=_AGENT_LIST_RESULT)

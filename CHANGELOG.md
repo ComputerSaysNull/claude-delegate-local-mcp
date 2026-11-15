@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #567 — 2026-11-15 — fix: a failed or cancelled delegation's handle is freed
+
+### Fixed
+
+- **Every failed or cancelled delegation stayed in memory until restart**, with its result,
+  its exception and the traceback. `Handles.collect` forgot a run only after
+  `task.result()`, which re-raises for a run that failed, so that line was never reached;
+  `cancel_delegation` and a client's `tasks/cancel` never collected at all. A failed run is
+  now dropped as its exception is handed over, and a cancelled one once its task ends.
+- **`cancel_delegation` refused a handle it had already handed over**, raising `unknown
+  handle` where its result schema promises `cancelled: false`. The most recently dropped
+  handles are kept in a bounded record, so such a handle answers `cancelled: false,
+  stopped: true`; one this server never issued is still refused.
+- **`answer` accepted empty text**, resuming a parked run with nothing, while
+  `message_delegation` refused the same. It now refuses empty or blank text too.
+
 ## #566 — 2026-11-15 — fix: a stalled turn keeps the tokens it already decoded
 
 ### Fixed
