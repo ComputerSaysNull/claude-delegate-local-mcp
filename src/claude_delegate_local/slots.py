@@ -536,6 +536,26 @@ class SharedSlots:
                 records.pop(self._me, None)
             self._write(fd, records, next_ticket)
 
+    async def grow(self, *, tokens: int, entry_key: str) -> bool:
+        """Add `tokens` to this process's booking, in one read-modify-write under the lock.
+
+        Returns whether it was added, so the caller gives back only what the file holds. A
+        delta, not a total, so a concurrent release into the same record is not undone.
+        Skipped when no slot for `entry_key` is held here, or `_mine` would recreate a
+        reaped record booking a delta nobody holds.
+        """
+        async with self._locked() as fd:
+            records, next_ticket = self._read(fd)
+            held = records.get(self._me)
+            entries = (held or {}).get("per_entry") or {}
+            added = held is not None and entry_key in entries
+            if held is not None and added:
+                held["tokens"] = int(held.get("tokens", 0)) + tokens
+                held["updated_at"] = time.time()
+            # Written even when nothing changed, to persist `_read`'s reclamation.
+            self._write(fd, records, next_ticket)
+        return added
+
     @staticmethod
     def _is_idle(record: dict[str, Any]) -> bool:
         """Nothing held and nothing queued, so the record says nothing worth keeping.
