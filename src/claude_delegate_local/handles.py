@@ -14,6 +14,7 @@ import asyncio
 import math
 import secrets
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -165,13 +166,16 @@ class Handles:
 
     An entry is dropped the moment `collect` returns its finished or cancelled result --
     the task that ran it already carries that result, so nothing reads it back -- and kept
-    while the run is running or parked on a question.
+    while the run is running or parked on a question. `stop` drops a run it cancelled once
+    that run has ended, since nothing would collect it.
     """
 
     def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
         self._entries: dict[str, _Entry] = {}
         self._by_task: dict[str, str] = {}
+        # Bounded, so the record cannot grow with the process's uptime.
+        self._forgotten: deque[str] = deque(maxlen=256)
 
     def start(self, work: Awaitable[dict[str, Any]], *, tool: str,
               pause: Pause | None = None, inbox: Inbox | None = None,
@@ -261,7 +265,12 @@ class Handles:
         if entry.task.cancelled():
             self._forget(handle)
             return {"handle": handle, "status": "cancelled", "tool": entry.tool}
-        result = entry.task.result()
+        try:
+            result = entry.task.result()
+        except BaseException:
+            # Over too; keeping the entry would keep the traceback for the process's life.
+            self._forget(handle)
+            raise
         self._forget(handle)
         return {**result, "handle": handle, "status": "done"}
 
@@ -284,13 +293,39 @@ class Handles:
         pause.asked.clear()
         pause.answer.set_result(text)
 
-    def cancel(self, handle: str) -> bool:
-        """Cancel a running delegation. False when it had already finished."""
+    def cancel(self, handle: str, *, forget: bool = False) -> bool:
+        """Cancel a running delegation. False when it had already finished.
+
+        `forget` drops the run once its task ends, for a cancel nobody will collect after.
+        """
         task = self._entry(handle).task
+        if forget:
+            task.add_done_callback(lambda _: self._forget(handle))
         if task.done():
             return False
         task.cancel()
         return True
+
+    async def stop(self, handle: str, *, settle_seconds: float) -> tuple[bool, bool]:
+        """Cancel a run and forget it once it has stopped cancelled; `(cancelled, stopped)`.
+
+        A run still winding down inside a shell command is kept for a later `collect`.
+        """
+        entry = self._entry(handle)
+        cancelled = False
+        if not entry.task.done():
+            entry.task.cancel()
+            cancelled = True
+        if not entry.task.done():
+            await asyncio.wait({entry.task}, timeout=settle_seconds)
+        stopped = entry.task.done()
+        if stopped and entry.task.cancelled():
+            self._forget(handle)
+        return cancelled, stopped
+
+    def forgotten(self, handle: str) -> bool:
+        """Whether this process issued `handle` and has since dropped it (bounded record)."""
+        return handle in self._forgotten
 
     def message(self, task_id: str, text: str) -> int:
         """Queue `text` for the run the task id names, and say how many now wait.
@@ -321,10 +356,11 @@ class Handles:
         self._by_task[task_id] = handle
 
     def _forget(self, handle: str) -> None:
-        """Drop a run, with every task id that named it."""
+        """Drop a run, with every task id that named it, and remember that it was dropped."""
         entry = self._entries.pop(handle, None)
         if entry is None:
             return
+        self._forgotten.append(handle)
         for task_id in entry.task_ids:
             self._by_task.pop(task_id, None)
 
