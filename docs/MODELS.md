@@ -113,8 +113,8 @@ Resolution succeeding in the guest is not the same as resolving correctly. See
 
 Every malformed registry is refused at startup, never at first use, and the message names
 the fix. Covered by tests: unknown field, a `/v1` suffix, a missing scheme, a missing
-required field, a bad effort value, an unimplemented format, two defaults, several models
-with no default, zero concurrency, invalid TOML, and a missing file.
+required field, a bad effort value, a wrong type, an unimplemented format, two defaults,
+several models with no default, zero concurrency, invalid TOML, and a missing file.
 
 A bad registry discovered thirty minutes into a delegation is a far worse experience than a
 refusal to boot.
