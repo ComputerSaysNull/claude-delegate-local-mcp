@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #568 — 2026-11-15 — fix: edit_file keeps a file's BOM and edits CRLF files
+
+### Fixed
+
+- **One `edit_file` call stripped a UTF-8 BOM from the whole file.** It decoded with
+  `decode_text`, which drops the BOM for readers, and wrote that decoded text back.
+- **Every multi-line edit to a CRLF file was refused** as "does not appear in the file".
+  `read_file` shows every file with LF endings, so a quote copied from it never matched the
+  CRLF bytes, and the hint named a carriage return the model had never been shown. A
+  Windows checkout could only be edited one line at a time.
+- `edit_file` now remembers the BOM and, for a file whose endings are all CRLF, matches the
+  quote in the LF form `read_file` showed and writes the result back as CRLF. A file with
+  mixed endings is matched as it is, since it has no single form to restore. The record of
+  what was last read is taken from the bytes written, so the next edit is not refused as
+  stale. `old_string`'s schema says to quote as `read_file` showed it.
+
 ## #567 — 2026-11-15 — fix: a failed or cancelled delegation's handle is freed
 
 ### Fixed
