@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #566 — 2026-11-15 — fix: a stalled turn keeps the tokens it already decoded
+
+### Fixed
+
+- **A turn that stalled after streaming lost everything it had decoded.** When the stall
+  clock fired, `complete_with_retry` raised a fresh `DispatchTimedOut` before the line that
+  copies the decoded partial onto it, on the first attempt and on the retry path alike, so a
+  turn that streamed thousands of tokens and then went quiet was reported with nothing: the
+  case ADR-0078 exists for. Only the delegation deadline kept the partial, and a comment
+  claimed both did. Every deadline raised there now carries the last partial any attempt
+  decoded, including when both clocks expire together.
+- **A failed turn never wrote its last `final: true` partial.** The flush ran only after a
+  turn answered, so a watcher of a turn that died mid-stream saw text that never closed. A
+  one-shot now flushes either way, the agentic loop flushes on any failure, and a second
+  flush of one turn writes nothing, so a failure after a turn closed adds no second final.
+
 ## #565 — 2026-11-15 — feat: admission counts what a long run really holds
 
 ### Changed

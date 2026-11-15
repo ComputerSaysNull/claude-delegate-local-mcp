@@ -233,6 +233,40 @@ class DispatchTimedOut(Exception):
         return copy
 
 
+def _stall_timed_out(cfg: Config, stall_left: float, partial: Any) -> DispatchTimedOut:
+    """The stall diagnosis, carrying whatever the abandoned turn had decoded (ADR-0078)."""
+    timed_out = DispatchTimedOut(
+        cfg.stall_timeout - stall_left, cfg.stall_timeout, "with no turn completed",
+        setting="DELEGATE_STALL_TIMEOUT",
+        remedy="The delegation was still alive and had stopped getting anywhere, so "
+               "raising this would only lengthen the wait. Check the endpoint with "
+               "backend_status, or send a task that can finish a turn.",
+    )
+    timed_out.partial = partial
+    return timed_out
+
+
+def _dispatch_timed_out(elapsed: float, limit: int, stage: str,
+                        partial: Any) -> DispatchTimedOut:
+    """The delegation deadline, carrying the same decoded partial a stall would."""
+    timed_out = DispatchTimedOut(elapsed, limit, stage)
+    timed_out.partial = partial
+    return timed_out
+
+
+def _one_turn_stall_timed_out(cfg: Config, elapsed: float,
+                              partial: Any) -> DispatchTimedOut:
+    """The stall of one attempt, where no delegation deadline was in play."""
+    timed_out = DispatchTimedOut(
+        elapsed, cfg.stall_timeout, "while waiting on one turn",
+        setting="DELEGATE_STALL_TIMEOUT",
+        remedy="The attempt stopped producing rather than merely ran long, so raising "
+               "this would only lengthen the wait. Check the endpoint with backend_status.",
+    )
+    timed_out.partial = partial
+    return timed_out
+
+
 @dataclass(frozen=True, slots=True)
 class Delegation:
     """What to delegate: the task, the material assembled for it, and the agent's prompt.
@@ -1054,6 +1088,8 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
     """
     attempts = 0
     started = clock()
+    # The last partial any attempt decoded: a stall raises with no failing exception in hand.
+    kept: Any = None
 
     def remaining() -> float | None:
         return None if deadline is None else deadline - clock()
@@ -1074,15 +1110,8 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
         if stall_left is None:
             return
         s = stall_left()
-        if s > 0:
-            return
-        raise DispatchTimedOut(
-            cfg.stall_timeout - s, cfg.stall_timeout, "with no turn completed",
-            setting="DELEGATE_STALL_TIMEOUT",
-            remedy="The delegation was still alive and had stopped getting anywhere, so "
-                   "raising this would only lengthen the wait. Check the endpoint with "
-                   "backend_status, or send a task that can finish a turn.",
-        )
+        if s <= 0:
+            raise _stall_timed_out(cfg, s, kept)
 
     def ceiling() -> float | None:
         """The tighter of the two deadlines, read *now*, not fixed for the call.
@@ -1097,7 +1126,9 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
     while True:
         left = remaining()
         if left is not None and left <= 0:
-            raise DispatchTimedOut(spent(), cfg.dispatch_timeout, "while waiting on the backend")
+            raise _dispatch_timed_out(
+                spent(), cfg.dispatch_timeout, "while waiting on the backend", kept
+            )
         stalled()
         attempts += 1
         attempt_started = clock()
@@ -1117,26 +1148,21 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
         except TimeoutError as e:
             # Ask which expired before blaming the ceiling, or a stall reads as a
             # delegation that ran too long.
+            kept = getattr(e, "partial", None) or kept
             stalled()
-            if deadline is None:
-                # No delegation deadline was in play, so only the stall clock can have
-                # expired; naming the other would send an operator to the wrong setting.
-                timed_out = DispatchTimedOut(
-                    spent(), cfg.stall_timeout, "while waiting on one turn",
-                    setting="DELEGATE_STALL_TIMEOUT",
-                    remedy="The attempt stopped producing rather than merely ran long, "
-                           "so raising this would only lengthen the wait. Check the "
-                           "endpoint with backend_status.",
-                )
-            else:
-                timed_out = DispatchTimedOut(
-                    spent(), cfg.dispatch_timeout, "while waiting on the backend"
-                )
             # Both diagnoses carry the decoded partial: which deadline expired decides the
             # message, never whether the tokens are returned.
-            timed_out.partial = getattr(e, "partial", None)
+            timed_out = (
+                _one_turn_stall_timed_out(cfg, spent(), kept)
+                # No delegation deadline was in play, so only the stall clock can have
+                # expired; naming the other would send an operator to the wrong setting.
+                if deadline is None
+                else _dispatch_timed_out(spent(), cfg.dispatch_timeout,
+                                         "while waiting on the backend", kept)
+            )
             raise timed_out from e
         except (BackendUnavailable, BackendRefused) as e:
+            kept = getattr(e, "partial", None) or kept
             # Time-tested too: an attempt that used its whole allowance cannot do the work
             # in less (ADR-0055).
             if attempts >= cfg.retry_max_attempts or not _retry_is_plausible(
@@ -1150,8 +1176,8 @@ async def complete_with_retry(  # noqa: PLR0913 -- five of the eight are test se
                 stalled()
                 # Not after sleeping, which would burn the budget and blame a wait this
                 # function chose.
-                raise DispatchTimedOut(
-                    spent() + wait, cfg.dispatch_timeout, "while waiting to retry"
+                raise _dispatch_timed_out(
+                    spent() + wait, cfg.dispatch_timeout, "while waiting to retry", kept
                 ) from e
             if on_retry is not None:
                 on_retry(RetryRecord(
@@ -1400,43 +1426,45 @@ async def run_one_shot(  # noqa: PLR0913 -- see the note below the docstring
 
     async def dispatch() -> Dispatch:
         nonlocal last_progress
-        # Seeded, since a one-shot has no earlier turn and the least slack: its whole answer
-        # must fit the one deadline running from entry (ADR-0055).
-        rate = await seed_decode_rate(
-            backend, rate_history, expected_concurrency, on_pool=on_pool,
-            label_trusted=cfg.admission_idle_hold > 0,
-        fallback=cfg.rate_fallback_tok_s,
-        )
-        # Restarted after the seed, as the loop does, so a slow `/metrics` is not charged
-        # to the silence budget the answer is measured against.
-        last_progress = clock()
-        ceiling = rate.ceiling(cfg, budget_seconds(
-            cfg, dispatch_left=deadline - clock()
-        ))
-        # Resolved once, before the priced row, which must say what the turn was *allowed*;
-        # passed down so the send is the same number, not recomputed another way.
-        asked_budget = resolve_max_tokens(
-            cfg, entry, resolved, max_tokens, ceiling=ceiling
-        )
-        if on_priced is not None:
-            await on_priced({
-                "turn": 1, "effort": resolved, "max_tokens": max_tokens,
-                "max_tokens_sent": asked_budget,
-                "budget_ceiling": ceiling, "decode_rate": rate.rate,
-                "rate_source": rate.source,
-                "expected_concurrency": expected_concurrency,
-                "requests_running": rate.seen_running,
-                "temperature": cfg.temperature, "top_p": cfg.top_p,
-            })
-        done = await dispatch_with_recovery(
-            cfg, entry, backend, request_at,
-            effort=resolved, max_tokens=max_tokens,
-            budget_ceiling=ceiling, asked_budget=asked_budget,
-            sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=token_arrived,
-            tick_sleep=tick_sleep, clock=clock,
-        )
-        partial.flush()
-        return done
+        try:
+            # Seeded, since a one-shot has no earlier turn and the least slack: its whole
+            # answer must fit the one deadline running from entry (ADR-0055).
+            rate = await seed_decode_rate(
+                backend, rate_history, expected_concurrency, on_pool=on_pool,
+                label_trusted=cfg.admission_idle_hold > 0,
+            fallback=cfg.rate_fallback_tok_s,
+            )
+            # Restarted after the seed, as the loop does, so a slow `/metrics` is not
+            # charged to the silence budget the answer is measured against.
+            last_progress = clock()
+            ceiling = rate.ceiling(cfg, budget_seconds(
+                cfg, dispatch_left=deadline - clock()
+            ))
+            # Resolved once, before the priced row, which must say what the turn was
+            # *allowed*; passed down so the send is the same number, not recomputed.
+            asked_budget = resolve_max_tokens(
+                cfg, entry, resolved, max_tokens, ceiling=ceiling
+            )
+            if on_priced is not None:
+                await on_priced({
+                    "turn": 1, "effort": resolved, "max_tokens": max_tokens,
+                    "max_tokens_sent": asked_budget,
+                    "budget_ceiling": ceiling, "decode_rate": rate.rate,
+                    "rate_source": rate.source,
+                    "expected_concurrency": expected_concurrency,
+                    "requests_running": rate.seen_running,
+                    "temperature": cfg.temperature, "top_p": cfg.top_p,
+                })
+            return await dispatch_with_recovery(
+                cfg, entry, backend, request_at,
+                effort=resolved, max_tokens=max_tokens,
+                budget_ceiling=ceiling, asked_budget=asked_budget,
+                sleep=sleep, deadline=deadline, stall_left=stall_left, on_token=token_arrived,
+                tick_sleep=tick_sleep, clock=clock,
+            )
+        finally:
+            # Owed either way, or a turn killed mid-stream never closes its partials.
+            partial.flush()
 
     if on_alive is None:
         return await dispatch()
@@ -1511,6 +1539,8 @@ class PartialText:
         reasoning, answer = "".join(self._reasoning), "".join(self._answer)
         self._reasoning.clear()
         self._answer.clear()
+        # Closed: a second flush before the next turn's `reset` writes no second final.
+        self._seen = False
         try:
             self._emit(reasoning, answer, True)
         except Exception:  # a watcher's line must never fail a turn
@@ -3504,6 +3534,8 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             rereads=tuple(watch.rereads) if diagnostics else (),
         )
     except DispatchTimedOut as e:
+        # A killed turn never reached `turn_done`, so its stream is closed here.
+        partial.flush()
         # The only place these numbers survive a failure. Without them a timeout looks like
         # a dead endpoint, and treating a stall as one leads to the wrong response (stop
         # using the server). One handler here, not five raise sites that cannot read the
@@ -3514,6 +3546,10 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             tool_calls=watch.tool_calls,
             last_tool=watch.calls[-1][0] if watch.calls else None,
         ) from e
+    except BaseException:
+        # Any other failure skips `turn_done` too; a closed turn's second flush is a no-op.
+        partial.flush()
+        raise
     finally:
         if beat is not None:
             beat.cancel()
