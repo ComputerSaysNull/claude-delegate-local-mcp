@@ -260,7 +260,16 @@ def check_provisioned(cfg: Config) -> list[Check]:
             ))
             continue
         project = str(record.get("project", ""))
-        if not Path(str(record.get("interpreter", ""))).exists():
+        # `Path("")` is the current directory and exists, so "none" needs its own test.
+        interpreter = str(record.get("interpreter") or "")
+        if not interpreter:
+            checks.append(Check(
+                f"provisioned:{name}", FAIL,
+                "its record names no interpreter, so a delegation is handed none",
+                f"Re-run provision for {project or 'this project'}.",
+            ))
+            continue
+        if not Path(interpreter).exists():
             checks.append(Check(
                 f"provisioned:{name}", FAIL, "the interpreter it recorded is gone",
                 f"Re-run provision for {project or 'this project'}.",
@@ -374,14 +383,21 @@ def check_ledger(cfg: Config) -> Check:
     directory = target.parent
     try:
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        probe = directory / ".doctor-ledger-probe"
-        probe.write_text("", encoding="utf-8")
-        probe.unlink()
     except OSError as e:
         return Check(
             "ledger", FAIL, f"{directory} is not writable: {e}",
             "A ledger append is swallowed at runtime by design, so this is the only "
             "place it is reported.",
+        )
+    # The file itself, opened as `ledger.append` opens it; nothing is written.
+    try:
+        os.close(os.open(target, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600))
+    except OSError as e:
+        return Check(
+            "ledger", FAIL, f"{target} cannot be opened for append: {e}",
+            "A ledger append is swallowed at runtime by design, so this is the only "
+            "place it is reported. The folder is writable, so it is the file itself: its "
+            "mode, or a filesystem that refuses the open.",
         )
     return Check("ledger", OK, f"appendable at {target}")
 

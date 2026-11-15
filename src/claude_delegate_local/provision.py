@@ -64,6 +64,11 @@ from .sandbox import provisioned_root, resolve_home
 # The file recorded beside every provisioned environment, named once for `--doctor` too.
 RECORD_NAME = "provision.json"
 
+# The folders a build makes beside an environment, named once so `discover` can skip them.
+STAGING_PREFIX = "."
+STAGING_SUFFIX = ".staging"
+PREVIOUS_SUFFIX = ".previous"
+
 # What the dependency hash is taken over: every file a build backend reads dependencies
 # from, whole rather than just their dependency tables, because the check is asymmetric and
 # coarse errs safe. A false "stale" costs one re-provision; a false "fresh" tests against
@@ -155,6 +160,11 @@ def interpreter_path(venv: str) -> str:
     return posixpath.join(venv, "bin", "python")
 
 
+def staging_name(name: str) -> str:
+    """The staging directory a build of the environment called `name` downloads wheels into."""
+    return f"{STAGING_PREFIX}{name}{STAGING_SUFFIX}"
+
+
 def staging_dir(home: str, project_real: str) -> str:
     """The staging directory one build downloads wheels into, derived not configured.
 
@@ -163,7 +173,19 @@ def staging_dir(home: str, project_real: str) -> str:
     --find-links` reads them from there. The dot-prefix is what keeps it out of a casual
     listing of the provisioned root.
     """
-    return posixpath.join(provisioned_root(home), "." + venv_name(project_real) + ".staging")
+    return posixpath.join(provisioned_root(home), staging_name(venv_name(project_real)))
+
+
+def previous_dir(venv: str) -> str:
+    """Where `build` moves a live environment while it rebuilds, and puts it back on failure."""
+    return f"{venv}{PREVIOUS_SUFFIX}"
+
+
+def is_build_artifact(name: str) -> bool:
+    """Is this directory one of a build's own workspaces rather than an environment?"""
+    return name.endswith(PREVIOUS_SUFFIX) or (
+        name.startswith(STAGING_PREFIX) and name.endswith(STAGING_SUFFIX)
+    )
 
 
 def build_lock_path(home: str, project_real: str) -> str:
@@ -571,7 +593,7 @@ def discover(home: str) -> list[tuple[str, dict[str, Any] | None]]:
 
     A record of `None` for a directory whose record is missing or unreadable, a state
     `--doctor` must report, not skip: a half-built environment is where a test run would
-    pass against nothing.
+    pass against nothing. A build's own staging and `.previous` folders are skipped.
     """
     root = provisioned_root(home)
     try:
@@ -581,7 +603,7 @@ def discover(home: str) -> list[tuple[str, dict[str, Any] | None]]:
     return [
         (posixpath.join(root, name), read_record(posixpath.join(root, name)))
         for name in names
-        if os.path.isdir(posixpath.join(root, name))
+        if os.path.isdir(posixpath.join(root, name)) and not is_build_artifact(name)
     ]
 
 
@@ -796,7 +818,7 @@ def build(cfg: Config, project_real: str, *, out) -> str:
         # so a tree built at one path and renamed is broken.
         previous: str | None = None
         if os.path.exists(venv):
-            previous = f"{venv}.previous"
+            previous = previous_dir(venv)
             if os.path.exists(previous):
                 _remove(previous)  # left by an interrupted run; the live one is `venv`
             print(f"  moving the existing environment aside while {venv} is rebuilt", file=out)
