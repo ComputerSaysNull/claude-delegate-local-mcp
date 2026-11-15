@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #565 — 2026-11-15 — feat: admission counts what a long run really holds
+
+### Changed
+
+- **A delegation's admission booking grows with its prompt** (ADR-0144). The gate booked a
+  run once, at its opening prompt plus one reply budget, and never revisited it; over a long
+  agentic run the prompt grows a median 36x (to 317k). On 2026-11-14 six such runs were
+  admitted together, the engine's pool could not hold their bookings and their kept prompt
+  states, and 31 turns re-prefilled 200-365k from nothing: 8.65M tokens, about 1.9 h. The
+  instrument ADR-0038 named to catch this, `peak_inflight_tokens`, summed bookings that
+  never grew, so it could not. `Admission.grow` raises a held lease's booking, locally and
+  in the shared slots file; growth never waits or refuses, it only makes later arrivals
+  wait. `release` gives back the grown booking, and the file only what was written there.
+
 ## #564 — 2026-11-14 — fix: mypy checks scripts/ as well as src/
 
 ### Fixed

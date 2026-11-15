@@ -3380,3 +3380,33 @@ instead of eight saved 3% of the tokens, and they read 55 of 64 codes at 10-16 p
 Past `MAX_TILES` tiles grow instead: an 8K screenshot's 16 tiles are about 2 MP each, over
 the cap, and read 10 and 8 of 16 at 10 and 12 px. They also cost 932 tokens a tile, over the
 800 its registry entry budgets (2026-11-07), which measured only a 4K screenshot's tiles.
+
+## 2026-11-15 — Six long runs outgrew their admission and the engine dropped their prompts
+
+`backend_status` read 0 preemptions while long runs re-prefilled whole prompts. Both are
+true: a preemption pushes out a *running* request, and these were the kept prompt states of
+runs sitting between turns, which nothing we read counts.
+
+From the streams, Nov 14-15, turns on prompts over 100k that grew and saw no server-side
+eviction:
+
+| Requests in the engine at the turn's prefill | Turns | `cached_tokens` 0 |
+|---|---|---|
+| 1-4 | 1,706 | 0 |
+| 5 | 79 | 9 |
+| 6 | 262 | 20 |
+
+The Nov 14 evening's 31 rebuilds cost 8.65M tokens and 6,829 s of prefill. Over runs of five
+or more turns, the prompt peaked at a median 36x its opening size (p90 67x, max 83x), and
+admission had booked each at its opening size plus one reply budget.
+
+Plain LRU over prompt sizes does not separate hits from rebuilds: everything the other runs
+touched between a run's two turns never passed 1.84M, under the 2,101,248-token pool, yet
+rebuilds began at 1.24M. The 2026-11-08 mechanism fits instead: a running request books its
+prompt and its whole reply budget, and five or six of those at ~300k leave too little room
+for the idle runs' kept states. Adding a turn's full output, or a flat reservation per
+running request, did not improve the LRU fit either; the concurrency count is the signal.
+
+The pool cannot be read: TensorFold publishes no size, and this sandbox cannot reach its
+`/metrics`. So admission still counts against `kv_token_budget`'s code default, above the
+pool. ADR-0144 makes bookings grow; the budget is the operator's setting to lower.

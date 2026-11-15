@@ -19,6 +19,35 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0144 — 2026-11-15 — A lease's booking grows with the run it admits — Accepted
+
+ADR-0038 fixed a delegation's token booking at grant and named `peak_inflight_tokens` as the
+cheaper way to learn the trade was wrong. It could not learn it: the peak sums bookings, and
+a booking that never grows never rises to show the gap.
+
+Measured from the streams (JOURNAL 2026-11-15). Over runs of five turns or more on Nov
+14-15, the prompt peaked at a median 36x its opening size (p90 67x, max 83x: 3.8k to 317k).
+On the evening of Nov 14, 31 turns of 200-365k came back with `cached_tokens` 0 -- 8.65M
+tokens and about 1.9 h re-prefilled -- every one with five or six requests in the engine,
+none at four or fewer, and none after a server-side eviction. The gate had admitted six
+long runs against their opening sizes; the engine's pool (JOURNAL 2026-11-08) could not hold
+their bookings and their kept prompt states together.
+
+**Decision.** `Admission.grow(lease, tokens)` raises a held lease's booking to a larger
+figure, locally and in the shared file, and `release` gives back the grown booking. Growth
+never waits and never refuses, even past the budget: the memory is already held, refusing
+gives nothing back, and queueing would deadlock a run against a limit only it can release.
+It only makes later arrivals wait. The lease stays frozen; the current booking lives in the
+`Admission`, keyed by a grant id, and is dropped on release so it cannot outlive the slot.
+What the file holds is tracked apart from the local booking, because the file write is best
+effort and a growth that missed it must not be subtracted from it.
+
+**Not chosen.** Re-acquiring per turn: a slot returned between turns can be taken by a
+newcomer, and the run then waits mid-task for memory it was already using. Refusing growth
+past the budget: see above.
+
+---
+
 ## ADR-0143 — 2026-11-12 — A later turn's reply budget follows what the run's own turns wrote — Accepted
 
 Every turn at high or max effort asked for a 131,072-token reply (the floor ADR-0014 set so
@@ -4197,7 +4226,7 @@ nobody thought to list is the leak that would actually happen. Records carry rea
 usage rather than the admission estimate, so they can be summed later to say what the
 cluster has spent; an estimate standing in would be the right shape and the wrong number.
 
-## ADR-0038 — 2026-08-30 — Admission is one predicate over four rules, sized by two numbers — Accepted
+## ADR-0038 — 2026-08-30 — Admission is one predicate over four rules, sized by two numbers — Partially superseded by ADR-0144
 
 **Context.** ADR-0012 fixed the policy — three rules, queue rather than fail, report
 high-water marks — and the four settings it implies have sat in `config.py` since M0b

@@ -24,10 +24,10 @@ as well as gates. `status()`'s peaks and wait totals, surfaced by `backend_statu
 the limits stop being guesses: a peak that never nears its ceiling says the ceiling is low.
 
 A request's size is its **KV footprint**, the prompt plus the reply it may generate. A
-lease's estimate is fixed at grant and never grows, so a long agentic delegation can
-outgrow it late in the loop. Growing it per turn would couple this module to the turn
-loop and add a reconciliation path on every abort; `peak_inflight_tokens` shows whether
-that trade is wrong.
+lease's booking now grows as turns report their real size (ADR-0144), so a long agentic
+delegation stops being admitted against a fraction of the memory it actually holds. The
+old instrument could not show the problem: `peak_inflight_tokens` counted bookings, and a
+booking that never grew never rose to report the gap.
 
 One instance per process, over one counter file shared by every process on the machine
 (ADR-0040). The transport is stdio, so two editor windows are two servers, and limits
@@ -135,7 +135,8 @@ class AdmissionImpossible(AdmissionError):
 
 @dataclass(frozen=True, slots=True)
 class AdmissionLease:
-    """What was counted, so releasing subtracts exactly what acquiring added."""
+    """What was counted at grant. `tokens` stays the grant figure; the booking it may have
+    grown to lives in the `Admission` that granted it, keyed by `lease_id`."""
 
     tokens: int
     entry_key: str
@@ -152,6 +153,10 @@ class AdmissionLease:
     # process's counters. Releasing it to the file would give back one of this process's
     # *other* slots there.
     shared: bool = True
+    # Which grant this is, so `Admission.grow` and `release` can find the booking it has
+    # grown to. Zero means a lease this gate never granted -- `release` then falls back to
+    # `tokens`, and `grow` reports nothing to raise.
+    lease_id: int = 0
 
 
 class Admission:
@@ -226,6 +231,15 @@ class Admission:
         self._holding: asyncio.Future[tuple[int, int]] | None = None
         self._inflight_tokens = 0
         self._per_entry: dict[str, int] = {}
+
+        # What each held lease currently books, keyed by `lease_id`, and the counter that
+        # hands those out. An entry is dropped by `release`, so it lives exactly as long as
+        # the slot does and cannot leak past it.
+        self._next_lease_id = 0
+        self._bookings: dict[int, int] = {}
+        # What the shared file books for each lease, which trails `_bookings` whenever a
+        # growth could not be written there; `release` gives the file back only this.
+        self._filed: dict[int, int] = {}
 
         # The queue when there is no shared file; with one, the tickets live in the file,
         # since order must hold across processes. `_local_totals` reads these.
@@ -520,25 +534,42 @@ class Admission:
         if waited:
             self._record_wait(elapsed)
 
-        shared = not seen.get("local_only")
+        self._next_lease_id += 1
+        lease = AdmissionLease(
+            tokens=tokens, entry_key=entry_key, waited=elapsed,
+            shared=not seen.get("local_only"), lease_id=self._next_lease_id,
+        )
+        # Registered before anything can give the slot back, and without an `await`: the
+        # slot is already taken, so a cancellation landing here would hold it for good.
+        self._bookings[lease.lease_id] = tokens
+        if lease.shared:
+            self._filed[lease.lease_id] = tokens
         seqs_at_grant, waiting_at_grant = await self._settle_burst(
             seen.get("seqs", 0),
             seen.get("waiting", 0),
             tokens=tokens,
             entry_key=entry_key,
             elapsed=elapsed,
-            shared=shared,
+            shared=lease.shared,
+            # The tracked lease, so a release from inside this call subtracts the booking
+            # `grow` may raise rather than the grant figure.
+            lease=lease,
         )
 
-        return AdmissionLease(
-            tokens=tokens, entry_key=entry_key, waited=elapsed,
-            seqs_at_grant=seqs_at_grant, waiting_at_grant=waiting_at_grant,
-            shared=shared,
+        return replace(
+            lease, seqs_at_grant=seqs_at_grant, waiting_at_grant=waiting_at_grant
         )
 
     async def _settle_burst(  # noqa: PLR0913 -- the snapshot, and the lease it may give back
-        self, seqs: int, waiting: int, *, tokens: int, entry_key: str, elapsed: float,
+        self,
+        seqs: int,
+        waiting: int,
+        *,
+        tokens: int,
+        entry_key: str,
+        elapsed: float,
         shared: bool = True,
+        lease: AdmissionLease | None = None,
     ) -> tuple[int, int]:
         """What this request should say it met, once the burst around it has settled.
 
@@ -571,9 +602,12 @@ class Admission:
         if self._idle_hold <= 0:
             return seqs, waiting
 
-        lease = AdmissionLease(
-            tokens=tokens, entry_key=entry_key, waited=elapsed, shared=shared
-        )
+        if lease is None:
+            # Driven directly, without an `Admission` grant behind it: an untracked lease,
+            # whose release falls back to the figure it carries.
+            lease = AdmissionLease(
+                tokens=tokens, entry_key=entry_key, waited=elapsed, shared=shared
+            )
         open_wait = self._holding
         if open_wait is None and not (seqs == 0 and waiting == 0):
             try:
@@ -731,8 +765,51 @@ class Admission:
         self._wait_seconds_max = max(self._wait_seconds_max, seconds)
         self._wait_count += 1
 
+    async def grow(self, lease: AdmissionLease, tokens: int) -> int:
+        """Raise a held lease's booking to `tokens`; return what it books afterwards.
+
+        A ceiling raise: a smaller or equal figure changes nothing. It never waits and never
+        refuses, even past `effective_token_budget`, since the memory is already held
+        (ADR-0144). A released lease books nothing, so this returns 0 without reaching the
+        file, where `SharedSlots._mine` would recreate a reaped record.
+        """
+        if lease.lease_id not in self._bookings:
+            return 0
+        async with self._cond:
+            current = self._bookings.get(lease.lease_id)
+            if current is None:
+                # Released between the check above and this hold.
+                return 0
+            if tokens <= current:
+                return current
+            self._bookings[lease.lease_id] = tokens
+            # `_per_entry` counts sequences, not tokens, so growth leaves it alone.
+            self._inflight_tokens += tokens - current
+            self._peak_tokens = max(self._peak_tokens, self._inflight_tokens)
+            if self._slots is not None and lease.shared:
+                # Best effort, and inside the same hold as the local counters, so a release
+                # racing this cannot leave the file booking a delta nobody holds.
+                try:
+                    if await self._slots.grow(
+                        tokens=tokens - current, entry_key=lease.entry_key
+                    ):
+                        self._filed[lease.lease_id] = (
+                            self._filed.get(lease.lease_id, 0) + tokens - current
+                        )
+                except SlotsUnavailable:
+                    log.warning(
+                        "could not raise this delegation's booking in the shared file; "
+                        "other processes admit against its opening size until it is released"
+                    )
+            return tokens
+
     async def release(self, lease: AdmissionLease) -> None:
         async with self._cond:
+            # What this lease books *now*, which growth may have raised past the figure it
+            # was granted at. Popped rather than read, so the entry cannot outlive the slot;
+            # a lease this gate never granted falls back to the grant figure it carries.
+            tokens = self._bookings.pop(lease.lease_id, lease.tokens)
+            filed = self._filed.pop(lease.lease_id, lease.tokens)
             if self._slots is not None and lease.shared:
                 # Best effort. A slot not given back is reclaimed once this process
                 # exits, since its record is keyed by a PID that is then dead, so the
@@ -740,7 +817,7 @@ class Admission:
                 # well would wedge this process for good.
                 try:
                     await self._slots.release(
-                        tokens=lease.tokens,
+                        tokens=filed,
                         entry_key=lease.entry_key,
                     )
                 except SlotsUnavailable:
@@ -749,7 +826,7 @@ class Admission:
                         "reclaimed when this process exits"
                     )
             self._inflight_seqs -= 1
-            self._inflight_tokens -= lease.tokens
+            self._inflight_tokens -= tokens
             remaining = self._per_entry.get(lease.entry_key, 0) - 1
             if remaining > 0:
                 self._per_entry[lease.entry_key] = remaining

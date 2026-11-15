@@ -792,11 +792,11 @@ generate, which is what the token budget counts. The reply is the first turn's o
 the high-effort floor included, because that is what the engine books too. A second one, the prompt alone, went with
 the large-cold-prefill cap that was its only reader.
 
-The estimate is fixed when a slot is granted and never grows, so for a long agentic
-delegation the token rule is a floor-time approximation rather than a running total.
-Growing it per turn would couple the gate to the turn loop's internals and add a
-reconciliation path on every abort; the high-water marks are the cheaper way to find out
-whether that trade was wrong.
+A booking starts at the opening estimate and is raised when the run reports a larger
+footprint (`Admission.grow`, ADR-0144), so the token rule counts what a long agentic run
+holds rather than what it opened with. Growth never waits and never refuses; it only makes
+later arrivals wait. Release gives back the grown booking locally, and the shared file only
+what was written there, since a growth that missed the file must not be subtracted from it.
 
 Oversubscription announces itself as latency; idle capacity is silent. So the status tool
 reports high-water marks, admission-wait totals and the count of waits that hit their
