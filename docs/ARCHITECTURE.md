@@ -792,8 +792,8 @@ generate, which is what the token budget counts. The reply is the first turn's o
 the high-effort floor included, because that is what the engine books too. A second one, the prompt alone, went with
 the large-cold-prefill cap that was its only reader.
 
-A booking starts at the opening estimate and is raised when the run reports a larger
-footprint (`Admission.grow`, ADR-0144), so the token rule counts what a long agentic run
+A booking starts at the opening estimate and is raised after each agentic turn to that
+turn's footprint (`Admission.grow`, ADR-0144), so the token rule counts what a long agentic run
 holds rather than what it opened with. Growth never waits and never refuses; it only makes
 later arrivals wait. Release gives back the grown booking locally, and the shared file only
 what was written there, since a growth that missed the file must not be subtracted from it.

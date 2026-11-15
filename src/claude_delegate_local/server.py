@@ -444,6 +444,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_tools: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
+    on_footprint: Callable[[int], Awaitable[None]] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
     concurrency_now: Callable[[], Awaitable[int]] | None = None,
@@ -468,6 +469,9 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 on_alive=on_alive, on_turn_done=on_turn_done, on_priced=on_priced,
                 on_tools=on_tools,
                 on_pool=on_pool,
+                # The loop is the only place that knows what a turn booked; a one-shot has
+                # one turn and nothing to grow.
+                on_footprint=on_footprint,
                 rate_history=rate_history, expected_concurrency=expected_concurrency,
                 concurrency_now=concurrency_now,
                 on_token=on_token, on_partial=on_partial,
@@ -1070,6 +1074,10 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 lease.seqs_at_grant + lease.waiting_at_grant + 1, cfg.max_inflight_seqs
             )
 
+            async def grew(tokens: int) -> None:
+                """Raise this delegation's booking to what its last turn booked (ADR-0144)."""
+                await admission.grow(lease, tokens)
+
             # Re-read per turn, so one that started alone and is now one of six is priced
             # at six-wide; the admission figure when the shared file cannot say.
             async def concurrency_now() -> int:
@@ -1115,6 +1123,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 # Only while the gate has not seen the pool size, so the scrape can be
                 # skipped once it has. Why: ADR-0081.
                 on_pool=None if admission.pool_known else admission.observe_pool,
+                on_footprint=grew,
                 rate_history=rates,
                 expected_concurrency=expected,
                 concurrency_now=concurrency_now,

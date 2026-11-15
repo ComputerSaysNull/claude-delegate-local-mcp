@@ -219,9 +219,9 @@ rather than inside `asyncio.wait_for`. (ADR-0072) On both paths the clock starts
 the one-off rate seed rather than above it, so a slow metrics scrape is not charged to the
 first turn.
 
-Arrival is forwarded to the loop's own caller as well as consumed here, because the deadline
-is not its only consumer: [ARCHITECTURE.md](ARCHITECTURE.md) owns the other, an admission
-lease whose large half is given back once prefilling has demonstrably finished.
+Arrival is also forwarded to the loop's own caller, though no admission rule reads it since
+ADR-0077. What admission reads from the loop is each turn's footprint, its prompt plus its
+reply budget, which a held booking grows to ([ARCHITECTURE.md](ARCHITECTURE.md), ADR-0144).
 
 Both are enforced at the same three points, because a deadline checked in only one of them
 is a deadline that can be walked past:

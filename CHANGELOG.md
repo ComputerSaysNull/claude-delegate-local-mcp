@@ -40,9 +40,11 @@ Older entries, in the previous flat format, are in
   admitted together, the engine's pool could not hold their bookings and their kept prompt
   states, and 31 turns re-prefilled 200-365k from nothing: 8.65M tokens, about 1.9 h. The
   instrument ADR-0038 named to catch this, `peak_inflight_tokens`, summed bookings that
-  never grew, so it could not. `Admission.grow` raises a held lease's booking, locally and
-  in the shared slots file; growth never waits or refuses, it only makes later arrivals
-  wait. `release` gives back the grown booking, and the file only what was written there.
+  never grew, so it could not. After each agentic turn the loop reports the turn's
+  footprint, its prompt plus the reply budget it asked for, and `Admission.grow` raises the
+  run's booking to it, locally and in the shared slots file. Growth never waits or refuses;
+  it only makes later arrivals wait. `release` gives back the grown booking, and the file
+  only what was written there. One-shot delegations have one turn and are left alone.
 
 ## #564 — 2026-11-14 — fix: mypy checks scripts/ as well as src/
 

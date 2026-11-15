@@ -13,6 +13,7 @@ prefix cache depends on.
 
 import asyncio
 import json
+import logging
 import os
 import random
 import time
@@ -64,6 +65,8 @@ from .tools import (
     declared_tools,
     execute_tool,
 )
+
+log = logging.getLogger(__name__)
 
 # Derived from EFFORT_LEVELS, not written out: a second copy stops agreeing when a level is
 # added, and fails silently. Gives max -> high -> low -> off and nothing below off: there is
@@ -3019,6 +3022,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     on_priced: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_tools: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
+    on_footprint: Callable[[int], Awaitable[None]] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
     concurrency_now: Callable[[], Awaitable[int]] | None = None,
@@ -3048,6 +3052,12 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     (ADR-0018), injected since `loop.py` imports no MCP and tests need no client. Effort
     reported is the last turn's; a step-down does not persist, so one bad turn cannot
     downgrade the rest.
+
+    `on_footprint` is told each completed turn's KV footprint -- the prompt the backend
+    reported plus the reply budget that turn asked for -- so a held admission booking can
+    follow the run instead of its opening estimate (ADR-0144). Best effort: a turn that does
+    not report a prompt size reports nothing, and a callback that raises costs the turn
+    nothing.
     """
     resolved_effort = resolve_effort(cfg, entry, effort)
     turns = resolve_max_turns(cfg, max_turns, allowed)
@@ -3253,6 +3263,16 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                 sleep=sleep, deadline=deadline, stall_left=stall_left,
                 on_token=token_arrived, tick_sleep=tick_sleep, clock=clock,
             )
+            # The engine books the prompt plus the whole reply budget (ADR-0143).
+            booked = dispatch.response.input_tokens
+            if on_footprint is not None and booked:
+                try:
+                    await on_footprint(booked + asked_budget)
+                except Exception as e:  # a booking must never fail a delegation
+                    log.warning(
+                        "could not raise this delegation's admission booking to %s tokens: %s",
+                        booked + asked_budget, e,
+                    )
             # A reply the shrunk budget cut with content still in it -- half a tool call --
             # is a wrong answer rather than a saving, so the same turn goes out once more
             # at the full budget, folded in as the final turn's fallback below is.
