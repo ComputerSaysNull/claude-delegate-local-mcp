@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #570 — 2026-11-15 — fix: three --doctor checks report what is actually wrong
+
+### Fixed
+
+- **A provision record naming no interpreter passed.** The check tested
+  `Path(record["interpreter"]).exists()`, and `Path("")` is the current folder, so an empty
+  or missing field read as present. It now fails, saying the record names none.
+- **A read-only ledger passed.** The check wrote a probe file beside the ledger and never
+  touched the ledger itself, so a ledger file left at 0444 reported "appendable" while every
+  runtime append failed. The doctor is the only place that failure is reported, since the
+  runtime swallows it. The check now opens the ledger the way `ledger.append` does, writing
+  nothing.
+- **An interrupted build made a healthy host look broken.** `provision.discover` listed every
+  folder under the provisioned root, so a build's staging folder and the `.previous` copy a
+  rebuild moves aside showed as FAIL "provision.json is missing". It now skips both, by the
+  names the build itself uses.
+
 ## #569 — 2026-11-15 — fix: provision records the dependency hash it built from
 
 ### Fixed
