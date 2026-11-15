@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #571 — 2026-11-15 — fix: models.toml refuses values of the wrong type
+
+### Fixed
+
+- **A wrong-typed `models.toml` value crashed startup or was quietly misread.** A scalar
+  beside the entry tables (`fast = 5`) reached `set(raw)` and raised a raw `TypeError`
+  rather than a `RegistryError` naming the fix. `default = "no"` was read with `bool()`, so
+  any non-empty string made the model the default. And because Python's `bool` is an `int`,
+  `context_window = true` passed the integer check and became a one-token window, as did
+  `tokens_per_image = true`. Each is now refused at load with a message naming the key.
+
 ## #570 — 2026-11-15 — fix: three --doctor checks report what is actually wrong
 
 ### Fixed

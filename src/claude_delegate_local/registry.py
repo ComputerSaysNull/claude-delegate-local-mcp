@@ -91,6 +91,29 @@ class RegistryError(ConfigError):
     """A malformed registry. Raised at startup, never at first use."""
 
 
+def _refuse_non_boolean_default(raw: dict, where: str) -> None:
+    """`default = "no"` is a non-empty string, so bool() would read it as true."""
+    if "default" in raw and not isinstance(raw["default"], bool):
+        raise RegistryError(
+            f"{where} default must be a boolean (true/false), not {raw['default']!r}."
+        )
+
+
+def _refuse_wrongly_typed_numbers(raw: dict, where: str) -> None:
+    """Refuse a numeric field of the wrong TOML type (a bool is an int), or a negative one."""
+    for num in ("context_window", "max_tokens_cap", "concurrency", "max_images",
+                "tokens_per_image"):
+        if num not in raw:
+            continue
+        if isinstance(raw[num], bool):
+            raise RegistryError(
+                f"{where} {num} must be an integer, not a boolean. TOML `true` is a bool "
+                "and Python's bool is an int subclass, so it would otherwise be read as 1."
+            )
+        if not isinstance(raw[num], int) or raw[num] < 0:
+            raise RegistryError(f"{where} {num} must be a non-negative integer.")
+
+
 def _validate(key: str, raw: dict, path: Path, *,
               default_concurrency: int = DEFAULT_CONCURRENCY) -> ModelEntry:
     where = f"{path}: [models.{key}]"
@@ -111,6 +134,8 @@ def _validate(key: str, raw: dict, path: Path, *,
     for field_name in _REQUIRED:
         if not raw.get(field_name):
             raise RegistryError(f"{where} is missing required field {field_name!r}.")
+
+    _refuse_non_boolean_default(raw, where)
 
     api_format = raw.get("api_format", "openai")
     if api_format not in API_FORMATS:
@@ -143,10 +168,7 @@ def _validate(key: str, raw: dict, path: Path, *,
             f"the API path itself. Use {base_url[:-3]!r}."
         )
 
-    for num in ("context_window", "max_tokens_cap", "concurrency", "max_images",
-                "tokens_per_image"):
-        if num in raw and (not isinstance(raw[num], int) or raw[num] < 0):
-            raise RegistryError(f"{where} {num} must be a non-negative integer.")
+    _refuse_wrongly_typed_numbers(raw, where)
     if raw.get("concurrency") == 0:
         raise RegistryError(f"{where} concurrency must be at least 1.")
     if raw.get("tokens_per_image") == 0:
@@ -214,10 +236,15 @@ def load(cfg: Config) -> Registry:
             f"{path} declares no models. Expected at least one [models.<key>] table."
         )
 
-    entries = {
-        key: _validate(key, raw, path, default_concurrency=cfg.max_inflight_seqs)
-        for key, raw in raw_models.items()
-    }
+    entries: dict[str, ModelEntry] = {}
+    for key, raw in raw_models.items():
+        # A scalar beside the entry tables (`fast = 5`) would raise a raw TypeError below.
+        if not isinstance(raw, dict):
+            raise RegistryError(
+                f"{path}: [models.{key}] must be a table of settings, but models.{key} is "
+                f"{type(raw).__name__} ({raw!r}). Write [models.{key}] for an entry."
+            )
+        entries[key] = _validate(key, raw, path, default_concurrency=cfg.max_inflight_seqs)
 
     if cfg.default_model:
         if cfg.default_model not in entries:
