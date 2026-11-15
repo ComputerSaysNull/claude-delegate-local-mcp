@@ -30,6 +30,17 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #569 — 2026-11-15 — fix: provision records the dependency hash it built from
+
+### Fixed
+
+- **A build recorded the dependency declaration as it stood after the install, minutes
+  after reading it.** If `pyproject.toml` or `requirements.txt` changed during the build, the
+  record claimed the new declaration, so `is_current` handed out an interpreter built from
+  the old one and tests passed against the wrong versions: the false "fresh" the hash exists
+  to prevent. The hash, the kept copy of the declaration and the files it names are now read
+  once, before the build starts, and the record carries that reading.
+
 ## #568 — 2026-11-15 — fix: edit_file keeps a file's BOM and edits CRLF files
 
 ### Fixed

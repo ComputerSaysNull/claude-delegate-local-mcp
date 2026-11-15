@@ -837,9 +837,22 @@ def _build_into(cfg: Config, project_real: str, venv: str, home: str, *, out) ->
     Phase 1 runs on the host, with the network, but never runs project code: it makes the
     venv and downloads wheels. Phase 2 runs inside the sandbox, where the network is denied,
     and is where the project's own build backend finally runs.
+
+    The declaration is read before either phase starts, and the record keeps that reading:
+    a delegation can edit it while the build runs, and a hash taken at the end would describe
+    a declaration the interpreter was not built from.
     """
     print(f"  building {venv}", file=out)
     staging = staging_dir(home, project_real)
+    names = _declaration_names(project_real)
+    declared_hash = dependency_hash(project_real)
+    # A copy, so the next rebuild can show what changed rather than only that it did.
+    declared_text = declarations(project_real)
+    target = (
+        install_target(project_real)
+        if names != (REQUIREMENTS_NAME,)
+        else str(Path(project_real) / REQUIREMENTS_NAME)
+    )
     try:
         _run([sys.executable, "-m", "venv", venv], out=out)
         _download_wheels(project_real, staging, out=out)
@@ -847,7 +860,7 @@ def _build_into(cfg: Config, project_real: str, venv: str, home: str, *, out) ->
         # A package project's backend may report extra build requirements dynamically, so
         # they are queried and staged before the install; a requirements-only project has no
         # backend to ask and skips this round entirely.
-        if _declaration_names(project_real) != (REQUIREMENTS_NAME,):
+        if names != (REQUIREMENTS_NAME,):
             _backend_round(cfg, project_real, venv, staging, out=out)
 
         _install_in_sandbox(
@@ -858,15 +871,10 @@ def _build_into(cfg: Config, project_real: str, venv: str, home: str, *, out) ->
         record = {
             "project": project_real,
             "interpreter": python,
-            "dependency_hash": dependency_hash(project_real),
-            # A copy, so the next rebuild can show what changed rather than only that it did.
-            "declarations": declarations(project_real),
-            "hash_sources": list(_declaration_names(project_real)),
-            "install_target": (
-                install_target(project_real)
-                if _declaration_names(project_real) != (REQUIREMENTS_NAME,)
-                else str(Path(project_real) / REQUIREMENTS_NAME)
-            ),
+            "dependency_hash": declared_hash,
+            "declarations": declared_text,
+            "hash_sources": list(names),
+            "install_target": target,
             "base_python": sys.executable,
             "provisioned": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
