@@ -82,6 +82,10 @@ _FILENAME = "admission-slots.json"
 # rules out.
 _BURST_FIELD = "burst_wait"
 
+# Top-level, not in a per-process record, which is reaped when its process exits. Additive:
+# an older file reads as zero, but an older process's writes drop them until it restarts.
+_REBUILD_FIELDS = ("cache_rebuilds", "cache_rebuild_tokens")
+
 # Retry cadence for a contended lock. Short because the critical section is: a holder
 # rewrites a few hundred bytes of tmpfs.
 _LOCK_RETRY_SECONDS = 0.005
@@ -128,6 +132,16 @@ def _waiting(records: dict[str, dict[str, Any]]) -> list[tuple[int, dict[str, An
                 )
                 continue
             out.append((ticket, spec))
+    return out
+
+
+def _counters(doc: dict[str, Any]) -> dict[str, int]:
+    """The document's top-level counters, and nothing from a file without them."""
+    out: dict[str, int] = {}
+    for name in _REBUILD_FIELDS:
+        value = doc.get(name)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            out[name] = value
     return out
 
 
@@ -326,11 +340,14 @@ class SharedSlots:
             with suppress(OSError):
                 os.close(fd)
 
-    def _read(self, fd: int) -> tuple[dict[str, dict[str, Any]], int]:
-        """Every live record, and the next ticket to hand out.
+    def _read(
+        self, fd: int
+    ) -> tuple[dict[str, dict[str, Any]], int, dict[str, int]]:
+        """Every live record, the next ticket to hand out, and the document's counters.
 
         Dead records are dropped on the way past, their tickets with them, so a crashed
-        waiter needs no separate cleanup.
+        waiter needs no separate cleanup. Every path that rewrites the file carries the
+        counters back, or a release would zero them.
         """
         os.lseek(fd, 0, os.SEEK_SET)
         chunks: list[bytes] = []
@@ -338,7 +355,7 @@ class SharedSlots:
             chunks.append(chunk)
         raw = b"".join(chunks)
         if not raw.strip():
-            return {}, 0
+            return {}, 0, {}
         try:
             doc = json.loads(raw)
             records = doc["records"] if isinstance(doc, dict) else None
@@ -348,7 +365,7 @@ class SharedSlots:
             # Reset rather than refuse: an unparseable file must not become a machine-wide
             # outage.
             log.warning("admission slot file %s was unreadable; resetting it", self.path)
-            return {}, 0
+            return {}, 0, {}
         live = {
             k: v for k, v in records.items() if isinstance(v, dict) and self._keep(k, v)
         }
@@ -360,7 +377,7 @@ class SharedSlots:
         outstanding = [ticket for ticket, _ in _waiting(live)]
         floor = max(outstanding) + 1 if outstanding else 0
         nxt = raw_next if isinstance(raw_next, int) and raw_next >= 0 else 0
-        return live, max(nxt, floor)
+        return live, max(nxt, floor), _counters(doc)
 
     def _keep(self, key: str, record: dict[str, Any]) -> bool:
         live = _is_live(key)
@@ -373,13 +390,18 @@ class SharedSlots:
         return (time.time() - updated) < _STALE_AFTER_SECONDS
 
     def _write(
-        self, fd: int, records: dict[str, dict[str, Any]], next_ticket: int = 0
+        self,
+        fd: int,
+        records: dict[str, dict[str, Any]],
+        next_ticket: int = 0,
+        counters: dict[str, int] | None = None,
     ) -> None:
         payload = json.dumps(
             {
                 "version": _SCHEMA_VERSION,
                 "records": records,
                 "next_ticket": next_ticket,
+                **dict(counters or {}),
             },
             separators=(",", ":"),
         ).encode("utf-8")
@@ -470,7 +492,7 @@ class SharedSlots:
         ordered as well as atomic.
         """
         async with self._locked() as fd:
-            records, next_ticket = self._read(fd)
+            records, next_ticket, counters = self._read(fd)
             # Capacity with no queue position in it: every waiter's feasibility is judged
             # against it, this request's included, so it is computed once and shared rather
             # than recomputed per rival.
@@ -488,7 +510,7 @@ class SharedSlots:
                 mine = self._mine(records)
                 mine.setdefault("waiting", {})[str(ticket)] = {**spec, "at": time.time()}
                 mine["updated_at"] = time.time()
-                self._write(fd, records, next_ticket)
+                self._write(fd, records, next_ticket, counters)
                 return binding, ticket
             if ticket is not None:
                 self._forget_ticket(records, ticket)
@@ -498,7 +520,7 @@ class SharedSlots:
             entries = mine.setdefault("per_entry", {})
             entries[entry_key] = int(entries.get(entry_key, 0)) + 1
             mine["updated_at"] = time.time()
-            self._write(fd, records, next_ticket)
+            self._write(fd, records, next_ticket, counters)
             return None, None
 
     async def drop_ticket(self, ticket: int) -> None:
@@ -509,17 +531,17 @@ class SharedSlots:
         machine, so no path opts into it.
         """
         async with self._locked() as fd:
-            records, next_ticket = self._read(fd)
+            records, next_ticket, counters = self._read(fd)
             self._forget_ticket(records, ticket)
             mine = records.get(self._me)
             if mine is not None and self._is_idle(mine):
                 records.pop(self._me, None)
-            self._write(fd, records, next_ticket)
+            self._write(fd, records, next_ticket, counters)
 
     async def release(self, *, tokens: int, entry_key: str) -> None:
         """Give back exactly what `admit` took, minus anything already given back early."""
         async with self._locked() as fd:
-            records, next_ticket = self._read(fd)
+            records, next_ticket, counters = self._read(fd)
             mine = self._mine(records)
             mine["seqs"] = max(0, int(mine.get("seqs", 0)) - 1)
             mine["tokens"] = max(0, int(mine.get("tokens", 0)) - tokens)
@@ -534,7 +556,7 @@ class SharedSlots:
             # place in line, and dropping it would silently cancel this process's waiters.
             if self._is_idle(mine):
                 records.pop(self._me, None)
-            self._write(fd, records, next_ticket)
+            self._write(fd, records, next_ticket, counters)
 
     async def grow(self, *, tokens: int, entry_key: str) -> bool:
         """Add `tokens` to this process's booking, in one read-modify-write under the lock.
@@ -545,7 +567,7 @@ class SharedSlots:
         reaped record booking a delta nobody holds.
         """
         async with self._locked() as fd:
-            records, next_ticket = self._read(fd)
+            records, next_ticket, counters = self._read(fd)
             held = records.get(self._me)
             entries = (held or {}).get("per_entry") or {}
             added = held is not None and entry_key in entries
@@ -553,8 +575,32 @@ class SharedSlots:
                 held["tokens"] = int(held.get("tokens", 0)) + tokens
                 held["updated_at"] = time.time()
             # Written even when nothing changed, to persist `_read`'s reclamation.
-            self._write(fd, records, next_ticket)
+            self._write(fd, records, next_ticket, counters)
         return added
+
+    # ---- the rebuild counters --------------------------------------------------------
+    async def note_rebuild(self, *, tokens: int) -> None:
+        """Count one prompt the engine had to prefill again, for the whole machine.
+
+        At the document's top level, not in a record: a record is reaped when its process
+        exits, and the run that rebuilt came from a server process that may already be gone.
+        """
+        async with self._locked() as fd:
+            records, next_ticket, counters = self._read(fd)
+            counters["cache_rebuilds"] = counters.get("cache_rebuilds", 0) + 1
+            counters["cache_rebuild_tokens"] = (
+                counters.get("cache_rebuild_tokens", 0) + max(0, int(tokens))
+            )
+            self._write(fd, records, next_ticket, counters)
+
+    async def rebuild_counts(self) -> tuple[int, int]:
+        """The machine-wide rebuilds and the tokens they re-prefilled, zero when unrecorded."""
+        async with self._locked() as fd:
+            _, _, counters = self._read(fd)
+            return (
+                counters.get("cache_rebuilds", 0),
+                counters.get("cache_rebuild_tokens", 0),
+            )
 
     @staticmethod
     def _is_idle(record: dict[str, Any]) -> bool:
@@ -585,7 +631,7 @@ class SharedSlots:
 
     async def _set_burst_wait(self, open_wait: bool, expires_in: float = 0.0) -> None:
         async with self._locked() as fd:
-            records, next_ticket = self._read(fd)
+            records, next_ticket, counters = self._read(fd)
             if open_wait:
                 mine = self._mine(records)
                 mine[_BURST_FIELD] = time.time() + expires_in
@@ -599,7 +645,7 @@ class SharedSlots:
                     if self._is_idle(held):
                         records.pop(self._me, None)
             # Written even when nothing changed, to persist `_read`'s reclamation.
-            self._write(fd, records, next_ticket)
+            self._write(fd, records, next_ticket, counters)
 
     async def burst_wait_elsewhere(self) -> bool:
         """Whether some *other* process is counting a burst right now.
@@ -609,7 +655,7 @@ class SharedSlots:
         join itself for ever.
         """
         async with self._locked() as fd:
-            records, _ = self._read(fd)
+            records, _, _ = self._read(fd)
             now = time.time()
             return any(
                 key != self._me and _burst_open(record.get(_BURST_FIELD), now)
@@ -625,7 +671,7 @@ class SharedSlots:
         without one.
         """
         async with self._locked() as fd:
-            records, _ = self._read(fd)
+            records, _, _ = self._read(fd)
             return self._totals(records), len(records), len(_waiting(records))
 
 
@@ -666,6 +712,9 @@ async def cross_process_status(
         return {"active": False, "reason": reason}
     try:
         totals, processes, queued = await slots.snapshot()
+        # A second hold rather than a wider `snapshot()`: these only ever rise, so mixing
+        # them with the gauges cannot describe a state that never existed.
+        rebuilds, rebuild_tokens = await slots.rebuild_counts()
     except SlotsUnavailable as e:
         return {"active": False, "reason": str(e)}
     return {
@@ -679,5 +728,9 @@ async def cross_process_status(
         "queued_waiters": queued,
         "inflight_seqs": totals.seqs,
         "inflight_tokens": totals.tokens,
+        # Prompts the engine dropped between turns and had to prefill again. Machine-wide
+        # because the run that hit it may have come from a process that has since exited.
+        "cache_rebuilds": rebuilds,
+        "cache_rebuild_tokens": rebuild_tokens,
         "per_entry": dict(sorted(totals.per_entry.items())),
     }

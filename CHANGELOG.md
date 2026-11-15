@@ -30,6 +30,22 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #572 — 2026-11-15 — feat: backend_status counts prompts the engine rebuilt between turns
+
+### Added
+
+- **`backend_status` reports prompts the engine dropped between turns.** On 2026-11-14,
+  31 turns of 200-365k came back with `cached_tokens` 0 and re-prefilled 8.65M tokens,
+  while `backend_status` read 0 preemptions: a preemption pushes out a running request, and
+  a run between turns has none, so nothing it read could show the loss. A turn now counts
+  as a rebuild when its prompt grew from the last turn's, came back less than half cached,
+  and this server stubbed no tool results in between (an eviction of ours rewrites the
+  prefix, so that miss is not the engine's). `admission.cache_rebuilds` and
+  `cache_rebuild_tokens` count them for this process, and `admission.cross_process` for the
+  whole machine, kept at the top of the shared slots file because the runs that hit it may
+  come from a server process that has since exited. A server process still on the previous
+  version drops the machine-wide pair when it rewrites the file, until it is restarted.
+
 ## #571 — 2026-11-15 — fix: models.toml refuses values of the wrong type
 
 ### Fixed

@@ -793,10 +793,10 @@ the high-effort floor included, because that is what the engine books too. A sec
 the large-cold-prefill cap that was its only reader.
 
 A booking starts at the opening estimate and is raised after each agentic turn to that
-turn's footprint (`Admission.grow`, ADR-0144), so the token rule counts what a long agentic run
-holds rather than what it opened with. Growth never waits and never refuses; it only makes
-later arrivals wait. Release gives back the grown booking locally, and the shared file only
-what was written there, since a growth that missed the file must not be subtracted from it.
+turn's footprint (`Admission.grow`, ADR-0144), so the token rule counts what a run holds.
+Growth never waits or refuses; it only makes later arrivals wait, and release gives the file
+back only what it recorded. A prompt the engine dropped between turns is counted too, here
+and machine-wide, as `preemptions` cannot see it.
 
 Oversubscription announces itself as latency; idle capacity is silent. So the status tool
 reports high-water marks, admission-wait totals and the count of waits that hit their
