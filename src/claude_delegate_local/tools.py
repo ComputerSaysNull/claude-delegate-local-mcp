@@ -946,14 +946,42 @@ def _quoted_prefix_hint(text: str, old: str) -> str | None:
     return None
 
 
+# The UTF-8 BOM, which `decode_text` strips and no reader shows.
+_UTF8_BOM = b"\xef\xbb\xbf"
+
+
+@dataclass(frozen=True, slots=True)
+class _OwnForm:
+    """How a file's own bytes differ from the text `read_file` hands the model."""
+
+    bom: bool
+    crlf: bool
+
+
+def _own_form(raw: bytes) -> _OwnForm:
+    """Whether the file starts with a BOM, and whether every ending it has is CRLF.
+
+    Uniform only. A file with mixed endings has no single form of its own, so it is matched
+    and written back as it is -- converting it would rewrite lines the model never quoted.
+    """
+    bom = raw.startswith(_UTF8_BOM)
+    body = raw[len(_UTF8_BOM):] if bom else raw
+    crlf = (
+        body.count(b"\r\n") > 0
+        and body.count(b"\r\n") == body.count(b"\n") == body.count(b"\r")
+    )
+    return _OwnForm(bom=bom, crlf=crlf)
+
+
 def _edit_plan(
     text: str, old: str, new: str, expected: int | None
-) -> tuple[bytes, int]:
+) -> tuple[str, int]:
     """Count `old` in `text`, validate against `expected`, and build the replacement.
 
-    Returns the encoded replacement and how many occurrences it covers. A missing or
-    ambiguous match is a refusal: stating `expected_count` is the model's own check
-    that it is editing what it thinks.
+    Returns the edited text and how many occurrences it covers. Text, not bytes: the
+    caller writes it back in the file's own form. A missing or ambiguous match is a
+    refusal: stating `expected_count` is the model's own check that it is editing what
+    it thinks.
     """
     found = text.count(old)
     if found == 0:
@@ -972,14 +1000,14 @@ def _edit_plan(
                 f"'old_string' appears {found} times, but expected_count is "
                 f"{expected}, so nothing was written."
             )
-        return text.replace(old, new).encode("utf-8"), found
+        return text.replace(old, new), found
     if found > 1:
         raise ToolRefused(
             f"'old_string' appears {found} times, so which one to replace is "
             f"ambiguous and nothing was written. Quote more of the surrounding "
             f"lines until the text appears exactly once."
         )
-    return text.replace(old, new, 1).encode("utf-8"), found
+    return text.replace(old, new, 1), found
 
 
 def _edit_file(cfg: Config, args: dict[str, object], seen: SeenFiles | None = None) -> str:
@@ -996,6 +1024,12 @@ def _edit_file(cfg: Config, args: dict[str, object], seen: SeenFiles | None = No
     and a common one matches twice; both mean the model is not editing what it thinks, and
     saying so costs a turn where guessing costs an unnoticed corrupt file. Hence text, not
     line numbers: a stale number overwrites the wrong region with no way to tell.
+
+    The file is written back in the form it came in: a UTF-8 BOM it started with, and CRLF
+    where every one of its endings was CRLF. `read_file` shows neither -- it drops the BOM
+    and prints LF -- so the quote is matched in that LF form and converted back on the way
+    out. Writing the decoded text as it stands would delete the BOM and flatten every
+    ending in the file, rewriting lines the model was never asked about.
 
     One descriptor for the whole read-modify-write, held by `open_resolved`; two opens
     against one check is the gap ADR-0049 closes.
@@ -1038,6 +1072,12 @@ def _edit_file(cfg: Config, args: dict[str, object], seen: SeenFiles | None = No
         if text is None:
             raise ToolRefused(why)
 
+        form = _own_form(raw)
+        if form.crlf:
+            text = text.replace("\r\n", "\n")
+            old = old.replace("\r\n", "\n")
+            new = new.replace("\r\n", "\n")
+
         # The bytes we are about to edit are hashed from this same descriptor's read, never
         # a second open, so nothing can swap the file between the check and the write. A
         # record that disagrees means the file changed since the model last saw it -- a
@@ -1052,16 +1092,19 @@ def _edit_file(cfg: Config, args: dict[str, object], seen: SeenFiles | None = No
             )
 
         edited, count = _edit_plan(text, old, new, expected)
-        if len(edited) > cfg.max_write_bytes:
+        # Sized and hashed as written, not as decoded, or the next edit reads as stale.
+        out = edited.replace("\n", "\r\n") if form.crlf else edited
+        data = (_UTF8_BOM if form.bom else b"") + out.encode("utf-8")
+        if len(data) > cfg.max_write_bytes:
             # `write_file`'s limit, refused for the same reason.
             raise ToolRefused(
-                f"the result would be {len(edited)} bytes, over the "
+                f"the result would be {len(data)} bytes, over the "
                 f"{cfg.max_write_bytes}-byte limit for one write. Nothing was written."
             )
 
         try:
             fh.seek(0)
-            fh.write(edited)
+            fh.write(data)
             # Truncated after writing, not before, so every refusal above leaves the file
             # intact and the model retries rather than repairs.
             fh.truncate()
@@ -1070,10 +1113,10 @@ def _edit_file(cfg: Config, args: dict[str, object], seen: SeenFiles | None = No
 
     # The bytes now on disk are what the model last saw, so the next edit is not a change.
     if seen is not None:
-        seen.record(entry.posix, sha256(edited).hexdigest())
+        seen.record(entry.posix, sha256(data).hexdigest())
 
     word = "occurrence" if count == 1 else "occurrences"
-    return f"Replaced {count} {word} in {entry.posix} ({len(edited)} bytes)."
+    return f"Replaced {count} {word} in {entry.posix} ({len(data)} bytes)."
 
 
 def _capped(cfg: Config, result: sandbox.SandboxResult) -> str:
@@ -1898,7 +1941,9 @@ EDIT_FILE = RegisteredTool(
                 "old_string": {
                     "type": "string",
                     "description": "The exact text to replace, including whitespace and "
-                                   "indentation. Must occur exactly once in the file, "
+                                   "indentation, as read_file showed it: LF endings "
+                                   "even in a CRLF file, which keeps its own endings "
+                                   "and BOM. Must occur exactly once in the file, "
                                    "unless expected_count says otherwise.",
                 },
                 "new_string": {

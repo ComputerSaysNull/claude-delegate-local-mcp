@@ -72,7 +72,7 @@ Change part of a UTF-8 text file in the workspace by replacing exact text, leavi
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `path` | string | yes | Absolute path to the file. |
-| `old_string` | string | yes | The exact text to replace, including whitespace and indentation. Must occur exactly once in the file, unless expected_count says otherwise. |
+| `old_string` | string | yes | The exact text to replace, including whitespace and indentation, as read_file showed it: LF endings even in a CRLF file, which keeps its own endings and BOM. Must occur exactly once in the file, unless expected_count says otherwise. |
 | `new_string` | string | yes | What to put in its place. Empty to delete the text. |
 | `expected_count` | integer | no | How many times old_string is believed to appear. Given, the text must appear exactly that many times and then all of them are replaced; a mismatch refuses and writes nothing. Omitted, the text must appear exactly once. |
 
