@@ -445,6 +445,7 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
     on_tools: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
     on_footprint: Callable[[int], Awaitable[None]] | None = None,
+    on_rebuild: Callable[[int], Awaitable[None]] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
     concurrency_now: Callable[[], Awaitable[int]] | None = None,
@@ -472,6 +473,8 @@ async def dispatch_delegation(  # noqa: PLR0913 -- one seam and four resolved ar
                 # The loop is the only place that knows what a turn booked; a one-shot has
                 # one turn and nothing to grow.
                 on_footprint=on_footprint,
+                # The same for a prompt the engine had to prefill again between turns.
+                on_rebuild=on_rebuild,
                 rate_history=rate_history, expected_concurrency=expected_concurrency,
                 concurrency_now=concurrency_now,
                 on_token=on_token, on_partial=on_partial,
@@ -1078,6 +1081,10 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 """Raise this delegation's booking to what its last turn booked (ADR-0144)."""
                 await admission.grow(lease, tokens)
 
+            async def rebuilt(tokens: int) -> None:
+                """Count a prompt the engine had to prefill again between turns."""
+                await admission.note_rebuild(tokens)
+
             # Re-read per turn, so one that started alone and is now one of six is priced
             # at six-wide; the admission figure when the shared file cannot say.
             async def concurrency_now() -> int:
@@ -1124,6 +1131,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
                 # skipped once it has. Why: ADR-0081.
                 on_pool=None if admission.pool_known else admission.observe_pool,
                 on_footprint=grew,
+                on_rebuild=rebuilt,
                 rate_history=rates,
                 expected_concurrency=expected,
                 concurrency_now=concurrency_now,
@@ -1620,7 +1628,10 @@ _BACKEND_STATUS_RESULT: dict[str, Any] = {
             "This process's own gauges, and under `cross_process` whether the four rules "
             "are counted across every server process on the machine. `active: false` there "
             "means each client is bounded separately, so real load is higher than these "
-            "numbers suggest."
+            "numbers suggest. `cache_rebuilds` and `cache_rebuild_tokens` count turns whose "
+            "prompt the engine had dropped between turns and prefilled again, here and "
+            "under `cross_process` for the machine since boot; a cluster's `preemptions` "
+            "cannot show these, as nothing was running to push out."
         )},
     },
 }

@@ -3053,6 +3053,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     on_tools: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_pool: Callable[[int | None], None] | None = None,
     on_footprint: Callable[[int], Awaitable[None]] | None = None,
+    on_rebuild: Callable[[int], Awaitable[None]] | None = None,
     rate_history: RateHistory | None = None,
     expected_concurrency: int = 1,
     concurrency_now: Callable[[], Awaitable[int]] | None = None,
@@ -3088,6 +3089,10 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     follow the run instead of its opening estimate (ADR-0144). Best effort: a turn that does
     not report a prompt size reports nothing, and a callback that raises costs the turn
     nothing.
+
+    `on_rebuild` is told the tokens a turn prefilled again when the engine had dropped an
+    append-only run's prompt state between turns. `preemptions` cannot report that: a run
+    between turns has no request to push out. Best effort in the same way.
     """
     resolved_effort = resolve_effort(cfg, entry, effort)
     turns = resolve_max_turns(cfg, max_turns, allowed)
@@ -3155,6 +3160,10 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
     # turn's shrink (ADR-0143). Read after the turn's own reply, fallback included, so the
     # number is what the engine actually wrote rather than what was asked for.
     largest_reply = 0
+    # What the previous turn said it sent, and how many tool results this server had stubbed
+    # by then: the two facts a rebuild is judged against.
+    last_input_tokens: int | None = None
+    evictions_last_turn = 0
 
     async def turn_done(text: str, backend_seconds: float) -> None:
         """One finished turn, for anything watching this delegation as it runs.
@@ -3303,6 +3312,29 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                         "could not raise this delegation's admission booking to %s tokens: %s",
                         booked + asked_budget, e,
                     )
+            # A prompt that grew yet came back uncached was evicted between turns: nothing
+            # was running to preempt, so only this can report it. An eviction of ours in
+            # between rewrote the prefix, so a miss there is ours, not the engine's.
+            cached_now = dispatch.response.cached_tokens
+            if (
+                on_rebuild is not None
+                and turn > 1
+                and last_input_tokens is not None
+                and booked is not None
+                and booked >= last_input_tokens
+                and cached_now is not None
+                and cached_now < last_input_tokens / 2
+                and watch.evictions == evictions_last_turn
+            ):
+                try:
+                    await on_rebuild(booked - cached_now)
+                except Exception as e:  # a gauge must never fail a delegation
+                    log.warning(
+                        "could not report a rebuilt prompt of %s tokens: %s",
+                        booked - cached_now, e,
+                    )
+            last_input_tokens = booked
+            evictions_last_turn = watch.evictions
             # A reply the shrunk budget cut with content still in it -- half a tool call --
             # is a wrong answer rather than a saving, so the same turn goes out once more
             # at the full budget, folded in as the final turn's fallback below is.

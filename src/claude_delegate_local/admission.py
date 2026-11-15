@@ -255,6 +255,11 @@ class Admission:
         self._wait_count = 0
         self._timeouts = 0
 
+        # Prompts the engine had to prefill again after dropping their cached state between
+        # turns. Nothing else reports them: a run between turns has no request to preempt.
+        self._cache_rebuilds = 0
+        self._cache_rebuild_tokens = 0
+
     # ---- the predicate -----------------------------------------------------------
     def _binding(
         self, live: Totals, tokens: int, key: str, limit: int
@@ -803,6 +808,27 @@ class Admission:
                     )
             return tokens
 
+    async def note_rebuild(self, tokens: int) -> None:
+        """Count one prompt the engine prefilled again, here and machine-wide.
+
+        Best effort across processes, like `release`: a gauge that cannot reach the file
+        must not cost the delegation it describes.
+        """
+        tokens = max(0, int(tokens))
+        # No await between the reads and the writes, so the local pair cannot interleave.
+        self._cache_rebuilds += 1
+        self._cache_rebuild_tokens += tokens
+        if self._slots is None:
+            return
+        try:
+            await self._slots.note_rebuild(tokens=tokens)
+        except SlotsUnavailable:
+            log.warning(
+                "could not add a rebuilt prompt of %d tokens to the shared file; it is "
+                "counted in this process only",
+                tokens,
+            )
+
     async def release(self, lease: AdmissionLease) -> None:
         async with self._cond:
             # What this lease books *now*, which growth may have raised past the figure it
@@ -889,6 +915,10 @@ class Admission:
             "admission_wait_seconds_max": round(self._wait_seconds_max, 3),
             "admission_wait_count": self._wait_count,
             "admission_timeouts": self._timeouts,
+            # A prompt evicted between turns re-prefills silently; `preemptions` cannot see
+            # it, since nothing was running to push out. `cross_process` holds the machine.
+            "cache_rebuilds": self._cache_rebuilds,
+            "cache_rebuild_tokens": self._cache_rebuild_tokens,
             # This process's own queue depth. Zero with a shared file, whose machine-wide
             # queue `cross_process` reports -- the same split as the gauges above.
             "queued_waiters": len(self._waiting),
