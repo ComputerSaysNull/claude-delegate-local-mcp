@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #573 — 2026-11-16 — fix: host-side git trusts a repository config that includes another file
+
+### Fixed
+
+- **A repository that pinned its git identity with an include refused every write and
+  search.** `git config --local include.path <file>` is a common way to give one repository
+  its own identity, but layer 4 refuses a repository whose own config carries a key off
+  `TRUSTED_GIT_CONFIG_KEYS`, and `include.path` and `includeIf.<condition>.path` were never
+  put on it. So `write_file`, `edit_file` and `search_files` refused, and delegations fell
+  back to shell heredocs. Both keys are now trusted. Nothing is lost: `git config --list`
+  expands the included file in place and lists its keys under the including scope, so a
+  program-naming key behind an include is still refused by name. A regression test pins
+  that git behaviour as well as both outcomes.
+
 ## #572 — 2026-11-15 — feat: backend_status counts prompts the engine rebuilt between turns
 
 ### Added
