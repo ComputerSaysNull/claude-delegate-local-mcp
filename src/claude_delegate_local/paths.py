@@ -651,6 +651,9 @@ TRUSTED_GIT_CONFIG_KEYS: tuple[str, ...] = (
     # Network only. Host-side git never fetches, pushes or authenticates, and this
     # repository's own config carries a credential helper.
     "credential.*", "http.*",
+    # An include runs nothing itself. `--list` expands the included file in place and lists
+    # its keys under the including scope, so each is judged here by name like any other.
+    "include.path", "includeif.*.path",
 )
 
 

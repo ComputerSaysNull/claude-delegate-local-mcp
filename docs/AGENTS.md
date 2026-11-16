@@ -1,4 +1,4 @@
-<!-- BUDGET: 480 -->
+<!-- BUDGET: 481 -->
 # Agents and the path policy
 
 Two things a user actually touches: the agent files that shape a delegation, and the rules
@@ -471,9 +471,10 @@ locale, means outside a work tree, and anything else is a layer that could not a
 
 Before `check-ignore` or `status`, a fourth call reads the repository's own config, and one
 carrying a key off `TRUSTED_GIT_CONFIG_KEYS` is refused: that config can name a program for
-git to run, and a repository `run_bash` created holds config the model wrote. `read_git`
-refuses the same way, and every host-side git takes `GIT_HARDENING` and `git_env()`. Why
-flags alone cannot do it is the [design note](specs/2026-09-23-host-acted-paths.md)'s.
+git to run, and a repository `run_bash` created holds config the model wrote. An include is
+trusted, as `--list` expands it and its keys are judged too. `read_git` refuses the same
+way, and every host-side git takes `GIT_HARDENING` and `git_env()`. Why flags alone cannot
+do it is the [design note](specs/2026-09-23-host-acted-paths.md)'s.
 
 `rev-parse` is the one that costs: it is charged per distinct *directory*, so a wide batch
 spends a subprocess on each before a single `check-ignore` runs. The search walk calls layer
