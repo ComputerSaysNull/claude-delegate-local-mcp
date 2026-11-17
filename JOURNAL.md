@@ -3410,3 +3410,23 @@ running request, did not improve the LRU fit either; the concurrency count is th
 The pool cannot be read: TensorFold publishes no size, and this sandbox cannot reach its
 `/metrics`. So admission still counts against `kv_token_budget`'s code default, above the
 pool. ADR-0144 makes bookings grow; the budget is the operator's setting to lower.
+
+## 2026-11-17 — The runner's network namespace works now, and the planned fix was not needed
+
+A follow-up to 2026-08-29, run as a throwaway draft pull request with one extra CI job, and
+kept because its negative control refused to fail.
+
+The plan read the August result as Ubuntu's AppArmor restriction stripping capabilities from
+an unprivileged user namespace, so the job lifted it (`sudo sysctl -w
+kernel.apparmor_restrict_unprivileged_userns=0`) between two runs of `bwrap --unshare-all
+--ro-bind / / --dev /dev --proc /proc true`. The first run was the control, expected to
+reproduce `Failed RTM_NEWADDR`. It did not: on today's runner (Ubuntu 26.04.1, kernel
+7.0.0-azure) it succeeded with the restriction still at `1`. After the sysctl, the 28
+`integration` tests in `tests/test_sandbox.py` passed.
+
+So the obstacle August measured is gone with the runner image that had it, and the sysctl is
+not shown to be needed: the tests were run only after it. A plan built on the prediction
+would have shipped a privileged step in CI to fix a failure that no longer happens. The step
+reported `success` either way, because `continue-on-error` marks a failed step a success, so
+the answer came from the log, not the job's tick -- the same lesson as August, from the other
+side.

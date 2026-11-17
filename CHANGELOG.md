@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #582 — 2026-11-17 — docs: a GitHub runner now runs bwrap's network namespace
+
+### Changed
+
+- **JOURNAL records that the 2026-08-29 runner obstacle no longer reproduces.** The planning
+  item for running the real-bwrap tests in CI assumed Ubuntu's AppArmor userns restriction
+  was the cause and that lifting it was the fix. A throwaway CI job showed `bwrap
+  --unshare-all` succeeding on today's runner with the restriction still on, and the 28
+  sandbox `integration` tests passing after it was lifted. Recorded so the next step starts
+  from the measurement rather than the prediction; the stale comment in `ci.yml` is that
+  step's to change.
+
 ## #580 — 2026-11-17 — feat: read_file can take a symbol instead of a line range
 
 ### Added
