@@ -418,6 +418,164 @@ def test_read_file_refuses_a_non_string_path(workspace):
     assert "must be a string" in result.content
 
 
+# --- read_file with `symbol` -------------------------------------------------------------
+#
+# `search_files` finds where a function starts and never where it ends, so a large module
+# gets paged by guessed line numbers. A symbol names the unit the model wants and the range
+# comes from the file's own syntax, which is what `symbols.find` already answers.
+
+SYMBOL_FILE = (
+    "import os\n"
+    "\n"
+    "\n"
+    "def first():\n"
+    "    return 1\n"
+    "\n"
+    "\n"
+    "def wanted():\n"
+    "    return 2\n"
+    "\n"
+    "\n"
+    "def last():\n"
+    "    return 3\n"
+)
+
+
+def _module(root: Path) -> Path:
+    path = root / "mod.py"
+    path.write_text(SYMBOL_FILE, encoding="utf-8")
+    return path
+
+
+def test_read_file_symbol_returns_exactly_that_definitions_lines(workspace):
+    """The whole point: one definition, numbered the way a ranged read would be, and
+    nothing either side of it -- a read that quietly returned the file would still pass a
+    test that only looked for the function's own lines."""
+    result = tools.execute_tool(
+        cfg(workspace), call("read_file", path=str(_module(workspace)), symbol="wanted"),
+        tools.ALL_TOOL_NAMES)
+    assert not result.is_error, result.content
+    numbered = [line.partition("\t") for line in result.content.splitlines()]
+    assert [(number.strip(), text) for number, _, text in numbered] == [
+        ("8", "def wanted():"), ("9", "    return 2")]
+    assert "first" not in result.content and "last" not in result.content
+
+
+def test_read_file_symbol_includes_the_decorators(workspace):
+    """A decorated function delivered without its decorators reads as a different
+    function, and the decorator is often the thing the caller came to look at."""
+    path = workspace / "deco.py"
+    path.write_text(
+        "def helper():\n"
+        "    return 0\n"
+        "\n"
+        "\n"
+        "@cache\n"
+        "def cached():\n"
+        "    return 1\n"
+        "\n"
+        "\n"
+        "def after():\n"
+        "    return 2\n",
+        encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace), call("read_file", path=str(path), symbol="cached"),
+        tools.ALL_TOOL_NAMES)
+    assert not result.is_error, result.content
+    numbered = [line.partition("\t") for line in result.content.splitlines()]
+    assert [(number.strip(), text) for number, _, text in numbered] == [
+        ("5", "@cache"), ("6", "def cached():"), ("7", "    return 1")]
+
+
+def test_read_file_refuses_a_symbol_together_with_a_line_range(workspace):
+    """Two ways to pick lines at once is two answers to one question, and letting one win
+    silently means the model cannot tell which range it was actually given."""
+    result = tools.execute_tool(
+        cfg(workspace),
+        call("read_file", path=str(_module(workspace)), symbol="wanted", start_line=8),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "one or the other" in result.content
+
+
+def test_read_file_refuses_a_symbol_the_file_does_not_define(workspace):
+    """The negative control for the two above: a name that is not there must not come back
+    as the whole file, and the refusal has to say which names do exist."""
+    result = tools.execute_tool(
+        cfg(workspace), call("read_file", path=str(_module(workspace)), symbol="missing"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "'missing'" in result.content
+    assert "first, wanted, last" in result.content
+
+
+def test_read_file_refuses_a_nested_symbol_and_names_what_holds_it(workspace):
+    """A method is not a top-level symbol, so the refusal names the class to ask for
+    instead rather than leaving the model to guess."""
+    path = workspace / "nested.py"
+    path.write_text(
+        "class Holder:\n    def method(self):\n        return 1\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace), call("read_file", path=str(path), symbol="method"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert "'Holder'" in result.content
+
+
+def test_read_file_refuses_a_symbol_on_a_file_that_is_not_python(workspace):
+    (workspace / "note.txt").write_text("def not_really():\n    pass\n", encoding="utf-8")
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=IMG_CFG_EXT),
+        call("read_file", path=str(workspace / "note.txt"), symbol="not_really"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert ".py" in result.content
+
+
+def test_read_file_refuses_a_symbol_on_an_image(workspace):
+    """An image has no lines at all, so it has nothing for a symbol to name."""
+    (workspace / "pic.png").write_bytes(_image_bytes("PNG"))
+    result = tools.execute_tool(
+        cfg(workspace, ext_allowlist=IMG_CFG_EXT),
+        call("read_file", path=str(workspace / "pic.png"), symbol="wanted"),
+        tools.ALL_TOOL_NAMES)
+    assert result.is_error
+    assert ".py" in result.content
+
+
+def test_read_file_symbol_paging_still_says_where_to_continue(workspace):
+    """A definition longer than one read is still bounded, and the continuation it names
+    still works -- by start_line, which is the range machinery that already exists."""
+    body = "def big():\n" + "".join(f"    x{i} = {i}\n" for i in range(1, 40))
+    (workspace / "big.py").write_text(body, encoding="utf-8")
+    c = cfg(workspace, max_read_chars=60)
+    first = tools.execute_tool(
+        c, call("read_file", path=str(workspace / "big.py"), symbol="big"),
+        tools.ALL_TOOL_NAMES)
+    assert not first.is_error, first.content
+    assert "[truncated:" in first.content and "start_line=" in first.content
+    assert "end_line=" in first.content, "a symbol read stops where the definition does"
+    # Followed word for word, a note that left `symbol` in the call would be refused, since
+    # a symbol and a range are two ways to pick lines; so it must say to drop it.
+    assert "without symbol" in first.content, first.content
+    resume = int(first.content.split("start_line=")[1].split(" ")[0].rstrip(","))
+    tail = tools.execute_tool(
+        c, call("read_file", path=str(workspace / "big.py"), start_line=resume),
+        tools.ALL_TOOL_NAMES)
+    assert not tail.is_error, tail.content
+    assert tail.content.split("\n")[0].partition("\t")[2] == f"    x{resume - 1} = {resume - 1}"
+
+
+def test_read_file_declares_the_symbol_argument_to_the_model():
+    """The argument's meaning lives in the schema, so a model that never saw the docs
+    still learns that a symbol is one .py function or class and excludes a line range."""
+    spec = tools.REGISTRY["read_file"].spec
+    described = spec.input_schema["properties"]["symbol"]["description"]
+    assert ".py" in described
+    assert "start_line" in described
+    assert "symbol" in spec.description
+
+
 # --- write_file -------------------------------------------------------------------------
 
 

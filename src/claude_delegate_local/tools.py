@@ -30,7 +30,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
 
-from . import provision, sandbox
+from . import provision, sandbox, symbols
 from .backends.base import BashOutcome, ImageBlock, ToolResultBlock, ToolSpec, ToolUseBlock
 from .config import IMAGE_EXTENSIONS, Config
 from .context import decode_image, decode_text, line_number_width, numbered_line
@@ -239,6 +239,52 @@ def _one_path(
 # --- the tools --------------------------------------------------------------------------
 
 
+def _symbol_arg(
+    entry: ResolvedPath, args: dict[str, object], start: int, end: int
+) -> str:
+    """The `symbol` argument, checked against the range and the file it would name.
+
+    Empty or absent is no symbol at all: the argument is optional, and a model that fills
+    it with nothing asked for nothing, so the file reads exactly as it did before.
+
+    Checked before the file is opened, because both refusals here are about the request:
+    two ways of choosing lines at once, and a name that only a Python file can carry.
+    """
+    symbol = _text_arg(args, "symbol", required=False)
+    if not symbol:
+        return ""
+    if start != 1 or end:
+        raise ToolRefused(
+            f"'symbol' {symbol!r} names one definition and start_line/end_line name a "
+            "range; they are two ways to pick lines, so give one or the other. Keep the "
+            "symbol, or drop it and give the range."
+        )
+    if entry.ext != ".py":
+        raise ToolRefused(
+            f"'symbol' names a top-level Python def or class, so the file must be a .py "
+            f"file, and {entry.given} is not one (its extension is {entry.ext or 'none'}). "
+            "Drop the symbol and name the file plainly, or give start_line and end_line "
+            "instead."
+        )
+    return symbol
+
+
+def _read_span(text: str, symbol: str, start: int, end: int) -> tuple[int, int]:
+    """The lines to deliver: the named definition's, or the range the caller gave.
+
+    `symbols.find` owns the parse and the refusals -- the parent of a nested name, the
+    names that do exist, the syntax error that stopped the file being read at all -- so its
+    reason is the refusal, rather than a second, thinner one invented here.
+    """
+    if not symbol:
+        return start, end
+    try:
+        found = symbols.find(text, symbol)
+    except symbols.SymbolRefused as e:
+        raise ToolRefused(e.reason) from e
+    return found.start_line, found.end_line
+
+
 def _read_image(
     entry: ResolvedPath, raw: bytes, nbytes: int, ranged: bool,
     seen: SeenFiles | None,
@@ -277,6 +323,9 @@ def _read_file(
             "Returning nothing would read as a fact about the file rather than about "
             "the request."
         )
+    # A symbol names one definition and a range names lines. The name is checked against
+    # the range here, and against the file's own syntax below, on the text of the one read.
+    symbol = _symbol_arg(entry, args, start, end)
 
     # Sized from the descriptor: the ceiling refuses a huge file without reading it, and
     # measures the file actually held.
@@ -301,6 +350,10 @@ def _read_file(
     text, why = decode_text(raw)
     if text is None:
         raise ToolRefused(why)
+
+    # From the syntax of the bytes already read, never a second open of `entry.posix`: a
+    # symbol read is a ranged read of this file, so it is resolved from this file.
+    start, end = _read_span(text, symbol, start, end)
 
     # `splitlines()`: `split("\n")` invents a trailing empty line. Endings re-join as "\n",
     # so a CRLF file reads the same.
@@ -340,10 +393,18 @@ def _read_file(
     if index > last:
         return body
     # The next `start_line`, so a continuation is a range, not a whole re-read. In the
-    # result, never the prompt, which must stay byte-identical (ADR-0011).
+    # result, never the prompt, which must stay byte-identical (ADR-0011). A symbol read
+    # names its `end_line` too, so following the note stops where the definition does
+    # rather than running on into the rest of the file.
+    # Without `symbol`: kept beside start_line it would be refused as a second way to pick
+    # lines, so a note followed word for word would fail.
+    again = (
+        f"without symbol, with start_line={index} and end_line={end}," if symbol
+        else f"with start_line={index}"
+    )
     return (
         f"{body}\n\n[truncated: lines {start} to {index - 1} of {total}. "
-        f"Call read_file again with start_line={index} for the rest.]"
+        f"Call read_file again {again} for the rest.]"
     )
 
 
@@ -1765,7 +1826,9 @@ READ_FILE = RegisteredTool(
             "absolute. Long files come back one range at a time: the result states the "
             "total number of lines and the line to continue from, so read the next range "
             "rather than the file again, and use start_line and end_line to go straight "
-            "to the part you want rather than reading past it. Refused for a path outside "
+            "to the part you want rather than reading past it -- or give symbol to name "
+            "one top-level Python function or class and get exactly its lines. Refused "
+            "for a path outside "
             "the workspace, an unlisted extension, a secret by name or contents, or "
             "anything that is not text."
         ),
@@ -1787,6 +1850,13 @@ READ_FILE = RegisteredTool(
                                    "later turn, so a range you did not need is paid for "
                                    "again each turn rather than once. Past the end of "
                                    "the file is not an error; below start_line is.",
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "Name one top-level Python function or class (def, "
+                                   "async def or class) in a .py file and get exactly its "
+                                   "lines, decorators included, numbered as a range would "
+                                   "be. Not with start_line or end_line.",
                 },
             },
             "required": ["path"],
