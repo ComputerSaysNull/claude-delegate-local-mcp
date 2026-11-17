@@ -978,6 +978,97 @@ def test_a_denylist_hit_is_skipped_rather_than_fatal(tmp_path):
     assert result["files_read"] and "client_secret" not in json.dumps(result["files_read"])
 
 
+def test_a_symbol_entry_prefetches_that_symbol_and_nothing_else(tmp_path):
+    """A large file is named by the unit wanted, not by guessed line numbers that land
+    mid-function and go stale the moment anything above them changes."""
+    target = tmp_path / "loop.py"
+    target.write_text(
+        "def other():\n    return 0\n\n\nasync def chosen():\n    return 1\n",
+        encoding="utf-8",
+    )
+
+    sent: list = []
+    result = delegated(
+        recording_handler(sent),
+        config=files_cfg(tmp_path),
+        task="review this",
+        files=[{"path": str(target), "symbol": "chosen"}],
+    )
+
+    prompt = json.dumps(sent[0])
+    assert "lines 5-6 of 6" in prompt, "the BEGIN header must say which lines these are"
+    assert "async def chosen" in prompt
+    assert "def other" not in prompt, "a symbol must not drag in its neighbours"
+    assert [f["path"] for f in result["files_read"]] == [os.path.realpath(target)]
+    assert (result["files_read"][0]["start_line"], result["files_read"][0]["end_line"]) == (5, 6)
+    assert result["files_skipped"] == []
+
+
+def test_a_missing_symbol_is_skipped_rather_than_failing_the_call(tmp_path):
+    """The negative control: a wrong name costs that entry, not the delegation, and the
+    reason names the symbols that do exist."""
+    target = tmp_path / "loop.py"
+    target.write_text("def present():\n    return 1\n", encoding="utf-8")
+
+    result = delegated(
+        chat_handler(),
+        config=files_cfg(tmp_path),
+        task="review this",
+        files=[{"path": str(target), "symbol": "absent"}],
+    )
+
+    assert result["answer"] == "ok"
+    assert result["files_read"] == []
+    (skip,) = result["files_skipped"]
+    assert skip["kind"] == "refused"
+    assert "absent" in skip["reason"] and "present" in skip["reason"], skip["reason"]
+
+
+def test_a_symbol_entry_on_a_non_python_file_is_refused_for_that_entry(tmp_path):
+    good = tmp_path / "a.py"
+    good.write_text("x = 1\n", encoding="utf-8")
+    notes = tmp_path / "notes.txt"
+    notes.write_text("def nope():\n", encoding="utf-8")
+
+    sent: list = []
+    result = delegated(
+        recording_handler(sent),
+        config=files_cfg(tmp_path),
+        task="review this",
+        files=[{"path": str(notes), "symbol": "nope"}, str(good)],
+    )
+
+    assert sent, "the entry that was fine should still have been prefetched"
+    (refused,) = [s for s in result["files_skipped"] if s["kind"] == "refused"]
+    assert refused["given"] == str(notes)
+    assert ".py" in refused["reason"], refused["reason"]
+    assert [f["path"] for f in result["files_read"]] == [os.path.realpath(good)]
+
+
+def test_a_glob_or_an_empty_symbol_is_refused_rather_than_silently_dropped(tmp_path):
+    """A symbol entry names one file and one name. Both mistakes are the caller's, and
+    both land in `files_skipped` beside the entry that worked -- never an exception, and
+    never a quiet no-op."""
+    good = tmp_path / "good.py"
+    good.write_text("y = 2\n", encoding="utf-8")
+
+    result = delegated(
+        chat_handler(),
+        config=files_cfg(tmp_path),
+        task="review this",
+        files=[
+            {"path": str(tmp_path / "*.py"), "symbol": "anything"},
+            {"path": str(good), "symbol": "   "},
+            str(good),
+        ],
+    )
+
+    assert [f["path"] for f in result["files_read"]] == [os.path.realpath(good)]
+    reasons = " ".join(s["reason"] for s in result["files_skipped"])
+    assert "glob" in reasons, reasons
+    assert "empty" in reasons, reasons
+
+
 def test_the_workdir_argument_warns_that_a_subfolder_hides_its_parent():
     """The shell sees only the workdir, so a caller binding a subfolder hides from it the
     files one level up, which the task may name."""
@@ -3005,3 +3096,48 @@ def test_the_stale_note_points_at_the_provision_tool(tmp_path):
     assert note is not None
     assert "provision" in note
     assert "ask_caller" in note
+
+
+def test_a_symbol_padded_with_spaces_names_the_symbol_it_spells(tmp_path):
+    """The emptiness check strips the name, so the name it accepts must be the stripped
+    one: passing it on padded makes a symbol the caller did name read as one it did not."""
+    target = tmp_path / "loop.py"
+    target.write_text("def chosen():\n    return 1\n", encoding="utf-8")
+
+    result = delegated(
+        chat_handler(),
+        config=files_cfg(tmp_path),
+        task="review this",
+        files=[{"path": str(target), "symbol": "  chosen  "}],
+    )
+
+    assert result["files_skipped"] == []
+    assert [f["path"] for f in result["files_read"]] == [os.path.realpath(target)]
+    assert (result["files_read"][0]["start_line"], result["files_read"][0]["end_line"]) == (1, 2)
+
+
+def test_an_entry_naming_both_a_range_and_a_symbol_is_refused(tmp_path):
+    """`FileRange` is the leftmost union member that validates, and pydantic ignored the
+    `symbol` key it does not declare -- so the symbol was silently dropped and the range
+    served, where `read_file` refuses the same combination."""
+    target = tmp_path / "loop.py"
+    target.write_text("def chosen():\n    return 1\n", encoding="utf-8")
+    good = tmp_path / "a.py"
+    good.write_text("x = 1\n", encoding="utf-8")
+
+    result = delegated(
+        chat_handler(),
+        config=files_cfg(tmp_path),
+        task="review this",
+        files=[
+            {"path": str(target), "start_line": 1, "symbol": "chosen"},
+            str(good),
+        ],
+    )
+
+    assert result["answer"] == "ok"
+    (skip,) = result["files_skipped"]
+    assert skip["kind"] == "refused"
+    assert skip["given"] == str(target)
+    assert "not both" in skip["reason"], skip["reason"]
+    assert [f["path"] for f in result["files_read"]] == [os.path.realpath(good)]

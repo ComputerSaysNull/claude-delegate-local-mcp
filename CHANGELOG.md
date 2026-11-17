@@ -30,6 +30,23 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #579 — 2026-11-17 — feat: a files[] entry can name a top-level Python symbol
+
+### Added
+
+- **`{"path": ..., "symbol": ...}` prefetches exactly one top-level def, async def or
+  class.** A review had to split `loop.py` (about 3,500 lines) and `server.py` at guessed
+  line numbers to fit one pass each; a cut can land mid-function, so each half guesses at
+  the other, and a range goes stale between reading and asking. The new `symbols.py` finds
+  the definition with `ast` in text already read, decorators included, and the span comes
+  from the same `open_resolved` read that delivers the lines, so the path is never opened a
+  second time (ADR-0049). Symbols are resolved before ranges are merged, so a symbol and an
+  overlapping range on one file send no line twice. A glob, an empty name, a non-`.py` path,
+  a symbol given with a range, and a name that is missing or nested are each refused into
+  `files_skipped` with the reason and what can be named instead. A name defined twice
+  resolves to the definition Python binds, the last. A `.py` file skipped for being over the per-file cap now
+  lists its top-level symbols with their lines, read from the handle already open.
+
 ## #578 — 2026-11-17 — fix: the cache-rebuild count ignores misses on small prompts
 
 ### Fixed

@@ -757,3 +757,134 @@ def test_a_tiled_image_is_prefetched_only_if_all_its_tiles_fit(tmp_path):
     assert refused.files == ()
     assert refused.skips[0].kind == SKIP_REFUSED
     assert "8 images" in refused.skips[0].reason
+
+
+# ---- naming a symbol instead of guessing at lines ------------------------------------
+
+# Line 1 `import os`, 4-5 `alpha`, 8-10 `Beta`, 10 lines in all.
+SYMBOL_FILE = (
+    "import os\n"
+    "\n"
+    "\n"
+    "def alpha():\n"
+    "    return 1\n"
+    "\n"
+    "\n"
+    "class Beta:\n"
+    "    def method(self):\n"
+    "        return 2\n"
+)
+
+
+def test_a_symbol_entry_prefetches_exactly_that_symbols_lines(tmp_path):
+    """The whole point: the unit, not a guess at where it starts and stops."""
+    item = write(tmp_path, "mod.py", SYMBOL_FILE)
+
+    result = prefetch(cfg(), (context.FileRequest(entry=item, symbol="Beta"),))
+
+    assert result.skips == (), [s.reason for s in result.skips]
+    (entry,) = result.files
+    assert (entry.start_line, entry.end_line) == (8, 10)
+    block = result.block()
+    assert "(lines 8-10 of 10)" in block, block
+    assert " 8\tclass Beta:" in block, block
+    assert "10\t        return 2" in block, block
+    assert "def alpha" not in block, "a symbol must not drag in what surrounds it"
+
+
+def test_a_symbol_the_file_does_not_define_is_skipped_with_the_names_it_does(tmp_path):
+    """The negative control for the test above: a wrong name is not silently the whole
+    file, and the reason says which names exist so the next call can be right."""
+    item = write(tmp_path, "mod.py", SYMBOL_FILE)
+
+    result = prefetch(cfg(), (context.FileRequest(entry=item, symbol="gamma"),))
+
+    assert result.files == ()
+    (skip,) = result.skips
+    assert skip.kind == SKIP_REFUSED
+    assert "gamma" in skip.reason
+    assert "alpha" in skip.reason and "Beta" in skip.reason
+    assert skip.path == item.posix
+    assert result.accounting()["files_skipped"][0]["reason"] == skip.reason
+
+
+def test_a_symbol_and_an_overlapping_range_do_not_send_a_line_twice(tmp_path):
+    """The span a symbol names is only known once the file is read, so it is resolved
+    before the merge rather than beside it -- otherwise the class arrives twice, once as
+    the symbol and once inside the range that swallowed it."""
+    item = write(tmp_path, "mod.py", SYMBOL_FILE)
+
+    result = prefetch(cfg(), (
+        context.FileRequest(entry=item, symbol="Beta"),
+        context.FileRequest(entry=item, start_line=4, end_line=10),
+    ))
+
+    assert result.skips == (), [s.reason for s in result.skips]
+    block = result.block()
+    assert block.count("class Beta:") == 1, block
+    assert block.count("return 2") == 1, block
+    # What the range names outside the symbol still arrives, and nothing else does.
+    assert "return 1" in block, block
+    assert sorted((f.start_line, f.end_line) for f in result.files) == [(4, 7), (8, 10)]
+
+
+def test_the_same_symbol_named_twice_is_sent_once(tmp_path):
+    """Two entries naming one symbol are one span, and a span sent twice is the same bug
+    as two overlapping ranges: the model reads the same lines twice and pays for both."""
+    item = write(tmp_path, "mod.py", SYMBOL_FILE)
+
+    result = prefetch(cfg(), (
+        context.FileRequest(entry=item, symbol="Beta"),
+        context.FileRequest(entry=item, symbol="Beta"),
+    ))
+
+    assert len(result.files) == 1, [f.path for f in result.files]
+    assert result.block().count("class Beta:") == 1
+
+
+def test_an_over_cap_python_file_lists_its_outline_so_a_symbol_can_be_named(tmp_path):
+    """A skip that says only "too big" leaves the caller guessing again. The outline is
+    the list to choose from, and the file's own handle is already open to read it."""
+    body = "".join(f"def f{i}():\n    return {i}\n\n" for i in range(40))
+    item = write(tmp_path, "big.py", body)
+
+    result = prefetch(cfg(max_file_tokens=50, max_total_prefetch_tokens=40000), (item,))
+
+    assert result.files == ()
+    (skip,) = result.skips
+    assert skip.kind == SKIP_OVER_FILE_BUDGET
+    assert "f0 (lines 1-2)" in skip.reason, skip.reason
+    assert "and 30 more" in skip.reason, skip.reason
+
+
+def test_an_over_cap_file_with_no_symbols_gets_no_outline(tmp_path):
+    """The control: appending an empty list would be noise in every skip reason."""
+    item = write(tmp_path, "big.py", "x = 1\n" * 5000)
+
+    result = prefetch(cfg(max_file_tokens=50, max_total_prefetch_tokens=40000), (item,))
+
+    assert "top-level symbols" not in result.skips[0].reason, result.skips[0].reason
+
+
+def test_a_symbol_at_the_end_of_a_file_leaves_no_empty_tail_to_refuse(tmp_path):
+    """The symbol's span is subtracted from the whole file, and the file's length came back
+    from the same read -- so the empty tail after the last line is not a span at all.
+
+    Attempting it re-opens the file only to refuse a range that asks for nothing, and the
+    skip row then tells the model to treat a file it was in fact given as not given."""
+    item = write(tmp_path, "mod.py", SYMBOL_FILE)
+
+    result = prefetch(cfg(), (
+        context.FileRequest(entry=item),
+        context.FileRequest(entry=item, symbol="Beta"),
+    ))
+
+    assert result.skips == (), [s.reason for s in result.skips]
+    numbers: list[int] = []
+    for entry in result.files:
+        if entry.start_line is None:
+            numbers.extend(range(1, len(entry.text.splitlines()) + 1))
+        else:
+            numbers.extend(range(entry.start_line, (entry.end_line or 0) + 1))
+    assert sorted(numbers) == list(range(1, 11)), numbers
+    assert len(numbers) == len(set(numbers)), "a line arrived twice"

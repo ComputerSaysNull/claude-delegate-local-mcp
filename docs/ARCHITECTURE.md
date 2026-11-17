@@ -64,7 +64,7 @@ image until small text is gone (ADR-0133). Each is budgeted at the entry's
 `tokens_per_image`: one model caps what an image costs, another bills it by size.
 
 A prefetch cap is a **drop** threshold and never a truncation: a file over it is left out
-whole, though a caller may name ranges of it, merged where they meet (ADR-0105, ADR-0106).
+whole, though a caller may name ranges or a top-level Python symbol of it, merged where they meet (ADR-0105, ADR-0106).
 It is not a fairness control either. That is admission's, below, which counts across every
 server process on the machine rather than per call — so a second control here only meant
 one large file being dropped while the budget it would have fitted in sat unused (ADR-0046).
@@ -77,7 +77,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `registry.py` | One explicit row per model: URL, format, window, defaults, concurrency |
 | `wsl.py` | The single path-translation boundary |
 | `paths.py` | The four-layer path policy |
-| `context.py` | Prefetch, token budgeting, prompt ordering, and deciding whether bytes are text or a readable image, every frame decoded, one image at a time, under a pixel ceiling, a large one cut into tiles (ADR-0132, ADR-0133). History eviction is the loop's, in `loop.py` |
+| `context.py` | Prefetch, token budgeting, prompt ordering, and deciding whether bytes are text or a readable image, every frame decoded, one image at a time, under a pixel ceiling, a large one cut into tiles (ADR-0132, ADR-0133). History eviction is the loop's, in `loop.py`; `symbols.py` finds a top-level def or class in text already read |
 | `backends/base.py` | `Backend` protocol and the canonical message shape — [DISPATCH.md](DISPATCH.md) |
 | `backends/openai_compat.py` | The only adapter shipped — [DISPATCH.md](DISPATCH.md) |
 | `loop.py` | The one-shot path, the response state machine and the turn loop — [DISPATCH.md](DISPATCH.md) |
