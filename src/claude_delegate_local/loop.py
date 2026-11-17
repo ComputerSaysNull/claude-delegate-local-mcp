@@ -30,7 +30,6 @@ from typing import Any
 
 from .backends.base import (
     Backend,
-    BackendProtocolError,
     BackendRefused,
     BashOutcome,
     BackendUnavailable,
@@ -1665,6 +1664,16 @@ IMAGE_LIMIT_REFUSED = (
     "{limit} images the model accepts in one conversation.]"
 )
 
+# A tool call the reply limit cut through, answered instead of run: its arguments were never
+# decoded, so its `input` is empty and running it would tell the tool the model asked for
+# nothing. The remedy is the one that fits a call too large for one reply (ADR-0145).
+CUT_CALL_REFUSED = (
+    "[your `{name}` call was cut off at the reply limit of {limit} tokens before its "
+    "arguments were complete, so nothing ran. Write a large file in parts -- `write_file` "
+    "for the first part, then `edit_file` to add the rest -- and think less before a large "
+    "write, since the reasoning is spent from the same limit.]"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class _CachedResult:
@@ -2952,6 +2961,7 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     seen: SeenFiles | None = None,
     status: list[str] | None = None,
     images: ImageRoom | None = None,
+    cut: dict[str, str] | None = None,
 ) -> tuple[list[ContentBlock], tuple[ToolCallRecord, ...]]:
     """One turn's tool calls, run in order. Returns the result blocks and their records.
 
@@ -2961,6 +2971,9 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
 
     `status` holds one word per call for the heartbeat to read: `queued`, `running` while
     its group runs, then `done` or its outcome. By group, since a group's calls run at once.
+
+    `cut` maps a `tool_use` id to the refusal it is answered with instead of being run: a
+    call the reply limit cut through has no decoded arguments, so it never reaches a tool.
     """
     results: list[ContentBlock] = []
     records: list[ToolCallRecord] = []
@@ -2968,17 +2981,28 @@ def _run_calls(  # noqa: PLR0913 -- one turn's inputs; the sixth is the sandbox 
     for group in _pooled_groups(calls):
         if status is not None:
             status[first:first + len(group)] = ["running"] * len(group)
-        # A group of one keeps the original path, cache clear and all.
-        outcomes = (
-            [_run_one_call(cfg, group[0], allowed, cached, policy, seen=seen)]
-            if len(group) == 1
-            else _run_group(cfg, group, allowed, cached, policy, seen=seen)
+        # A cut call is answered here rather than run, so it is left out of the group: it
+        # must not clear the cache a non-cacheable call would, since nothing happened.
+        runnable = tuple(c for c in group if cut is None or c.id not in cut)
+        outcomes = [] if not runnable else (
+            # A group of one keeps the original path, cache clear and all.
+            [_run_one_call(cfg, runnable[0], allowed, cached, policy, seen=seen)]
+            if len(runnable) == 1
+            else _run_group(cfg, runnable, allowed, cached, policy, seen=seen)
         )
+        produced = iter(outcomes)
         # On one thread, in the model's order; a worker appending would reorder the report.
-        for i, (call, (produced, ran_as, ms)) in enumerate(zip(group, outcomes, strict=True)):
-            # Before it is recorded, so the ledger counts the refusal the model is shown.
-            block = images.admit(produced) if images is not None else produced
-            outcome = ran_as if block is produced else "error"
+        for i, call in enumerate(group):
+            if cut is not None and call.id in cut:
+                block: ContentBlock = ToolResultBlock(
+                    tool_use_id=call.id, content=cut[call.id], is_error=True
+                )
+                outcome, ms = "error", None
+            else:
+                raw, ran_as, ms = next(produced)
+                # Before it is recorded, so the ledger counts the refusal the model is shown.
+                block = images.admit(raw) if images is not None else raw
+                outcome = ran_as if block is raw else "error"
             result = block if isinstance(block, ToolResultBlock) else None
             watch.called(call, outcome, result)
             records.append(tool_call_record(call, outcome, result, ms=ms))
@@ -3407,15 +3431,18 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             # A call the reply limit cut through and that is still cut after both resend
             # opportunities has no larger budget left to go to, and its arguments were never
             # decoded. Running it on an empty `input` would tell the tool the model asked for
-            # nothing, so it is refused instead. That ends the run as the adapter's raise
-            # used to; what differs is that a cut reply which *can* be resent now is.
-            cut = [c for c in dispatch.response.tool_uses if c.cut]
-            if cut:
-                raise BackendProtocolError(
-                    f"the tool call {cut[0].name!r} was cut off at the reply limit of "
-                    f"{asked_budget} tokens before its arguments were complete, so there is "
-                    "nothing to run. Raise max_tokens, or narrow the task."
+            # nothing, so it is answered with an error instead and the run goes on: the
+            # complete calls in the same reply still run, and the model is told to write in
+            # parts. It names the limit the adapter reported on the block -- the request that
+            # was actually cut, whichever stage of the recovery ladder sent it -- and falls
+            # back to the asked budget only when the adapter could not say.
+            cut_calls = {
+                c.id: CUT_CALL_REFUSED.format(
+                    name=c.name,
+                    limit=c.cut_limit if c.cut_limit is not None else asked_budget,
                 )
+                for c in dispatch.response.tool_uses if c.cut
+            }
             largest_reply = max(largest_reply, dispatch.response.output_tokens or 0)
             # The backend call alone: over the whole turn, tools and retry waits would make
             # the cluster look slower, a wrong number that gets believed.
@@ -3462,7 +3489,9 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             ask_here: list[tuple[int, ToolUseBlock]] = []
             batch: list[tuple[int, ToolUseBlock]] = []
             for i, c in enumerate(calls):
-                if ask is not None and c.name == "ask_caller":
+                # A cut call is answered by `_run_calls` rather than run, and a cut
+                # `ask_caller` has no `questions` to put to anyone: it stays in the batch.
+                if ask is not None and c.name == "ask_caller" and c.id not in cut_calls:
                     ask_here.append((i, c))
                 else:
                     batch.append((i, c))
@@ -3490,7 +3519,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
             batch_results, batch_records = await asyncio.to_thread(
                 _run_calls, cfg, tuple(c for _, c in batch), allowed, cached, watch,
                 policy=bash_policy, seen=seen, status=batch_status,
-                images=ImageRoom(entry.max_images, history),
+                images=ImageRoom(entry.max_images, history), cut=cut_calls,
             )
             if ask_here:
                 for (idx, _), word in zip(batch, batch_status, strict=True):
