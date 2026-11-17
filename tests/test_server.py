@@ -447,7 +447,7 @@ def delegated(handler, *, entries=None, config=None, **kwargs):
     return asyncio.run(go())
 
 
-def test_exactly_ten_tools_are_declared():
+def test_exactly_eleven_tools_are_declared():
     """docs/AGENTS.md promises this exact set, and this is what holds it to that.
 
     The promise is the design: a new *kind* of delegated task is a markdown file, not
@@ -478,6 +478,10 @@ def test_exactly_ten_tools_are_declared():
     reply. Nine for `message_delegation`, the one call that reaches a run that never
     stopped to ask. `collect` is gone -- every delegating call waits for its run, so no
     call needs a second one to hear the answer (ADR-0118).
+
+    Eleven for `list_delegations`, on the same argument once more: a caller whose context was
+    compacted holds neither the handle of a run parked on a question nor its task id, and no
+    other call can name what it can no longer say.
     """
     config = cfg()
     mcp = server.build(config, registry(entry()), DoubleCache(config, ok_handler()))
@@ -490,6 +494,7 @@ def test_exactly_ten_tools_are_declared():
         "delegate", "delegate_readonly", "delegate_to_agent",
         "delegate_to_agent_readonly", "list_agents", "backend_status",
         "cancel_delegation", "answer", "provision", "message_delegation",
+        "list_delegations",
     }
 
 
@@ -1034,7 +1039,8 @@ def _tools(mcp):
 
 DELEGATING = ["delegate", "delegate_readonly", "delegate_to_agent",
               "delegate_to_agent_readonly"]
-EVERY_TOOL = [*DELEGATING, "list_agents", "backend_status", "provision"]
+EVERY_TOOL = [*DELEGATING, "list_agents", "backend_status", "provision",
+              "list_delegations"]
 
 
 def test_the_three_facts_are_delivered_by_the_channels_that_own_them():
@@ -2228,7 +2234,7 @@ def test_only_the_tools_that_cannot_write_declare_themselves_read_only():
 
     seen = asyncio.run(go())
     cannot_write = ("backend_status", "list_agents", "delegate_readonly",
-                    "delegate_to_agent_readonly")
+                    "delegate_to_agent_readonly", "list_delegations")
     # `answer` resumes a run that may write.
     can_write = ("delegate", "delegate_to_agent", "cancel_delegation", "answer", "provision",
                  "message_delegation")

@@ -283,9 +283,9 @@ its session when it ends. A client without tasks waits on the call, which report
 every `keepalive_interval` so the idle timeout (ADR-0018) cannot drop it. Each time a run
 asks its caller (`ask_caller`, ADR-0125) the call ends with `status: question`; `answer`
 continues the same run, which keeps its slot meanwhile. Cancelling the task cancels the run;
-`cancel_delegation` stops one parked on a question; a stopped or failed run is then dropped.
-`message_delegation` reaches a run that did not ask, named by the task id the caller holds; one
-not read before the end is reported. What `run` still buys is context — a tool result lands in
+`cancel_delegation` stops one parked on a question, `list_delegations` lists what this process
+holds, and a stopped or failed run is then dropped. `message_delegation` reaches a run that did
+not ask, by its task id; one unread at the end is reported. What `run` still buys is context — a tool result lands in
 the caller's window whole, where this one is redirected to a file and read back in part.
 
 stdout carries that JSON, which is why `main.run` dispatches here *before* building a

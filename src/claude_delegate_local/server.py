@@ -1558,6 +1558,38 @@ _CANCEL_RESULT: dict[str, Any] = {
     },
 }
 
+_LIST_DELEGATIONS_RESULT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "delegations": {"type": "array", "items": {
+            "type": "object",
+            "additionalProperties": True,
+            "properties": {
+                "handle": {"type": "string", "description": (
+                    "The run's handle, which `answer` or `cancel_delegation` takes.")},
+                "task_ids": {"type": "array", "items": {"type": "string"},
+                             "description": (
+                    "Every MCP task id naming this run -- the delegating call's and an "
+                    "`answer` call's. One of these is what `message_delegation` takes."
+                )},
+                "tool": {"type": "string", "description": "The tool that started the run."},
+                "status": {"type": "string", "description": (
+                    "`running`, or `question` when the run is parked on a question.")},
+                "age_seconds": {"type": "number", "description": (
+                    "Seconds since the run started.")},
+                "questions": {"type": "array", "items": {"type": "string"}, "description": (
+                    "What it waits to be told, and empty unless `status` is `question`: an "
+                    "answered question is no longer open."
+                )},
+            },
+        },
+                   "description": "One row per run this process still holds."},
+        "count": {"type": "integer", "description": "How many runs are listed."},
+    },
+}
+
+
 _MESSAGE_RESULT: dict[str, Any] = {
     "type": "object",
     "additionalProperties": True,
@@ -2459,6 +2491,26 @@ def build(  # noqa: PLR0915 -- every tool is a closure over this one set of wiri
                 return {"handle": handle, "cancelled": False, "stopped": True}
             raise ToolError(str(e)) from e
         return {"handle": handle, "cancelled": cancelled, "stopped": stopped}
+
+    @mcp.tool(title="List this process's delegations",
+              annotations={**_READS, "idempotentHint": True},
+              output_schema=_LIST_DELEGATIONS_RESULT)
+    async def list_delegations() -> dict[str, Any]:
+        """List the delegations this server process is running or parked on a question.
+
+        Call it to find a run you lost -- one parked on a question whose handle went with a
+        compacted context, or one whose task id you no longer hold -- then `answer` it, or
+        `cancel_delegation` to stop it. A run waiting on a question keeps its admission
+        slot, so a question nobody answers holds every other delegation back.
+
+        Each row gives the `handle`, the `task_ids`, the `tool`, the `age_seconds`, and the
+        `questions` only while the run still waits on them.
+
+        The registry is this process's: a restart forgets every run, and a finished one is
+        dropped once collected. The transcript directory still holds the record.
+        """
+        found = handles.listing()
+        return {"delegations": found, "count": len(found)}
 
     @mcp.tool(title="List agents", annotations={**_READS, "idempotentHint": True},
               output_schema=_AGENT_LIST_RESULT)
