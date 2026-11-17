@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #575 — 2026-11-17 — feat: list_delegations finds the runs this server process holds
+
+### Added
+
+- **`list_delegations`, a read-only MCP tool listing this process's running and parked
+  runs.** A run parked on a question keeps its admission slot, so every other delegation
+  queues behind it until `question_wait_limit`; but a caller whose context was compacted no
+  longer holds the run's handle or task id, and nothing could name the run again. Each row
+  gives the handle, the task ids, the tool, the age, and the open questions only while the
+  run still waits on them, since an answer leaves the old questions recorded. The registry
+  is per process by design, so it lists what this server holds, not another session's.
+
 ## #574 — 2026-11-17 — fix: a tool call cut off by the reply limit is resent instead of ending the run
 
 ### Fixed

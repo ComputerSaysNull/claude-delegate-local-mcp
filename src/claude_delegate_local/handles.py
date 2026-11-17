@@ -327,6 +327,41 @@ class Handles:
         """Whether this process issued `handle` and has since dropped it (bounded record)."""
         return handle in self._forgotten
 
+    def listing(self, now: float | None = None) -> list[dict[str, Any]]:
+        """Every run this process still holds that is running or parked, as plain dicts.
+
+        For `list_delegations`: a caller whose context was compacted may no longer hold the
+        handle of a run parked on a question, and a question nobody answers keeps the run's
+        admission slot, so the listing is how that run is found again. Plain dicts rather
+        than entries, so nothing outside hands out a live `Pause` or task.
+
+        `questions` is reported only while `Pause.waiting()` holds: an answer leaves the
+        questions recorded, so reading them unconditionally would offer a question that is
+        already settled. A run whose task has ended is left out -- it is either cancelled,
+        or done and waiting to be collected, and neither is work still going.
+        """
+        at = self._clock() if now is None else now
+        listed: list[dict[str, Any]] = []
+        for handle, entry in self._entries.items():
+            if entry.task.done():
+                continue
+            pause = entry.pause
+            if pause is not None and pause.waiting():
+                status, questions = "question", list(pause.questions)
+            else:
+                # An answer leaves `questions` recorded, so only a run still waiting has
+                # an open one to report.
+                status, questions = "running", []
+            listed.append({
+                "handle": handle,
+                "task_ids": sorted(entry.task_ids),
+                "tool": entry.tool,
+                "status": status,
+                "age_seconds": round(at - entry.started, 1),
+                "questions": questions,
+            })
+        return listed
+
     def message(self, task_id: str, text: str) -> int:
         """Queue `text` for the run the task id names, and say how many now wait.
 
