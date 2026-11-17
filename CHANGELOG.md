@@ -30,6 +30,27 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #574 — 2026-11-17 — fix: a tool call cut off by the reply limit is resent instead of ending the run
+
+### Fixed
+
+- **A reply the token limit cut through in the middle of a tool call ended the delegation.**
+  The engine returns the half-written call, whose arguments are unterminated JSON, and the
+  adapter parsed every tool call before it read `finish_reason`, so it raised
+  `BackendProtocolError`, which is never retried. ADR-0143's resend at the full budget,
+  written for exactly this "half a tool call" under the shrunk later-turn budget, could
+  therefore never run. Three delegations died this way in nine days, all on `write_file`,
+  one after 37 minutes of work. The adapter now decides whether the reply was cut before it
+  reads any call: a `length` stop, or the whole `max_tokens` sent spent (some engines report
+  `tool_calls` for a call they cut). An unparseable call under a cut reply comes back
+  flagged `ToolUseBlock.cut` with empty arguments, and `cut_by_the_shrink` counts the flag
+  as a length stop, so the turn is resent at the full budget. A cut call is never run: one
+  still cut with no larger budget left ends the run, naming the limit. Unparseable
+  arguments on a reply that was not cut still raise. A call whose arguments never arrived
+  counts as cut too; a reply that is only a cut call skips the empty-answer ladder, which
+  could resend it below the full budget; and a stream that stalls mid-call keeps the partial
+  it decoded instead of losing it to the same raise.
+
 ## #573 — 2026-11-16 — fix: host-side git trusts a repository config that includes another file
 
 ### Fixed
