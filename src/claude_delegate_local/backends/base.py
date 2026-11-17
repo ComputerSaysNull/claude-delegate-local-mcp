@@ -133,6 +133,18 @@ class ToolUseBlock:
     id: str
     name: str
     input: dict[str, object]
+    # The reply limit landed inside this call's arguments, so they arrived truncated and
+    # could not be parsed: `input` is empty because nothing was decoded, not because the
+    # call takes no arguments. Reported rather than raised (ADR-0143), because a length stop
+    # is a fact about the reply and the caller owns what to do about it -- resend at a
+    # larger budget, or refuse to run a call nobody finished writing. Only an adapter can
+    # tell this apart from a malformed call, since only it knows the limit it sent.
+    cut: bool = False
+    # The `max_tokens` the request actually sent, when this call was flagged cut: `None`
+    # when the adapter could not say (a partial rebuilt from a stream that never reported
+    # a limit). A later change names this number to the model, so it travels beside the
+    # flag rather than being recomputed from a request the caller no longer holds.
+    cut_limit: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

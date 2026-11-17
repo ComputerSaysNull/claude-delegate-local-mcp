@@ -30,6 +30,7 @@ from typing import Any
 
 from .backends.base import (
     Backend,
+    BackendProtocolError,
     BackendRefused,
     BashOutcome,
     BackendUnavailable,
@@ -1221,9 +1222,13 @@ def is_empty_at_length(response: CanonicalResponse) -> bool:
     Empty text *and* a length stop. Empty at `stop` is a model with nothing to say, and a
     retry buys the same non-answer; a length stop with text is ordinary truncation. Widening
     ADR-0014's line is expensive: each mitigation is a dispatch at the largest budget.
+    A reply that is only a cut tool call is content as well: the limit cut through the call,
+    not through an answer that never came, so it belongs to `cut_by_the_shrink`, which
+    resends at the full budget, rather than to this ladder, which may retry below it.
     """
-    return response.text == "" and response.finish_reason == "length"
-
+    if response.text != "" or response.finish_reason != "length":
+        return False
+    return not any(call.cut for call in response.tool_uses)
 
 async def dispatch_with_recovery(  # noqa: PLR0913 -- three of the seven are test seams
     cfg: Config,
@@ -3020,13 +3025,21 @@ def _plus(was: float | None, now: float | None) -> float | None:
 def cut_by_the_shrink(dispatch: Dispatch, asked: int, full: int) -> bool:
     """Whether this reply is the shrunk budget's truncation, and so wants the full budget.
 
-    Content is what separates it from an empty answer at a length stop: that is
-    `dispatch_with_recovery`'s signature, and its ladder already lifts the budget, so
-    resending such a reply would be a stage it has spent. A reply the ladder returned was
+    A length stop is the obvious shape, and the one this ladder was written for. The other
+    is a tool call the reply limit cut through: some engines report `tool_calls` for it, so
+    the canonical block carries the flag instead of the finish reason (`ToolUseBlock.cut`),
+    and without that signature a turn whose only content was half a call would read as a
+    complete one. Content is what separates either from an empty answer at a length stop:
+    that is `dispatch_with_recovery`'s signature, and its ladder already lifts the budget,
+    so resending such a reply would be a stage it has spent. A reply the ladder returned was
     sent at a raised budget, which is why an `EmptyAtLength` record rules this out -- the
     two mitigations cannot both fire for one reply (ADR-0143).
     """
-    if asked >= full or dispatch.response.finish_reason != "length":
+    if asked >= full:
+        return False
+    if dispatch.response.finish_reason != "length" and not any(
+        call.cut for call in dispatch.response.tool_uses
+    ):
         return False
     if not (dispatch.response.text or dispatch.response.tool_uses):
         return False
@@ -3390,6 +3403,18 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                     answered_seconds=answered,
                     prefill_seconds=_plus(dispatch.prefill_seconds, reply.prefill_seconds),
                     decode_seconds=_plus(dispatch.decode_seconds, reply.decode_seconds),
+                )
+            # A call the reply limit cut through and that is still cut after both resend
+            # opportunities has no larger budget left to go to, and its arguments were never
+            # decoded. Running it on an empty `input` would tell the tool the model asked for
+            # nothing, so it is refused instead. That ends the run as the adapter's raise
+            # used to; what differs is that a cut reply which *can* be resent now is.
+            cut = [c for c in dispatch.response.tool_uses if c.cut]
+            if cut:
+                raise BackendProtocolError(
+                    f"the tool call {cut[0].name!r} was cut off at the reply limit of "
+                    f"{asked_budget} tokens before its arguments were complete, so there is "
+                    "nothing to run. Raise max_tokens, or narrow the task."
                 )
             largest_reply = max(largest_reply, dispatch.response.output_tokens or 0)
             # The backend call alone: over the whole turn, tools and retry waits would make

@@ -9,7 +9,10 @@ block-structured.
 What this file does not do: retry, back off, step down on reasoning exhaustion, or decide
 what an empty answer means -- `loop.complete_with_retry` does. Here a failed call raises, a
 refused call raises with its status and body intact, and a reply with no content comes back
-with no content: facts the caller decides on, not decisions this layer may make.
+with no content: facts the caller decides on, not decisions this layer may make. A tool call
+the reply limit cut through is one of those facts, and comes back flagged
+(`ToolUseBlock.cut`) rather than raising, because whether to resend it at a larger budget is
+the loop's call (ADR-0143).
 
 Never sent: `thinking_token_budget`, because the live server rejects it and its documented
 boot flag is the wrong one (ADR-0017); and anything derived from a model *name*, because
@@ -211,12 +214,17 @@ class OpenAICompatBackend:
         *,
         on_token: Callable[[str, str], None] | None = None,
     ) -> CanonicalResponse:
+        body = self.wire_body(request)
+        # The limit actually sent, which is what a cut reply is measured against: the
+        # request's budget as the per-model cap allows it. Taken from the body rather than
+        # the request so the two cannot disagree about what was asked for.
+        limit = body["max_tokens"]
         payload, decode_seconds, prefill_seconds, reasoning_seconds = await self._post_stream(
-            self._entry.chat_url, self.wire_body(request), _CHAT_PATH, on_token=on_token
+            self._entry.chat_url, body, _CHAT_PATH, on_token=on_token, max_tokens=limit,
         )
         return self._from_wire(
-            payload, decode_seconds=decode_seconds, prefill_seconds=prefill_seconds,
-            reasoning_seconds=reasoning_seconds,
+            payload, max_tokens=limit, decode_seconds=decode_seconds,
+            prefill_seconds=prefill_seconds, reasoning_seconds=reasoning_seconds,
         )
 
     async def _post_stream(
@@ -226,6 +234,7 @@ class OpenAICompatBackend:
         path: str,
         *,
         on_token: Callable[[str, str], None] | None = None,
+        max_tokens: int | None = None,
     ) -> tuple[dict[str, Any], float | None, float | None, float | None]:
         """Stream the chat call and hand back one payload plus both halves of its clock.
 
@@ -263,7 +272,8 @@ class OpenAICompatBackend:
                 return None
             span = None if last is None or last <= first else last - first
             return self._from_wire(
-                acc.payload(), decode_seconds=span,
+                acc.payload(), max_tokens=max_tokens, decode_seconds=span,
+                partial=True,
                 # Known on a partial as on a whole reply: the first token has arrived, so
                 # prefill is over and measured.
                 prefill_seconds=max(first - started, 0.0),
@@ -459,10 +469,12 @@ class OpenAICompatBackend:
 
     # --- inbound -----------------------------------------------------------------------
 
-    def _from_wire(
-        self, payload: dict[str, Any], decode_seconds: float | None = None,
+    def _from_wire(  # noqa: PLR0913 -- one optional keyword per fact the caller reports
+        self, payload: dict[str, Any], *, max_tokens: int | None = None,
+        decode_seconds: float | None = None,
         prefill_seconds: float | None = None,
         reasoning_seconds: float | None = None,
+        partial: bool = False,
     ) -> CanonicalResponse:
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
@@ -478,6 +490,25 @@ class OpenAICompatBackend:
 
         blocks: list[ContentBlock] = []
 
+        # Whether the reply limit cut through the reply, decided before any tool call is
+        # read. A call the limit landed inside is truncated JSON, which is a fact about the
+        # reply rather than a malformed response, and only this function knows the limit
+        # that was sent. Two signatures, because engines differ: a `length` stop says it
+        # outright, and spending the whole budget sent says the same thing from an engine
+        # that reports `tool_calls` for a call it cut through.
+        finish = str(choice.get("finish_reason") or "")
+        usage = payload.get("usage") or {}
+        completion = usage.get("completion_tokens")
+        # `partial` is the caller's verdict on a stream that stopped mid-turn: it carries
+        # no finish reason and no usage to read, so a call it had half-delivered is cut by
+        # definition, and the text and reasoning around it survive rather than dying with
+        # the raise that rebuilt partial used to hit.
+        cut = partial or finish == "length" or (
+            max_tokens is not None
+            and isinstance(completion, (int, float))
+            and completion >= max_tokens
+        )
+
         # Reasoning first, so the canonical order matches the order it was produced in.
         for key in _REASONING_KEYS:
             reasoning = message.get(key)
@@ -490,9 +521,8 @@ class OpenAICompatBackend:
             blocks.append(TextBlock(content))
 
         for call in message.get("tool_calls") or []:
-            blocks.append(_tool_use_from_wire(call))
+            blocks.append(_tool_use_from_wire(call, cut=cut, cut_limit=max_tokens))
 
-        usage = payload.get("usage") or {}
         details = usage.get("prompt_tokens_details") or {}
         # `.get(...) or 0` would fold a real zero into "absent", opposite answers for
         # cached_tokens, where 0 is a measured cache miss. So these four coerce only a
@@ -504,7 +534,7 @@ class OpenAICompatBackend:
         named = payload.get("model")
         return CanonicalResponse(
             content=tuple(blocks),
-            finish_reason=str(choice.get("finish_reason") or ""),
+            finish_reason=finish,
             input_tokens=int(usage.get("prompt_tokens") or 0),
             output_tokens=int(usage.get("completion_tokens") or 0),
             model=str(payload.get("model") or self._entry.served_model_id),
@@ -876,7 +906,22 @@ def _wire_message(message: Message, *, resend_reasoning: bool) -> list[dict[str,
     return out
 
 
-def _tool_use_from_wire(call: Any) -> ToolUseBlock:
+def _tool_use_from_wire(
+    call: Any, *, cut: bool = False, cut_limit: int | None = None
+) -> ToolUseBlock:
+    """One wire tool call as a block, flagged when the reply limit cut through it.
+
+    `cut` is the caller's verdict on the reply, not this function's: only `_from_wire` knows
+    the limit that was sent, and passes it down as `cut_limit` so the flag names the budget
+    that cut it. Arguments that do not parse under a cut reply are the limit's doing -- half
+    a call is not a malformed one -- so they come back as an empty `input` with the flag
+    set, and what to do about it is `loop.py`'s (ADR-0143). The same goes for a call whose
+    arguments never arrived at all: `None` and `""` mean no fragment streamed, which under a
+    cut is half a call rather than one that takes no arguments -- no tool does, and a
+    genuinely complete no-argument call arrives as `"{}"`, which parses below. A reply that
+    had room to finish the call has no such excuse, so it still raises; and a decoded
+    non-object is wrong either way, since a `42` is not half of an object.
+    """
     if not isinstance(call, dict):
         raise BackendProtocolError(f"{_CHAT_PATH} tool_calls contains a non-object entry.")
     fn = call.get("function")
@@ -886,11 +931,21 @@ def _tool_use_from_wire(call: Any) -> ToolUseBlock:
         )
     raw = fn.get("arguments")
     if raw in (None, ""):
+        if cut:
+            return ToolUseBlock(
+                id=str(call.get("id") or ""), name=str(fn["name"]), input={},
+                cut=True, cut_limit=cut_limit,
+            )
         arguments: Any = {}
     else:
         try:
             arguments = json.loads(raw)
         except (TypeError, ValueError) as e:
+            if cut:
+                return ToolUseBlock(
+                    id=str(call.get("id") or ""), name=str(fn["name"]), input={},
+                    cut=True, cut_limit=cut_limit,
+                )
             raise BackendProtocolError(
                 f"{_CHAT_PATH} tool call {call.get('id')!r} has arguments that are not "
                 f"JSON: {e}. Refusing rather than passing a broken call to a tool."

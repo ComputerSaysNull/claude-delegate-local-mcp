@@ -1347,3 +1347,200 @@ async def test_the_since_boot_mean_is_still_reported_beside_the_window():
     got = await backend(handler).probe_cluster()
 
     assert got["decode_tokens_per_second_since_boot"] == 36.2
+
+
+# ---- a tool call the reply limit cut through -----------------------------------------
+
+
+# What the wire carries when the limit lands inside the arguments: no closing quote, so
+# the fragment is not JSON and never will be.
+TRUNCATED = '{"path": "a.py", "content": "abc'
+
+
+def cut_reply(*, finish: str, completion_tokens: int, arguments: str = TRUNCATED) -> dict:
+    """One reply whose single tool call is cut through, as the engine sends it."""
+    return reply(
+        choices=[
+            {
+                "finish_reason": finish,
+                "message": {
+                    "role": "assistant",
+                    "content": "writing the file",
+                    "tool_calls": [
+                        {
+                            "id": "call_w",
+                            "type": "function",
+                            "function": {"name": "write_file", "arguments": arguments},
+                        }
+                    ],
+                },
+            }
+        ],
+        usage={"prompt_tokens": 10, "completion_tokens": completion_tokens},
+    )
+
+
+async def test_a_tool_call_cut_by_a_length_stop_comes_back_flagged_not_raised():
+    """The bug this section exists for. A `length` stop says the reply was cut, so the
+    half-written call is a fact to report -- `cut=True` -- rather than a protocol error.
+
+    Raising here is what killed delegations: `BackendProtocolError` is never retried, so
+    the resend the loop has for exactly this reply could never run.
+    """
+    r = await backend(
+        lambda req: as_stream(cut_reply(finish="length", completion_tokens=1000))
+    ).complete(request(max_tokens=1000))
+
+    assert len(r.tool_uses) == 1
+    call = r.tool_uses[0]
+    assert (call.id, call.name) == ("call_w", "write_file")
+    assert call.cut is True, "the cut call must be flagged, not handed on as a real call"
+    assert call.input == {}, "unparseable arguments carry nothing rather than a guess"
+
+
+async def test_a_cut_call_reported_as_tool_calls_at_the_budget_is_flagged_too():
+    """Some engines say `tool_calls` for a call the limit cut through.
+
+    Spending the whole budget is the signature: `completion_tokens` equal to the
+    `max_tokens` the request asked for cannot be a reply that ended on its own.
+    """
+    r = await backend(
+        lambda req: as_stream(cut_reply(finish="tool_calls", completion_tokens=1000))
+    ).complete(request(max_tokens=1000))
+
+    assert r.tool_uses[0].cut is True
+
+
+async def test_truncated_arguments_with_room_to_spare_still_raise():
+    """The negative control. A reply that stopped on its own had room to finish the call,
+    so arguments that are not JSON are a protocol error and must stay one."""
+    with pytest.raises(base.BackendProtocolError, match=r"not\s*JSON"):
+        await backend(
+            lambda req: as_stream(cut_reply(finish="stop", completion_tokens=500))
+        ).complete(request(max_tokens=1000))
+
+
+async def test_a_complete_call_under_a_cut_reply_is_not_flagged():
+    """The boundary, in the other direction. Only the arguments that could not be parsed
+    are cut; a call the reply limit happened to land after decoded fine and is a real
+    call, so the loop is free to run it."""
+    r = await backend(
+        lambda req: as_stream(
+            cut_reply(finish="length", completion_tokens=1000, arguments='{"path": "a.py"}')
+        )
+    ).complete(request(max_tokens=1000))
+
+    assert r.tool_uses[0].cut is False
+    assert r.tool_uses[0].input == {"path": "a.py"}
+
+
+async def test_arguments_that_decode_to_a_scalar_still_raise_even_when_cut():
+    """A cut reply explains unparseable JSON, not a well-formed `42` where an object
+    belongs. That is our reading of the wire being wrong, and it stays fatal."""
+    with pytest.raises(base.BackendProtocolError, match="not an object"):
+        await backend(
+            lambda req: as_stream(
+                cut_reply(finish="length", completion_tokens=1000, arguments="42")
+            )
+        ).complete(request(max_tokens=1000))
+
+
+def test_the_non_streaming_reader_flags_a_cut_call_the_same_way():
+    """`_from_wire` is the one reader of the wire, and the accumulator feeds it. The cut
+    decision belongs there rather than in the streaming loop, so it is asserted here too.
+    """
+    response = backend()._from_wire(
+        cut_reply(finish="length", completion_tokens=1000), max_tokens=1000
+    )
+
+    assert response.tool_uses[0].cut is True
+
+
+def test_the_non_streaming_reader_still_raises_without_a_cut():
+    """Control for the call above: the same arguments, no length stop and no budget spent,
+    so the same raise the adapter has always made."""
+    with pytest.raises(base.BackendProtocolError, match=r"not\s*JSON"):
+        backend()._from_wire(
+            cut_reply(finish="stop", completion_tokens=500), max_tokens=1000
+        )
+
+
+def test_an_unknown_reply_limit_cannot_declare_a_cut():
+    """No `max_tokens` to compare against and no length stop: a reply is not called cut on
+    a comparison nobody made."""
+    with pytest.raises(base.BackendProtocolError, match=r"not\s*JSON"):
+        backend()._from_wire(cut_reply(finish="tool_calls", completion_tokens=1000))
+
+
+async def test_a_cut_call_whose_arguments_never_arrived_is_flagged_not_run():
+    """A call the limit cut through before any argument fragment arrived streams only its
+    id and name, so `arguments` is `""`.
+
+    Mapping that to `{}` without consulting `cut` handed the loop a complete-looking call
+    with nothing in it, which it ran -- a tool told the model asked for nothing.
+    """
+    r = await backend(
+        lambda req: as_stream(cut_reply(finish="length", completion_tokens=1000, arguments=""))
+    ).complete(request(max_tokens=1000))
+
+    call = r.tool_uses[0]
+    assert call.cut is True, "a call with no arguments under a cut reply is half a call"
+    assert call.input == {}, "nothing was decoded, so nothing is claimed"
+    assert call.cut_limit == 1000, "the limit that cut it travels on the block"
+
+
+async def test_empty_arguments_on_a_reply_that_was_not_cut_is_a_real_call():
+    """The boundary. `arguments` `""` on a reply that ended on its own is a call that
+    takes no arguments, and `{}` is what it means; flagging it would refuse a real call.
+    A genuinely complete no-argument call arrives as `"{}"`, which parses anyway."""
+    r = await backend(
+        lambda req: as_stream(cut_reply(finish="stop", completion_tokens=500, arguments=""))
+    ).complete(request(max_tokens=1000))
+
+    call = r.tool_uses[0]
+    assert call.cut is False
+    assert call.input == {}
+    assert call.cut_limit is None
+
+
+async def test_a_cut_call_carries_the_limit_that_cut_it():
+    """The number a later change names to the model: the `max_tokens` the request sent,
+    not a figure read back out of the reply's usage, so it is what the caller asked for."""
+    r = await backend(
+        lambda req: as_stream(cut_reply(finish="tool_calls", completion_tokens=4096))
+    ).complete(request(max_tokens=4096))
+
+    assert r.tool_uses[0].cut is True
+    assert r.tool_uses[0].cut_limit == 4096
+
+
+async def test_a_stream_cut_mid_arguments_keeps_what_it_decoded():
+    """A stream that stops talking ends the turn mid-call: no finish reason, no usage.
+
+    `decoded()` rebuilds that partial through `_from_wire`, where nothing on the wire says
+    the reply was cut, so the half-written call raised and `_attach` swallowed the whole
+    partial -- its text and its reasoning with it. Mid-stream, a partial is cut by
+    definition, and the call must come back flagged rather than kill what was decoded.
+    """
+    def handler(req):
+        return sse_response(
+            sse(
+                delta(content="writing the file"),
+                delta(tool_calls=[{
+                    "index": 0,
+                    "id": "call_w",
+                    "type": "function",
+                    "function": {"name": "write_file", "arguments": TRUNCATED},
+                }]),
+                done=False,
+            )
+        )
+
+    with pytest.raises(base.BackendUnavailable, match="without a finish reason") as caught:
+        await backend(handler, config=cfg(), clock=Clock()).complete(request(max_tokens=1000))
+
+    partial = caught.value.partial
+    assert partial is not None, "the stalled turn reported none of what it decoded"
+    assert partial.text == "writing the file"
+    assert partial.tool_uses[0].cut is True
+    assert partial.tool_uses[0].input == {}
