@@ -395,8 +395,8 @@ A retired name is refused. (ADR-0098)
 The signature is narrow on purpose: empty text **and** a length stop, together. Either alone is
 different: an empty answer at `finish_reason: "stop"` had nothing to say, and a length stop with
 text is truncation of an answer that exists. Both are left alone, as every mitigation below costs
-a full generation at the largest budget, unless that budget was shrunk (ADR-0143). A tool call the
-limit cut through (a `length` stop, or the whole budget spent) counts too, flagged, not malformed.
+a full generation at the largest budget, unless it was shrunk (ADR-0143). A tool call the limit cut
+through counts too; one no budget can lift is answered with an error, never run (ADR-0145).
 
 Three stages, and deliberately not a cascade through every level. Send. If the signature
 appears, retry once at the larger of double the budget and

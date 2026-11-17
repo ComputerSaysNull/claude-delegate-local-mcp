@@ -19,6 +19,32 @@ be a second copy of the same facts, and second copies drift.
 
 ---
 
+## ADR-0145 — 2026-11-17 — A tool call the reply limit cut through is answered, not run, and the run goes on — Accepted
+
+ADR-0143 resends a reply the shrunk later-turn budget cut through. That leaves the reply cut
+at a budget nothing can raise: turn 1 at the full cap, a caller's explicit `max_tokens`, or
+the resend cut again. `docs/DISPATCH.md` left a length stop with text alone, and for a tool
+call that meant the run ended: one call never finished, so 37 minutes of work were lost.
+Measured from the streams: three such deaths in nine days, all on `write_file`, after a
+reasoning-heavy turn spent the budget before or inside a large file's content; one of them
+was turn 1 at the full 131,072.
+
+**Decision.** A call still cut once no larger budget is left is never run, since its
+arguments were never decoded. The loop answers its id with an error result instead, and the
+run continues: other calls in the same reply run as usual, history keeps the call with
+empty arguments so the next request stays well formed, and the ledger records it as an
+error. The remedy goes in that result, the one place the model reads it when it matters:
+the limit it hit, that nothing ran, and to write a large file in parts and think less
+before a large write.
+
+**Rejected.** Ending the run, as before: it discards every paid turn over one call, the
+reason `execute_tool` already answers an unknown or refused call rather than aborting. Running
+the call on its empty arguments: the tool would report a missing argument, which tells the
+model the wrong thing. Raising the budget again: there is none left to raise.
+
+A malformed call on a reply that was *not* cut still ends the run: nothing explains it, and
+an engine that emits one is the wrong stack (`BackendProtocolError`).
+
 ## ADR-0144 — 2026-11-15 — A lease's booking grows with the run it admits — Accepted
 
 ADR-0038 fixed a delegation's token booking at grant and named `peak_inflight_tokens` as the

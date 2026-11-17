@@ -30,6 +30,20 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #577 — 2026-11-17 — fix: a tool call no budget can finish is answered with an error and the run goes on
+
+### Fixed
+
+- **A tool call the reply limit cut through still ended the run when there was no larger
+  budget to resend at.** That is turn 1 at the full cap, a caller's explicit `max_tokens`, or
+  the full-budget resend cut again; one of the three deaths behind #574 was turn 1 at
+  131,072. A call still cut by then is never run, since its arguments were never decoded,
+  and its id is answered with an error result instead (ADR-0145): the limit it hit, that
+  nothing ran, and to write a large file in parts and think less before a large write.
+  Complete calls in the same reply still run, history keeps the cut call with empty
+  arguments so the next request stays well formed, and the ledger records it as an error.
+  The limit named is the one the reply was actually sent with, which the resend raises.
+
 ## #576 — 2026-11-17 — feat: claude-delegate-local-mcp report totals the dispatch ledger
 
 ### Added
