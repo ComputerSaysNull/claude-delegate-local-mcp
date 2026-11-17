@@ -30,6 +30,21 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #580 — 2026-11-17 — feat: read_file can take a symbol instead of a line range
+
+### Added
+
+- **`read_file` takes `symbol`, the name of one top-level Python function or class.** The
+  delegated model paged large files by guessed line numbers: `search_files` finds where a
+  function starts but never where it ends, so it read too little and came back, or read
+  past the end and paid for the extra lines on every later turn. It now asks for the
+  definition by name and gets exactly its lines, decorators included, numbered as a range
+  would be. The name is resolved by #579's `symbols.py` on the text of the one
+  `open_resolved` read, never a second open. A symbol with `start_line` or `end_line`, on a
+  non-`.py` file or on an image is refused, and a missing or nested name is refused naming
+  what exists or what holds it. A definition longer than one read says to continue without
+  the symbol, by `start_line` and `end_line`, so following the note stops where it ends.
+
 ## #579 — 2026-11-17 — feat: a files[] entry can name a top-level Python symbol
 
 ### Added
