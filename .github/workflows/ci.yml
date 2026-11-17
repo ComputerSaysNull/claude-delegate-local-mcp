@@ -162,3 +162,31 @@ jobs:
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # THROWAWAY SPIKE (never merged): does lifting Ubuntu's AppArmor userns restriction give
+  # bwrap's new network namespace the CAP_NET_ADMIN it lacked on 2026-08-29?
+  bwrap-spike:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install bubblewrap
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -c .github/ci-constraints.txt --build-constraint .github/ci-constraints.txt -e ".[dev]"
+      - name: Before -- the restriction as shipped (negative control, expected to fail)
+        continue-on-error: true
+        run: |
+          uname -r; cat /etc/os-release | head -n 2
+          sysctl kernel.apparmor_restrict_unprivileged_userns || true
+          bwrap --unshare-all --ro-bind / / --dev /dev --proc /proc true
+      - name: Lift the restriction
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: After -- a new network namespace with loopback
+        run: bwrap --unshare-all --ro-bind / / --dev /dev --proc /proc true
+      - name: The real-bwrap sandbox tests
+        run: python -m pytest -q -m integration tests/test_sandbox.py -n 0
