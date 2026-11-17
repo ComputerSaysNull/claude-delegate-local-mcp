@@ -24,7 +24,7 @@ from typing import Annotated, Any, NamedTuple, Protocol
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp_tasks import TasksExtension
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .backends.base import (
     Backend,
@@ -720,7 +720,7 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     rates: RateHistory,
     task: str,
     title: str | None = None,
-    files: list[str | FileRange] | None = None,
+    files: list[str | FileRange | FileSymbol] | None = None,
     model: str | None = None,
     effort: str | None = None,
     allowed_tools: list[str] | None = None,
@@ -788,32 +788,71 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
             )
 
     # Before the backend lookup, so a refused path costs nothing whatever the cluster's
-    # state. A ranged entry with a bad shape or a glob is refused alone, never clamped,
-    # into `files_skipped`. On a thread: it stats, globs, runs git and reads files.
+    # state. An entry with a bad shape, a glob or a symbol that cannot be one is refused
+    # alone, never clamped, into `files_skipped`. On a thread: it stats, globs, runs git
+    # and reads files.
     plain: list[str] = []
     ranged: list[tuple[str, int, int | None]] = []  # path, start_line, end_line
-    range_refusals: list[Refusal] = []
+    by_symbol: list[tuple[str, str]] = []  # path, symbol
+    entry_refusals: list[Refusal] = []
     for raw in files or []:
         if isinstance(raw, str):
             plain.append(raw)
             continue
         path = raw.path
+        if isinstance(raw, FileSymbol):
+            if has_magic(path):
+                entry_refusals.append(Refusal(
+                    given=path, layer=LAYER_FORM,
+                    reason="it is a glob, and a symbol entry names one file, not many.",
+                    remedy="Name the single file the symbol is defined in.",
+                ))
+            elif not raw.symbol.strip():
+                entry_refusals.append(Refusal(
+                    given=path, layer=LAYER_FORM,
+                    reason="the symbol is empty, so it names no top-level def or class.",
+                    remedy=(
+                        "Give the name of one top-level function or class, or name the "
+                        "file plainly without a symbol."
+                    ),
+                ))
+            elif not path.lower().endswith(".py"):
+                entry_refusals.append(Refusal(
+                    given=path, layer=LAYER_FORM,
+                    reason="a symbol entry names a Python file, and this path is not a .py one.",
+                    remedy="Name the .py file the symbol is defined in, or use a line range.",
+                ))
+            else:
+                by_symbol.append((path, raw.symbol.strip()))
+            continue
         start = raw.start_line
         end = raw.end_line
         if has_magic(path):
-            range_refusals.append(Refusal(
+            entry_refusals.append(Refusal(
                 given=path, layer=LAYER_FORM,
                 reason="it is a glob, and a ranged entry names one file, not many.",
                 remedy="Name the single file, and let the range choose the part of it.",
             ))
+        elif "symbol" in (raw.model_extra or {}):
+            # `FileRange` is the leftmost union member that validates, so an entry naming
+            # both was served as a range with its symbol quietly dropped -- the silent
+            # choice `read_file` refuses to make.
+            entry_refusals.append(Refusal(
+                given=path, layer=LAYER_FORM,
+                reason="it names both a start_line and a symbol, so one of the two is ignored.",
+                remedy=(
+                    "Give a symbol or a range, not both: drop start_line and end_line to "
+                    "name the symbol, or drop symbol to name the lines."
+                ),
+            ))
         elif start < 1:
-            range_refusals.append(Refusal(
+            entry_refusals.append(Refusal(
                 given=path, layer=LAYER_FORM,
                 reason=f"start_line {start} is not a line number; lines are counted from 1.",
                 remedy="Give a 1-based start_line, or name the file plainly without a range.",
             ))
         elif end is not None and end < start:
-            range_refusals.append(Refusal(
+            entry_refusals.append(Refusal(
                 given=path, layer=LAYER_FORM,
                 reason=f"end_line {end} is before start_line {start}, so the range is empty.",
                 remedy=(
@@ -832,8 +871,8 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
     except PathPolicyError as e:
         raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
 
-    # One at a time, since `resolve_files` deduplicates by path, and every range of a file
-    # must reach `prefetch`, which merges them knowing their sizes (ADR-0106).
+    # One at a time, since `resolve_files` deduplicates by path, and every range or symbol
+    # of a file must reach `prefetch`, which merges them knowing their sizes (ADR-0106).
     requests: list[FileRequest] = [FileRequest(entry=r) for r in plain_resolved]
     ranged_refusals: list[Refusal] = []
     for path, start, end in ranged:
@@ -847,9 +886,20 @@ async def run_delegation(  # noqa: PLR0913, PLR0915, PLR0912 -- one tool's argum
         if not survivors:
             continue
         requests.append(FileRequest(entry=survivors[0], start_line=start, end_line=end))
+    for path, symbol in by_symbol:
+        try:
+            survivors, path_refusals = await asyncio.to_thread(resolve_files, cfg, [path])
+        except PathPolicyError as e:
+            raise ToolError(f"{STATUS_MISCONFIGURED}: {e}") from e
+        if path_refusals:
+            ranged_refusals.extend(path_refusals)
+            continue
+        if not survivors:
+            continue
+        requests.append(FileRequest(entry=survivors[0], symbol=symbol))
 
     # A pattern's refusal first: it explains files missing entirely.
-    refusals = list(glob_refusals) + range_refusals + list(plain_refusals) + list(ranged_refusals)
+    refusals = list(glob_refusals) + entry_refusals + list(plain_refusals) + ranged_refusals
 
     # Fatal only when every path is refused: a prompt with none of its context wastes the
     # delegation, and the caller has one mistake to fix. Otherwise the rest still serve.
@@ -1716,16 +1766,38 @@ class FileRange(BaseModel):
     Uses `read_file`'s argument names and rules: 1-based, inclusive, and an `end_line`
     that is omitted, null or past the end of the file means the end of the file. No range
     is validated here -- a bad range is refused for that entry and lands in `files_skipped`
-    rather than failing the call, so this model only carries the shape.
+    rather than failing the call, so this model only carries the shape. A `symbol` sent
+    beside `start_line` is refused the same way, rather than silently dropped: an entry
+    names a symbol or a range, not both.
     """
+
+    # `allow`, so a `symbol` sent with a range is still visible to `run_delegation`, which
+    # refuses it. With the default `ignore` it vanished and the range was served -- while
+    # `read_file` refuses the same combination.
+    model_config = ConfigDict(extra="allow")
 
     path: str
     start_line: int
     end_line: int | None = None
 
 
+class FileSymbol(BaseModel):
+    """One files[] entry naming a top-level Python symbol instead of a line range.
+
+    `symbol` is the name of a top-level `def`, `async def` or `class` in the file at
+    `path`, and the lines delivered are that definition's own, decorators included. Only a
+    `.py` file has symbols. A name that is not found, or is nested inside another symbol,
+    is refused for that entry and lands in `files_skipped` rather than failing the call.
+    A name defined more than once resolves to the last definition, which is the one Python
+    binds.
+    """
+
+    path: str
+    symbol: str
+
+
 Files = Annotated[
-    list[str | FileRange] | None,
+    list[str | FileRange | FileSymbol] | None,
     Field(description=(
         "Absolute paths the server reads itself and hands to the model, so their contents "
         "never enter your own context. Naming files here is the cheapest shape there is; "
@@ -1742,7 +1814,12 @@ Files = Annotated[
         "still be prefetched in part. Several entries for one file -- ranges, or the file "
         "whole -- are merged where they overlap or touch, so no line is sent twice; a "
         "merge over the per-file cap falls back to the ranges as named, and what still "
-        "does not fit is skipped with the read_file range that reaches it. A png, jpeg, gif, "
+        "does not fit is skipped with the read_file range that reaches it. A third object "
+        "shape names a top-level Python symbol instead of lines -- {\"path\": "
+        "\"/repo/loop.py\", \"symbol\": \"complete_with_retry\"} -- and delivers exactly "
+        "the lines of that top-level def, async def or class, decorators included; it is "
+        ".py only. A name that is not top-level or not found is skipped with the reason, "
+        "and an over-cap .py file's skip lists its outline to choose from. A png, jpeg, gif, "
         "webp, bmp, tiff or ico named whole is attached as an image for a model whose "
         "`max_images` is above 0 (`backend_status` reports it): a large one goes as tiles, "
         "each one image against that per-conversation limit, and one that does not fit is "

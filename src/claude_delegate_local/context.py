@@ -33,9 +33,10 @@ import threading
 from collections.abc import Callable, Iterable, Iterator
 from itertools import groupby
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, BinaryIO
 from hashlib import sha256
 
+from . import symbols
 from .backends.base import ImageBlock
 from .config import (
     IMAGE_EXTENSIONS,
@@ -220,11 +221,16 @@ class FileRequest:
     `start_line` None is the whole file. A ranged entry is judged by the range's own
     size -- estimate, per-file cap and total budget all use the slice's bytes -- so a file
     over the per-file cap can still be prefetched in part.
+
+    `symbol` names a top-level Python def, async def or class instead of a line range. Its
+    span is only known once the file has been read and parsed, so it is resolved inside
+    the one read that also produces the content, never by opening the path again.
     """
 
     entry: ResolvedPath
     start_line: int | None = None
     end_line: int | None = None
+    symbol: str | None = None
 
 
 Span = tuple[int, int | None]  # first line, last line or None for the end of the file
@@ -570,6 +576,50 @@ def _request_given(item: ResolvedPath | FileRequest) -> str:
     return item.entry.given if isinstance(item, FileRequest) else item.given
 
 
+def _request_symbol(item: ResolvedPath | FileRequest) -> str | None:
+    """The top-level symbol the entry names, or None when it names lines."""
+    return item.symbol if isinstance(item, FileRequest) else None
+
+
+# How many symbols an over-cap file's outline lists before it says "and N more".
+OUTLINE_LISTED = 10
+
+
+def _outline_hint(fh: BinaryIO, entry: ResolvedPath) -> str:
+    """The top-level symbols of an over-cap `.py` file, read from the handle already open.
+
+    A skip that says only "too big" leaves the caller guessing at a line range again, and
+    guessing is what a symbol entry exists to avoid. Reading the file here is the one
+    deliberate exception to "never read a file only to discover it is unusable": the read
+    buys the list to choose from, the handle is already open so it is not a second open of
+    the path (ADR-0049), and the byte ceiling has already bounded how much it can be.
+
+    Empty when there is nothing to say -- not a `.py` file, no top-level symbols, or text
+    that does not parse -- so the reason reads exactly as before for those cases.
+    """
+    if entry.ext != ".py":
+        return ""
+    try:
+        data = fh.read()
+    except OSError:
+        return ""
+    text, _ = decode_text(data)
+    if text is None:
+        return ""
+    try:
+        found = symbols.outline(text)
+    except symbols.SymbolRefused:
+        return ""  # unparseable, so there is no outline to offer
+    if not found:
+        return ""
+    listed = ", ".join(
+        f"{s.name} (lines {s.start_line}-{s.end_line})" for s in found[:OUTLINE_LISTED]
+    )
+    more = len(found) - OUTLINE_LISTED
+    tail = f", and {more} more" if more > 0 else ""
+    return f" Its top-level symbols are: {listed}{tail}; name one as a symbol entry."
+
+
 def _prefetch_one(  # noqa: PLR0911, PLR0912, PLR0913 -- one return per reason a file is left
     # out; the image limit and the image cost are two facts about the model, not one
     cfg: Config, item: ResolvedPath | FileRequest, total: int,
@@ -589,12 +639,18 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912, PLR0913 -- one return per reason a
     checks, so a file over the per-file cap can be prefetched in part. The whole-file path
     checks first, so a file too big for the budget is never read at all.
 
+    A symbol request is a ranged one whose range is not known until the file is parsed: it
+    is read whole, decoded, and the symbol's span taken from `symbols.find` on the text
+    that read produced, so the path is opened once and only once. A name the file does not
+    define top-level is skipped as refused, with the reason saying what it can name.
+
     A raster image named whole is decoded instead of decoded as text, after the same open
     and byte-ceiling checks. It is costed per image (`tokens_per_image`), not per byte, and
     `images_kept` against `max_images` decides whether there is room for it in the
     conversation. A range on an image is refused, since an image has no lines.
     """
     entry, start, end = _request_split(item)
+    symbol = _request_symbol(item)
     is_image = entry.ext in IMAGE_EXTENSIONS
 
     try:
@@ -632,15 +688,15 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912, PLR0913 -- one return per reason a
                 "ceiling, so it was not read at all",
             )
 
-        if is_image and start is not None:
+        if is_image and (start is not None or symbol is not None):
             return Skip(
                 entry.posix,
                 entry.given,
                 SKIP_REFUSED,
-                "an image has no lines; name it without a range",
+                "an image has no lines; name it without a range or a symbol",
             )
 
-        if start is None and not is_image:
+        if start is None and symbol is None and not is_image:
             # Whole file: token checks before reading, so an over-budget file is never
             # loaded.
             est = cfg.estimate_tokens(nbytes, entry.ext)
@@ -651,8 +707,9 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912, PLR0913 -- one return per reason a
                     SKIP_OVER_FILE_BUDGET,
                     f"an estimated {est} tokens exceeds the {cfg.max_file_tokens} "
                     "per-file limit. It is left out whole rather than truncated, because "
-                    "source cut mid-function is worse than absent. If you have read_file, "
-                    "it reads the file in parts from start_line=1",
+                    "source cut mid-function is worse than absent."
+                    f"{_outline_hint(fh, entry)} If you have read_file, it reads the file "
+                    "in parts from start_line=1",
                 )
 
             if total + est > cfg.max_total_prefetch_tokens:
@@ -732,6 +789,16 @@ def _prefetch_one(  # noqa: PLR0911, PLR0912, PLR0913 -- one return per reason a
     if text is None:
         return Skip(entry.posix, entry.given, SKIP_BINARY, why)
 
+    if symbol is not None:
+        # Resolved from the bytes this one open already read: a second open could prove a
+        # different file, and the invariant is that proving a path and opening it are one
+        # operation (ADR-0049).
+        try:
+            found = symbols.find(text, symbol)
+        except symbols.SymbolRefused as e:
+            return Skip(entry.posix, entry.given, SKIP_REFUSED, e.reason)
+        start, end = found.start_line, found.end_line
+
     if start is None:
         return FileEntry(
             path=entry.posix,
@@ -809,24 +876,58 @@ def _one_file(
     items: list[ResolvedPath | FileRequest],
     attempt: Callable[[ResolvedPath | FileRequest], FileEntry | Skip],
 ) -> list[FileEntry | Skip]:
-    """Several entries naming one file: merged where they meet, and split where that is too big.
+    """Several entries naming one file: symbols resolved first, then merged, split if too big.
+
+    A symbol's span is only known once the file is read, so symbol entries are resolved
+    before the merge -- by the one attempt that opens and reads the file and slices what
+    it names. The lines it answered for then join `covered`, so a range overlapping them
+    is sent only for the part it names that is left, and no line arrives twice (ADR-0106).
 
     A whole-file entry is the span from line 1 to the end. A merged span that fits is one
     block. One over the per-file cap falls back to the spans as named, smallest first,
     each less the lines already answered for, so a range that fits is sent even when the
-    span absorbing it is not, and every line the rest named is skipped once, saying why
-    (ADR-0106).
+    span absorbing it is not, and every line the rest named is skipped once, saying why.
     """
     entry = _request_split(items[0])[0]
-    named = [_span_of(item) for item in items]
     out: list[FileEntry | Skip] = []
-    for span in merge_spans(named):
+    covered: list[Span] = []
+    # The file's own line count, once a symbol entry has been read: a symbol's span was
+    # measured against that same text, so the length is known from the one open rather than
+    # from another. A plainly named span is then only the part of it that exists.
+    total_lines: int | None = None
+    # By name, since a symbol's span is unknown until it is read: of the orders left, this
+    # is the one that does not vary with how the caller listed them (ADR-0011). A name
+    # repeated is one span, so it is read once -- the second entry would send the same
+    # lines again.
+    seen: set[str] = set()
+    for item in sorted(
+        (i for i in items if _request_symbol(i) is not None),
+        key=lambda i: _request_symbol(i) or "",
+    ):
+        name = _request_symbol(item) or ""
+        if name in seen:
+            continue
+        seen.add(name)
+        got = attempt(item)
+        out.append(got)
+        if isinstance(got, FileEntry) and got.start_line is not None:
+            covered.append((got.start_line, got.end_line))
+            if got.total_lines is not None:
+                total_lines = got.total_lines
+    named = [_span_of(item) for item in items if _request_symbol(item) is None]
+    remaining = [piece for span in named for piece in _uncovered(span, covered)]
+    if total_lines is not None:
+        # An uncovered piece starting past the last line names no line at all: attempting
+        # it opens the file only to refuse a range that asks for nothing, and the skip row
+        # then tells the model to treat a file it was given as not given.
+        remaining = [piece for piece in remaining if piece[0] <= total_lines]
+    for span in merge_spans(remaining):
         got = attempt(_request_for(entry, span))
         if not (isinstance(got, Skip) and got.kind == SKIP_OVER_FILE_BUDGET):
             out.append(got)
             continue
-        answered: list[Span] = []
-        for one in sorted((s for s in named if _within(s, span)), key=_length):
+        answered: list[Span] = list(covered)
+        for one in sorted((s for s in remaining if _within(s, span)), key=_length):
             for piece in _uncovered(one, answered):
                 out.append(attempt(_request_for(entry, piece)))
                 answered.append(piece)
@@ -861,6 +962,11 @@ def prefetch(
     A ranged `FileRequest` is the other exception, because it must be: the whole file is
     read (within the byte ceiling), decoded, then sliced *before* the token checks, so the
     estimate and both checks use the slice's bytes.
+
+    A `FileRequest` naming a symbol is a ranged one whose range comes from the file's own
+    syntax: the span is taken from `symbols.find` on the text the same read decoded, so
+    the path is opened once and a name the file does not define top-level is skipped as
+    refused, its reason naming what can be named instead.
 
     Step 4 stops rather than continuing on purpose. Fitting whatever happens to be small
     enough would make the result depend on the size mix unpredictably, and a coherent
