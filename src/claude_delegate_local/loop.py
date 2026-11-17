@@ -3070,6 +3070,13 @@ def cut_by_the_shrink(dispatch: Dispatch, asked: int, full: int) -> bool:
     return not any(r.kind == "EmptyAtLength" for r in dispatch.retries)
 
 
+# The floor under the rebuild rule below, not a setting: a miss on a prompt this small
+# costs little and happens on an idle cluster with no load at all. It is where the
+# measured misses separate -- turn two missed after a first turn under 20,000 tokens in
+# 11 of 136 runs, and after one of 20,000 or more in 0 of 53.
+_REBUILD_MIN_PROMPT_TOKENS = 20_000
+
+
 async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the nine are test
     # seams; the statements are the turn lifecycle, and splitting would reorder it.
     cfg: Config,
@@ -3129,7 +3136,9 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
 
     `on_rebuild` is told the tokens a turn prefilled again when the engine had dropped an
     append-only run's prompt state between turns. `preemptions` cannot report that: a run
-    between turns has no request to push out. Best effort in the same way.
+    between turns has no request to push out. A turn whose previous prompt was under
+    `_REBUILD_MIN_PROMPT_TOKENS` is not reported, since a miss there is cheap and needs no
+    load to explain it. Best effort in the same way.
     """
     resolved_effort = resolve_effort(cfg, entry, effort)
     turns = resolve_max_turns(cfg, max_turns, allowed)
@@ -3357,6 +3366,7 @@ async def run_agentic_loop(  # noqa: PLR0912, PLR0913, PLR0915 -- three of the n
                 on_rebuild is not None
                 and turn > 1
                 and last_input_tokens is not None
+                and last_input_tokens >= _REBUILD_MIN_PROMPT_TOKENS
                 and booked is not None
                 and booked >= last_input_tokens
                 and cached_now is not None
