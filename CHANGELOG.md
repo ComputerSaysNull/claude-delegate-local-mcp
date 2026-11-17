@@ -30,6 +30,19 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #578 — 2026-11-17 — fix: the cache-rebuild count ignores misses on small prompts
+
+### Fixed
+
+- **`cache_rebuilds` counted cheap misses on small prompts as engine evictions.** #572's rule
+  (the prompt grew, came back less than half cached, nothing stubbed in between) had no size
+  floor, and the first live run after it merged showed a rebuild on an idle cluster: turn 1
+  of 2,110 tokens, turn 2 with `cached_tokens` 0. Over five days of streams, turn 2 missed
+  after a first turn under 20,000 tokens in 11 of 136 runs, and after one of 20,000 or more
+  in 0 of 53; the measurement behind #572 had only looked at prompts above 20k. A turn now
+  counts only when the previous prompt was at least 20,000 tokens, a constant beside the
+  rule rather than a setting, since no operator tunes where a measurement separates.
+
 ## #577 — 2026-11-17 — fix: a tool call no budget can finish is answered with an error and the run goes on
 
 ### Fixed
