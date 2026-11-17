@@ -87,7 +87,7 @@ one large file being dropped while the budget it would have fitted in sat unused
 | `admission.py` | The capacity gate every delegation passes before it reaches a backend |
 | `slots.py` | The counters those rules read, shared by every server process on the machine |
 | `transcript.py` | One operator record per dispatch, written outside the response |
-| `ledger.py` | The append-only token ledger: one line per dispatch, never pruned |
+| `ledger.py` | The append-only token ledger: one line per dispatch, never pruned; `ledger_report.py` totals it as `claude-delegate-local-mcp report` |
 | `watch.py` | `claude-delegate-watch`: the terminal viewer of the stream `transcript.py` writes |
 | `handles.py` | The run registry behind each task: the run a call waits on, the question `answer` replies to, the messages `message_delegation` queues, and what `cancel_delegation` stops |
 | `server.py` | MCP wiring, the tool declarations, the backend cache, and each session's roots narrowed to its client's project (ADR-0110, ADR-0128), with the project's own layer-2 additions read in (ADR-0116) |

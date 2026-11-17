@@ -123,6 +123,8 @@ owns = [
   # The ledger belongs to the same document as the transcript it runs beside: both are
   # one decision -- what an operator records of a delegation -- seen from two ends.
   "src/claude_delegate_local/ledger.py",
+  # Its reader, the `report` subcommand: the same decision read from the other end.
+  "src/claude_delegate_local/ledger_report.py",
   # The viewer belongs to the same document as the stream it reads: the file format and
   # the thing that renders it are one decision, and splitting them across two documents is
   # how a renderer ends up describing a shape the writer no longer produces.
@@ -228,7 +230,7 @@ paths = [
   # The check a comment pass runs to prove it changed no code. Owns no behaviour and
   # documents itself: its whole subject is comment passes, and it reads only source text.
   "scripts/ast_unchanged.py",
-  # A read-only report over the dispatch ledger. Owns no behaviour and documents itself.
+  # A checkout wrapper over the package's `report`; owns no behaviour of its own.
   "scripts/ledger_report.py",
   # A pin refresh changes no fact a document states. CONTRIBUTING's CI section says what
   # the file is for and how to refresh it, and that does not change when a pin does.

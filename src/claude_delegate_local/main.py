@@ -9,9 +9,9 @@ reporting a server that failed for no stated reason. So a startup failure goes t
 with a non-zero exit, the one thing a launcher can report; to read it, run the command by
 hand (docs/TROUBLESHOOTING.md).
 
-`--doctor`, `--init`, `--install-skills`, `provision` and `run` are not really exceptions:
-nothing speaks MCP to them, so there is no protocol on stdout to corrupt. All return
-before any of the below.
+`--doctor`, `--init`, `--install-skills`, `provision`, `run` and `report` are not really
+exceptions: nothing speaks MCP to them, so there is no protocol on stdout to corrupt. All
+return before any of the below.
 """
 
 import sys
@@ -66,6 +66,15 @@ def run() -> None:
         from . import run_task  # noqa: PLC0415
 
         raise SystemExit(run_task.main(argv=sys.argv[2:]))
+
+    # `report` reads the dispatch ledger and prints it on stdout, so it returns here for
+    # the same two reasons: nothing speaks MCP to it, and the server underneath would
+    # interleave its frames with the table. On position, like `provision` and `run`, or a
+    # delegation whose *task text* held the word would print a ledger instead of answering.
+    if sys.argv[1:2] == ["report"]:
+        from . import ledger_report  # noqa: PLC0415
+
+        raise SystemExit(ledger_report.main(argv=sys.argv[2:]))
 
     try:
         cfg = config.load()

@@ -30,6 +30,18 @@ worth citing.
 Older entries, in the previous flat format, are in
 [archive/CHANGELOG-2026-08.md](archive/CHANGELOG-2026-08.md).
 
+## #576 — 2026-11-17 — feat: claude-delegate-local-mcp report totals the dispatch ledger
+
+### Added
+
+- **`claude-delegate-local-mcp report` prints the ledger totals from the installed server.**
+  The ledger is the payoff number for delegating, yet reading it needed a checkout:
+  `scripts/ledger_report.py` held all the reading logic and imported the package by putting
+  `src/` on `sys.path`. The logic now lives in the package as `ledger_report.py`, and `report`
+  is dispatched by position before any config is loaded, like `provision` and `run`, with the
+  same flags (`--path`, `--by`, `--since`, `--saving`). The script stays as a thin wrapper, and
+  a test pins that both print the same bytes.
+
 ## #575 — 2026-11-17 — feat: list_delegations finds the runs this server process holds
 
 ### Added
